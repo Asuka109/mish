@@ -97,6 +97,56 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcEventsClient", () => {
+  it("lets a zero-listener reconnect read establish B without reopening delayed A", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let transportIndex = 0;
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
+      methods: mishRpcMethods,
+      transportFactory: () => transports[transportIndex++],
+    });
+    const client = new RpcEventsClient(rpc);
+
+    const firstRead = client.getSnapshot();
+    await authenticate(transports[0]);
+    const firstRequest = await waitForRequest(transports[0], 1);
+    const authorityA = eventsSnapshot();
+    authorityA.applicationOrder.authorityId = "events-authority-A";
+    transports[0].respond({ id: firstRequest.id, jsonrpc: "2.0", result: authorityA });
+    await expect(firstRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "events-authority-A" },
+    });
+
+    transports[0].close(1006, "restart");
+    await vi.advanceTimersByTimeAsync(5);
+    await authenticate(transports[1]);
+    expect(client.getConnectionState().stale).toBe(true);
+
+    const secondRead = client.getSnapshot();
+    const secondRequest = await waitForRequest(transports[1], 1);
+    const authorityB = eventsSnapshot();
+    authorityB.applicationOrder = { authorityId: "events-authority-B", epoch: 1, order: 1 };
+    transports[1].respond({ id: secondRequest.id, jsonrpc: "2.0", result: authorityB });
+    await expect(secondRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "events-authority-B" },
+    });
+    expect(client.getConnectionState().stale).toBe(false);
+
+    const lateRead = client.getSnapshot();
+    const lateRequest = await waitForRequest(transports[1], 2);
+    const delayedA = structuredClone(authorityA);
+    delayedA.applicationOrder.order = 99;
+    transports[1].respond({ id: lateRequest.id, jsonrpc: "2.0", result: delayedA });
+    await expect(lateRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "events-authority-B" },
+    });
+
+    client.dispose();
+    rpc.dispose();
+  });
+
   it("resubscribes with an authoritative new session and exposes reconnect as stale", async () => {
     vi.useFakeTimers();
     const transports = [new FakeTransport(), new FakeTransport()];

@@ -119,6 +119,9 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     snapshotAcceptance.current.clear();
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
+      if (nextConnection.phase === "connected" && nextConnection.stale) {
+        snapshotAcceptance.current.armReconnect();
+      }
       setConnection(nextConnection);
       if (!nextConnection.stale) return;
       setHistory((current) => ({ ...current, baseline: null }));

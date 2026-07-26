@@ -172,7 +172,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   useEffect(() => {
     const controller = new AbortController();
     snapshotAcceptance.current.clear();
-    const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
+    const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
+      if (nextConnection.phase === "connected" && nextConnection.stale) {
+        snapshotAcceptance.current.armReconnect();
+      }
+      setConnection(nextConnection);
+    });
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) =>
       acceptSnapshot(nextSnapshot, delivery ?? "update"),
     );

@@ -128,6 +128,56 @@ afterEach(() => {
 });
 
 describe("RpcStatusClient", () => {
+  it("lets a zero-listener reconnect read establish B and rejects a later A command result", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let transportIndex = 0;
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
+      methods: mishRpcMethods,
+      transportFactory: () => transports[transportIndex++],
+    });
+    const client = new RpcStatusClient(rpc);
+
+    const firstRead = client.getSnapshot();
+    await authenticate(transports[0]);
+    const firstRequest = await waitForRequest(transports[0], 1);
+    const authorityA = await createRpcSnapshot();
+    authorityA.applicationOrder.authorityId = "status-authority-A";
+    transports[0].respond({ id: firstRequest.id, jsonrpc: "2.0", result: authorityA });
+    await expect(firstRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "status-authority-A" },
+    });
+
+    transports[0].close(1006, "restart");
+    await vi.advanceTimersByTimeAsync(5);
+    await authenticate(transports[1]);
+    expect(client.getConnectionState().stale).toBe(true);
+
+    const secondRead = client.getSnapshot();
+    const secondRequest = await waitForRequest(transports[1], 1);
+    const authorityB = await createRpcSnapshot();
+    authorityB.applicationOrder = { authorityId: "status-authority-B", epoch: 1, order: 1 };
+    transports[1].respond({ id: secondRequest.id, jsonrpc: "2.0", result: authorityB });
+    await expect(secondRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "status-authority-B" },
+    });
+    expect(client.getConnectionState().stale).toBe(false);
+
+    const lateCommand = client.setRoutingMode("global");
+    const lateRequest = await waitForRequest(transports[1], 2);
+    const delayedA = structuredClone(authorityA);
+    delayedA.applicationOrder.order = 99;
+    delayedA.routingMode = "global";
+    transports[1].respond({ id: lateRequest.id, jsonrpc: "2.0", result: delayedA });
+    await expect(lateCommand).resolves.toMatchObject({
+      applicationOrder: { authorityId: "status-authority-B" },
+    });
+
+    client.dispose();
+  });
+
   it("rejects stale and duplicate Recent Traffic revisions without synthesizing authority", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({

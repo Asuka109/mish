@@ -140,7 +140,7 @@ export class RpcStatusClient implements StatusClient {
   async testLocalProxy(options?: RpcRequestOptions): Promise<LocalProxyTestResultDto> {
     try {
       const result = await this.rpc.request("status.testLocalProxy", {}, options);
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      this.emitSnapshotConnectionState();
       return result;
     } catch (error) {
       throw mapRpcError(error);
@@ -216,6 +216,7 @@ export class RpcStatusClient implements StatusClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
       this.capabilitiesLoaded = false;
       this.capabilityPendingProfileId = null;
@@ -238,7 +239,7 @@ export class RpcStatusClient implements StatusClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = this.acceptRecentTraffic(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
@@ -335,12 +336,20 @@ export class RpcStatusClient implements StatusClient {
         throw new StatusClientError("validation", "Status snapshot order conflict");
       }
       const snapshot = this.acceptRecentTraffic(result.snapshot);
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      this.emitSnapshotConnectionState();
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
       throw mapRpcError(error);
     }
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.snapshotAcceptance.isReconnectPending(),
+    });
   }
 }
 

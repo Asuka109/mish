@@ -40,4 +40,30 @@ describe("ApplicationSnapshotAcceptance", () => {
     expect(acceptance.accept(snapshot("B", 1, 1, "B"), "baseline").kind).toBe("accepted");
     expect(acceptance.accept(snapshot("A", 9, 9, "late A"), "request").kind).toBe("stale");
   });
+
+  it("lets the first valid post-reconnect read establish a new authority once", () => {
+    const acceptance = new ApplicationSnapshotAcceptance<Snapshot>();
+    acceptance.accept(snapshot("A", 1, 2, "A2"), "baseline");
+    acceptance.armReconnect();
+
+    expect(acceptance.accept(snapshot("A", 1, 1, "stale A1"), "request").kind).toBe("stale");
+    expect(acceptance.isReconnectPending()).toBe(true);
+    expect(acceptance.accept(snapshot("B", 1, 1, "B1"), "request").kind).toBe("accepted");
+    expect(acceptance.isReconnectPending()).toBe(false);
+    expect(acceptance.accept(snapshot("A", 9, 9, "late A"), "command").kind).toBe("stale");
+    expect(acceptance.snapshot()?.value).toBe("B1");
+  });
+
+  it("lets a post-reconnect command establish authority and a duplicate close the barrier", () => {
+    const acceptance = new ApplicationSnapshotAcceptance<Snapshot>();
+    const first = snapshot("A", 1, 1, "A1");
+    acceptance.accept(first, "baseline");
+    acceptance.armReconnect();
+    expect(acceptance.accept(structuredClone(first), "request").kind).toBe("duplicate");
+    expect(acceptance.isReconnectPending()).toBe(false);
+
+    acceptance.armReconnect();
+    expect(acceptance.accept(snapshot("B", 1, 1, "B1"), "command").kind).toBe("accepted");
+    expect(acceptance.accept(snapshot("A", 2, 2, "late A"), "request").kind).toBe("stale");
+  });
 });

@@ -179,7 +179,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     setLocalProxyTest({ phase: "idle" });
     setServiceProbeStates({});
     setConnection(resolvedClient.getConnectionState());
-    const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
+    const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
+      if (nextConnection.phase === "connected" && nextConnection.stale) {
+        snapshotAcceptance.current.armReconnect();
+      }
+      setConnection(nextConnection);
+    });
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) => {
       acceptSnapshot(nextSnapshot, delivery ?? "update");
     });
