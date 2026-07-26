@@ -142,7 +142,7 @@ const en = {
     managedPortsSave: "Save Ports",
     systemProxyTakeoverPolicy: "System proxy configuration",
     systemProxyTakeoverPolicyDescription:
-      "By default, existing PAC and automatic-discovery settings are not overwritten. The \"Overwrite and restore\" option temporarily replaces only settings Mish has fully captured and can restore exactly.",
+      'By default, existing PAC and automatic-discovery settings are not overwritten. The "Overwrite and restore" option temporarily replaces only settings Mish has fully captured and can restore exactly.',
     systemProxyTakeoverPolicyProtected: "Don't overwrite",
     systemProxyTakeoverPolicyAdvanced: "Overwrite and restore",
     systemProxyTakeoverPolicyWarning:
