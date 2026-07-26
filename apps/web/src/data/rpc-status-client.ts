@@ -398,7 +398,7 @@ export class RpcStatusClient implements StatusClient {
     } catch (error) {
       const mapped = mapRpcError(error);
       if (mapped.snapshot === null) throw mapped;
-      const snapshot = this.acceptRecentTraffic(mapped.snapshot);
+      const snapshot = this.acceptSnapshot(mapped.snapshot);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       throw new StatusClientError(mapped.code, mapped.message, mapped.retryable, snapshot);
