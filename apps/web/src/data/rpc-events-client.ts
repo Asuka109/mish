@@ -62,7 +62,8 @@ export class RpcEventsClient implements EventsClient {
       if (result.kind === "conflict") {
         throw new EventsClientError("validation", "Events snapshot order conflict");
       }
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+      this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
       const mapped = mapRpcError(error);
@@ -128,6 +129,7 @@ export class RpcEventsClient implements EventsClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
@@ -146,9 +148,18 @@ export class RpcEventsClient implements EventsClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     for (const listener of this.snapshotListeners) listener(result.snapshot, delivery);
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.snapshotAcceptance.isReconnectPending(),
+    });
   }
 }
 

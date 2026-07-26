@@ -112,7 +112,13 @@ export function EventsProvider({
   useEffect(() => {
     const controller = new AbortController();
     snapshotAcceptance.current.clear();
-    const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
+    const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
+      if (nextConnection.phase === "connected") {
+        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
+        else snapshotAcceptance.current.confirmReconnect();
+      }
+      setConnection(nextConnection);
+    });
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) =>
       acceptSnapshot(nextSnapshot, delivery ?? "update"),
     );

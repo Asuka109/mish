@@ -140,7 +140,7 @@ export class RpcStatusClient implements StatusClient {
   async testLocalProxy(options?: RpcRequestOptions): Promise<LocalProxyTestResultDto> {
     try {
       const result = await this.rpc.request("status.testLocalProxy", {}, options);
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      this.emitSnapshotConnectionState();
       return result;
     } catch (error) {
       throw mapRpcError(error);
@@ -216,6 +216,7 @@ export class RpcStatusClient implements StatusClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
       this.capabilitiesLoaded = false;
       this.capabilityPendingProfileId = null;
@@ -238,7 +239,8 @@ export class RpcStatusClient implements StatusClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = this.acceptSnapshot(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
@@ -386,8 +388,9 @@ export class RpcStatusClient implements StatusClient {
       if (result.kind === "conflict") {
         throw new StatusClientError("validation", "Status snapshot order conflict");
       }
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
       const snapshot = this.acceptSnapshot(result.snapshot);
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      this.emitSnapshotConnectionState();
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
@@ -398,6 +401,14 @@ export class RpcStatusClient implements StatusClient {
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       throw new StatusClientError(mapped.code, mapped.message, mapped.retryable, snapshot);
     }
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.snapshotAcceptance.isReconnectPending(),
+    });
   }
 }
 

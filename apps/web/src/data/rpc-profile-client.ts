@@ -255,6 +255,7 @@ export class RpcProfileClient implements ProfileClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
@@ -273,7 +274,8 @@ export class RpcProfileClient implements ProfileClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = this.projectCapabilities(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
@@ -284,7 +286,17 @@ export class RpcProfileClient implements ProfileClient {
     if (result.kind === "conflict") {
       throw new ProfileClientError("validation", "Profile snapshot order conflict");
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     return this.projectCapabilities(result.snapshot);
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.snapshotAcceptance.isReconnectPending(),
+    });
   }
 
   private projectCapabilities(snapshot: ProfileSnapshotDto) {

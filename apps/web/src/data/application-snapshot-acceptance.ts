@@ -14,6 +14,8 @@ export interface SnapshotAcceptanceResult<T> {
 
 export class ApplicationSnapshotAcceptance<T extends OrderedApplicationSnapshot> {
   private current: T | null = null;
+  private reconnectConfirmed = false;
+  private reconnectPending = false;
 
   accept(next: T, delivery: SnapshotDelivery): SnapshotAcceptanceResult<T> {
     const current = this.current;
@@ -22,19 +24,47 @@ export class ApplicationSnapshotAcceptance<T extends OrderedApplicationSnapshot>
     const incoming = next.applicationOrder;
     const accepted = current.applicationOrder;
     if (incoming.authorityId !== accepted.authorityId) {
-      if (delivery === "baseline") return this.replace(next);
+      if (
+        delivery === "baseline" ||
+        (this.reconnectPending && (delivery === "command" || delivery === "request"))
+      ) {
+        return this.replace(next);
+      }
       return { kind: "stale", snapshot: current };
     }
     if (incoming.epoch < accepted.epoch) return { kind: "stale", snapshot: current };
     if (incoming.epoch > accepted.epoch) return this.replace(next);
     if (incoming.order < accepted.order) return { kind: "stale", snapshot: current };
     if (incoming.order > accepted.order) return this.replace(next);
-    if (deepEqual(current, next)) return { kind: "duplicate", snapshot: current };
+    if (deepEqual(current, next)) {
+      if (this.reconnectConfirmed) this.completeReconnect();
+      return { kind: "duplicate", snapshot: current };
+    }
     return { kind: "conflict", snapshot: current };
+  }
+
+  armReconnect() {
+    this.reconnectConfirmed = false;
+    this.reconnectPending = true;
   }
 
   clear() {
     this.current = null;
+    this.reconnectConfirmed = false;
+    this.reconnectPending = false;
+  }
+
+  completeReconnect() {
+    this.reconnectConfirmed = false;
+    this.reconnectPending = false;
+  }
+
+  confirmReconnect() {
+    if (this.reconnectPending) this.reconnectConfirmed = true;
+  }
+
+  isReconnectPending() {
+    return this.reconnectPending;
   }
 
   snapshot() {
@@ -43,6 +73,7 @@ export class ApplicationSnapshotAcceptance<T extends OrderedApplicationSnapshot>
 
   private replace(next: T): SnapshotAcceptanceResult<T> {
     this.current = structuredClone(next);
+    this.completeReconnect();
     return { kind: "accepted", snapshot: next };
   }
 }

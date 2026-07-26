@@ -124,6 +124,74 @@ describe("RpcTrafficClient", () => {
     expect("traffic.closeAllActive" in mishRpcMethods).toBe(true);
   });
 
+  it("lets a zero-listener reconnect read establish B and rejects a later A command result", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let transportIndex = 0;
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
+      methods: mishRpcMethods,
+      transportFactory: () => transports[transportIndex++],
+    });
+    const client = new RpcTrafficClient(rpc);
+
+    const firstRead = client.getSnapshot();
+    await authenticate(transports[0]);
+    await advertiseTrafficCommands(transports[0]);
+    const firstRequest = await waitForRequest(transports[0], 2);
+    const authorityA = trafficSnapshot();
+    authorityA.applicationOrder.authorityId = "traffic-authority-A";
+    transports[0].respond({ id: firstRequest.id, jsonrpc: "2.0", result: authorityA });
+    await expect(firstRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "traffic-authority-A" },
+    });
+
+    transports[0].close(1006, "restart");
+    await vi.advanceTimersByTimeAsync(5);
+    await authenticate(transports[1]);
+    expect(client.getConnectionState().stale).toBe(true);
+
+    const secondRead = client.getSnapshot();
+    await advertiseTrafficCommands(transports[1]);
+    const secondRequest = await waitForRequest(transports[1], 2);
+    const authorityB = trafficSnapshot();
+    authorityB.applicationOrder = { authorityId: "traffic-authority-B", epoch: 1, order: 1 };
+    transports[1].respond({ id: secondRequest.id, jsonrpc: "2.0", result: authorityB });
+    await expect(secondRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "traffic-authority-B" },
+    });
+    expect(client.getConnectionState().stale).toBe(false);
+
+    if (!authorityB.sessionId) throw new Error("ready Traffic authority requires a session");
+    const lateCommand = client.closeAllActive({
+      profileId: authorityB.profileId,
+      sequence: authorityB.sequence,
+      sessionId: authorityB.sessionId,
+    });
+    const lateRequest = await waitForRequest(transports[1], 3);
+    const delayedA = structuredClone(authorityA);
+    delayedA.applicationOrder.order = 99;
+    transports[1].respond({
+      id: lateRequest.id,
+      jsonrpc: "2.0",
+      result: {
+        failure: null,
+        operation: "close-all-active",
+        remainingConnectionIds: [],
+        snapshot: delayedA,
+        status: "success",
+        targetCount: 0,
+      },
+    });
+    await expect(lateCommand).resolves.toMatchObject({
+      snapshot: { applicationOrder: { authorityId: "traffic-authority-B" } },
+    });
+
+    client.dispose();
+    rpc.dispose();
+  });
+
   it("resubscribes with an authoritative snapshot and exposes the reconnect gap as stale", async () => {
     vi.useFakeTimers();
     const transports = [new FakeTransport(), new FakeTransport()];

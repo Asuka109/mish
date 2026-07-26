@@ -118,7 +118,8 @@ export class RpcTrafficClient implements TrafficClient {
       if (result.kind === "conflict") {
         throw new TrafficClientError("validation", "Traffic snapshot order conflict");
       }
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+      this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
       throw toTrafficClientError(error);
@@ -195,6 +196,7 @@ export class RpcTrafficClient implements TrafficClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.snapshotAcceptance.armReconnect();
       this.capabilitiesLoaded = false;
       this.observedSessionId = undefined;
       this.remoteSubscriptionId = null;
@@ -239,7 +241,8 @@ export class RpcTrafficClient implements TrafficClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = result.snapshot;
     const sessionChanged =
@@ -263,12 +266,22 @@ export class RpcTrafficClient implements TrafficClient {
     if (acceptance.kind === "conflict") {
       throw new TrafficClientError("validation", "Traffic snapshot order conflict");
     }
+    if (acceptance.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    this.emitSnapshotConnectionState();
     return { ...result, snapshot: acceptance.snapshot };
   }
 
   private publishSnapshot(snapshot: TrafficDataSnapshotDto, delivery: ApplicationSnapshotDelivery) {
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    this.emitSnapshotConnectionState();
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.snapshotAcceptance.isReconnectPending(),
+    });
   }
 }
 

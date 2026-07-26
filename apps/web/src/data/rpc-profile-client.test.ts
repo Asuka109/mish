@@ -161,6 +161,56 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcProfileClient", () => {
+  it("lets a zero-listener reconnect command establish B and rejects a later A read", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let transportIndex = 0;
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
+      methods: mishRpcMethods,
+      transportFactory: () => transports[transportIndex++],
+    });
+    const client = new RpcProfileClient(rpc, async () => null);
+
+    const firstRead = client.getSnapshot();
+    await authenticate(transports[0]);
+    const firstRequest = await waitForRequest(transports[0], 1);
+    const authorityA = profileSnapshot(null);
+    authorityA.applicationOrder.authorityId = "profile-authority-A";
+    transports[0].respond({ id: firstRequest.id, jsonrpc: "2.0", result: authorityA });
+    await expect(firstRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "profile-authority-A" },
+    });
+
+    transports[0].close(1006, "restart");
+    await vi.advanceTimersByTimeAsync(5);
+    await authenticate(transports[1]);
+    expect(client.getConnectionState().stale).toBe(true);
+
+    const command = client.createProfile("replacement.yaml");
+    const commandRequest = await waitForRequest(transports[1], 1);
+    const authorityB = profileSnapshot("profile-b");
+    authorityB.applicationOrder = { authorityId: "profile-authority-B", epoch: 1, order: 1 };
+    transports[1].respond({ id: commandRequest.id, jsonrpc: "2.0", result: authorityB });
+    await expect(command).resolves.toMatchObject({
+      applicationOrder: { authorityId: "profile-authority-B" },
+    });
+    expect(client.getConnectionState().stale).toBe(false);
+
+    const lateRead = client.getSnapshot();
+    const lateRequest = await waitForRequest(transports[1], 2);
+    const delayedA = structuredClone(authorityA);
+    delayedA.applicationOrder.order = 99;
+    transports[1].respond({ id: lateRequest.id, jsonrpc: "2.0", result: delayedA });
+    await expect(lateRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "profile-authority-B" },
+    });
+
+    client.dispose();
+    rpc.dispose();
+  });
+
   it("masks native local import for a browser RPC client", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({

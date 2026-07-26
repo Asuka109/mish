@@ -186,10 +186,16 @@ snapshot authority. Reads reserve their order before crossing an asynchronous
 seam, runtime replacement advances the epoch, and identical content reuses its
 canonical order for simultaneous clients. Request results, command results,
 subscription updates, and reconnect baselines pass the same Web acceptance
-module. Only a reconnect baseline may replace a process authority; lower
+module. Reauthentication arms a one-shot reconnect barrier, so the first valid
+baseline, read, or complete command result can establish the current process
+authority even when no snapshot listener exists. Once established, a delayed
+retired authority cannot reopen the cache. A duplicate closes the barrier only
+when the receiving layer knows it was the actual incoming result; a normalized
+cached result cannot prematurely make an outer Provider current. Lower
 epochs/orders are stale, exact duplicates are idempotent, and equal order with
 different content is a contract conflict. The parent envelope composes with,
-and never redefines, `recentTraffic.authorityId/sessionId/revision`.
+and never redefines,
+`recentTraffic.authorityId/sessionId/revision`.
 
 Status protocol version 26 adds `RuntimeStatusDto.captureOperation` as the
 aggregate capture transition envelope. Rust allocates a non-zero, bounded
