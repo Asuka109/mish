@@ -730,7 +730,7 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
             .set_routing_mode(mode, StatusAdapterKind::Rpc)
             .await
             .unwrap();
-        assert_eq!(changed["routingMode"], expected);
+        assert_eq!(changed.routing_mode, mode);
         let native = host.status_snapshot(StatusAdapterKind::Native).await;
         let current_events = host.events_snapshot(StatusAdapterKind::Native);
         assert_eq!(native["routingMode"], expected);

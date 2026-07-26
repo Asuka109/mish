@@ -245,10 +245,10 @@ impl DesktopRuntimeHost {
         &self,
         mode: RoutingMode,
         adapter_kind: StatusAdapterKind,
-    ) -> Result<Value, StatusCommandError> {
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
-        let result = runtime.set_routing_mode(mode, adapter_kind).await;
+        let result = runtime.set_routing_mode_typed(mode, adapter_kind).await;
         self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
@@ -258,11 +258,11 @@ impl DesktopRuntimeHost {
         group_id: String,
         child_id: String,
         adapter_kind: StatusAdapterKind,
-    ) -> Result<Value, StatusCommandError> {
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let result = runtime
-            .select_group_child(group_id, child_id, adapter_kind)
+            .select_group_child_typed(group_id, child_id, adapter_kind)
             .await;
         self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
@@ -272,10 +272,12 @@ impl DesktopRuntimeHost {
         &self,
         group_id: String,
         adapter_kind: StatusAdapterKind,
-    ) -> Result<Value, StatusCommandError> {
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
-        let result = runtime.start_group_delay_test(group_id, adapter_kind).await;
+        let result = runtime
+            .start_group_delay_test_typed(group_id, adapter_kind)
+            .await;
         self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
@@ -284,10 +286,12 @@ impl DesktopRuntimeHost {
         &self,
         test_id: String,
         adapter_kind: StatusAdapterKind,
-    ) -> Result<Value, StatusCommandError> {
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
-        let result = runtime.cancel_group_delay_test(test_id, adapter_kind).await;
+        let result = runtime
+            .cancel_group_delay_test_typed(test_id, adapter_kind)
+            .await;
         self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
@@ -509,10 +513,10 @@ impl DesktopRuntimeHost {
     async fn finish_status_command(
         &self,
         runtime: MishRuntime,
-        result: Result<Value, StatusCommandError>,
+        result: Result<StatusSnapshot, StatusCommandError>,
         adapter_kind: StatusAdapterKind,
         mut changes: watch::Receiver<MishRuntime>,
-    ) -> Result<Value, StatusCommandError> {
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         let mut runtime_replaced = changes.has_changed().unwrap_or(true);
         let current = changes.borrow_and_update().clone();
         runtime_replaced |= !runtime.is_same_instance(&current);

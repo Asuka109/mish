@@ -20,8 +20,8 @@ use mish_runtime::{
     CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
     NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusCommandErrorKind, SystemProxyTakeoverPolicy, TrafficCommandAuthority,
-    TrafficCommandOperation,
+    StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
+    TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -71,14 +71,27 @@ pub(crate) struct ProtocolState {
 
 impl ProtocolState {
     async fn status_snapshot(&self) -> Value {
-        let mut snapshot = self
+        let snapshot = self
             .runtime
             .status_snapshot_typed(StatusAdapterKind::Rpc)
             .await;
+        self.status_snapshot_value(snapshot)
+    }
+
+    fn status_snapshot_value(&self, mut snapshot: StatusSnapshot) -> Value {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
         serde_json::to_value(snapshot).expect("Status state must serialize")
+    }
+
+    fn status_command_error_response(&self, id: Value, mut error: StatusCommandError) -> Value {
+        if let (Some(service_probes), Some(snapshot)) =
+            (&self.service_probes, error.reconciliation.as_mut())
+        {
+            service_probes.overlay(snapshot);
+        }
+        status_command_error_response(id, error)
     }
 
     async fn status_snapshot_with_capture(
@@ -777,8 +790,8 @@ async fn handle_message(
                 .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(snapshot),
+                Err(error) => return Some(state.status_command_error_response(id, error)),
             }
         }
         "status.selectGroupChild" => {
@@ -797,8 +810,8 @@ async fn handle_message(
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(snapshot),
+                Err(error) => return Some(state.status_command_error_response(id, error)),
             }
         }
         "status.startGroupDelayTest" => {
@@ -812,8 +825,8 @@ async fn handle_message(
                 .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(snapshot),
+                Err(error) => return Some(state.status_command_error_response(id, error)),
             }
         }
         "status.cancelGroupDelayTest" => {
@@ -827,8 +840,8 @@ async fn handle_message(
                 .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(snapshot),
+                Err(error) => return Some(state.status_command_error_response(id, error)),
             }
         }
         "status.upsertServiceMonitor" => {

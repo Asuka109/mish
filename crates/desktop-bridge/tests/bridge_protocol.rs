@@ -2,7 +2,10 @@ use std::{
     env, fs,
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use futures_util::{
@@ -22,8 +25,9 @@ use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
     MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
-    StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficConnection, TrafficDataPhase,
-    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
+    RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
+    StatusSnapshot, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    TrafficMatchedRule,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -35,7 +39,7 @@ use mish_settings::{
 };
 use serde_json::{Value, json};
 use tokio::{
-    sync::Mutex as AsyncMutex,
+    sync::{Mutex as AsyncMutex, Notify},
     time::{Duration, timeout},
 };
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
@@ -122,6 +126,75 @@ struct ProcessIconDataSource;
 impl StatusDataSource for ProcessIconDataSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
         StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+}
+
+struct OverlayCommandSource {
+    admitted: Option<Arc<Notify>>,
+    profile_id: &'static str,
+    release: Option<Arc<Notify>>,
+    snapshot_calls: Arc<AtomicUsize>,
+}
+
+impl OverlayCommandSource {
+    fn run_command(&self) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move {
+            if let (Some(admitted), Some(release)) = (&self.admitted, &self.release) {
+                admitted.notify_one();
+                release.notified().await;
+            }
+            Ok(())
+        })
+    }
+}
+
+impl StatusDataSource for OverlayCommandSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        self.snapshot_calls.fetch_add(1, Ordering::SeqCst);
+        let mut snapshot = StatusSnapshot::lifecycle_only(core, adapter_kind);
+        snapshot.active_profile_id = self.profile_id.into();
+        snapshot.profiles[0].id = self.profile_id.into();
+        snapshot
+    }
+
+    fn profile_id(&self) -> Option<String> {
+        Some(self.profile_id.into())
+    }
+
+    fn supports_command(&self, command: StatusCommand) -> bool {
+        matches!(
+            command,
+            StatusCommand::Routing | StatusCommand::Group | StatusCommand::GroupDelay
+        )
+    }
+
+    fn set_routing_mode(
+        &self,
+        _mode: RoutingMode,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_command()
+    }
+
+    fn select_group_child(
+        &self,
+        _group_id: String,
+        _child_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_command()
+    }
+
+    fn start_group_delay_test(
+        &self,
+        _group_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_command()
+    }
+
+    fn cancel_group_delay_test(
+        &self,
+        _test_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_command()
     }
 }
 
@@ -522,6 +595,55 @@ async fn fixed_and_ephemeral_port_selection_preserve_existing_semantics() {
 
 fn runtime(config: DesktopMihomoProcessConfig) -> MishRuntime {
     MishRuntime::new(Arc::new(DesktopMihomoProcess::new(config)))
+}
+
+fn overlay_command_runtime(
+    profile_id: &'static str,
+    admitted: Option<Arc<Notify>>,
+    release: Option<Arc<Notify>>,
+    snapshot_calls: Arc<AtomicUsize>,
+) -> MishRuntime {
+    MishRuntime::with_status_source(
+        Arc::new(RunningCore),
+        Arc::new(OverlayCommandSource {
+            admitted,
+            profile_id,
+            release,
+            snapshot_calls,
+        }),
+    )
+}
+
+fn customized_service_probe_config(root: &Path) -> ServiceProbeConfig {
+    let state_path = root.join("service-probes.json");
+    fs::write(
+        &state_path,
+        serde_json::to_vec_pretty(&json!({
+            "intervalSeconds": 10,
+            "services": [{
+                "icon": "/assets/remix-icon/cloud.svg",
+                "id": "custom-probe",
+                "label": "Custom probe",
+                "url": "https://probe.example.invalid/health"
+            }],
+            "version": 1
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    ServiceProbeConfig {
+        state_path: Some(state_path),
+    }
+}
+
+fn assert_customized_service_probe_overlay(snapshot: &Value) {
+    assert_eq!(snapshot["serviceProbePolicy"]["intervalSeconds"], 10);
+    assert_eq!(snapshot["services"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["services"][0]["id"], "custom-probe");
+    assert_eq!(snapshot["services"][0]["label"], "Custom probe");
+    assert_eq!(snapshot["probeResults"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["probeResults"][0]["monitorId"], "custom-probe");
+    assert_eq!(snapshot["probeResults"][0]["routeTarget"], "direct");
 }
 
 fn no_core() -> DesktopMihomoProcessConfig {
@@ -2010,6 +2132,107 @@ async fn service_probes_remain_available_while_core_is_stopped() {
     )
     .await;
     assert_eq!(missing_probe["error"]["code"], -32004);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn controller_command_successes_preserve_the_authoritative_service_probe_overlay() {
+    let root = tempfile::tempdir().unwrap();
+    let mut bridge_config = config();
+    bridge_config.service_probes = Some(customized_service_probe_config(root.path()));
+    let snapshot_calls = Arc::new(AtomicUsize::new(0));
+    let bridge = start_loopback_server(
+        bridge_config,
+        overlay_command_runtime("profile-a", None, None, snapshot_calls.clone()),
+    )
+    .await
+    .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    for (id, method, params) in [
+        (2, "status.setRoutingMode", json!({"mode": "global"})),
+        (
+            3,
+            "status.selectGroupChild",
+            json!({"childId": "child-a", "groupId": "group-a"}),
+        ),
+        (
+            4,
+            "status.startGroupDelayTest",
+            json!({"groupId": "group-a"}),
+        ),
+        (
+            5,
+            "status.cancelGroupDelayTest",
+            json!({"testId": "delay-a"}),
+        ),
+    ] {
+        let response = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(response["result"]["activeProfileId"], "profile-a");
+        assert_customized_service_probe_overlay(&response["result"]);
+    }
+    assert_eq!(snapshot_calls.load(Ordering::SeqCst), 4);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_replaced_reconciliation_preserves_the_authoritative_service_probe_overlay() {
+    let root = tempfile::tempdir().unwrap();
+    let admitted = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let admitted_snapshot_calls = Arc::new(AtomicUsize::new(0));
+    let runtime_host = DesktopRuntimeHost::new(overlay_command_runtime(
+        "profile-a",
+        Some(admitted.clone()),
+        Some(release.clone()),
+        admitted_snapshot_calls.clone(),
+    ));
+    let mut bridge_config = config();
+    bridge_config.service_probes = Some(customized_service_probe_config(root.path()));
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host.clone())
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+    let command = tokio::spawn(async move {
+        request(
+            &mut ws,
+            json!({
+                "jsonrpc":"2.0",
+                "id":2,
+                "method":"status.setRoutingMode",
+                "params":{"mode":"global"}
+            }),
+        )
+        .await
+    });
+
+    admitted.notified().await;
+    let replacement_snapshot_calls = Arc::new(AtomicUsize::new(0));
+    runtime_host.replace(overlay_command_runtime(
+        "profile-b",
+        None,
+        None,
+        replacement_snapshot_calls.clone(),
+    ));
+    release.notify_one();
+    let response = command.await.unwrap();
+
+    assert_eq!(response["error"]["data"]["kind"], "runtime-replaced");
+    assert_eq!(
+        response["error"]["data"]["snapshot"]["activeProfileId"],
+        "profile-b"
+    );
+    assert_customized_service_probe_overlay(&response["error"]["data"]["snapshot"]);
+    assert_eq!(admitted_snapshot_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(replacement_snapshot_calls.load(Ordering::SeqCst), 1);
 
     bridge.shutdown().await;
 }
