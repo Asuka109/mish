@@ -116,6 +116,11 @@ destinations, process paths, raw addresses/hostnames, private endpoints,
 Controller payloads, and status-bar labels are excluded at the source and named
 in the manifest's versioned redaction report.
 
+Internal development TUN private keys, pending replacement keys, public
+enrollment records, rotation proofs, key identifiers, and generations are not
+support-bundle inputs. The exporter never opens their runtime or privileged
+paths, and no private key can enter the preview metadata or saved bytes.
+
 The native writer creates a same-directory mode-`0600` temporary file, syncs it,
 and atomically renames it. It rejects oversized bytes and symbolic-link targets,
 removes temporary files after write or rename failure, and returns path-free

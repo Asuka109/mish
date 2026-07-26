@@ -443,6 +443,16 @@ services are intentionally not deleted. A developer who separately installed
 the development TUN service must also run `pnpm macos:tun:uninstall` from the
 trusted checkout.
 
+The internal TUN installation private key lives only at
+`runtime/tun-client-key.json` (or the bounded pending replacement beside it)
+with user-owned mode `0600`. It is not a packaging input and is excluded from
+support bundles, local backups, fixtures, logs, RPC, command arguments, and
+every ad-hoc, signed-direct, or production bundle. Bundle gates reject client
+key, enrollment, rotation, and other internal installation-key artifacts by
+name. Run the development TUN uninstaller before application-state cleanup so
+the private key is deleted by its owning lifecycle instead of being retained in
+Trash while a helper installation remains.
+
 ## Developer ID and notarization secrets
 
 The unexecuted `signed-direct` live workflow path requires the protected

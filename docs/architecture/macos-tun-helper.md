@@ -64,17 +64,101 @@ the pinned Core, and the generated LaunchDaemon configuration. The first-TUN
 guide records that identity rather than a permanent completion flag, so an
 artifact or service configuration change naturally requires the guide again
 after reinstalling while identical reinstalls do not repeat it.
+Before administrator authorization, the installer also generates or reuses one
+P-256 client key at
+`runtime/tun-client-key.json`. The file is owned by the installing user, has
+mode `0600`, and is never copied into the privileged service. The staged
+enrollment candidate contains only the algorithm, public SPKI key, SHA-256 key
+identifier, installing UID, and helper installation identity. Administrator
+authorization commits one root-owned mode-`0600` record at
+`/Library/Application Support/com.asuka109.mish/tun-helper-dev/enrollment.json`.
+The service refuses to start when that record is missing, malformed, owned
+incorrectly, or bound to another helper installation identity.
+
+This plaintext private key is an explicitly weak internal-testing boundary.
+It prevents an unrelated same-user process that cannot read the file from
+controlling the helper, but it does not defend against malware or any process
+already able to read the installing user's private application data. It is not
+application identity and does not make an ad-hoc build production-trusted.
+
 The service exposes a mode-0600 Unix socket owned by the installing user. Mish
 reobserves the service after an in-app lifecycle operation before advertising
 TUN support; an app restart is not required. `pnpm macos:tun:status` inspects
-the LaunchDaemon, and `pnpm macos:tun:uninstall` stops it and moves its installed
-files to the system Trash.
+the LaunchDaemon, and `pnpm macos:tun:uninstall` stops it and removes the
+installed trust record and both active or pending private-key records while
+moving the non-secret installed service files to the system Trash.
 
 Repeated installs overwrite the three fixed system targets and one fixed,
-private runtime receipt. They do not create per-install temporary directories,
-backup copies, or versioned system files. Uninstall also removes the bounded
-per-user service socket and runtime receipt; shared system directories are
-never removed.
+private runtime receipt while preserving the enrolled key and monotonic
+generation. An identical reinstall is a no-op for trust. An explicitly
+authorized helper update may rebind the same key and generation to the new
+installation identity; simply changing the identity in the LaunchDaemon makes
+startup fail closed. The installer does not create backup copies or versioned
+system files. Uninstall also removes the bounded per-user service socket and
+runtime receipt; shared system directories are never removed.
+
+### Installation-key authentication
+
+Unauthenticated discovery is limited to the helper version, protocol version,
+installation identity, algorithm, key identifier, and generation. It cannot
+observe a Core launch token or network state and cannot mutate anything.
+`status`, Core ownership checks, Core start/stop, TUN enable/disable, and every
+other command use a two-message proof on the same kernel-credentialed Unix
+connection:
+
+1. The client sends the exact typed command, a UUID request identity, and a
+   random 32-byte client nonce.
+2. The helper returns a random 32-byte helper nonce plus its installation
+   identity, current key identifier and generation, kernel-observed peer
+   UID/PID, command operation, SHA-256 command digest, issue time, and expiry.
+3. The client signs the canonical transcript with ECDSA P-256/SHA-256 and sends
+   only the DER signature and challenge identity.
+4. The helper consumes the challenge before verification, verifies the
+   signature against the root-owned enrollment, and only then continues through
+   every existing path, token, owner, Core identity, and observed network-state
+   gate.
+
+Canonical transcript version 1 is a domain-separated, big-endian,
+length-prefixed binary encoding. In order, it binds the transcript and helper
+protocol versions, helper installation identity, enrolled generation and key
+identifier, helper and client nonces, peer UID/PID, operation and request
+identity, exact command digest, issue time, and expiry. Challenges live for at
+most five seconds. The helper accepts at most 64 outstanding challenges and
+remembers 256 request identities. A replay, helper restart, malformed field,
+clock rollback beyond the one-second skew, expiry, wrong key/generation,
+changed command, changed UID/PID, or stale installation identity fails before
+Core or network mutation.
+
+The client-key, enrollment, and transcript formats each carry an independent
+version and algorithm name. The private key and any pending replacement remain
+inside user-owned mode-`0600` files. They never enter RPC, command arguments,
+environment variables, logs, Events, diagnostics, support bundles, local
+backups, release bundles, repository fixtures, or the privileged helper.
+Public enrollment candidates and dual-signature rotation requests contain no
+private material.
+
+`pnpm macos:core-host:rotate-key` performs ordinary rotation. It stages a new
+private key, signs one canonical rotation record with both current and
+replacement keys, stops the service, verifies both proofs in the root-owned
+helper, advances the generation exactly once, and starts the service with only
+the replacement public key trusted. The pending private record remains usable
+if the process stops between privileged commit and local finalization, so a
+restart can finish without an overlapping trust window. The old public key is
+rejected immediately after commit.
+
+`pnpm macos:core-host:reset-key` is the lost-key recovery path. It requires a
+new P-256 key and a fresh administrator authorization; no ordinary helper
+command can reset trust. The stopped helper advances the generation and
+atomically commits the replacement before relaunch. Tart equivalents require
+the exact `:tart` commands. Both operations run only after the existing
+watchdog/LaunchDaemon shutdown boundary has bounded Core and DNS cleanup.
+
+A future production migration generates a new non-exportable P-256 key in
+Keychain or Secure Enclave where supported, then uses the same dual-proof
+rotation shape. It does not import the plaintext development key into Secure
+Enclave. After the new generation commits, Mish deletes the plaintext key.
+Production still independently requires `SMAppService`, Developer ID
+same-Team audit-token validation, signing, notarization, and signed XPC.
 
 ### Disposable Tart TUN acceptance
 
@@ -123,10 +207,11 @@ service, and reobserves its version, installation identity, and health. This
 operation keeps no historical system copies.
 
 Development trust is deliberately local and explicit: the service accepts only
-the configured user, the exact root-owned Core path, private candidate files
-under Mish's runtime root, the pinned version, and bounded launch tokens. It
-does not make an ad-hoc app bundle production-capable. Ad-hoc packages still
-report the production helper as `unpackaged`.
+the configured user and peer PID, a valid enrolled-key proof, the exact
+root-owned Core path, private candidate files under Mish's runtime root, the
+pinned version, and bounded launch tokens. It does not make an ad-hoc app bundle
+production-capable. Ad-hoc packages still report the production helper as
+`unpackaged`.
 
 Production packaging reserves exactly two privileged artifacts:
 
@@ -185,8 +270,10 @@ exact signed peer identifier and team identifier. It accepts no shell command,
 interface name, route, DNS address, or arbitrary argument and opens no LAN
 listener.
 
-The development Unix-socket protocol adds a narrowly validated Core host
-contract: `start`, `observe`, `owns-listener`, `stop`, and `stop-all`. `start`
+The development Unix-socket protocol adds an installation-key-authenticated,
+narrowly validated Core host contract: `status`, `start`, `observe`,
+`owns-listener`, `enable`, `disable`, `stop`, and `stop-all`. Only the bounded
+version/enrollment discovery described above is unsigned. `start`
 accepts only the preinstalled root-owned Mihomo executable and a private
 generated candidate at
 `runtime/candidates/<UUID>/{home,config.yaml}`. The helper reads the generated
