@@ -154,7 +154,7 @@ describe("desktop window appearance", () => {
 });
 
 describe("desktop first-frame reveal", () => {
-  it("reveals the native window only after the desktop frontend is ready", async () => {
+  it("routes a ready startup placeholder to the native reveal command", async () => {
     const dependencies = createDependencies();
     const signalReady = createDesktopWindowReadySignal(dependencies);
 

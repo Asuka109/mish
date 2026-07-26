@@ -32,7 +32,39 @@
     />
     <link rel="apple-touch-icon" href="/brand/mish-app-icon-180.png" sizes="180x180" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preload" href="/brand/mish-icon-outline.svg" as="image" type="image/svg+xml" />
     <title>Mish</title>
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body,
+      .startup-placeholder {
+        background: #f8f9fa;
+      }
+
+      html[data-theme="dark"] body,
+      html[data-theme="dark"] .startup-placeholder {
+        background: #111113;
+      }
+
+      .startup-placeholder {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      .startup-placeholder__mark {
+        width: 96px;
+        height: 96px;
+        opacity: 0.22;
+      }
+    </style>
     <script>
       (() => {
         let preference = "system";
@@ -58,7 +90,17 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="startup-placeholder" role="status" aria-label="Mish is loading">
+        <img
+          class="startup-placeholder__mark"
+          src="/brand/mish-icon-outline.svg"
+          alt=""
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+    <script type="module" src="/src/window-startup.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

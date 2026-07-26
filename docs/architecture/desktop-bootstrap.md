@@ -76,12 +76,16 @@ still fails closed and never selects fixtures.
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body. The same payload declares the
    desktop-only support-bundle and local-backup capabilities.
-9. The native window remains hidden while React validates bootstrap and commits
-   its first complete tree. The WebView then invokes the idempotent
-   `reveal_main_window` command. Manual launches and login launches configured to
-   show the window are revealed and focused; background login launches remain
-   hidden. This public IPC handshake prevents the shell from exposing an empty
-   WebView frame without relying on private WebKit presentation APIs.
+9. The native window remains hidden until the WebView installs the inline
+   startup placeholder: a quiet, centered Mish mark on the window surface. On
+   the next rendering frame, the WebView invokes the idempotent
+   `reveal_main_window` command without waiting for image decoding, the React
+   bundle, bridge bootstrap, or first application tree. React replaces the
+   placeholder when it commits. Manual
+   launches and login launches configured to show the window are revealed and
+   focused; background login launches remain hidden. This public IPC handshake
+   prevents the shell from exposing an empty WebView frame without relying on
+   private WebKit presentation APIs.
    Before that reveal, the shell restores only a valid on-screen size, position,
    and maximized state. A previous hidden state is never restored.
 10. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
