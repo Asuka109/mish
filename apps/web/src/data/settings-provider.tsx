@@ -1,4 +1,5 @@
 import type {
+  ApplicationLaunchBehavior,
   AppearancePreference,
   LanguagePreference,
   LocalBackupClient,
@@ -9,6 +10,7 @@ import type {
   StartupPreferencesDto,
   SystemProxyTakeoverPolicy,
   ManagedPortPreferencesDto,
+  ManagedPortKind,
   TunHelperFailureKind,
   WindowCloseBehavior,
   WindowSurfacePreference,
@@ -46,11 +48,12 @@ interface SettingsContextValue {
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
-  setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean): Promise<boolean>;
+  setApplicationLaunchBehavior(launchBehavior: ApplicationLaunchBehavior): Promise<boolean>;
   setManagedPorts(managedPorts: ManagedPortPreferencesDto): Promise<boolean>;
   setProcessDiscoveryMode(mode: ProcessDiscoveryMode): Promise<boolean>;
   setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy): Promise<boolean>;
   findManagedPorts(): Promise<boolean>;
+  findManagedPort(kind: ManagedPortKind): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
   setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
   snapshot: SettingsSnapshotDto;
@@ -167,13 +170,14 @@ export function SettingsProvider({
       setOnboardingWelcomeState: async (action) =>
         (await run(() => client.setOnboardingWelcomeState(action))).ok,
       setStartup: async (startup) => (await run(() => client.setStartup(startup))).ok,
-      setLaunchProxyWhenMishLaunches: async (launchProxyWhenMishLaunches) =>
-        (await run(() => client.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches))).ok,
+      setApplicationLaunchBehavior: async (launchBehavior) =>
+        (await run(() => client.setApplicationLaunchBehavior(launchBehavior))).ok,
       setManagedPorts: async (managedPorts) =>
         (await run(() => client.setManagedPorts(managedPorts))).ok,
       setProcessDiscoveryMode: async (mode) =>
         (await run(() => client.setProcessDiscoveryMode(mode))).ok,
       findManagedPorts: async () => (await run(() => client.findManagedPorts())).ok,
+      findManagedPort: async (kind) => (await run(() => client.findManagedPort(kind))).ok,
       setSystemProxyTakeoverPolicy: async (policy) =>
         (await run(() => client.setSystemProxyTakeoverPolicy(policy))).ok,
       setWindowCloseBehavior: async (behavior) =>

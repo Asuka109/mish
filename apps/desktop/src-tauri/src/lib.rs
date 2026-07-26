@@ -37,9 +37,9 @@ use mish_runtime::{
     TunHelperController, TunHelperPlatform,
 };
 use mish_settings::{
-    FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences, SettingsAdapterKind,
-    SettingsAvailability, SettingsBuildInfo, SettingsCapabilities, SettingsService,
-    SettingsServiceError, SettingsSnapshot, StartupPlatform, StartupPlatformError,
+    ApplicationLaunchBehavior, FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences,
+    SettingsAdapterKind, SettingsAvailability, SettingsBuildInfo, SettingsCapabilities,
+    SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform, StartupPlatformError,
     WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use mish_state_authority::StateMutationAuthority;
@@ -1211,18 +1211,13 @@ fn initialize(
         native_menu::install(app, settings_service.clone())?;
         status_bar::initialize(app, status_bar_state)?;
     }
-    if settings_service
+    let application_launch_behavior = settings_service
         .snapshot(SettingsAdapterKind::Rpc)
         .preferences
         .startup
-        .launch_proxy_when_mish_launches
-    {
-        let selection = settings_service
-            .snapshot(SettingsAdapterKind::Rpc)
-            .preferences
-            .capture_selection
-            .into();
-        launch_proxy_on_application_start(activation, selection);
+        .launch_behavior;
+    if application_launch_behavior != ApplicationLaunchBehavior::Off {
+        launch_on_application_start(activation, application_launch_behavior);
     }
     open_main_webview_inspector(app, open_devtools)?;
     Ok(())
@@ -1287,18 +1282,28 @@ fn open_main_webview_inspector(
 /// Starts the previously used Profile only after all native observers have been installed.
 /// The coordinator publishes the pending activation snapshot before the Core process is started,
 /// so the WebView and native status UI observe one lifecycle instead of maintaining local loaders.
-fn launch_proxy_on_application_start(
+fn launch_on_application_start(
     activation: Arc<ProfileActivationCoordinator>,
-    _selection: CaptureSelection,
+    behavior: ApplicationLaunchBehavior,
 ) {
     tauri::async_runtime::spawn(async move {
-        let _ = activation
-            .launch_proxy(
-                &Uuid::new_v4().to_string(),
-                system_proxy_only_capture_selection(),
-                RuntimeStatusAdapterKind::Rpc,
-            )
-            .await;
+        match behavior {
+            ApplicationLaunchBehavior::Core => {
+                let _ = activation
+                    .activate_last_successful_profile(&Uuid::new_v4().to_string())
+                    .await;
+            }
+            ApplicationLaunchBehavior::Proxy => {
+                let _ = activation
+                    .launch_proxy(
+                        &Uuid::new_v4().to_string(),
+                        system_proxy_only_capture_selection(),
+                        RuntimeStatusAdapterKind::Rpc,
+                    )
+                    .await;
+            }
+            ApplicationLaunchBehavior::Off => {}
+        }
     });
 }
 

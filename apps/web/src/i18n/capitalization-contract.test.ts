@@ -16,11 +16,11 @@ describe("English action-label capitalization", () => {
     expect(en.settingsPage.network).toBe("Network and DNS");
     expect(en.proxyControl.running).toBe("Proxy running");
     expect(en.status.desktopActivity).toBe("Live desktop traffic");
-    expect(en.settingsPage.launchProxyWhenMishLaunches).toBe("Auto-start proxy on app launch");
+    expect(en.settingsPage.applicationLaunch).toBe("When app starts");
   });
 
   it("keeps the Chinese automatic-proxy label distinct from login launch", () => {
-    expect(zh.settingsPage.launchProxyWhenMishLaunches).toBe("应用启动时自动代理");
-    expect(zh.settingsPage.launchProxyWhenMishLaunches).not.toBe(zh.settingsPage.launchAtLogin);
+    expect(zh.settingsPage.applicationLaunch).toBe("应用启动时");
+    expect(zh.settingsPage.applicationLaunch).not.toBe(zh.settingsPage.launchAtLogin);
   });
 });

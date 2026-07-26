@@ -3,7 +3,7 @@
 ## Ownership
 
 Settings is the durable configuration home for application preferences. It is
-organized into five outcome sections defined by PRD 04. It does not copy the
+organized into outcome sections defined by PRD 04. It does not copy the
 Status dashboard or create a second live network-state model.
 
 `crates/settings` owns the transport-neutral preference model, persistence
@@ -19,7 +19,7 @@ Ordinary settings RPC accepts only these bounded commands:
 - set one of `en` or `zh` interface language;
 - set a startup DTO containing `launchAtLogin` and exactly one
   `show-window` or `background` login-launch behavior; or
-- set the independent boolean `launchProxyWhenMishLaunches`; or
+- set one independent application-launch behavior: `off`, `core`, or `proxy`; or
 - set one closed process-discovery mode: `always` (the default), `strict`, or
   `off`; or
 - set one closed System Proxy takeover policy: `protect-existing` (the default) or
@@ -55,7 +55,7 @@ The file has a numeric schema version, rejects unknown fields, and is bounded to
 atomically rename it over the destination, and flush the parent directory.
 
 Missing storage uses safe defaults: system appearance, English, launch at login
-off, automatic proxy launch off, native material as the desired window surface, show the window for any
+off, application launch behavior off, native material as the desired window surface, show the window for any
 future login launch, and hide the main window to the status bar on close. It
 also uses `protect-existing` for System Proxy takeover and `always` for
 connection process discovery. Existing schemas migrate to those conservative,
@@ -107,25 +107,23 @@ fixed login-startup argument is present: `show-window` reveals and focuses the
 main window, while `background` keeps it hidden. A manual launch always reveals
 the main window.
 
-## Automatic proxy launch preference
+## Application launch behavior
 
-`launchProxyWhenMishLaunches` is a separate, default-off application-start
-policy. Toggling it persists only next-launch intent: it does not start or stop
-Core, activate a Profile, register login startup, or change System Proxy or
-TUN in the current process. Every prior storage schema migrates the value to
-`false`, so upgrades cannot change runtime or capture state.
+`launchBehavior` is a separate, default-`off` application-start policy. Changing
+it persists only next-launch intent: it does not start or stop Core, activate a
+Profile, register login startup, or change System Proxy or TUN in the current
+process. Old settings schemas are not migrated into this three-state model;
+unsupported storage recovers to the safe `off` default.
 
 On a later application launch, after the native bridge and status observers are
-installed, the desktop shell asks `ProfileActivationCoordinator` to activate
-the last successfully activated Profile. The coordinator records that durable
-resume target separately from the last failed attempt, so a transient start
-failure never replaces the known-good target. For installations created before
-that resume record existed, it falls back to the most recently validated
-Profile in the private Profile store; no candidate means safe stop. After Core readiness succeeds,
-the same coordinator applies the standard System Proxy capture request. A
-missing valid target or a failed activation leaves the process safely stopped.
-The preference itself never bypasses Profile validation, Core ownership,
-capture rollback, or the shared mutation authority.
+installed, `core` asks `ProfileActivationCoordinator` to activate the last
+successfully activated Profile and leaves capture disabled. `proxy` performs
+the same safe resume and then applies the standard System Proxy capture request.
+The coordinator records its durable resume target separately from the last
+failed attempt, so a transient start failure never replaces the known-good
+target. A missing valid target or failed activation leaves the process safely
+stopped. Neither behavior bypasses Profile validation, Core ownership, capture
+rollback, or the shared mutation authority.
 
 The Settings service remains the single authority for the preference. It
 provides a bounded in-process snapshot subscription and authenticated

@@ -237,11 +237,11 @@ Stopping continues to use the established Capture stop path so System Proxy
 restoration is unchanged.
 
 Settings persist the last explicitly selected Capture combination independently
-from the opt-in `launchProxyWhenMishLaunches` preference. Changing either
-preference never starts a proxy immediately. At automatic launch, remembered
-modes are filtered against current capabilities; if none remains, the safe
-fallback is System Proxy and then TUN. This preserves a safe default-off
-migration while avoiding a hard-coded automatic System Proxy selection.
+from the opt-in `launchBehavior` preference. Changing either preference never
+starts Core or proxy capture immediately. At automatic launch, `core` resumes
+the last successful Profile without capture, while `proxy` resumes it and applies
+System Proxy capture. The default remains `off`, and changing the preference
+never mutates the current runtime.
 
 The private runtime root contains `core-ownership.json` and
 `desktop-instance.lock`. Core ownership is a bounded, versioned,

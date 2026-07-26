@@ -24,7 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 10;
+const CURRENT_SCHEMA_VERSION: u8 = 11;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -80,9 +80,18 @@ pub enum ProcessDiscoveryMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApplicationLaunchBehavior {
+    Core,
+    #[default]
+    Off,
+    Proxy,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartupPreferences {
-    pub launch_proxy_when_mish_launches: bool,
+    pub launch_behavior: ApplicationLaunchBehavior,
     pub launch_at_login: bool,
     pub login_launch_behavior: LoginLaunchBehavior,
 }
@@ -92,6 +101,13 @@ pub struct StartupPreferences {
 pub struct ManagedPortPreferences {
     pub controller: u16,
     pub proxy: u16,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagedPortKind {
+    Controller,
+    Proxy,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -942,11 +958,11 @@ impl SettingsService {
         }
     }
 
-    /// Changes only the next-launch proxy preference. It does not invoke Core,
+    /// Changes only the next-launch behavior. It does not invoke Core,
     /// activate a Profile, register login startup, or touch System Proxy or TUN.
-    pub fn set_launch_proxy_when_mish_launches(
+    pub fn set_application_launch_behavior(
         &self,
-        launch_proxy_when_mish_launches: bool,
+        launch_behavior: ApplicationLaunchBehavior,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
         let _permit = self.acquire_mutation()?;
         let _operation = self
@@ -954,7 +970,7 @@ impl SettingsService {
             .lock()
             .expect("settings operation lock poisoned");
         self.update(|preferences| {
-            preferences.startup.launch_proxy_when_mish_launches = launch_proxy_when_mish_launches;
+            preferences.startup.launch_behavior = launch_behavior;
         })
     }
 
@@ -1015,6 +1031,32 @@ impl SettingsService {
                 continue;
             };
             return self.set_managed_ports(ManagedPortPreferences { controller, proxy });
+        }
+        Err(SettingsServiceError::Persistence)
+    }
+
+    pub fn find_and_set_managed_port(
+        &self,
+        kind: ManagedPortKind,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let current = self
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .managed_ports;
+        for _ in 0..8 {
+            let port = available_loopback_port().ok_or(SettingsServiceError::Persistence)?;
+            let managed_ports = match kind {
+                ManagedPortKind::Controller if port != current.proxy => ManagedPortPreferences {
+                    controller: port,
+                    ..current
+                },
+                ManagedPortKind::Proxy if port != current.controller => ManagedPortPreferences {
+                    proxy: port,
+                    ..current
+                },
+                _ => continue,
+            };
+            return self.set_managed_ports(managed_ports);
         }
         Err(SettingsServiceError::Persistence)
     }
@@ -1226,7 +1268,7 @@ struct StartupPreferencesV6 {
 impl From<StartupPreferencesV6> for StartupPreferences {
     fn from(startup: StartupPreferencesV6) -> Self {
         Self {
-            launch_proxy_when_mish_launches: false,
+            launch_behavior: ApplicationLaunchBehavior::Off,
             launch_at_login: startup.launch_at_login,
             login_launch_behavior: startup.login_launch_behavior,
         }
@@ -1386,7 +1428,7 @@ impl SettingsRepository for FileSettingsRepository {
                         onboarding: stored.preferences.onboarding,
                         process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: StartupPreferences {
-                            launch_proxy_when_mish_launches: false,
+                            launch_behavior: ApplicationLaunchBehavior::Off,
                             launch_at_login: stored.preferences.startup.launch_at_login,
                             login_launch_behavior: stored.preferences.startup.login_launch_behavior,
                         },
@@ -1776,7 +1818,10 @@ mod tests {
         assert_eq!(invitation.first_opened_at, None);
         assert_eq!(invitation.last_dismissed_at, None);
         assert_eq!(invitation.prompted_at, None);
-        assert!(!loaded.preferences.startup.launch_proxy_when_mish_launches);
+        assert_eq!(
+            loaded.preferences.startup.launch_behavior,
+            ApplicationLaunchBehavior::Off
+        );
     }
 
     #[test]
@@ -1829,7 +1874,7 @@ mod tests {
             startup.login_launch_behavior,
             LoginLaunchBehavior::Background
         );
-        assert!(!startup.launch_proxy_when_mish_launches);
+        assert_eq!(startup.launch_behavior, ApplicationLaunchBehavior::Off);
         assert!(
             !repository
                 .load()
@@ -1839,7 +1884,7 @@ mod tests {
     }
 
     #[test]
-    fn version_seven_migrates_to_default_managed_ports() {
+    fn unsupported_old_settings_recover_to_safe_defaults() {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
@@ -1870,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_launch_preference_persists_without_touching_login_registration() {
+    fn application_launch_behavior_persists_without_touching_login_registration() {
         let (_root, repository) = repository();
         let platform = Arc::new(FakeStartupPlatform {
             enabled: AtomicBool::new(false),
@@ -1886,9 +1931,12 @@ mod tests {
         .expect("settings service");
 
         let snapshot = service
-            .set_launch_proxy_when_mish_launches(true)
-            .expect("persisted proxy launch preference");
-        assert!(snapshot.preferences.startup.launch_proxy_when_mish_launches);
+            .set_application_launch_behavior(ApplicationLaunchBehavior::Proxy)
+            .expect("persisted application launch behavior");
+        assert_eq!(
+            snapshot.preferences.startup.launch_behavior,
+            ApplicationLaunchBehavior::Proxy
+        );
         assert!(!platform.enabled.load(Ordering::SeqCst));
         assert_eq!(snapshot.startup_registration.observed, Some(false));
 
@@ -1899,12 +1947,13 @@ mod tests {
             SettingsCapabilities::macos(true),
         )
         .expect("restarted settings service");
-        assert!(
+        assert_eq!(
             restarted
                 .snapshot(SettingsAdapterKind::Rpc)
                 .preferences
                 .startup
-                .launch_proxy_when_mish_launches
+                .launch_behavior,
+            ApplicationLaunchBehavior::Proxy
         );
     }
 
@@ -1932,12 +1981,13 @@ mod tests {
             .expect("persisted selection");
 
         assert!(!platform.enabled.load(Ordering::SeqCst));
-        assert!(
-            !service
+        assert_eq!(
+            service
                 .snapshot(SettingsAdapterKind::Rpc)
                 .preferences
                 .startup
-                .launch_proxy_when_mish_launches
+                .launch_behavior,
+            ApplicationLaunchBehavior::Off
         );
         let reloaded = SettingsService::load(
             repository,
@@ -1959,7 +2009,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_launch_preference_notifies_authoritative_subscribers() {
+    fn application_launch_behavior_notifies_authoritative_subscribers() {
         let (_root, repository) = repository();
         let service =
             SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
@@ -1967,10 +2017,13 @@ mod tests {
         let mut changes = service.subscribe();
 
         service
-            .set_launch_proxy_when_mish_launches(true)
-            .expect("proxy launch preference update");
+            .set_application_launch_behavior(ApplicationLaunchBehavior::Core)
+            .expect("application launch behavior update");
         let snapshot = changes.try_recv().expect("settings change notification");
-        assert!(snapshot.preferences.startup.launch_proxy_when_mish_launches);
+        assert_eq!(
+            snapshot.preferences.startup.launch_behavior,
+            ApplicationLaunchBehavior::Core
+        );
     }
 
     #[test]
@@ -2025,6 +2078,28 @@ mod tests {
         assert_ne!(ports.proxy, ports.controller);
         assert_ne!(ports.proxy, 0);
         assert_ne!(ports.controller, 0);
+    }
+
+    #[test]
+    fn one_available_managed_port_preserves_the_other_port() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("settings service");
+        let before = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .managed_ports;
+
+        let after = service
+            .find_and_set_managed_port(ManagedPortKind::Proxy)
+            .expect("available proxy port")
+            .preferences
+            .managed_ports;
+
+        assert_eq!(after.controller, before.controller);
+        assert_ne!(after.proxy, after.controller);
+        assert_ne!(after.proxy, 0);
     }
 
     #[test]
@@ -2263,7 +2338,7 @@ mod tests {
             onboarding: OnboardingPreferences::default(),
             process_discovery_mode: ProcessDiscoveryMode::Strict,
             startup: StartupPreferences {
-                launch_proxy_when_mish_launches: false,
+                launch_behavior: ApplicationLaunchBehavior::Off,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
@@ -2686,7 +2761,7 @@ mod tests {
             onboarding: OnboardingPreferences::default(),
             process_discovery_mode: ProcessDiscoveryMode::Strict,
             startup: StartupPreferences {
-                launch_proxy_when_mish_launches: false,
+                launch_behavior: ApplicationLaunchBehavior::Off,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
@@ -2806,7 +2881,7 @@ mod tests {
         .expect("settings service");
         let snapshot = service
             .set_startup(StartupPreferences {
-                launch_proxy_when_mish_launches: false,
+                launch_behavior: ApplicationLaunchBehavior::Off,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             })
@@ -2850,7 +2925,7 @@ mod tests {
             assert!(
                 service
                     .set_startup(StartupPreferences {
-                        launch_proxy_when_mish_launches: false,
+                        launch_behavior: ApplicationLaunchBehavior::Off,
                         launch_at_login: true,
                         login_launch_behavior: LoginLaunchBehavior::Background,
                     })
@@ -2883,7 +2958,7 @@ mod tests {
 
         assert!(matches!(
             service.set_startup(StartupPreferences {
-                launch_proxy_when_mish_launches: false,
+                launch_behavior: ApplicationLaunchBehavior::Off,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             }),
@@ -2916,7 +2991,7 @@ mod tests {
 
         assert!(matches!(
             service.set_startup(StartupPreferences {
-                launch_proxy_when_mish_launches: false,
+                launch_behavior: ApplicationLaunchBehavior::Off,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             }),

@@ -37,7 +37,7 @@ const settingsSnapshot = {
     processDiscoveryMode: "always" as const,
     startup: {
       launchAtLogin: false,
-      launchProxyWhenMishLaunches: false,
+      launchBehavior: "off",
       loginLaunchBehavior: "show-window" as const,
     },
     systemProxyTakeoverPolicy: "protect-existing" as const,

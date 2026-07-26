@@ -88,8 +88,8 @@ const zh = {
       size: "实际 / 最大大小",
       useBackup: "用备份数据替换当前数据",
     },
-    captureStartup: "流量接管与启动",
-    captureStartupDescription: "设置 Mish 如何接管流量，以及登录 macOS 时是否自动启动。",
+    captureStartup: "代理与启动",
+    captureStartupDescription: "设置 Mish 的启动行为、全局代理、虚拟网卡和 Mihomo 端口。",
     comingSoon: "即将支持",
     closeWindow: "关闭窗口行为",
     closeWindowDescription: "选择关闭主窗口后的行为。",
@@ -100,12 +100,14 @@ const zh = {
     hideToStatusBar: "隐藏到状态栏",
     installTunHelper: "安装系统组件",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
-    launchAtLogin: "登录时启动",
+    launchAtLogin: "设备启动时",
     launchAtLoginDescription:
       "选择登录 macOS 时是否自动启动 Mish，以及自动启动后是否显示主窗口。手动打开时始终显示窗口。",
-    launchProxyWhenMishLaunches: "应用启动时自动代理",
-    launchProxyWhenMishLaunchesDescription:
-      "仅保存下次启动 Mish 时的偏好；切换后不会立即启动或停止代理。",
+    applicationLaunch: "应用启动时",
+    applicationLaunchCore: "仅核心",
+    applicationLaunchDescription:
+      "选择启动 Mish 时不执行操作、只启动 Mihomo 核心及代理监听端口，或同时开启全局代理。更改将在下次启动应用时生效。",
+    applicationLaunchProxy: "全局代理",
     loginWindow: "登录启动窗口",
     loginWindowDescription: "选择自动启动时是否显示主窗口。手动打开 Mish 时始终会显示窗口。",
     localProxy: {
@@ -123,12 +125,16 @@ const zh = {
     },
     managedPorts: "托管端口",
     managedPortsDescription:
-      "Mish 本地代理与 Mihomo Controller 使用的仅回环端口。修改将在下次启动代理时生效。",
+      "Mish 本地代理与 Mihomo Controller 使用的仅回环端口。按回车或离开输入框即保存，修改将在下次启动核心时生效。",
+    managedControllerPort: "Controller 端口",
+    managedControllerPortDescription:
+      "Mish 通过这个本机 API 端口控制 Mihomo，并读取状态、策略、连接、流量和事件。",
+    managedProxyPort: "代理端口",
+    managedProxyPortDescription: "应用和 macOS 代理接管会把需要代理的网络流量发送到这个本机端口。",
     managedPortsFind: "寻找可用端口",
     managedPortsFindAndRetry: "寻找端口并重试",
     managedPortsConflict: "Mish 无法使用 {endpoint}。",
-    managedPortsSave: "保存端口",
-    systemProxyTakeoverPolicy: "系统代理配置",
+    systemProxyTakeoverPolicy: "覆盖系统代理",
     systemProxyTakeoverPolicyDescription:
       "默认不覆盖已有 PAC 与自动发现。选择“覆盖并恢复”后，只会临时替换 Mish 已完整捕获且可精确恢复的状态。",
     systemProxyTakeoverPolicyProtected: "不覆盖",
@@ -181,7 +187,7 @@ const zh = {
     networkPolicyDescription: "显示当前网络服务、接口和设备类型。",
     off: "关闭",
     on: "开启",
-    processDiscovery: "连接进程识别",
+    processDiscovery: "识别连接进程",
     processDiscoveryAlways: "始终",
     processDiscoveryDescription:
       "选择 Mihomo 如何识别每条连接所属的进程。修改将在下次启动代理或激活配置时生效。",
@@ -206,10 +212,10 @@ const zh = {
     storageRecovered: "部分已保存的设置无效，已恢复为默认值。",
     themeDescription: "跟随系统外观，或固定使用浅色、深色主题。",
     title: "设置",
-    trafficCapture: "流量接管",
+    trafficCapture: "全局代理",
     trafficCaptureDescription:
       "查看系统代理和虚拟网卡是否已按你的选择启用，并在状态不一致时进行修复。",
-    tunHelper: "虚拟网卡系统组件",
+    tunHelper: "安装虚拟网卡",
     tunHelperDescription:
       "虚拟网卡需要额外安装系统组件。安装、修复或移除时，macOS 可能会要求管理员授权。",
     tunHelperHealthy: "可用 · 版本 {version}",

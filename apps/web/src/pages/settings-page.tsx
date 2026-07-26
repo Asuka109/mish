@@ -1,7 +1,9 @@
 import { Warning } from "@phosphor-icons/react/Warning";
+import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
 import {
   Badge,
   Button,
+  Input,
   SettingsGroup,
   SettingsRow as SettingsRowPrimitive,
   SettingsRowControl,
@@ -11,6 +13,7 @@ import {
   ToggleGroupItem,
 } from "@mish/ui";
 import type {
+  ApplicationLaunchBehavior,
   AppearancePreference,
   CaptureSelectionDto,
   LanguagePreference,
@@ -22,7 +25,6 @@ import type {
   WindowCloseBehavior,
   WindowSurfacePreference,
 } from "@mish/contracts";
-import { LOCAL_PROXY_HOST, LOCAL_PROXY_PORT } from "@mish/contracts";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { LocalBackupControl } from "../components/local-backup-control";
 import { useAppearance } from "../appearance";
@@ -37,9 +39,10 @@ import { cx, tv } from "@mish/ui/tv";
 
 type PendingButtonAction =
   | "language"
-  | "managed-ports"
+  | "managed-controller-port"
+  | "managed-proxy-port"
   | "process-discovery"
-  | "proxy-launch"
+  | "application-launch"
   | "takeover-policy"
   | "startup"
   | "window-close";
@@ -90,16 +93,12 @@ const settingsStyles = tv({
       "flex min-w-0 max-w-full flex-col items-end gap-2",
       "@max-settings-compact/settings-page:items-start",
     ),
+    portControl: "flex items-center gap-2",
+    portInput: "w-28 tabular-nums",
     policyWarning: cx(
       "max-w-80 text-end text-metadata leading-4.5 text-warning",
       "@max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:text-start",
     ),
-    localProxy: cx(
-      "flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2",
-      "@max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28",
-      "[&_.ui-button[aria-busy=true]:disabled]:opacity-100",
-    ),
-    localProxyEndpoint: "flex flex-wrap items-center gap-2 [&_code]:text-ink [&_code]:tabular-nums",
     networkList: cx(
       "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg",
       "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
@@ -226,6 +225,70 @@ function AddressAvailabilityBadge({
   );
 }
 
+function ManagedPortControl({
+  ariaLabel,
+  findLabel,
+  invalid,
+  onChange,
+  onFind,
+  onReset,
+  onSave,
+  disabled,
+  pending,
+  value,
+}: {
+  ariaLabel: string;
+  disabled: boolean;
+  findLabel: string;
+  invalid: boolean;
+  onChange(value: string): void;
+  onFind(): void;
+  onReset(): void;
+  onSave(): void;
+  pending: boolean;
+  value: string;
+}) {
+  return (
+    <div className={settingsStyles().portControl()}>
+      <Input
+        className={settingsStyles().portInput()}
+        aria-invalid={invalid || undefined}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        inputMode="numeric"
+        max={65535}
+        min={1}
+        onBlur={onSave}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            onReset();
+            event.currentTarget.blur();
+          }
+        }}
+        type="number"
+        value={value}
+      />
+      <Button
+        aria-label={findLabel}
+        disabled={disabled}
+        loading={pending}
+        onClick={onFind}
+        onPointerDown={(event) => event.preventDefault()}
+        size="icon-sm"
+        title={findLabel}
+        type="button"
+        variant="outline"
+      >
+        <MagnifyingGlass data-icon="inline-start" />
+      </Button>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const location = useLocation();
   const {
@@ -237,13 +300,7 @@ export function SettingsPage() {
     windowSurfacePending,
     windowSurfacePreference,
   } = useAppearance();
-  const {
-    connection: productConnection,
-    isCommandSupported,
-    localProxyTest,
-    snapshot: product,
-    testLocalProxy,
-  } = useProduct();
+  const { isCommandSupported, snapshot: product } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
   const settings = useSettings();
   const [pendingButtonAction, setPendingButtonAction] = useState<PendingButtonAction | null>(null);
@@ -255,19 +312,21 @@ export function SettingsPage() {
     useState<CaptureSelectionDto | null>(null);
   const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
   const [optimisticStartup, setOptimisticStartup] = useState<StartupPreferencesDto | null>(null);
-  const [optimisticLaunchProxy, setOptimisticLaunchProxy] = useState<boolean | null>(null);
+  const [optimisticLaunchBehavior, setOptimisticLaunchBehavior] =
+    useState<ApplicationLaunchBehavior | null>(null);
   const [optimisticTakeoverPolicy, setOptimisticTakeoverPolicy] =
     useState<SystemProxyTakeoverPolicy | null>(null);
   const [optimisticWindowClose, setOptimisticWindowClose] = useState<WindowCloseBehavior | null>(
     null,
   );
   const [pendingLanguage, setPendingLanguage] = useState<LanguagePreference | null>(null);
-  const [managedPorts, setManagedPorts] = useState<ManagedPortPreferencesDto | null>(null);
+  const [managedPortDrafts, setManagedPortDrafts] = useState<
+    Partial<Record<keyof ManagedPortPreferencesDto, string>>
+  >({});
   const networkAutoRefreshStarted = useRef(false);
   const { LL, locale } = useI18nContext();
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
-  const displayedManagedPorts = managedPorts ?? snapshot.preferences.managedPorts;
   const displayedStartup = optimisticStartup ?? startup;
   const displayedStartupOption: StartupOption = displayedStartup.launchAtLogin
     ? displayedStartup.loginLaunchBehavior
@@ -277,9 +336,24 @@ export function SettingsPage() {
   const captureActive = Boolean(captureRuntime?.systemProxyEnabled || captureRuntime?.tunEnabled);
   const startupSupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.launchAtLogin === "supported";
-  const launchProxySupported =
+  const applicationLaunchSupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.backgroundLaunch === "supported";
-  const displayedLaunchProxy = optimisticLaunchProxy ?? startup.launchProxyWhenMishLaunches;
+  const displayedLaunchBehavior = optimisticLaunchBehavior ?? startup.launchBehavior;
+  const proxyPortValue = managedPortDrafts.proxy ?? String(snapshot.preferences.managedPorts.proxy);
+  const controllerPortValue =
+    managedPortDrafts.controller ?? String(snapshot.preferences.managedPorts.controller);
+  const proxyPort = Number(proxyPortValue);
+  const controllerPort = Number(controllerPortValue);
+  const proxyPortInvalid =
+    !Number.isInteger(proxyPort) ||
+    proxyPort < 1 ||
+    proxyPort > 65535 ||
+    proxyPort === snapshot.preferences.managedPorts.controller;
+  const controllerPortInvalid =
+    !Number.isInteger(controllerPort) ||
+    controllerPort < 1 ||
+    controllerPort > 65535 ||
+    controllerPort === snapshot.preferences.managedPorts.proxy;
   const displayedTakeoverPolicy =
     optimisticTakeoverPolicy ?? snapshot.preferences.systemProxyTakeoverPolicy;
   const helper = snapshot.tunHelper;
@@ -361,14 +435,14 @@ export function SettingsPage() {
     }
   }
 
-  async function changeLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean) {
-    setPendingButtonAction("proxy-launch");
-    setOptimisticLaunchProxy(launchProxyWhenMishLaunches);
+  async function changeApplicationLaunchBehavior(launchBehavior: ApplicationLaunchBehavior) {
+    setPendingButtonAction("application-launch");
+    setOptimisticLaunchBehavior(launchBehavior);
     try {
-      await settings.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches);
+      await settings.setApplicationLaunchBehavior(launchBehavior);
     } finally {
       setPendingButtonAction(null);
-      setOptimisticLaunchProxy(null);
+      setOptimisticLaunchBehavior(null);
     }
   }
 
@@ -403,20 +477,37 @@ export function SettingsPage() {
     }
   }
 
-  async function saveManagedPorts() {
-    setPendingButtonAction("managed-ports");
+  async function saveManagedPort(kind: keyof ManagedPortPreferencesDto) {
+    const draft = managedPortDrafts[kind];
+    if (draft === undefined) return;
+    const port = Number(draft);
+    const otherKind = kind === "proxy" ? "controller" : "proxy";
+    const otherPort = snapshot.preferences.managedPorts[otherKind];
+    if (!Number.isInteger(port) || port < 1 || port > 65535 || port === otherPort) return;
+    if (port === snapshot.preferences.managedPorts[kind]) {
+      setManagedPortDrafts((current) => ({ ...current, [kind]: undefined }));
+      return;
+    }
+    setPendingButtonAction(kind === "proxy" ? "managed-proxy-port" : "managed-controller-port");
     try {
-      await settings.setManagedPorts(displayedManagedPorts);
+      const saved = await settings.setManagedPorts({
+        ...snapshot.preferences.managedPorts,
+        [kind]: port,
+      });
+      if (saved) {
+        setManagedPortDrafts((current) => ({ ...current, [kind]: undefined }));
+      }
     } finally {
       setPendingButtonAction(null);
-      setManagedPorts(null);
     }
   }
 
-  async function findManagedPorts() {
-    setPendingButtonAction("managed-ports");
+  async function findManagedPort(kind: keyof ManagedPortPreferencesDto) {
+    setPendingButtonAction(kind === "proxy" ? "managed-proxy-port" : "managed-controller-port");
     try {
-      if (await settings.findManagedPorts()) setManagedPorts(null);
+      if (await settings.findManagedPort(kind)) {
+        setManagedPortDrafts((current) => ({ ...current, [kind]: undefined }));
+      }
     } finally {
       setPendingButtonAction(null);
     }
@@ -479,73 +570,118 @@ export function SettingsPage() {
         title={LL.settingsPage.captureStartup()}
       >
         <SettingsRow
-          description={LL.settingsPage.managedPortsDescription()}
-          title={LL.settingsPage.managedPorts()}
+          description={LL.settingsPage.launchAtLoginDescription()}
+          title={LL.settingsPage.launchAtLogin()}
         >
           <div className={settingsStyles().inline()}>
-            <label>
-              Proxy
-              <input
-                aria-label="Managed proxy port"
-                inputMode="numeric"
-                max={65535}
-                min={1}
-                onChange={(event) =>
-                  setManagedPorts({
-                    ...displayedManagedPorts,
-                    proxy: Number(event.target.value),
-                  })
+            <ToggleGroup
+              aria-label={LL.settingsPage.launchAtLogin()}
+              disabled={!startupSupported || settings.pending}
+              onValueChange={(values) => {
+                const option = values[0];
+                if (option === "off" || option === "show-window" || option === "background") {
+                  void changeStartup(option);
                 }
-                type="number"
-                value={displayedManagedPorts.proxy}
-              />
-            </label>
-            <label>
-              Controller
-              <input
-                aria-label="Managed Controller port"
-                inputMode="numeric"
-                max={65535}
-                min={1}
-                onChange={(event) =>
-                  setManagedPorts({
-                    ...displayedManagedPorts,
-                    controller: Number(event.target.value),
-                  })
+              }}
+              spacing={0}
+              value={[displayedStartupOption]}
+              variant="segmented"
+            >
+              <ToggleGroupItem
+                aria-busy={pendingButtonAction === "startup" && displayedStartupOption === "off"}
+                value="off"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "off" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.off()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "startup" && displayedStartupOption === "show-window"
                 }
-                type="number"
-                value={displayedManagedPorts.controller}
-              />
-            </label>
-            <Button
-              disabled={
-                settings.pending ||
-                displayedManagedPorts.proxy < 1 ||
-                displayedManagedPorts.proxy > 65535 ||
-                displayedManagedPorts.controller < 1 ||
-                displayedManagedPorts.controller > 65535 ||
-                displayedManagedPorts.proxy === displayedManagedPorts.controller
-              }
-              loading={pendingButtonAction === "managed-ports"}
-              loadingText={LL.settingsPage.managedPortsSave()}
-              onClick={() => void saveManagedPorts()}
-              size="sm"
-              type="button"
-              variant="outline"
+                value="show-window"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "show-window" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.showWindow()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "startup" && displayedStartupOption === "background"
+                }
+                value="background"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "background" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.background()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {snapshot.capabilities.launchAtLogin !== "supported" ? (
+              <AvailabilityBadge availability={snapshot.capabilities.launchAtLogin} />
+            ) : snapshot.startupRegistration.phase !== "applied" ? (
+              <Badge
+                variant={
+                  snapshot.startupRegistration.phase === "drift" ||
+                  snapshot.startupRegistration.phase === "failed"
+                    ? "warning"
+                    : "outline"
+                }
+              >
+                {LL.settingsPage.registrationPhase[snapshot.startupRegistration.phase]()}
+              </Badge>
+            ) : null}
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.applicationLaunchDescription()}
+          title={LL.settingsPage.applicationLaunch()}
+        >
+          <div className={settingsStyles().inline()}>
+            <ToggleGroup
+              aria-label={LL.settingsPage.applicationLaunch()}
+              disabled={!applicationLaunchSupported || settings.pending}
+              onValueChange={(values) => {
+                const option = values[0];
+                if (option === "off" || option === "core" || option === "proxy") {
+                  void changeApplicationLaunchBehavior(option);
+                }
+              }}
+              spacing={0}
+              value={[displayedLaunchBehavior]}
+              variant="segmented"
             >
-              {LL.settingsPage.managedPortsSave()}
-            </Button>
-            <Button
-              disabled={settings.pending}
-              loading={pendingButtonAction === "managed-ports"}
-              loadingText={LL.settingsPage.managedPortsFind()}
-              onClick={() => void findManagedPorts()}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              {LL.settingsPage.managedPortsFind()}
-            </Button>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "application-launch" && displayedLaunchBehavior === "off"
+                }
+                value="off"
+              >
+                {LL.settingsPage.off()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "application-launch" && displayedLaunchBehavior === "core"
+                }
+                value="core"
+              >
+                {LL.settingsPage.applicationLaunchCore()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "application-launch" &&
+                  displayedLaunchBehavior === "proxy"
+                }
+                value="proxy"
+              >
+                {LL.settingsPage.applicationLaunchProxy()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {snapshot.capabilities.backgroundLaunch !== "supported" ? (
+              <AvailabilityBadge availability={snapshot.capabilities.backgroundLaunch} />
+            ) : null}
           </div>
         </SettingsRow>
         <SettingsRow
@@ -580,52 +716,6 @@ export function SettingsPage() {
           ) : (
             <AvailabilityBadge availability="unavailable" />
           )}
-        </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.processDiscoveryDescription()}
-          title={LL.settingsPage.processDiscovery()}
-        >
-          <ToggleGroup
-            aria-label={LL.settingsPage.processDiscovery()}
-            disabled={snapshot.adapterKind !== "rpc" || settings.pending}
-            onValueChange={(values) => {
-              const mode = values[0];
-              if (mode === "always" || mode === "strict" || mode === "off") {
-                void changeProcessDiscoveryMode(mode);
-              }
-            }}
-            spacing={0}
-            value={[snapshot.preferences.processDiscoveryMode]}
-            variant="segmented"
-          >
-            <ToggleGroupItem
-              aria-busy={
-                pendingButtonAction === "process-discovery" &&
-                snapshot.preferences.processDiscoveryMode === "always"
-              }
-              value="always"
-            >
-              {LL.settingsPage.processDiscoveryAlways()}
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              aria-busy={
-                pendingButtonAction === "process-discovery" &&
-                snapshot.preferences.processDiscoveryMode === "strict"
-              }
-              value="strict"
-            >
-              {LL.settingsPage.processDiscoveryStrict()}
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              aria-busy={
-                pendingButtonAction === "process-discovery" &&
-                snapshot.preferences.processDiscoveryMode === "off"
-              }
-              value="off"
-            >
-              {LL.settingsPage.processDiscoveryOff()}
-            </ToggleGroupItem>
-          </ToggleGroup>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.systemProxyTakeoverPolicyDescription()}
@@ -774,133 +864,88 @@ export function SettingsPage() {
           </div>
         </SettingsRow>
         <SettingsRow
-          description={LL.settingsPage.localProxy.description()}
-          title={LL.settingsPage.localProxy.title()}
+          description={LL.settingsPage.processDiscoveryDescription()}
+          title={LL.settingsPage.processDiscovery()}
         >
-          {product?.adapterKind === "rpc" ? (
-            <div className={settingsStyles().localProxy()}>
-              <span className={settingsStyles().localProxyEndpoint()}>
-                <code>{`${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}`}</code>
-              </span>
-              <Button
-                disabled={localProxyTest.phase === "pending" || productConnection.stale}
-                loading={localProxyTest.phase === "pending"}
-                loadingText={LL.settingsPage.localProxy.test()}
-                onClick={() => void testLocalProxy()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {LL.settingsPage.localProxy.test()}
-              </Button>
-            </div>
-          ) : (
-            <AvailabilityBadge availability="unavailable" />
-          )}
+          <ToggleGroup
+            aria-label={LL.settingsPage.processDiscovery()}
+            disabled={snapshot.adapterKind !== "rpc" || settings.pending}
+            onValueChange={(values) => {
+              const mode = values[0];
+              if (mode === "always" || mode === "strict" || mode === "off") {
+                void changeProcessDiscoveryMode(mode);
+              }
+            }}
+            spacing={0}
+            value={[snapshot.preferences.processDiscoveryMode]}
+            variant="segmented"
+          >
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "always"
+              }
+              value="always"
+            >
+              {LL.settingsPage.processDiscoveryAlways()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "strict"
+              }
+              value="strict"
+            >
+              {LL.settingsPage.processDiscoveryStrict()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "off"
+              }
+              value="off"
+            >
+              {LL.settingsPage.processDiscoveryOff()}
+            </ToggleGroupItem>
+          </ToggleGroup>
         </SettingsRow>
         <SettingsRow
-          description={LL.settingsPage.launchProxyWhenMishLaunchesDescription()}
-          title={LL.settingsPage.launchProxyWhenMishLaunches()}
+          description={LL.settingsPage.managedProxyPortDescription()}
+          title={LL.settingsPage.managedProxyPort()}
         >
-          <div className={settingsStyles().inline()}>
-            <ToggleGroup
-              aria-label={LL.settingsPage.launchProxyWhenMishLaunches()}
-              disabled={!launchProxySupported || settings.pending}
-              onValueChange={(values) => {
-                const option = values[0];
-                if (option === "off" || option === "on") {
-                  void changeLaunchProxyWhenMishLaunches(option === "on");
-                }
-              }}
-              spacing={0}
-              value={[displayedLaunchProxy ? "on" : "off"]}
-              variant="segmented"
-            >
-              <ToggleGroupItem
-                aria-busy={pendingButtonAction === "proxy-launch" && !displayedLaunchProxy}
-                aria-label={`${LL.settingsPage.launchProxyWhenMishLaunches()}: ${LL.settingsPage.off()}`}
-                value="off"
-              >
-                {LL.settingsPage.off()}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                aria-busy={pendingButtonAction === "proxy-launch" && displayedLaunchProxy}
-                aria-label={`${LL.settingsPage.launchProxyWhenMishLaunches()}: ${LL.settingsPage.on()}`}
-                value="on"
-              >
-                {LL.settingsPage.on()}
-              </ToggleGroupItem>
-            </ToggleGroup>
-            {snapshot.capabilities.backgroundLaunch !== "supported" ? (
-              <AvailabilityBadge availability={snapshot.capabilities.backgroundLaunch} />
-            ) : null}
-          </div>
+          <ManagedPortControl
+            ariaLabel={LL.settingsPage.managedProxyPort()}
+            disabled={snapshot.adapterKind !== "rpc" || settings.pending}
+            findLabel={LL.settingsPage.managedPortsFind()}
+            invalid={proxyPortInvalid}
+            onChange={(value) => setManagedPortDrafts((current) => ({ ...current, proxy: value }))}
+            onFind={() => void findManagedPort("proxy")}
+            onReset={() => setManagedPortDrafts((current) => ({ ...current, proxy: undefined }))}
+            onSave={() => void saveManagedPort("proxy")}
+            pending={pendingButtonAction === "managed-proxy-port"}
+            value={proxyPortValue}
+          />
         </SettingsRow>
         <SettingsRow
-          description={LL.settingsPage.launchAtLoginDescription()}
-          title={LL.settingsPage.launchAtLogin()}
+          description={LL.settingsPage.managedControllerPortDescription()}
+          title={LL.settingsPage.managedControllerPort()}
         >
-          <div className={settingsStyles().inline()}>
-            <ToggleGroup
-              aria-label={LL.settingsPage.launchAtLogin()}
-              disabled={!startupSupported || settings.pending}
-              onValueChange={(values) => {
-                const option = values[0];
-                if (option === "off" || option === "show-window" || option === "background") {
-                  void changeStartup(option);
-                }
-              }}
-              spacing={0}
-              value={[displayedStartupOption]}
-              variant="segmented"
-            >
-              <ToggleGroupItem
-                aria-busy={pendingButtonAction === "startup" && displayedStartupOption === "off"}
-                value="off"
-              >
-                {pendingButtonAction === "startup" && displayedStartupOption === "off" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {LL.settingsPage.off()}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                aria-busy={
-                  pendingButtonAction === "startup" && displayedStartupOption === "show-window"
-                }
-                value="show-window"
-              >
-                {pendingButtonAction === "startup" && displayedStartupOption === "show-window" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {LL.settingsPage.showWindow()}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                aria-busy={
-                  pendingButtonAction === "startup" && displayedStartupOption === "background"
-                }
-                value="background"
-              >
-                {pendingButtonAction === "startup" && displayedStartupOption === "background" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {LL.settingsPage.background()}
-              </ToggleGroupItem>
-            </ToggleGroup>
-            {snapshot.capabilities.launchAtLogin !== "supported" ? (
-              <AvailabilityBadge availability={snapshot.capabilities.launchAtLogin} />
-            ) : snapshot.startupRegistration.phase !== "applied" ? (
-              <Badge
-                variant={
-                  snapshot.startupRegistration.phase === "drift" ||
-                  snapshot.startupRegistration.phase === "failed"
-                    ? "warning"
-                    : "outline"
-                }
-              >
-                {LL.settingsPage.registrationPhase[snapshot.startupRegistration.phase]()}
-              </Badge>
-            ) : null}
-          </div>
+          <ManagedPortControl
+            ariaLabel={LL.settingsPage.managedControllerPort()}
+            disabled={snapshot.adapterKind !== "rpc" || settings.pending}
+            findLabel={LL.settingsPage.managedPortsFind()}
+            invalid={controllerPortInvalid}
+            onChange={(value) =>
+              setManagedPortDrafts((current) => ({ ...current, controller: value }))
+            }
+            onFind={() => void findManagedPort("controller")}
+            onReset={() =>
+              setManagedPortDrafts((current) => ({ ...current, controller: undefined }))
+            }
+            onSave={() => void saveManagedPort("controller")}
+            pending={pendingButtonAction === "managed-controller-port"}
+            value={controllerPortValue}
+          />
         </SettingsRow>
       </SettingsSection>
 
