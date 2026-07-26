@@ -3103,6 +3103,30 @@ mod tests {
         server.abort();
     }
 
+    #[tokio::test]
+    async fn stage_one_service_rejects_a_mutable_candidates_root() {
+        let (_temporary, client, binary, home, config_file, server) =
+            stage_one_fixture("tun:\n  enable: false\n").await;
+        let candidates = home
+            .parent()
+            .and_then(Path::parent)
+            .expect("candidates root");
+        fs::set_permissions(candidates, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = client
+            .start(PrivilegedCoreLaunchRequest::new(
+                binary,
+                home,
+                config_file,
+                "v1.19.29",
+            ))
+            .await;
+
+        assert_eq!(result, Err(PrivilegedCoreHostError::Rejected));
+        assert!(client.health().await.unwrap().core.is_none());
+        server.abort();
+    }
+
     #[test]
     fn request_gate_rejects_stale_future_and_replayed_requests() {
         let now = tun_observation_now();

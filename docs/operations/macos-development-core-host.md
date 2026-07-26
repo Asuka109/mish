@@ -52,9 +52,11 @@ Prepare one private candidate without enabling TUN:
 
 ```sh
 candidate_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-candidate_root="$HOME/Library/Application Support/com.asuka109.mish/runtime/candidates/$candidate_id"
+runtime_root="$HOME/Library/Application Support/com.asuka109.mish/runtime"
+candidates_root="$runtime_root/candidates"
+candidate_root="$candidates_root/$candidate_id"
 mkdir -p "$candidate_root/home"
-chmod 700 "$candidate_root" "$candidate_root/home"
+chmod 700 "$runtime_root" "$candidates_root" "$candidate_root" "$candidate_root/home"
 cp docs/quality/fixtures/core-host-stage1.yaml "$candidate_root/config.yaml"
 chmod 600 "$candidate_root/config.yaml"
 cargo run -p mish-platform-macos --features development-core-host \
