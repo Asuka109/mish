@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const assetsDirectory = fileURLToPath(new URL("../apps/web/dist/assets/", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const desktopConfiguration = JSON.parse(
+  readFileSync(`${repositoryRoot}/apps/desktop/src-tauri/tauri.conf.json`, "utf8"),
+) as {
+  app?: { security?: { csp?: string } };
+};
 const remixIconManifest = JSON.parse(
   readFileSync(`${repositoryRoot}/packages/brand-assets/remix-icon-v4.8.0.json`, "utf8"),
 ) as {
@@ -14,6 +19,37 @@ const forbiddenMarkers = [
   "mobile-destination-icon",
   "mobile-fixture-banner",
 ];
+const appearanceBootstrapPath = `${repositoryRoot}/apps/web/dist/appearance-bootstrap.js`;
+const entryDocumentPath = `${repositoryRoot}/apps/web/dist/index.html`;
+const desktopCsp = desktopConfiguration.app?.security?.csp ?? "";
+
+if (!desktopCsp.includes("script-src 'self'")) {
+  throw new Error("Desktop CSP must restrict scripts to self-hosted assets.");
+}
+if (/script-src[^;]*'unsafe-inline'/.test(desktopCsp)) {
+  throw new Error("Desktop CSP must not permit executable inline scripts.");
+}
+
+if (!existsSync(appearanceBootstrapPath)) {
+  throw new Error("Desktop Web bundle is missing the self-hosted appearance bootstrap.");
+}
+
+const entryDocument = readFileSync(entryDocumentPath, "utf8");
+const appearanceBootstrapTag = /<script\s+src="\/appearance-bootstrap\.js"><\/script>/;
+const appearanceBootstrapMatch = appearanceBootstrapTag.exec(entryDocument);
+if (!appearanceBootstrapMatch) {
+  throw new Error("Desktop Web entry does not load the self-hosted appearance bootstrap.");
+}
+if (/<script(?:\s[^>]*)?>(?!\s*<\/script>)[\s\S]*?<\/script>/.test(entryDocument)) {
+  throw new Error("Desktop Web entry contains executable inline script.");
+}
+const applicationModuleOffset = entryDocument.search(/<script\s+type="module"/);
+if (
+  applicationModuleOffset < 0 ||
+  (appearanceBootstrapMatch.index ?? Number.POSITIVE_INFINITY) > applicationModuleOffset
+) {
+  throw new Error("Appearance bootstrap must execute before the desktop startup reveal module.");
+}
 
 for (const entry of readdirSync(assetsDirectory, { withFileTypes: true })) {
   if (!entry.isFile() || !/\.(?:css|js)$/.test(entry.name)) continue;

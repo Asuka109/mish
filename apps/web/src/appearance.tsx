@@ -67,11 +67,18 @@ export function resolveWindowSurface(
 }
 
 function applyAppearance(appearance: ResolvedAppearance) {
-  document.documentElement.dataset.theme = appearance;
-  document.documentElement.style.colorScheme = appearance;
+  if (document.documentElement.dataset.theme !== appearance) {
+    document.documentElement.dataset.theme = appearance;
+  }
+  if (document.documentElement.style.colorScheme !== appearance) {
+    document.documentElement.style.colorScheme = appearance;
+  }
 
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  themeColor?.setAttribute("content", appearance === "dark" ? "#111113" : "#f8f9fa");
+  const themeColorValue = appearance === "dark" ? "#111113" : "#f8f9fa";
+  if (themeColor?.getAttribute("content") !== themeColorValue) {
+    themeColor?.setAttribute("content", themeColorValue);
+  }
 }
 
 function persistAppearance(preference: AppearancePreference) {

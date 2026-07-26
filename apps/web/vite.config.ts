@@ -5,10 +5,26 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 const configuredDevelopmentPort = Number.parseInt(process.env.MISH_WEB_PORT ?? "", 10);
 const hasConfiguredDevelopmentPort = Number.isInteger(configuredDevelopmentPort);
+const appearanceBootstrapPath = fileURLToPath(
+  new URL("./appearance-bootstrap.js", import.meta.url),
+);
+const indexPath = fileURLToPath(new URL("./index.html", import.meta.url));
 
 export default defineConfig({
   build: {
     chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      input: {
+        appearanceBootstrap: appearanceBootstrapPath,
+        index: indexPath,
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === "appearanceBootstrap"
+            ? "appearance-bootstrap.js"
+            : "assets/[name]-[hash].js",
+      },
+    },
   },
   plugins: [react(), tailwindcss()],
   publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
