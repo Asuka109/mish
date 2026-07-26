@@ -2347,7 +2347,129 @@ export const ProfileActivationSnapshotSchema = z
     startupPolicy: z.literal("safe-stopped"),
     targetProfileId: IdentifierSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((snapshot, context) => {
+    const evidence = snapshot.evidence ?? null;
+    const failureEndpoint = snapshot.failureEndpoint ?? null;
+    const commandFieldsPresent =
+      snapshot.attemptedAt !== null &&
+      snapshot.commandId !== null &&
+      snapshot.operation !== null &&
+      snapshot.targetProfileId !== null;
+    const commandFieldsAbsent =
+      snapshot.attemptedAt === null &&
+      snapshot.commandId === null &&
+      snapshot.operation === null &&
+      snapshot.targetProfileId === null;
+    const activeFieldsPresent =
+      snapshot.activeFingerprint !== null && snapshot.activeProfileId !== null;
+    const activeFieldsAbsent =
+      snapshot.activeFingerprint === null && snapshot.activeProfileId === null;
+
+    if (
+      (snapshot.safeStopped && !activeFieldsAbsent) ||
+      (!snapshot.safeStopped && !activeFieldsPresent)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Safe-stopped and active Profile identity must agree",
+      });
+    }
+
+    if (snapshot.phase === "idle") {
+      if (
+        !commandFieldsAbsent ||
+        snapshot.failure !== null ||
+        evidence !== null ||
+        failureEndpoint !== null ||
+        !snapshot.safeStopped
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Idle activation must be a clean safe-stopped boundary",
+        });
+      }
+      return;
+    }
+
+    if (!commandFieldsPresent) {
+      context.addIssue({
+        code: "custom",
+        message: "Non-idle activation requires command, target, operation, and attempt time",
+      });
+    }
+
+    if (snapshot.phase === "pending") {
+      if (
+        snapshot.failure !== null ||
+        failureEndpoint !== null ||
+        (evidence !== null &&
+          (snapshot.operation !== "activate" || evidence.kind !== "geodata-preparing"))
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Pending activation may carry only preparation evidence",
+        });
+      }
+      return;
+    }
+
+    if (snapshot.phase === "success") {
+      if (snapshot.failure !== null || evidence !== null || failureEndpoint !== null) {
+        context.addIssue({
+          code: "custom",
+          message: "Successful activation cannot carry failure evidence",
+        });
+      }
+      if (
+        snapshot.operation === "activate" &&
+        (snapshot.safeStopped || snapshot.activeProfileId !== snapshot.targetProfileId)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Successful activation must publish its matching active Profile",
+        });
+      }
+      if (snapshot.operation === "stop" && !snapshot.safeStopped) {
+        context.addIssue({
+          code: "custom",
+          message: "Successful stop must publish a safe-stopped runtime",
+        });
+      }
+      return;
+    }
+
+    if (snapshot.failure === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Failed activation requires typed terminal evidence",
+      });
+      return;
+    }
+
+    const expectedEvidenceKind =
+      snapshot.failure === "geodata-failed"
+        ? "geodata-failed"
+        : snapshot.failure === "geodata-timeout"
+          ? "geodata-timeout"
+          : null;
+    if (
+      (expectedEvidenceKind === null && evidence !== null) ||
+      (expectedEvidenceKind !== null &&
+        (snapshot.operation !== "activate" || evidence?.kind !== expectedEvidenceKind))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Activation failure and terminal evidence must match",
+      });
+    }
+    if ((snapshot.failure === "managed-listener-conflict") !== (failureEndpoint !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a managed-listener conflict carries a failure endpoint",
+      });
+    }
+  });
 export interface ProfileActivationSnapshotDto extends z.infer<
   typeof ProfileActivationSnapshotSchema
 > {}

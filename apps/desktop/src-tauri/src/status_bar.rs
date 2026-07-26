@@ -890,8 +890,8 @@ mod tests {
     use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
     use mish_bridge::{
-        DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationPhase,
-        ProfileActivationSnapshot,
+        DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationFailure,
+        ProfileActivationOperation, ProfileActivationPhase, ProfileActivationSnapshot,
     };
     use mish_runtime::{
         CaptureOperationPhase, CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime,
@@ -932,6 +932,41 @@ mod tests {
             pid: Some(1),
             version: None,
         }
+    }
+
+    fn activation_snapshot(phase: ProfileActivationPhase) -> ProfileActivationSnapshot {
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.availability = ProfileActivationAvailability::Available;
+        match phase {
+            ProfileActivationPhase::Idle => {}
+            ProfileActivationPhase::Pending => {
+                activation.attempted_at = Some(1);
+                activation.command_id = Some("activation-command".into());
+                activation.operation = Some(ProfileActivationOperation::Activate);
+                activation.phase = ProfileActivationPhase::Pending;
+                activation.target_profile_id = Some("profile-a".into());
+            }
+            ProfileActivationPhase::Success => {
+                activation.active_fingerprint =
+                    Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
+                activation.active_profile_id = Some("profile-a".into());
+                activation.attempted_at = Some(1);
+                activation.command_id = Some("activation-command".into());
+                activation.operation = Some(ProfileActivationOperation::Activate);
+                activation.phase = ProfileActivationPhase::Success;
+                activation.safe_stopped = false;
+                activation.target_profile_id = Some("profile-a".into());
+            }
+            ProfileActivationPhase::Failure => {
+                activation.attempted_at = Some(1);
+                activation.command_id = Some("activation-command".into());
+                activation.failure = Some(ProfileActivationFailure::Validation);
+                activation.operation = Some(ProfileActivationOperation::Activate);
+                activation.phase = ProfileActivationPhase::Failure;
+                activation.target_profile_id = Some("profile-a".into());
+            }
+        }
+        activation
     }
 
     struct TestStatusSource;
@@ -1128,15 +1163,14 @@ mod tests {
     fn aggregate_proxy_label_and_enabled_state_follow_authoritative_state() {
         let core = running_core_status();
         let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
-        let mut activation = ProfileActivationSnapshot::unavailable();
-        activation.availability = ProfileActivationAvailability::Available;
+        let mut activation = activation_snapshot(ProfileActivationPhase::Idle);
         assert_eq!(
             StatusMenuModel::new(&status, &activation, false, Locale::En).proxy_title,
             "Launch Proxy"
         );
         assert!(StatusMenuModel::new(&status, &activation, false, Locale::En).proxy_enabled);
 
-        activation.phase = ProfileActivationPhase::Pending;
+        activation = activation_snapshot(ProfileActivationPhase::Pending);
         let pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
         assert_eq!(pending.proxy_title, "Launch Proxy — Pending");
         assert!(!pending.proxy_enabled);
@@ -1145,7 +1179,7 @@ mod tests {
             "启动代理 — 等待中"
         );
 
-        activation.phase = ProfileActivationPhase::Failure;
+        activation = activation_snapshot(ProfileActivationPhase::Failure);
         let failed = StatusMenuModel::new(&status, &activation, false, Locale::En);
         assert_eq!(failed.proxy_title, "Launch Proxy — Failed");
         assert!(failed.proxy_enabled);
@@ -1154,7 +1188,7 @@ mod tests {
             "启动代理 — 失败"
         );
 
-        activation.phase = ProfileActivationPhase::Idle;
+        activation = activation_snapshot(ProfileActivationPhase::Idle);
         status.runtime.capture_operation.operation_id = Some("1".into());
         status.runtime.capture_operation.phase = CaptureOperationPhase::Pending;
         let capture_pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
@@ -1184,8 +1218,7 @@ mod tests {
     fn native_controls_preserve_terminal_audit_truth_until_a_real_drift_operation() {
         let core = running_core_status();
         let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
-        let mut activation = ProfileActivationSnapshot::unavailable();
-        activation.availability = ProfileActivationAvailability::Available;
+        let activation = activation_snapshot(ProfileActivationPhase::Idle);
         status.runtime.capture_operation.operation_id = Some("7".into());
         status.runtime.capture_operation.phase = CaptureOperationPhase::Applied;
         status.runtime.system_proxy_enabled = true;
@@ -1223,8 +1256,7 @@ mod tests {
     fn native_projection_localizes_copy_but_preserves_user_labels_and_command_identity() {
         let core = running_core_status();
         let status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
-        let mut activation = ProfileActivationSnapshot::unavailable();
-        activation.availability = ProfileActivationAvailability::Available;
+        let activation = activation_snapshot(ProfileActivationPhase::Idle);
         let zh = StatusMenuModel::new(&status, &activation, false, Locale::ZhCn);
         assert_eq!(zh.proxy_title, "启动代理");
         assert_eq!(zh.labels.open, "打开 Mish");
@@ -1365,8 +1397,7 @@ mod tests {
     fn status_bar_icon_activity_uses_only_authoritative_capture_state() {
         let core = running_core_status();
         let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
-        let mut activation = ProfileActivationSnapshot::unavailable();
-        activation.phase = ProfileActivationPhase::Pending;
+        let activation = activation_snapshot(ProfileActivationPhase::Pending);
         assert!(!StatusBarModel::new(&status, &activation, false, Locale::En, 1).icon_active);
 
         status.runtime.system_proxy_enabled = true;
