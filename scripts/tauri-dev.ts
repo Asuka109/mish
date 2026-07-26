@@ -105,6 +105,7 @@ async function run(): Promise<void> {
       "exec",
       "tauri",
       "dev",
+      ...(invocation.demo ? [] : ["--features", "development-core-host"]),
       "--config",
       createTauriDevelopmentConfig(origin, invocation.demo),
       ...invocation.forwarded,

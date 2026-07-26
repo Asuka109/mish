@@ -5,12 +5,14 @@ import {
   linkSync,
   mkdirSync,
   mkdtempDisposableSync,
+  readFileSync,
   renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -130,4 +132,69 @@ test("rejects any privileged artifact in ad-hoc packages", async () => {
     verifyMacOsPrivilegedBundle(bundledFixture.application, "ad-hoc"),
     /contains privileged artifacts/u,
   );
+});
+
+test("rejects development Core-host artifacts from every release bundle mode", async () => {
+  const adHocFixture = fixture(false);
+  using adHoc = adHocFixture.temporary;
+  const adHocHelper = path.join(
+    adHocFixture.application,
+    "Contents/Resources/com.asuka109.mish.tun-helper.dev",
+  );
+  mkdirSync(path.dirname(adHocHelper), { recursive: true });
+  writeFileSync(adHocHelper, "development-only");
+  chmodSync(adHocHelper, 0o555);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(adHocFixture.application, "ad-hoc"),
+    /contains privileged artifacts/u,
+  );
+
+  const productionFixture = fixture();
+  using production = productionFixture.temporary;
+  writeFileSync(
+    path.join(
+      productionFixture.application,
+      "Contents/Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist",
+    ),
+    "development-only",
+  );
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(productionFixture.application, "production"),
+    /unexpected privileged artifacts/u,
+  );
+});
+
+test("requires an explicit development feature to build Core-host executables", () => {
+  const metadata = spawnSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+    encoding: "utf8",
+  });
+  assert.equal(metadata.status, 0, metadata.stderr);
+  const workspace = JSON.parse(metadata.stdout) as {
+    packages: Array<{
+      name: string;
+      targets: Array<{ name: string; "required-features": string[] }>;
+    }>;
+  };
+  const packageMetadata = workspace.packages.find(
+    (candidate) => candidate.name === "mish-platform-macos",
+  );
+  assert.ok(packageMetadata);
+  for (const name of ["mish-tun-helper", "mish-core-host-ctl"]) {
+    const target = packageMetadata.targets.find((candidate) => candidate.name === name);
+    assert.deepEqual(target?.["required-features"], ["development-core-host"]);
+  }
+
+  const desktopPackage = workspace.packages.find((candidate) => candidate.name === "mish-desktop");
+  assert.ok(desktopPackage);
+  const desktopManifest = JSON.parse(readFileSync("apps/desktop/package.json", "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  for (const script of [
+    "build",
+    "bundle:macos",
+    "bundle:macos:alpha-ad-hoc",
+    "bundle:macos:production",
+  ]) {
+    assert.doesNotMatch(desktopManifest.scripts[script] ?? "", /development-core-host/u);
+  }
 });
