@@ -987,6 +987,23 @@ fn initialize(
                 core_ownership,
             ),
         });
+        let managed = activation_manager.managed_state().await;
+        let prior_profile_id = managed
+            .last_successful_profile_id()
+            .or_else(|| managed.active_profile_id())
+            .or_else(|| {
+                managed
+                    .last_attempt()
+                    .filter(|attempt| {
+                        attempt.outcome() == mish_bridge::ActivationOutcome::Succeeded
+                    })
+                    .map(|attempt| attempt.profile_id())
+            })
+            .map(str::to_owned);
+        profile_service
+            .initialize_selection(prior_profile_id.as_deref())
+            .await
+            .map_err(|_| io::Error::other("Profile selection could not be initialized"))?;
         let evidence_platform = SupportBundlePlatform {
             architecture: tauri_plugin_os::arch().to_owned(),
             operating_system: tauri_plugin_os::platform().to_owned(),
@@ -1227,7 +1244,6 @@ fn launch_proxy_on_application_start(
         let _ = activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                None,
                 system_proxy_only_capture_selection(),
                 RuntimeStatusAdapterKind::Rpc,
             )

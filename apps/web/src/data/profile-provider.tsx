@@ -8,6 +8,7 @@ import {
   type ProfilePatchEditorDto,
   type ProfileRefreshPolicy,
   type ProfileRouteCatalogDto,
+  type ProfileSelectionSnapshotDto,
   type ProviderAuthorityDto,
   type ProviderKind,
   type ProfilePreviewDto,
@@ -39,9 +40,13 @@ export type ProfileOperation =
   | "provider-update"
   | "refresh"
   | "schedule"
+  | "select"
   | "save"
   | "stop";
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
+export type ProfileSelectionOperationResult =
+  | { ok: true; selection: ProfileSelectionSnapshotDto }
+  | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
   | { error: ProfileClientError; ok: false };
@@ -80,7 +85,11 @@ interface ProfileContextValue {
   ): Promise<ProfileOperationResult>;
   savePreview(previewId: string): Promise<ProfileOperationResult>;
   selectedProfileId: string | null;
-  selectProfile(profileId: string): void;
+  selectedProfileRevision: number;
+  selectProfile(
+    profileId: string,
+    expectedSelection?: ProfileSelectionSnapshotDto,
+  ): Promise<ProfileSelectionOperationResult>;
   snapshot: ProfileSnapshotDto | null;
   stopActiveProfile(): Promise<ProfileOperationResult>;
   updateAllProviders(
@@ -112,11 +121,14 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   );
   const [error, setError] = useState<ProfileClientError | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(() =>
-    readSelectedProfileId(),
-  );
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const pending = useRef(false);
   const latestSnapshot = useRef<ProfileSnapshotDto | null>(null);
+  const selectionOperation = useRef<{
+    baseRevision: number;
+    id: string;
+    profileId: string;
+  } | null>(null);
   const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<ProfileSnapshotDto>());
   const activationWaiters = useRef(
     new Map<
@@ -130,6 +142,22 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: ProfileSnapshotDto, delivery: SnapshotDelivery) => {
+      const current = latestSnapshot.current;
+      const authorityChangedAtBaseline =
+        delivery === "baseline" &&
+        current !== null &&
+        nextSnapshot.applicationOrder.authorityId !== current.applicationOrder.authorityId;
+      const acceptedSelection =
+        !authorityChangedAtBaseline &&
+        current &&
+        (nextSnapshot.selection.revision < current.selection.revision ||
+          (nextSnapshot.selection.revision === current.selection.revision &&
+            nextSnapshot.selection.profileId !== current.selection.profileId))
+          ? current.selection
+          : nextSnapshot.selection;
+      if (acceptedSelection !== nextSnapshot.selection) {
+        nextSnapshot = { ...nextSnapshot, selection: acceptedSelection };
+      }
       const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {
@@ -140,24 +168,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       latestSnapshot.current = nextSnapshot;
       setSnapshot(nextSnapshot);
       setError(null);
-      setSelectedProfileId((current) => {
-        const available = new Set(nextSnapshot.profiles.map((profile) => profile.id));
-        const next =
-          (current && available.has(current) ? current : null) ??
-          (nextSnapshot.activation.targetProfileId &&
-          available.has(nextSnapshot.activation.targetProfileId)
-            ? nextSnapshot.activation.targetProfileId
-            : null) ??
-          (nextSnapshot.activation.activeProfileId &&
-          available.has(nextSnapshot.activation.activeProfileId)
-            ? nextSnapshot.activation.activeProfileId
-            : null) ??
-          nextSnapshot.profiles.find((profile) => profile.status.active)?.id ??
-          nextSnapshot.profiles[0]?.id ??
-          null;
-        persistSelectedProfileId(next);
-        return next;
-      });
+      const operation = selectionOperation.current;
+      if (!operation || acceptedSelection.revision > operation.baseRevision) {
+        selectionOperation.current = null;
+        setSelectedProfileId(acceptedSelection.profileId);
+      }
       const activation = nextSnapshot.activation;
       if (activation.phase === "pending" || !activation.commandId) return true;
       const waiter = activationWaiters.current.get(activation.commandId);
@@ -425,16 +440,69 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [],
   );
 
-  const selectProfile = useCallback((profileId: string) => {
-    if (!latestSnapshot.current?.profiles.some((profile) => profile.id === profileId)) return;
-    persistSelectedProfileId(profileId);
-    setSelectedProfileId(profileId);
-  }, []);
+  const selectProfile = useCallback(
+    async (
+      profileId: string,
+      expectedSelection?: ProfileSelectionSnapshotDto,
+    ): Promise<ProfileSelectionOperationResult> => {
+      const current = latestSnapshot.current;
+      if (!current?.profiles.some((profile) => profile.id === profileId && profile.status.valid)) {
+        return {
+          error: new ProfileClientError("not-found", "The selected Profile is unavailable"),
+          ok: false,
+        };
+      }
+      if (
+        !expectedSelection &&
+        current.selection.profileId === profileId &&
+        !selectionOperation.current
+      ) {
+        return { ok: true, selection: current.selection };
+      }
+      if (pending.current) return conflict();
+      const operation = {
+        baseRevision: current.selection.revision,
+        id: crypto.randomUUID(),
+        profileId,
+      };
+      pending.current = true;
+      selectionOperation.current = expectedSelection ? null : operation;
+      setPendingKey(operationKey("select", profileId));
+      if (!expectedSelection) setSelectedProfileId(profileId);
+      setError(null);
+      try {
+        const confirmed = await resolvedClient.selectProfile(profileId, {
+          expectedSelection,
+        });
+        acceptSnapshot(confirmed, "command");
+        if (expectedSelection && confirmed.selection.profileId !== profileId) {
+          return conflict();
+        }
+        return { ok: true, selection: confirmed.selection };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        if (selectionOperation.current?.id === operation.id) {
+          selectionOperation.current = null;
+          setSelectedProfileId(latestSnapshot.current?.selection.profileId ?? null);
+        }
+        return { error: typedError, ok: false };
+      } finally {
+        if (selectionOperation.current?.id === operation.id) {
+          selectionOperation.current = null;
+        }
+        pending.current = false;
+        setPendingKey(null);
+      }
+    },
+    [acceptSnapshot, resolvedClient],
+  );
 
   const value = useMemo<ProfileContextValue>(
     () => ({
-      activateProfile: (profileId) => {
-        selectProfile(profileId);
+      activateProfile: async (profileId) => {
+        const selected = await selectProfile(profileId);
+        if (!selected.ok) return selected;
         return runActivation("activate", () =>
           resolvedClient.activateProfile(crypto.randomUUID(), profileId),
         );
@@ -475,7 +543,9 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         ) {
           return !profileId || snapshot.activation.targetProfileId === profileId;
         }
-        return pendingKey === operationKey(operation, profileId);
+        return profileId
+          ? pendingKey === operationKey(operation, profileId)
+          : pendingKey === operation || pendingKey?.startsWith(`${operation}:`) === true;
       },
       loadPatches,
       loadRoutes,
@@ -497,6 +567,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       savePreview: (previewId) =>
         runMutation("save", undefined, () => resolvedClient.savePreview(previewId)),
       selectedProfileId,
+      selectedProfileRevision: snapshot?.selection.revision ?? 0,
       selectProfile,
       snapshot,
       stopActiveProfile: () =>
@@ -568,23 +639,4 @@ function activationFailure(
 function toProfileClientError(error: unknown) {
   if (error instanceof ProfileClientError) return error;
   return new ProfileClientError("unknown", "Unknown profile operation failure");
-}
-
-const selectedProfileStorageKey = "mish.selected-profile-id";
-
-function readSelectedProfileId() {
-  try {
-    return window.localStorage.getItem(selectedProfileStorageKey);
-  } catch {
-    return null;
-  }
-}
-
-function persistSelectedProfileId(profileId: string | null) {
-  try {
-    if (profileId) window.localStorage.setItem(selectedProfileStorageKey, profileId);
-    else window.localStorage.removeItem(selectedProfileStorageKey);
-  } catch {
-    // Selection remains available for the current session when storage is unavailable.
-  }
 }

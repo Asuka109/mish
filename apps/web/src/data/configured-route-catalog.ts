@@ -5,6 +5,7 @@ import { useOptionalProfiles } from "./profile-provider";
 export function useConfiguredRouteCatalog(snapshot: StatusSnapshotDto | null) {
   const profiles = useOptionalProfiles();
   const loadRoutes = profiles?.loadRoutes;
+  const selectionRevision = profiles?.selectedProfileRevision ?? 0;
   const configuredProfileId =
     snapshot &&
     snapshot.groups.length === 0 &&
@@ -12,7 +13,10 @@ export function useConfiguredRouteCatalog(snapshot: StatusSnapshotDto | null) {
     profiles?.selectedProfileId
       ? profiles.selectedProfileId
       : null;
-  const [catalog, setCatalog] = useState<ProfileRouteCatalogDto | null>(null);
+  const [catalog, setCatalog] = useState<{
+    catalog: ProfileRouteCatalogDto;
+    selectionRevision: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!configuredProfileId || !loadRoutes) {
@@ -22,14 +26,16 @@ export function useConfiguredRouteCatalog(snapshot: StatusSnapshotDto | null) {
     let cancelled = false;
     void loadRoutes(configuredProfileId).then((result) => {
       if (cancelled || !result.ok) return;
-      setCatalog(result.catalog);
+      setCatalog({ catalog: result.catalog, selectionRevision });
     });
     return () => {
       cancelled = true;
     };
-  }, [configuredProfileId, loadRoutes]);
+  }, [configuredProfileId, loadRoutes, selectionRevision]);
 
-  return configuredProfileId !== null && catalog?.profileId === configuredProfileId
-    ? catalog
+  return configuredProfileId !== null &&
+    catalog?.catalog.profileId === configuredProfileId &&
+    catalog.selectionRevision === selectionRevision
+    ? catalog.catalog
     : null;
 }

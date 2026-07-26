@@ -158,9 +158,18 @@ const fixtureSnapshot = {
     providers: [],
     remotelyCancellable: false,
   },
+  selection: {
+    profileId: "fixture-profile-studio",
+    revision: 1,
+  },
 } satisfies ProfileSnapshotDto;
 
 export class FixtureProfileClient implements ProfileClient {
+  private readonly snapshotListeners = new Set<
+    (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
+  private snapshot = structuredClone(fixtureSnapshot);
+
   activateProfile(
     _commandId: string,
     _profileId: string,
@@ -175,7 +184,9 @@ export class FixtureProfileClient implements ProfileClient {
     return Promise.reject(unsupported());
   }
 
-  dispose() {}
+  dispose() {
+    this.snapshotListeners.clear();
+  }
 
   getConnectionState() {
     return { attempt: 0, phase: "fixture", stale: false } as const;
@@ -183,7 +194,7 @@ export class FixtureProfileClient implements ProfileClient {
 
   async getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto> {
     if (options?.signal?.aborted) throw cancelled();
-    return structuredClone(fixtureSnapshot);
+    return structuredClone(this.snapshot);
   }
 
   async getPatches(
@@ -267,6 +278,34 @@ export class FixtureProfileClient implements ProfileClient {
     throw unsupported();
   }
 
+  async selectProfile(
+    profileId: string,
+    options?: {
+      expectedSelection?: ProfileSnapshotDto["selection"];
+      signal?: AbortSignal;
+    },
+  ): Promise<ProfileSnapshotDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    if (!this.snapshot.profiles.some((profile) => profile.id === profileId)) throw unsupported();
+    if (
+      options?.expectedSelection &&
+      (options.expectedSelection.profileId !== this.snapshot.selection.profileId ||
+        options.expectedSelection.revision !== this.snapshot.selection.revision)
+    ) {
+      return structuredClone(this.snapshot);
+    }
+    if (this.snapshot.selection.profileId !== profileId) {
+      this.snapshot.selection = {
+        profileId,
+        revision: this.snapshot.selection.revision + 1,
+      };
+      this.snapshot.applicationOrder.order += 1;
+      const snapshot = structuredClone(this.snapshot);
+      for (const listener of this.snapshotListeners) listener(snapshot, "update");
+    }
+    return structuredClone(this.snapshot);
+  }
+
   stopActiveProfile(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
     if (options?.signal?.aborted) return Promise.reject(cancelled());
     return Promise.reject(unsupported());
@@ -296,9 +335,10 @@ export class FixtureProfileClient implements ProfileClient {
   }
 
   subscribeSnapshots(
-    _listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+    listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
   ): () => void {
-    return () => undefined;
+    this.snapshotListeners.add(listener);
+    return () => this.snapshotListeners.delete(listener);
   }
 }
 

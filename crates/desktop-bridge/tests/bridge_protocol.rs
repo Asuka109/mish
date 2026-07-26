@@ -2377,6 +2377,174 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
 }
 
 #[tokio::test]
+async fn simultaneous_profile_clients_observe_one_confirmed_selection_revision_order() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("profiles");
+    fs::create_dir_all(&directory).unwrap();
+    const PROFILE: &str = "mode: rule\nproxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n";
+    for name in ["first.yaml", "second.yaml", "third.yaml"] {
+        fs::write(directory.join(name), PROFILE).unwrap();
+    }
+    let service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().to_path_buf()).unwrap());
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    let initial = service.snapshot().unwrap();
+    let initial_id = initial.selection.profile_id.unwrap();
+    let targets = initial
+        .profiles
+        .into_iter()
+        .map(|profile| profile.id)
+        .filter(|profile_id| profile_id != &initial_id)
+        .collect::<Vec<_>>();
+    assert_eq!(targets.len(), 2);
+
+    let mut bridge_config = config();
+    bridge_config.profile_service = Some(service);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+
+    let first_request = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"profiles.select",
+            "params":{"profileId":targets[0]}
+        }),
+    );
+    let second_request = request(
+        &mut second,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"profiles.select",
+            "params":{"profileId":targets[1]}
+        }),
+    );
+    let (first_result, second_result) = tokio::join!(first_request, second_request);
+    let mut ordered = [first_result, second_result];
+    ordered.sort_by_key(|result| result["result"]["selection"]["revision"].as_u64());
+    assert_eq!(ordered[0]["result"]["selection"]["revision"], 2);
+    assert_eq!(ordered[1]["result"]["selection"]["revision"], 3);
+    assert!(
+        ordered
+            .iter()
+            .all(|result| result["result"]["activation"]["phase"] == "idle")
+    );
+
+    let confirmed = request(
+        &mut first,
+        json!({"jsonrpc":"2.0", "id":3, "method":"profiles.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        confirmed["result"]["selection"],
+        ordered[1]["result"]["selection"]
+    );
+    let stale_rollback = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"profiles.select",
+            "params":{
+                "expectedSelection":ordered[0]["result"]["selection"],
+                "profileId":initial_id
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        stale_rollback["result"]["selection"],
+        ordered[1]["result"]["selection"]
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn profile_selection_subscription_publishes_the_same_confirmed_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("profiles");
+    fs::create_dir_all(&directory).unwrap();
+    const PROFILE: &str = "mode: rule\nproxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n";
+    fs::write(directory.join("first.yaml"), PROFILE).unwrap();
+    fs::write(directory.join("second.yaml"), PROFILE).unwrap();
+    let service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().to_path_buf()).unwrap());
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    let initial = service.snapshot().unwrap();
+    let target = initial
+        .profiles
+        .iter()
+        .find(|profile| Some(profile.id.as_str()) != initial.selection.profile_id.as_deref())
+        .unwrap()
+        .id
+        .clone();
+    let safe_runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let activation = Arc::new(ProfileActivationCoordinator::new(
+        service.clone(),
+        Arc::new(MihomoActivationManager::new(
+            ManagedMihomoResolver::development(
+                root.path().join("missing-mihomo"),
+                root.path().join("runtime"),
+            ),
+            ActivationTiming::default(),
+        )),
+        runtime_host.clone(),
+        safe_runtime,
+        || ManagedRuntimePolicy::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 1)), "unused"),
+    ));
+    let mut bridge_config = config();
+    bridge_config.profile_activation = Some(activation.clone());
+    bridge_config.profile_service = Some(service);
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
+        .await
+        .unwrap();
+    let mut observer = socket(bridge.address).await;
+    let mut commander = socket(bridge.address).await;
+    authenticate(&mut observer).await;
+    authenticate(&mut commander).await;
+
+    let subscribed = request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":2, "method":"profiles.subscribe", "params":{}}),
+    )
+    .await;
+    let selected = request(
+        &mut commander,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"profiles.select",
+            "params":{"profileId":target}
+        }),
+    )
+    .await;
+    let notification = next_json(&mut observer).await;
+    assert_eq!(
+        notification["params"]["subscriptionId"],
+        subscribed["result"]["subscriptionId"]
+    );
+    assert_eq!(
+        notification["params"]["snapshot"]["selection"],
+        selected["result"]["selection"]
+    );
+    assert_eq!(
+        notification["params"]["snapshot"]["activation"]["phase"],
+        "idle"
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn authenticated_profile_file_action_opens_the_shared_directory() {
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("profiles");
@@ -2628,10 +2796,24 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
     assert_eq!(before["result"]["capabilities"]["tun"], "unavailable");
     assert_eq!(before["result"]["runtime"]["systemProxy"]["phase"], "off");
 
-    let enabled = request(
+    let rejected_web_authority = request(
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{
+                "active":true,
+                "profileId":"00000000-0000-4000-8000-000000000000",
+                "selection":{"systemProxy":true,"tun":false}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(rejected_web_authority["error"]["code"], -32602);
+
+    let enabled = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
         }),
     )
@@ -2650,7 +2832,7 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
     let tun = request(
         &mut ws,
         json!({
-            "jsonrpc":"2.0", "id":4, "method":"status.setCapture",
+            "jsonrpc":"2.0", "id":5, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
         }),
     )
@@ -2660,7 +2842,7 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
     assert!(tun.get("result").is_none());
     let after_rejected_tun = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":5, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":6, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(

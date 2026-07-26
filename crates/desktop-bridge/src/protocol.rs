@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use mish_profile::{
-    ImportError, ProfilePatch, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError,
-    RepositoryError,
+    ImportError, ProfilePatch, ProfileRefreshPolicy, ProfileRefreshTrigger,
+    ProfileSelectionSnapshot, ProfileServiceError, RepositoryError,
 };
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
@@ -157,6 +157,14 @@ struct ProfileIdParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileSelectParams {
+    #[serde(default)]
+    expected_selection: Option<ProfileSelectionSnapshot>,
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfilePatchAuthorityParams {
     artifact_fingerprint: String,
     profile_id: String,
@@ -239,8 +247,6 @@ struct SetServiceProbeIntervalParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetCaptureParams {
     active: bool,
-    #[serde(default)]
-    profile_id: Option<String>,
     selection: CaptureSelection,
 }
 
@@ -1362,6 +1368,27 @@ async fn handle_message(
                 Err(response) => return Some(response),
             }
         }
+        "profiles.select" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileSelectParams =
+                match serde_json::from_value::<ProfileSelectParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.profile_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            if let Err(error) = service
+                .select_profile_if_current(&params.profile_id, params.expected_selection.as_ref())
+                .await
+            {
+                return Some(profile_error_response(id, error));
+            }
+            publish_profile_update(state).await;
+            match profile_rpc_snapshot(state).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
         "profiles.subscribe" => {
             if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
@@ -1946,7 +1973,6 @@ async fn set_aggregate_capture(
         return activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                params.profile_id.as_deref(),
                 selection,
                 StatusAdapterKind::Rpc,
             )

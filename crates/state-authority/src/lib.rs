@@ -62,6 +62,21 @@ impl StateMutationAuthority {
         })
     }
 
+    pub async fn acquire(&self) -> Result<StateMutationPermit, StateMutationError> {
+        if self.unavailable.load(Ordering::Acquire) {
+            return Err(StateMutationError::Unavailable);
+        }
+        let guard = self.lock.clone().lock_owned().await;
+        if self.unavailable.load(Ordering::Acquire) {
+            drop(guard);
+            return Err(StateMutationError::Unavailable);
+        }
+        Ok(StateMutationPermit {
+            authority_id: self.id,
+            _guard: guard,
+        })
+    }
+
     pub fn validate(&self, permit: &StateMutationPermit) -> Result<(), StateMutationError> {
         if permit.authority_id == self.id {
             Ok(())
@@ -99,5 +114,18 @@ mod tests {
         );
         drop(permit);
         assert!(authority.try_acquire().is_ok());
+    }
+
+    #[tokio::test]
+    async fn queued_permits_are_acquired_in_order() {
+        let authority = StateMutationAuthority::new();
+        let first = authority.acquire().await.unwrap();
+        let queued_authority = authority.clone();
+        let queued = tokio::spawn(async move { queued_authority.acquire().await.unwrap() });
+
+        assert!(!queued.is_finished());
+        drop(first);
+        let second = queued.await.unwrap();
+        assert!(authority.validate(&second).is_ok());
     }
 }

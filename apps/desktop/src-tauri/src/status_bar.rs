@@ -463,7 +463,6 @@ async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: 
             .activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                None,
                 system_proxy_only_capture_selection(),
                 StatusAdapterKind::Native,
             )
