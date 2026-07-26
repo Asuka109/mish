@@ -1,4 +1,5 @@
 import {
+  type ApplicationSnapshotDelivery,
   TrafficClientError,
   type EffectiveRuleDto,
   type TrafficClient,
@@ -118,6 +119,7 @@ const fixtureRules: EffectiveRuleDto[] = [
 const initialSnapshot: TrafficDataSnapshotDto = {
   activeConnections: fixtureConnections,
   adapterKind: "fixture",
+  applicationOrder: { authorityId: "fixture-traffic-application", epoch: 1, order: 1 },
   phase: "ready",
   profileId: "fixture-profile",
   reconnectCount: 0,
@@ -187,7 +189,9 @@ function createRule(
 
 export class FixtureTrafficClient implements TrafficClient {
   private readonly connectionListeners = new Set<(state: TrafficConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: TrafficDataSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private snapshot = structuredClone(initialSnapshot);
   private disposed = false;
 
@@ -235,8 +239,19 @@ export class FixtureTrafficClient implements TrafficClient {
   }
 
   publishSnapshot(snapshot: TrafficDataSnapshotDto) {
-    this.snapshot = structuredClone(snapshot);
-    for (const listener of this.snapshotListeners) listener(structuredClone(snapshot));
+    const next = structuredClone(snapshot);
+    if (
+      next.applicationOrder.authorityId === this.snapshot.applicationOrder.authorityId &&
+      next.applicationOrder.epoch === this.snapshot.applicationOrder.epoch &&
+      next.applicationOrder.order <= this.snapshot.applicationOrder.order &&
+      (next.sessionId !== this.snapshot.sessionId ||
+        next.profileId !== this.snapshot.profileId ||
+        next.sequence >= this.snapshot.sequence)
+    ) {
+      next.applicationOrder.order = this.snapshot.applicationOrder.order + 1;
+    }
+    this.snapshot = next;
+    for (const listener of this.snapshotListeners) listener(structuredClone(next), "update");
   }
 
   subscribeConnection(listener: (state: TrafficConnectionState) => void) {
@@ -245,7 +260,9 @@ export class FixtureTrafficClient implements TrafficClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
   }

@@ -2,19 +2,23 @@ import {
   EventsClientError,
   eventsRpcNotifications,
   mishRpcMethods,
+  type ApplicationSnapshotDelivery,
   type EventsClient,
   type EventsConnectionState,
   type EventsSnapshotDto,
   type EventsSnapshotNotificationDto,
 } from "@mish/contracts";
 import { RpcClient, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
+import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 import { mapRpcError } from "./rpc-status-client";
 
 export type EventsRpcClient = RpcClient<typeof mishRpcMethods>;
 
 export class RpcEventsClient implements EventsClient {
   private readonly connectionListeners = new Set<(state: EventsConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: EventsSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private connectionState: EventsConnectionState;
   private disposed = false;
   private remoteSubscriptionId: string | null = null;
@@ -22,6 +26,7 @@ export class RpcEventsClient implements EventsClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<EventsSnapshotDto>();
 
   constructor(private readonly rpc: EventsRpcClient) {
     this.connectionState = mapConnectionState(rpc.getConnectionState());
@@ -50,9 +55,15 @@ export class RpcEventsClient implements EventsClient {
 
   async getSnapshot(options?: RpcRequestOptions): Promise<EventsSnapshotDto> {
     try {
-      const snapshot = await this.rpc.request("events.getSnapshot", {}, options);
+      const result = this.snapshotAcceptance.accept(
+        await this.rpc.request("events.getSnapshot", {}, options),
+        "request",
+      );
+      if (result.kind === "conflict") {
+        throw new EventsClientError("validation", "Events snapshot order conflict");
+      }
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-      return snapshot;
+      return result.snapshot;
     } catch (error) {
       const mapped = mapRpcError(error);
       throw new EventsClientError(mapped.code, mapped.message, mapped.retryable);
@@ -65,7 +76,9 @@ export class RpcEventsClient implements EventsClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: EventsSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     void this.ensureRemoteSubscription();
     return () => {
@@ -97,7 +110,7 @@ export class RpcEventsClient implements EventsClient {
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId });
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -123,10 +136,19 @@ export class RpcEventsClient implements EventsClient {
     this.emitConnectionState(mapped);
   }
 
-  private receiveSnapshot(notification: EventsSnapshotNotificationDto) {
+  private receiveSnapshot(
+    notification: EventsSnapshotNotificationDto,
+    delivery: ApplicationSnapshotDelivery = "update",
+  ) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return;
+    }
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(notification.snapshot);
+    if (result.kind !== "accepted") return;
+    for (const listener of this.snapshotListeners) listener(result.snapshot, delivery);
   }
 }
 

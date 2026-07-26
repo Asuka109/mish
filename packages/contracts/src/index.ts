@@ -10,6 +10,18 @@ const ProcessAttributionTextSchema = z.string().max(16_384);
 const DecimalIntegerSchema = z.string().regex(/^(0|[1-9]\d*)$/u);
 const SignedDecimalIntegerSchema = z.string().regex(/^-?(0|[1-9]\d*)$/u);
 
+export const ApplicationSnapshotOrderSchema = z
+  .object({
+    authorityId: IdentifierSchema,
+    epoch: NonNegativeIntegerSchema,
+    order: NonNegativeIntegerSchema,
+  })
+  .strict();
+export interface ApplicationSnapshotOrderDto extends z.infer<
+  typeof ApplicationSnapshotOrderSchema
+> {}
+export type ApplicationSnapshotDelivery = "baseline" | "update";
+
 export const RoutingModeSchema = z.enum(["rule", "global", "direct"]);
 export type RoutingMode = z.infer<typeof RoutingModeSchema>;
 
@@ -553,6 +565,7 @@ const TrafficDataSnapshotBaseSchema = z
   .object({
     activeConnections: z.array(TrafficConnectionSchema).max(20_000),
     adapterKind: StatusAdapterKindSchema,
+    applicationOrder: ApplicationSnapshotOrderSchema,
     phase: TrafficDataPhaseSchema,
     profileId: IdentifierSchema,
     reconnectCount: NonNegativeIntegerSchema,
@@ -741,6 +754,7 @@ export interface EventSourceStatusDto extends z.infer<typeof EventSourceStatusSc
 const EventsSnapshotBaseSchema = z
   .object({
     adapterKind: StatusAdapterKindSchema,
+    applicationOrder: ApplicationSnapshotOrderSchema,
     events: z.array(EventRecordSchema).max(1_024),
     phase: EventsDataPhaseSchema,
     profileId: IdentifierSchema,
@@ -1927,6 +1941,7 @@ export const StatusSnapshotSchema = z
   .object({
     activeProfileId: IdentifierSchema,
     adapterKind: StatusAdapterKindSchema,
+    applicationOrder: ApplicationSnapshotOrderSchema,
     capabilities: PlatformCapabilitiesSchema,
     groups: z.array(PolicyGroupSchema),
     groupDelayPolicy: GroupDelayPolicySchema,
@@ -2049,7 +2064,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(25),
+    protocolVersion: z.literal(26),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2389,6 +2404,7 @@ export const ProfileSnapshotSchema = z
   .object({
     activation: ProfileActivationSnapshotSchema,
     adapterKind: z.enum(["fixture", "rpc", "native"]),
+    applicationOrder: ApplicationSnapshotOrderSchema,
     capabilities: ProfileCapabilitiesSchema,
     profiles: z.array(ProfileListItemSchema),
     providers: ProviderSnapshotSchema,
@@ -3148,7 +3164,9 @@ export interface StatusClient {
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   subscribeConnection(listener: (state: StatusConnectionState) => void): () => void;
-  subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void): () => void;
+  subscribeSnapshots(
+    listener: (snapshot: StatusSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void;
   upsertServiceMonitor(
     draft: ServiceMonitorDraft,
     options?: { signal?: AbortSignal },
@@ -3322,7 +3340,9 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProviderCommandResultDto>;
   subscribeConnection(listener: (state: ProfileConnectionState) => void): () => void;
-  subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void): () => void;
+  subscribeSnapshots(
+    listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void;
 }
 
 export interface TrafficClient {
@@ -3349,7 +3369,9 @@ export interface TrafficClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;
   supportsCommand(command: TrafficCommandOperation): boolean;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
-  subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void): () => void;
+  subscribeSnapshots(
+    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void;
 }
 
 export type EventsConnectionState = TrafficConnectionState;
@@ -3371,7 +3393,9 @@ export interface EventsClient {
   getConnectionState(): EventsConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<EventsSnapshotDto>;
   subscribeConnection(listener: (state: EventsConnectionState) => void): () => void;
-  subscribeSnapshots(listener: (snapshot: EventsSnapshotDto) => void): () => void;
+  subscribeSnapshots(
+    listener: (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void;
 }
 
 export interface NotificationClient {

@@ -20,6 +20,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  ApplicationSnapshotAcceptance,
+  type SnapshotDelivery,
+} from "./application-snapshot-acceptance";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import { createFixtureStatusClient } from "./fixture-status-client";
@@ -146,31 +150,44 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const pendingCommands = useRef(new Set<ProductCommand>());
   const commandControllers = useRef(new Map<string, AbortController>());
   const snapshotRef = useRef<StatusSnapshotDto | null>(null);
+  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<StatusSnapshotDto>());
   const localProxyAuthority = snapshot
     ? JSON.stringify([snapshot.activeProfileId, snapshot.runtime.phase])
     : null;
   const localProxyAuthorityRef = useRef<string | null>(null);
+  const acceptSnapshot = useCallback(
+    (nextSnapshot: StatusSnapshotDto, delivery: SnapshotDelivery) => {
+      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (result.kind === "stale" || result.kind === "duplicate") return false;
+      if (result.kind === "conflict") {
+        setLoadFailed(true);
+        return false;
+      }
+      snapshotRef.current = result.snapshot;
+      setSnapshot(result.snapshot);
+      setLoadFailed(false);
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
     localProxyAuthorityRef.current = null;
     snapshotRef.current = null;
+    snapshotAcceptance.current.clear();
     setLocalProxyTest({ phase: "idle" });
     setServiceProbeStates({});
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
-    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
-      snapshotRef.current = nextSnapshot;
-      setSnapshot(nextSnapshot);
-      setLoadFailed(false);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) => {
+      acceptSnapshot(nextSnapshot, delivery ?? "update");
     });
 
     resolvedClient
       .getSnapshot({ signal: controller.signal })
       .then((nextSnapshot) => {
-        snapshotRef.current = nextSnapshot;
-        setSnapshot(nextSnapshot);
-        setLoadFailed(false);
+        acceptSnapshot(nextSnapshot, "request");
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -186,7 +203,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       unsubscribeConnection();
       unsubscribeSnapshots();
     };
-  }, [resolvedClient]);
+  }, [acceptSnapshot, resolvedClient]);
 
   useEffect(() => {
     const previousAuthority = localProxyAuthorityRef.current;
@@ -246,8 +263,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       setCommandStates((states) => ({ ...states, [command]: { phase: "pending" } }));
       try {
         const nextSnapshot = await operation(controller.signal);
-        snapshotRef.current = nextSnapshot;
-        setSnapshot(nextSnapshot);
+        acceptSnapshot(nextSnapshot, "command");
         setCommandStates((states) => ({ ...states, [command]: { phase: "success" } }));
         return { ok: true } satisfies ProductCommandResult;
       } catch (error) {
@@ -259,8 +275,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         }));
         try {
           const nextSnapshot = await resolvedClient.getSnapshot();
-          snapshotRef.current = nextSnapshot;
-          setSnapshot(nextSnapshot);
+          acceptSnapshot(nextSnapshot, "request");
         } catch {
           // Keep the last confirmed snapshot stale when refresh also fails.
         }
@@ -272,7 +287,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         }
       }
     },
-    [resolvedClient],
+    [acceptSnapshot, resolvedClient],
   );
 
   const testLocalProxy = useCallback(async () => {

@@ -14,6 +14,7 @@ mod protocol;
 mod runtime_host;
 mod server;
 mod service_probes;
+mod snapshot_order;
 mod support_bundle;
 
 pub use activation::{

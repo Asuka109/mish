@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CaptureOperationStatus, CaptureRuntimeStatus, CorePhase, CoreStatus, RecentTrafficSnapshot,
-    SystemProxyRuntimeStatus, TunRuntimeStatus,
+    ApplicationSnapshotOrder, CaptureOperationStatus, CaptureRuntimeStatus, CorePhase, CoreStatus,
+    RecentTrafficSnapshot, SystemProxyRuntimeStatus, TunRuntimeStatus,
 };
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
@@ -298,6 +298,7 @@ impl PlatformCapabilities {
 pub struct StatusSnapshot {
     pub active_profile_id: String,
     pub adapter_kind: StatusAdapterKind,
+    pub application_order: ApplicationSnapshotOrder,
     pub capabilities: PlatformCapabilities,
     pub groups: Vec<PolicyGroup>,
     pub group_usage: Vec<GroupUsage>,
@@ -320,6 +321,7 @@ impl StatusSnapshot {
         Self {
             active_profile_id: "local".into(),
             adapter_kind,
+            application_order: ApplicationSnapshotOrder::detached(),
             capabilities: PlatformCapabilities::unavailable(),
             groups: Vec::new(),
             group_usage: Vec::new(),

@@ -66,6 +66,11 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
       targetProfileId: null,
     },
     adapterKind: "rpc",
+    applicationOrder: {
+      authorityId: "profile-application",
+      epoch: 1,
+      order: ++profileSnapshotOrder,
+    },
     capabilities: {
       activation: "supported",
       deletion: "supported",
@@ -128,6 +133,8 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
   };
 }
 
+let profileSnapshotOrder = 0;
+
 async function waitForRequest(transport: FakeTransport, index: number) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (transport.sent[index]) return JSON.parse(transport.sent[index]);
@@ -162,7 +169,11 @@ describe("RpcProfileClient", () => {
     });
     const client = new RpcProfileClient(rpc, null);
     const snapshots: ProfileSnapshotDto[] = [];
-    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+    const deliveries: Array<string | undefined> = [];
+    client.subscribeSnapshots((snapshot, delivery) => {
+      snapshots.push(snapshot);
+      deliveries.push(delivery);
+    });
 
     await authenticate(transport);
     const subscribe = await waitForRequest(transport, 1);
@@ -174,6 +185,7 @@ describe("RpcProfileClient", () => {
     await flushMicrotasks();
 
     expect(snapshots.at(-1)?.capabilities.localFileImport).toBe("unavailable");
+    expect(deliveries).toEqual(["baseline"]);
     await expect(client.preflightLocal()).rejects.toMatchObject({ code: "unsupported" });
 
     const refreshPromise = client.refreshProfile("profile-a");

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct DesktopRuntimeHost {
+    application_snapshots: crate::snapshot_order::ApplicationSnapshotAuthority,
     diagnostics: crate::DiagnosticCoordinator,
     mutation_authority: Option<StateMutationAuthority>,
     runtime: watch::Sender<MishRuntime>,
@@ -56,6 +57,7 @@ impl DesktopRuntimeHost {
     ) -> Self {
         let (runtime, _) = watch::channel(runtime);
         Self {
+            application_snapshots: crate::snapshot_order::ApplicationSnapshotAuthority::new(),
             diagnostics: crate::DiagnosticCoordinator::new(),
             mutation_authority,
             runtime,
@@ -88,6 +90,7 @@ impl DesktopRuntimeHost {
                 .with_notification_center(notifications)
                 .with_recent_traffic(recent_traffic),
         );
+        self.application_snapshots.retire_runtime();
     }
 
     pub fn invalidate_diagnostics(&self) {
@@ -222,10 +225,13 @@ impl DesktopRuntimeHost {
         connection_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
+        let ticket = self
+            .application_snapshots
+            .begin(crate::snapshot_order::SnapshotStream::Traffic);
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let execution = runtime.close_connection(authority, connection_id).await;
-        self.finish_traffic_command(runtime, execution, adapter_kind, changes)
+        self.finish_traffic_command(runtime, execution, adapter_kind, changes, ticket)
     }
 
     pub async fn close_all_active(
@@ -233,10 +239,13 @@ impl DesktopRuntimeHost {
         authority: TrafficCommandAuthority,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
+        let ticket = self
+            .application_snapshots
+            .begin(crate::snapshot_order::SnapshotStream::Traffic);
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let execution = runtime.close_all_active(authority).await;
-        self.finish_traffic_command(runtime, execution, adapter_kind, changes)
+        self.finish_traffic_command(runtime, execution, adapter_kind, changes, ticket)
     }
 
     pub async fn close_filtered_visible(
@@ -245,12 +254,15 @@ impl DesktopRuntimeHost {
         connection_ids: Vec<String>,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
+        let ticket = self
+            .application_snapshots
+            .begin(crate::snapshot_order::SnapshotStream::Traffic);
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let execution = runtime
             .close_filtered_visible(authority, connection_ids)
             .await;
-        self.finish_traffic_command(runtime, execution, adapter_kind, changes)
+        self.finish_traffic_command(runtime, execution, adapter_kind, changes, ticket)
     }
 
     pub async fn set_routing_mode(
@@ -323,6 +335,25 @@ impl DesktopRuntimeHost {
         adapter_kind: StatusAdapterKind,
     ) -> mish_runtime::StatusSnapshot {
         loop {
+            let ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Status);
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let mut snapshot = runtime.status_snapshot_typed(adapter_kind).await;
+            if !changes.has_changed().unwrap_or(false) {
+                self.application_snapshots
+                    .stamp_status(ticket, &mut snapshot);
+                return snapshot;
+            }
+        }
+    }
+
+    pub(crate) async fn status_snapshot_unordered_typed(
+        &self,
+        adapter_kind: StatusAdapterKind,
+    ) -> mish_runtime::StatusSnapshot {
+        loop {
             let mut changes = self.subscribe_changes();
             let runtime = changes.borrow_and_update().clone();
             let snapshot = runtime.status_snapshot_typed(adapter_kind).await;
@@ -339,13 +370,23 @@ impl DesktopRuntimeHost {
         &self,
     ) -> (StatusSnapshot, mish_runtime::TrafficDataSnapshot) {
         loop {
+            let status_ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Status);
+            let traffic_ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Traffic);
             let mut changes = self.subscribe_changes();
             let runtime = changes.borrow_and_update().clone();
-            let status = runtime
+            let mut status = runtime
                 .status_snapshot_typed(StatusAdapterKind::Native)
                 .await;
-            let traffic = runtime.traffic_snapshot_typed(StatusAdapterKind::Native);
+            let mut traffic = runtime.traffic_snapshot_typed(StatusAdapterKind::Native);
             if !changes.has_changed().unwrap_or(false) {
+                self.application_snapshots
+                    .stamp_status(status_ticket, &mut status);
+                self.application_snapshots
+                    .stamp_traffic(traffic_ticket, &mut traffic);
                 return (status, traffic);
             }
         }
@@ -361,10 +402,15 @@ impl DesktopRuntimeHost {
         adapter_kind: StatusAdapterKind,
     ) -> mish_runtime::TrafficDataSnapshot {
         loop {
+            let ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Traffic);
             let mut changes = self.subscribe_changes();
             let runtime = changes.borrow_and_update().clone();
-            let snapshot = runtime.traffic_snapshot_typed(adapter_kind);
+            let mut snapshot = runtime.traffic_snapshot_typed(adapter_kind);
             if !changes.has_changed().unwrap_or(false) {
+                self.application_snapshots
+                    .stamp_traffic(ticket, &mut snapshot);
                 return snapshot;
             }
         }
@@ -399,7 +445,50 @@ impl DesktopRuntimeHost {
     }
 
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
-        self.current().events_snapshot(adapter_kind)
+        serde_json::to_value(self.events_snapshot_typed(adapter_kind))
+            .expect("Events state must serialize")
+    }
+
+    pub fn events_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
+        loop {
+            let ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Events);
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let mut snapshot = runtime.events_snapshot_typed(adapter_kind);
+            if !changes.has_changed().unwrap_or(false) {
+                self.application_snapshots
+                    .stamp_events(ticket, &mut snapshot);
+                return snapshot;
+            }
+        }
+    }
+
+    pub(crate) fn begin_profile_snapshot(&self) -> crate::snapshot_order::SnapshotTicket {
+        self.application_snapshots
+            .begin(crate::snapshot_order::SnapshotStream::Profiles)
+    }
+
+    pub(crate) fn stamp_profile_snapshot(
+        &self,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        snapshot: &mut crate::ManagedProfileSnapshot,
+    ) {
+        self.application_snapshots.stamp_profiles(ticket, snapshot);
+    }
+
+    pub(crate) fn begin_status_snapshot(&self) -> crate::snapshot_order::SnapshotTicket {
+        self.application_snapshots
+            .begin(crate::snapshot_order::SnapshotStream::Status)
+    }
+
+    pub(crate) fn stamp_status_snapshot(
+        &self,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        snapshot: &mut StatusSnapshot,
+    ) {
+        self.application_snapshots.stamp_status(ticket, snapshot);
     }
 
     pub fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
@@ -447,12 +536,22 @@ impl DesktopRuntimeHost {
         adapter_kind: StatusAdapterKind,
     ) -> (CoreStatus, StatusSnapshot, EventsSnapshot) {
         loop {
+            let status_ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Status);
+            let events_ticket = self
+                .application_snapshots
+                .begin(crate::snapshot_order::SnapshotStream::Events);
             let mut changes = self.subscribe_changes();
             let runtime = changes.borrow_and_update().clone();
             let core = runtime.core_status().await;
-            let status = runtime.snapshot_typed_from_status(&core, adapter_kind);
-            let events = runtime.events_snapshot_typed(adapter_kind);
+            let mut status = runtime.snapshot_typed_from_status(&core, adapter_kind);
+            let mut events = runtime.events_snapshot_typed(adapter_kind);
             if !changes.has_changed().unwrap_or(false) {
+                self.application_snapshots
+                    .stamp_status(status_ticket, &mut status);
+                self.application_snapshots
+                    .stamp_events(events_ticket, &mut events);
                 return (core, status, events);
             }
         }
@@ -464,6 +563,7 @@ impl DesktopRuntimeHost {
         execution: TrafficCommandExecution,
         adapter_kind: StatusAdapterKind,
         mut changes: watch::Receiver<MishRuntime>,
+        mut ticket: crate::snapshot_order::SnapshotTicket,
     ) -> Value {
         let mut runtime_replaced = changes.has_changed().unwrap_or(true);
         let notification_key = format!("traffic.operation-failed:{}", Uuid::new_v4());
@@ -472,6 +572,9 @@ impl DesktopRuntimeHost {
             let current = changes.borrow_and_update().clone();
             runtime_replaced |= !runtime.is_same_instance(&current);
             let execution = if runtime_replaced {
+                ticket = self
+                    .application_snapshots
+                    .begin(crate::snapshot_order::SnapshotStream::Traffic);
                 TrafficCommandExecution::failure(
                     execution.operation,
                     TrafficCommandFailureKind::RuntimeReplaced,
@@ -502,11 +605,11 @@ impl DesktopRuntimeHost {
                     severity: mish_runtime::NotificationSeverity::Error,
                 });
             }
-            let result = serde_json::to_value(TrafficCommandResult::new(
-                execution,
-                current.traffic_snapshot_typed(adapter_kind),
-            ))
-            .expect("Traffic command result must serialize");
+            let mut snapshot = current.traffic_snapshot_typed(adapter_kind);
+            self.application_snapshots
+                .stamp_traffic(ticket, &mut snapshot);
+            let result = serde_json::to_value(TrafficCommandResult::new(execution, snapshot))
+                .expect("Traffic command result must serialize");
             if !changes.has_changed().unwrap_or(true) {
                 return result;
             }

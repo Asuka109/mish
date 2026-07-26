@@ -1,11 +1,35 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempDisposableSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { resolveStableCargo } from "./manage-macos-tun-service.ts";
+import {
+  buildDevelopmentServiceUninstallScript,
+  resolveStableCargo,
+} from "./manage-macos-tun-service.ts";
+
+function writePinnedCoreFixture(workspace: string) {
+  const sourceCore = path.join(workspace, ".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
+  const contents = "#!/bin/sh\nprintf 'Mihomo Meta v1.19.29 darwin arm64\\n'\n";
+  mkdirSync(path.dirname(sourceCore), { recursive: true });
+  writeFileSync(sourceCore, contents);
+  chmodSync(sourceCore, 0o755);
+  const manifest = {
+    schemaVersion: 1,
+    repository: "MetaCubeX/mihomo",
+    version: "v1.19.29",
+    asset: "mihomo-darwin-arm64-v1.19.29.gz",
+    archiveSha256: "a".repeat(64),
+    binarySha256: createHash("sha256").update(contents).digest("hex"),
+  };
+  const manifestPath = path.join(workspace, "resources/mihomo/macos-arm64.json");
+  mkdirSync(path.dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  return { manifestPath, sourceCore };
+}
 
 function discoveryFixture(executables: string[], output: string) {
   const calls: Array<{ args: string[]; executable: string }> = [];
@@ -100,6 +124,28 @@ test("reports bounded typed failures for unavailable, invalid, malformed, and ab
   );
 });
 
+test("uninstall moves only fixed service targets into a recoverable Trash quarantine", () => {
+  const script = buildDevelopmentServiceUninstallScript(
+    501,
+    20,
+    "/Users/developer/.Trash/Mish Core Host Uninstall fixture",
+  );
+
+  assert.match(script, /launchctl' 'bootout' 'system\/com\.asuka109\.mish\.tun-helper\.dev/u);
+  for (const target of [
+    "/Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist",
+    "/Library/PrivilegedHelperTools/com.asuka109.mish.tun-helper.dev",
+    "/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev",
+    "/var/run/com.asuka109.mish.tun-helper.501.sock",
+    "/var/run/com.asuka109.mish.tun-helper.501.sock.state",
+  ]) {
+    assert.ok(script.includes(`'${target}'`));
+  }
+  assert.match(script, /'\/bin\/mv'/u);
+  assert.match(script, /'\/usr\/sbin\/chown' '-R' '501:20'/u);
+  assert.doesNotMatch(script, /\/bin\/rm|\/usr\/bin\/trash/u);
+});
+
 test(
   "prepares with injected executables without authorization, installation, Core download, or network mutation",
   { skip: process.platform !== "darwin" },
@@ -110,14 +156,8 @@ test(
     const cargo = path.join(tools, "cargo stable");
     const rustup = path.join(tools, "rustup");
     const commandLog = path.join(workspace, "commands.log");
-    const sourceCore = path.join(
-      workspace,
-      ".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29",
-    );
-    mkdirSync(path.dirname(sourceCore), { recursive: true });
+    writePinnedCoreFixture(workspace);
     mkdirSync(tools, { recursive: true });
-    writeFileSync(sourceCore, "fixture core");
-    chmodSync(sourceCore, 0o755);
     writeFileSync(
       cargo,
       `#!/bin/sh\nprintf 'cargo:%s\\n' "$*" >> '${commandLog}'\nmkdir -p target/debug\nprintf helper > target/debug/mish-tun-helper\nchmod 755 target/debug/mish-tun-helper\n`,
@@ -146,7 +186,7 @@ test(
     assert.deepEqual(JSON.parse(result.stdout), { ok: true, stage: "prepared" });
     assert.deepEqual(readFileSync(commandLog, "utf8").trim().split("\n"), [
       "rustup:which cargo --toolchain stable",
-      "cargo:build -p mish-platform-macos --bin mish-tun-helper",
+      "cargo:build -p mish-platform-macos --features development-core-host --bin mish-tun-helper --bin mish-core-host-ctl",
     ]);
   },
 );
@@ -159,13 +199,7 @@ test(
     const workspace = temporary.path;
     const rustup = path.join(workspace, "rustup");
     const cargo = path.join(workspace, "cargo");
-    const sourceCore = path.join(
-      workspace,
-      ".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29",
-    );
-    mkdirSync(path.dirname(sourceCore), { recursive: true });
-    writeFileSync(sourceCore, "fixture core");
-    chmodSync(sourceCore, 0o755);
+    writePinnedCoreFixture(workspace);
     writeFileSync(cargo, "#!/bin/sh\nexit 1\n");
     writeFileSync(rustup, `#!/bin/sh\nprintf '%s\\n' '${cargo}'\n`);
     chmodSync(cargo, 0o755);
@@ -190,6 +224,42 @@ test(
       kind: "preparation-failed",
       ok: false,
       stage: "helper-build",
+    });
+  },
+);
+
+test(
+  "rejects a replaced pinned Core before toolchain discovery or authorization",
+  { skip: process.platform !== "darwin" },
+  () => {
+    using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish core digest failure "));
+    const workspace = temporary.path;
+    const { sourceCore } = writePinnedCoreFixture(workspace);
+    writeFileSync(
+      sourceCore,
+      "#!/bin/sh\nprintf 'Mihomo Meta v1.19.29 darwin arm64 replaced\\n'\n",
+    );
+    chmodSync(sourceCore, 0o755);
+
+    const result = spawnSync(
+      process.execPath,
+      [path.resolve("scripts/manage-macos-tun-service.ts"), "prepare"],
+      {
+        cwd: workspace,
+        encoding: "utf8",
+        env: {
+          HOME: path.join(workspace, "home"),
+          PATH: process.env.PATH,
+        },
+      },
+    );
+
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      code: "pinned-core-digest-mismatch",
+      kind: "preparation-failed",
+      ok: false,
+      stage: "core-artifact",
     });
   },
 );

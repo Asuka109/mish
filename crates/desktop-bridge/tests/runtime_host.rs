@@ -165,6 +165,7 @@ impl EventsDataSource for ProfileSource {
     fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
         EventsSnapshot {
             adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             events: vec![EventRecord {
                 application: Some(mish_runtime::ApplicationEvent::new(
                     mish_runtime::ApplicationEventContent::ControllerSessionStarted(
