@@ -1,6 +1,6 @@
 # Mish Documentation
 
-Refreshed 2026-07-23 against `main` at `cbe281c`.
+Refreshed 2026-07-27 against `main` at `1a6fb1b`.
 
 Load the smallest document set that answers the task. Code, tests, manifests,
 and CI describe current implementation; product and architecture documents
@@ -11,6 +11,7 @@ of treating an implementation accident as intent.
 
 | Task                      | Read first                                                                                       | Then, only if needed                                                                                                                                                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current repository state  | [`current-state.md`](current-state.md)                                                           | The area-specific architecture, operations, and quality contract linked from the checkpoint                                                                                                                                  |
 | Product behavior or copy  | [`../PRODUCT.md`](../PRODUCT.md)                                                                 | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                             |
 | Visual/UI work            | [`../DESIGN.md`](../DESIGN.md)                                                                   | [`architecture/tailwind-variants.md`](architecture/tailwind-variants.md), [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md) |
 | Local development         | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                             |

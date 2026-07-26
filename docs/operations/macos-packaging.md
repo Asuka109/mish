@@ -5,10 +5,13 @@ requests run the bounded `check:pr` gate but never build or upload an app
 archive. Daily and manual inspection own complete validation. Packaging remains
 independent, so a failed application build cannot reach artifact upload.
 
-The latest `cbe281c` package run did not start either hosted package job because
-the private repository's Actions quota or billing state blocked them. This
-leaves current CI artifact evidence unavailable; it is not evidence of a product
-implementation failure and does not establish future Actions capacity.
+The latest reviewed `main` package run for `1a6fb1b`
+([CI run 30214824233](https://github.com/Asuka109/mish/actions/runs/30214824233))
+created both hosted package jobs, but each completed with zero executed steps.
+The repository's current Actions account state therefore still leaves CI
+packaging unavailable. This leaves current CI artifact evidence unavailable; it
+is not evidence of a product implementation failure and does not establish
+future Actions capacity.
 
 ## Alpha ad-hoc DMG
 

@@ -88,6 +88,15 @@ still fails closed and never selects fixtures.
    private WebKit presentation APIs.
    Before that reveal, the shell restores only a valid on-screen size, position,
    and maximized state. A previous hidden state is never restored.
+
+   The reviewed desktop CSP permits self-hosted scripts but not inline scripts.
+   The appearance initializer in `apps/web/index.html` is inline and is
+   therefore blocked in the desktop WebView. Reveal and React bootstrap still
+   proceed, but the placeholder cannot reliably select the persisted dark
+   surface before the application bundle runs. This is a current integration
+   concern: the initializer needs a CSP-compatible hash or nonce, or must become
+   an external bundled script.
+
 10. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
     non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
     JSON-RPC authentication message.

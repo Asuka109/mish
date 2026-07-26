@@ -115,6 +115,23 @@ Profile, register login startup, or change System Proxy or TUN in the current
 process. Old settings schemas are not migrated into this three-state model;
 unsupported storage recovers to the safe `off` default.
 
+### Internal-Testing Compatibility Boundary
+
+The reviewed schema-11 loader has no schema-10 migration path. Earlier
+current-shape files also stored `launchProxyWhenMishLaunches`, while schema 11
+requires `launchBehavior` and rejects unknown fields. Those records therefore
+enter whole-file safe recovery rather than preserving unrelated preferences and
+defaulting only application launch behavior to `off`.
+
+Mish is currently a rapidly changing internal test build. Compatibility across
+internal settings schemas and behavior revisions is not a product requirement,
+so this whole-record recovery is an accepted stage boundary rather than a
+migration defect. It can reset language, appearance, managed ports, onboarding
+dismissal, process discovery, System Proxy takeover policy, and window
+behavior. A future compatibility or public-release milestone must define its
+supported upgrade window and add the corresponding bounded migrations before
+claiming preference preservation.
+
 On a later application launch, after the native bridge and status observers are
 installed, `core` asks `ProfileActivationCoordinator` to activate the last
 successfully activated Profile and leaves capture disabled. `proxy` performs
