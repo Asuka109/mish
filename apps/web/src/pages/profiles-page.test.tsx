@@ -69,6 +69,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
       targetProfileId: null,
     },
     adapterKind: "rpc",
+    applicationOrder: { authorityId: "profiles-page-application", epoch: 1, order: 1 },
     capabilities: {
       activation: "supported",
       deletion: "supported",

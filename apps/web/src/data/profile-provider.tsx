@@ -24,6 +24,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  ApplicationSnapshotAcceptance,
+  type SnapshotDelivery,
+} from "./application-snapshot-acceptance";
 import { createFixtureProfileClient } from "./fixture-profile-client";
 
 export type ProfileOperation =
@@ -125,6 +129,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     id: string;
     profileId: string;
   } | null>(null);
+  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<ProfileSnapshotDto>());
   const activationWaiters = useRef(
     new Map<
       string,
@@ -135,43 +140,60 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     >(),
   );
 
-  const acceptSnapshot = useCallback((nextSnapshot: ProfileSnapshotDto) => {
-    const current = latestSnapshot.current;
-    const acceptedSelection =
-      current && nextSnapshot.selection.revision < current.selection.revision
-        ? current.selection
-        : current &&
-            nextSnapshot.selection.revision === current.selection.revision &&
-            nextSnapshot.selection.profileId !== current.selection.profileId
+  const acceptSnapshot = useCallback(
+    (nextSnapshot: ProfileSnapshotDto, delivery: SnapshotDelivery) => {
+      const current = latestSnapshot.current;
+      const authorityChangedAtBaseline =
+        delivery === "baseline" &&
+        current !== null &&
+        nextSnapshot.applicationOrder.authorityId !== current.applicationOrder.authorityId;
+      const acceptedSelection =
+        !authorityChangedAtBaseline &&
+        current &&
+        (nextSnapshot.selection.revision < current.selection.revision ||
+          (nextSnapshot.selection.revision === current.selection.revision &&
+            nextSnapshot.selection.profileId !== current.selection.profileId))
           ? current.selection
           : nextSnapshot.selection;
-    const acceptedSnapshot =
-      acceptedSelection === nextSnapshot.selection
-        ? nextSnapshot
-        : { ...nextSnapshot, selection: acceptedSelection };
-    latestSnapshot.current = acceptedSnapshot;
-    setSnapshot(acceptedSnapshot);
-    setError(null);
-    const operation = selectionOperation.current;
-    if (!operation || acceptedSelection.revision > operation.baseRevision) {
-      selectionOperation.current = null;
-      setSelectedProfileId(acceptedSelection.profileId);
-    }
-    const activation = acceptedSnapshot.activation;
-    if (activation.phase === "pending" || !activation.commandId) return;
-    const waiter = activationWaiters.current.get(activation.commandId);
-    if (!waiter) return;
-    activationWaiters.current.delete(activation.commandId);
-    waiter.resolve(activation);
-  }, []);
+      if (acceptedSelection !== nextSnapshot.selection) {
+        nextSnapshot = { ...nextSnapshot, selection: acceptedSelection };
+      }
+      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (result.kind === "stale" || result.kind === "duplicate") return false;
+      if (result.kind === "conflict") {
+        setError(new ProfileClientError("validation", "Profile snapshot order conflict"));
+        return false;
+      }
+      nextSnapshot = result.snapshot;
+      latestSnapshot.current = nextSnapshot;
+      setSnapshot(nextSnapshot);
+      setError(null);
+      const operation = selectionOperation.current;
+      if (!operation || acceptedSelection.revision > operation.baseRevision) {
+        selectionOperation.current = null;
+        setSelectedProfileId(acceptedSelection.profileId);
+      }
+      const activation = nextSnapshot.activation;
+      if (activation.phase === "pending" || !activation.commandId) return true;
+      const waiter = activationWaiters.current.get(activation.commandId);
+      if (!waiter) return true;
+      activationWaiters.current.delete(activation.commandId);
+      waiter.resolve(activation);
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
+    snapshotAcceptance.current.clear();
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
-    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots(acceptSnapshot);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) =>
+      acceptSnapshot(nextSnapshot, delivery ?? "update"),
+    );
     resolvedClient
       .getSnapshot({ signal: controller.signal })
-      .then(acceptSnapshot)
+      .then((nextSnapshot) => acceptSnapshot(nextSnapshot, "request"))
       .catch((failure) => {
         if (controller.signal.aborted) return;
         setError(toProfileClientError(failure));
@@ -198,14 +220,14 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       setPendingKey(operationKey(operation, profileId));
       setError(null);
       try {
-        acceptSnapshot(await mutate());
+        acceptSnapshot(await mutate(), "command");
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
         setError(typedError);
         if (operation === "refresh") {
           try {
-            acceptSnapshot(await resolvedClient.getSnapshot());
+            acceptSnapshot(await resolvedClient.getSnapshot(), "request");
           } catch {
             // Keep the previous safe snapshot when reconciliation also fails.
           }
@@ -336,7 +358,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       setError(null);
       try {
         const editor = await resolvedClient.replacePatches(authority, patches);
-        acceptSnapshot(await resolvedClient.getSnapshot());
+        acceptSnapshot(await resolvedClient.getSnapshot(), "request");
         return { editor, ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
@@ -368,7 +390,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         const alreadyCompleted =
           current?.activation.commandId === activation.commandId &&
           current.activation.phase !== "pending";
-        if (current && !alreadyCompleted) acceptSnapshot({ ...current, activation });
+        if (current && !alreadyCompleted) {
+          const optimistic = { ...current, activation };
+          latestSnapshot.current = optimistic;
+          setSnapshot(optimistic);
+        }
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
@@ -448,7 +474,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         const confirmed = await resolvedClient.selectProfile(profileId, {
           expectedSelection,
         });
-        acceptSnapshot(confirmed);
+        acceptSnapshot(confirmed, "command");
         if (expectedSelection && confirmed.selection.profileId !== profileId) {
           return conflict();
         }

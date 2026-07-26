@@ -1,5 +1,6 @@
 import {
   ProfileClientError,
+  type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePatchAuthorityDto,
@@ -28,6 +29,7 @@ const fixtureSnapshot = {
     targetProfileId: null,
   },
   adapterKind: "fixture",
+  applicationOrder: { authorityId: "fixture-profile-application", epoch: 1, order: 1 },
   capabilities: {
     activation: "unavailable",
     deletion: "fixture-only",
@@ -163,7 +165,9 @@ const fixtureSnapshot = {
 } satisfies ProfileSnapshotDto;
 
 export class FixtureProfileClient implements ProfileClient {
-  private readonly snapshotListeners = new Set<(snapshot: ProfileSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private snapshot = structuredClone(fixtureSnapshot);
 
   activateProfile(
@@ -295,8 +299,9 @@ export class FixtureProfileClient implements ProfileClient {
         profileId,
         revision: this.snapshot.selection.revision + 1,
       };
+      this.snapshot.applicationOrder.order += 1;
       const snapshot = structuredClone(this.snapshot);
-      for (const listener of this.snapshotListeners) listener(snapshot);
+      for (const listener of this.snapshotListeners) listener(snapshot, "update");
     }
     return structuredClone(this.snapshot);
   }
@@ -329,7 +334,9 @@ export class FixtureProfileClient implements ProfileClient {
     return () => undefined;
   }
 
-  subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void): () => void {
+  subscribeSnapshots(
+    listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
   }

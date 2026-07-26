@@ -20,6 +20,10 @@ Controller observation session and command target. `recentTraffic` instead
 identifies one aggregate capture session and contains only numeric totals,
 rates, and paired monotonic samples. Neither identity substitutes for the
 other, and protocol version 24 leaves this detailed Interface unchanged.
+Protocol version 25 adds the shared parent `applicationOrder` envelope without
+changing detailed Traffic session, sequence, command targeting, Closed-history,
+or pause semantics. A higher parent runtime epoch authorizes session
+replacement; a merely different `sessionId` does not.
 
 ## Snapshot shape
 

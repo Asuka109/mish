@@ -1,6 +1,7 @@
 import type {
   CaptureSelectionDto,
   CaptureRecoveryAction,
+  ApplicationSnapshotDelivery,
   LocalProxyTestResultDto,
   ServiceMonitorDto,
   ServiceMonitorDraft,
@@ -74,6 +75,7 @@ const largeFixtureNodes = Array.from({ length: 160 }, (_, index) => {
 const initialSnapshot: StatusSnapshotDto = {
   adapterKind: "fixture",
   activeProfileId: "home",
+  applicationOrder: { authorityId: "fixture-status-application", epoch: 1, order: 1 },
   capabilities: {
     systemProxy: "fixture-only",
     tun: "fixture-only",
@@ -321,7 +323,9 @@ export class FixtureStatusClient implements StatusClient {
   private snapshot = cloneSnapshot(initialSnapshot);
   private recentTrafficSession = 0;
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: StatusSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
 
   dispose() {
     this.connectionListeners.clear();
@@ -338,7 +342,9 @@ export class FixtureStatusClient implements StatusClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: StatusSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
   }
@@ -348,8 +354,9 @@ export class FixtureStatusClient implements StatusClient {
   }
 
   private async snapshotAfterCommand() {
+    this.snapshot.applicationOrder.order += 1;
     const snapshot = await this.getSnapshot();
-    for (const listener of this.snapshotListeners) listener(snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot, "update");
     return snapshot;
   }
 

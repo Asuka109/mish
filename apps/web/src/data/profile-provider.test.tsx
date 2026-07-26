@@ -59,6 +59,7 @@ class SelectionRaceClient extends FixtureProfileClient {
 
   confirm(profileId: string, revision: number) {
     this.snapshotState.selection = { profileId, revision };
+    this.snapshotState.applicationOrder.order = revision;
     const snapshot = structuredClone(this.snapshotState);
     for (const listener of this.listeners) listener(snapshot);
   }
@@ -69,6 +70,10 @@ class SelectionRaceClient extends FixtureProfileClient {
     this.pending = undefined;
     pending.resolve({
       ...structuredClone(this.snapshotState),
+      applicationOrder: {
+        ...this.snapshotState.applicationOrder,
+        order: revision,
+      },
       selection: { profileId, revision },
     });
   }

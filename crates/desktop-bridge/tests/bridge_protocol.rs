@@ -152,6 +152,7 @@ impl TrafficDataSource for ProcessIconDataSource {
                 upload_bytes: "0".into(),
             }],
             adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             phase: TrafficDataPhase::Ready,
             profile_id: "local".into(),
             reconnect_count: 0,

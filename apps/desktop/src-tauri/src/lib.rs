@@ -854,14 +854,16 @@ fn initialize(
     LocalBackupService::recover_pending(&profile_root)
         .map_err(|error| io::Error::other(error.to_string()))?;
     let mutation_authority = StateMutationAuthority::new();
+    #[cfg(feature = "development-core-host")]
     let development_tun_service = (cfg!(target_os = "macos") && tauri::is_dev()).then(|| {
         Arc::new(MacOsTunServiceClient::development_with_lifecycle(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
         ))
     });
-    let tun_helper = Arc::new(TunHelperController::new(match &development_tun_service {
-        Some(service) => service.clone(),
-        None => match production_team_identifier() {
+    #[cfg(not(feature = "development-core-host"))]
+    let development_tun_service: Option<Arc<MacOsTunServiceClient>> = None;
+    let tun_helper = Arc::new(TunHelperController::new(
+        match production_team_identifier() {
             Some(team_identifier) if cfg!(target_os = "macos") => {
                 Arc::new(MacOsProductionTunHelperPlatform::system(team_identifier))
             }
@@ -871,7 +873,7 @@ fn initialize(
                 MacOsTunHelperBoundary::Unpackaged
             })),
         },
-    }));
+    ));
     let settings_service = Arc::new(
         SettingsService::load_with_platforms_and_authority_and_build(
             Arc::new(FileSettingsRepository::new(
@@ -902,15 +904,13 @@ fn initialize(
     let bridge = tauri::async_runtime::block_on(async {
         tun_helper.refresh().await;
         let development_service_ready = match development_tun_service.as_ref() {
-            Some(service) if tun_helper.snapshot().is_healthy() => {
-                match service.prepare_development_startup().await {
-                    DevelopmentTunStartup::Ready => true,
-                    DevelopmentTunStartup::ReadOnly(failure) => {
-                        tun_helper.mark_runtime_unavailable(failure);
-                        false
-                    }
+            Some(service) => match service.prepare_development_startup().await {
+                DevelopmentTunStartup::Ready => true,
+                DevelopmentTunStartup::ReadOnly(failure) => {
+                    tun_helper.mark_runtime_unavailable(failure);
+                    false
                 }
-            }
+            },
             _ => false,
         };
         let startup_mihomo = development_service_ready
@@ -1238,17 +1238,24 @@ fn open_main_webview_inspector(
 /// so the WebView and native status UI observe one lifecycle instead of maintaining local loaders.
 fn launch_proxy_on_application_start(
     activation: Arc<ProfileActivationCoordinator>,
-    selection: CaptureSelection,
+    _selection: CaptureSelection,
 ) {
     tauri::async_runtime::spawn(async move {
         let _ = activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                selection,
+                system_proxy_only_capture_selection(),
                 RuntimeStatusAdapterKind::Rpc,
             )
             .await;
     });
+}
+
+fn system_proxy_only_capture_selection() -> CaptureSelection {
+    CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    }
 }
 
 fn production_team_identifier() -> Option<&'static str> {
@@ -1784,7 +1791,8 @@ mod tests {
         generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
         production_team_identifier_for_profile, read_local_backup, release_profile_evidence,
         resolve_devtools_behavior, save_support_bundle_selection, should_intercept_exit_request,
-        should_show_main_window, validate_development_mihomo_environment,
+        should_show_main_window, system_proxy_only_capture_selection,
+        validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1797,6 +1805,13 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn automatic_desktop_launch_is_system_proxy_only() {
+        let selection = system_proxy_only_capture_selection();
+        assert!(selection.system_proxy);
+        assert!(!selection.tun);
     }
 
     #[test]

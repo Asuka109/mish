@@ -48,8 +48,15 @@ class FakeTransport implements WebSocketLike {
 }
 
 function eventsSnapshot(overrides: Partial<EventsSnapshotDto> = {}): EventsSnapshotDto {
+  const sessionId = overrides.sessionId ?? "events-session-1";
+  const epoch = Number(sessionId?.match(/(\d+)$/u)?.[1] ?? 1);
   return {
     adapterKind: "rpc",
+    applicationOrder: {
+      authorityId: "events-application",
+      epoch,
+      order: overrides.sequence ?? 1,
+    },
     events: [],
     phase: "ready",
     profileId: "fixture-profile",
@@ -102,8 +109,12 @@ describe("RpcEventsClient", () => {
     });
     const client = new RpcEventsClient(rpc);
     const snapshots: EventsSnapshotDto[] = [];
+    const deliveries: Array<string | undefined> = [];
     const states: string[] = [];
-    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+    client.subscribeSnapshots((snapshot, delivery) => {
+      snapshots.push(snapshot);
+      deliveries.push(delivery);
+    });
     client.subscribeConnection((state) => states.push(`${state.phase}:${state.stale}`));
 
     await authenticate(transports[0]);
@@ -115,6 +126,7 @@ describe("RpcEventsClient", () => {
     });
     await flushMicrotasks();
     expect(snapshots.at(-1)?.sessionId).toBe("events-session-1");
+    expect(deliveries).toEqual(["baseline"]);
 
     transports[0].close(1006, "gap");
     expect(states.at(-1)).toContain("true");
@@ -136,6 +148,7 @@ describe("RpcEventsClient", () => {
     await flushMicrotasks();
 
     expect(snapshots.at(-1)?.sessionId).toBe("events-session-2");
+    expect(deliveries).toEqual(["baseline", "baseline"]);
     expect(states.at(-1)).toBe("connected:false");
     client.dispose();
     rpc.dispose();

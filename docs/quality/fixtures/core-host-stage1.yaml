@@ -1,0 +1,10 @@
+mixed-port: 17891
+external-controller: 127.0.0.1:19091
+secret: mish-stage1-local-acceptance
+mode: direct
+tun:
+  enable: false
+proxies: []
+proxy-groups: []
+rules:
+  - MATCH,DIRECT

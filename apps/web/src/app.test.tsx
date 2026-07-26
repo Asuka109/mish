@@ -563,6 +563,7 @@ async function createCompletingActivationProfileClient(
   }
   const listeners = new Set<(nextSnapshot: ProfileSnapshotDto) => void>();
   const publish = () => {
+    snapshot.applicationOrder.order += 1;
     const nextSnapshot = structuredClone(snapshot);
     for (const listener of listeners) listener(nextSnapshot);
   };
@@ -756,6 +757,7 @@ class MutableLocalProxyClient extends LocalProxyPhaseClient {
   private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
 
   publish(snapshot: StatusSnapshotDto) {
+    snapshot.applicationOrder.order += 1;
     for (const listener of this.listeners) listener(structuredClone(snapshot));
   }
 

@@ -82,6 +82,7 @@ class DelaySnapshotClient extends SnapshotClient {
         if (node) node.latencyMilliseconds = (index + 1) * 100;
       });
     }
+    this.confirmedSnapshot.applicationOrder.order += 1;
     return structuredClone(this.confirmedSnapshot);
   }
 
@@ -98,6 +99,7 @@ class DelaySnapshotClient extends SnapshotClient {
       finishedAt: 1_720_000_000_100,
       phase: "cancelled",
     };
+    this.confirmedSnapshot.applicationOrder.order += 1;
     return structuredClone(this.confirmedSnapshot);
   }
 }

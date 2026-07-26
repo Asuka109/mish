@@ -69,6 +69,14 @@ authorization.
 | Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:build:macos`, `desktop:bundle:macos`, `desktop:bundle:macos:styled`, `desktop:bundle:verify:macos` |
 | Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build`                            |
 
+The development-only privileged Core host is opt-in and uses
+`macos:core-host:build`, `macos:core-host:install`, `macos:core-host:status`,
+`macos:core-host:health`, `macos:core-host:disable`, and
+`macos:core-host:uninstall`. These commands are excluded from ordinary desktop
+and release builds. Follow
+[`macos-development-core-host.md`](macos-development-core-host.md) for the
+administrator-operated acceptance procedure.
+
 `pnpm demo` starts the fixture-backed production Web composition used for model,
 visual, and interaction validation without contacting a desktop backend.
 

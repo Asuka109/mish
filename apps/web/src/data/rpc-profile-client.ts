@@ -3,6 +3,7 @@ import {
   ProfilePreviewSchema,
   mishRpcMethods,
   profileRpcNotifications,
+  type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePatchAuthorityDto,
@@ -25,13 +26,19 @@ import {
   type RpcConnectionState,
   type RpcRequestOptions,
 } from "@mish/rpc-client";
+import {
+  ApplicationSnapshotAcceptance,
+  type SnapshotDelivery,
+} from "./application-snapshot-acceptance";
 
 export type MishRpcClient = RpcClient<typeof mishRpcMethods>;
 export type LocalProfilePreflight = (label?: string) => Promise<unknown>;
 
 export class RpcProfileClient implements ProfileClient {
   private readonly connectionListeners = new Set<(state: ProfileConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: ProfileSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private connectionState: ProfileConnectionState;
   private disposed = false;
   private remoteSubscriptionId: string | null = null;
@@ -39,6 +46,7 @@ export class RpcProfileClient implements ProfileClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<ProfileSnapshotDto>();
 
   constructor(
     private readonly rpc: MishRpcClient,
@@ -83,7 +91,7 @@ export class RpcProfileClient implements ProfileClient {
 
   getSnapshot(options?: RpcRequestOptions) {
     return this.request("profiles.getSnapshot", {}, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
+      this.normalizeSnapshot(snapshot, "request"),
     );
   }
 
@@ -196,7 +204,9 @@ export class RpcProfileClient implements ProfileClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     void this.ensureRemoteSubscription();
     return () => {
@@ -227,7 +237,7 @@ export class RpcProfileClient implements ProfileClient {
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId });
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -253,14 +263,31 @@ export class RpcProfileClient implements ProfileClient {
     this.emitConnectionState(mapped);
   }
 
-  private receiveSnapshot(notification: ProfileSnapshotNotificationDto) {
+  private receiveSnapshot(
+    notification: ProfileSnapshotNotificationDto,
+    delivery: ApplicationSnapshotDelivery = "update",
+  ) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return;
+    }
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    const snapshot = this.normalizeSnapshot(notification.snapshot);
-    for (const listener of this.snapshotListeners) listener(snapshot);
+    if (result.kind !== "accepted") return;
+    const snapshot = this.projectCapabilities(result.snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot, delivery);
   }
 
-  private normalizeSnapshot(snapshot: ProfileSnapshotDto) {
+  private normalizeSnapshot(snapshot: ProfileSnapshotDto, delivery: SnapshotDelivery = "command") {
+    const result = this.snapshotAcceptance.accept(snapshot, delivery);
+    if (result.kind === "conflict") {
+      throw new ProfileClientError("validation", "Profile snapshot order conflict");
+    }
+    return this.projectCapabilities(result.snapshot);
+  }
+
+  private projectCapabilities(snapshot: ProfileSnapshotDto) {
     if (this.localPreflight) return snapshot;
     return {
       ...snapshot,

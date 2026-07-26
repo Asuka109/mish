@@ -2066,6 +2066,7 @@ impl EventsDataSource for ControllerStatusSource {
         };
         EventsSnapshot {
             adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             events: state.events.iter().cloned().collect(),
             phase,
             profile_id: self.inner.profile.profile_id().into(),
