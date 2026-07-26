@@ -379,7 +379,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         : commandFailed
           ? commandErrorMessage(LL, commandStates)
           : null,
-      isCommandPending: (command) => commandStates[command].phase === "pending",
+      isCommandPending: (command) =>
+        commandStates[command].phase === "pending" ||
+        (command === "capture" && snapshot?.runtime.captureOperation.phase === "pending"),
       isCommandSupported: (command) =>
         resolvedClient.supportsCommand(command) &&
         (connection.phase === "fixture" || !connection.stale),

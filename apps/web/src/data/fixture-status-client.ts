@@ -279,6 +279,11 @@ const initialSnapshot: StatusSnapshotDto = {
   },
   routingMode: "rule",
   runtime: {
+    captureOperation: {
+      operationId: null,
+      phase: "idle",
+      scopeEpoch: "fixture-capture-scope",
+    },
     captureSelection: { systemProxy: false, tun: false },
     message: "Fixture capture is inactive",
     phase: "healthy",
@@ -321,6 +326,7 @@ function createMonitorId() {
 
 export class FixtureStatusClient implements StatusClient {
   private snapshot = cloneSnapshot(initialSnapshot);
+  private captureOperationId = 0;
   private recentTrafficSession = 0;
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
   private readonly snapshotListeners = new Set<
@@ -412,8 +418,14 @@ export class FixtureStatusClient implements StatusClient {
     const systemProxyEnabled = active && selection.systemProxy;
     const tunEnabled = active && selection.tun;
     const captureActive = systemProxyEnabled || tunEnabled;
+    this.captureOperationId += 1;
     this.snapshot.metrics.uptimeSeconds = captureActive ? 1 : 0;
     this.snapshot.runtime = {
+      captureOperation: {
+        operationId: this.captureOperationId.toString(),
+        phase: "applied",
+        scopeEpoch: "fixture-capture-scope",
+      },
       captureSelection: { ...selection },
       message: captureActive ? "Fixture capture is active" : "Fixture capture is inactive",
       phase: captureActive ? "healthy" : "inactive",
