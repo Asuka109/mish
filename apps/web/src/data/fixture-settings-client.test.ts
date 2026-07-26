@@ -17,7 +17,7 @@ describe("browser settings fixture", () => {
     await expect(
       client.setStartup({
         launchAtLogin: true,
-        launchProxyWhenMishLaunches: false,
+        launchBehavior: "off",
         loginLaunchBehavior: "background",
       }),
     ).rejects.toThrow(/unavailable/i);

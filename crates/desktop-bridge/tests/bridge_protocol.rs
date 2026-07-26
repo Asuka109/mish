@@ -1647,7 +1647,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":5, "method":"settings.setStartup",
-            "params":{"startup":{"launchAtLogin":true,"launchProxyWhenMishLaunches":false,"loginLaunchBehavior":"background"}}
+            "params":{"startup":{"launchAtLogin":true,"launchBehavior":"off","loginLaunchBehavior":"background"}}
         }),
     )
     .await;
@@ -1657,14 +1657,14 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     let proxy_launch = request(
         &mut ws,
         json!({
-            "jsonrpc":"2.0", "id":23, "method":"settings.setLaunchProxyWhenMishLaunches",
-            "params":{"launchProxyWhenMishLaunches":true}
+            "jsonrpc":"2.0", "id":23, "method":"settings.setApplicationLaunchBehavior",
+            "params":{"launchBehavior":"proxy"}
         }),
     )
     .await;
     assert_eq!(
-        proxy_launch["result"]["preferences"]["startup"]["launchProxyWhenMishLaunches"],
-        true
+        proxy_launch["result"]["preferences"]["startup"]["launchBehavior"],
+        "proxy"
     );
     assert_eq!(
         proxy_launch["result"]["startupRegistration"]["observed"],
@@ -1693,6 +1693,24 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     assert_ne!(
         available_ports["result"]["preferences"]["managedPorts"]["controller"],
         available_ports["result"]["preferences"]["managedPorts"]["proxy"]
+    );
+    let controller_port =
+        available_ports["result"]["preferences"]["managedPorts"]["controller"].clone();
+    let available_proxy_port = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":31, "method":"settings.findManagedPort",
+            "params":{"kind":"proxy"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        available_proxy_port["result"]["preferences"]["managedPorts"]["controller"],
+        controller_port
+    );
+    assert_ne!(
+        available_proxy_port["result"]["preferences"]["managedPorts"]["proxy"],
+        controller_port
     );
 
     let process_discovery = request(
@@ -1739,7 +1757,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         (
             9,
             "settings.setStartup",
-            json!({"startup":{"launchAtLogin":true,"launchProxyWhenMishLaunches":false,"loginLaunchBehavior":"background","configuration":{}}}),
+            json!({"startup":{"launchAtLogin":true,"launchBehavior":"off","loginLaunchBehavior":"background","configuration":{}}}),
         ),
         (
             10,
@@ -1823,7 +1841,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 26);
+    assert_eq!(info["result"]["protocolVersion"], 27);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})

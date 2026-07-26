@@ -307,11 +307,11 @@ type RootTranslation = {
 			useBackup: string
 		}
 		/**
-		 * C​a​p​t​u​r​e​ ​a​n​d​ ​s​t​a​r​t​u​p
+		 * P​r​o​x​y​ ​a​n​d​ ​s​t​a​r​t​u​p
 		 */
 		captureStartup: string
 		/**
-		 * O​w​n​s​ ​d​u​r​a​b​l​e​ ​O​S​ ​c​a​p​t​u​r​e​ ​i​n​t​e​n​t​ ​a​n​d​ ​h​o​w​ ​M​i​s​h​ ​s​t​a​r​t​s​ ​a​t​ ​l​o​g​i​n​.
+		 * C​o​n​f​i​g​u​r​e​ ​h​o​w​ ​M​i​s​h​ ​s​t​a​r​t​s​,​ ​G​l​o​b​a​l​ ​P​r​o​x​y​,​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e​,​ ​a​n​d​ ​M​i​h​o​m​o​ ​p​o​r​t​s​.
 		 */
 		captureStartupDescription: string
 		/**
@@ -355,7 +355,7 @@ type RootTranslation = {
 		 */
 		languageDescription: string
 		/**
-		 * L​a​u​n​c​h​ ​a​t​ ​l​o​g​i​n
+		 * W​h​e​n​ ​d​e​v​i​c​e​ ​s​t​a​r​t​s
 		 */
 		launchAtLogin: string
 		/**
@@ -363,13 +363,21 @@ type RootTranslation = {
 		 */
 		launchAtLoginDescription: string
 		/**
-		 * A​u​t​o​-​s​t​a​r​t​ ​p​r​o​x​y​ ​o​n​ ​a​p​p​ ​l​a​u​n​c​h
+		 * W​h​e​n​ ​a​p​p​ ​s​t​a​r​t​s
 		 */
-		launchProxyWhenMishLaunches: string
+		applicationLaunch: string
 		/**
-		 * S​a​v​e​ ​t​h​i​s​ ​p​r​e​f​e​r​e​n​c​e​ ​f​o​r​ ​t​h​e​ ​n​e​x​t​ ​M​i​s​h​ ​l​a​u​n​c​h​.​ ​C​h​a​n​g​i​n​g​ ​i​t​ ​d​o​e​s​ ​n​o​t​ ​s​t​a​r​t​ ​o​r​ ​s​t​o​p​ ​t​h​e​ ​p​r​o​x​y​ ​n​o​w​.
+		 * C​o​r​e​ ​o​n​l​y
 		 */
-		launchProxyWhenMishLaunchesDescription: string
+		applicationLaunchCore: string
+		/**
+		 * C​h​o​o​s​e​ ​w​h​e​t​h​e​r​ ​M​i​s​h​ ​s​t​a​r​t​s​ ​n​o​t​h​i​n​g​,​ ​s​t​a​r​t​s​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​a​n​d​ ​i​t​s​ ​p​r​o​x​y​ ​l​i​s​t​e​n​e​r​,​ ​o​r​ ​a​l​s​o​ ​e​n​a​b​l​e​s​ ​G​l​o​b​a​l​ ​P​r​o​x​y​.​ ​C​h​a​n​g​e​s​ ​a​p​p​l​y​ ​o​n​ ​t​h​e​ ​n​e​x​t​ ​a​p​p​ ​l​a​u​n​c​h​.
+		 */
+		applicationLaunchDescription: string
+		/**
+		 * G​l​o​b​a​l​ ​P​r​o​x​y
+		 */
+		applicationLaunchProxy: string
 		/**
 		 * L​o​g​i​n​ ​l​a​u​n​c​h​ ​w​i​n​d​o​w
 		 */
@@ -419,9 +427,25 @@ type RootTranslation = {
 		 */
 		managedPorts: string
 		/**
-		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​p​o​r​t​s​ ​u​s​e​d​ ​b​y​ ​M​i​s​h​'​s​ ​l​o​c​a​l​ ​p​r​o​x​y​ ​a​n​d​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​.​ ​C​h​a​n​g​e​s​ ​a​p​p​l​y​ ​t​o​ ​t​h​e​ ​n​e​x​t​ ​p​r​o​x​y​ ​a​c​t​i​v​a​t​i​o​n​.
+		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​p​o​r​t​s​ ​u​s​e​d​ ​b​y​ ​M​i​s​h​'​s​ ​l​o​c​a​l​ ​p​r​o​x​y​ ​a​n​d​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​.​ ​P​r​e​s​s​ ​E​n​t​e​r​ ​o​r​ ​l​e​a​v​e​ ​a​ ​f​i​e​l​d​ ​t​o​ ​s​a​v​e​;​ ​c​h​a​n​g​e​s​ ​a​p​p​l​y​ ​t​o​ ​t​h​e​ ​n​e​x​t​ ​C​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​.
 		 */
 		managedPortsDescription: string
+		/**
+		 * C​o​n​t​r​o​l​l​e​r​ ​p​o​r​t
+		 */
+		managedControllerPort: string
+		/**
+		 * M​i​s​h​ ​u​s​e​s​ ​t​h​i​s​ ​l​o​c​a​l​ ​A​P​I​ ​e​n​d​p​o​i​n​t​ ​t​o​ ​c​o​n​t​r​o​l​ ​M​i​h​o​m​o​ ​a​n​d​ ​r​e​a​d​ ​s​t​a​t​u​s​,​ ​p​o​l​i​c​i​e​s​,​ ​c​o​n​n​e​c​t​i​o​n​s​,​ ​t​r​a​f​f​i​c​,​ ​a​n​d​ ​e​v​e​n​t​s​.
+		 */
+		managedControllerPortDescription: string
+		/**
+		 * P​r​o​x​y​ ​p​o​r​t
+		 */
+		managedProxyPort: string
+		/**
+		 * A​p​p​l​i​c​a​t​i​o​n​s​ ​a​n​d​ ​m​a​c​O​S​ ​p​r​o​x​y​ ​c​a​p​t​u​r​e​ ​s​e​n​d​ ​p​r​o​x​i​e​d​ ​n​e​t​w​o​r​k​ ​t​r​a​f​f​i​c​ ​t​o​ ​t​h​i​s​ ​l​o​c​a​l​ ​l​i​s​t​e​n​e​r​.
+		 */
+		managedProxyPortDescription: string
 		/**
 		 * F​i​n​d​ ​A​v​a​i​l​a​b​l​e​ ​P​o​r​t​s
 		 */
@@ -436,11 +460,7 @@ type RootTranslation = {
 		 */
 		managedPortsConflict: RequiredParams<'endpoint'>
 		/**
-		 * S​a​v​e​ ​P​o​r​t​s
-		 */
-		managedPortsSave: string
-		/**
-		 * E​x​i​s​t​i​n​g​ ​p​r​o​x​y​ ​p​o​l​i​c​y
+		 * O​v​e​r​r​i​d​e​ ​S​y​s​t​e​m​ ​P​r​o​x​y
 		 */
 		systemProxyTakeoverPolicy: string
 		/**
@@ -448,11 +468,11 @@ type RootTranslation = {
 		 */
 		systemProxyTakeoverPolicyDescription: string
 		/**
-		 * P​r​o​t​e​c​t​ ​e​x​i​s​t​i​n​g
+		 * D​o​ ​n​o​t​ ​o​v​e​r​r​i​d​e
 		 */
 		systemProxyTakeoverPolicyProtected: string
 		/**
-		 * A​d​v​a​n​c​e​d​ ​r​e​v​e​r​s​i​b​l​e​ ​r​e​p​l​a​c​e​m​e​n​t
+		 * O​v​e​r​r​i​d​e​ ​a​n​d​ ​r​e​s​t​o​r​e
 		 */
 		systemProxyTakeoverPolicyAdvanced: string
 		/**
@@ -627,7 +647,7 @@ type RootTranslation = {
 		 */
 		on: string
 		/**
-		 * C​o​n​n​e​c​t​i​o​n​ ​p​r​o​c​e​s​s​ ​d​i​s​c​o​v​e​r​y
+		 * I​d​e​n​t​i​f​y​ ​c​o​n​n​e​c​t​i​o​n​ ​p​r​o​c​e​s​s​e​s
 		 */
 		processDiscovery: string
 		/**
@@ -717,7 +737,7 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
-		 * T​r​a​f​f​i​c​ ​c​a​p​t​u​r​e
+		 * G​l​o​b​a​l​ ​P​r​o​x​y
 		 */
 		trafficCapture: string
 		/**
@@ -725,7 +745,7 @@ type RootTranslation = {
 		 */
 		trafficCaptureDescription: string
 		/**
-		 * T​U​N​ ​s​y​s​t​e​m​ ​h​e​l​p​e​r
+		 * I​n​s​t​a​l​l​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e
 		 */
 		tunHelper: string
 		/**
@@ -4948,11 +4968,11 @@ export type TranslationFunctions = {
 			useBackup: () => LocalizedString
 		}
 		/**
-		 * Capture and startup
+		 * Proxy and startup
 		 */
 		captureStartup: () => LocalizedString
 		/**
-		 * Owns durable OS capture intent and how Mish starts at login.
+		 * Configure how Mish starts, Global Proxy, the virtual interface, and Mihomo ports.
 		 */
 		captureStartupDescription: () => LocalizedString
 		/**
@@ -4996,7 +5016,7 @@ export type TranslationFunctions = {
 		 */
 		languageDescription: () => LocalizedString
 		/**
-		 * Launch at login
+		 * When device starts
 		 */
 		launchAtLogin: () => LocalizedString
 		/**
@@ -5004,13 +5024,21 @@ export type TranslationFunctions = {
 		 */
 		launchAtLoginDescription: () => LocalizedString
 		/**
-		 * Auto-start proxy on app launch
+		 * When app starts
 		 */
-		launchProxyWhenMishLaunches: () => LocalizedString
+		applicationLaunch: () => LocalizedString
 		/**
-		 * Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.
+		 * Core only
 		 */
-		launchProxyWhenMishLaunchesDescription: () => LocalizedString
+		applicationLaunchCore: () => LocalizedString
+		/**
+		 * Choose whether Mish starts nothing, starts Mihomo Core and its proxy listener, or also enables Global Proxy. Changes apply on the next app launch.
+		 */
+		applicationLaunchDescription: () => LocalizedString
+		/**
+		 * Global Proxy
+		 */
+		applicationLaunchProxy: () => LocalizedString
 		/**
 		 * Login launch window
 		 */
@@ -5060,9 +5088,25 @@ export type TranslationFunctions = {
 		 */
 		managedPorts: () => LocalizedString
 		/**
-		 * Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.
+		 * Loopback-only ports used by Mish's local proxy and Mihomo Controller. Press Enter or leave a field to save; changes apply to the next Core activation.
 		 */
 		managedPortsDescription: () => LocalizedString
+		/**
+		 * Controller port
+		 */
+		managedControllerPort: () => LocalizedString
+		/**
+		 * Mish uses this local API endpoint to control Mihomo and read status, policies, connections, traffic, and events.
+		 */
+		managedControllerPortDescription: () => LocalizedString
+		/**
+		 * Proxy port
+		 */
+		managedProxyPort: () => LocalizedString
+		/**
+		 * Applications and macOS proxy capture send proxied network traffic to this local listener.
+		 */
+		managedProxyPortDescription: () => LocalizedString
 		/**
 		 * Find Available Ports
 		 */
@@ -5076,11 +5120,7 @@ export type TranslationFunctions = {
 		 */
 		managedPortsConflict: (arg: { endpoint: unknown }) => LocalizedString
 		/**
-		 * Save Ports
-		 */
-		managedPortsSave: () => LocalizedString
-		/**
-		 * Existing proxy policy
+		 * Override System Proxy
 		 */
 		systemProxyTakeoverPolicy: () => LocalizedString
 		/**
@@ -5088,11 +5128,11 @@ export type TranslationFunctions = {
 		 */
 		systemProxyTakeoverPolicyDescription: () => LocalizedString
 		/**
-		 * Protect existing
+		 * Do not override
 		 */
 		systemProxyTakeoverPolicyProtected: () => LocalizedString
 		/**
-		 * Advanced reversible replacement
+		 * Override and restore
 		 */
 		systemProxyTakeoverPolicyAdvanced: () => LocalizedString
 		/**
@@ -5264,7 +5304,7 @@ export type TranslationFunctions = {
 		 */
 		on: () => LocalizedString
 		/**
-		 * Connection process discovery
+		 * Identify connection processes
 		 */
 		processDiscovery: () => LocalizedString
 		/**
@@ -5354,7 +5394,7 @@ export type TranslationFunctions = {
 		 */
 		title: () => LocalizedString
 		/**
-		 * Traffic capture
+		 * Global Proxy
 		 */
 		trafficCapture: () => LocalizedString
 		/**
@@ -5362,7 +5402,7 @@ export type TranslationFunctions = {
 		 */
 		trafficCaptureDescription: () => LocalizedString
 		/**
-		 * TUN system helper
+		 * Install virtual interface
 		 */
 		tunHelper: () => LocalizedString
 		/**

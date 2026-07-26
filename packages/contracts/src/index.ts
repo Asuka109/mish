@@ -1548,9 +1548,12 @@ export const OnboardingWelcomeActionSchema = z.enum([
 ]);
 export type OnboardingWelcomeAction = z.infer<typeof OnboardingWelcomeActionSchema>;
 
+export const ApplicationLaunchBehaviorSchema = z.enum(["off", "core", "proxy"]);
+export type ApplicationLaunchBehavior = z.infer<typeof ApplicationLaunchBehaviorSchema>;
+
 export const StartupPreferencesSchema = z
   .object({
-    launchProxyWhenMishLaunches: z.boolean(),
+    launchBehavior: ApplicationLaunchBehaviorSchema,
     launchAtLogin: z.boolean(),
     loginLaunchBehavior: LoginLaunchBehaviorSchema,
   })
@@ -1565,6 +1568,8 @@ export const ManagedPortPreferencesSchema = z
   .strict()
   .refine((ports) => ports.controller !== ports.proxy, "Managed ports must differ");
 export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPreferencesSchema> {}
+export const ManagedPortKindSchema = z.enum(["controller", "proxy"]);
+export type ManagedPortKind = z.infer<typeof ManagedPortKindSchema>;
 
 export const ProcessDiscoveryModeSchema = z.enum(["always", "strict", "off"]);
 export type ProcessDiscoveryMode = z.infer<typeof ProcessDiscoveryModeSchema>;
@@ -2088,7 +2093,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(26),
+    protocolVersion: z.literal(27),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3125,12 +3130,13 @@ export const SetOnboardingWelcomeStateCommandSchema = z
 export const SetStartupPreferencesCommandSchema = z
   .object({ startup: StartupPreferencesSchema })
   .strict();
-export const SetLaunchProxyWhenMishLaunchesCommandSchema = z
-  .object({ launchProxyWhenMishLaunches: z.boolean() })
+export const SetApplicationLaunchBehaviorCommandSchema = z
+  .object({ launchBehavior: ApplicationLaunchBehaviorSchema })
   .strict();
 export const SetManagedPortsCommandSchema = z
   .object({ managedPorts: ManagedPortPreferencesSchema })
   .strict();
+export const FindManagedPortCommandSchema = z.object({ kind: ManagedPortKindSchema }).strict();
 export const SetWindowCloseBehaviorCommandSchema = z
   .object({ behavior: WindowCloseBehaviorSchema })
   .strict();
@@ -3178,8 +3184,8 @@ export const settingsRpcMethods = {
     params: SetStartupPreferencesCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
-  "settings.setLaunchProxyWhenMishLaunches": {
-    params: SetLaunchProxyWhenMishLaunchesCommandSchema,
+  "settings.setApplicationLaunchBehavior": {
+    params: SetApplicationLaunchBehaviorCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.setManagedPorts": {
@@ -3187,6 +3193,10 @@ export const settingsRpcMethods = {
     result: RpcSettingsSnapshotSchema,
   },
   "settings.findManagedPorts": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
+  "settings.findManagedPort": {
+    params: FindManagedPortCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
   "settings.setSystemProxyTakeoverPolicy": {
     params: SetSystemProxyTakeoverPolicyCommandSchema,
     result: RpcSettingsSnapshotSchema,
@@ -3379,8 +3389,8 @@ export interface SettingsClient {
     startup: StartupPreferencesDto,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
-  setLaunchProxyWhenMishLaunches(
-    launchProxyWhenMishLaunches: boolean,
+  setApplicationLaunchBehavior(
+    launchBehavior: ApplicationLaunchBehavior,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   setManagedPorts(
@@ -3388,6 +3398,10 @@ export interface SettingsClient {
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   findManagedPorts(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  findManagedPort(
+    kind: ManagedPortKind,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
   setSystemProxyTakeoverPolicy(
     policy: SystemProxyTakeoverPolicy,
     options?: { signal?: AbortSignal },

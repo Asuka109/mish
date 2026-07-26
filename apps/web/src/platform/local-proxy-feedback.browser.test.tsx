@@ -20,35 +20,7 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { SettingsPage } from "../pages/settings-page";
 import "../styles.css";
 
-interface Geometry {
-  button: [number, number, number, number];
-  buttonOpacity: string;
-  row: [number, number, number, number];
-}
-
-function rectTuple(element: Element): [number, number, number, number] {
-  const rect = element.getBoundingClientRect();
-  return [rect.x, rect.y, rect.width, rect.height].map(
-    (value) => Math.round(value * 100) / 100,
-  ) as [number, number, number, number];
-}
-
-function measureLocalProxyGeometry(): Geometry {
-  const button = [...document.querySelectorAll<HTMLButtonElement>('button[type="button"]')].find(
-    (candidate) => candidate.textContent?.trim() === "测试连接",
-  );
-  const row = button?.closest('[data-slot="settings-row"]');
-  if (!button || !row) throw new Error("Missing local proxy Settings row");
-  return {
-    button: rectTuple(button),
-    buttonOpacity: getComputedStyle(button).opacity,
-    row: rectTuple(row),
-  };
-}
-
-class BrowserLocalProxyClient extends FixtureStatusClient {
-  private completeTest: (() => void) | null = null;
-
+class BrowserSettingsStatusClient extends FixtureStatusClient {
   constructor(private readonly confirmedSnapshot: StatusSnapshotDto) {
     super();
   }
@@ -69,20 +41,9 @@ class BrowserLocalProxyClient extends FixtureStatusClient {
   override subscribeSnapshots(_listener: (snapshot: StatusSnapshotDto) => void) {
     return () => false;
   }
-
-  readonly testLocalProxy = vi.fn(
-    () =>
-      new Promise<{ host: "127.0.0.1"; phase: "ready"; port: 7890 }>((resolve) => {
-        this.completeTest = () => resolve({ host: "127.0.0.1", phase: "ready", port: 7890 });
-      }),
-  );
-
-  complete() {
-    this.completeTest?.();
-  }
 }
 
-let client: BrowserLocalProxyClient;
+let client: BrowserSettingsStatusClient;
 let root: Root;
 
 beforeAll(async () => {
@@ -92,7 +53,7 @@ beforeAll(async () => {
 
   const productSnapshot = await new FixtureStatusClient().getSnapshot();
   productSnapshot.adapterKind = "rpc";
-  client = new BrowserLocalProxyClient(productSnapshot);
+  client = new BrowserSettingsStatusClient(productSnapshot);
 
   const settingsSnapshot = createFixtureSettingsSnapshot();
   settingsSnapshot.adapterKind = "rpc";
@@ -137,20 +98,16 @@ beforeAll(async () => {
   );
 
   await vi.waitFor(() => {
-    expect(
-      [...document.querySelectorAll<HTMLButtonElement>('button[type="button"]')].some(
-        (candidate) => candidate.textContent?.trim() === "测试连接",
-      ),
-    ).toBe(true);
+    expect(document.body.textContent).toContain("应用启动时");
   });
 });
 
 afterAll(() => root.unmount());
 
-describe("local proxy listener feedback", () => {
+describe("narrow Settings layout", () => {
   test("preserves the control and section-description typography scale", () => {
-    const button = [...document.querySelectorAll<HTMLButtonElement>('button[type="button"]')].find(
-      (candidate) => candidate.textContent?.trim() === "测试连接",
+    const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "仅核心",
     );
     const description = document.querySelector<HTMLElement>("section h2 + p");
     if (!button || !description) throw new Error("Missing Settings typography evidence");
@@ -159,37 +116,41 @@ describe("local proxy listener feedback", () => {
     expect(getComputedStyle(description).fontSize).toBe("13px");
   });
 
-  test("keeps the unavailable Chinese automatic proxy launch row stable at a narrow width", async () => {
-    const title = page.getByText("应用启动时自动代理", { exact: true });
+  test("keeps the unavailable Chinese application launch row stable at a narrow width", async () => {
+    const title = page.getByText("应用启动时", { exact: true });
     await expect.element(title).toBeVisible();
     const automaticRow = title.element().closest('[data-slot="settings-row"]');
     expect(automaticRow).toBeDefined();
-    const off = page.getByRole("button", { exact: true, name: "应用启动时自动代理: 关闭" });
-    await expect.element(off).toBeDisabled();
+    const off = [...automaticRow!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "关闭",
+    );
+    expect(off).toBeDefined();
+    expect(off).toBeDisabled();
     expect(automaticRow!.getBoundingClientRect().width).toBeGreaterThan(0);
     expect(
       document.documentElement.scrollWidth - document.documentElement.clientWidth,
     ).toBeLessThanOrEqual(1);
   });
 
-  test("keeps the Chinese Settings row stable at a narrow width", async () => {
-    const button = page.getByRole("button", { exact: true, name: "测试连接" });
-    button.element().scrollIntoView({ block: "center" });
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const before = measureLocalProxyGeometry();
+  test("renders the merged proxy and startup settings in the requested order", () => {
+    const section = document.querySelector<HTMLElement>(
+      'section[aria-labelledby="settings-capture-startup"]',
+    );
+    const titles = [...(section?.querySelectorAll('[data-slot="settings-row"] strong') ?? [])].map(
+      (title) => title.textContent?.trim(),
+    );
 
-    await button.click();
-    await expect.element(button).toHaveAttribute("aria-busy", "true");
-    expect(measureLocalProxyGeometry()).toEqual(before);
-
-    client.complete();
-
-    await expect.element(page.getByText("本地代理可用", { exact: true })).toBeVisible();
-    const toaster = document.querySelector("[data-sonner-toaster]");
-    expect(toaster?.parentElement).toHaveAttribute("aria-live", "polite");
-    await expect.element(button).not.toHaveAttribute("aria-busy");
-    expect(measureLocalProxyGeometry()).toEqual(before);
-    expect(document.querySelector(".local-proxy-result")).toBeNull();
+    expect(titles).toEqual([
+      "设备启动时",
+      "应用启动时",
+      "全局代理",
+      "覆盖系统代理",
+      "安装虚拟网卡",
+      "识别连接进程",
+      "代理端口",
+      "Controller 端口",
+    ]);
+    expect(section?.textContent).not.toContain("单个应用代理");
     expect(
       document.documentElement.scrollWidth - document.documentElement.clientWidth,
     ).toBeLessThanOrEqual(1);

@@ -1,9 +1,11 @@
 import {
   mishRpcMethods,
   settingsRpcNotifications,
+  type ApplicationLaunchBehavior,
   type AppearancePreference,
   type LanguagePreference,
   type ManagedPortPreferencesDto,
+  type ManagedPortKind,
   type OnboardingWelcomeAction,
   type ProcessDiscoveryMode,
   type SettingsClient,
@@ -98,12 +100,12 @@ export class RpcSettingsClient implements SettingsClient {
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
-  setLaunchProxyWhenMishLaunches(
-    launchProxyWhenMishLaunches: boolean,
+  setApplicationLaunchBehavior(
+    launchBehavior: ApplicationLaunchBehavior,
     options?: RpcRequestOptions,
   ) {
     return this.rpc
-      .request("settings.setLaunchProxyWhenMishLaunches", { launchProxyWhenMishLaunches }, options)
+      .request("settings.setApplicationLaunchBehavior", { launchBehavior }, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
@@ -116,6 +118,12 @@ export class RpcSettingsClient implements SettingsClient {
   findManagedPorts(options?: RpcRequestOptions) {
     return this.rpc
       .request("settings.findManagedPorts", {}, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  findManagedPort(kind: ManagedPortKind, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.findManagedPort", { kind }, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 

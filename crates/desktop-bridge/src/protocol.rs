@@ -24,9 +24,10 @@ use mish_runtime::{
     TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
-    AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
-    ProcessDiscoveryMode, SettingsAdapterKind, SettingsService, SettingsServiceError,
-    StartupPreferences, WindowCloseBehavior, WindowSurfacePreference,
+    AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
+    ManagedPortPreferences, OnboardingWelcomeAction, ProcessDiscoveryMode, SettingsAdapterKind,
+    SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
+    WindowSurfacePreference,
 };
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -258,6 +259,12 @@ struct SetManagedPortsParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FindManagedPortParams {
+    kind: ManagedPortKind,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileCommandParams {
     command_id: String,
 }
@@ -294,8 +301,8 @@ struct SetStartupParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SetLaunchProxyWhenMishLaunchesParams {
-    launch_proxy_when_mish_launches: bool,
+struct SetApplicationLaunchBehaviorParams {
+    launch_behavior: ApplicationLaunchBehavior,
 }
 
 #[derive(Debug, Deserialize)]
@@ -784,7 +791,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 26,
+            "protocolVersion": 27,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1759,18 +1766,16 @@ async fn handle_message(
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
-        "settings.setLaunchProxyWhenMishLaunches" => {
+        "settings.setApplicationLaunchBehavior" => {
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let params: SetLaunchProxyWhenMishLaunchesParams =
+            let params: SetApplicationLaunchBehaviorParams =
                 match serde_json::from_value(request.params) {
                     Ok(params) => params,
                     Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
-            match service
-                .set_launch_proxy_when_mish_launches(params.launch_proxy_when_mish_launches)
-            {
+            match service.set_application_launch_behavior(params.launch_behavior) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
@@ -1784,6 +1789,19 @@ async fn handle_message(
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
             match service.set_managed_ports(params.managed_ports) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(state, id, error)),
+            }
+        }
+        "settings.findManagedPort" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: FindManagedPortParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.find_and_set_managed_port(params.kind) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }

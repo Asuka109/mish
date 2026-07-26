@@ -1,7 +1,9 @@
 import type {
+  ApplicationLaunchBehavior,
   AppearancePreference,
   LanguagePreference,
   ManagedPortPreferencesDto,
+  ManagedPortKind,
   OnboardingWelcomeAction,
   ProcessDiscoveryMode,
   SettingsClient,
@@ -73,7 +75,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       processDiscoveryMode: "always",
       startup: {
         launchAtLogin: false,
-        launchProxyWhenMishLaunches: false,
+        launchBehavior: "off",
         loginLaunchBehavior: "show-window",
       },
       systemProxyTakeoverPolicy: "protect-existing",
@@ -143,10 +145,10 @@ export class FixtureSettingsClient implements SettingsClient {
     throw new Error("Native startup operations are unavailable in demo mode");
   }
 
-  async setLaunchProxyWhenMishLaunches(
-    _launchProxyWhenMishLaunches: boolean,
+  async setApplicationLaunchBehavior(
+    _launchBehavior: ApplicationLaunchBehavior,
   ): Promise<SettingsSnapshotDto> {
-    throw new Error("Native automatic proxy launch is unavailable in demo mode");
+    throw new Error("Native application launch behavior is unavailable in demo mode");
   }
 
   async setManagedPorts(_managedPorts: ManagedPortPreferencesDto): Promise<SettingsSnapshotDto> {
@@ -154,6 +156,10 @@ export class FixtureSettingsClient implements SettingsClient {
   }
 
   async findManagedPorts(): Promise<SettingsSnapshotDto> {
+    throw new Error("Managed ports are unavailable in demo mode");
+  }
+
+  async findManagedPort(_kind: ManagedPortKind): Promise<SettingsSnapshotDto> {
     throw new Error("Managed ports are unavailable in demo mode");
   }
 

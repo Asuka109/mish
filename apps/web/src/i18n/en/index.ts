@@ -94,8 +94,9 @@ const en = {
       size: "Actual / maximum size",
       useBackup: "Use backup data where replacement is safe",
     },
-    captureStartup: "Capture and startup",
-    captureStartupDescription: "Owns durable OS capture intent and how Mish starts at login.",
+    captureStartup: "Proxy and startup",
+    captureStartupDescription:
+      "Configure how Mish starts, Global Proxy, the virtual interface, and Mihomo ports.",
     comingSoon: "Coming soon",
     closeWindow: "Close window behavior",
     closeWindowDescription: "Choose what happens when the main window closes.",
@@ -109,12 +110,14 @@ const en = {
     installTunHelper: "Install Helper",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
-    launchAtLogin: "Launch at login",
+    launchAtLogin: "When device starts",
     launchAtLoginDescription:
       "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
-    launchProxyWhenMishLaunches: "Auto-start proxy on app launch",
-    launchProxyWhenMishLaunchesDescription:
-      "Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.",
+    applicationLaunch: "When app starts",
+    applicationLaunchCore: "Core only",
+    applicationLaunchDescription:
+      "Choose whether Mish starts nothing, starts Mihomo Core and its proxy listener, or also enables Global Proxy. Changes apply on the next app launch.",
+    applicationLaunchProxy: "Global Proxy",
     loginWindow: "Login launch window",
     loginWindowDescription:
       "Choose one behavior for login launches. Manual launches always show the window.",
@@ -135,16 +138,21 @@ const en = {
     },
     managedPorts: "Managed ports",
     managedPortsDescription:
-      "Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.",
+      "Loopback-only ports used by Mish's local proxy and Mihomo Controller. Press Enter or leave a field to save; changes apply to the next Core activation.",
+    managedControllerPort: "Controller port",
+    managedControllerPortDescription:
+      "Mish uses this local API endpoint to control Mihomo and read status, policies, connections, traffic, and events.",
+    managedProxyPort: "Proxy port",
+    managedProxyPortDescription:
+      "Applications and macOS proxy capture send proxied network traffic to this local listener.",
     managedPortsFind: "Find Available Ports",
     managedPortsFindAndRetry: "Find Ports and Retry",
     managedPortsConflict: "Mish could not use {endpoint}.",
-    managedPortsSave: "Save Ports",
-    systemProxyTakeoverPolicy: "Existing proxy policy",
+    systemProxyTakeoverPolicy: "Override System Proxy",
     systemProxyTakeoverPolicyDescription:
       "Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.",
-    systemProxyTakeoverPolicyProtected: "Protect existing",
-    systemProxyTakeoverPolicyAdvanced: "Advanced reversible replacement",
+    systemProxyTakeoverPolicyProtected: "Do not override",
+    systemProxyTakeoverPolicyAdvanced: "Override and restore",
     systemProxyTakeoverPolicyWarning:
       "Authenticated, incomplete, invalid, and unrecoverable proxy settings are always left unchanged.",
     systemProxyTakeoverRejected:
@@ -197,7 +205,7 @@ const en = {
     networkPolicyDescription: "Shows the active network service, interface, and device type.",
     off: "Off",
     on: "On",
-    processDiscovery: "Connection process discovery",
+    processDiscovery: "Identify connection processes",
     processDiscoveryAlways: "Always",
     processDiscoveryDescription:
       "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
@@ -225,10 +233,10 @@ const en = {
       "Stored settings were invalid. Mish restored safe defaults in private app data.",
     themeDescription: "Use the system appearance or choose a fixed light or dark theme.",
     title: "Settings",
-    trafficCapture: "Traffic capture",
+    trafficCapture: "Global Proxy",
     trafficCaptureDescription:
       "System Proxy and TUN use the same desired, observed, drift, and recovery model as Status.",
-    tunHelper: "TUN system helper",
+    tunHelper: "Install virtual interface",
     tunHelperDescription:
       "Installing, repairing, or removing the signed helper is always explicit and may require administrator approval. Mish rechecks the observed state after every step.",
     tunHelperHealthy: "Healthy · version {version:string}",

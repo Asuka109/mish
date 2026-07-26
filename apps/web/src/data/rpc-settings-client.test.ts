@@ -37,7 +37,7 @@ describe("RPC settings client", () => {
     await client.setOnboardingWelcomeState("dismiss");
     await client.setStartup({
       launchAtLogin: true,
-      launchProxyWhenMishLaunches: false,
+      launchBehavior: "off",
       loginLaunchBehavior: "background",
     });
     await client.setWindowCloseBehavior("quit");
@@ -55,7 +55,7 @@ describe("RPC settings client", () => {
         {
           startup: {
             launchAtLogin: true,
-            launchProxyWhenMishLaunches: false,
+            launchBehavior: "off",
             loginLaunchBehavior: "background",
           },
         },

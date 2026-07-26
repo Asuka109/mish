@@ -8,6 +8,7 @@ import {
   SERVICE_ICON_URLS,
   ProfileClientError,
   StatusClientError,
+  type ApplicationLaunchBehavior,
   type AppearancePreference,
   type CaptureSelectionDto,
   type EventsClient,
@@ -17,7 +18,7 @@ import {
   type LanguagePreference,
   type LocalBackupClient,
   type LocalBackupScopeDto,
-  type LocalProxyTestPhase,
+  type ManagedPortKind,
   type NotificationClient,
   type OnboardingWelcomeAction,
   type RoutingMode,
@@ -270,8 +271,8 @@ class DesktopSettingsClient implements SettingsClient {
     };
     return this.getSnapshot();
   });
-  setLaunchProxyWhenMishLaunches = vi.fn(async (launchProxyWhenMishLaunches: boolean) => {
-    this.snapshot.preferences.startup.launchProxyWhenMishLaunches = launchProxyWhenMishLaunches;
+  setApplicationLaunchBehavior = vi.fn(async (launchBehavior: ApplicationLaunchBehavior) => {
+    this.snapshot.preferences.startup.launchBehavior = launchBehavior;
     return this.getSnapshot();
   });
   setManagedPorts = vi.fn(async (managedPorts: { controller: number; proxy: number }) => {
@@ -290,6 +291,10 @@ class DesktopSettingsClient implements SettingsClient {
   });
   findManagedPorts = vi.fn(async () => {
     this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
+    return this.getSnapshot();
+  });
+  findManagedPort = vi.fn(async (kind: ManagedPortKind) => {
+    this.snapshot.preferences.managedPorts[kind] = kind === "proxy" ? 27890 : 29090;
     return this.getSnapshot();
   });
   subscribeSnapshots = vi.fn(
@@ -725,59 +730,6 @@ class DeferredCaptureClient extends SnapshotStatusClient {
 
   override supportsCommand(command: StatusCommand) {
     return command === "capture";
-  }
-}
-
-class LocalProxyPhaseClient extends SnapshotStatusClient {
-  constructor(
-    snapshot: StatusSnapshotDto,
-    private readonly phase: LocalProxyTestPhase,
-  ) {
-    super(snapshot);
-  }
-
-  readonly testLocalProxy = vi.fn(async () => ({
-    host: "127.0.0.1" as const,
-    phase: this.phase,
-    port: 7890 as const,
-  }));
-}
-
-class DeferredLocalProxyClient extends SnapshotStatusClient {
-  private completeTest: (() => void) | null = null;
-
-  readonly testLocalProxy = vi.fn(
-    () =>
-      new Promise<{ host: "127.0.0.1"; phase: "ready"; port: 7890 }>((resolve) => {
-        this.completeTest = () => resolve({ host: "127.0.0.1", phase: "ready", port: 7890 });
-      }),
-  );
-
-  complete() {
-    this.completeTest?.();
-  }
-}
-
-class FailingLocalProxyClient extends SnapshotStatusClient {
-  readonly testLocalProxy = vi.fn(async () => {
-    throw new StatusClientError(
-      "remote",
-      "bridge-token=super-secret controller said arbitrary backend detail",
-    );
-  });
-}
-
-class MutableLocalProxyClient extends LocalProxyPhaseClient {
-  private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
-
-  publish(snapshot: StatusSnapshotDto) {
-    snapshot.applicationOrder.order += 1;
-    for (const listener of this.listeners) listener(structuredClone(snapshot));
-  }
-
-  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
   }
 }
 
@@ -1267,7 +1219,7 @@ describe("production routes", () => {
     renderRoute("/settings");
 
     for (const heading of [
-      "Capture and startup",
+      "Proxy and startup",
       "Network and DNS",
       "Appearance and interaction",
       "Updates and data",
@@ -1278,7 +1230,9 @@ describe("production routes", () => {
     expect(
       screen.getByText(/cannot perform or confirm native macOS operations/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Off" })).toBeDisabled();
+    for (const button of screen.getAllByRole("button", { name: "Off" })) {
+      expect(button).toBeDisabled();
+    }
     expect(
       screen.getByRole("button", { name: "Virtual Interface, not selected, not running" }),
     ).toBeDisabled();
@@ -1291,7 +1245,7 @@ describe("production routes", () => {
     expect(screen.getByRole("button", { name: "Check for Updates" })).toBeDisabled();
   });
 
-  it("saves managed ports and can replace them with an available pair", async () => {
+  it("saves each managed port on blur and can find one available port", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
     renderRoute(
@@ -1303,23 +1257,30 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    const proxyPort = await screen.findByRole("spinbutton", { name: "Managed proxy port" });
-    const controllerPort = screen.getByRole("spinbutton", { name: "Managed Controller port" });
+    const proxyPort = await screen.findByRole("spinbutton", { name: "Proxy port" });
+    const controllerPort = screen.getByRole("spinbutton", { name: "Controller port" });
     await user.clear(proxyPort);
     await user.type(proxyPort, "17890");
-    await user.clear(controllerPort);
-    await user.type(controllerPort, "19090");
-    await user.click(screen.getByRole("button", { name: "Save Ports" }));
+    await user.keyboard("{Enter}");
 
     await waitFor(() =>
       expect(settingsClient.setManagedPorts).toHaveBeenCalledWith({
+        controller: 9090,
+        proxy: 17890,
+      }),
+    );
+    await user.clear(controllerPort);
+    await user.type(controllerPort, "19090");
+    await user.tab();
+    await waitFor(() =>
+      expect(settingsClient.setManagedPorts).toHaveBeenLastCalledWith({
         controller: 19090,
         proxy: 17890,
       }),
     );
-    await user.click(screen.getByRole("button", { name: "Find Available Ports" }));
-    await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
-    expect(proxyPort).toHaveValue(27890);
+    await user.click(screen.getAllByRole("button", { name: "Find Available Ports" })[1]!);
+    await waitFor(() => expect(settingsClient.findManagedPort).toHaveBeenCalledWith("controller"));
+    expect(proxyPort).toHaveValue(17890);
     expect(controllerPort).toHaveValue(29090);
   });
 
@@ -1335,7 +1296,7 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(await screen.findByText("Connection process discovery")).toBeVisible();
+    expect(await screen.findByText("Identify connection processes")).toBeVisible();
     expect(screen.getByRole("button", { name: "Always" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "When needed" }));
 
@@ -1631,154 +1592,20 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
-  it("reports listener readiness without changing the Settings row layout", async () => {
-    const user = userEvent.setup();
-    const successToast = vi.spyOn(toast, "success");
+  it("does not expose the removed per-application proxy setting", async () => {
     const settingsClient = new DesktopSettingsClient();
-    const snapshot = await createRpcSnapshot();
-    const statusClient = new DeferredLocalProxyClient(snapshot);
     renderRoute(
       "/settings",
       "en",
-      statusClient,
+      undefined,
       undefined,
       settingsClient,
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(await screen.findByText("127.0.0.1:7890")).toBeVisible();
-    expect(screen.getByText(/browser extension or an app-specific proxy/i)).toBeVisible();
-    expect(screen.getByText(/does not enable or change macOS System Proxy/i)).toBeVisible();
-    expect(screen.queryByText("HTTP")).not.toBeInTheDocument();
-    expect(screen.queryByText("SOCKS5")).not.toBeInTheDocument();
-
-    const testButton = screen.getByRole("button", { name: "Test Listener" });
-    await user.click(testButton);
-
-    await waitFor(() => expect(statusClient.testLocalProxy).toHaveBeenCalledTimes(1));
-    expect(testButton).toHaveAttribute("aria-busy", "true");
-    expect(testButton.querySelector(".ui-spinner")).toBeInTheDocument();
-    expect(testButton).toHaveTextContent("Test Listener");
-    expect(screen.queryByText("Testing…")).not.toBeInTheDocument();
-    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
-
-    act(() => statusClient.complete());
-
-    await waitFor(() =>
-      expect(successToast).toHaveBeenCalledWith("Listener ready", expect.any(Object)),
-    );
-    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
-    expect(snapshot.runtime.systemProxy.phase).toBe("off");
-    expect(snapshot.runtime.systemProxyEnabled).toBe(false);
-  });
-
-  it("routes an unhealthy Core listener result through toast and notifications", async () => {
-    const user = userEvent.setup();
-    const warningToast = vi.spyOn(toast, "warning");
-    const snapshot = await createRpcSnapshot();
-    const statusClient = new LocalProxyPhaseClient(snapshot, "core-unhealthy");
-    renderRoute("/settings", "en", statusClient);
-
-    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
-
-    await waitFor(() =>
-      expect(warningToast).toHaveBeenCalledWith(
-        "Start the proxy with a valid Profile, then test the listener again.",
-        expect.any(Object),
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Start the proxy with a valid Profile, then test the listener again.",
-    );
-  });
-
-  it("explains a runtime transition through toast and notifications", async () => {
-    const user = userEvent.setup();
-    const warningToast = vi.spyOn(toast, "warning");
-    const snapshot = await createRpcSnapshot();
-    const statusClient = new LocalProxyPhaseClient(snapshot, "runtime-transition");
-    renderRoute("/settings", "en", statusClient);
-
-    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
-
-    await waitFor(() =>
-      expect(warningToast).toHaveBeenCalledWith(
-        "The Core is changing state. Wait for it to finish, then test again.",
-        expect.any(Object),
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "The Core is changing state. Wait for it to finish, then test again.",
-    );
-  });
-
-  it("reports an unavailable listener through toast and notifications", async () => {
-    const user = userEvent.setup();
-    const errorToast = vi.spyOn(toast, "error");
-    const snapshot = await createRpcSnapshot();
-    const statusClient = new LocalProxyPhaseClient(snapshot, "listener-unavailable");
-    renderRoute("/settings", "en", statusClient);
-
-    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
-
-    await waitFor(() =>
-      expect(errorToast).toHaveBeenCalledWith(
-        "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
-        expect.any(Object),
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
-    );
-  });
-
-  it("redacts an RPC listener-test failure in toast and notifications", async () => {
-    const user = userEvent.setup();
-    const errorToast = vi.spyOn(toast, "error");
-    const snapshot = await createRpcSnapshot();
-    const statusClient = new FailingLocalProxyClient(snapshot);
-    renderRoute("/settings", "en", statusClient);
-
-    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
-
-    await waitFor(() =>
-      expect(errorToast).toHaveBeenCalledWith(
-        "Mish could not test the local listener. Check the local service connection and try again.",
-        expect.any(Object),
-      ),
-    );
-    expect(document.body).not.toHaveTextContent("super-secret");
-    expect(document.body).not.toHaveTextContent("arbitrary backend detail");
-
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Mish could not test the local listener. Check the local service connection and try again.",
-    );
-    expect(document.body).not.toHaveTextContent("super-secret");
-    expect(document.body).not.toHaveTextContent("arbitrary backend detail");
-  });
-
-  it("expires a listener failure notification when the active runtime changes", async () => {
-    const user = userEvent.setup();
-    const snapshot = await createRpcSnapshot();
-    snapshot.runtime.phase = "healthy";
-    const statusClient = new MutableLocalProxyClient(snapshot, "listener-unavailable");
-    renderRoute("/settings", "en", statusClient);
-
-    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    const notificationCenter = await screen.findByRole("dialog");
-    expect(notificationCenter).toHaveTextContent("The local listener did not respond.");
-
-    snapshot.runtime.phase = "stopping";
-    act(() => statusClient.publish(snapshot));
-
-    await waitFor(() =>
-      expect(notificationCenter).not.toHaveTextContent("The local listener did not respond."),
-    );
+    expect(await screen.findByText("Proxy and startup")).toBeVisible();
+    expect(screen.queryByText("Local-only manual proxy")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Test Listener" })).not.toBeInTheDocument();
   });
 
   it("shows a source-labeled read-only macOS Network and DNS observation", async () => {
@@ -1983,9 +1810,10 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    const off = await screen.findByRole("button", { name: "Off" });
-    const showWindow = screen.getByRole("button", { name: "Show Window" });
-    const background = screen.getByRole("button", { name: "Background" });
+    const launchAtLogin = await screen.findByRole("group", { name: "When device starts" });
+    const off = within(launchAtLogin).getByRole("button", { name: "Off" });
+    const showWindow = within(launchAtLogin).getByRole("button", { name: "Show Window" });
+    const background = within(launchAtLogin).getByRole("button", { name: "Background" });
     expect(off).toHaveAttribute("aria-pressed", "true");
     expect(showWindow).not.toBeDisabled();
     expect(background).not.toBeDisabled();
@@ -1995,7 +1823,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenCalledWith({
         launchAtLogin: true,
-        launchProxyWhenMishLaunches: false,
+        launchBehavior: "off",
         loginLaunchBehavior: "show-window",
       }),
     );
@@ -2004,7 +1832,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: true,
-        launchProxyWhenMishLaunches: false,
+        launchBehavior: "off",
         loginLaunchBehavior: "background",
       }),
     );
@@ -2012,13 +1840,13 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: false,
-        launchProxyWhenMishLaunches: false,
+        launchBehavior: "off",
         loginLaunchBehavior: "background",
       }),
     );
   });
 
-  it("persists the automatic proxy launch preference independently in English and Chinese", async () => {
+  it("persists the application launch behavior independently in English and Chinese", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
     const { unmount } = renderRoute(
@@ -2030,11 +1858,11 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(screen.getByText("Auto-start proxy on app launch")).toBeInTheDocument();
-    expect(screen.getByText(/does not start or stop the proxy now/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Auto-start proxy on app launch: On" }));
+    expect(screen.getByText("When app starts")).toBeInTheDocument();
+    expect(screen.getByText(/starts Mihomo Core and its proxy listener/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Core only" }));
     await waitFor(() =>
-      expect(settingsClient.setLaunchProxyWhenMishLaunches).toHaveBeenCalledWith(true),
+      expect(settingsClient.setApplicationLaunchBehavior).toHaveBeenCalledWith("core"),
     );
     expect(settingsClient.setStartup).not.toHaveBeenCalled();
     unmount();
@@ -2047,8 +1875,8 @@ describe("desktop RPC experience", () => {
       settingsClient,
       structuredClone(settingsClient.snapshot),
     );
-    expect(screen.getByText("应用启动时自动代理")).toBeInTheDocument();
-    expect(screen.getByText(/切换后不会立即启动或停止代理/)).toBeInTheDocument();
+    expect(screen.getByText("应用启动时")).toBeInTheDocument();
+    expect(screen.getByText(/只启动 Mihomo 核心及代理监听端口/)).toBeInTheDocument();
   });
 
   it("shows login startup status only when the observed registration needs attention", async () => {

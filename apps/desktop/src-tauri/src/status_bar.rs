@@ -14,7 +14,10 @@ use mish_runtime::{
     CaptureRequest, CaptureSelection, StatusAdapterKind, StatusSnapshot, TrafficDataPhase,
     TrafficSnapshot,
 };
-use mish_settings::{LanguagePreference, SettingsAdapterKind, SettingsService, SettingsSnapshot};
+use mish_settings::{
+    ApplicationLaunchBehavior, LanguagePreference, SettingsAdapterKind, SettingsService,
+    SettingsSnapshot,
+};
 use tauri::{
     Emitter, Manager,
     menu::{
@@ -93,7 +96,7 @@ impl StatusBarState {
         StatusBarModel::new(
             &status,
             &activation,
-            settings.preferences.startup.launch_proxy_when_mish_launches,
+            settings.preferences.startup.launch_behavior == ApplicationLaunchBehavior::Proxy,
             locale(settings.preferences.language),
             settings.revision,
         )
@@ -116,7 +119,7 @@ impl StatusBarState {
         StatusBarModel::new(
             &status,
             &activation,
-            settings.preferences.startup.launch_proxy_when_mish_launches,
+            settings.preferences.startup.launch_behavior == ApplicationLaunchBehavior::Proxy,
             locale(settings.preferences.language),
             settings.revision,
         )
@@ -401,12 +404,18 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         TOGGLE_LAUNCH_ON_START_ID => {
             let settings = state.settings.clone();
             tauri::async_runtime::spawn(async move {
-                let enabled = !settings
+                let behavior = if settings
                     .snapshot(SettingsAdapterKind::Rpc)
                     .preferences
                     .startup
-                    .launch_proxy_when_mish_launches;
-                let _ = settings.set_launch_proxy_when_mish_launches(enabled);
+                    .launch_behavior
+                    == ApplicationLaunchBehavior::Proxy
+                {
+                    ApplicationLaunchBehavior::Off
+                } else {
+                    ApplicationLaunchBehavior::Proxy
+                };
+                let _ = settings.set_application_launch_behavior(behavior);
             });
         }
         TOGGLE_PROXY_ID => {
