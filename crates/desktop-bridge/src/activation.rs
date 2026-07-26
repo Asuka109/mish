@@ -724,6 +724,35 @@ impl MihomoActivationManager {
             return Err(error);
         }
 
+        if cancellation.is_cancelled() {
+            if suspended_capture.is_some() {
+                let _ = self.suspend_capture(capture_transition.as_ref()).await;
+            }
+            rollback_candidate(candidate).await;
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
+            record_failed_attempt(&mut state.managed, record, MihomoActivationError::Cancelled);
+            if !restored {
+                if let Some(previous) = state.active.take() {
+                    previous.source.close().await;
+                    retire_candidate(resolved.runtime_root(), &previous);
+                }
+                state.managed.active_fingerprint = None;
+                state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
+                state.managed.active_runtime_id = None;
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                return Err(MihomoActivationError::RollbackFailedSafeStopped);
+            }
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(MihomoActivationError::Cancelled);
+        }
+
         let committed_state = ManagedActivationState {
             active_fingerprint: Some(candidate.fingerprint.clone()),
             active_profile_id: Some(candidate.profile_id.clone()),
