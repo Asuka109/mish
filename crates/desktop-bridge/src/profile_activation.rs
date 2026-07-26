@@ -9,7 +9,8 @@ use std::{
 
 use mish_profile::{
     ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
-    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
+    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot, ProfileServiceError,
+    ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
@@ -132,6 +133,7 @@ pub struct ManagedProfileSnapshot {
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
     pub providers: ProviderSnapshot,
+    pub selection: ProfileSelectionSnapshot,
 }
 
 impl ManagedProfileSnapshot {
@@ -144,6 +146,7 @@ impl ManagedProfileSnapshot {
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: ProviderSnapshot::unavailable(),
+            selection: snapshot.selection,
         }
     }
 }
@@ -297,6 +300,32 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
+        let state = self.state.lock().await;
+        if state.snapshot.command_id.as_deref() == Some(command_id)
+            || (state.snapshot.phase == ProfileActivationPhase::Pending
+                && state.snapshot.target_profile_id.as_deref() == Some(profile_id))
+        {
+            return Ok(state.snapshot.clone());
+        }
+        if state.snapshot.phase == ProfileActivationPhase::Pending {
+            return Err(ProfileActivationCoordinatorError::Conflict);
+        }
+        drop(state);
+        let permit = self.acquire_mutation()?;
+        self.authority
+            .validate(&permit)
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
+        self.activate_inner(command_id, profile_id, Some(permit))
+            .await
+    }
+
+    async fn activate_inner(
+        self: &Arc<Self>,
+        command_id: &str,
+        profile_id: &str,
+        permit: Option<StateMutationPermit>,
+    ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
+        validate_command_id(command_id)?;
         let availability = self.activation_snapshot().await.availability;
         if availability != ProfileActivationAvailability::Available {
             self.reject_unavailable_activation(command_id, profile_id, availability)
@@ -315,7 +344,6 @@ impl ProfileActivationCoordinator {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
-        let permit = self.acquire_mutation()?;
         let cancellation = CancellationToken::new();
         let pending = {
             let mut state = self.state.lock().await;
@@ -460,6 +488,37 @@ impl ProfileActivationCoordinator {
         }
     }
 
+    async fn reactivate_active_authorized(
+        self: &Arc<Self>,
+        permit: &StateMutationPermit,
+    ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
+        let profile_id = self
+            .activation_snapshot()
+            .await
+            .active_profile_id
+            .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
+        let command_id = Uuid::new_v4().to_string();
+        let mut updates = self.subscribe();
+        let pending = self.activate_inner(&command_id, &profile_id, None).await?;
+        if pending.phase != ProfileActivationPhase::Pending {
+            return Ok(pending);
+        }
+        loop {
+            let snapshot = updates
+                .recv()
+                .await
+                .map_err(|_| ProfileActivationCoordinatorError::Unavailable)?;
+            if snapshot.command_id.as_deref() == Some(command_id.as_str())
+                && snapshot.phase != ProfileActivationPhase::Pending
+            {
+                return Ok(snapshot);
+            }
+        }
+    }
+
     /// Starts the most recently successful Profile after an intentional application restart.
     ///
     /// The activation manager deliberately clears the live runtime identity during shutdown,
@@ -500,13 +559,12 @@ impl ProfileActivationCoordinator {
 
     /// Transport-neutral aggregate proxy launch authority.
     ///
-    /// Interactive callers may supply a selected Profile; startup and future native callers pass
-    /// `None` to resume the last successful Profile.  Profile activation and the single Capture
-    /// mutation deliberately share this lifecycle so no transport can become a second authority.
+    /// Every caller uses the confirmed Rust-selected Profile. Profile activation and the single
+    /// Capture mutation deliberately share this lifecycle so no transport can become a second
+    /// authority.
     pub async fn launch_proxy(
         self: &Arc<Self>,
         command_id: &str,
-        profile_id: Option<&str>,
         selection: CaptureSelection,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
@@ -539,6 +597,7 @@ impl ProfileActivationCoordinator {
                         selection,
                     },
                     adapter_kind,
+                    None,
                 )
                 .await;
             self.record_launch_timing(
@@ -556,6 +615,17 @@ impl ProfileActivationCoordinator {
             return result;
         }
         let preparation_cancellation = self.begin_proxy_preparation();
+        let permit = self
+            .acquire_mutation_queued()
+            .await
+            .map_err(profile_launch_error)?;
+        let selected = self
+            .profiles
+            .confirmed_selection_authorized(&permit)
+            .map_err(|_| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
+        let profile_id = selected
+            .profile_id
+            .ok_or_else(|| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
         let request = CaptureRequest {
             active: true,
             selection,
@@ -567,23 +637,12 @@ impl ProfileActivationCoordinator {
         let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;
         let activation = if current.phase == ProfileActivationPhase::Success
-            && profile_id
-                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
+            && current.active_profile_id.as_deref() == Some(profile_id.as_str())
         {
             Ok(current)
-        } else if let Some(profile_id) = profile_id {
-            let activation = self
-                .activate(command_id, profile_id)
-                .await
-                .map_err(profile_launch_error);
-            if let Ok(activation) = &activation {
-                activation_started_for_launch =
-                    activation.command_id.as_deref() == Some(command_id);
-            }
-            activation
         } else {
             let activation = self
-                .activate_last_successful_profile(command_id)
+                .activate_inner(command_id, &profile_id, None)
                 .await
                 .map_err(profile_launch_error);
             if let Ok(activation) = &activation {
@@ -720,7 +779,7 @@ impl ProfileActivationCoordinator {
                 Ok((preflight, activation_elapsed, preflight_elapsed)) => {
                     let capture_started = Instant::now();
                     let result = if requires_tun_reactivation && !activation_started_for_launch {
-                        match self.reactivate_active().await {
+                        match self.reactivate_active_authorized(&permit).await {
                             Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => {
                                 self.host
                                     .set_capture_with_admitted_preflight(
@@ -931,7 +990,7 @@ impl ProfileActivationCoordinator {
                 let _ = self.cancel(&command_id).await;
             }
             let _operation = self.proxy_operation.lock().await;
-            return self.set_capture_inner(request, adapter_kind).await;
+            return self.set_capture_inner(request, adapter_kind, None).await;
         }
         let _operation = self.proxy_operation.try_lock().map_err(|_| {
             CaptureTransitionError::new(
@@ -939,13 +998,14 @@ impl ProfileActivationCoordinator {
                 "Another aggregate proxy operation is already in progress",
             )
         })?;
-        self.set_capture_inner(request, adapter_kind).await
+        self.set_capture_inner(request, adapter_kind, None).await
     }
 
     async fn set_capture_inner(
         self: &Arc<Self>,
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
+        permit: Option<&StateMutationPermit>,
     ) -> Result<Value, CaptureTransitionError> {
         if self.shutting_down.load(Ordering::Acquire) {
             return Err(CaptureTransitionError::new(
@@ -990,7 +1050,10 @@ impl ProfileActivationCoordinator {
                 adapter_kind,
             )
             .await?;
-        let activation_result = self.reactivate_active().await;
+        let activation_result = match permit {
+            Some(permit) => self.reactivate_active_authorized(permit).await,
+            None => self.reactivate_active().await,
+        };
         let reactivated = matches!(
             activation_result,
             Ok(ref snapshot) if snapshot.phase == ProfileActivationPhase::Success
@@ -1149,6 +1212,7 @@ impl ProfileActivationCoordinator {
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: self.host.provider_snapshot(),
+            selection: snapshot.selection,
         })
     }
 
@@ -1309,6 +1373,23 @@ impl ProfileActivationCoordinator {
         self.authority
             .try_acquire()
             .map_err(|_| ProfileActivationCoordinatorError::Busy)
+    }
+
+    async fn acquire_mutation_queued(
+        &self,
+    ) -> Result<StateMutationPermit, ProfileActivationCoordinatorError> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(ProfileActivationCoordinatorError::Busy);
+        }
+        let permit = self
+            .authority
+            .acquire()
+            .await
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(ProfileActivationCoordinatorError::Busy);
+        }
+        Ok(permit)
     }
 
     pub async fn shutdown(&self) -> Result<(), ProfileActivationShutdownFailure> {

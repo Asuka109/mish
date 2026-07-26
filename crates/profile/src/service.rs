@@ -14,9 +14,9 @@ use crate::{
     AtomicWriter, AttemptOutcome, FileProfileRepository, Fingerprint, HttpsSourceReader,
     ImportError, ImportPreflight, ImportRequest, LocalSourceReader, PolicyDisposition,
     PreflightReport, ProfileAttempt, ProfileId, ProfilePatch, ProfilePatchEditor,
-    ProfilePatchError, ProfileRefreshPolicy, ProfileRefreshState, ProfileSource, ProfileSourceType,
-    ProfileSuccess, RepositoryError, RevisionId, SourceReadPolicy, StdAtomicWriter, Timestamp,
-    ValidationIssueCode,
+    ProfilePatchError, ProfileRefreshPolicy, ProfileRefreshState, ProfileSelectionAuthority,
+    ProfileSelectionSnapshot, ProfileSource, ProfileSourceType, ProfileSuccess, RepositoryError,
+    RevisionId, SourceReadPolicy, StdAtomicWriter, Timestamp, ValidationIssueCode,
 };
 
 const MAX_PENDING_PREFLIGHTS: usize = 4;
@@ -89,6 +89,7 @@ pub struct ProfileSnapshot {
     pub adapter_kind: ProfileAdapterKind,
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
+    pub selection: ProfileSelectionSnapshot,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -181,6 +182,7 @@ pub struct ProfileService<L, H, W = StdAtomicWriter> {
     pending: Mutex<PendingPreflights>,
     policy: SourceReadPolicy,
     repository: FileProfileRepository<W>,
+    selection: ProfileSelectionAuthority,
 }
 
 impl<L, H> ProfileService<L, H, StdAtomicWriter>
@@ -206,6 +208,7 @@ where
         authority: StateMutationAuthority,
     ) -> Self {
         let profile_directory = root.join("profiles");
+        let selection = ProfileSelectionAuthority::load(&root);
         Self {
             authority,
             profile_directory,
@@ -215,6 +218,7 @@ where
             pending: Mutex::new(PendingPreflights::default()),
             policy,
             repository: FileProfileRepository::new(root.join("profile-store")),
+            selection,
         }
     }
 }
@@ -233,6 +237,7 @@ where
         writer: W,
     ) -> Self {
         let profile_directory = root.join("profiles");
+        let selection = ProfileSelectionAuthority::load(&root);
         Self {
             authority: StateMutationAuthority::new(),
             profile_directory,
@@ -242,19 +247,13 @@ where
             pending: Mutex::new(PendingPreflights::default()),
             policy,
             repository: FileProfileRepository::with_writer(root.join("profile-store"), writer),
+            selection,
         }
     }
 
     pub fn snapshot(&self) -> Result<ProfileSnapshot, ProfileServiceError> {
-        let profiles = self
-            .repository
-            .list_metadata_with_effective_fingerprints()?
-            .into_iter()
-            .map(|(metadata, effective_fingerprint)| {
-                let source = self.repository.load(&metadata.id)?.source.display_summary();
-                Ok(profile_list_item(metadata, effective_fingerprint, source))
-            })
-            .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let profiles = self.profile_list()?;
+        let selection = self.selection.reconcile(&profiles)?;
         Ok(ProfileSnapshot {
             adapter_kind: ProfileAdapterKind::Rpc,
             capabilities: ProfileCapabilities {
@@ -268,7 +267,58 @@ where
                 save: ProfileCapabilityAvailability::Supported,
             },
             profiles,
+            selection,
         })
+    }
+
+    pub fn confirmed_selection(&self) -> Result<ProfileSelectionSnapshot, ProfileServiceError> {
+        Ok(self.snapshot()?.selection)
+    }
+
+    pub fn confirmed_selection_authorized(
+        &self,
+        permit: &StateMutationPermit,
+    ) -> Result<ProfileSelectionSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
+        self.confirmed_selection()
+    }
+
+    pub async fn initialize_selection(
+        &self,
+        preferred_profile_id: Option<&str>,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .acquire()
+            .await
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.validate_permit(&permit)?;
+        let profiles = self.profile_list()?;
+        self.selection.initialize(&profiles, preferred_profile_id)?;
+        self.snapshot()
+    }
+
+    pub async fn select_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.select_profile_if_current(profile_id, None).await
+    }
+
+    pub async fn select_profile_if_current(
+        &self,
+        profile_id: &str,
+        expected: Option<&ProfileSelectionSnapshot>,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .acquire()
+            .await
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.validate_permit(&permit)?;
+        let profiles = self.snapshot()?.profiles;
+        self.selection.select(&profiles, profile_id, expected)?;
+        self.snapshot()
     }
 
     pub fn mutation_authority(&self) -> StateMutationAuthority {
@@ -863,6 +913,18 @@ where
         self.repository.delete(&id)?;
         remove_materialized_file(&materialized_path)?;
         self.snapshot()
+    }
+
+    fn profile_list(&self) -> Result<Vec<ProfileListItem>, ProfileServiceError> {
+        Ok(self
+            .repository
+            .list_metadata_with_effective_fingerprints()?
+            .into_iter()
+            .map(|(metadata, effective_fingerprint)| {
+                let source = self.repository.load(&metadata.id)?.source.display_summary();
+                Ok(profile_list_item(metadata, effective_fingerprint, source))
+            })
+            .collect::<Result<Vec<_>, RepositoryError>>()?)
     }
 
     fn validate_permit(&self, permit: &StateMutationPermit) -> Result<(), ProfileServiceError> {
