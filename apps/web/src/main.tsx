@@ -33,7 +33,6 @@ import {
 import { resolveMobileStartup } from "./platform/mobile-runtime-bootstrap";
 import { resolveRuntimeKind } from "./platform/runtime-kind";
 import { installDesktopNativeFeel } from "./platform/desktop-native-feel";
-import { signalDesktopWindowReady } from "./platform/desktop-window";
 import { NativeNavigationBridge } from "./platform/native-navigation";
 import "./styles.css";
 
@@ -51,7 +50,6 @@ function renderInitialApplication(
   flushSync(() =>
     reactRoot.render(<DesktopWindowFrame runtime={runtime}>{application}</DesktopWindowFrame>),
   );
-  void signalDesktopWindowReady().catch(() => undefined);
 }
 
 function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
