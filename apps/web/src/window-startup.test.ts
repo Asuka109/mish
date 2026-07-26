@@ -10,20 +10,15 @@ function createDependencies(buildTarget: string | undefined = "desktop") {
 }
 
 describe("desktop startup placeholder reveal", () => {
-  it("schedules reveal without waiting on hidden WebView image decoding", async () => {
+  it("reveals without waiting on hidden WebView animation frames", async () => {
     const dependencies = createDependencies();
     const revealPlaceholder = createDesktopStartupPlaceholderReveal(dependencies);
 
     revealPlaceholder();
-
-    expect(dependencies.signalWindowReady).not.toHaveBeenCalled();
-    const frameCallback = dependencies.scheduleFrame.mock.calls[0]?.[0];
-    expect(frameCallback).toBeTypeOf("function");
-
-    frameCallback?.(0);
     await Promise.resolve();
 
     expect(dependencies.signalWindowReady).toHaveBeenCalledOnce();
+    expect(dependencies.scheduleFrame).not.toHaveBeenCalled();
   });
 
   it("does not schedule a desktop reveal for the mobile build", () => {
@@ -42,6 +37,6 @@ describe("desktop startup placeholder reveal", () => {
 
     revealPlaceholder();
 
-    expect(dependencies.scheduleFrame).toHaveBeenCalledOnce();
+    expect(dependencies.signalWindowReady).toHaveBeenCalledOnce();
   });
 });

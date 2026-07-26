@@ -122,11 +122,10 @@ set of product destinations.
 Login launch behavior still applies only to launches carrying the fixed login
 startup argument. A manual launch shows the window regardless of that setting.
 The shell now defers that initial reveal until the WebView has installed its
-inline startup placeholder and reached the next rendering frame. It does not
-wait for image decoding, desktop bootstrap, or React's first tree. A bounded
-`reveal_main_window` command applies the previously computed login-launch
-policy, so the WebView cannot promote a background login launch into a visible
-window.
+inline startup placeholder. It does not wait for image decoding, animation
+frames, desktop bootstrap, or React's first tree. A bounded `reveal_main_window`
+command applies the previously computed login-launch policy, so the WebView
+cannot promote a background login launch into a visible window.
 Opening any fixed destination from the status bar shows, unminimizes, and
 focuses the existing window.
 

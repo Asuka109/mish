@@ -77,9 +77,9 @@ still fails closed and never selects fixtures.
    plus the token in the IPC response body. The same payload declares the
    desktop-only support-bundle and local-backup capabilities.
 9. The native window remains hidden until the WebView installs the inline
-   startup placeholder: a quiet, centered Mish mark on the window surface. On
-   the next rendering frame, the WebView invokes the idempotent
-   `reveal_main_window` command without waiting for image decoding, the React
+   startup placeholder: a quiet, centered Mish mark on the window surface. The
+   startup module immediately invokes the idempotent `reveal_main_window`
+   command without waiting for image decoding, animation frames, the React
    bundle, bridge bootstrap, or first application tree. React replaces the
    placeholder when it commits. Manual
    launches and login launches configured to show the window are revealed and
