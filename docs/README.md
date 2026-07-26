@@ -22,6 +22,7 @@ of treating an implementation accident as intent.
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
 | Validation/release claims | The target-specific quality document                                                             | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
 | Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 | [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                                                                                                     |
+| Signed macOS updates      | [`architecture/updater-contract.md`](architecture/updater-contract.md)                           | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                                                                                                                                             |
 
 ## Contract index
 
@@ -71,6 +72,9 @@ of treating an implementation accident as intent.
 - [`mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)
   and [`mobile-core-abi.md`](architecture/mobile-core-abi.md) — mobile platform
   ownership, native Core ABI, artifact identity, and lifecycle.
+- [`updater-contract.md`](architecture/updater-contract.md) — strict macOS
+  updater channel, SemVer, metadata, signature, artifact identity, provenance,
+  redaction, and not-yet-live boundaries.
 
 ### Operations and quality
 

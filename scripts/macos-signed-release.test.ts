@@ -481,8 +481,13 @@ test("deterministic credential-free fixture covers required boundaries without e
   assert.match(result["apple-rejection"], /terminal status Invalid/u);
   assert.match(result["upload-failure"], /successfully uploaded/u);
   assert.equal(result.stages, signedReleaseStages.join(","));
+  assert.equal(result.updaterStage, "contract-only");
+  assert.equal(
+    result.updaterArtifacts,
+    "Mish-0.1.1-alpha.2-aarch64.app.tar.gz,Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig,mish-alpha.json,mish-alpha.json.sig",
+  );
   assert.doesNotMatch(
     JSON.stringify(result),
-    /Developer ID trust confirmed|Gatekeeper accepted live release/u,
+    /Developer ID trust confirmed|Gatekeeper accepted live release|https?:|dW50cnVzdGVk/u,
   );
 });

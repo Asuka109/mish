@@ -173,6 +173,7 @@ struct RuntimeBootstrap {
 struct ReleaseProfileEvidence {
     profile: &'static str,
     tun: SettingsAvailability,
+    updater: mish_updater::UpdaterAvailability,
 }
 
 struct MainWindowStartup {
@@ -1274,6 +1275,7 @@ fn release_profile_evidence() -> ReleaseProfileEvidence {
         } else {
             SettingsAvailability::Unavailable
         },
+        updater: mish_updater::UpdaterAvailability::ContractOnly,
     }
 }
 
@@ -1956,6 +1958,10 @@ mod tests {
     #[test]
     fn packaged_release_profile_evidence_cannot_infer_tun_from_a_signing_team() {
         let evidence = release_profile_evidence();
+        assert_eq!(
+            evidence.updater,
+            mish_updater::UpdaterAvailability::ContractOnly
+        );
         assert_eq!(
             evidence.tun,
             if matches!(
