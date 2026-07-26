@@ -337,6 +337,7 @@ mod tests {
         TrafficDataSnapshot {
             active_connections: connections,
             adapter_kind: StatusAdapterKind::Native,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             phase: TrafficDataPhase::Ready,
             profile_id: "private-profile-id".into(),
             reconnect_count: 0,

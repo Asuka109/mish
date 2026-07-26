@@ -17,6 +17,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  ApplicationSnapshotAcceptance,
+  type SnapshotDelivery,
+} from "./application-snapshot-acceptance";
 import { createFixtureTrafficClient } from "./fixture-traffic-client";
 import {
   clearClosedHistory,
@@ -82,25 +86,37 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const processIconCacheRef = useRef(new Map<string, string>());
   const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
   const latestSnapshotRef = useRef<TrafficDataSnapshotDto | null>(null);
+  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>());
 
-  const acceptSnapshot = useCallback((nextSnapshot: TrafficDataSnapshotDto) => {
-    if (!isNewerTrafficSnapshot(latestSnapshotRef.current, nextSnapshot)) return;
-    latestSnapshotRef.current = nextSnapshot;
-    setLatestSnapshot(nextSnapshot);
-    setPausedView((current) =>
-      current &&
-      (current.snapshot.profileId !== nextSnapshot.profileId ||
-        current.snapshot.sessionId !== nextSnapshot.sessionId)
-        ? null
-        : current,
-    );
-    setHistory((current) => reconcileTrafficSnapshot(current, nextSnapshot));
-    setError(null);
-  }, []);
+  const acceptSnapshot = useCallback(
+    (nextSnapshot: TrafficDataSnapshotDto, delivery: SnapshotDelivery) => {
+      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (result.kind === "stale" || result.kind === "duplicate") return false;
+      if (result.kind === "conflict") {
+        setError("Traffic snapshot order conflict.");
+        return false;
+      }
+      nextSnapshot = result.snapshot;
+      latestSnapshotRef.current = nextSnapshot;
+      setLatestSnapshot(nextSnapshot);
+      setPausedView((current) =>
+        current &&
+        (current.snapshot.profileId !== nextSnapshot.profileId ||
+          current.snapshot.sessionId !== nextSnapshot.sessionId)
+          ? null
+          : current,
+      );
+      setHistory((current) => reconcileTrafficSnapshot(current, nextSnapshot));
+      setError(null);
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     processIconCacheRef.current.clear();
     processIconRequestsRef.current.clear();
+    snapshotAcceptance.current.clear();
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       setConnection(nextConnection);
@@ -110,10 +126,12 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       // a paused capture looking current through reconnect or runtime replacement.
       setPausedView(null);
     });
-    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots(acceptSnapshot);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) =>
+      acceptSnapshot(nextSnapshot, delivery ?? "update"),
+    );
     resolvedClient
       .getSnapshot({ signal: controller.signal })
-      .then(acceptSnapshot)
+      .then((nextSnapshot) => acceptSnapshot(nextSnapshot, "request"))
       .catch(() => {
         if (controller.signal.aborted) return;
         setError("Traffic data could not be loaded.");
@@ -190,13 +208,13 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     setCommandFailure(null);
     try {
       const result = await resolvedClient.closeAllActive(authority);
-      acceptSnapshot(result.snapshot);
+      acceptSnapshot(result.snapshot, "command");
       setCommandFailure(result.failure);
       return result;
     } catch {
       setCommandFailure("disconnected");
       try {
-        acceptSnapshot(await resolvedClient.getSnapshot());
+        acceptSnapshot(await resolvedClient.getSnapshot(), "request");
       } catch {
         // Retain the last authoritative snapshot when the refresh also fails.
       }
@@ -222,13 +240,13 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       setCommandFailure(null);
       try {
         const result = await resolvedClient.closeConnection(authority, connectionId);
-        acceptSnapshot(result.snapshot);
+        acceptSnapshot(result.snapshot, "command");
         setCommandFailure(result.failure);
         return result;
       } catch {
         setCommandFailure("disconnected");
         try {
-          acceptSnapshot(await resolvedClient.getSnapshot());
+          acceptSnapshot(await resolvedClient.getSnapshot(), "request");
         } catch {
           // Retain the last authoritative snapshot when the refresh also fails.
         }
@@ -259,13 +277,13 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       setCommandFailure(null);
       try {
         const result = await resolvedClient.closeFilteredVisible(authority, connectionIds);
-        acceptSnapshot(result.snapshot);
+        acceptSnapshot(result.snapshot, "command");
         setCommandFailure(result.failure);
         return result;
       } catch {
         setCommandFailure("disconnected");
         try {
-          acceptSnapshot(await resolvedClient.getSnapshot());
+          acceptSnapshot(await resolvedClient.getSnapshot(), "request");
         } catch {
           // Retain the last authoritative snapshot when the refresh also fails.
         }
@@ -354,15 +372,6 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   );
 
   return <TrafficContext.Provider value={value}>{children}</TrafficContext.Provider>;
-}
-
-function isNewerTrafficSnapshot(
-  current: TrafficDataSnapshotDto | null,
-  next: TrafficDataSnapshotDto,
-) {
-  if (!current) return true;
-  if (current.profileId !== next.profileId || current.sessionId !== next.sessionId) return true;
-  return next.sequence > current.sequence;
 }
 
 export function useTraffic() {

@@ -256,12 +256,22 @@ revision checks.
 
 ## Concrete race catalogue
 
+Protocol version 25 resolves the four snapshot-replacement rows below through
+one parent application-order contract. The Rust host reserves
+`authorityId + epoch + order` before asynchronous publication, retires an epoch
+on runtime replacement, and stamps Status, complete Profile, Events, and
+detailed Traffic snapshots. RPC baselines are authority-replacement barriers;
+all other deliveries may advance only within the accepted authority. Product,
+Profile, Events, and Traffic providers use the same deep acceptance Module,
+including explicit duplicate, stale, and equal-order conflict outcomes.
+Recent Traffic keeps its independent nested authority/session/revision.
+
 | Priority | Timeline                                                                                                                 | Current safeguard                                                             | Gap and required invariant                                                                                                    |
 | -------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Status subscription publishes S2; an earlier `status.getSnapshot` resolves S1; Product provider accepts S1               | Abort prevents post-unmount writes only                                       | Add runtime epoch + monotonic revision; all request, command, baseline, and notification results pass one acceptance function |
-| P0       | Traffic runtime changes A→B; delayed A snapshot arrives after B; `sessionId !==` is treated as newer                     | same-session sequence rejection                                               | Parent runtime epoch must order session replacement; an older epoch can never reopen A                                        |
-| P0       | Events runtime changes A→B; delayed A snapshot replaces the local buffer and top-level metadata                          | event IDs and same-session sequence                                           | Apply the same epoch rule to both buffer and `snapshot`; never accept “different” as “newer”                                  |
-| P1       | Profile subscription publishes terminal activation; earlier complete Profile request resolves with pending/old inventory | command ID protects activation waiters                                        | Add Profile snapshot revision/epoch and reject stale complete snapshots                                                       |
+| P0       | Status subscription publishes S2; an earlier `status.getSnapshot` resolves S1; Product provider accepts S1               | Protocol 25 parent epoch/order acceptance                                     | Resolved: request, command, baseline, and notification results pass one acceptance Module                                     |
+| P0       | Traffic runtime changes A→B; delayed A snapshot arrives after B; `sessionId !==` is treated as newer                     | Protocol 25 parent epoch plus nested session sequence                         | Resolved: an older epoch can never reopen A                                                                                   |
+| P0       | Events runtime changes A→B; delayed A snapshot replaces the local buffer and top-level metadata                          | Protocol 25 parent epoch plus event sequence                                  | Resolved: the same acceptance result gates both top-level snapshot and buffer                                                 |
+| P1       | Profile subscription publishes terminal activation; earlier complete Profile request resolves with pending/old inventory | Protocol 25 parent epoch/order acceptance                                     | Resolved: stale complete Profile snapshots cannot replace terminal activation                                                 |
 | P1       | Group-selection command starts on runtime A; Profile replacement installs B; A confirms and host returns success         | Controller command lock and membership re-observation                         | Every runtime-scoped command captures runtime identity and returns typed `runtime-replaced` with B’s current snapshot/result  |
 | P1       | Browser and status bar issue aggregate Launch concurrently                                                               | Rust `proxy_operation` single-flight                                          | Preserve this guard; client-local loaders must only project Rust pending for other surfaces                                   |
 | P1       | Stop or Quit arrives during parallel activation/preflight                                                                | cancellation token, aggregate lock, activation join, zero-apply barrier tests | Preserve join-before-off invariant and expose operation identity in the public pending projection                             |

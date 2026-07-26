@@ -2,6 +2,7 @@ import {
   TrafficClientError,
   mishRpcMethods,
   trafficRpcNotifications,
+  type ApplicationSnapshotDelivery,
   type TrafficClient,
   type TrafficCommandAuthorityDto,
   type TrafficCommandOperation,
@@ -12,12 +13,15 @@ import {
 } from "@mish/contracts";
 import { RpcClient, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
 import { mapRpcError } from "./rpc-status-client";
+import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 
 export type TrafficRpcClient = RpcClient<typeof mishRpcMethods>;
 
 export class RpcTrafficClient implements TrafficClient {
   private readonly connectionListeners = new Set<(state: TrafficConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: TrafficDataSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private connectionState: TrafficConnectionState;
   private disposed = false;
   private readonly supportedCommands = new Set<TrafficCommandOperation>();
@@ -29,6 +33,7 @@ export class RpcTrafficClient implements TrafficClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>();
 
   constructor(private readonly rpc: TrafficRpcClient) {
     this.connectionState = mapConnectionState(rpc.getConnectionState());
@@ -48,7 +53,9 @@ export class RpcTrafficClient implements TrafficClient {
   ): Promise<TrafficCommandResultDto> {
     await this.ensureCapabilities();
     try {
-      return await this.rpc.request("traffic.closeAllActive", { authority }, options);
+      return this.acceptCommandResult(
+        await this.rpc.request("traffic.closeAllActive", { authority }, options),
+      );
     } catch (error) {
       throw toTrafficClientError(error);
     }
@@ -61,10 +68,8 @@ export class RpcTrafficClient implements TrafficClient {
   ): Promise<TrafficCommandResultDto> {
     await this.ensureCapabilities();
     try {
-      return await this.rpc.request(
-        "traffic.closeConnection",
-        { authority, connectionId },
-        options,
+      return this.acceptCommandResult(
+        await this.rpc.request("traffic.closeConnection", { authority, connectionId }, options),
       );
     } catch (error) {
       throw toTrafficClientError(error);
@@ -78,10 +83,12 @@ export class RpcTrafficClient implements TrafficClient {
   ): Promise<TrafficCommandResultDto> {
     await this.ensureCapabilities();
     try {
-      return await this.rpc.request(
-        "traffic.closeFilteredVisible",
-        { authority, connectionIds },
-        options,
+      return this.acceptCommandResult(
+        await this.rpc.request(
+          "traffic.closeFilteredVisible",
+          { authority, connectionIds },
+          options,
+        ),
       );
     } catch (error) {
       throw toTrafficClientError(error);
@@ -104,9 +111,15 @@ export class RpcTrafficClient implements TrafficClient {
   async getSnapshot(options?: RpcRequestOptions): Promise<TrafficDataSnapshotDto> {
     try {
       await this.ensureCapabilities();
-      const snapshot = await this.rpc.request("traffic.getSnapshot", {}, options);
+      const result = this.snapshotAcceptance.accept(
+        await this.rpc.request("traffic.getSnapshot", {}, options),
+        "request",
+      );
+      if (result.kind === "conflict") {
+        throw new TrafficClientError("validation", "Traffic snapshot order conflict");
+      }
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-      return snapshot;
+      return result.snapshot;
     } catch (error) {
       throw toTrafficClientError(error);
     }
@@ -130,7 +143,9 @@ export class RpcTrafficClient implements TrafficClient {
     return this.supportedCommands.has(command);
   }
 
-  subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     void this.ensureRemoteSubscription();
     return () => {
@@ -162,7 +177,7 @@ export class RpcTrafficClient implements TrafficClient {
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId });
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -214,28 +229,46 @@ export class RpcTrafficClient implements TrafficClient {
     return this.capabilitiesPromise;
   }
 
-  private receiveSnapshot(notification: TrafficSnapshotNotificationDto) {
+  private receiveSnapshot(
+    notification: TrafficSnapshotNotificationDto,
+    delivery: ApplicationSnapshotDelivery = "update",
+  ) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return;
+    }
+    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+    if (result.kind !== "accepted") return;
+    const snapshot = result.snapshot;
     const sessionChanged =
-      this.observedSessionId !== undefined &&
-      this.observedSessionId !== notification.snapshot.sessionId;
-    this.observedSessionId = notification.snapshot.sessionId;
+      this.observedSessionId !== undefined && this.observedSessionId !== snapshot.sessionId;
+    this.observedSessionId = snapshot.sessionId;
     if (sessionChanged) {
       this.capabilitiesLoaded = false;
       void this.ensureCapabilities()
-        .then(() => this.publishSnapshot(notification.snapshot))
+        .then(() => this.publishSnapshot(snapshot, delivery))
         .catch(() => {
           if (this.connectionState.phase !== "connected") return;
           this.emitConnectionState({ ...this.connectionState, stale: true });
         });
       return;
     }
-    this.publishSnapshot(notification.snapshot);
+    this.publishSnapshot(snapshot, delivery);
   }
 
-  private publishSnapshot(snapshot: TrafficDataSnapshotDto) {
+  private acceptCommandResult(result: TrafficCommandResultDto): TrafficCommandResultDto {
+    const acceptance = this.snapshotAcceptance.accept(result.snapshot, "command");
+    if (acceptance.kind === "conflict") {
+      throw new TrafficClientError("validation", "Traffic snapshot order conflict");
+    }
+    return { ...result, snapshot: acceptance.snapshot };
+  }
+
+  private publishSnapshot(snapshot: TrafficDataSnapshotDto, delivery: ApplicationSnapshotDelivery) {
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot, delivery);
   }
 }
 

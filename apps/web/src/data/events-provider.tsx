@@ -9,6 +9,7 @@ import type {
 } from "@mish/contracts";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -16,6 +17,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  ApplicationSnapshotAcceptance,
+  type SnapshotDelivery,
+} from "./application-snapshot-acceptance";
 import {
   clearLocalEvents,
   createEventsBufferState,
@@ -87,19 +92,33 @@ export function EventsProvider({
     null,
   );
   const [supportBundleResult, setSupportBundleResult] = useState<SupportBundleResult>("idle");
+  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<EventsSnapshotDto>());
+  const acceptSnapshot = useCallback(
+    (nextSnapshot: EventsSnapshotDto, delivery: SnapshotDelivery) => {
+      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (result.kind === "stale" || result.kind === "duplicate") return false;
+      if (result.kind === "conflict") {
+        setError("Events snapshot order conflict.");
+        return false;
+      }
+      setSnapshot(result.snapshot);
+      setBuffer((current) => reconcileEventsSnapshot(current, result.snapshot));
+      setError(null);
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    const acceptSnapshot = (nextSnapshot: EventsSnapshotDto) => {
-      setSnapshot(nextSnapshot);
-      setBuffer((current) => reconcileEventsSnapshot(current, nextSnapshot));
-      setError(null);
-    };
+    snapshotAcceptance.current.clear();
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
-    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots(acceptSnapshot);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot, delivery) =>
+      acceptSnapshot(nextSnapshot, delivery ?? "update"),
+    );
     resolvedClient
       .getSnapshot({ signal: controller.signal })
-      .then(acceptSnapshot)
+      .then((nextSnapshot) => acceptSnapshot(nextSnapshot, "request"))
       .catch(() => {
         if (controller.signal.aborted) return;
         setError("Events could not be loaded.");
@@ -110,7 +129,7 @@ export function EventsProvider({
       unsubscribeConnection();
       unsubscribeSnapshots();
     };
-  }, [resolvedClient]);
+  }, [acceptSnapshot, resolvedClient]);
 
   useEffect(() => {
     const controller = new AbortController();

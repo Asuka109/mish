@@ -30,6 +30,7 @@ class SubscriptionWinsRaceClient extends FixtureStatusClient {
     result.latencyMilliseconds = 42;
     result.observedAt = "2026-07-21T12:00:00Z";
     result.status = "healthy";
+    snapshot.applicationOrder.order += 1;
     for (const listener of this.listeners) listener(snapshot);
   }
 

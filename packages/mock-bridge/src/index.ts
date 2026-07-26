@@ -38,6 +38,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
   return {
     activeProfileId: "home",
     adapterKind: "rpc",
+    applicationOrder: { authorityId: "mock-status-application", epoch: 1, order: 1 },
     capabilities: { systemProxy: "fixture-only", tun: "fixture-only" },
     groups: [
       {
@@ -277,7 +278,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 24,
+              protocolVersion: 25,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,
@@ -297,11 +298,13 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return structuredClone(snapshot);
           case "status.setRoutingMode":
             snapshot.routingMode = values.mode as RpcStatusSnapshotDto["routingMode"];
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           case "status.setServiceProbeInterval":
             snapshot.serviceProbePolicy.intervalSeconds = Number(
               values.intervalSeconds,
             ) as RpcStatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"];
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           case "status.testServiceMonitor": {
             const monitorId = String(values.monitorId);
@@ -310,6 +313,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             );
             if (!result) throw new MockRpcError(-32004, "Service monitor not found");
             result.observedAt = new Date().toISOString();
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.setCapture": {
@@ -370,6 +374,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
                 samples: [],
               };
             }
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.recoverSystemProxy":
@@ -381,6 +386,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             if (!snapshot.profiles.some((profile) => profile.id === profileId))
               throw new MockRpcError(-32004, "Profile not found");
             snapshot.activeProfileId = profileId;
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.selectGroupChild": {
@@ -392,6 +398,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             )
               throw new MockRpcError(-32602, "Invalid group child");
             group.selectedChildId = String(values.childId);
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.upsertServiceMonitor": {
@@ -400,6 +407,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             const index = snapshot.services.findIndex((service) => service.id === monitor.id);
             if (index === -1) snapshot.services.push(monitor);
             else snapshot.services[index] = monitor;
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.removeServiceMonitor": {
@@ -409,11 +417,13 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             snapshot.probeResults = snapshot.probeResults.filter(
               (probe) => probe.monitorId !== values.monitorId,
             );
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           }
           case "status.restoreDefaultServices":
             snapshot.services = [structuredClone(defaultService)];
             snapshot.serviceProbePolicy.intervalSeconds = 5;
+            snapshot.applicationOrder.order += 1;
             return structuredClone(snapshot);
           case "traffic.getProcessIcon":
             return { dataUrl: null };

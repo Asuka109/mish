@@ -48,9 +48,16 @@ class FakeTransport implements WebSocketLike {
 }
 
 function trafficSnapshot(overrides: Partial<TrafficDataSnapshotDto> = {}): TrafficDataSnapshotDto {
+  const sessionId = overrides.sessionId === undefined ? "controller-1" : overrides.sessionId;
+  const epoch = Number(sessionId?.match(/(\d+)$/u)?.[1] ?? 1);
   return {
     activeConnections: [],
     adapterKind: "rpc",
+    applicationOrder: {
+      authorityId: "traffic-application",
+      epoch,
+      order: overrides.sequence ?? 1,
+    },
     phase: "ready",
     profileId: "fixture-profile",
     reconnectCount: 0,
@@ -92,7 +99,7 @@ async function advertiseTrafficCommands(
     result: {
       bridgeVersion: "test",
       coreConfigured: true,
-      protocolVersion: 24,
+      protocolVersion: 25,
       statusCommands: { group: false, groupDelay: false, routing: false, services: false },
       trafficCommands: {
         closeAllActive: supported,
@@ -129,8 +136,12 @@ describe("RpcTrafficClient", () => {
     });
     const client = new RpcTrafficClient(rpc);
     const snapshots: TrafficDataSnapshotDto[] = [];
+    const deliveries: Array<string | undefined> = [];
     const states: string[] = [];
-    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+    client.subscribeSnapshots((snapshot, delivery) => {
+      snapshots.push(snapshot);
+      deliveries.push(delivery);
+    });
     client.subscribeConnection((state) => states.push(`${state.phase}:${state.stale}`));
 
     await authenticate(transports[0]);
@@ -143,6 +154,7 @@ describe("RpcTrafficClient", () => {
     });
     await flushMicrotasks();
     expect(snapshots.at(-1)?.sessionId).toBe("controller-1");
+    expect(deliveries).toEqual(["baseline"]);
 
     transports[0].close(1006, "gap");
     expect(states.at(-1)).toContain("true");
@@ -161,6 +173,7 @@ describe("RpcTrafficClient", () => {
     await flushMicrotasks();
 
     expect(snapshots.at(-1)?.sessionId).toBe("controller-2");
+    expect(deliveries).toEqual(["baseline", "baseline"]);
     expect(states.at(-1)).toBe("connected:false");
     client.dispose();
     rpc.dispose();
