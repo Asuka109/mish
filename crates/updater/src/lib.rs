@@ -238,14 +238,24 @@ pub fn evaluate_update(
         Ordering::Greater => {}
     }
 
-    let skipped_version = candidate.major > installed.major
+    let skipped_release_version = candidate.major > installed.major
         || candidate.minor > installed.minor.saturating_add(1)
         || (candidate.major == installed.major
             && candidate.minor == installed.minor
             && candidate.patch > installed.patch.saturating_add(1));
+    let skipped_alpha_sequence = policy.installed.channel == UpdateChannel::Alpha
+        && candidate_channel == UpdateChannel::Alpha
+        && candidate.major == installed.major
+        && candidate.minor == installed.minor
+        && candidate.patch == installed.patch
+        && alpha_sequence(&candidate).is_some_and(|candidate_sequence| {
+            alpha_sequence(&installed).is_some_and(|installed_sequence| {
+                candidate_sequence > installed_sequence.saturating_add(1)
+            })
+        });
     Ok(UpdateSelection {
         channel_switch: policy.installed.channel != policy.selected_channel,
-        skipped_version,
+        skipped_version: skipped_release_version || skipped_alpha_sequence,
         version: candidate.to_string(),
     })
 }
@@ -276,6 +286,10 @@ fn validate_channel_version(version: &Version, channel: UpdateChannel) -> Result
         }
         UpdateChannel::Stable => Err(UpdaterError::WrongChannelVersion),
     }
+}
+
+fn alpha_sequence(version: &Version) -> Option<u64> {
+    version.pre.as_str().strip_prefix("alpha.")?.parse().ok()
 }
 
 fn validate_metadata_identity(
@@ -460,6 +474,22 @@ mod tests {
             )
             .map(|selection| selection.skipped_version);
             assert_eq!(result, expected, "{installed} -> {candidate}");
+        }
+        for (installed, candidate, skipped) in [
+            ("0.1.1-alpha.1", "0.1.1-alpha.2", false),
+            ("0.1.1-alpha.1", "0.1.1-alpha.3", true),
+        ] {
+            assert_eq!(
+                evaluate_update(
+                    &policy(installed, UpdateChannel::Alpha, UpdateChannel::Alpha),
+                    candidate,
+                    UpdateChannel::Alpha,
+                )
+                .expect("newer Alpha must be selected")
+                .skipped_version,
+                skipped,
+                "{installed} -> {candidate}",
+            );
         }
         for malformed in ["v0.1.2", "0.1", "0.1.2+build.1", "0.1.02", "latest"] {
             assert_eq!(

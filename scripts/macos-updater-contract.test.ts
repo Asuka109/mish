@@ -16,6 +16,7 @@ import {
 } from "./macos-updater-contract.ts";
 
 const fixtures = path.resolve(import.meta.dirname, "fixtures/macos-updater");
+const publicKey = readFileSync(path.join(fixtures, "updater-fixture.key.pub"), "utf8").trim();
 
 function completeFixture() {
   const temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-updater-test-"));
@@ -27,6 +28,7 @@ function completeFixture() {
     channel: "alpha",
     metadataSignature: path.join(fixtures, "mish-alpha.json.sig"),
     outputDirectory,
+    publicKey,
     sourceSha: updaterFixtureSourceSha,
     version: updaterFixtureVersion,
   });
@@ -90,7 +92,7 @@ test("fails closed on substituted payload, metadata, signatures, or artifact set
     "substituted payload",
   );
   assert.throws(
-    () => verifyUpdaterArtifacts(payloadFixture.outputDirectory, payloadFixture.result),
+    () => verifyUpdaterArtifacts(payloadFixture.outputDirectory, payloadFixture.result, publicKey),
     /identity|digest/u,
   );
 
@@ -100,7 +102,8 @@ test("fails closed on substituted payload, metadata, signatures, or artifact set
     readFileSync(path.join(fixtures, "mish-alpha.json.sig"), "utf8").trim(),
   );
   assert.throws(
-    () => verifyUpdaterArtifacts(signatureFixture.outputDirectory, signatureFixture.result),
+    () =>
+      verifyUpdaterArtifacts(signatureFixture.outputDirectory, signatureFixture.result, publicKey),
     /bind the exact updater payload/u,
   );
 
@@ -111,14 +114,35 @@ test("fails closed on substituted payload, metadata, signatures, or artifact set
   );
   writeFileSync(metadataPath, readFileSync(metadataPath, "utf8").replace('"alpha"', '"stable"'));
   assert.throws(
-    () => verifyUpdaterArtifacts(metadataFixture.outputDirectory, metadataFixture.result),
+    () =>
+      verifyUpdaterArtifacts(metadataFixture.outputDirectory, metadataFixture.result, publicKey),
     /identity or provenance/u,
   );
 
   using extraFixture = completeFixture();
   writeFileSync(path.join(extraFixture.outputDirectory, "unexpected"), "unexpected");
   assert.throws(
-    () => verifyUpdaterArtifacts(extraFixture.outputDirectory, extraFixture.result),
+    () => verifyUpdaterArtifacts(extraFixture.outputDirectory, extraFixture.result, publicKey),
     /unexpected files/u,
+  );
+});
+
+test("cryptographically rejects swapped detached signatures before accepting output", () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-updater-signature-test-"));
+  const outputDirectory = path.join(temporary.path, "output");
+  mkdirSync(outputDirectory);
+  assert.throws(
+    () =>
+      prepareUpdaterArtifacts({
+        artifact: path.join(fixtures, updaterArtifactName(updaterFixtureVersion)),
+        artifactSignature: path.join(fixtures, "mish-alpha.json.sig"),
+        channel: "alpha",
+        metadataSignature: path.join(fixtures, `${updaterArtifactName(updaterFixtureVersion)}.sig`),
+        outputDirectory,
+        publicKey,
+        sourceSha: updaterFixtureSourceSha,
+        version: updaterFixtureVersion,
+      }),
+    /does not verify the expected content/u,
   );
 });
