@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const defaultWebDevelopmentPort = 4173;
+export const tartTunAcceptanceArgument = "--tart-tun-acceptance";
 
 function portIsAvailable(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -56,6 +57,7 @@ export function parseTauriDevelopmentArguments(arguments_: string[]): {
   application: string[];
   demo: boolean;
   forwarded: string[];
+  tartTunAcceptance: boolean;
 } {
   const normalized = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
   const isDevtoolsArgument = (argument: string): boolean =>
@@ -64,8 +66,12 @@ export function parseTauriDevelopmentArguments(arguments_: string[]): {
     application: normalized.filter(isDevtoolsArgument),
     demo: normalized.includes("--demo"),
     forwarded: normalized.filter(
-      (argument) => argument !== "--demo" && !isDevtoolsArgument(argument),
+      (argument) =>
+        argument !== "--demo" &&
+        argument !== tartTunAcceptanceArgument &&
+        !isDevtoolsArgument(argument),
     ),
+    tartTunAcceptance: normalized.includes(tartTunAcceptanceArgument),
   };
 }
 
@@ -99,6 +105,11 @@ async function run(): Promise<void> {
   };
   if (invocation.demo) environment.MISH_DESKTOP_DEMO = "1";
   else delete environment.MISH_DESKTOP_DEMO;
+  if (!invocation.demo && invocation.tartTunAcceptance) {
+    environment.MISH_TART_TUN_ACCEPTANCE = "1";
+  } else {
+    delete environment.MISH_TART_TUN_ACCEPTANCE;
+  }
   const child = spawn(
     pnpm,
     [

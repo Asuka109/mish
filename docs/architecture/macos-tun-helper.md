@@ -32,7 +32,8 @@ service owns the Mihomo process, and that process creates the Darwin `utun`
 interface and applies routes. The Tauri process remains unprivileged. The only
 difference is how the service is installed and trusted.
 
-Run the explicit developer command from a trusted checkout:
+The ordinary developer service remains the Stage 1, TUN-disabled Core host.
+Run it from a trusted checkout:
 
 ```sh
 pnpm macos:tun:install
@@ -74,6 +75,40 @@ private runtime receipt. They do not create per-install temporary directories,
 backup copies, or versioned system files. Uninstall also removes the bounded
 per-user service socket and runtime receipt; shared system directories are
 never removed.
+
+### Disposable Tart TUN acceptance
+
+The complete development TUN path requires a second, exact boundary on both
+sides of the service:
+
+```sh
+pnpm macos:tun:install:tart
+pnpm desktop:dev:tart-tun
+```
+
+These commands are for a disposable Tart guest only and must never be run on
+the host Mac. The installer records the Tart opt-in in the installation
+identity, and the desktop launcher accepts it only in a Tauri development
+build. Omitting either side keeps Virtual Interface unavailable. Demo,
+ordinary source development, alpha-ad-hoc, signed-direct, and production
+layouts are unchanged and fail-closed.
+
+Inside this boundary, the service accepts only Mish's fixed private managed
+runtime layout and the existing pinned Core. The generated policy fixes
+`fake-ip-range` to `198.18.0.1/16` and the upstream resolver to `1.1.1.1`.
+When activation is explicitly enabled, the service snapshots the exact DNS
+state of Tart's fixed `Ethernet` service and sets it to `198.18.0.1`. It
+restores the snapshot on disable, normal owner exit, forced owner exit, helper
+exit, or Core exit. The independent watchdog validates the fixed service,
+managed address, and bounded prior DNS snapshot before performing the same
+restoration. No arbitrary network service, DNS value, path, or command crosses
+the privilege boundary.
+
+This DNS transaction exists because the fixed Mihomo `any:53` listener and
+Darwin route policy must be observed on the actual guest packet path. A helper
+acknowledgement or desired configuration is insufficient. Applied requires a
+fresh service observation that correlates the root-owned child with Mish's
+`utun` and confirms the managed route partition and DNS effect.
 
 Core activation candidates are separately bounded by runtime ownership. Startup
 removes only UUID-named stale candidates after orphan recovery, failed staging

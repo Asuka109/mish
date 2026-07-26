@@ -9,6 +9,7 @@ desktop sidebar.
 ```sh
 pnpm desktop:demo
 pnpm desktop:dev
+pnpm desktop:dev:tart-tun
 pnpm desktop:build
 pnpm desktop:build:macos
 ```
@@ -82,6 +83,12 @@ System Proxy defaults off and is journaled, confirmed, and restored by the
 shared runtime. Source development may install the bounded root LaunchDaemon
 described in the TUN contract. Ad-hoc app packages contain no production helper
 and therefore keep packaged TUN unavailable.
+
+`desktop:dev:tart-tun` is a separate acceptance-only entry point. It is valid
+only in a disposable Tart guest after `pnpm macos:tun:install:tart` and exposes
+the fixed development TUN policy to the authenticated repository RPC harness.
+Ordinary `desktop:dev`, demo, ad-hoc, signed-direct, and production layouts
+remain fail-closed. Never run the Tart command or installer on the host Mac.
 
 ## Authoritative details
 

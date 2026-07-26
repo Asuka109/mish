@@ -11,6 +11,9 @@ importers:
       '@resvg/resvg-js':
         specifier: 2.6.2
         version: 2.6.2
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       oxfmt:
         specifier: 0.59.0
         version: 0.59.0
@@ -20,6 +23,9 @@ importers:
       typescript:
         specifier: 7.0.2
         version: 7.0.2
+      ws:
+        specifier: 8.21.1
+        version: 8.21.1
       yaml:
         specifier: 2.9.0
         version: 2.9.0

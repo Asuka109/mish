@@ -8,6 +8,7 @@ import test from "node:test";
 
 import {
   buildDevelopmentServiceUninstallScript,
+  parseDevelopmentServiceArguments,
   resolveStableCargo,
 } from "./manage-macos-tun-service.ts";
 
@@ -146,6 +147,40 @@ test("uninstall moves only fixed service targets into a recoverable Trash quaran
   assert.doesNotMatch(script, /\/bin\/rm|\/usr\/bin\/trash/u);
 });
 
+test("accepts the TUN service capability only behind the exact Tart acceptance option", () => {
+  assert.deepEqual(parseDevelopmentServiceArguments(["install"]), {
+    action: "install",
+    tartTerminalAuthorization: false,
+    tartTunAcceptance: false,
+  });
+  assert.deepEqual(parseDevelopmentServiceArguments(["install", "--tart-tun-acceptance"]), {
+    action: "install",
+    tartTerminalAuthorization: false,
+    tartTunAcceptance: true,
+  });
+  assert.deepEqual(
+    parseDevelopmentServiceArguments([
+      "install",
+      "--tart-tun-acceptance",
+      "--tart-terminal-authorization",
+    ]),
+    {
+      action: "install",
+      tartTerminalAuthorization: true,
+      tartTunAcceptance: true,
+    },
+  );
+  for (const arguments_ of [
+    ["install", "--tun"],
+    ["install", "--tart-tun-acceptance=true"],
+    ["install", "--tart-tun-acceptance", "--tart-tun-acceptance"],
+    ["install", "--tart-terminal-authorization"],
+    ["prepare", "--tart-tun-acceptance", "--tart-terminal-authorization"],
+  ]) {
+    assert.throws(() => parseDevelopmentServiceArguments(arguments_), /Usage:/u);
+  }
+});
+
 test(
   "prepares with injected executables without authorization, installation, Core download, or network mutation",
   { skip: process.platform !== "darwin" },
@@ -184,6 +219,14 @@ test(
     );
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), { ok: true, stage: "prepared" });
+    const preparedPlist = readFileSync(
+      path.join(
+        workspace,
+        "home/Library/Application Support/com.asuka109.mish/runtime/tun-service-installer/com.asuka109.mish.tun-helper.dev.plist",
+      ),
+      "utf8",
+    );
+    assert.match(preparedPlist, /<key>MISH_TUN_SERVICE_ALLOW_TUN<\/key><string>0<\/string>/u);
     assert.deepEqual(readFileSync(commandLog, "utf8").trim().split("\n"), [
       "rustup:which cargo --toolchain stable",
       "cargo:build -p mish-platform-macos --features development-core-host --bin mish-tun-helper --bin mish-core-host-ctl",
