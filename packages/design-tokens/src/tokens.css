@@ -126,6 +126,9 @@
   --mish-spacing-lg: 16px;
   --mish-spacing-xl: 24px;
   --mish-spacing-xxl: 32px;
+  --mish-spacing-page-gutter: 32px;
+  --mish-spacing-page-gutter-compact: 24px;
+  --mish-spacing-page-gutter-mobile: 16px;
 
   --mish-shadow-panel: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 2.5%);
   --mish-shadow-float: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
@@ -376,6 +379,9 @@
   --spacing-lg: var(--mish-spacing-lg);
   --spacing-xl: var(--mish-spacing-xl);
   --spacing-xxl: var(--mish-spacing-xxl);
+  --spacing-page-gutter: var(--mish-spacing-page-gutter);
+  --spacing-page-gutter-compact: var(--mish-spacing-page-gutter-compact);
+  --spacing-page-gutter-mobile: var(--mish-spacing-page-gutter-mobile);
   --spacing-sidebar-width: var(--mish-sidebar-width);
   --spacing-sidebar-icon: var(--mish-sidebar-icon-size);
   --spacing-sidebar-row-gap: var(--mish-sidebar-row-gap);

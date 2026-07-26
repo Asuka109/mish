@@ -63,8 +63,9 @@ const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
 const eventStyles = tv({
   slots: {
     page: cx(
-      "events-page mx-auto min-h-full w-full max-w-page-wide px-8 pt-7 pb-9 max-page-compact:p-6",
-      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "events-page mx-auto min-h-full w-full max-w-page-wide px-page-gutter pt-7 pb-9",
+      "max-page-compact:px-page-gutter-compact max-page-compact:py-xl",
+      "max-shell-mobile:px-page-gutter-mobile max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     heading: cx(
       "events-heading flex items-start justify-between gap-6 max-toolbar-compact:flex-col",

@@ -38,8 +38,9 @@ const routeStyles = tv({
     loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
     page: "routes-page min-h-0",
     workspace: cx(
-      "routes-workspace mx-auto min-h-full w-full max-w-page px-8 pt-7 pb-9 max-page-compact:p-6",
-      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "routes-workspace mx-auto min-h-full w-full max-w-page px-page-gutter pt-7 pb-9",
+      "max-page-compact:px-page-gutter-compact max-page-compact:py-xl",
+      "max-shell-mobile:px-page-gutter-mobile max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     header: cx(
       "routes-header border-b border-hairline-soft pb-5 [&_p]:mt-1.5 [&_p]:max-w-170",

@@ -87,8 +87,9 @@ const ruleSortValues: RuleSort[] = ["priority-asc", "type-asc", "target-asc", "h
 const trafficStyles = tv({
   slots: {
     page: cx(
-      "traffic-page w-full px-7 pt-7 pb-9 max-page-compact:px-6 max-page-compact:pt-6",
-      "max-page-compact:pb-8 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "traffic-page w-full px-page-gutter pt-7 pb-9",
+      "max-page-compact:px-page-gutter-compact max-page-compact:pt-xl max-page-compact:pb-8",
+      "max-shell-mobile:px-page-gutter-mobile max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     header: cx(
       "flex items-start justify-between gap-6 max-toolbar-compact:flex-col",

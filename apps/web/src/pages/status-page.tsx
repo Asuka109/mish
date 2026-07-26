@@ -32,8 +32,9 @@ import styles from "./status-page.module.css";
 const statusStyles = tv({
   slots: {
     page: cx(
-      "mx-auto min-h-full w-full max-w-page px-8 pt-6 pb-8 max-page-compact:p-6",
-      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "mx-auto min-h-full w-full max-w-page px-page-gutter pt-xl pb-xxl",
+      "max-page-compact:px-page-gutter-compact max-page-compact:py-xl",
+      "max-shell-mobile:px-page-gutter-mobile max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
     controls: "pb-4",
