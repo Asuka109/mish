@@ -496,7 +496,11 @@ function createActivationProfileClient() {
     const snapshot = await managedProfileSnapshot();
     return {
       ...snapshot.activation,
+      attemptedAt: 1,
       commandId,
+      evidence: null,
+      failure: null,
+      failureEndpoint: null,
       operation: "activate" as const,
       phase: "pending" as const,
       targetProfileId: profileId,
@@ -552,14 +556,17 @@ async function createCompletingActivationProfileClient(
     });
   }
   const profileId = snapshot.profiles[0].id;
-  snapshot.activation.targetProfileId = profileId;
   if (initialManagedListenerConflict) {
     snapshot.activation = {
       ...snapshot.activation,
+      attemptedAt: 1,
+      commandId: "initial-activation-command",
       failure: "managed-listener-conflict",
       failureEndpoint: "127.0.0.1:7890",
+      operation: "activate",
       phase: "failure",
       safeStopped: true,
+      targetProfileId: profileId,
     };
   }
   const listeners = new Set<(nextSnapshot: ProfileSnapshotDto) => void>();
@@ -573,7 +580,11 @@ async function createCompletingActivationProfileClient(
       ...snapshot,
       activation: {
         ...snapshot.activation,
+        attemptedAt: 2,
         commandId,
+        evidence: null,
+        failure: null,
+        failureEndpoint: null,
         operation: "activate",
         phase: "pending",
         targetProfileId,
@@ -587,7 +598,7 @@ async function createCompletingActivationProfileClient(
             ...snapshot.activation,
             failure: "state-commit",
             phase: "failure",
-            safeStopped: false,
+            safeStopped: true,
           },
           selection: {
             profileId: concurrentSelectionOnFailure,
@@ -601,6 +612,8 @@ async function createCompletingActivationProfileClient(
         ...snapshot,
         activation: {
           ...snapshot.activation,
+          activeFingerprint: snapshot.profiles.find(({ id }) => id === targetProfileId)!
+            .effectiveFingerprint,
           activeProfileId: targetProfileId,
           failure: null,
           phase: "success",
@@ -2178,8 +2191,6 @@ describe("desktop RPC experience", () => {
     const profileClient = createActivationProfileClient();
     profileClient.getSnapshot = async () => {
       const snapshot = await managedProfileSnapshot();
-      snapshot.activation.activeProfileId = null;
-      snapshot.activation.targetProfileId = null;
       snapshot.profiles = [];
       return snapshot;
     };
@@ -2276,7 +2287,17 @@ describe("desktop RPC experience", () => {
     profileClient.getSnapshot = async () => {
       const snapshot = await managedProfileSnapshot();
       const profile = snapshot.profiles[0];
-      snapshot.activation.activeProfileId = profile.id;
+      snapshot.activation = {
+        ...snapshot.activation,
+        activeFingerprint: profile.effectiveFingerprint,
+        activeProfileId: profile.id,
+        attemptedAt: 1,
+        commandId: "activation-command",
+        operation: "activate",
+        phase: "success",
+        safeStopped: false,
+        targetProfileId: profile.id,
+      };
       profile.status.active = true;
       return snapshot;
     };
