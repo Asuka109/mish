@@ -54,16 +54,39 @@ describe("ApplicationSnapshotAcceptance", () => {
     expect(acceptance.snapshot()?.value).toBe("B1");
   });
 
-  it("lets a post-reconnect command establish authority and a duplicate close the barrier", () => {
+  it("lets a post-reconnect command establish authority and requires duplicate confirmation", () => {
     const acceptance = new ApplicationSnapshotAcceptance<Snapshot>();
     const first = snapshot("A", 1, 1, "A1");
     acceptance.accept(first, "baseline");
     acceptance.armReconnect();
     expect(acceptance.accept(structuredClone(first), "request").kind).toBe("duplicate");
+    expect(acceptance.isReconnectPending()).toBe(true);
+    acceptance.completeReconnect();
     expect(acceptance.isReconnectPending()).toBe(false);
 
     acceptance.armReconnect();
     expect(acceptance.accept(snapshot("B", 1, 1, "B1"), "command").kind).toBe("accepted");
     expect(acceptance.accept(snapshot("A", 2, 2, "late A"), "request").kind).toBe("stale");
+  });
+
+  it("does not let a normalized stale duplicate clear a provider reconnect barrier", () => {
+    const client = new ApplicationSnapshotAcceptance<Snapshot>();
+    const provider = new ApplicationSnapshotAcceptance<Snapshot>();
+    const authorityA = snapshot("A", 1, 2, "A2");
+    client.accept(authorityA, "baseline");
+    provider.accept(authorityA, "baseline");
+    client.armReconnect();
+    provider.armReconnect();
+
+    const normalized = client.accept(snapshot("A", 1, 1, "stale A1"), "request");
+    expect(normalized.kind).toBe("stale");
+    expect(provider.accept(normalized.snapshot, "request").kind).toBe("duplicate");
+    expect(provider.isReconnectPending()).toBe(true);
+
+    const authorityB = client.accept(snapshot("B", 1, 1, "B1"), "request");
+    client.confirmReconnect();
+    provider.confirmReconnect();
+    expect(provider.accept(authorityB.snapshot, "request").kind).toBe("accepted");
+    expect(provider.snapshot()?.value).toBe("B1");
   });
 });

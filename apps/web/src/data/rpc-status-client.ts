@@ -239,6 +239,7 @@ export class RpcStatusClient implements StatusClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = this.acceptRecentTraffic(result.snapshot);
@@ -335,6 +336,7 @@ export class RpcStatusClient implements StatusClient {
       if (result.kind === "conflict") {
         throw new StatusClientError("validation", "Status snapshot order conflict");
       }
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
       const snapshot = this.acceptRecentTraffic(result.snapshot);
       this.emitSnapshotConnectionState();
       void this.ensureCommandCapabilities(snapshot.activeProfileId);

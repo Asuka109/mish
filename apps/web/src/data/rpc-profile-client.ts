@@ -261,6 +261,7 @@ export class RpcProfileClient implements ProfileClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = this.projectCapabilities(result.snapshot);
@@ -272,6 +273,7 @@ export class RpcProfileClient implements ProfileClient {
     if (result.kind === "conflict") {
       throw new ProfileClientError("validation", "Profile snapshot order conflict");
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     return this.projectCapabilities(result.snapshot);
   }

@@ -144,7 +144,7 @@ describe("RpcStatusClient", () => {
     await authenticate(transports[0]);
     const firstRequest = await waitForRequest(transports[0], 1);
     const authorityA = await createRpcSnapshot();
-    authorityA.applicationOrder.authorityId = "status-authority-A";
+    authorityA.applicationOrder = { authorityId: "status-authority-A", epoch: 1, order: 2 };
     transports[0].respond({ id: firstRequest.id, jsonrpc: "2.0", result: authorityA });
     await expect(firstRead).resolves.toMatchObject({
       applicationOrder: { authorityId: "status-authority-A" },
@@ -155,8 +155,18 @@ describe("RpcStatusClient", () => {
     await authenticate(transports[1]);
     expect(client.getConnectionState().stale).toBe(true);
 
+    const staleRead = client.getSnapshot();
+    const staleRequest = await waitForRequest(transports[1], 1);
+    const staleA = structuredClone(authorityA);
+    staleA.applicationOrder.order = 1;
+    transports[1].respond({ id: staleRequest.id, jsonrpc: "2.0", result: staleA });
+    await expect(staleRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "status-authority-A", order: 2 },
+    });
+    expect(client.getConnectionState().stale).toBe(true);
+
     const secondRead = client.getSnapshot();
-    const secondRequest = await waitForRequest(transports[1], 1);
+    const secondRequest = await waitForRequest(transports[1], 2);
     const authorityB = await createRpcSnapshot();
     authorityB.applicationOrder = { authorityId: "status-authority-B", epoch: 1, order: 1 };
     transports[1].respond({ id: secondRequest.id, jsonrpc: "2.0", result: authorityB });
@@ -166,7 +176,7 @@ describe("RpcStatusClient", () => {
     expect(client.getConnectionState().stale).toBe(false);
 
     const lateCommand = client.setRoutingMode("global");
-    const lateRequest = await waitForRequest(transports[1], 2);
+    const lateRequest = await waitForRequest(transports[1], 3);
     const delayedA = structuredClone(authorityA);
     delayedA.applicationOrder.order = 99;
     delayedA.routingMode = "global";

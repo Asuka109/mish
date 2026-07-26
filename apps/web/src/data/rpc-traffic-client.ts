@@ -118,6 +118,7 @@ export class RpcTrafficClient implements TrafficClient {
       if (result.kind === "conflict") {
         throw new TrafficClientError("validation", "Traffic snapshot order conflict");
       }
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
       this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
@@ -240,6 +241,7 @@ export class RpcTrafficClient implements TrafficClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     const snapshot = result.snapshot;
@@ -264,6 +266,7 @@ export class RpcTrafficClient implements TrafficClient {
     if (acceptance.kind === "conflict") {
       throw new TrafficClientError("validation", "Traffic snapshot order conflict");
     }
+    if (acceptance.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     return { ...result, snapshot: acceptance.snapshot };
   }

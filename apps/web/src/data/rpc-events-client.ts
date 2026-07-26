@@ -62,6 +62,7 @@ export class RpcEventsClient implements EventsClient {
       if (result.kind === "conflict") {
         throw new EventsClientError("validation", "Events snapshot order conflict");
       }
+      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
       this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
@@ -147,6 +148,7 @@ export class RpcEventsClient implements EventsClient {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
+    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
     if (result.kind !== "accepted") return;
     for (const listener of this.snapshotListeners) listener(result.snapshot, delivery);

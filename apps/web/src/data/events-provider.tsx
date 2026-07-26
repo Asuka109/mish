@@ -113,8 +113,9 @@ export function EventsProvider({
     const controller = new AbortController();
     snapshotAcceptance.current.clear();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected" && nextConnection.stale) {
-        snapshotAcceptance.current.armReconnect();
+      if (nextConnection.phase === "connected") {
+        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
+        else snapshotAcceptance.current.confirmReconnect();
       }
       setConnection(nextConnection);
     });

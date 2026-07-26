@@ -180,8 +180,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     setServiceProbeStates({});
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected" && nextConnection.stale) {
-        snapshotAcceptance.current.armReconnect();
+      if (nextConnection.phase === "connected") {
+        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
+        else snapshotAcceptance.current.confirmReconnect();
       }
       setConnection(nextConnection);
     });

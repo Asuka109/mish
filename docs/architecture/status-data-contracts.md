@@ -189,9 +189,12 @@ subscription updates, and reconnect baselines pass the same Web acceptance
 module. Reauthentication arms a one-shot reconnect barrier, so the first valid
 baseline, read, or complete command result can establish the current process
 authority even when no snapshot listener exists. Once established, a delayed
-retired authority cannot reopen the cache. Lower epochs/orders are stale, exact
-duplicates are idempotent, and equal order with different content is a contract
-conflict. The parent envelope composes with, and never redefines,
+retired authority cannot reopen the cache. A duplicate closes the barrier only
+when the receiving layer knows it was the actual incoming result; a normalized
+cached result cannot prematurely make an outer Provider current. Lower
+epochs/orders are stale, exact duplicates are idempotent, and equal order with
+different content is a contract conflict. The parent envelope composes with,
+and never redefines,
 `recentTraffic.authorityId/sessionId/revision`.
 
 The canonical ownership, lifecycle, privacy, and retention contract is defined in
