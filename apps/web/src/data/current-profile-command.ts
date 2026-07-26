@@ -1,12 +1,27 @@
 import { ProfileClientError } from "@mish/contracts";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { applicationCommandScope, useCommandFeedback } from "./command-feedback";
 import { useOptionalProfiles, type ProfileOperationResult } from "./profile-provider";
 import { useProduct } from "./product-provider";
 
 export function useCurrentProfileCommand() {
   const product = useProduct();
   const profiles = useOptionalProfiles();
-  const [switching, setSwitching] = useState(false);
+  const {
+    begin: beginCommandFeedback,
+    isCurrent: isCurrentCommandFeedback,
+    state: commandFeedbackState,
+    transition: transitionCommandFeedback,
+  } = useCommandFeedback();
+  const switching = commandFeedbackState.operations.get("current-profile");
+
+  useEffect(() => {
+    if (!profiles?.snapshot || switching?.phase !== "pending") return;
+    const scopeKey = applicationCommandScope(profiles.snapshot.applicationOrder, "current-profile");
+    if (switching.scopeKey !== scopeKey) {
+      transitionCommandFeedback(switching, "superseded");
+    }
+  }, [profiles?.snapshot, switching, transitionCommandFeedback]);
 
   const selectCurrentProfile = useCallback(
     async (profileId: string): Promise<ProfileOperationResult> => {
@@ -47,29 +62,68 @@ export function useCurrentProfileCommand() {
         };
       }
 
-      setSwitching(true);
-      try {
-        const activation = await profiles.activateProfile(profileId);
-        if (!activation.ok) {
-          await rollbackSelection();
-          return activation;
-        }
-
-        const completed = await profiles.waitForProfileActivation(profileId);
-        if (!completed.ok) await rollbackSelection();
-        return completed;
-      } finally {
-        setSwitching(false);
+      const operation = beginCommandFeedback({
+        domainKey: "current-profile",
+        scopeKey: applicationCommandScope(profiles.snapshot.applicationOrder, "current-profile"),
+      });
+      if (!operation) {
+        return {
+          error: new ProfileClientError(
+            "conflict",
+            "Another current Profile operation is already pending",
+            true,
+          ),
+          ok: false,
+        };
       }
+
+      const activation = await profiles.activateProfile(profileId);
+      if (!isCurrentCommandFeedback(operation, "pending")) {
+        return replacedCurrentProfileOperation();
+      }
+      if (!activation.ok) {
+        await rollbackSelection();
+        if (isCurrentCommandFeedback(operation, "pending")) {
+          transitionCommandFeedback(operation, "failure");
+        }
+        return activation;
+      }
+
+      const completed = await profiles.waitForProfileActivation(profileId);
+      if (!isCurrentCommandFeedback(operation, "pending")) {
+        return replacedCurrentProfileOperation();
+      }
+      if (!completed.ok) await rollbackSelection();
+      if (isCurrentCommandFeedback(operation, "pending")) {
+        transitionCommandFeedback(operation, completed.ok ? "success" : "failure");
+      }
+      return completed;
     },
-    [product.snapshot, profiles],
+    [
+      beginCommandFeedback,
+      isCurrentCommandFeedback,
+      product.snapshot,
+      profiles,
+      transitionCommandFeedback,
+    ],
   );
 
   return {
     pending:
-      switching ||
+      switching?.phase === "pending" ||
       (profiles?.isPending("activate") ?? false) ||
       (profiles?.isPending("select") ?? false),
     selectCurrentProfile,
+  };
+}
+
+function replacedCurrentProfileOperation(): ProfileOperationResult {
+  return {
+    error: new ProfileClientError(
+      "cancelled",
+      "The current Profile operation was replaced before it completed",
+      true,
+    ),
+    ok: false,
   };
 }
