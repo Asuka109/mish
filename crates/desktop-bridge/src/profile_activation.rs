@@ -1761,6 +1761,361 @@ mod capture_selection_tests {
     }
 }
 
+#[cfg(test)]
+mod activation_snapshot_golden_tests {
+    use serde_json::{Value, json};
+
+    use super::{
+        ProfileActivationAvailability, ProfileActivationEvidence, ProfileActivationEvidenceKind,
+        ProfileActivationFailure, ProfileActivationOperation, ProfileActivationPhase,
+        ProfileActivationSnapshot, ProfileStartupPolicy,
+    };
+
+    const ACTIVE_FINGERPRINT: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const COMMAND_ID: &str = "11111111-1111-4111-8111-111111111111";
+    const NEXT_COMMAND_ID: &str = "22222222-2222-4222-8222-222222222222";
+    const PROFILE_ID: &str = "33333333-3333-4333-8333-333333333333";
+
+    fn snapshot() -> ProfileActivationSnapshot {
+        ProfileActivationSnapshot {
+            active_fingerprint: None,
+            active_profile_id: None,
+            attempted_at: None,
+            availability: ProfileActivationAvailability::Available,
+            command_id: None,
+            evidence: None,
+            failure: None,
+            failure_endpoint: None,
+            operation: None,
+            phase: ProfileActivationPhase::Idle,
+            safe_stopped: true,
+            startup_policy: ProfileStartupPolicy::SafeStopped,
+            target_profile_id: None,
+        }
+    }
+
+    fn serialized(snapshot: ProfileActivationSnapshot) -> Value {
+        serde_json::to_value(snapshot).expect("activation snapshot should serialize")
+    }
+
+    #[test]
+    fn public_activation_dto_legal_variants_have_stable_golden_snapshots() {
+        let idle = snapshot();
+
+        let mut pending = snapshot();
+        pending.attempted_at = Some(1_721_296_000_000);
+        pending.command_id = Some(COMMAND_ID.into());
+        pending.operation = Some(ProfileActivationOperation::Activate);
+        pending.phase = ProfileActivationPhase::Pending;
+        pending.target_profile_id = Some(PROFILE_ID.into());
+
+        let mut preparing = pending.clone();
+        preparing.evidence = Some(ProfileActivationEvidence {
+            asset: crate::GeodataAsset::GeoSite,
+            kind: ProfileActivationEvidenceKind::GeodataPreparing,
+        });
+
+        let mut succeeded = pending.clone();
+        succeeded.active_fingerprint = Some(ACTIVE_FINGERPRINT.into());
+        succeeded.active_profile_id = Some(PROFILE_ID.into());
+        succeeded.phase = ProfileActivationPhase::Success;
+        succeeded.safe_stopped = false;
+
+        let mut failed = pending.clone();
+        failed.failure = Some(ProfileActivationFailure::Validation);
+        failed.phase = ProfileActivationPhase::Failure;
+
+        let mut cancelled = failed.clone();
+        cancelled.failure = Some(ProfileActivationFailure::Cancelled);
+
+        let mut rollback_succeeded = failed.clone();
+        rollback_succeeded.failure = Some(ProfileActivationFailure::Capture);
+
+        let mut rollback_failed = rollback_succeeded.clone();
+        rollback_failed.active_fingerprint = Some(ACTIVE_FINGERPRINT.into());
+        rollback_failed.active_profile_id = Some(PROFILE_ID.into());
+        rollback_failed.safe_stopped = false;
+
+        let mut retrying = pending.clone();
+        retrying.command_id = Some(NEXT_COMMAND_ID.into());
+        retrying.attempted_at = Some(1_721_296_001_000);
+
+        let mut stop_pending = pending.clone();
+        stop_pending.active_fingerprint = Some(ACTIVE_FINGERPRINT.into());
+        stop_pending.active_profile_id = Some(PROFILE_ID.into());
+        stop_pending.operation = Some(ProfileActivationOperation::Stop);
+        stop_pending.safe_stopped = false;
+
+        let mut stop_succeeded = stop_pending.clone();
+        stop_succeeded.phase = ProfileActivationPhase::Success;
+        stop_succeeded.active_fingerprint = None;
+        stop_succeeded.active_profile_id = None;
+        stop_succeeded.safe_stopped = true;
+
+        let mut stop_failed = stop_pending.clone();
+        stop_failed.failure = Some(ProfileActivationFailure::PriorStop);
+        stop_failed.phase = ProfileActivationPhase::Failure;
+
+        let mut shutdown = idle.clone();
+        shutdown.availability = ProfileActivationAvailability::Unavailable;
+
+        assert_eq!(
+            [
+                ("idle", serialized(idle)),
+                ("pending", serialized(pending)),
+                ("preparing", serialized(preparing)),
+                ("succeeded", serialized(succeeded)),
+                ("failed", serialized(failed)),
+                ("cancelled", serialized(cancelled)),
+                ("rollback-succeeded", serialized(rollback_succeeded)),
+                ("rollback-failed", serialized(rollback_failed)),
+                ("retrying", serialized(retrying)),
+                ("stop-pending", serialized(stop_pending)),
+                ("stop-succeeded", serialized(stop_succeeded)),
+                ("stop-failed", serialized(stop_failed)),
+                ("shutdown", serialized(shutdown)),
+            ],
+            [
+                (
+                    "idle",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": null,
+                        "availability": "available",
+                        "commandId": null,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": null,
+                        "phase": "idle",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": null,
+                    }),
+                ),
+                (
+                    "pending",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "preparing",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": { "asset": "geo-site", "kind": "geodata-preparing" },
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "succeeded",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "success",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "failed",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "validation",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "cancelled",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "cancelled",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "rollback-succeeded",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "capture",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "rollback-failed",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "capture",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "retrying",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_001_000_u64,
+                        "availability": "available",
+                        "commandId": NEXT_COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-pending",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "pending",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-succeeded",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "success",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-failed",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "prior-stop",
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "failure",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "shutdown",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": null,
+                        "availability": "unavailable",
+                        "commandId": null,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": null,
+                        "phase": "idle",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": null,
+                    }),
+                ),
+            ],
+        );
+    }
+}
+
 fn map_availability(availability: Result<(), MihomoResolveError>) -> ProfileActivationAvailability {
     match availability {
         Ok(()) => ProfileActivationAvailability::Available,
