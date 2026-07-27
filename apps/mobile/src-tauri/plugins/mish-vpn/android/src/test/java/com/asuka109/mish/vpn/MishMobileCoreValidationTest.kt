@@ -85,6 +85,33 @@ class MishMobileCoreValidationTest {
     }
 
     @Test
+    fun `worker failures resolve to a redacted plugin result`() {
+        val repository = ValidationRepository()
+        val calls = AtomicInteger()
+        val coordinator = MobileConfigValidationCoordinator(
+            repository,
+            object : MobileCoreConfigValidator {
+                override fun validate(configBytes: ByteArray): NativeConfigValidationResult {
+                    calls.incrementAndGet()
+                    return NativeConfigValidationResult(NativeValidationCode.VALID)
+                }
+            },
+        )
+        val initial = repository.current()
+        val malformed = ValidateConfigArgs().apply {
+            sequence = initial.sequence
+            sessionId = initial.sessionId
+        }
+
+        val result = validateConfigSafely(coordinator, malformed, repository::current)
+
+        assertEquals("plugin-failure", result.failure)
+        assertEquals("failed", result.outcome)
+        assertEquals(0, calls.get())
+        assertEquals(initial, repository.current())
+    }
+
+    @Test
     fun `duplicate commands are rejected while one native validation is pending`() {
         val repository = ValidationRepository()
         val entered = CountDownLatch(1)

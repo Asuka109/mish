@@ -175,7 +175,9 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             }
         runCatching {
             validationExecutor.execute {
-                invoke.resolveObject(validationCoordinator.validate(args))
+                invoke.resolveObject(
+                    validateConfigSafely(validationCoordinator, args, store::current),
+                )
             }
         }.onFailure {
             invoke.resolveObject(

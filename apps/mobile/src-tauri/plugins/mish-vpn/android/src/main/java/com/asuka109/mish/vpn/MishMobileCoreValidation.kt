@@ -186,3 +186,17 @@ internal class MobileConfigValidationCoordinator(
             "The mobile runtime authority is stale.",
         )
 }
+
+internal fun validateConfigSafely(
+    coordinator: MobileConfigValidationCoordinator,
+    args: ValidateConfigArgs,
+    currentSnapshot: () -> MobileVpnSnapshot,
+): MobileConfigValidationResult =
+    runCatching { coordinator.validate(args) }
+        .getOrElse {
+            MobileConfigValidationResult.failure(
+                currentSnapshot(),
+                "plugin-failure",
+                "The Android validation plugin rejected malformed command input.",
+            )
+        }

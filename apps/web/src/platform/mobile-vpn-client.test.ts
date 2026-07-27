@@ -170,8 +170,11 @@ describe("MobileVpnFixtureClient", () => {
 
   it("returns cancelled and duplicate results without replaying validation", async () => {
     let resolveValidation: ((value: unknown) => void) | undefined;
+    let validationCalls = 0;
     const invoke = vi.fn(async (command: string) => {
       if (command === "get_snapshot") return snapshot(7);
+      validationCalls += 1;
+      if (validationCalls > 1) return validationResult(7);
       return new Promise((resolve) => {
         resolveValidation = resolve;
       });
@@ -186,13 +189,19 @@ describe("MobileVpnFixtureClient", () => {
       signal: controller.signal,
     });
 
-    const duplicate = await client.validateConfig(new Uint8Array([4, 5, 6]));
     controller.abort();
-    resolveValidation?.(validationResult(7));
-
     await expect(first).resolves.toMatchObject({ failure: "cancelled", outcome: "failed" });
+    const duplicate = await client.validateConfig(new Uint8Array([4, 5, 6]));
     expect(duplicate).toMatchObject({ failure: "duplicate-command", outcome: "failed" });
-    expect(invoke.mock.calls.filter(([command]) => command === "validate_config")).toHaveLength(1);
+
+    resolveValidation?.(validationResult(7));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await expect(client.validateConfig(new Uint8Array([7, 8, 9]))).resolves.toMatchObject({
+      failure: null,
+      outcome: "valid",
+    });
+
+    expect(invoke.mock.calls.filter(([command]) => command === "validate_config")).toHaveLength(2);
     expect(client.getSnapshot()?.sequence).toBe(7);
   });
 

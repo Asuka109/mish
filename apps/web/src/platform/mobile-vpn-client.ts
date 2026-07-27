@@ -108,49 +108,76 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
 
     this.validationPending = true;
     const payloadBytes = Array.from(configBytes);
-    try {
-      const result = MobileConfigValidationResultSchema.parse(
-        await this.transport.invoke("validate_config", {
-          request: {
-            configBytes: payloadBytes,
-            sequence: authority.sequence,
-            sessionId: authority.sessionId,
-          },
-        }),
-      );
-      if (options.signal?.aborted) {
+    const validation = (async (): Promise<MobileConfigValidationResultDto> => {
+      try {
+        const result = MobileConfigValidationResultSchema.parse(
+          await this.transport.invoke("validate_config", {
+            request: {
+              configBytes: payloadBytes,
+              sequence: authority.sequence,
+              sessionId: authority.sessionId,
+            },
+          }),
+        );
+        if (options.signal?.aborted) {
+          return validationFailure(
+            "cancelled",
+            "Configuration validation was cancelled.",
+            this.currentAuthority() ?? authority,
+          );
+        }
+        const currentAuthority = this.currentAuthority();
+        if (
+          result.failure !== "stale-authority" &&
+          (result.sequence !== authority.sequence ||
+            result.sessionId !== authority.sessionId ||
+            currentAuthority?.sequence !== authority.sequence ||
+            currentAuthority?.sessionId !== authority.sessionId)
+        ) {
+          return validationFailure(
+            "stale-authority",
+            "The mobile runtime authority changed during configuration validation.",
+            currentAuthority ?? authority,
+          );
+        }
+        return result;
+      } catch {
         return validationFailure(
-          "cancelled",
-          "Configuration validation was cancelled.",
+          options.signal?.aborted ? "cancelled" : "plugin-failure",
+          options.signal?.aborted
+            ? "Configuration validation was cancelled."
+            : "The mobile validation plugin failed safely.",
           this.currentAuthority() ?? authority,
         );
+      } finally {
+        payloadBytes.fill(0);
+        this.validationPending = false;
       }
-      const currentAuthority = this.currentAuthority();
-      if (
-        result.failure !== "stale-authority" &&
-        (result.sequence !== authority.sequence ||
-          result.sessionId !== authority.sessionId ||
-          currentAuthority?.sequence !== authority.sequence ||
-          currentAuthority?.sessionId !== authority.sessionId)
-      ) {
-        return validationFailure(
-          "stale-authority",
-          "The mobile runtime authority changed during configuration validation.",
-          currentAuthority ?? authority,
+    })();
+
+    if (!options.signal) return validation;
+
+    let settleCancellation: (() => void) | undefined;
+    const cancellation = new Promise<MobileConfigValidationResultDto>((resolve) => {
+      settleCancellation = () => {
+        resolve(
+          validationFailure(
+            "cancelled",
+            "Configuration validation was cancelled.",
+            this.currentAuthority() ?? authority,
+          ),
         );
-      }
-      return result;
-    } catch {
-      return validationFailure(
-        options.signal?.aborted ? "cancelled" : "plugin-failure",
-        options.signal?.aborted
-          ? "Configuration validation was cancelled."
-          : "The mobile validation plugin failed safely.",
-        this.currentAuthority() ?? authority,
-      );
+      };
+      options.signal?.addEventListener("abort", settleCancellation, { once: true });
+      if (options.signal?.aborted) settleCancellation();
+    });
+
+    try {
+      return await Promise.race([validation, cancellation]);
     } finally {
-      payloadBytes.fill(0);
-      this.validationPending = false;
+      if (settleCancellation) {
+        options.signal.removeEventListener("abort", settleCancellation);
+      }
     }
   }
 
