@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner};
 
-const MANAGED_NETWORK_STATE_VERSION: u16 = 1;
+const MANAGED_NETWORK_STATE_VERSION: u16 = 2;
 const MANAGED_DNS_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1));
 const NETWORK_SERVICE_LIMIT: usize = 64;
 const WATCHDOG_STATE_MAX_BYTES: usize = 4_096;
@@ -46,6 +46,7 @@ pub struct ManagedDnsState {
     pub(super) prior_servers: Vec<IpAddr>,
     schema_version: u16,
     service: ManagedNetworkService,
+    transaction_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -212,14 +213,6 @@ impl NetworkRecoveryJournal {
         self.remove()
     }
 
-    fn clear_if_present(&self, expected: &ManagedDnsState) -> Result<(), ()> {
-        match self.load()? {
-            None => Ok(()),
-            Some(current) if &current == expected => self.remove(),
-            Some(_) => Err(()),
-        }
-    }
-
     fn remove(&self) -> Result<(), ()> {
         fs::remove_file(&self.path).map_err(|_| ())?;
         fs::File::open(self.path.parent().ok_or(())?)
@@ -338,6 +331,7 @@ impl TunNetworkController for MacOsTunNetworkController {
                     prior_servers,
                     schema_version: MANAGED_NETWORK_STATE_VERSION,
                     service,
+                    transaction_id: uuid::Uuid::new_v4().to_string(),
                 },
             })
         })
@@ -491,8 +485,13 @@ pub(super) async fn restore_network_transaction_if_recorded(
     journal: &NetworkRecoveryJournal,
     state: &ManagedDnsState,
 ) -> Result<(), ()> {
+    match journal.load()? {
+        None => return Ok(()),
+        Some(recorded) if recorded == *state => {}
+        Some(_) => return Err(()),
+    }
     controller.restore(state).await?;
-    journal.clear_if_present(state)
+    journal.clear(state)
 }
 
 fn validate_preserved_network(
@@ -610,6 +609,9 @@ fn validate_managed_dns_state(state: &ManagedDnsState) -> Result<(), ()> {
     if state.schema_version != MANAGED_NETWORK_STATE_VERSION
         || state.prior_servers.len() > TUN_DNS_NAMESERVER_LIMIT
         || !valid_managed_service(&state.service)
+        || uuid::Uuid::parse_str(&state.transaction_id)
+            .map(|transaction_id| transaction_id.to_string() != state.transaction_id)
+            .unwrap_or(true)
     {
         return Err(());
     }
@@ -733,6 +735,7 @@ pub(super) fn test_network_snapshot() -> NetworkOwnershipSnapshot {
                 kind: EligibleNetworkKind::Wifi,
                 name: "Wi-Fi".into(),
             },
+            transaction_id: "22222222-2222-4222-8222-222222222222".into(),
         },
     }
 }
@@ -1264,6 +1267,7 @@ mod tests {
                 kind: EligibleNetworkKind::Wifi,
                 name: "Wi-Fi".into(),
             },
+            transaction_id: "33333333-3333-4333-8333-333333333333".into(),
         };
         let encoded = encode_watchdog_dns(&state).unwrap();
         assert_eq!(parse_watchdog_dns(&encoded).unwrap(), state);
@@ -1284,6 +1288,7 @@ mod tests {
                 kind: EligibleNetworkKind::Wifi,
                 name: "Wi-Fi".into(),
             },
+            transaction_id: "44444444-4444-4444-8444-444444444444".into(),
         };
         journal.persist(&state).unwrap();
         assert_eq!(journal.load().unwrap(), Some(state.clone()));
@@ -1295,5 +1300,42 @@ mod tests {
         std::os::unix::fs::symlink(directory.path().join("target"), &journal.path).unwrap();
         assert!(journal.load().is_err());
         assert!(journal.persist(&state).is_err());
+    }
+
+    #[tokio::test]
+    async fn stale_watchdog_cannot_restore_or_clear_a_newer_transaction() {
+        let (_directory, journal) = recovery_fixture();
+        let (controller, _, runner) = fixture(
+            vec![service(
+                WIFI_ID,
+                "Wi-Fi",
+                "en0",
+                EligibleNetworkKind::Wifi,
+                0,
+            )],
+            vec!["en0"],
+            vec![MANAGED_DNS_ADDRESS],
+        );
+        let current = test_network_snapshot().dns;
+        let mut stale = current.clone();
+        stale.transaction_id = "55555555-5555-4555-8555-555555555555".into();
+        journal.persist(&current).unwrap();
+
+        assert!(
+            restore_network_transaction_if_recorded(&controller, &journal, &stale)
+                .await
+                .is_err()
+        );
+        assert_eq!(*runner.dns.lock().unwrap(), vec![MANAGED_DNS_ADDRESS]);
+        assert_eq!(journal.load().unwrap(), Some(current.clone()));
+
+        restore_network_transaction_if_recorded(&controller, &journal, &current)
+            .await
+            .unwrap();
+        assert_eq!(
+            *runner.dns.lock().unwrap(),
+            vec!["192.0.2.53".parse::<IpAddr>().unwrap()]
+        );
+        assert_eq!(journal.load().unwrap(), None);
     }
 }

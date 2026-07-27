@@ -3303,13 +3303,14 @@ pub async fn run_core_watchdog(
     }
     let network_controller = MacOsTunNetworkController::new();
     let network_recovery = NetworkRecoveryJournal::development_root();
-    loop {
+    let result = loop {
         if !process_alive(core_pid) {
-            if let Some(managed_dns) = &managed_dns {
+            break if let Some(managed_dns) = &managed_dns {
                 restore_managed_dns_with_retry(&network_controller, &network_recovery, managed_dns)
-                    .await?;
-            }
-            return Ok(());
+                    .await
+            } else {
+                Ok(())
+            };
         }
         if !process_alive(expected_parent) {
             let restoration = if let Some(managed_dns) = &managed_dns {
@@ -3328,10 +3329,18 @@ pub async fn run_core_watchdog(
                 // SAFETY: the bounded graceful period expired for the same Core PID.
                 let _ = unsafe { libc::kill(core_pid as i32, libc::SIGKILL) };
             }
-            return restoration;
+            break restoration;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
-    }
+    };
+    // `launchctl submit` creates a keep-alive job. The helper removes it after
+    // an ordinary stop; after helper death the watchdog must remove its own
+    // submission so a completed or blocked restoration cannot affect a later
+    // network transaction.
+    remove_core_watchdog(&ServiceWatchdog {
+        launchd_label: format!("com.asuka109.mish.tun-watchdog.{core_pid}"),
+    });
+    result
 }
 
 pub async fn recover_managed_network_record(

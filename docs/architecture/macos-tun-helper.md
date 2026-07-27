@@ -199,7 +199,12 @@ already-restored prior value. A replacement service or foreign DNS value is
 never overwritten. A write whose result cannot be confirmed is rolled back
 immediately; if exact rollback cannot be confirmed, the transaction remains
 tracked as recovery-required. The independent watchdog carries only a
-versioned, bounded copy of the same service identity and prior DNS snapshot.
+versioned, bounded copy of the same service identity, prior DNS snapshot, and
+root-generated transaction UUID. A watchdog restores or clears the recovery
+record only when that complete transaction identity still matches, then removes
+its submitted launchd job after completion. A stale watchdog therefore cannot
+restore or consume a later transaction even when the service and prior DNS are
+otherwise identical.
 Before the DNS write, the service also atomically commits that same bounded
 state to a root-owned mode-`0600` recovery record beside the installation
 enrollment. Exact restoration and record removal are one transaction. Helper
