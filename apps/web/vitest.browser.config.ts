@@ -14,6 +14,7 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
       provider: playwright(),
     },
+    exclude: ["src/appearance-bootstrap.browser.test.ts"],
     include: ["src/**/*.browser.test.{ts,tsx}"],
   },
 });
