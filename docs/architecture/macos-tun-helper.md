@@ -211,16 +211,16 @@ root-generated transaction UUID. A watchdog restores or clears the recovery
 record only when that complete transaction identity still matches, then removes
 its submitted launchd job after completion. A stale watchdog therefore cannot
 restore or consume a later transaction even when the service and prior DNS are
-otherwise identical. If Helper reap cannot restore DNS because the non-waiting
-preferences lock is temporarily busy, it leaves the independent watchdog
-registered to finish its bounded recovery loop and retains the exact pending
-transaction in memory after reaping Core. Later status or start handling retries
-that transaction. If the watchdog already restored the exact prior DNS and
-removed its record, the Helper converges to off only after freshly confirming
-that exact prior DNS; managed, foreign, or unknown DNS without the record and
-any present mismatched record still fail closed without mutation. The same
-exact-prior confirmation makes simultaneous watchdog and Helper restoration
-idempotent when one wins the compare-and-set race.
+otherwise identical. If Helper reap or explicit stop cannot restore DNS because
+the non-waiting preferences lock is temporarily busy, it stops Core but leaves
+the independent watchdog registered to finish its bounded recovery loop and
+retains the exact pending transaction in memory. Later status or start handling
+retries that transaction. If the watchdog already restored the exact prior DNS
+and removed its record, the Helper converges to off only after freshly
+confirming that exact prior DNS; managed, foreign, or unknown DNS without the
+record and any present mismatched record still fail closed without mutation.
+The same exact-prior confirmation makes simultaneous watchdog and Helper
+restoration idempotent when one wins the compare-and-set race.
 Before the DNS write, the service also atomically commits that same bounded
 state to a root-owned mode-`0600` recovery record beside the installation
 enrollment. Exact restoration and record removal are one transaction. Helper

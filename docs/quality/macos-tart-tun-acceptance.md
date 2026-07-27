@@ -232,12 +232,13 @@ non-blocking for the eligible physical-service inventory and made simultaneous
 watchdog/Helper restoration converge after an exact-prior DNS reobservation.
 The deterministic concurrent-recovery regression covers the exact-prior winner;
 the existing conservative cases continue to reject managed, foreign, partial,
-or unknown values. Helper reap also retains the independent watchdog whenever
-DNS restoration is still pending, so temporary preferences-lock contention
-cannot cancel the watchdog's bounded retry loop. The Helper retains that exact
-pending transaction after reaping Core; later status and start handling retry
-it, accept only an exact-prior observation after the watchdog wins, clear the
-in-memory applied bit, and converge to observed off without a restart.
+or unknown values. Helper reap and explicit stop both retain the independent
+watchdog whenever DNS restoration is still pending, so temporary
+preferences-lock contention cannot cancel the watchdog's bounded retry loop.
+The Helper retains that exact pending transaction after stopping Core; later
+status and start handling retry it, accept only an exact-prior observation
+after the watchdog wins, clear the in-memory applied bit, and converge to
+observed off without a restart.
 
 The final source state passed all 84 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused

@@ -3447,6 +3447,7 @@ async fn stop_process_with_timeouts(
     forced_timeout: Duration,
 ) -> Result<(), ()> {
     let mut cleanup_failed = false;
+    let mut pending_network_recovery = None;
     if let Some(ownership) = state.tun.as_mut()
         && ownership.dns_applied
         && let Some(network) = ownership.network.as_ref()
@@ -3458,6 +3459,7 @@ async fn stop_process_with_timeouts(
             ownership.dns_applied = false;
         } else {
             cleanup_failed = true;
+            pending_network_recovery = Some(network.dns.clone());
         }
     }
     let Some(mut process) = state.process.take() else {
@@ -3481,8 +3483,13 @@ async fn stop_process_with_timeouts(
             return Err(());
         }
     }
-    if let Some(watchdog) = process.watchdog.take() {
+    if !cleanup_failed && let Some(watchdog) = process.watchdog.take() {
         remove_core_watchdog(&watchdog);
+    }
+    if let Some(recovery) = pending_network_recovery
+        && state.pending_network_recovery.is_none()
+    {
+        state.pending_network_recovery = Some(Ok(recovery));
     }
     match fs::remove_file(&process.sealed_config) {
         Ok(()) => {}
@@ -5299,11 +5306,13 @@ mod tests {
                 ready.display()
             ),
         );
+        let network = network_ownership::test_network_snapshot();
+        let recovery = network.dns.clone();
         state.tun = Some(ServiceTunOwnership {
             baseline_interfaces: Vec::new(),
             dns_applied: true,
             interface: None,
-            network: Some(network_ownership::test_network_snapshot()),
+            network: Some(network),
             routes: None,
         });
         while !ready.exists() {
@@ -5324,6 +5333,7 @@ mod tests {
 
         assert!(state.process.is_none());
         assert!(state.tun.as_ref().is_some_and(|tun| tun.dns_applied));
+        assert_eq!(state.pending_network_recovery, Some(Ok(recovery)));
     }
 
     #[tokio::test]
