@@ -189,6 +189,16 @@ export function inspectMacOsAppCleanup(options: InspectOptions): MacOsAppCleanup
       "An enabled loopback System Proxy is still observable. Confirm and disable it before cleanup.",
     );
   }
+  if (
+    [
+      path.join(appDataRoot, "runtime/tun-client-key.json"),
+      path.join(appDataRoot, "runtime/tun-client-key.pending.json"),
+    ].some(pathExists)
+  ) {
+    blockers.push(
+      "An internal TUN installation key still exists. Run pnpm macos:tun:uninstall from the trusted checkout before application-state cleanup.",
+    );
+  }
   const existingTargets = [
     ...knownTargets(options.homeDirectory, systemApplicationsDirectory),
     ...generatedMacOsTargets(options.homeDirectory),

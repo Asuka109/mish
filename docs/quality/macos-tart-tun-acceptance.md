@@ -97,3 +97,47 @@ watchdog job, app process, and Core process were absent. Managed route count was
 zero, DNS exactly matched the prior automatic state, and the complete System
 Proxy snapshot matched byte-for-byte. The disposable clone was stopped and
 deleted only after this evidence was retained.
+
+## Installation-key acceptance (Issue #254)
+
+The 2026-07-27 run used the unique disposable clone
+`mish-254-installation-key-20260727` from the same stopped base image. The
+host and base image remained unchanged, and the clone was deleted after the
+bounded evidence below was retained.
+
+- Preparation created one deterministic user-owned mode-`0600` P-256 private
+  record. The candidate passed to the administrator flow was also mode `0600`
+  but contained only the algorithm, public SPKI, key identifier, installation
+  identity, and installing UID.
+- Installation enrolled generation 1 in the root-owned mode-`0600` record and
+  created the existing `admin:daemon` mode-`0600` private socket. A same-UID
+  client with a separately generated private key was rejected for both signed
+  status and disable operations. The trusted client still succeeded, while
+  Core, DNS, routes, interfaces, and System Proxy remained unchanged.
+- An identical reinstall preserved both key identifier and generation. A
+  launchd helper restart and a complete desktop-app restart then accepted the
+  same key without enrollment repair.
+- The administrator-authorized rotation required signatures from the current
+  and replacement keys, advanced generation from 1 to 2, atomically made the
+  replacement active, and left no pending-key overlap. The retired key was
+  rejected immediately while the replacement succeeded.
+- The rotated key completed the real TUN journey. The RPC harness observed
+  `off`, `pending`, and `applied`; Core, interface, routes, and DNS were all
+  confirmed before Applied. A public HTTP request returned 200 and Mish Traffic
+  observed it while System Proxy stayed disabled. Disable restored the exact
+  automatic DNS state and System Proxy digest and reduced the guest from five
+  `utun` interfaces to its four-interface baseline.
+- A forced app-process exit stopped the app-owned Core without allowing an
+  unrelated authenticated process to bypass the existing PID owner gate.
+  Restarting the app retained generation 2 and the same replacement key.
+- Uninstall deleted the root enrollment, active and pending private-key paths,
+  and installer receipt, then removed the LaunchDaemon, helper, pinned Core,
+  socket, and socket state. No Mish helper, app, or Core process remained. DNS,
+  System Proxy, and the baseline `utun` count were unchanged.
+
+The clone also passed all 76 pre-existing repository script tests, the 11
+focused installer tests after the discovery-frame regression was added, all 64
+`mish-platform-macos` library tests plus its integration suites with
+`development-core-host`, and the matching all-target Cargo check. The
+repository-wide pull-request gate was rerun on the final source state outside
+the clone.

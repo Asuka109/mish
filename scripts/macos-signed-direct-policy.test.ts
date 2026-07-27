@@ -334,6 +334,9 @@ test("rejects privileged, mutable, linked, duplicate, and unexpected payloads", 
     "Contents/Library/LaunchDaemons/com.asuka109.mish.plist",
     "Contents/Library/LoginItems/MishDevelopmentHelper.app",
     "Contents/XPCServices/com.asuka109.mish.smappservice.xpc",
+    "Contents/Resources/enrollment.json",
+    "Contents/Resources/tun-client-key.json",
+    "Contents/Resources/installation-key-rotation.json",
   ]) {
     const privileged = fixture();
     privileged.entries.push({

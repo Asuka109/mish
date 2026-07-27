@@ -1,7 +1,7 @@
 # Current Repository State
 
 Refreshed 2026-07-27 against `main` at
-`1a6fb1b328eca0286190ef270be7af87ed577d85`.
+`014480e9d2ec896781ea4443c6cc44303f16bdfe`.
 
 This page is the short integration checkpoint for maintainers. It summarizes
 verified implementation, intentionally unavailable capabilities, current
@@ -23,7 +23,7 @@ Evidence labels on this page have strict meanings:
 ## Verified Review Baseline
 
 - `pnpm check:pr` passed on the reviewed commit: 440 Web tests, 10 RPC client
-  tests, 2 mock bridge tests, 73 script tests, and the repository lint, type,
+  tests, 2 mock bridge tests, 77 script tests, and the repository lint, type,
   format, localization, token, documentation, public-release, and runtime-state
   ownership checks.
 - `cargo test -p mish-updater` passed all 5 updater contract tests.
@@ -79,6 +79,12 @@ See [`settings-contracts.md`](architecture/settings-contracts.md) and
 - The source-development helper path has real disposable-macOS acceptance
   evidence for install, health, ownership, TUN activation, traffic, lifecycle
   recovery, and uninstall.
+- Internal helper clients additionally use an installation-scoped P-256
+  possession proof without replacing the existing UID, PID, private-socket,
+  filesystem, freshness, single-owner, Core-identity, or observed-network-state
+  checks. Deterministic mode-`0600` persistence, replay and expiry bounds,
+  dual-proof rotation, explicit administrator reset, fail-closed cleanup, and
+  complete key-state uninstall have disposable-macOS evidence.
 - Ordinary product builds and current release profiles continue to report
   Virtual Interface as unavailable. The accepted development path does not make
   production TUN a shipped capability.

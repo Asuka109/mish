@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     ffi::OsStr,
     fs,
     io::{Read, Write},
@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures_util::future::BoxFuture;
 use mish_bridge::{
     PrivilegedCoreHost, PrivilegedCoreHostError, PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
@@ -24,6 +25,7 @@ use mish_runtime::{
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
     TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState, tun_observation_now,
 };
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
@@ -34,7 +36,14 @@ use tokio::{
     time::timeout,
 };
 
-use crate::{MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner};
+use crate::{
+    MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner,
+    installation_key::{
+        AuthenticationTranscript, DEV_TUN_INSTALLATION_KEY_ALGORITHM,
+        DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION, InstallationClientKeyStore,
+        InstallationEnrollmentRecord, load_installation_enrollment, verify_installation_signature,
+    },
+};
 
 pub const DEV_TUN_SERVICE_LABEL: &str = "com.asuka109.mish.tun-helper.dev";
 pub const DEV_TUN_SERVICE_CORE_PATH: &str =
@@ -48,6 +57,9 @@ const CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const DEV_CORE_HOST_REQUEST_MAX_AGE_MILLISECONDS: u64 = 10_000;
 const DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS: u64 = 1_000;
 const DEV_CORE_HOST_REPLAY_WINDOW: usize = 256;
+const DEV_CORE_HOST_MAX_OUTSTANDING_CHALLENGES: usize = 64;
+const DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS: u64 = 5_000;
+const DEV_CORE_HOST_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const PINNED_CORE_MANIFEST: &str = include_str!("../../../resources/mihomo/macos-arm64.json");
 
 pub fn development_pinned_core_version() -> Result<String, &'static str> {
@@ -78,15 +90,6 @@ pub fn development_socket_path(uid: u32) -> PathBuf {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ServiceRequest {
-    command: ServiceCommand,
-    protocol_version: u16,
-    request_id: String,
-    sent_at: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum ServiceCommand {
     Health,
@@ -114,6 +117,92 @@ enum ServiceCommand {
     StopAll,
 }
 
+impl ServiceCommand {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Health => "health",
+            Self::Status => "status",
+            Self::Observe { .. } => "observe",
+            Self::OwnsListener { .. } => "owns-listener",
+            Self::Start { .. } => "start",
+            Self::Enable => "enable",
+            Self::Stop { .. } => "stop",
+            Self::Disable => "disable",
+            Self::StopAll => "stop-all",
+        }
+    }
+
+    fn digest(&self) -> Result<[u8; 32], ()> {
+        let bytes = serde_json::to_vec(self).map_err(|_| ())?;
+        Ok(Sha256::digest(bytes).into())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum ServiceClientMessage {
+    Challenge {
+        client_nonce: String,
+        command: ServiceCommand,
+        protocol_version: u16,
+        request_id: String,
+    },
+    Discovery {
+        command: ServiceCommand,
+        protocol_version: u16,
+        request_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ServiceProof {
+    challenge_id: String,
+    signature: String,
+    transcript_version: u16,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum ServiceServerMessage {
+    Challenge { challenge: ServiceChallenge },
+    Discovery { discovery: ServiceDiscovery },
+    Response { response: ServiceResponse },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ServiceDiscovery {
+    algorithm: String,
+    generation: u64,
+    helper_version: String,
+    installation_id: String,
+    key_id: String,
+    protocol_version: u16,
+    request_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ServiceChallenge {
+    algorithm: String,
+    challenge_id: String,
+    client_nonce: String,
+    command_digest: String,
+    expires_at: u64,
+    generation: u64,
+    helper_nonce: String,
+    installation_id: String,
+    issued_at: u64,
+    key_id: String,
+    operation: String,
+    peer_pid: u32,
+    peer_uid: u32,
+    protocol_version: u16,
+    request_id: String,
+    transcript_version: u16,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ServiceResponse {
@@ -127,6 +216,8 @@ struct ServiceResponse {
 #[serde(rename_all = "kebab-case")]
 enum ServiceDiagnosticCode {
     AlreadyOwned,
+    AuthenticationRejected,
+    ChallengeExpired,
     CoreDigestMismatch,
     CoreVersionMismatch,
     InvalidRequest,
@@ -687,6 +778,7 @@ fn route_contains(network: IpAddr, prefix_length: u8, address: IpAddr) -> bool {
 
 #[derive(Clone, Debug)]
 pub struct MacOsTunServiceClient {
+    client_keys: Option<InstallationClientKeyStore>,
     lifecycle: Option<DevelopmentTunLifecycle>,
     socket_path: PathBuf,
 }
@@ -722,6 +814,18 @@ struct DevelopmentInstallerResult {
 impl MacOsTunServiceClient {
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
+            client_keys: None,
+            lifecycle: None,
+            socket_path,
+        }
+    }
+
+    pub fn new_with_installation_keys(
+        socket_path: PathBuf,
+        client_keys: InstallationClientKeyStore,
+    ) -> Self {
+        Self {
+            client_keys: Some(client_keys),
             lifecycle: None,
             socket_path,
         }
@@ -730,7 +834,17 @@ impl MacOsTunServiceClient {
     pub fn development() -> Self {
         // SAFETY: getuid has no preconditions and only returns the real user ID.
         let uid = unsafe { libc::getuid() };
-        Self::new(development_socket_path(uid))
+        let runtime_root = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute())
+            .map(|home| home.join("Library/Application Support/com.asuka109.mish/runtime"));
+        match runtime_root {
+            Some(runtime_root) => Self::new_with_installation_keys(
+                development_socket_path(uid),
+                InstallationClientKeyStore::for_runtime_root(&runtime_root, uid),
+            ),
+            None => Self::new(development_socket_path(uid)),
+        }
     }
 
     pub fn development_with_lifecycle(repository_root: PathBuf) -> Self {
@@ -757,11 +871,13 @@ impl MacOsTunServiceClient {
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
         let request_timeout = service_request_timeout(&command);
         let request_id = uuid::Uuid::new_v4().to_string();
-        let request = ServiceRequest {
-            command,
+        let mut client_nonce = [0_u8; 32];
+        OsRng.fill_bytes(&mut client_nonce);
+        let request = ServiceClientMessage::Challenge {
+            client_nonce: BASE64.encode(client_nonce),
+            command: command.clone(),
             protocol_version: TUN_HELPER_PROTOCOL_VERSION,
             request_id: request_id.clone(),
-            sent_at: tun_observation_now(),
         };
         let bytes = serde_json::to_vec(&request).map_err(|_| ServiceClientError::Protocol)?;
         if bytes.len() > TUN_HELPER_MAX_MESSAGE_BYTES {
@@ -779,42 +895,83 @@ impl MacOsTunServiceClient {
                 .write_all(&bytes)
                 .await
                 .map_err(|_| ServiceClientError::Unavailable)?;
-            let length = stream
-                .read_u32()
-                .await
-                .map_err(|_| ServiceClientError::Unavailable)? as usize;
-            if length > TUN_HELPER_MAX_MESSAGE_BYTES {
+            let challenge = read_service_message(&mut stream).await?;
+            let challenge = match challenge {
+                ServiceServerMessage::Challenge { challenge } => challenge,
+                ServiceServerMessage::Response { response } => {
+                    return Err(map_service_response_error(response));
+                }
+                ServiceServerMessage::Discovery { .. } => {
+                    return Err(ServiceClientError::Protocol);
+                }
+            };
+            let command_digest = command.digest().map_err(|_| ServiceClientError::Protocol)?;
+            if challenge.request_id != request_id
+                || challenge.protocol_version != TUN_HELPER_PROTOCOL_VERSION
+                || challenge.transcript_version != DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION
+                || challenge.algorithm != DEV_TUN_INSTALLATION_KEY_ALGORITHM
+                || challenge.operation != command.operation()
+                || challenge.command_digest != BASE64.encode(command_digest)
+                || challenge.peer_uid != unsafe { libc::getuid() }
+                || challenge.peer_pid != std::process::id()
+                || challenge.issued_at
+                    > tun_observation_now()
+                        .saturating_add(DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS)
+                || challenge.expires_at <= challenge.issued_at
+                || challenge.expires_at.saturating_sub(challenge.issued_at)
+                    > DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS
+                || tun_observation_now() > challenge.expires_at
+            {
                 return Err(ServiceClientError::Protocol);
             }
-            let mut response = vec![0; length];
-            stream
-                .read_exact(&mut response)
-                .await
-                .map_err(|_| ServiceClientError::Unavailable)?;
-            let response: ServiceResponse =
-                serde_json::from_slice(&response).map_err(|_| ServiceClientError::Protocol)?;
+            let helper_nonce =
+                decode_nonce(&challenge.helper_nonce).map_err(|_| ServiceClientError::Protocol)?;
+            let challenged_client_nonce =
+                decode_nonce(&challenge.client_nonce).map_err(|_| ServiceClientError::Protocol)?;
+            if challenged_client_nonce != client_nonce {
+                return Err(ServiceClientError::Protocol);
+            }
+            let transcript = AuthenticationTranscript {
+                client_nonce,
+                command_digest,
+                expires_at: challenge.expires_at,
+                helper_installation_id: challenge.installation_id.clone(),
+                helper_nonce,
+                issued_at: challenge.issued_at,
+                key_generation: challenge.generation,
+                key_id: challenge.key_id.clone(),
+                operation: challenge.operation.clone(),
+                peer_pid: challenge.peer_pid,
+                peer_uid: challenge.peer_uid,
+                protocol_version: challenge.protocol_version,
+                request_id: request_id.clone(),
+            }
+            .canonical_bytes()
+            .map_err(|_| ServiceClientError::Protocol)?;
+            let key_store = self
+                .client_keys
+                .as_ref()
+                .ok_or(ServiceClientError::Rejected)?;
+            let (signature, key_source) = key_store
+                .sign(&challenge.key_id, &transcript)
+                .map_err(|_| ServiceClientError::Rejected)?;
+            let proof = ServiceProof {
+                challenge_id: challenge.challenge_id,
+                signature: BASE64.encode(signature),
+                transcript_version: DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+            };
+            write_service_frame(&mut stream, &proof).await?;
+            let response = match read_service_message(&mut stream).await? {
+                ServiceServerMessage::Response { response } => response,
+                _ => return Err(ServiceClientError::Protocol),
+            };
             if response.request_id != request_id {
                 return Err(ServiceClientError::Protocol);
             }
             if !response.ok {
-                return Err(match response.diagnostic {
-                    Some(
-                        ServiceDiagnosticCode::AlreadyOwned
-                        | ServiceDiagnosticCode::CoreDigestMismatch
-                        | ServiceDiagnosticCode::CoreVersionMismatch
-                        | ServiceDiagnosticCode::InvalidRequest
-                        | ServiceDiagnosticCode::OwnerMismatch
-                        | ServiceDiagnosticCode::PathRejected
-                        | ServiceDiagnosticCode::ReplayRejected
-                        | ServiceDiagnosticCode::StaleRequest
-                        | ServiceDiagnosticCode::TunForbidden,
-                    ) => ServiceClientError::Rejected,
-                    Some(
-                        ServiceDiagnosticCode::SpawnFailed | ServiceDiagnosticCode::StopFailed,
-                    )
-                    | None => ServiceClientError::OperationFailed,
-                });
+                return Err(map_service_response_error(response));
             }
+            let _ = key_store.finalize_pending(key_source);
             Ok(response.status)
         };
         timeout(request_timeout, operation)
@@ -822,8 +979,41 @@ impl MacOsTunServiceClient {
             .map_err(|_| ServiceClientError::Unavailable)?
     }
 
-    async fn health(&self) -> Result<ServiceStatus, ServiceClientError> {
-        self.request(ServiceCommand::Health).await
+    async fn health(&self) -> Result<ServiceDiscovery, ServiceClientError> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let message = ServiceClientMessage::Discovery {
+            command: ServiceCommand::Health,
+            protocol_version: TUN_HELPER_PROTOCOL_VERSION,
+            request_id: request_id.clone(),
+        };
+        let operation = async {
+            let mut stream = UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| ServiceClientError::Unavailable)?;
+            write_service_frame(&mut stream, &message).await?;
+            let discovery = match read_service_message(&mut stream).await? {
+                ServiceServerMessage::Discovery { discovery } => discovery,
+                ServiceServerMessage::Response { response } => {
+                    return Err(map_service_response_error(response));
+                }
+                ServiceServerMessage::Challenge { .. } => {
+                    return Err(ServiceClientError::Protocol);
+                }
+            };
+            if discovery.request_id != request_id
+                || discovery.protocol_version != TUN_HELPER_PROTOCOL_VERSION
+                || discovery.algorithm != DEV_TUN_INSTALLATION_KEY_ALGORITHM
+                || !valid_installation_id(&discovery.installation_id)
+                || !valid_installation_id(&discovery.key_id)
+                || discovery.generation == 0
+            {
+                return Err(ServiceClientError::Protocol);
+            }
+            Ok(discovery)
+        };
+        timeout(BOUNDED_STEP_TIMEOUT + CLIENT_RESPONSE_SLACK, operation)
+            .await
+            .map_err(|_| ServiceClientError::Unavailable)?
     }
 
     pub async fn core_host_status(&self) -> Result<DevelopmentCoreHostStatus, &'static str> {
@@ -856,7 +1046,7 @@ impl MacOsTunServiceClient {
     }
 
     pub async fn prepare_development_startup(&self) -> DevelopmentTunStartup {
-        let status = match self.health().await {
+        let status = match self.request(ServiceCommand::Status).await {
             Ok(status) => status,
             Err(_) => {
                 return DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ConnectionFailed);
@@ -908,6 +1098,68 @@ fn service_request_timeout(command: &ServiceCommand) -> Duration {
         }
     };
     server_budget + CLIENT_RESPONSE_SLACK
+}
+
+async fn write_service_frame<T: Serialize>(
+    stream: &mut UnixStream,
+    value: &T,
+) -> Result<(), ServiceClientError> {
+    let bytes = serde_json::to_vec(value).map_err(|_| ServiceClientError::Protocol)?;
+    if bytes.len() > TUN_HELPER_MAX_MESSAGE_BYTES {
+        return Err(ServiceClientError::Protocol);
+    }
+    stream
+        .write_u32(bytes.len() as u32)
+        .await
+        .map_err(|_| ServiceClientError::Unavailable)?;
+    stream
+        .write_all(&bytes)
+        .await
+        .map_err(|_| ServiceClientError::Unavailable)
+}
+
+async fn read_service_message(
+    stream: &mut UnixStream,
+) -> Result<ServiceServerMessage, ServiceClientError> {
+    let length = stream
+        .read_u32()
+        .await
+        .map_err(|_| ServiceClientError::Unavailable)? as usize;
+    if length == 0 || length > TUN_HELPER_MAX_MESSAGE_BYTES {
+        return Err(ServiceClientError::Protocol);
+    }
+    let mut bytes = vec![0; length];
+    stream
+        .read_exact(&mut bytes)
+        .await
+        .map_err(|_| ServiceClientError::Unavailable)?;
+    serde_json::from_slice(&bytes).map_err(|_| ServiceClientError::Protocol)
+}
+
+fn map_service_response_error(response: ServiceResponse) -> ServiceClientError {
+    match response.diagnostic {
+        Some(
+            ServiceDiagnosticCode::AlreadyOwned
+            | ServiceDiagnosticCode::AuthenticationRejected
+            | ServiceDiagnosticCode::ChallengeExpired
+            | ServiceDiagnosticCode::CoreDigestMismatch
+            | ServiceDiagnosticCode::CoreVersionMismatch
+            | ServiceDiagnosticCode::InvalidRequest
+            | ServiceDiagnosticCode::OwnerMismatch
+            | ServiceDiagnosticCode::PathRejected
+            | ServiceDiagnosticCode::ReplayRejected
+            | ServiceDiagnosticCode::StaleRequest
+            | ServiceDiagnosticCode::TunForbidden,
+        ) => ServiceClientError::Rejected,
+        Some(ServiceDiagnosticCode::SpawnFailed | ServiceDiagnosticCode::StopFailed) | None => {
+            ServiceClientError::OperationFailed
+        }
+    }
+}
+
+fn decode_nonce(value: &str) -> Result<[u8; 32], ()> {
+    let bytes = BASE64.decode(value).map_err(|_| ())?;
+    bytes.try_into().map_err(|_| ())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1124,7 +1376,7 @@ impl TunHelperPlatform for MacOsTunServiceClient {
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
         Box::pin(async move {
-            self.health()
+            self.request(ServiceCommand::Status)
                 .await
                 .map(|status| status.observation)
                 .map_err(|_| {
@@ -1174,7 +1426,7 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     ));
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
-                status = self.health().await.map_err(|_| {
+                status = self.request(ServiceCommand::Status).await.map_err(|_| {
                     TunHelperError::new(
                         TunHelperFailureKind::OperationFailed,
                         "The development TUN service operation failed",
@@ -1219,6 +1471,7 @@ pub struct TunServiceConfig {
     pub allowed_binary: PathBuf,
     pub allowed_uid: u32,
     pub allow_tun: bool,
+    pub enrollment_record: PathBuf,
     pub installation_id: String,
     pub pinned_binary_sha256: String,
     pub pinned_version: String,
@@ -1268,6 +1521,7 @@ impl TunServiceConfig {
             allow_tun: development_tun_allowed(
                 std::env::var_os("MISH_TUN_SERVICE_ALLOW_TUN").as_deref(),
             )?,
+            enrollment_record: required_path("MISH_TUN_SERVICE_ENROLLMENT_RECORD")?,
             installation_id,
             pinned_binary_sha256: manifest.binary_sha256,
             pinned_version: manifest.version,
@@ -1335,7 +1589,16 @@ struct ServiceState {
 
 #[derive(Default)]
 struct ServiceRequestGate {
+    outstanding: HashMap<String, OutstandingChallenge>,
     recent: VecDeque<String>,
+}
+
+struct OutstandingChallenge {
+    challenge: ServiceChallenge,
+    client_nonce: [u8; 32],
+    command: ServiceCommand,
+    command_digest: [u8; 32],
+    helper_nonce: [u8; 32],
 }
 
 #[derive(Clone)]
@@ -1343,6 +1606,7 @@ struct ServiceContext {
     allowed_binary: PathBuf,
     allowed_uid: u32,
     allow_tun: bool,
+    enrollment: Arc<InstallationEnrollmentRecord>,
     installation_id: Arc<str>,
     observer: Arc<dyn TunSystemObserver>,
     pinned_binary_sha256: String,
@@ -1356,28 +1620,76 @@ struct ServiceContext {
 }
 
 impl ServiceRequestGate {
-    fn accept(
+    fn begin(
         &mut self,
+        command: ServiceCommand,
+        client_nonce: [u8; 32],
+        peer: PeerIdentity,
         request_id: &str,
-        sent_at: u64,
+        enrollment: &InstallationEnrollmentRecord,
         now: u64,
-    ) -> Result<(), ServiceDiagnosticCode> {
+    ) -> Result<ServiceChallenge, ServiceDiagnosticCode> {
         if !valid_token(request_id) {
             return Err(ServiceDiagnosticCode::InvalidRequest);
         }
-        if sent_at > now.saturating_add(DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS)
-            || now.saturating_sub(sent_at) > DEV_CORE_HOST_REQUEST_MAX_AGE_MILLISECONDS
+        if self.recent.iter().any(|seen| seen == request_id)
+            || self
+                .outstanding
+                .values()
+                .any(|outstanding| outstanding.challenge.request_id == request_id)
         {
-            return Err(ServiceDiagnosticCode::StaleRequest);
-        }
-        if self.recent.iter().any(|seen| seen == request_id) {
             return Err(ServiceDiagnosticCode::ReplayRejected);
         }
+        if self.outstanding.len() >= DEV_CORE_HOST_MAX_OUTSTANDING_CHALLENGES {
+            return Err(ServiceDiagnosticCode::AuthenticationRejected);
+        }
+        let command_digest = command
+            .digest()
+            .map_err(|_| ServiceDiagnosticCode::InvalidRequest)?;
+        let mut helper_nonce = [0_u8; 32];
+        OsRng.fill_bytes(&mut helper_nonce);
+        let challenge_id = uuid::Uuid::new_v4().to_string();
+        let challenge = ServiceChallenge {
+            algorithm: enrollment.algorithm.clone(),
+            challenge_id: challenge_id.clone(),
+            client_nonce: BASE64.encode(client_nonce),
+            command_digest: BASE64.encode(command_digest),
+            expires_at: now.saturating_add(DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS),
+            generation: enrollment.generation,
+            helper_nonce: BASE64.encode(helper_nonce),
+            installation_id: enrollment.helper_installation_id.clone(),
+            issued_at: now,
+            key_id: enrollment.key_id.clone(),
+            operation: command.operation().to_owned(),
+            peer_pid: peer.pid,
+            peer_uid: peer.uid,
+            protocol_version: TUN_HELPER_PROTOCOL_VERSION,
+            request_id: request_id.to_owned(),
+            transcript_version: DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+        };
+        self.outstanding.insert(
+            challenge_id,
+            OutstandingChallenge {
+                challenge: challenge.clone(),
+                client_nonce,
+                command,
+                command_digest,
+                helper_nonce,
+            },
+        );
         self.recent.push_back(request_id.to_owned());
         while self.recent.len() > DEV_CORE_HOST_REPLAY_WINDOW {
             self.recent.pop_front();
         }
-        Ok(())
+        Ok(challenge)
+    }
+
+    fn take(&mut self, challenge_id: &str) -> Option<OutstandingChallenge> {
+        self.outstanding.remove(challenge_id)
+    }
+
+    fn cancel(&mut self, challenge_id: &str) {
+        self.outstanding.remove(challenge_id);
     }
 }
 
@@ -1396,6 +1708,12 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
     verify_core_digest(&allowed_binary, &config.pinned_binary_sha256)
         .map_err(|_| "the pinned Core digest did not match")?;
     let runtime_root = validate_runtime_root(&config.runtime_root, config.allowed_uid)?;
+    let enrollment = load_installation_enrollment(
+        &config.enrollment_record,
+        config.allowed_uid,
+        config.require_root,
+        &config.installation_id,
+    )?;
     let sealed_root = PathBuf::from(format!("{}.state", config.socket_path.display()));
     reset_sealed_root(&sealed_root, config.allowed_uid, config.require_root)?;
     if let Ok(metadata) = fs::symlink_metadata(&config.socket_path) {
@@ -1418,6 +1736,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         allowed_binary,
         allowed_uid: config.allowed_uid,
         allow_tun: config.allow_tun,
+        enrollment: Arc::new(enrollment),
         installation_id: config.installation_id.into(),
         observer: config.observer,
         pinned_binary_sha256: config.pinned_binary_sha256,
@@ -1464,7 +1783,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         }
         let context = context.clone();
         tokio::spawn(async move {
-            let _ = handle_connection(stream, peer.pid, context).await;
+            let _ = handle_connection(stream, peer, context).await;
         });
     }
     let mut state = context.state.lock().await;
@@ -1479,49 +1798,235 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
 
 async fn handle_connection(
     mut stream: UnixStream,
-    peer_pid: u32,
+    peer: PeerIdentity,
     context: ServiceContext,
 ) -> Result<(), ()> {
+    let first = timeout(
+        DEV_CORE_HOST_HANDSHAKE_TIMEOUT,
+        read_service_frame::<ServiceClientMessage>(&mut stream),
+    )
+    .await
+    .map_err(|_| ())??;
+    match first {
+        ServiceClientMessage::Discovery {
+            command: ServiceCommand::Health,
+            protocol_version,
+            request_id,
+        } if protocol_version == TUN_HELPER_PROTOCOL_VERSION && valid_token(&request_id) => {
+            let discovery = ServiceDiscovery {
+                algorithm: context.enrollment.algorithm.clone(),
+                generation: context.enrollment.generation,
+                helper_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                installation_id: context.installation_id.to_string(),
+                key_id: context.enrollment.key_id.clone(),
+                protocol_version: TUN_HELPER_PROTOCOL_VERSION,
+                request_id,
+            };
+            return write_server_message(
+                &mut stream,
+                &ServiceServerMessage::Discovery { discovery },
+            )
+            .await;
+        }
+        ServiceClientMessage::Challenge {
+            client_nonce,
+            command,
+            protocol_version,
+            request_id,
+        } if protocol_version == TUN_HELPER_PROTOCOL_VERSION
+            && !matches!(command, ServiceCommand::Health) =>
+        {
+            let client_nonce = match decode_nonce(&client_nonce) {
+                Ok(nonce) => nonce,
+                Err(()) => {
+                    return write_rejection(
+                        &mut stream,
+                        ServiceDiagnosticCode::InvalidRequest,
+                        request_id,
+                        &context.installation_id,
+                    )
+                    .await;
+                }
+            };
+            let challenge = match context.request_gate.lock().await.begin(
+                command,
+                client_nonce,
+                peer,
+                &request_id,
+                &context.enrollment,
+                tun_observation_now(),
+            ) {
+                Ok(challenge) => challenge,
+                Err(diagnostic) => {
+                    return write_rejection(
+                        &mut stream,
+                        diagnostic,
+                        request_id,
+                        &context.installation_id,
+                    )
+                    .await;
+                }
+            };
+            let challenge_id = challenge.challenge_id.clone();
+            write_server_message(&mut stream, &ServiceServerMessage::Challenge { challenge })
+                .await?;
+            let proof = match timeout(
+                DEV_CORE_HOST_HANDSHAKE_TIMEOUT,
+                read_service_frame::<ServiceProof>(&mut stream),
+            )
+            .await
+            {
+                Ok(Ok(proof)) => proof,
+                _ => {
+                    context.request_gate.lock().await.cancel(&challenge_id);
+                    return Err(());
+                }
+            };
+            if proof.challenge_id != challenge_id {
+                context.request_gate.lock().await.cancel(&challenge_id);
+                return write_rejection(
+                    &mut stream,
+                    ServiceDiagnosticCode::ReplayRejected,
+                    request_id,
+                    &context.installation_id,
+                )
+                .await;
+            }
+            let Some(outstanding) = context.request_gate.lock().await.take(&challenge_id) else {
+                return write_rejection(
+                    &mut stream,
+                    ServiceDiagnosticCode::ReplayRejected,
+                    request_id,
+                    &context.installation_id,
+                )
+                .await;
+            };
+            let now = tun_observation_now();
+            let diagnostic =
+                verify_challenge_proof(&outstanding, &proof, &context.enrollment, peer, now).err();
+            let response = match diagnostic {
+                Some(diagnostic) => ServiceResponse::error(
+                    diagnostic,
+                    None,
+                    TunNetworkObservation::unknown(now),
+                    &context.installation_id,
+                )
+                .with_request_id(request_id),
+                None => execute_request(outstanding.command, peer.pid, &request_id, &context)
+                    .await
+                    .with_request_id(request_id),
+            };
+            return write_server_message(&mut stream, &ServiceServerMessage::Response { response })
+                .await;
+        }
+        ServiceClientMessage::Discovery { request_id, .. }
+        | ServiceClientMessage::Challenge { request_id, .. } => {
+            return write_rejection(
+                &mut stream,
+                ServiceDiagnosticCode::InvalidRequest,
+                request_id,
+                &context.installation_id,
+            )
+            .await;
+        }
+    }
+}
+
+async fn read_service_frame<T: for<'de> Deserialize<'de>>(
+    stream: &mut UnixStream,
+) -> Result<T, ()> {
     let length = stream.read_u32().await.map_err(|_| ())? as usize;
-    if length > TUN_HELPER_MAX_MESSAGE_BYTES {
+    if length == 0 || length > TUN_HELPER_MAX_MESSAGE_BYTES {
         return Err(());
     }
     let mut bytes = vec![0; length];
     stream.read_exact(&mut bytes).await.map_err(|_| ())?;
-    let response = match serde_json::from_slice::<ServiceRequest>(&bytes) {
-        Ok(request) if request.protocol_version == TUN_HELPER_PROTOCOL_VERSION => {
-            let request_id = request.request_id.clone();
-            if let Err(diagnostic) = context.request_gate.lock().await.accept(
-                &request_id,
-                request.sent_at,
-                tun_observation_now(),
-            ) {
-                ServiceResponse::error(
-                    diagnostic,
-                    None,
-                    TunNetworkObservation::unknown(tun_observation_now()),
-                    &context.installation_id,
-                )
-                .with_request_id(request_id)
-            } else {
-                execute_request(request.command, peer_pid, &request_id, &context)
-                    .await
-                    .with_request_id(request_id)
-            }
-        }
-        _ => ServiceResponse::error(
-            ServiceDiagnosticCode::InvalidRequest,
-            None,
-            TunNetworkObservation::unknown(tun_observation_now()),
-            &context.installation_id,
-        ),
-    };
-    let bytes = serde_json::to_vec(&response).map_err(|_| ())?;
+    serde_json::from_slice(&bytes).map_err(|_| ())
+}
+
+async fn write_server_message(
+    stream: &mut UnixStream,
+    message: &ServiceServerMessage,
+) -> Result<(), ()> {
+    let bytes = serde_json::to_vec(message).map_err(|_| ())?;
     if bytes.len() > TUN_HELPER_MAX_MESSAGE_BYTES {
         return Err(());
     }
     stream.write_u32(bytes.len() as u32).await.map_err(|_| ())?;
     stream.write_all(&bytes).await.map_err(|_| ())
+}
+
+async fn write_rejection(
+    stream: &mut UnixStream,
+    diagnostic: ServiceDiagnosticCode,
+    request_id: String,
+    installation_id: &str,
+) -> Result<(), ()> {
+    let response = ServiceResponse::error(
+        diagnostic,
+        None,
+        TunNetworkObservation::unknown(tun_observation_now()),
+        installation_id,
+    )
+    .with_request_id(request_id);
+    write_server_message(stream, &ServiceServerMessage::Response { response }).await
+}
+
+fn verify_challenge_proof(
+    outstanding: &OutstandingChallenge,
+    proof: &ServiceProof,
+    enrollment: &InstallationEnrollmentRecord,
+    peer: PeerIdentity,
+    now: u64,
+) -> Result<(), ServiceDiagnosticCode> {
+    let challenge = &outstanding.challenge;
+    if proof.transcript_version != DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION
+        || challenge.transcript_version != DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION
+        || challenge.protocol_version != TUN_HELPER_PROTOCOL_VERSION
+        || challenge.algorithm != DEV_TUN_INSTALLATION_KEY_ALGORITHM
+        || challenge.installation_id != enrollment.helper_installation_id
+        || challenge.key_id != enrollment.key_id
+        || challenge.generation != enrollment.generation
+        || challenge.peer_uid != peer.uid
+        || challenge.peer_pid != peer.pid
+        || challenge.client_nonce != BASE64.encode(outstanding.client_nonce)
+        || challenge.helper_nonce != BASE64.encode(outstanding.helper_nonce)
+        || challenge.command_digest != BASE64.encode(outstanding.command_digest)
+        || challenge.operation != outstanding.command.operation()
+    {
+        return Err(ServiceDiagnosticCode::AuthenticationRejected);
+    }
+    if challenge.issued_at > now.saturating_add(DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS)
+        || now.saturating_sub(challenge.issued_at) > DEV_CORE_HOST_REQUEST_MAX_AGE_MILLISECONDS
+        || challenge.expires_at <= challenge.issued_at
+        || challenge.expires_at.saturating_sub(challenge.issued_at)
+            > DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS
+        || now > challenge.expires_at
+    {
+        return Err(ServiceDiagnosticCode::ChallengeExpired);
+    }
+    let transcript = AuthenticationTranscript {
+        client_nonce: outstanding.client_nonce,
+        command_digest: outstanding.command_digest,
+        expires_at: challenge.expires_at,
+        helper_installation_id: challenge.installation_id.clone(),
+        helper_nonce: outstanding.helper_nonce,
+        issued_at: challenge.issued_at,
+        key_generation: challenge.generation,
+        key_id: challenge.key_id.clone(),
+        operation: challenge.operation.clone(),
+        peer_pid: challenge.peer_pid,
+        peer_uid: challenge.peer_uid,
+        protocol_version: challenge.protocol_version,
+        request_id: challenge.request_id.clone(),
+    }
+    .canonical_bytes()
+    .map_err(|_| ServiceDiagnosticCode::AuthenticationRejected)?;
+    let signature = BASE64
+        .decode(&proof.signature)
+        .map_err(|_| ServiceDiagnosticCode::AuthenticationRejected)?;
+    verify_installation_signature(enrollment, &transcript, &signature)
+        .map_err(|_| ServiceDiagnosticCode::AuthenticationRejected)
 }
 
 async fn execute_request(
@@ -2850,6 +3355,11 @@ fn peer_identity(_stream: &UnixStream) -> Result<PeerIdentity, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use p256::{
+        ecdsa::SigningKey,
+        pkcs8::{EncodePrivateKey, EncodePublicKey},
+    };
+    use rand_core::OsRng;
     use std::{
         collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex, time::Instant,
     };
@@ -3321,6 +3831,60 @@ mod tests {
         binary
     }
 
+    fn write_fixture_installation_keys(
+        root: &Path,
+        runtime_root: &Path,
+        uid: u32,
+        installation_id: &str,
+    ) -> (
+        PathBuf,
+        InstallationClientKeyStore,
+        InstallationEnrollmentRecord,
+    ) {
+        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let signing = SigningKey::random(&mut OsRng);
+        let private_key = signing.to_pkcs8_der().unwrap();
+        let public_key = signing.verifying_key().to_public_key_der().unwrap();
+        let public_key_spki = BASE64.encode(public_key.as_bytes());
+        let key_id = format!("{:x}", Sha256::digest(public_key.as_bytes()));
+        let active_path = runtime_root.join("tun-client-key.json");
+        fs::write(
+            &active_path,
+            serde_json::to_vec(&serde_json::json!({
+                "algorithm": DEV_TUN_INSTALLATION_KEY_ALGORITHM,
+                "keyId": key_id,
+                "privateKeyPkcs8": BASE64.encode(private_key.as_bytes()),
+                "publicKeySpki": public_key_spki,
+                "schemaVersion": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&active_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let enrollment = InstallationEnrollmentRecord {
+            algorithm: DEV_TUN_INSTALLATION_KEY_ALGORITHM.into(),
+            generation: 1,
+            helper_installation_id: installation_id.to_owned(),
+            installing_uid: uid,
+            key_id,
+            public_key_spki,
+            schema_version: 1,
+        };
+        let enrollment_path = root.join("enrollment.json");
+        fs::write(&enrollment_path, serde_json::to_vec(&enrollment).unwrap()).unwrap();
+        fs::set_permissions(&enrollment_path, fs::Permissions::from_mode(0o600)).unwrap();
+        (
+            enrollment_path,
+            InstallationClientKeyStore::new(
+                active_path,
+                runtime_root.join("tun-client-key.pending.json"),
+                uid,
+            ),
+            enrollment,
+        )
+    }
+
     async fn fixture(
         snapshots: Vec<TunSystemSnapshot>,
         owned_interfaces: Result<Vec<String>, ()>,
@@ -3350,11 +3914,14 @@ mod tests {
         // SAFETY: getuid has no preconditions and only returns the real user ID.
         let uid = unsafe { libc::getuid() };
         let installation_id = "a".repeat(64);
+        let (enrollment_record, client_keys, _) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &installation_id);
         let pinned_binary_sha256 = format!("{:x}", Sha256::digest(fs::read(&binary).unwrap()));
         let server = tokio::spawn(run_tun_service(TunServiceConfig {
             allowed_binary: binary.clone(),
             allowed_uid: uid,
             allow_tun: true,
+            enrollment_record,
             installation_id,
             pinned_binary_sha256,
             pinned_version: "v1.19.29".into(),
@@ -3372,7 +3939,7 @@ mod tests {
         }
         (
             temporary,
-            MacOsTunServiceClient::new(socket_path),
+            MacOsTunServiceClient::new_with_installation_keys(socket_path, client_keys),
             binary,
             home,
             config_file,
@@ -3406,12 +3973,16 @@ mod tests {
         let socket_path = temporary.path().join("helper.sock");
         // SAFETY: getuid has no preconditions and only returns the real user ID.
         let uid = unsafe { libc::getuid() };
+        let installation_id = "b".repeat(64);
+        let (enrollment_record, client_keys, _) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &installation_id);
         let pinned_binary_sha256 = format!("{:x}", Sha256::digest(fs::read(&binary).unwrap()));
         let server = tokio::spawn(run_tun_service(TunServiceConfig {
             allowed_binary: binary.clone(),
             allowed_uid: uid,
             allow_tun: false,
-            installation_id: "b".repeat(64),
+            enrollment_record,
+            installation_id,
             pinned_binary_sha256,
             pinned_version: "v1.19.29".into(),
             require_root: false,
@@ -3431,7 +4002,7 @@ mod tests {
         }
         (
             temporary,
-            MacOsTunServiceClient::new(socket_path),
+            MacOsTunServiceClient::new_with_installation_keys(socket_path, client_keys),
             binary,
             home,
             config_file,
@@ -3454,7 +4025,50 @@ mod tests {
             .await;
 
         assert_eq!(result, Err(PrivilegedCoreHostError::Rejected));
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn untrusted_same_user_client_cannot_mutate_core_or_network_state() {
+        let (temporary, trusted, binary, home, config_file, server) =
+            stage_one_fixture("tun:\n  enable: false\n").await;
+        let wrong_runtime = temporary.path().join("wrong-runtime");
+        fs::create_dir(&wrong_runtime).unwrap();
+        fs::set_permissions(&wrong_runtime, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let (_, wrong_keys, _) =
+            write_fixture_installation_keys(&wrong_runtime, &wrong_runtime, uid, &"b".repeat(64));
+        let untrusted = MacOsTunServiceClient::new_with_installation_keys(
+            trusted.socket_path.clone(),
+            wrong_keys,
+        );
+
+        assert_eq!(
+            untrusted
+                .start(PrivilegedCoreLaunchRequest::new(
+                    binary,
+                    home,
+                    config_file,
+                    "v1.19.29",
+                ))
+                .await,
+            Err(PrivilegedCoreHostError::Rejected)
+        );
+        let status = trusted.request(ServiceCommand::Status).await.unwrap();
+        assert!(status.core.is_none());
+        assert!(
+            status
+                .observation
+                .confirms_disabled_at(tun_observation_now())
+        );
         server.abort();
     }
 
@@ -3477,7 +4091,14 @@ mod tests {
             Some(process.clone())
         );
         client.stop(process).await.unwrap();
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
         server.abort();
     }
 
@@ -3501,7 +4122,14 @@ mod tests {
             .await;
 
         assert_eq!(result, Err(PrivilegedCoreHostError::Rejected));
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
         server.abort();
     }
 
@@ -3525,37 +4153,135 @@ mod tests {
             .await;
 
         assert_eq!(result, Err(PrivilegedCoreHostError::Rejected));
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
         server.abort();
     }
 
     #[test]
-    fn request_gate_rejects_stale_future_and_replayed_requests() {
+    fn request_gate_rejects_replayed_expired_and_future_challenges() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        fs::create_dir(&runtime_root).unwrap();
+        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let (_, _, enrollment) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &"a".repeat(64));
         let now = tun_observation_now();
         let mut gate = ServiceRequestGate::default();
         let accepted = uuid::Uuid::new_v4().to_string();
+        let peer = PeerIdentity {
+            pid: std::process::id(),
+            uid,
+        };
+        let client_nonce = [7_u8; 32];
 
-        assert_eq!(gate.accept(&accepted, now, now), Ok(()));
-        assert_eq!(
-            gate.accept(&accepted, now, now),
+        let challenge = gate
+            .begin(
+                ServiceCommand::Status,
+                client_nonce,
+                peer,
+                &accepted,
+                &enrollment,
+                now,
+            )
+            .unwrap();
+        assert!(matches!(
+            gate.begin(
+                ServiceCommand::Status,
+                client_nonce,
+                peer,
+                &accepted,
+                &enrollment,
+                now,
+            ),
             Err(ServiceDiagnosticCode::ReplayRejected)
-        );
+        ));
+        let outstanding = gate.take(&challenge.challenge_id).unwrap();
+        let proof = ServiceProof {
+            challenge_id: challenge.challenge_id,
+            signature: String::new(),
+            transcript_version: DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+        };
         assert_eq!(
-            gate.accept(
-                &uuid::Uuid::new_v4().to_string(),
-                now.saturating_sub(DEV_CORE_HOST_REQUEST_MAX_AGE_MILLISECONDS + 1),
-                now,
+            verify_challenge_proof(
+                &outstanding,
+                &proof,
+                &enrollment,
+                peer,
+                now + DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS + 1,
             ),
-            Err(ServiceDiagnosticCode::StaleRequest)
+            Err(ServiceDiagnosticCode::ChallengeExpired)
         );
+
+        let future_id = uuid::Uuid::new_v4().to_string();
+        let future = gate
+            .begin(
+                ServiceCommand::Status,
+                client_nonce,
+                peer,
+                &future_id,
+                &enrollment,
+                now,
+            )
+            .unwrap();
+        let mut outstanding = gate.take(&future.challenge_id).unwrap();
+        outstanding.challenge.issued_at = now + DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS + 1;
+        outstanding.challenge.expires_at =
+            outstanding.challenge.issued_at + DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS;
+        let proof = ServiceProof {
+            challenge_id: future.challenge_id,
+            signature: String::new(),
+            transcript_version: DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+        };
         assert_eq!(
-            gate.accept(
-                &uuid::Uuid::new_v4().to_string(),
-                now.saturating_add(DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS + 1),
-                now,
-            ),
-            Err(ServiceDiagnosticCode::StaleRequest)
+            verify_challenge_proof(&outstanding, &proof, &enrollment, peer, now,),
+            Err(ServiceDiagnosticCode::ChallengeExpired)
         );
+    }
+
+    #[test]
+    fn request_gate_bounds_concurrent_outstanding_challenges() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        fs::create_dir(&runtime_root).unwrap();
+        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let (_, _, enrollment) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &"a".repeat(64));
+        let peer = PeerIdentity {
+            pid: std::process::id(),
+            uid,
+        };
+        let mut gate = ServiceRequestGate::default();
+        for value in 0..DEV_CORE_HOST_MAX_OUTSTANDING_CHALLENGES {
+            gate.begin(
+                ServiceCommand::Status,
+                [value as u8; 32],
+                peer,
+                &uuid::Uuid::new_v4().to_string(),
+                &enrollment,
+                tun_observation_now(),
+            )
+            .unwrap();
+        }
+        assert!(matches!(
+            gate.begin(
+                ServiceCommand::Status,
+                [0xff; 32],
+                peer,
+                &uuid::Uuid::new_v4().to_string(),
+                &enrollment,
+                tun_observation_now(),
+            ),
+            Err(ServiceDiagnosticCode::AuthenticationRejected)
+        ));
     }
 
     #[test]
@@ -3618,7 +4344,14 @@ mod tests {
             .await;
 
         assert_eq!(result, Err(PrivilegedCoreHostError::Rejected));
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
         server.abort();
     }
 
@@ -3676,7 +4409,14 @@ mod tests {
             client.prepare_development_startup().await,
             DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign)
         );
-        assert!(client.health().await.unwrap().core.is_none());
+        assert!(
+            client
+                .request(ServiceCommand::Status)
+                .await
+                .unwrap()
+                .core
+                .is_none()
+        );
 
         server.abort();
     }
@@ -3879,28 +4619,68 @@ mod tests {
     #[tokio::test]
     async fn slow_stop_response_is_not_cut_off_by_the_observation_timeout() {
         let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        fs::create_dir(&runtime_root).unwrap();
+        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let (_, client_keys, enrollment) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &"a".repeat(64));
         let socket_path = temporary.path().join("slow-helper.sock");
         let listener = UnixListener::bind(&socket_path).unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let length = stream.read_u32().await.unwrap() as usize;
-            let mut request = vec![0; length];
-            stream.read_exact(&mut request).await.unwrap();
-            let request: ServiceRequest = serde_json::from_slice(&request).unwrap();
-            assert!(matches!(request.command, ServiceCommand::StopAll));
+            let request = read_service_frame::<ServiceClientMessage>(&mut stream)
+                .await
+                .unwrap();
+            let ServiceClientMessage::Challenge {
+                client_nonce,
+                command,
+                protocol_version,
+                request_id,
+            } = request
+            else {
+                panic!("expected an authenticated stop request");
+            };
+            assert!(matches!(command, ServiceCommand::StopAll));
+            let command_digest = command.digest().unwrap();
+            let now = tun_observation_now();
+            let challenge = ServiceChallenge {
+                algorithm: enrollment.algorithm,
+                challenge_id: uuid::Uuid::new_v4().to_string(),
+                client_nonce,
+                command_digest: BASE64.encode(command_digest),
+                expires_at: now + DEV_CORE_HOST_CHALLENGE_LIFETIME_MILLISECONDS,
+                generation: enrollment.generation,
+                helper_nonce: BASE64.encode([9_u8; 32]),
+                installation_id: enrollment.helper_installation_id,
+                issued_at: now,
+                key_id: enrollment.key_id,
+                operation: command.operation().into(),
+                peer_pid: std::process::id(),
+                peer_uid: uid,
+                protocol_version,
+                request_id: request_id.clone(),
+                transcript_version: DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+            };
+            write_server_message(&mut stream, &ServiceServerMessage::Challenge { challenge })
+                .await
+                .unwrap();
+            let _proof = read_service_frame::<ServiceProof>(&mut stream)
+                .await
+                .unwrap();
             tokio::time::sleep(BOUNDED_STEP_TIMEOUT + Duration::from_millis(100)).await;
             let response = ServiceResponse::ok(
                 None,
                 TunNetworkObservation::disabled(tun_observation_now()),
                 &"a".repeat(64),
             )
-            .with_request_id(request.request_id);
-            let response = serde_json::to_vec(&response).unwrap();
-            stream.write_u32(response.len() as u32).await.unwrap();
-            stream.write_all(&response).await.unwrap();
+            .with_request_id(request_id);
+            write_server_message(&mut stream, &ServiceServerMessage::Response { response })
+                .await
+                .unwrap();
         });
 
-        MacOsTunServiceClient::new(socket_path)
+        MacOsTunServiceClient::new_with_installation_keys(socket_path, client_keys)
             .request(ServiceCommand::StopAll)
             .await
             .unwrap();
@@ -3989,6 +4769,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            client_keys: None,
             lifecycle: Some(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
@@ -4023,6 +4804,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            client_keys: None,
             lifecycle: Some(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
@@ -4055,6 +4837,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            client_keys: None,
             lifecycle: Some(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,

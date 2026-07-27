@@ -10,6 +10,13 @@ application preference record remains `settings.json` version 10 through
 `FileSettingsRepository`. There is no separate scheduler, patch, or backup
 database.
 
+The internal development TUN client private key and any pending replacement are
+outside every backup scope. They remain only in their user-owned mode-`0600`
+runtime files and never enter a manifest, preview, exported bytes, restore
+candidate, fixture, or source-locator field. Enrollment and rotation records
+are also excluded; restoring ordinary application data cannot enroll, rotate,
+reset, or recover helper trust.
+
 The settings payload includes the closed System Proxy takeover policy. Its default is
 `protect-existing`; restores preserve the selected bounded policy but never include live System
 Proxy state, journals, credentials, PAC URLs, or network-service identities.

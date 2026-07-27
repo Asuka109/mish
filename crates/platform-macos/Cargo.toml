@@ -27,11 +27,14 @@ default = []
 development-core-host = []
 
 [dependencies]
+base64 = "0.22.1"
 futures-util = "0.3.33"
 libc = "0.2.186"
 mish-bridge = { path = "../desktop-bridge" }
 mish-runtime = { path = "../runtime" }
 mish-settings = { path = "../settings" }
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 serde_norway = "0.9.42"
