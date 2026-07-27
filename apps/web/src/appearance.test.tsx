@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyInitialAppearance,
   applyInitialWindowSurface,
@@ -12,6 +13,63 @@ function AppearanceProbe() {
   const { preference, resolvedAppearance } = useAppearance();
   return <span>{`${preference}:${resolvedAppearance}`}</span>;
 }
+
+afterEach(() => vi.restoreAllMocks());
+
+function runDocumentBootstrap() {
+  const source = readFileSync("appearance-bootstrap.js", "utf8");
+  Function(source)();
+}
+
+describe("document appearance bootstrap", () => {
+  it.each(["light", "dark"] as const)("applies a persisted %s appearance", (appearance) => {
+    localStorage.setItem("mish.appearance", appearance);
+
+    runDocumentBootstrap();
+
+    expect(document.documentElement).toHaveAttribute("data-theme", appearance);
+    expect(document.documentElement.style.colorScheme).toBe(appearance);
+  });
+
+  it("follows the system appearance before React starts", () => {
+    localStorage.setItem("mish.appearance", "system");
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) => ({ matches: query === "(prefers-color-scheme: dark)" }) as MediaQueryList,
+    );
+
+    runDocumentBootstrap();
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+
+  it.each([null, "sepia", "{malformed"])(
+    "fails safely for a missing or malformed stored value: %s",
+    (storedAppearance) => {
+      if (storedAppearance !== null) {
+        localStorage.setItem("mish.appearance", storedAppearance);
+      }
+
+      runDocumentBootstrap();
+
+      const expected = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      expect(document.documentElement).toHaveAttribute("data-theme", expected);
+      expect(document.documentElement.style.colorScheme).toBe(expected);
+    },
+  );
+
+  it("fails safely when storage and media queries are unavailable", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    vi.spyOn(window, "matchMedia").mockImplementation(() => {
+      throw new Error("unavailable");
+    });
+
+    runDocumentBootstrap();
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  });
+});
 
 it("follows system appearance changes without reloading", () => {
   let prefersDark = false;
@@ -55,6 +113,44 @@ it("applies a desktop bootstrap preference before React renders", () => {
   expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   expect(document.documentElement.style.colorScheme).toBe("dark");
   expect(localStorage.getItem("mish.appearance")).toBe("dark");
+});
+
+it("hands a matching bootstrap appearance to Settings without a duplicate DOM transition", async () => {
+  document.documentElement.dataset.theme = "dark";
+  document.documentElement.style.colorScheme = "dark";
+  const callback = vi.fn();
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, {
+    attributeFilter: ["data-theme", "style"],
+    attributes: true,
+  });
+
+  applyInitialAppearance("dark");
+  await Promise.resolve();
+
+  expect(callback).not.toHaveBeenCalled();
+  observer.disconnect();
+});
+
+it("converges a stale bootstrap hint to the Rust-authoritative Settings appearance once", async () => {
+  document.documentElement.dataset.theme = "dark";
+  document.documentElement.style.colorScheme = "dark";
+  const callback = vi.fn();
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, {
+    attributeFilter: ["data-theme"],
+    attributes: true,
+  });
+
+  applyInitialAppearance("light");
+  applyInitialAppearance("light");
+  await Promise.resolve();
+
+  expect(callback).toHaveBeenCalledOnce();
+  expect(callback.mock.calls[0]?.[0]).toHaveLength(1);
+  expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  expect(localStorage.getItem("mish.appearance")).toBe("light");
+  observer.disconnect();
 });
 
 describe("window surface resolution", () => {

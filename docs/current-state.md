@@ -66,6 +66,10 @@ See
   available subsequent port without a probe-and-rebind race.
 - The main window can reveal a lightweight startup placeholder before React and
   authenticated bridge initialization finish.
+- A synchronous self-hosted appearance bootstrap initializes that placeholder
+  under the strict Desktop and Browser Client CSP. Missing, malformed, stale,
+  or unavailable browser hints fail safely before the Rust-authoritative
+  Settings snapshot converges through an idempotent React projection.
 
 See [`settings-contracts.md`](architecture/settings-contracts.md) and
 [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md).
@@ -112,19 +116,6 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
   repository's present hosted Actions account state.
 
 ## Review Concerns
-
-### Startup Placeholder Theme Under Desktop CSP
-
-The desktop Content Security Policy allows only self-hosted scripts. The
-appearance initializer in `apps/web/index.html` is inline, so the desktop CSP
-blocks it unless a hash or nonce is supplied or the initializer becomes an
-external bundled script. The startup placeholder still reveals and React still
-boots, but a dark-theme launch can initially use the light placeholder surface.
-
-This inline script predates the placeholder change; the new placeholder makes
-the first-paint mismatch visible rather than introducing the CSP rule.
-
-See [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md).
 
 ### Hosted `main` Packaging Evidence
 

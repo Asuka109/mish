@@ -76,12 +76,22 @@ still fails closed and never selects fixtures.
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body. The same payload declares the
    desktop-only support-bundle and local-backup capabilities.
-9. The native window remains hidden until the WebView installs the inline
-   startup placeholder: a quiet, centered Mish mark on the window surface. The
-   startup module immediately invokes the idempotent `reveal_main_window`
-   command without waiting for image decoding, animation frames, the React
-   bundle, bridge bootstrap, or first application tree. React replaces the
-   placeholder when it commits. Manual
+9. The native window remains hidden until the WebView installs the document
+   startup placeholder: a quiet, centered Mish mark on the window surface.
+   Before the placeholder can become visible, one synchronous repository-owned
+   `/appearance-bootstrap.js` asset reads only the bounded
+   `mish.appearance` browser hint. It accepts `light`, `dark`, or `system`,
+   resolves system appearance through the local media query, and otherwise
+   falls back safely to system/light. The same asset sets only the document
+   theme, color scheme, and theme-color metadata. It is an independent Vite
+   build entry with a fixed self-hosted path, so both the packaged WebView and
+   Browser Client can execute it under `script-src 'self'` without a nonce,
+   hash, inline execution, or remote source.
+
+   The startup module immediately invokes the idempotent
+   `reveal_main_window` command without waiting for image decoding, animation
+   frames, the React bundle, bridge bootstrap, or first application tree.
+   React replaces the placeholder when it commits. Manual
    launches and login launches configured to show the window are revealed and
    focused; background login launches remain hidden. This public IPC handshake
    prevents the shell from exposing an empty WebView frame without relying on
@@ -89,13 +99,12 @@ still fails closed and never selects fixtures.
    Before that reveal, the shell restores only a valid on-screen size, position,
    and maximized state. A previous hidden state is never restored.
 
-   The reviewed desktop CSP permits self-hosted scripts but not inline scripts.
-   The appearance initializer in `apps/web/index.html` is inline and is
-   therefore blocked in the desktop WebView. Reveal and React bootstrap still
-   proceed, but the placeholder cannot reliably select the persisted dark
-   surface before the application bundle runs. This is a current integration
-   concern: the initializer needs a CSP-compatible hash or nonce, or must become
-   an external bundled script.
+   The hint is not Settings authority. Authenticated bootstrap still returns
+   the Rust-validated Settings snapshot before React renders application UI.
+   That value replaces a missing, corrupt, stale, or unavailable browser hint,
+   updates the cache, and projects through the existing Appearance provider.
+   DOM writes are idempotent, so a matching hint hands off without a duplicate
+   theme transition while a stale hint converges once to Rust authority.
 
 10. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
     non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
@@ -330,8 +339,9 @@ window API to Web content. It grants only the generated bootstrap and
 first-frame reveal commands plus the narrow profile-picker, support-bundle, and local-backup
 commands described above; native dialogs, window reveal policy, and file writes
 remain internal to those commands. The production CSP permits only local
-bundled resources, Tauri IPC, and an IPv4-loopback WebSocket. It blocks frames,
-objects, forms, remote fonts, and remote frontend connections.
+bundled scripts and resources, Tauri IPC, and an IPv4-loopback WebSocket. It
+blocks inline or remote script execution, frames, objects, forms, remote fonts,
+and remote frontend connections.
 
 The WebView cannot execute operating-system commands. Authenticated RPC accepts
 only bounded capture DTOs and recovery actions. The macOS adapter maps those

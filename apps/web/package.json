@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:browser:startup": "vitest run --config vitest.startup-browser.config.ts",
     "test:browser:install": "playwright install chromium",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",

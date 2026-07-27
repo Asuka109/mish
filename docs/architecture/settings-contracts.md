@@ -164,8 +164,12 @@ it does not claim to use `SMAppService.mainApp` directly.
 
 The desktop bootstrap includes the validated initial settings snapshot so the
 WebView can choose appearance and language before rendering application UI. A
-small local browser cache preserves the existing no-flash document theme while
-private app data remains authoritative for desktop preferences. System
+small local browser cache is only a first-paint hint. The synchronous
+self-hosted `/appearance-bootstrap.js` accepts the three closed appearance
+values, safely ignores malformed or unavailable storage, and applies the
+document theme before the lightweight placeholder is revealed. The later
+Settings projection idempotently keeps a matching hint or replaces a stale hint
+once; private app data remains authoritative for desktop preferences. System
 appearance continues to react to operating-system changes and synchronize the
 native window theme.
 
