@@ -186,8 +186,10 @@ default route to exactly one enabled Wi-Fi or Ethernet
 topologies without requiring unrelated unsupported virtual services to expose a
 BSD interface name. The ownership snapshot binds the service's stable
 SystemConfiguration identifier, display name, BSD interface, interface kind,
-addresses, exact prior DNS servers, bounded routes on that physical interface,
-and the scoped `.local` mDNS resolver. Only that service's DNS is set to
+addresses, exact prior DNS servers, and the bounded stable default,
+local-subnet, link-local, and multicast routes on that physical interface,
+plus the scoped `.local` mDNS resolver. Transient host/neighbor routes are
+excluded from the ownership snapshot. Only that service's DNS is set to
 `198.18.0.1`.
 Unrelated services, resolvers, routes, VPNs, and System Proxy settings are
 never mutated.
@@ -360,10 +362,12 @@ more specific routes use another interface leave DNS absent.
 The route and resolver baseline also protects the physical packet path. The
 Darwin split-default routes installed by the pinned Core are less specific than
 existing link-local, local-subnet, and multicast routes. The adapter requires
-those exact baseline routes to remain present and requires a scoped `.local`
-resolver. macOS may expose either explicit port-5353 multicast fields or its
-implicit `.local` resolver shape; the latter is accepted only while a
-more-specific physical route still reaches `224.0.0.251` or `ff02::fb`.
+the exact stable baseline routes in those classes to remain present and
+requires a scoped `.local` resolver; transient host and neighbor cache routes
+are deliberately not retained. macOS may expose either explicit port-5353
+multicast fields or its implicit `.local` resolver shape; the latter is
+accepted only while a more-specific physical route still reaches
+`224.0.0.251` or `ff02::fb`.
 Consequently Bonjour and LAN traffic continue to use the more-specific
 physical route without a broad hard-coded subnet exception. Any loss or drift
 of that evidence prevents Applied.

@@ -353,7 +353,9 @@ impl TunNetworkController for MacOsTunNetworkController {
             let baseline_routes = system
                 .routes
                 .iter()
-                .filter(|route| route.interface == service.interface)
+                .filter(|route| {
+                    route.interface == service.interface && stable_physical_route(route, &addresses)
+                })
                 .cloned()
                 .collect::<Vec<_>>();
             if baseline_mdns.is_empty()
@@ -584,6 +586,32 @@ fn validate_preserved_network(
         return Err(());
     }
     Ok(())
+}
+
+fn stable_physical_route(route: &TunSystemRoute, interface_addresses: &[String]) -> bool {
+    if route.destination == "default" {
+        return true;
+    }
+    let reaches_non_host_prefix = |address: IpAddr| {
+        super::parse_route_prefix(&route.destination, address).is_some_and(
+            |(network, prefix_length)| {
+                let host_prefix = if address.is_ipv4() { 32 } else { 128 };
+                prefix_length > 1
+                    && prefix_length < host_prefix
+                    && super::route_contains(network, prefix_length, address)
+            },
+        )
+    };
+    interface_addresses
+        .iter()
+        .filter_map(|address| address.parse().ok())
+        .any(reaches_non_host_prefix)
+        || [
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)),
+            IpAddr::V6(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb)),
+        ]
+        .into_iter()
+        .any(reaches_non_host_prefix)
 }
 
 fn select_service(
@@ -1632,6 +1660,39 @@ mod tests {
             flags: "UCS".into(),
             gateway: "link#7".into(),
             interface: "en7".into(),
+        });
+        let snapshot = controller.snapshot(&baseline).await.unwrap();
+
+        baseline.routes.pop();
+        assert_eq!(
+            controller
+                .observe(&snapshot, &baseline, false)
+                .await
+                .unwrap()
+                .routes,
+            TunObservationComponentState::Confirmed
+        );
+    }
+
+    #[tokio::test]
+    async fn transient_physical_neighbor_routes_do_not_join_the_owned_snapshot() {
+        let (controller, _, _) = fixture(
+            vec![service(
+                WIFI_ID,
+                "Wi-Fi",
+                "en0",
+                EligibleNetworkKind::Wifi,
+                0,
+            )],
+            vec!["en0"],
+            vec!["192.0.2.53".parse().unwrap()],
+        );
+        let mut baseline = system("en0", "192.168.1.10");
+        baseline.routes.push(TunSystemRoute {
+            destination: "192.168.1.23".into(),
+            flags: "UHLWIir".into(),
+            gateway: "3c:22:fb:00:11:22".into(),
+            interface: "en0".into(),
         });
         let snapshot = controller.snapshot(&baseline).await.unwrap();
 
