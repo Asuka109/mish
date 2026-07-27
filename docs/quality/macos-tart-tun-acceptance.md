@@ -232,9 +232,11 @@ non-blocking for the eligible physical-service inventory and made simultaneous
 watchdog/Helper restoration converge after an exact-prior DNS reobservation.
 The deterministic concurrent-recovery regression covers the exact-prior winner;
 the existing conservative cases continue to reject managed, foreign, partial,
-or unknown values.
+or unknown values. Helper reap also retains the independent watchdog whenever
+DNS restoration is still pending, so temporary preferences-lock contention
+cannot cancel the watchdog's bounded retry loop.
 
-The final source state passed all 81 `mish-platform-macos` unit tests plus its
+The final source state passed all 82 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused
 stale-watchdog regression, all-target no-dependency Clippy gate, repository
 `pnpm check:pr`, and the required GitHub Fast PR gate also passed.

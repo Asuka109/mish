@@ -3229,27 +3229,36 @@ async fn reap_if_exited(
     state: &mut ServiceState,
     network_controller: &dyn TunNetworkController,
     network_recovery: &NetworkRecoveryJournal,
-) {
+) -> bool {
+    let mut watchdog_retained = false;
     if state
         .process
         .as_mut()
         .is_some_and(|process| !matches!(process.child.try_wait(), Ok(None)))
     {
         let process = state.process.take().expect("exited process must exist");
+        let mut network_restored = true;
         if let Some(ownership) = state.tun.as_mut()
             && ownership.dns_applied
             && let Some(network) = ownership.network.as_ref()
-            && restore_network_transaction(network_controller, network_recovery, &network.dns)
+        {
+            if restore_network_transaction(network_controller, network_recovery, &network.dns)
                 .await
                 .is_ok()
-        {
-            ownership.dns_applied = false;
+            {
+                ownership.dns_applied = false;
+            } else {
+                network_restored = false;
+            }
         }
-        if let Some(watchdog) = process.watchdog.as_ref() {
+        if network_restored && let Some(watchdog) = process.watchdog.as_ref() {
             remove_core_watchdog(watchdog);
+        } else if !network_restored {
+            watchdog_retained = process.watchdog.is_some();
         }
         let _ = fs::remove_file(process.sealed_config);
     }
+    watchdog_retained
 }
 
 fn spawn_core_watchdog(
@@ -5232,6 +5241,34 @@ mod tests {
             .is_err()
         );
 
+        assert!(state.process.is_none());
+        assert!(state.tun.as_ref().is_some_and(|tun| tun.dns_applied));
+    }
+
+    #[tokio::test]
+    async fn exited_core_keeps_the_watchdog_while_dns_recovery_is_pending() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut state = child_service_state(temporary.path(), "exit 0");
+        state.process.as_mut().unwrap().watchdog = Some(ServiceWatchdog {
+            launchd_label: "com.asuka109.mish.test-watchdog".into(),
+        });
+        state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: Vec::new(),
+            dns_applied: true,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        state.process.as_mut().unwrap().child.wait().await.unwrap();
+
+        assert!(
+            reap_if_exited(
+                &mut state,
+                &FailingNetworkController,
+                &test_network_recovery(temporary.path()),
+            )
+            .await
+        );
         assert!(state.process.is_none());
         assert!(state.tun.as_ref().is_some_and(|tun| tun.dns_applied));
     }
