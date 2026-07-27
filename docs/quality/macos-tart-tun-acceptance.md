@@ -245,6 +245,28 @@ marking the record. Closed-command client deadlines now cover every sequential
 system observation and default-route lookup, including Enable's complete
 post-apply status.
 
+The 2026-07-27 final-head rerun used the unique disposable clone
+`mish-295-final-20260727` from the same pinned Tahoe base digest and exercised
+commit `8ec1c14`. The guest again ran macOS 26.5 on Apple Silicon; the
+maintainer host received no Helper installation or network mutation. The
+repository harness observed `off`, `pending`, then `applied`, with Core, DNS,
+interface, and routes all confirmed. It recorded one new `utun4`, managed DNS
+`198.18.0.1`, public HTTP 200, and a matching Traffic connection while System
+Proxy remained disabled. The LAN gateway and `224.0.0.251` route both remained
+on `en0`.
+
+The live root journal was a single-link mode-`0600` file with outer recovery
+schema 1, inner managed-state schema 2, and phase `applied`; its service
+interface was the dynamically selected `en0`, its prior DNS list was empty
+(automatic), and its transaction ID had canonical UUID length. Disable
+returned to observed `off` with all four components absent, automatic DNS, four
+baseline `utun` interfaces, zero Mish routes, no journal, and the exact baseline
+System Proxy digest. Uninstall returned `not-installed`; the Helper
+registration, root state directory, installed binary, related processes, and
+watchdogs were absent. The clone, including its guest-only discarded clone
+attempts, was then stopped and deleted; only the two stopped OCI base caches
+remained.
+
 The final source state passed all 85 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused
 stale-watchdog regression, all-target no-dependency Clippy gate, repository
