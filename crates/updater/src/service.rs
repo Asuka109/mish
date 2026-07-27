@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::BTreeSet,
     fmt,
     fs::{self, File, OpenOptions},
@@ -29,7 +30,7 @@ use uuid::Uuid;
 
 use crate::{
     UpdateChannel, UpdatePolicy, UpdaterAdapter, UpdaterError, VerifiedMetadata,
-    VerifyMetadataRequest,
+    VerifyMetadataRequest, parse_version, validate_channel_version,
 };
 
 const STORE_SCHEMA_VERSION: u8 = 1;
@@ -255,7 +256,7 @@ impl AvailableCandidate {
 
 struct RuntimeState {
     snapshot: UpdaterSnapshot,
-    accepted_metadata: Vec<String>,
+    accepted: AcceptedMetadata,
     available: Option<AvailableCandidate>,
     active_cancel: Option<CancellationToken>,
 }
@@ -284,7 +285,7 @@ impl UpdaterService {
             configured: None,
             state: Mutex::new(RuntimeState {
                 snapshot,
-                accepted_metadata: Vec::new(),
+                accepted: AcceptedMetadata::empty(),
                 available: None,
                 active_cancel: None,
             }),
@@ -325,7 +326,13 @@ impl UpdaterService {
         let adapter = Arc::new(UpdaterAdapter::new(public_key)?);
         let client = Client::builder()
             .connect_timeout(limits.connect_timeout)
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if trusted_release_redirect(attempt.previous(), attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
             .pool_max_idle_per_host(1)
             .build()
             .map_err(|_| UpdateOperationError::Network)?;
@@ -345,7 +352,7 @@ impl UpdaterService {
             }),
             state: Mutex::new(RuntimeState {
                 snapshot,
-                accepted_metadata: recovered.accepted_metadata,
+                accepted: recovered.accepted,
                 available: recovered.available,
                 active_cancel: None,
             }),
@@ -580,14 +587,15 @@ impl UpdaterService {
             .state
             .lock()
             .expect("updater state poisoned")
-            .accepted_metadata
+            .accepted
             .clone();
         let verified = configured.adapter.verify_metadata(VerifyMetadataRequest {
-            accepted_metadata_sha256: &accepted,
+            accepted_metadata_sha256: &accepted.digests,
             metadata: &metadata,
             metadata_signature: metadata_signature.trim(),
             policy: configured.policy.clone(),
         })?;
+        accepted.require_newer(&verified)?;
         if verified.channel != channel {
             return Err(UpdateOperationError::Verification(
                 UpdaterError::ChannelMismatch,
@@ -933,16 +941,7 @@ impl UpdaterService {
             return;
         }
         state.active_cancel = None;
-        state
-            .accepted_metadata
-            .retain(|digest| digest != &available.metadata.metadata_sha256);
-        state
-            .accepted_metadata
-            .push(available.metadata.metadata_sha256.clone());
-        if state.accepted_metadata.len() > ACCEPTED_METADATA_LIMIT {
-            let excess = state.accepted_metadata.len() - ACCEPTED_METADATA_LIMIT;
-            state.accepted_metadata.drain(..excess);
-        }
+        state.accepted.record(&available.metadata);
         transition(
             &mut state.snapshot,
             UpdatePhase::Ready,
@@ -1087,6 +1086,33 @@ fn validate_production_endpoint(
     } else {
         Err(UpdateOperationError::NotConfigured)
     }
+}
+
+fn trusted_release_redirect(previous: &[Url], destination: &Url) -> bool {
+    if previous.len() != 1 {
+        return false;
+    }
+    let source = &previous[0];
+    let trusted_source = source.scheme() == "https"
+        && source.host_str() == Some("github.com")
+        && source.username().is_empty()
+        && source.password().is_none()
+        && source.query().is_none()
+        && source.fragment().is_none();
+    let trusted_destination = destination.scheme() == "https"
+        && destination.username().is_empty()
+        && destination.password().is_none()
+        && destination.fragment().is_none()
+        && match destination.host_str() {
+            Some("release-assets.githubusercontent.com") => destination
+                .path()
+                .starts_with("/github-production-release-asset/"),
+            Some("objects.githubusercontent.com") => destination
+                .path()
+                .starts_with("/github-production-release-asset-"),
+            _ => false,
+        };
+    trusted_source && trusted_destination
 }
 
 fn request_url(
@@ -1241,11 +1267,85 @@ enum PersistedPhase {
     Ready,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AcceptedMetadata {
     schema_version: u8,
     digests: Vec<String>,
+    alpha_high_water: Option<String>,
+    stable_high_water: Option<String>,
+}
+
+impl AcceptedMetadata {
+    fn empty() -> Self {
+        Self {
+            schema_version: STORE_SCHEMA_VERSION,
+            digests: Vec::new(),
+            alpha_high_water: None,
+            stable_high_water: None,
+        }
+    }
+
+    fn high_water(&self, channel: UpdateChannel) -> Option<&str> {
+        match channel {
+            UpdateChannel::Alpha => self.alpha_high_water.as_deref(),
+            UpdateChannel::Stable => self.stable_high_water.as_deref(),
+        }
+    }
+
+    fn compare(&self, metadata: &VerifiedMetadata) -> Option<Ordering> {
+        let high_water = self.high_water(metadata.channel)?;
+        Some(
+            parse_version(&metadata.version)
+                .expect("authenticated version is canonical")
+                .cmp(&parse_version(high_water).expect("persisted high-water version is valid")),
+        )
+    }
+
+    fn require_newer(&self, metadata: &VerifiedMetadata) -> Result<(), UpdateOperationError> {
+        match self.compare(metadata) {
+            Some(Ordering::Less) => Err(UpdateOperationError::Verification(
+                UpdaterError::DowngradeRejected,
+            )),
+            Some(Ordering::Equal) => Err(UpdateOperationError::Verification(
+                UpdaterError::EqualVersionRejected,
+            )),
+            Some(Ordering::Greater) | None => Ok(()),
+        }
+    }
+
+    fn record(&mut self, metadata: &VerifiedMetadata) {
+        self.digests
+            .retain(|digest| digest != &metadata.metadata_sha256);
+        self.digests.push(metadata.metadata_sha256.clone());
+        if self.digests.len() > ACCEPTED_METADATA_LIMIT {
+            self.digests
+                .drain(..self.digests.len() - ACCEPTED_METADATA_LIMIT);
+        }
+        if self
+            .compare(metadata)
+            .is_none_or(|ordering| ordering.is_gt())
+        {
+            match metadata.channel {
+                UpdateChannel::Alpha => self.alpha_high_water = Some(metadata.version.clone()),
+                UpdateChannel::Stable => self.stable_high_water = Some(metadata.version.clone()),
+            }
+        }
+    }
+
+    fn validate(&self) -> bool {
+        self.schema_version == STORE_SCHEMA_VERSION
+            && self.digests.len() <= ACCEPTED_METADATA_LIMIT
+            && self.digests.iter().all(|value| valid_digest(value))
+            && self
+                .alpha_high_water
+                .as_deref()
+                .is_none_or(|version| valid_channel_version(version, UpdateChannel::Alpha))
+            && self
+                .stable_high_water
+                .as_deref()
+                .is_none_or(|version| valid_channel_version(version, UpdateChannel::Stable))
+    }
 }
 
 struct CandidateStore {
@@ -1253,7 +1353,7 @@ struct CandidateStore {
 }
 
 struct RecoveredState {
-    accepted_metadata: Vec<String>,
+    accepted: AcceptedMetadata,
     available: Option<AvailableCandidate>,
     operation_id: Option<String>,
     phase: UpdatePhase,
@@ -1299,11 +1399,12 @@ impl CandidateStore {
         policy: &UpdatePolicy,
         limits: &UpdaterLimits,
     ) -> Result<RecoveredState, UpdateOperationError> {
-        let mut accepted_metadata = self.read_accepted()?;
+        let mut accepted = self.read_accepted()?;
         if let Ok(state) = self.read_json::<PersistedState>(&self.root.join(STATE_FILE))
             && state.schema_version == STORE_SCHEMA_VERSION
         {
-            let accepted_for_candidate = accepted_metadata
+            let accepted_for_candidate = accepted
+                .digests
                 .iter()
                 .filter(|digest| *digest != &state.candidate.identity.metadata_sha256)
                 .cloned()
@@ -1316,16 +1417,26 @@ impl CandidateStore {
             ) {
                 match state.phase {
                     PersistedPhase::Ready => {
-                        if self
-                            .verify_ready(adapter, &available, &state.candidate)
-                            .is_ok()
+                        let accepted_identity = accepted
+                            .digests
+                            .contains(&available.metadata.metadata_sha256);
+                        let high_water_allows = match accepted.compare(&available.metadata) {
+                            Some(Ordering::Less) => false,
+                            Some(Ordering::Equal) => accepted_identity,
+                            Some(Ordering::Greater) | None => true,
+                        };
+                        if high_water_allows
+                            && self
+                                .verify_ready(adapter, &available, &state.candidate)
+                                .is_ok()
                         {
-                            if !accepted_metadata.contains(&available.metadata.metadata_sha256) {
-                                accepted_metadata.push(available.metadata.metadata_sha256.clone());
-                                self.write_accepted(&accepted_metadata)?;
+                            let previous = accepted.clone();
+                            accepted.record(&available.metadata);
+                            if accepted != previous {
+                                self.write_accepted(&accepted)?;
                             }
                             return Ok(RecoveredState {
-                                accepted_metadata,
+                                accepted,
                                 available: Some(available.clone()),
                                 operation_id: Some(state.candidate.operation_id),
                                 phase: UpdatePhase::Ready,
@@ -1340,6 +1451,18 @@ impl CandidateStore {
                         self.discard_candidate()?;
                     }
                     PersistedPhase::Available => {
+                        if accepted.require_newer(&available.metadata).is_err() {
+                            self.discard_managed_state()?;
+                            return Ok(RecoveredState {
+                                accepted,
+                                available: None,
+                                operation_id: None,
+                                phase: UpdatePhase::Idle,
+                                resumable: false,
+                                terminal_reason: None,
+                                progress: None,
+                            });
+                        }
                         let partial = self
                             .partial_info(&available, &state.candidate.operation_id)
                             .ok();
@@ -1355,7 +1478,7 @@ impl CandidateStore {
                             total_bytes: available.metadata.artifact_size,
                         });
                         return Ok(RecoveredState {
-                            accepted_metadata,
+                            accepted,
                             available: Some(available),
                             operation_id: Some(state.candidate.operation_id),
                             phase: if progress.is_some() {
@@ -1373,7 +1496,7 @@ impl CandidateStore {
         }
         self.discard_managed_state()?;
         Ok(RecoveredState {
-            accepted_metadata,
+            accepted,
             available: None,
             operation_id: None,
             phase: UpdatePhase::Idle,
@@ -1545,11 +1668,7 @@ impl CandidateStore {
             0o600,
         )?;
         let mut accepted = self.read_accepted()?;
-        accepted.retain(|digest| digest != &persisted.identity.metadata_sha256);
-        accepted.push(persisted.identity.metadata_sha256);
-        if accepted.len() > ACCEPTED_METADATA_LIMIT {
-            accepted.drain(..accepted.len() - ACCEPTED_METADATA_LIMIT);
-        }
+        accepted.record(&available.metadata);
         self.write_accepted(&accepted)
     }
 
@@ -1641,30 +1760,20 @@ impl CandidateStore {
         remove_entry_without_following(&self.root.join(CANDIDATE_DIRECTORY))
     }
 
-    fn read_accepted(&self) -> Result<Vec<String>, UpdateOperationError> {
+    fn read_accepted(&self) -> Result<AcceptedMetadata, UpdateOperationError> {
         let path = self.root.join(ACCEPTED_FILE);
         if !path.exists() {
-            return Ok(Vec::new());
+            return Ok(AcceptedMetadata::empty());
         }
         let accepted = self.read_json::<AcceptedMetadata>(&path)?;
-        if accepted.schema_version != STORE_SCHEMA_VERSION
-            || accepted.digests.len() > ACCEPTED_METADATA_LIMIT
-            || accepted.digests.iter().any(|value| !valid_digest(value))
-        {
+        if !accepted.validate() {
             return Err(UpdateOperationError::StoreUnsafe);
         }
-        Ok(accepted.digests)
+        Ok(accepted)
     }
 
-    fn write_accepted(&self, digests: &[String]) -> Result<(), UpdateOperationError> {
-        self.write_json_atomic(
-            &self.root.join(ACCEPTED_FILE),
-            &AcceptedMetadata {
-                schema_version: STORE_SCHEMA_VERSION,
-                digests: digests.to_vec(),
-            },
-            0o600,
-        )
+    fn write_accepted(&self, accepted: &AcceptedMetadata) -> Result<(), UpdateOperationError> {
+        self.write_json_atomic(&self.root.join(ACCEPTED_FILE), accepted, 0o600)
     }
 
     fn read_json<T: for<'de> Deserialize<'de>>(
@@ -1737,6 +1846,12 @@ fn valid_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_channel_version(value: &str, channel: UpdateChannel) -> bool {
+    parse_version(value)
+        .ok()
+        .is_some_and(|version| validate_channel_version(&version, channel).is_ok())
 }
 
 fn now_seconds() -> u64 {
@@ -1876,6 +1991,8 @@ fn remove_entry_without_following(path: &Path) -> Result<(), UpdateOperationErro
         Err(_) => return Err(UpdateOperationError::StoreIo),
     };
     if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+        validate_owner_and_mode(&metadata, true)?;
+        set_permissions(path, 0o700)?;
         let entries = fs::read_dir(path)
             .map_err(|_| UpdateOperationError::StoreIo)?
             .collect::<Result<Vec<_>, _>>()
@@ -2260,6 +2377,14 @@ mod tests {
         assert_eq!(recovered.revision, 0);
         assert_eq!(recovered.phase, UpdatePhase::Ready);
         assert_eq!(recovered.operation_id.as_deref(), Some("operation-a"));
+        restarted
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .discard_candidate()
+            .unwrap();
+        assert!(!root.join(CANDIDATE_DIRECTORY).exists());
     }
 
     #[cfg(unix)]
@@ -2471,6 +2596,45 @@ mod tests {
         assert_eq!(server.state.artifact_requests.load(Ordering::SeqCst), 1);
     }
 
+    #[test]
+    fn bounded_digest_history_keeps_a_monotonic_channel_high_water() {
+        let adapter = UpdaterAdapter::new(PUBLIC_KEY.trim()).unwrap();
+        let mut metadata = adapter
+            .verify_metadata(VerifyMetadataRequest {
+                accepted_metadata_sha256: &[],
+                metadata: METADATA,
+                metadata_signature: METADATA_SIGNATURE.trim(),
+                policy: policy(),
+            })
+            .unwrap();
+        let mut accepted = AcceptedMetadata::empty();
+        for sequence in 2..=40 {
+            metadata.version = format!("0.1.1-alpha.{sequence}");
+            metadata.metadata_sha256 = digest(metadata.version.as_bytes());
+            accepted.record(&metadata);
+        }
+        assert_eq!(accepted.digests.len(), ACCEPTED_METADATA_LIMIT);
+        assert_eq!(accepted.alpha_high_water.as_deref(), Some("0.1.1-alpha.40"));
+        assert!(accepted.validate());
+
+        metadata.version = "0.1.1-alpha.2".into();
+        assert_eq!(
+            accepted.require_newer(&metadata),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::DowngradeRejected
+            ))
+        );
+        metadata.version = "0.1.1-alpha.40".into();
+        assert_eq!(
+            accepted.require_newer(&metadata),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::EqualVersionRejected
+            ))
+        );
+        metadata.version = "0.1.1-alpha.41".into();
+        assert!(accepted.require_newer(&metadata).is_ok());
+    }
+
     #[tokio::test]
     async fn restart_marks_safe_partial_interrupted_and_resumable_without_terminal_success() {
         let server = fixture_server().await;
@@ -2574,6 +2738,32 @@ mod tests {
                 Err(UpdateOperationError::NotConfigured)
             );
         }
+        let source = Url::parse(
+            "https://github.com/Asuka109/mish/releases/download/updater-alpha/mish-alpha.json",
+        )
+        .unwrap();
+        let release_asset = Url::parse(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/123/456?sp=read",
+        )
+        .unwrap();
+        assert!(trusted_release_redirect(
+            std::slice::from_ref(&source),
+            &release_asset
+        ));
+        for destination in [
+            "http://release-assets.githubusercontent.com/github-production-release-asset/123/456",
+            "https://example.com/github-production-release-asset/123/456",
+            "https://release-assets.githubusercontent.com/other/123/456",
+        ] {
+            assert!(!trusted_release_redirect(
+                std::slice::from_ref(&source),
+                &Url::parse(destination).unwrap(),
+            ));
+        }
+        assert!(!trusted_release_redirect(
+            &[source.clone(), release_asset.clone()],
+            &release_asset,
+        ));
         assert!(validate_operation_id("browser-client.operation-1").is_ok());
         for operation_id in ["", "../escape", "credential=secret", "with space"] {
             assert_eq!(

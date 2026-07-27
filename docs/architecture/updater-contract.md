@@ -111,9 +111,11 @@ substituted inputs return a typed error and no `VerifiedUpdate`.
 
 Stage 1 models replay state as the set of previously accepted metadata digests.
 Stage 2A stores a bounded set of accepted digests in the private candidate
-store and rechecks it before every discovery. The adapter now exposes the same
-ordered contract as authenticated metadata admission followed by streaming
-verification of the complete staged payload. The compatibility
+store and rechecks it before every discovery. Evicting an old digest never
+weakens rollback defense because the store also retains a monotonic,
+channel-specific accepted-version high-water mark. The adapter now exposes the
+same ordered contract as authenticated metadata admission followed by
+streaming verification of the complete staged payload. The compatibility
 `verify_candidate` entry point still performs both steps in order.
 
 ## Authoritative operation state
@@ -134,12 +136,14 @@ baseline, so later revisions cannot arrive before that baseline barrier.
 
 ## Bounded HTTP and resume
 
-One Rustls-backed HTTP client is reused per configured updater. Redirect
-following is disabled, response encoding must be identity, and connect, whole
-operation, and idle-body time are bounded. Metadata and signature bodies have
-independent caps. Signed payload size must be non-zero and below the configured
-disk/body cap before download admission; streamed bytes may never exceed the
-signed size.
+One Rustls-backed HTTP client is reused per configured updater. At most one
+redirect is followed, only from an exact credential-free `github.com` Release
+asset URL to a known HTTPS GitHub release-asset CDN path; every other redirect
+is stopped and rejected. Response encoding must be identity, and connect,
+whole-operation, and idle-body time are bounded. Metadata and signature bodies
+have independent caps. Signed payload size must be non-zero and below the
+configured disk/body cap before download admission; streamed bytes may never
+exceed the signed size.
 
 An interrupted partial is resumable only when its private manifest still binds
 the same channel, version, source SHA, payload digest/size, payload-signature
@@ -163,10 +167,11 @@ The store root is absolute, canonical, current-user-owned, and private. Managed
 directories and mutable files are `0700`/`0600`; the published candidate
 directory and files become `0500`/`0400`. Fixed managed names, no-follow
 metadata checks, one-link files, owner/mode checks, bounded directory scans,
-same-filesystem temporary names, fsync, and atomic rename prevent symlink,
-hard-link, path-escape, partial-publication, and duplicate-candidate confusion.
-Cleanup is confined to this dedicated root and never follows a link or removes
-the link target.
+permission-aware removal of immutable managed directories, same-filesystem
+temporary names, fsync, and atomic rename prevent symlink, hard-link,
+path-escape, partial-publication, and duplicate-candidate confusion. Cleanup is
+confined to this dedicated root and never follows a link or removes the link
+target.
 
 The partial manifest retains authenticated metadata and resume identity. On
 process restart, Mish re-verifies that metadata before exposing `available` or
@@ -195,11 +200,12 @@ performs no Apple, GitHub, or third-party network action.
 loopback fixture server. It covers success, exact Range resume, no-Range
 restart, cancellation, timeout, redirect rejection, metadata/body caps,
 truncated/corrupt payloads, signature and identity failure, replay, concurrent
-operation keys, restart recovery, immutable ready recovery, symlink/hard-link
-rejection, and bounded cleanup. Desktop bridge tests prove that simultaneous
-and reconnecting clients observe one updater authority and revision. Web tests
-prove that the RPC client accepts only newer nested revisions and never replays
-check/download/cancel during reconnect.
+operation keys, monotonic replay high-water behavior, restart recovery,
+immutable ready recovery and removal, symlink/hard-link rejection, and bounded
+cleanup. Desktop bridge tests prove that simultaneous and reconnecting clients
+observe one updater authority and revision. Web tests prove that the RPC client
+accepts only newer nested revisions and never replays check/download/cancel
+during reconnect.
 
 ## Later live and installation boundaries
 
