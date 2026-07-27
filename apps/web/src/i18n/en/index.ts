@@ -280,6 +280,48 @@ const en = {
     rules: "Rules",
     settings: "Settings",
   },
+  mobileHome: {
+    authorityLabel: "VPN / Core",
+    coreLabel: "Embedded Core",
+    corePackagedDescription:
+      "Package identity is verified. This fixture does not initialize or start the Core.",
+    coreUnavailableDescription: "No verified embedded Core package is available to this build.",
+    coreVersion: "Mihomo {version:string}",
+    currentSection: "Current setup",
+    failedDescription: "Android could not complete the native lifecycle check.",
+    failedState: "Lifecycle check failed",
+    fixtureDescription:
+      "This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.",
+    fixtureLabel: "Development boundary",
+    permissionRequiredDescription:
+      "Review Android VPN permission before checking the native lifecycle.",
+    permissionRequiredState: "VPN permission required",
+    profileLabel: "Profile",
+    profileUnavailableDescription:
+      "No native Profile authority is connected, so no current Profile is claimed.",
+    readinessSection: "Runtime readiness",
+    recoveryDescription: "The native lifecycle must be reset safely before another check.",
+    recoveryState: "Recovery required",
+    retryAction: "Retry Lifecycle Check",
+    routingLabel: "Routing mode",
+    routingUnavailableDescription:
+      "Routing mode is hidden until the native Core contract can confirm it.",
+    runningDescription: "Android reports an authoritative active VPN session.",
+    runningState: "VPN active",
+    startingDescription: "Android is checking the native fixture lifecycle.",
+    startingState: "Checking native lifecycle",
+    stoppedDescription: "Android reports no active VPN session.",
+    stoppedState: "VPN off",
+    stoppingDescription: "Android is closing the native fixture lifecycle safely.",
+    stoppingState: "Stopping lifecycle check",
+    throughputLabel: "Live throughput",
+    throughputUnavailableDescription:
+      "Traffic rates are hidden until a native observation contract is connected.",
+    unavailableDescription:
+      "This build cannot activate VPN traffic. No device traffic is being routed.",
+    unavailableState: "VPN unavailable",
+    unavailableValue: "Unavailable",
+  },
   mobileFixture: {
     coreReady: "Mihomo {version:string} is packaged; VPN traffic capture is not connected yet.",
     commandFailed: "The native lifecycle command failed. Retry after reopening the app.",
