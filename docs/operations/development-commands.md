@@ -76,6 +76,14 @@ authorization.
 | Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:build:macos`, `desktop:bundle:macos`, `desktop:bundle:macos:styled`, `desktop:bundle:signed-direct:macos`, `desktop:bundle:verify:macos` |
 | Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build`                                                                  |
 
+The checkout-free Developer-ID-free service archive uses
+`macos:internal-tun-alpha:package` and
+`macos:internal-tun-alpha:verify -- PACKAGE_ROOT`. These build-host commands
+produce and inspect the explicit `internal-tun-alpha` profile. The extracted
+package owns its native install, health, status, repair, and uninstall commands;
+the target Mac does not need pnpm, Node.js, Rust, Homebrew, or a network
+download. The package remains TUN-disabled and is not an application release.
+
 The development-only privileged Core host is opt-in and uses
 `macos:core-host:build`, `macos:core-host:install`, `macos:core-host:status`,
 `macos:core-host:health`, `macos:core-host:disable`, and
@@ -103,15 +111,16 @@ launching another worktree that can operate Mihomo or system capture.
 
 ## Tests
 
-| Command              | Coverage                                                          |
-| -------------------- | ----------------------------------------------------------------- |
-| `test:watch`         | Web Vitest watch mode.                                            |
-| `test:unit`          | Web, mock bridge, and RPC client unit tests, once.                |
-| `test:workspace`     | Every package that defines `test:run`, including native packages. |
-| `test:rust`          | Complete Cargo workspace with one test thread.                    |
-| `test:browser`       | Real-Chromium responsive coverage.                                |
-| `test:macos:p0`      | Credential-free macOS P0 fixture journey.                         |
-| `test:macos:release` | Credential-free Alpha release validation and staging decisions.   |
+| Command                         | Coverage                                                          |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `test:watch`                    | Web Vitest watch mode.                                            |
+| `test:unit`                     | Web, mock bridge, and RPC client unit tests, once.                |
+| `test:workspace`                | Every package that defines `test:run`, including native packages. |
+| `test:rust`                     | Complete Cargo workspace with one test thread.                    |
+| `test:browser`                  | Real-Chromium responsive coverage.                                |
+| `test:macos:p0`                 | Credential-free macOS P0 fixture journey.                         |
+| `test:macos:internal-tun-alpha` | Closed package manifest, layout, integrity, and leakage policy.   |
+| `test:macos:release`            | Credential-free Alpha release validation and staging decisions.   |
 
 Install the repository-pinned Chromium once with
 `pnpm test:browser:install`.

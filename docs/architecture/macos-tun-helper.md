@@ -97,6 +97,52 @@ startup fail closed. The installer does not create backup copies or versioned
 system files. Uninstall also removes the bounded per-user service socket and
 runtime receipt; shared system directories are never removed.
 
+### Internal TUN Alpha package profile
+
+The `internal-tun-alpha` package productizes this accepted development service
+for a trusted Mac without requiring a repository checkout, Node.js, Rust,
+Homebrew, compilation, or a runtime download. It is a separate service archive,
+not a `Mish.app` layout and not a release-profile variant selected by signing
+inputs.
+
+The package includes only one native lifecycle controller, the feature-gated
+development Helper, the exact pinned Core, a closed LaunchDaemon template, one
+versioned manifest, license/notices, and fixed user-facing install, health,
+status, repair, and uninstall resources. The manifest records every allowed
+relative path, role, mode, size, and SHA-256 digest. Package and installed-layout
+verification reject symlinks, hard links, writable paths, unexpected or
+duplicate files, unbounded records, wrong versions or hashes, mutable
+identities, and profile leakage.
+
+Installation retains the accepted trust contract: the controller generates or
+reuses the user-owned mode-`0600` P-256 private record, stages only its public
+candidate, and the administrator-authorized transaction enrolls that candidate
+into the root-owned record. The installation identity remains
+SHA-256(Helper bytes || pinned Core bytes || per-user rendered LaunchDaemon
+template with the installation-identity placeholder). The fixed socket, kernel
+UID/PID checks, canonical path/ownership/freshness gates, closed typed commands,
+single-owner lifecycle, and canonical challenge-response are unchanged.
+
+The package lifecycle adds matching root-owned and user-owned receipts bound to
+the exact manifest digest, Helper/Core/plist digests, versions, installation
+identity, installing UID, enrollment key identifier, and generation. Health
+requires those receipts and fixed installed artifacts to match, then requires
+an authenticated protocol-v3 status with no Core and a fresh disabled network
+observation.
+
+This package deliberately exposes no Core start, TUN enable/disable, arbitrary
+path/command, or network-mutation action. Its LaunchDaemon fixes
+`MISH_TUN_SERVICE_ALLOW_TUN=0`; post-install is healthy and disabled.
+`alpha-ad-hoc`, `signed-direct`, Browser Client/application resources, and
+future production layouts remain free of all Internal TUN Alpha artifacts and
+fail closed if one appears.
+
+The package is ad-hoc, not Developer ID signed, Apple-trusted, or notarized. It
+is only for explicitly trusted internal distribution. Its file-backed
+mode-`0600` private key does not protect against same-user malware. Production
+still requires the independent `SMAppService`, signed XPC, same-Team,
+notarization, and acceptance boundaries below.
+
 ### Installation-key authentication
 
 Unauthenticated discovery is limited to the helper version, protocol version,

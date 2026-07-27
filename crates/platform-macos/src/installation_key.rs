@@ -11,8 +11,9 @@ use p256::{
         Signature, SigningKey, VerifyingKey,
         signature::{Signer, Verifier},
     },
-    pkcs8::{DecodePrivateKey, DecodePublicKey},
+    pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey},
 };
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -182,6 +183,58 @@ impl InstallationClientKeyStore {
         )
     }
 
+    pub fn ensure_public_candidate(
+        &self,
+        helper_installation_id: &str,
+    ) -> Result<InstallationPublicKeyCandidate, &'static str> {
+        if !valid_installation_id(helper_installation_id) {
+            return Err("the installation candidate identity was rejected");
+        }
+        let record = match fs::symlink_metadata(&self.active_path) {
+            Ok(_) => read_client_key(&self.active_path, self.allowed_uid)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let signing_key = SigningKey::random(&mut OsRng);
+                let private_key = signing_key
+                    .to_pkcs8_der()
+                    .map_err(|_| "the client private key could not be encoded")?;
+                let public_key = signing_key
+                    .verifying_key()
+                    .to_public_key_der()
+                    .map_err(|_| "the client public key could not be encoded")?;
+                let record = InstallationClientKeyRecord {
+                    algorithm: DEV_TUN_INSTALLATION_KEY_ALGORITHM.into(),
+                    key_id: format!("{:x}", Sha256::digest(public_key.as_bytes())),
+                    private_key_pkcs8: BASE64.encode(private_key.as_bytes()),
+                    public_key_spki: BASE64.encode(public_key.as_bytes()),
+                    schema_version: DEV_TUN_INSTALLATION_KEY_RECORD_VERSION,
+                };
+                write_atomic_private_record(&self.active_path, &record, self.allowed_uid)?;
+                read_client_key(&self.active_path, self.allowed_uid)?
+            }
+            Err(_) => return Err("the client installation key was unavailable"),
+        };
+        Ok(InstallationPublicKeyCandidate {
+            algorithm: record.algorithm,
+            helper_installation_id: helper_installation_id.into(),
+            installing_uid: self.allowed_uid,
+            key_id: record.key_id,
+            public_key_spki: record.public_key_spki,
+            schema_version: record.schema_version,
+        })
+    }
+
+    pub fn write_public_candidate(
+        &self,
+        path: &Path,
+        helper_installation_id: &str,
+    ) -> Result<InstallationPublicKeyCandidate, &'static str> {
+        let candidate = self.ensure_public_candidate(helper_installation_id)?;
+        let bytes = serde_json::to_vec(&candidate)
+            .map_err(|_| "the installation public-key candidate was invalid")?;
+        write_atomic_bytes(path, &bytes, self.allowed_uid)?;
+        Ok(candidate)
+    }
+
     pub fn sign(
         &self,
         key_id: &str,
@@ -230,12 +283,22 @@ pub fn load_installation_enrollment(
     require_root: bool,
     helper_installation_id: &str,
 ) -> Result<InstallationEnrollmentRecord, &'static str> {
+    let record = load_installation_enrollment_for_user(path, installing_uid, require_root)?;
+    if record.helper_installation_id != helper_installation_id {
+        return Err("the installation enrollment identity was rejected");
+    }
+    Ok(record)
+}
+
+pub fn load_installation_enrollment_for_user(
+    path: &Path,
+    installing_uid: u32,
+    require_root: bool,
+) -> Result<InstallationEnrollmentRecord, &'static str> {
     let owner = if require_root { 0 } else { installing_uid };
     let record: InstallationEnrollmentRecord = read_private_json(path, owner)?;
     validate_enrollment_record(&record)?;
-    if record.installing_uid != installing_uid
-        || record.helper_installation_id != helper_installation_id
-    {
+    if record.installing_uid != installing_uid {
         return Err("the installation enrollment identity was rejected");
     }
     Ok(record)
@@ -711,8 +774,6 @@ fn valid_installation_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p256::pkcs8::{EncodePrivateKey, EncodePublicKey};
-    use rand_core::OsRng;
     use std::os::unix::fs::PermissionsExt;
 
     fn key_pair() -> (InstallationClientKeyRecord, InstallationPublicKeyCandidate) {
@@ -927,6 +988,32 @@ mod tests {
     }
 
     #[test]
+    fn key_store_creates_one_private_key_and_only_exports_its_public_candidate() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let store = InstallationClientKeyStore::for_runtime_root(temporary.path(), uid);
+        let candidate_path = temporary.path().join("enrollment.json");
+        let first = store
+            .write_public_candidate(&candidate_path, &"a".repeat(64))
+            .unwrap();
+        let second = store
+            .write_public_candidate(&candidate_path, &"a".repeat(64))
+            .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            fs::symlink_metadata(temporary.path().join(DEV_TUN_CLIENT_KEY_FILE_NAME))
+                .unwrap()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        let candidate = fs::read_to_string(candidate_path).unwrap();
+        assert!(!candidate.contains("privateKey"));
+        assert!(candidate.contains(&first.public_key_spki));
+    }
+
+    #[test]
     fn enrollment_reinstall_preserves_generation_and_changed_key_requires_reset() {
         let temporary = tempfile::tempdir().unwrap();
         let (_, candidate) = key_pair();
@@ -954,6 +1041,16 @@ mod tests {
         .unwrap();
         assert_eq!(first.generation, 1);
         assert_eq!(second.generation, 1);
+        assert_eq!(
+            load_installation_enrollment_for_user(&enrollment, uid, false)
+                .unwrap()
+                .installing_uid,
+            uid
+        );
+        assert!(
+            load_installation_enrollment_for_user(&enrollment, uid.saturating_add(1), false)
+                .is_err()
+        );
 
         let (_, replacement) = key_pair();
         let replacement_path = temporary.path().join("replacement.json");

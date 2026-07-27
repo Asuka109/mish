@@ -34,6 +34,69 @@ The verifier checks the application identifier, version, architecture, pinned
 Mihomo digest and version, offline Web resources, legal resources, signature
 structure, DMG layout, and clean detach.
 
+## Internal TUN Alpha service package
+
+Build the structurally separate, Developer-ID-free package on Apple Silicon
+macOS:
+
+```sh
+pnpm macos:internal-tun-alpha:package
+```
+
+The deterministic command builds the existing `development-core-host` Helper
+and native lifecycle controller, copies the exact pinned Mihomo v1.19.29 Core,
+ad-hoc signs only the Mish executables, and emits
+`target/internal-tun-alpha/Mish-Internal-TUN-Alpha-<version>-arm64/` plus a
+timestamp-normalized `.tar.gz`. The target package contains no source checkout,
+JavaScript runtime, Rust toolchain, Homebrew dependency, or download step. Its
+versioned manifest fixes every allowed file, role, mode, size, SHA-256 digest,
+ARM64 architecture, Helper/Core version, protocol version, disabled policy,
+and installation-identity scheme.
+
+This is an explicitly trusted internal distribution, not an application
+release. It is ad-hoc signed, not Apple-trusted or notarized, and may require
+one package-scoped **Open Anyway** confirmation. The mode-`0600` client key
+cannot resist malware or another process already running as the same user.
+
+After extracting the archive on the target Mac, use only its visible resources:
+
+1. Double-click **Install Internal TUN Alpha.command** and approve the native
+   administrator dialog.
+2. Run **Health Internal TUN Alpha.command**. It must report
+   `"state":"healthy-disabled"` with protocol version `3`, the exact package
+   installation identity, and matching P-256 key identifier and generation.
+3. Use **Repair Internal TUN Alpha.command** only to replace the fixed
+   Mish-owned Helper, Core, LaunchDaemon, and receipts from the same verified
+   package.
+4. Run **Uninstall Internal TUN Alpha.command** to remove the service, Core,
+   socket/state, enrollment, receipts, and active/pending client key.
+
+An isolated Tart guest may exercise the same fixed native controller through
+its explicit `--tart-terminal-authorization` option. That option replaces only
+the macOS dialog with a visible `sudo` password prompt, is accepted only for
+install, repair, and uninstall, and does not add a Helper or network command.
+It is an acceptance transport, not the friend-machine workflow.
+
+Every lifecycle invocation revalidates the canonical package directory,
+closed file set, regular single-link ownership/modes, manifest and artifact
+digests, fixed LaunchDaemon template, pinned Core version, root-owned installed
+layout, receipts, installation identity, enrollment, protocol, and fresh
+authenticated health. Administrator cancellation runs no privileged command.
+An install failure stops and removes the incomplete fixed service instead of
+advertising partial trust. Identical reinstall preserves the same key and
+generation.
+
+The package has no enable, disable, Core-run, arbitrary-command, arbitrary-path,
+or network-mutation action. `MISH_TUN_SERVICE_ALLOW_TUN` is fixed to `0`; a
+successful install is healthy and disabled. Real TUN testing remains the
+separate disposable-Tart source-development boundary.
+
+`alpha-ad-hoc`, `signed-direct`, the embedded Browser Client, legacy
+credential-free production fixtures, and future production application
+layouts reject Internal TUN Alpha manifests, controllers, command resources,
+installation keys, and development Helper artifacts. Signing input never
+selects this package profile.
+
 ### Packaged WebView Inspector
 
 Packaged macOS builds retain an explicit, process-local WebView Inspector
