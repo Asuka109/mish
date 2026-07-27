@@ -1,6 +1,7 @@
 import type { MobileFixtureBootstrapDto, MobileVpnSnapshotDto } from "@mish/contracts";
 import { ProductRoutes } from "./app-routes";
 import { MobileShell } from "./components/mobile-shell";
+import { MobileHomePage } from "./pages/mobile-home-page";
 import type { MobileVpnClient } from "./platform/mobile-vpn-client";
 
 export interface MobileAppRoutesProps {
@@ -20,11 +21,12 @@ export function AppRoutes({
 
   return (
     <ProductRoutes
-      shell={
-        <MobileShell
+      shell={<MobileShell fixture={mobileFixture} />}
+      statusElement={
+        <MobileHomePage
           fixture={mobileFixture}
+          initialSnapshot={mobileVpnSnapshot}
           vpnClient={mobileVpnClient}
-          vpnSnapshot={mobileVpnSnapshot}
         />
       }
     />

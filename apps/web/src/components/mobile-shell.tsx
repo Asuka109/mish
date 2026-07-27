@@ -1,16 +1,14 @@
-import type { MobileFixtureBootstrapDto, MobileVpnSnapshotDto } from "@mish/contracts";
+import type { MobileFixtureBootstrapDto } from "@mish/contracts";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { GearSix } from "@phosphor-icons/react/GearSix";
 import { House } from "@phosphor-icons/react/House";
 import { Pulse } from "@phosphor-icons/react/Pulse";
-import { Spinner } from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { useEffect, useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
-import type { MobileVpnClient } from "../platform/mobile-vpn-client";
+import { RouteFocusManager } from "../platform/route-focus";
 
 const destinations = [
   { icon: House, key: "home", path: "/status" },
@@ -34,21 +32,10 @@ const mobileShellStyles = tv({
     brandLight: "brand-image-light theme-dark:hidden",
     brandDark: "brand-image-dark hidden theme-dark:block",
     title: "text-title leading-7 font-semibold",
-    fixtureBanner: cx(
-      "mobile-fixture-banner mx-4 mb-2.5 flex flex-wrap items-center justify-between gap-0.5",
-      "rounded-md border border-feedback-warning-border bg-mobile-fixture-background px-2.75",
-      "py-2.25 text-caption leading-4.25 text-fg",
-    ),
-    fixtureCopy: "grid min-w-0 gap-0.5",
-    fixtureLabel: "font-medium text-warning",
-    fixtureAction: cx(
-      "mobile-fixture-action ml-auto min-h-11 min-w-max rounded-md border",
-      "border-feedback-warning-border bg-canvas px-3 text-ink font-medium disabled:opacity-55",
-    ),
     activityNavigation:
-      "mobile-activity-navigation flex min-w-0 gap-1 overflow-x-auto px-3 pb-2 scrollbar-none",
+      "mobile-activity-navigation flex min-w-0 gap-1 overflow-x-auto px-3 pb-2.5 scrollbar-none",
     activityLink: cx(
-      "inline-flex min-h-9 min-w-max items-center rounded-full px-3 text-metadata font-medium",
+      "inline-flex min-h-11 min-w-max items-center rounded-full px-3 text-metadata font-medium",
       "text-muted-foreground no-underline",
     ),
     main: "mobile-main min-h-0 min-w-0 overflow-hidden bg-canvas [&>*]:h-full",
@@ -78,8 +65,6 @@ const mobileShellStyles = tv({
 
 interface MobileShellProps {
   fixture: MobileFixtureBootstrapDto;
-  vpnClient: MobileVpnClient;
-  vpnSnapshot: MobileVpnSnapshotDto;
 }
 
 function getTitle(LL: TranslationFunctions, pathname: string) {
@@ -94,51 +79,19 @@ function isActivityPath(pathname: string) {
   return pathname === "/traffic" || pathname === "/events" || pathname === "/diagnostics";
 }
 
-export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProps) {
+export function MobileShell({ fixture }: MobileShellProps) {
   const { LL } = useI18nContext();
   const location = useLocation();
-  const [snapshot, setSnapshot] = useState(vpnSnapshot);
-  const [commandPending, setCommandPending] = useState(false);
-  const [commandFailed, setCommandFailed] = useState(false);
   const activity = isActivityPath(location.pathname);
   const diagnostics = location.pathname === "/events" && location.search.includes("diagnostics=1");
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
 
-  useEffect(() => vpnClient.subscribe(setSnapshot), [vpnClient]);
-
-  async function runLifecycleAction() {
-    if (commandPending) return;
-    setCommandPending(true);
-    setCommandFailed(false);
-    try {
-      if (snapshot.foreground || snapshot.phase === "recovery-required") {
-        await vpnClient.stop();
-      } else if (snapshot.permission !== "granted") {
-        await vpnClient.requestVpnConsent();
-      } else if (snapshot.notificationPermission === "required") {
-        await vpnClient.requestNotificationPermission();
-      } else {
-        await vpnClient.startFixtureLifecycle();
-      }
-    } catch {
-      setCommandFailed(true);
-    } finally {
-      setCommandPending(false);
-    }
-  }
-
-  function lifecycleActionLabel() {
-    if (snapshot.foreground) return LL.mobileFixture.stopAction();
-    if (snapshot.phase === "recovery-required") return LL.mobileFixture.reconcileAction();
-    if (snapshot.permission !== "granted") return LL.mobileFixture.permissionAction();
-    if (snapshot.notificationPermission === "required") {
-      return LL.mobileFixture.notificationAction();
-    }
-    return LL.mobileFixture.lifecycleAction();
-  }
-
   return (
     <div className={mobileShellStyles().root()} data-platform={fixture.platform}>
+      <RouteFocusManager
+        headingSelector=".mobile-top-app-bar h1"
+        scrollerSelector="main .mobile-home-page"
+      />
       <div className={mobileShellStyles().chrome()}>
         <header className={mobileShellStyles().topBar()}>
           <img
@@ -157,39 +110,13 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
           />
           <h1 className={mobileShellStyles().title()}>{getTitle(LL, location.pathname)}</h1>
         </header>
-        <div className={mobileShellStyles().fixtureBanner()}>
-          <div className={mobileShellStyles().fixtureCopy()} role="status">
-            <strong className={mobileShellStyles().fixtureLabel()}>
-              {LL.mobileFixture.label()}
-            </strong>
-            <span>
-              {snapshot.coreAvailability === "available" && snapshot.coreVersion
-                ? LL.mobileFixture.coreReady({ version: snapshot.coreVersion })
-                : LL.mobileFixture.unavailable()}
-            </span>
-            {commandFailed ? <span role="alert">{LL.mobileFixture.commandFailed()}</span> : null}
-          </div>
-          {fixture.platform === "android" ? (
-            <button
-              aria-busy={commandPending}
-              className={mobileShellStyles().fixtureAction()}
-              disabled={
-                commandPending || snapshot.phase === "starting" || snapshot.phase === "stopping"
-              }
-              onClick={() => void runLifecycleAction()}
-              type="button"
-            >
-              {commandPending ? <Spinner data-icon="inline-start" /> : null}
-              {commandPending ? LL.common.pending() : lifecycleActionLabel()}
-            </button>
-          ) : null}
-        </div>
         {activity ? (
           <nav
             aria-label={LL.mobileNavigation.activity()}
             className={mobileShellStyles().activityNavigation()}
           >
             <NavLink
+              aria-current={!rules && location.pathname === "/traffic" ? "page" : undefined}
               className={mobileShellStyles({
                 selected: !rules && location.pathname === "/traffic",
               }).activityLink()}
@@ -198,12 +125,14 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
               {LL.mobileNavigation.connections()}
             </NavLink>
             <NavLink
+              aria-current={rules ? "page" : undefined}
               className={mobileShellStyles({ selected: rules }).activityLink()}
               to="/traffic?tab=rules"
             >
               {LL.mobileNavigation.rules()}
             </NavLink>
             <NavLink
+              aria-current={location.pathname === "/events" && !diagnostics ? "page" : undefined}
               className={mobileShellStyles({
                 selected: location.pathname === "/events" && !diagnostics,
               }).activityLink()}
@@ -212,6 +141,7 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
               {LL.mobileNavigation.events()}
             </NavLink>
             <NavLink
+              aria-current={diagnostics ? "page" : undefined}
               className={mobileShellStyles({ selected: diagnostics }).activityLink()}
               to="/events?diagnostics=1"
             >
@@ -234,6 +164,7 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
           const selected = key === "activity" ? activity : location.pathname === path;
           return (
             <NavLink
+              aria-current={selected ? "page" : undefined}
               aria-label={label}
               className={mobileShellStyles({ selected }).destination()}
               end={key !== "activity"}

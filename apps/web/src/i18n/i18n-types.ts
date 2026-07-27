@@ -890,6 +890,141 @@ type RootTranslation = {
 		 */
 		settings: string
 	}
+	mobileHome: {
+		/**
+		 * V​P​N​ ​/​ ​C​o​r​e
+		 */
+		authorityLabel: string
+		/**
+		 * E​m​b​e​d​d​e​d​ ​C​o​r​e
+		 */
+		coreLabel: string
+		/**
+		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​T​h​i​s​ ​f​i​x​t​u​r​e​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​o​r​ ​s​t​a​r​t​ ​t​h​e​ ​C​o​r​e​.
+		 */
+		corePackagedDescription: string
+		/**
+		 * N​o​ ​v​e​r​i​f​i​e​d​ ​e​m​b​e​d​d​e​d​ ​C​o​r​e​ ​p​a​c​k​a​g​e​ ​i​s​ ​a​v​a​i​l​a​b​l​e​ ​t​o​ ​t​h​i​s​ ​b​u​i​l​d​.
+		 */
+		coreUnavailableDescription: string
+		/**
+		 * M​i​h​o​m​o​ ​{​v​e​r​s​i​o​n​}
+		 * @param {string} version
+		 */
+		coreVersion: RequiredParams<'version'>
+		/**
+		 * C​u​r​r​e​n​t​ ​s​e​t​u​p
+		 */
+		currentSection: string
+		/**
+		 * A​n​d​r​o​i​d​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​t​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k​.
+		 */
+		failedDescription: string
+		/**
+		 * L​i​f​e​c​y​c​l​e​ ​c​h​e​c​k​ ​f​a​i​l​e​d
+		 */
+		failedState: string
+		/**
+		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​e​x​e​r​c​i​s​e​s​ ​A​n​d​r​o​i​d​ ​p​e​r​m​i​s​s​i​o​n​ ​a​n​d​ ​l​i​f​e​c​y​c​l​e​ ​h​a​n​d​l​i​n​g​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
+		 */
+		fixtureDescription: string
+		/**
+		 * D​e​v​e​l​o​p​m​e​n​t​ ​b​o​u​n​d​a​r​y
+		 */
+		fixtureLabel: string
+		/**
+		 * R​e​v​i​e​w​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​c​h​e​c​k​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​.
+		 */
+		permissionRequiredDescription: string
+		/**
+		 * V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​r​e​q​u​i​r​e​d
+		 */
+		permissionRequiredState: string
+		/**
+		 * P​r​o​f​i​l​e
+		 */
+		profileLabel: string
+		/**
+		 * N​o​ ​n​a​t​i​v​e​ ​P​r​o​f​i​l​e​ ​a​u​t​h​o​r​i​t​y​ ​i​s​ ​c​o​n​n​e​c​t​e​d​,​ ​s​o​ ​n​o​ ​c​u​r​r​e​n​t​ ​P​r​o​f​i​l​e​ ​i​s​ ​c​l​a​i​m​e​d​.
+		 */
+		profileUnavailableDescription: string
+		/**
+		 * R​u​n​t​i​m​e​ ​r​e​a​d​i​n​e​s​s
+		 */
+		readinessSection: string
+		/**
+		 * T​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​m​u​s​t​ ​b​e​ ​r​e​s​e​t​ ​s​a​f​e​l​y​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​c​h​e​c​k​.
+		 */
+		recoveryDescription: string
+		/**
+		 * R​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
+		 */
+		recoveryState: string
+		/**
+		 * R​e​t​r​y​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
+		 */
+		retryAction: string
+		/**
+		 * R​o​u​t​i​n​g​ ​m​o​d​e
+		 */
+		routingLabel: string
+		/**
+		 * R​o​u​t​i​n​g​ ​m​o​d​e​ ​i​s​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​t​h​e​ ​n​a​t​i​v​e​ ​C​o​r​e​ ​c​o​n​t​r​a​c​t​ ​c​a​n​ ​c​o​n​f​i​r​m​ ​i​t​.
+		 */
+		routingUnavailableDescription: string
+		/**
+		 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​s​ ​a​n​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​a​c​t​i​v​e​ ​V​P​N​ ​s​e​s​s​i​o​n​.
+		 */
+		runningDescription: string
+		/**
+		 * V​P​N​ ​a​c​t​i​v​e
+		 */
+		runningState: string
+		/**
+		 * A​n​d​r​o​i​d​ ​i​s​ ​c​h​e​c​k​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​f​i​x​t​u​r​e​ ​l​i​f​e​c​y​c​l​e​.
+		 */
+		startingDescription: string
+		/**
+		 * C​h​e​c​k​i​n​g​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e
+		 */
+		startingState: string
+		/**
+		 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​s​ ​n​o​ ​a​c​t​i​v​e​ ​V​P​N​ ​s​e​s​s​i​o​n​.
+		 */
+		stoppedDescription: string
+		/**
+		 * V​P​N​ ​o​f​f
+		 */
+		stoppedState: string
+		/**
+		 * A​n​d​r​o​i​d​ ​i​s​ ​c​l​o​s​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​f​i​x​t​u​r​e​ ​l​i​f​e​c​y​c​l​e​ ​s​a​f​e​l​y​.
+		 */
+		stoppingDescription: string
+		/**
+		 * S​t​o​p​p​i​n​g​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 */
+		stoppingState: string
+		/**
+		 * L​i​v​e​ ​t​h​r​o​u​g​h​p​u​t
+		 */
+		throughputLabel: string
+		/**
+		 * T​r​a​f​f​i​c​ ​r​a​t​e​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​a​ ​n​a​t​i​v​e​ ​o​b​s​e​r​v​a​t​i​o​n​ ​c​o​n​t​r​a​c​t​ ​i​s​ ​c​o​n​n​e​c​t​e​d​.
+		 */
+		throughputUnavailableDescription: string
+		/**
+		 * T​h​i​s​ ​b​u​i​l​d​ ​c​a​n​n​o​t​ ​a​c​t​i​v​a​t​e​ ​V​P​N​ ​t​r​a​f​f​i​c​.​ ​N​o​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c​ ​i​s​ ​b​e​i​n​g​ ​r​o​u​t​e​d​.
+		 */
+		unavailableDescription: string
+		/**
+		 * V​P​N​ ​u​n​a​v​a​i​l​a​b​l​e
+		 */
+		unavailableState: string
+		/**
+		 * U​n​a​v​a​i​l​a​b​l​e
+		 */
+		unavailableValue: string
+	}
 	mobileFixture: {
 		/**
 		 * M​i​h​o​m​o​ ​{​v​e​r​s​i​o​n​}​ ​i​s​ ​p​a​c​k​a​g​e​d​;​ ​V​P​N​ ​t​r​a​f​f​i​c​ ​c​a​p​t​u​r​e​ ​i​s​ ​n​o​t​ ​c​o​n​n​e​c​t​e​d​ ​y​e​t​.
@@ -5545,6 +5680,140 @@ export type TranslationFunctions = {
 		 * Settings
 		 */
 		settings: () => LocalizedString
+	}
+	mobileHome: {
+		/**
+		 * VPN / Core
+		 */
+		authorityLabel: () => LocalizedString
+		/**
+		 * Embedded Core
+		 */
+		coreLabel: () => LocalizedString
+		/**
+		 * Package identity is verified. This fixture does not initialize or start the Core.
+		 */
+		corePackagedDescription: () => LocalizedString
+		/**
+		 * No verified embedded Core package is available to this build.
+		 */
+		coreUnavailableDescription: () => LocalizedString
+		/**
+		 * Mihomo {version}
+		 */
+		coreVersion: (arg: { version: string }) => LocalizedString
+		/**
+		 * Current setup
+		 */
+		currentSection: () => LocalizedString
+		/**
+		 * Android could not complete the native lifecycle check.
+		 */
+		failedDescription: () => LocalizedString
+		/**
+		 * Lifecycle check failed
+		 */
+		failedState: () => LocalizedString
+		/**
+		 * This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.
+		 */
+		fixtureDescription: () => LocalizedString
+		/**
+		 * Development boundary
+		 */
+		fixtureLabel: () => LocalizedString
+		/**
+		 * Review Android VPN permission before checking the native lifecycle.
+		 */
+		permissionRequiredDescription: () => LocalizedString
+		/**
+		 * VPN permission required
+		 */
+		permissionRequiredState: () => LocalizedString
+		/**
+		 * Profile
+		 */
+		profileLabel: () => LocalizedString
+		/**
+		 * No native Profile authority is connected, so no current Profile is claimed.
+		 */
+		profileUnavailableDescription: () => LocalizedString
+		/**
+		 * Runtime readiness
+		 */
+		readinessSection: () => LocalizedString
+		/**
+		 * The native lifecycle must be reset safely before another check.
+		 */
+		recoveryDescription: () => LocalizedString
+		/**
+		 * Recovery required
+		 */
+		recoveryState: () => LocalizedString
+		/**
+		 * Retry Lifecycle Check
+		 */
+		retryAction: () => LocalizedString
+		/**
+		 * Routing mode
+		 */
+		routingLabel: () => LocalizedString
+		/**
+		 * Routing mode is hidden until the native Core contract can confirm it.
+		 */
+		routingUnavailableDescription: () => LocalizedString
+		/**
+		 * Android reports an authoritative active VPN session.
+		 */
+		runningDescription: () => LocalizedString
+		/**
+		 * VPN active
+		 */
+		runningState: () => LocalizedString
+		/**
+		 * Android is checking the native fixture lifecycle.
+		 */
+		startingDescription: () => LocalizedString
+		/**
+		 * Checking native lifecycle
+		 */
+		startingState: () => LocalizedString
+		/**
+		 * Android reports no active VPN session.
+		 */
+		stoppedDescription: () => LocalizedString
+		/**
+		 * VPN off
+		 */
+		stoppedState: () => LocalizedString
+		/**
+		 * Android is closing the native fixture lifecycle safely.
+		 */
+		stoppingDescription: () => LocalizedString
+		/**
+		 * Stopping lifecycle check
+		 */
+		stoppingState: () => LocalizedString
+		/**
+		 * Live throughput
+		 */
+		throughputLabel: () => LocalizedString
+		/**
+		 * Traffic rates are hidden until a native observation contract is connected.
+		 */
+		throughputUnavailableDescription: () => LocalizedString
+		/**
+		 * This build cannot activate VPN traffic. No device traffic is being routed.
+		 */
+		unavailableDescription: () => LocalizedString
+		/**
+		 * VPN unavailable
+		 */
+		unavailableState: () => LocalizedString
+		/**
+		 * Unavailable
+		 */
+		unavailableValue: () => LocalizedString
 	}
 	mobileFixture: {
 		/**

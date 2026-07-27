@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { MobileShell } from "./mobile-shell";
-import type { MobileVpnClient } from "../platform/mobile-vpn-client";
 
 loadAllLocales();
 
@@ -19,54 +18,12 @@ const fixture = MobileFixtureBootstrapSchema.parse({
   vpn: { availability: "unavailable", kind: "fixture" },
 });
 
-const vpnSnapshot = {
-  backendKind: "fixture" as const,
-  contractVersion: 1 as const,
-  coreAbiVersion: null,
-  coreAvailability: "unavailable" as const,
-  coreCommit: null,
-  coreVersion: null,
-  coreWrapperRevision: null,
-  foreground: false,
-  message: "Fixture only. No TUN or Core is available.",
-  notificationPermission: "required" as const,
-  permission: "required" as const,
-  phase: "permission-required" as const,
-  sequence: 1,
-  sessionId: "session-1",
-  updatedAtMillis: 1,
-  vpnActive: false as const,
-};
-
-const vpnClient: MobileVpnClient = {
-  dispose: () => undefined,
-  getSnapshot: () => vpnSnapshot,
-  initialize: async () => vpnSnapshot,
-  requestNotificationPermission: async () => vpnSnapshot,
-  requestVpnConsent: async () => vpnSnapshot,
-  startFixtureLifecycle: async () => vpnSnapshot,
-  stop: async () => vpnSnapshot,
-  subscribe: () => () => undefined,
-  validateConfig: async () => ({
-    contractVersion: 1,
-    failure: "core-unavailable",
-    message: "The packaged Mobile Core is unavailable.",
-    outcome: "failed",
-    sequence: vpnSnapshot.sequence,
-    sessionId: vpnSnapshot.sessionId,
-  }),
-};
-
 function renderShell(path: string) {
   return render(
     <TypesafeI18n locale="en">
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route
-            element={
-              <MobileShell fixture={fixture} vpnClient={vpnClient} vpnSnapshot={vpnSnapshot} />
-            }
-          >
+          <Route element={<MobileShell fixture={fixture} />}>
             <Route element={<div>Route content</div>} path="*" />
           </Route>
         </Routes>
@@ -82,11 +39,13 @@ describe("MobileShell", () => {
 
     expect(within(navigation).getAllByRole("link")).toHaveLength(5);
     expect(within(navigation).getByRole("link", { name: "Home" })).toHaveClass("is-active");
+    expect(within(navigation).getByRole("link", { name: "Home" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(view.container.querySelector(".sidebar")).toBeNull();
-    expect(
-      screen.getByText("VPN and embedded Core are not implemented in this test build."),
-    ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Review VPN Permission" })).toBeVisible();
+    expect(view.container.querySelector(".mobile-fixture-banner")).toBeNull();
+    expect(screen.getByText("Route content")).toBeVisible();
   });
 
   it("excludes the desktop notification center and welcome invitation", () => {
@@ -102,38 +61,7 @@ describe("MobileShell", () => {
 
     expect(screen.getByRole("link", { name: "Activity" })).toHaveClass("is-active");
     expect(screen.getByRole("link", { name: "Rules" })).toHaveClass("is-active");
-  });
-
-  it("shows verified packaged Core identity without claiming a running VPN", () => {
-    render(
-      <TypesafeI18n locale="en">
-        <MemoryRouter initialEntries={["/status"]}>
-          <Routes>
-            <Route
-              element={
-                <MobileShell
-                  fixture={fixture}
-                  vpnClient={vpnClient}
-                  vpnSnapshot={{
-                    ...vpnSnapshot,
-                    coreAbiVersion: 1,
-                    coreAvailability: "available",
-                    coreCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
-                    coreVersion: "v1.19.29",
-                    coreWrapperRevision: "mish-mobile-core-v1",
-                  }}
-                />
-              }
-            >
-              <Route element={<div>Route content</div>} path="*" />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </TypesafeI18n>,
-    );
-
-    expect(
-      screen.getByText("Mihomo v1.19.29 is packaged; VPN traffic capture is not connected yet."),
-    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Rules" })).toHaveAttribute("aria-current", "page");
   });
 });
