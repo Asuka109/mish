@@ -19,6 +19,7 @@ export type DevelopmentMihomoFailure =
   | "binary-absent"
   | "binary-digest"
   | "binary-mode"
+  | "binary-path"
   | "binary-type"
   | "binary-version"
   | "manifest-invalid"
@@ -40,9 +41,19 @@ export interface DevelopmentMihomoVerification {
   version: string;
 }
 
+export interface DevelopmentMihomoSelection extends DevelopmentMihomoVerification {
+  source: "explicit-override" | "repository-pin";
+}
+
 interface VerifyDevelopmentMihomoOptions {
   binary: string;
   expectedSha256: string;
+  expectedVersion: string;
+  inspectVersion?: (binary: string) => string;
+}
+
+interface VerifyLocalDevelopmentMihomoOptions {
+  binary: string;
   expectedVersion: string;
   inspectVersion?: (binary: string) => string;
 }
@@ -161,6 +172,77 @@ export async function verifyDevelopmentMihomo({
     );
   }
   return { binary, binarySha256, version };
+}
+
+export async function verifyLocalDevelopmentMihomo({
+  binary,
+  expectedVersion,
+  inspectVersion = inspectMihomoVersion,
+}: VerifyLocalDevelopmentMihomoOptions): Promise<DevelopmentMihomoVerification> {
+  if (!path.isAbsolute(binary)) {
+    throw new DevelopmentMihomoError(
+      "binary-path",
+      "The explicit MISH_MIHOMO_BIN development Core path must be absolute.",
+    );
+  }
+  let metadata;
+  try {
+    metadata = await lstat(binary);
+  } catch {
+    throw new DevelopmentMihomoError(
+      "binary-absent",
+      "The explicit MISH_MIHOMO_BIN development Core is absent; restore it or unset the override.",
+    );
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw new DevelopmentMihomoError(
+      "binary-type",
+      "The explicit MISH_MIHOMO_BIN development Core must be a regular file.",
+    );
+  }
+  if ((metadata.mode & 0o777) !== 0o755) {
+    throw new DevelopmentMihomoError(
+      "binary-mode",
+      "The explicit MISH_MIHOMO_BIN development Core must have mode 0755.",
+    );
+  }
+  try {
+    await access(binary, constants.X_OK);
+  } catch {
+    throw new DevelopmentMihomoError(
+      "binary-mode",
+      "The explicit MISH_MIHOMO_BIN development Core is not executable.",
+    );
+  }
+  const binarySha256 = sha256(await readFile(binary));
+  const version = inspectVersion(binary);
+  if (!version.includes(`${expectedVersion} darwin arm64`)) {
+    throw new DevelopmentMihomoError(
+      "binary-version",
+      "The explicit MISH_MIHOMO_BIN development Core does not match the required version and host.",
+    );
+  }
+  return { binary, binarySha256, version };
+}
+
+export async function selectDevelopmentMihomo(
+  repositoryRoot: string,
+  explicitOverride: string | undefined,
+): Promise<DevelopmentMihomoSelection> {
+  if (explicitOverride !== undefined) {
+    const release = await readMacOsMihomoRelease(repositoryRoot);
+    return {
+      ...(await verifyLocalDevelopmentMihomo({
+        binary: explicitOverride,
+        expectedVersion: release.version,
+      })),
+      source: "explicit-override",
+    };
+  }
+  return {
+    ...(await preparePinnedDevelopmentMihomo(repositoryRoot)),
+    source: "repository-pin",
+  };
 }
 
 export async function preparePinnedDevelopmentMihomo(

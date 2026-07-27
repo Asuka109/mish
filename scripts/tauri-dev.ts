@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { preparePinnedDevelopmentMihomo } from "./development-mihomo.ts";
+import { selectDevelopmentMihomo, type DevelopmentMihomoSelection } from "./development-mihomo.ts";
 
 export const defaultWebDevelopmentPort = 4173;
 export const tartTunAcceptanceArgument = "--tart-tun-acceptance";
@@ -82,7 +82,7 @@ export function createTauriDevelopmentEnvironment(
   base: NodeJS.ProcessEnv,
   origin: string,
   invocation: TauriDevelopmentInvocation,
-  preparedMihomo: string | null,
+  selectedMihomo: DevelopmentMihomoSelection | null,
 ): NodeJS.ProcessEnv {
   const environment = {
     ...base,
@@ -91,8 +91,13 @@ export function createTauriDevelopmentEnvironment(
   };
   if (invocation.demo) environment.MISH_DESKTOP_DEMO = "1";
   else delete environment.MISH_DESKTOP_DEMO;
-  if (preparedMihomo) environment.MISH_MIHOMO_BIN = preparedMihomo;
-  else delete environment.MISH_MIHOMO_BIN;
+  if (selectedMihomo) {
+    environment.MISH_DEVELOPMENT_CORE_SOURCE = selectedMihomo.source;
+    environment.MISH_MIHOMO_BIN = selectedMihomo.binary;
+  } else {
+    delete environment.MISH_DEVELOPMENT_CORE_SOURCE;
+    delete environment.MISH_MIHOMO_BIN;
+  }
   if (!invocation.demo && invocation.tartTunAcceptance) {
     environment.MISH_TART_TUN_ACCEPTANCE = "1";
   } else {
@@ -124,14 +129,14 @@ async function run(): Promise<void> {
   const origin = `http://127.0.0.1:${port}`;
   const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const invocation = parseTauriDevelopmentArguments(process.argv.slice(2));
-  const preparedMihomo = invocation.demo
+  const selectedMihomo = invocation.demo
     ? null
-    : await preparePinnedDevelopmentMihomo(repositoryRoot);
+    : await selectDevelopmentMihomo(repositoryRoot, process.env.MISH_MIHOMO_BIN);
   const environment = createTauriDevelopmentEnvironment(
     process.env,
     origin,
     invocation,
-    preparedMihomo?.binary ?? null,
+    selectedMihomo,
   );
   const child = spawn(
     pnpm,

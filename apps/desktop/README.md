@@ -71,13 +71,15 @@ Outside the explicit demo commands, browser startup requires either PIN pairing
 or a valid process-local browser session; it never falls through to demo state.
 The operational desktop process generates its own 256-bit token, keeps it out
 of URLs and storage, and gives it only to authorized clients. Mihomo never
-starts merely because the Web UI opens. Operational development uses the
-repository-pinned manifest. The tracked launcher prepares the Core when needed,
-verifies archive and binary digests, version, regular-file type, and mode
-`0755`, then overwrites any ambient `MISH_MIHOMO_BIN` with that
-repository-managed path. Tauri revalidates the pinned digest before setup.
-Production accepts only the packaged pinned resource, and neither mode
-downloads an executable at runtime.
+starts merely because the Web UI opens. When `MISH_MIHOMO_BIN` is unset, the
+tracked launcher prepares the repository pin and verifies its manifest,
+archive and binary digests, version, regular-file type, and mode `0755`. An
+explicit `MISH_MIHOMO_BIN` remains the local Core debugging override: it must
+be an absolute regular executable with mode `0755` and report the required
+macOS arm64 version. A missing or invalid explicit override fails early without
+falling back to the repository pin. Tauri revalidates the source-appropriate
+file contract before setup. Production accepts only the packaged pinned
+resource, and no application runtime downloads an executable.
 
 System Proxy defaults off and is journaled, confirmed, and restored by the
 shared runtime. Source development may install the bounded root LaunchDaemon

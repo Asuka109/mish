@@ -83,16 +83,23 @@ pub fn verify_development_pinned_core(binary: &Path) -> Result<(), &'static str>
     {
         return Err("invalid pinned Core manifest");
     }
-    let metadata =
-        fs::symlink_metadata(binary).map_err(|_| "the pinned development Core is absent")?;
+    verify_development_core_file(binary)?;
+    verify_core_digest(binary, &manifest.binary_sha256)
+        .map_err(|_| "the pinned development Core digest did not match")
+}
+
+pub fn verify_development_core_file(binary: &Path) -> Result<(), &'static str> {
+    if !binary.is_absolute() {
+        return Err("the development Core path must be absolute");
+    }
+    let metadata = fs::symlink_metadata(binary).map_err(|_| "the development Core is absent")?;
     if metadata.file_type().is_symlink()
         || !metadata.file_type().is_file()
         || metadata.permissions().mode() & 0o777 != 0o755
     {
-        return Err("the pinned development Core must be a regular executable with mode 0755");
+        return Err("the development Core must be a regular executable with mode 0755");
     }
-    verify_core_digest(binary, &manifest.binary_sha256)
-        .map_err(|_| "the pinned development Core digest did not match")
+    Ok(())
 }
 const BOUNDED_STEP_TIMEOUT: Duration = Duration::from_secs(5);
 const FORCED_STOP_TIMEOUT: Duration = Duration::from_secs(2);

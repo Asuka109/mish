@@ -37,9 +37,16 @@ desktop process:
 pnpm desktop:dev
 ```
 
-The launcher prepares and verifies the repository-pinned Core when necessary,
-then replaces any ambient `MISH_MIHOMO_BIN` value with the verified repository
-path. A stale or missing private override therefore cannot shadow the pin.
+When `MISH_MIHOMO_BIN` is unset, the launcher prepares and verifies the
+repository-pinned Core. An explicit value remains the local Core debugging
+override and must identify an absolute regular mode-`0755` executable reporting
+the required macOS arm64 version. A missing or invalid explicit override fails
+early and never falls back to the repository pin. For example:
+
+```sh
+MISH_MIHOMO_BIN="/absolute/path/to/local/mihomo" pnpm desktop:dev
+```
+
 Disable the Inspector for one development process with:
 
 ```sh

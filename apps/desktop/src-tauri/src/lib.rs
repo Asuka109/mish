@@ -29,7 +29,7 @@ use mish_platform_macos::{
     MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform,
     MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
     MacOsTunServiceClient, dismiss_browser_pairing_pin, show_browser_pairing_pin,
-    verify_development_pinned_core,
+    verify_development_core_file, verify_development_pinned_core,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -61,6 +61,7 @@ mod status_bar;
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
 const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
+const DEVELOPMENT_CORE_SOURCE_ENV: &str = "MISH_DEVELOPMENT_CORE_SOURCE";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
 const TART_TUN_ACCEPTANCE_ENV: &str = "MISH_TART_TUN_ACCEPTANCE";
 const DEVTOOLS_ARGUMENT: &str = "--devtools";
@@ -683,7 +684,12 @@ pub fn run() -> Result<i32, String> {
     }
 
     let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
-    validate_development_mihomo_environment(tauri::is_dev(), requested_mihomo.as_deref())?;
+    let development_core_source = std::env::var(DEVELOPMENT_CORE_SOURCE_ENV).ok();
+    validate_development_mihomo_environment(
+        tauri::is_dev(),
+        requested_mihomo.as_deref(),
+        development_core_source.as_deref(),
+    )?;
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -1466,16 +1472,33 @@ fn managed_mihomo_resolver(
 fn validate_development_mihomo_environment(
     is_dev: bool,
     requested_binary: Option<&Path>,
+    source: Option<&str>,
 ) -> Result<(), String> {
     if is_dev {
         let requested_binary = requested_binary.ok_or_else(|| {
-            "The tracked desktop development launcher did not provide its verified pinned Core; restart with `pnpm desktop:dev`"
+            "The tracked desktop development launcher did not provide a Core; restart with `pnpm desktop:dev`"
                 .to_owned()
         })?;
-        verify_development_pinned_core(requested_binary).map_err(|_| {
-            "The tracked desktop development Core failed its pinned digest, file-type, or executable-mode check; rerun `pnpm desktop:dev`"
-                .to_owned()
-        })?;
+        match source {
+            Some("repository-pin") => {
+                verify_development_pinned_core(requested_binary).map_err(|_| {
+                    "The repository-pinned development Core failed its digest, file-type, or executable-mode check; rerun `pnpm desktop:dev`"
+                        .to_owned()
+                })?;
+            }
+            Some("explicit-override") => {
+                verify_development_core_file(requested_binary).map_err(|_| {
+                    "The explicit MISH_MIHOMO_BIN development Core is absent, unsafe, or not executable; restore it or unset the override"
+                        .to_owned()
+                })?;
+            }
+            _ => {
+                return Err(
+                    "The tracked desktop development launcher did not identify its Core source; restart with `pnpm desktop:dev`"
+                        .to_owned(),
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -1846,7 +1869,7 @@ impl Drop for TemporarySupportBundle {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf, sync::Mutex};
+    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, sync::Mutex};
 
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
@@ -2063,7 +2086,7 @@ mod tests {
 
     #[test]
     fn development_requires_the_tracked_launcher_to_supply_a_verified_core() {
-        let error = validate_development_mihomo_environment(true, None)
+        let error = validate_development_mihomo_environment(true, None, None)
             .expect_err("development should fail before Tauri starts");
 
         assert!(error.contains("pnpm desktop:dev"));
@@ -2081,14 +2104,47 @@ mod tests {
     fn development_rejects_an_unverified_requested_mihomo_binary() {
         let requested = PathBuf::from("/private/tmp/mihomo");
 
-        let error = validate_development_mihomo_environment(true, Some(&requested))
-            .expect_err("an arbitrary development path must fail closed");
-        assert!(error.contains("pinned digest"));
+        let error =
+            validate_development_mihomo_environment(true, Some(&requested), Some("repository-pin"))
+                .expect_err("an arbitrary development path must fail closed");
+        assert!(error.contains("repository-pinned"));
+    }
+
+    #[test]
+    fn development_preserves_a_safe_explicit_local_core_override() {
+        let root = support_bundle_test_directory("explicit-development-core");
+        let binary = root.join("local-mihomo");
+        fs::write(&binary, b"fictional local Mihomo fixture").unwrap();
+        let mut permissions = fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary, permissions).unwrap();
+
+        assert_eq!(
+            validate_development_mihomo_environment(true, Some(&binary), Some("explicit-override")),
+            Ok(())
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn development_does_not_fallback_from_a_missing_explicit_override() {
+        let requested = PathBuf::from("/private/tmp/mish-fictional-missing-mihomo");
+        let error = validate_development_mihomo_environment(
+            true,
+            Some(&requested),
+            Some("explicit-override"),
+        )
+        .expect_err("a missing explicit override must fail before Tauri starts");
+
+        assert!(error.contains("restore it or unset"));
     }
 
     #[test]
     fn production_does_not_require_the_development_environment_variable() {
-        assert_eq!(validate_development_mihomo_environment(false, None), Ok(()));
+        assert_eq!(
+            validate_development_mihomo_environment(false, None, None),
+            Ok(())
+        );
     }
 
     #[test]

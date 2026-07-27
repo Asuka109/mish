@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempDisposableSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempDisposableSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   DevelopmentMihomoError,
   readMacOsMihomoRelease,
+  selectDevelopmentMihomo,
   verifyDevelopmentMihomo,
+  verifyLocalDevelopmentMihomo,
 } from "./development-mihomo.ts";
 
 function digest(contents: string): string {
@@ -105,4 +114,62 @@ test("rejects malformed or open-ended pinned release manifests", async () => {
     }),
   );
   await expectFailure("manifest-invalid", () => readMacOsMihomoRelease(temporary.path));
+});
+
+test("validates an explicit local Core without requiring the repository digest", async () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-local-development-core-"));
+  const binary = path.join(temporary.path, "local-mihomo");
+  const contents = "repository-owned fictional local Mihomo fixture";
+  const verify = () =>
+    verifyLocalDevelopmentMihomo({
+      binary,
+      expectedVersion: "v1.19.29",
+      inspectVersion: () => "Mihomo Meta v1.19.29 darwin arm64 with fictional-go",
+    });
+
+  await expectFailure("binary-absent", verify);
+  await expectFailure("binary-path", () =>
+    verifyLocalDevelopmentMihomo({
+      binary: "relative/local-mihomo",
+      expectedVersion: "v1.19.29",
+      inspectVersion: () => "Mihomo Meta v1.19.29 darwin arm64 with fictional-go",
+    }),
+  );
+
+  writeFileSync(binary, contents, { mode: 0o644 });
+  await expectFailure("binary-mode", verify);
+  chmodSync(binary, 0o755);
+  await expectFailure("binary-version", () =>
+    verifyLocalDevelopmentMihomo({
+      binary,
+      expectedVersion: "v1.19.29",
+      inspectVersion: () => "Mihomo Meta v1.20.0 darwin arm64 with fictional-go",
+    }),
+  );
+
+  const verification = await verify();
+  assert.equal(verification.binary, binary);
+  assert.equal(verification.binarySha256, digest(contents));
+});
+
+test("a missing explicit override fails without preparing the repository pin", async () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-explicit-core-selection-"));
+  const manifestDirectory = path.join(temporary.path, "resources", "mihomo");
+  mkdirSync(manifestDirectory, { recursive: true });
+  writeFileSync(
+    path.join(manifestDirectory, "macos-arm64.json"),
+    JSON.stringify({
+      archiveSha256: "a".repeat(64),
+      asset: "mihomo-darwin-arm64-v1.19.29.gz",
+      binarySha256: "b".repeat(64),
+      repository: "MetaCubeX/mihomo",
+      schemaVersion: 1,
+      version: "v1.19.29",
+    }),
+  );
+
+  await expectFailure("binary-absent", () =>
+    selectDevelopmentMihomo(temporary.path, path.join(temporary.path, "missing-local-mihomo")),
+  );
+  assert.equal(existsSync(path.join(temporary.path, ".scratch")), false);
 });
