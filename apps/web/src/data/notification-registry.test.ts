@@ -105,11 +105,13 @@ describe("notification presentation registry", () => {
     expect(drift.actions.map(({ id }) => id)).toEqual(["repair", "leave-as-is"]);
 
     const failure = presentNotification(
-      record("system-proxy.failed", { failure: "core-unhealthy" }, ["open-diagnostics"]),
+      record("profile.activation-failed", { failure: "missing-binary" }, [
+        "retry-profile-activation",
+      ]),
       LL,
     );
     expect(failure.actions).toEqual([
-      { diagnosticFailure: "core-unhealthy", id: "open-diagnostics", label: "Open Diagnostics" },
+      { id: "retry-profile-activation", label: "Retry Activation" },
     ]);
   });
 

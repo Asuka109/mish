@@ -29,6 +29,7 @@ use mish_platform_macos::{
     MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform,
     MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
     MacOsTunServiceClient, dismiss_browser_pairing_pin, show_browser_pairing_pin,
+    verify_development_pinned_core,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -1466,11 +1467,15 @@ fn validate_development_mihomo_environment(
     is_dev: bool,
     requested_binary: Option<&Path>,
 ) -> Result<(), String> {
-    if is_dev && requested_binary.is_none() {
-        return Err(
-            "MISH_MIHOMO_BIN is required for desktop development; run `pnpm prepare:mihomo`, set MISH_MIHOMO_BIN to the prepared binary, and restart `pnpm desktop:dev`"
-                .to_owned(),
-        );
+    if is_dev {
+        let requested_binary = requested_binary.ok_or_else(|| {
+            "The tracked desktop development launcher did not provide its verified pinned Core; restart with `pnpm desktop:dev`"
+                .to_owned()
+        })?;
+        verify_development_pinned_core(requested_binary).map_err(|_| {
+            "The tracked desktop development Core failed its pinned digest, file-type, or executable-mode check; rerun `pnpm desktop:dev`"
+                .to_owned()
+        })?;
     }
     Ok(())
 }
@@ -2057,12 +2062,11 @@ mod tests {
     }
 
     #[test]
-    fn development_requires_an_explicit_prepared_mihomo_binary() {
+    fn development_requires_the_tracked_launcher_to_supply_a_verified_core() {
         let error = validate_development_mihomo_environment(true, None)
             .expect_err("development should fail before Tauri starts");
 
-        assert!(error.contains("MISH_MIHOMO_BIN is required"));
-        assert!(error.contains("pnpm prepare:mihomo"));
+        assert!(error.contains("pnpm desktop:dev"));
     }
 
     #[test]
@@ -2074,13 +2078,12 @@ mod tests {
     }
 
     #[test]
-    fn development_accepts_a_requested_mihomo_binary() {
+    fn development_rejects_an_unverified_requested_mihomo_binary() {
         let requested = PathBuf::from("/private/tmp/mihomo");
 
-        assert_eq!(
-            validate_development_mihomo_environment(true, Some(&requested)),
-            Ok(())
-        );
+        let error = validate_development_mihomo_environment(true, Some(&requested))
+            .expect_err("an arbitrary development path must fail closed");
+        assert!(error.contains("pinned digest"));
     }
 
     #[test]

@@ -65,7 +65,6 @@ export function ProductRoutes({ shell, statusElement = <StatusPage /> }: Product
         <Route element={renderDeferredRoute(<TrafficPage />)} path="traffic" />
         <Route element={renderDeferredRoute(<EventsPage />)} path="events" />
         <Route element={<Navigate replace to="/traffic" />} path="activity" />
-        <Route element={<Navigate replace to="/events?diagnostics=1" />} path="diagnostics" />
         <Route element={renderDeferredRoute(<SettingsPage />)} path="settings" />
         <Route element={<NotFoundPage />} path="*" />
       </Route>

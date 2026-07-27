@@ -37,14 +37,8 @@ function applicationEvent<K extends ApplicationEventKind>(
   kind: K,
   data: ApplicationEventDataByKind[K],
 ): EventRecordDto {
-  const actionIds =
-    kind === "capture.failure" ||
-    kind === "profile.activation-failed" ||
-    kind === "traffic.operation-failed"
-      ? (["open-diagnostics"] as const)
-      : [];
   return {
-    application: { actionIds: [...actionIds], data, kind } as ApplicationEvent,
+    application: { actionIds: [], data, kind } as ApplicationEvent,
     evidence: null,
     id: `session:7:${kind}`,
     level: "error",
@@ -104,7 +98,7 @@ describe("application event presentation", () => {
       EventRecordSchema.safeParse({
         ...identity,
         application: {
-          actionIds: ["open-diagnostics"],
+          actionIds: ["retry-profile-activation"],
           data: {},
           kind: "capture.failure",
         },

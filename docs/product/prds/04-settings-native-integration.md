@@ -73,7 +73,8 @@ stable hierarchy is:
 4. System Proxy and TUN capture states.
 5. Active profile.
 6. Visible policy groups, each expanding to its children.
-7. Restart core / Open diagnostics when relevant.
+7. Retry Core or open the owning recovery surface when the typed notification
+   allows it.
 8. Quit.
 
 Rates and active applications may be shown as non-interactive context only when

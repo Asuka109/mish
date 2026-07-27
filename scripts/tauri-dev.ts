@@ -2,9 +2,17 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { preparePinnedDevelopmentMihomo } from "./development-mihomo.ts";
 
 export const defaultWebDevelopmentPort = 4173;
 export const tartTunAcceptanceArgument = "--tart-tun-acceptance";
+
+export interface TauriDevelopmentInvocation {
+  application: string[];
+  demo: boolean;
+  forwarded: string[];
+  tartTunAcceptance: boolean;
+}
 
 function portIsAvailable(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -53,12 +61,7 @@ export function createTauriDevelopmentConfig(origin: string, demo = false): stri
   });
 }
 
-export function parseTauriDevelopmentArguments(arguments_: string[]): {
-  application: string[];
-  demo: boolean;
-  forwarded: string[];
-  tartTunAcceptance: boolean;
-} {
+export function parseTauriDevelopmentArguments(arguments_: string[]): TauriDevelopmentInvocation {
   const normalized = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
   const isDevtoolsArgument = (argument: string): boolean =>
     argument === "--devtools" || argument.startsWith("--devtools=");
@@ -73,6 +76,29 @@ export function parseTauriDevelopmentArguments(arguments_: string[]): {
     ),
     tartTunAcceptance: normalized.includes(tartTunAcceptanceArgument),
   };
+}
+
+export function createTauriDevelopmentEnvironment(
+  base: NodeJS.ProcessEnv,
+  origin: string,
+  invocation: TauriDevelopmentInvocation,
+  preparedMihomo: string | null,
+): NodeJS.ProcessEnv {
+  const environment = {
+    ...base,
+    MISH_DEV_ORIGIN: origin,
+    MISH_WEB_PORT: new URL(origin).port,
+  };
+  if (invocation.demo) environment.MISH_DESKTOP_DEMO = "1";
+  else delete environment.MISH_DESKTOP_DEMO;
+  if (preparedMihomo) environment.MISH_MIHOMO_BIN = preparedMihomo;
+  else delete environment.MISH_MIHOMO_BIN;
+  if (!invocation.demo && invocation.tartTunAcceptance) {
+    environment.MISH_TART_TUN_ACCEPTANCE = "1";
+  } else {
+    delete environment.MISH_TART_TUN_ACCEPTANCE;
+  }
+  return environment;
 }
 
 export function isTauriDevelopmentStartupAbort(output: string): boolean {
@@ -98,18 +124,15 @@ async function run(): Promise<void> {
   const origin = `http://127.0.0.1:${port}`;
   const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const invocation = parseTauriDevelopmentArguments(process.argv.slice(2));
-  const environment = {
-    ...process.env,
-    MISH_DEV_ORIGIN: origin,
-    MISH_WEB_PORT: String(port),
-  };
-  if (invocation.demo) environment.MISH_DESKTOP_DEMO = "1";
-  else delete environment.MISH_DESKTOP_DEMO;
-  if (!invocation.demo && invocation.tartTunAcceptance) {
-    environment.MISH_TART_TUN_ACCEPTANCE = "1";
-  } else {
-    delete environment.MISH_TART_TUN_ACCEPTANCE;
-  }
+  const preparedMihomo = invocation.demo
+    ? null
+    : await preparePinnedDevelopmentMihomo(repositoryRoot);
+  const environment = createTauriDevelopmentEnvironment(
+    process.env,
+    origin,
+    invocation,
+    preparedMihomo?.binary ?? null,
+  );
   const child = spawn(
     pnpm,
     [

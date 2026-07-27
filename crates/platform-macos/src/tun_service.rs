@@ -70,6 +70,30 @@ pub fn development_pinned_core_version() -> Result<String, &'static str> {
     }
     Ok(manifest.version)
 }
+
+pub fn verify_development_pinned_core(binary: &Path) -> Result<(), &'static str> {
+    let manifest: PinnedCoreManifest =
+        serde_json::from_str(PINNED_CORE_MANIFEST).map_err(|_| "invalid pinned Core manifest")?;
+    if manifest.schema_version != 1
+        || !valid_installation_id(&manifest.archive_sha256)
+        || !valid_installation_id(&manifest.binary_sha256)
+        || manifest.repository != "MetaCubeX/mihomo"
+        || manifest.asset != format!("mihomo-darwin-arm64-{}.gz", manifest.version)
+        || !valid_version(&manifest.version)
+    {
+        return Err("invalid pinned Core manifest");
+    }
+    let metadata =
+        fs::symlink_metadata(binary).map_err(|_| "the pinned development Core is absent")?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.permissions().mode() & 0o777 != 0o755
+    {
+        return Err("the pinned development Core must be a regular executable with mode 0755");
+    }
+    verify_core_digest(binary, &manifest.binary_sha256)
+        .map_err(|_| "the pinned development Core digest did not match")
+}
 const BOUNDED_STEP_TIMEOUT: Duration = Duration::from_secs(5);
 const FORCED_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_RESPONSE_SLACK: Duration = Duration::from_secs(1);

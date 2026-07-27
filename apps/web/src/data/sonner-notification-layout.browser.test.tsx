@@ -247,7 +247,7 @@ describe.sequential("Sonner notification layout", () => {
       showNotification(notification({ id: "reduced-motion-one", message: "Profile saved" }));
       showNotification(
         notification({
-          actions: [{ id: "open-diagnostics", label: "Open Diagnostics" }],
+          actions: [{ id: "retry-profile-activation", label: "Retry Activation" }],
           id: "reduced-motion-two",
           level: "error",
           message: longEnglishMessage,

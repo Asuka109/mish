@@ -76,14 +76,13 @@ function getTitle(LL: TranslationFunctions, pathname: string) {
 }
 
 function isActivityPath(pathname: string) {
-  return pathname === "/traffic" || pathname === "/events" || pathname === "/diagnostics";
+  return pathname === "/traffic" || pathname === "/events";
 }
 
 export function MobileShell({ fixture }: MobileShellProps) {
   const { LL } = useI18nContext();
   const location = useLocation();
   const activity = isActivityPath(location.pathname);
-  const diagnostics = location.pathname === "/events" && location.search.includes("diagnostics=1");
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
 
   return (
@@ -132,20 +131,13 @@ export function MobileShell({ fixture }: MobileShellProps) {
               {LL.mobileNavigation.rules()}
             </NavLink>
             <NavLink
-              aria-current={location.pathname === "/events" && !diagnostics ? "page" : undefined}
+              aria-current={location.pathname === "/events" ? "page" : undefined}
               className={mobileShellStyles({
-                selected: location.pathname === "/events" && !diagnostics,
+                selected: location.pathname === "/events",
               }).activityLink()}
               to="/events"
             >
               {LL.mobileNavigation.events()}
-            </NavLink>
-            <NavLink
-              aria-current={diagnostics ? "page" : undefined}
-              className={mobileShellStyles({ selected: diagnostics }).activityLink()}
-              to="/events?diagnostics=1"
-            >
-              {LL.mobileNavigation.diagnostics()}
             </NavLink>
           </nav>
         ) : null}

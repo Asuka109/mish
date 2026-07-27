@@ -205,18 +205,18 @@ applies the returned authoritative snapshot on success and failure, and derives
 Closed history through the existing same-session snapshot diff. Browser
 fixtures advertise these commands as unsupported.
 
-Protocol version 7 adds authenticated, fixed-parameter Guided Diagnostics
-history, start, and cancellation methods. The run is owned by the desktop
-runtime host so runtime replacement invalidates in-flight work. It defines no
-mutation, export, upload, arbitrary endpoint, or persistent history method; see
-[`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
+The former user-started Guided Diagnostics RPC and Events surface were removed.
+Automatic preflight, semantic notifications, notification actions, Events
+history, direct service probes, and scoped Routes delay tests retain the useful
+evidence without a duplicate interpretation path.
 
-Diagnostics support bundle export is intentionally outside loopback protocol
+Support bundle export is intentionally outside loopback protocol
 versioning. The shared UI consumes a typed `SupportBundleClient`: ordinary
 browsers receive an explicit unavailable adapter, while the Tauri bootstrap
 enables a private preview/save adapter. Preview exposes only metadata for the
 exact in-memory JSON; save sends only its opaque preview ID and the native shell
 owns destination selection, private atomic writing, cancellation, and cleanup.
+See [`support-bundle-data-contracts.md`](support-bundle-data-contracts.md).
 
 Protocol version 8 adds the independent close-window preference and status-bar
 and window-lifecycle capability fields. Native menu commands do not create a

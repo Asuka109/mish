@@ -947,7 +947,7 @@ impl ProfileActivationCoordinator {
             }
         }
         let cancellation = CancellationToken::new();
-        let (command, pending) = {
+        let (command, pending, previous_command_id) = {
             let mut state = self.state.lock().await;
             let snapshot = state.activation.to_snapshot(self.availability);
             if snapshot.command_id.as_deref() == Some(command_id) {
@@ -973,8 +973,15 @@ impl ProfileActivationCoordinator {
                 )
                 .map_err(|()| ProfileActivationCoordinatorError::Conflict)?;
             let pending = state.activation.to_snapshot(self.availability);
-            (command, pending)
+            let previous_command_id = (snapshot.phase == ProfileActivationPhase::Failure)
+                .then_some(snapshot.command_id)
+                .flatten();
+            (command, pending, previous_command_id)
         };
+        if let Some(previous_command_id) = previous_command_id {
+            self.host
+                .resolve_notification(&format!("profile.activation-failure:{previous_command_id}"));
+        }
         let _ = self.updates.send(pending.clone());
         let record = match self.profiles.activation_record(profile_id) {
             Ok(record) => record,
@@ -1032,6 +1039,7 @@ impl ProfileActivationCoordinator {
         if state.activation.is_pending() {
             return;
         }
+        let previous = state.activation.to_snapshot(self.availability);
         let runtime = state.activation.runtime();
         let Ok(command) = state.activation.begin(
             command_id,
@@ -1050,6 +1058,13 @@ impl ProfileActivationCoordinator {
         let snapshot = state.activation.to_snapshot(self.availability);
         let _ = self.updates.send(snapshot);
         drop(state);
+        if previous.phase == ProfileActivationPhase::Failure {
+            if let Some(previous_command_id) = previous.command_id {
+                self.host.resolve_notification(&format!(
+                    "profile.activation-failure:{previous_command_id}"
+                ));
+            }
+        }
         self.host
             .record_application_event(ApplicationDiagnosticEvent::profile_activation_failure(
                 profile_activation_failure_id(failure),
@@ -2400,9 +2415,13 @@ fn now_unix_milliseconds() -> u64 {
 mod capture_selection_tests {
     use std::time::Duration;
 
-    use super::{launch_duration_milliseconds, usable_capture_selection};
+    use super::{
+        ProfileActivationFailure, launch_duration_milliseconds,
+        profile_activation_failure_notification, usable_capture_selection,
+    };
     use mish_runtime::{
-        CapabilityAvailability, CaptureSelection, PlatformCapabilities, StatusAdapterKind,
+        ApplicationActionId, CapabilityAvailability, CaptureSelection, PlatformCapabilities,
+        StatusAdapterKind,
     };
 
     fn capabilities(
@@ -2487,6 +2506,43 @@ mod capture_selection_tests {
         assert_eq!(launch_duration_milliseconds(Duration::ZERO), 0);
         assert_eq!(launch_duration_milliseconds(Duration::from_nanos(1)), 1);
         assert_eq!(launch_duration_milliseconds(Duration::from_millis(12)), 12);
+    }
+
+    #[test]
+    fn activation_failure_notification_exposes_only_valid_typed_retries() {
+        for failure in [
+            ProfileActivationFailure::Staging,
+            ProfileActivationFailure::Start,
+            ProfileActivationFailure::EarlyExit,
+            ProfileActivationFailure::Controller,
+            ProfileActivationFailure::Timeout,
+            ProfileActivationFailure::PriorStop,
+        ] {
+            let notification = profile_activation_failure_notification(failure);
+            assert_eq!(
+                notification.action_ids,
+                vec![ApplicationActionId::RetryProfileActivation]
+            );
+            assert!(notification.actions_valid());
+        }
+
+        for failure in [
+            ProfileActivationFailure::InvalidProfile,
+            ProfileActivationFailure::MissingBinary,
+            ProfileActivationFailure::UnsafeRuntime,
+            ProfileActivationFailure::Validation,
+            ProfileActivationFailure::GeodataFailed,
+            ProfileActivationFailure::GeodataTimeout,
+            ProfileActivationFailure::ManagedListenerConflict,
+            ProfileActivationFailure::VersionMismatch,
+            ProfileActivationFailure::Cancelled,
+            ProfileActivationFailure::Capture,
+            ProfileActivationFailure::StateCommit,
+        ] {
+            let notification = profile_activation_failure_notification(failure);
+            assert!(notification.action_ids.is_empty());
+            assert!(notification.actions_valid());
+        }
     }
 }
 
@@ -3292,13 +3348,30 @@ fn profile_activation_failure_id(failure: ProfileActivationFailure) -> &'static 
 fn profile_activation_failure_notification(
     failure: ProfileActivationFailure,
 ) -> ApplicationNotification {
+    let actions = if profile_activation_failure_is_retryable(failure) {
+        vec![ApplicationActionId::RetryProfileActivation]
+    } else {
+        Vec::new()
+    };
     ApplicationNotification::new(
         ApplicationNotificationContent::ProfileActivationFailed(
             ProfileActivationFailedApplicationNotificationData {
                 failure: profile_activation_failure_id(failure).into(),
             },
         ),
-        vec![ApplicationActionId::OpenDiagnostics],
+        actions,
+    )
+}
+
+fn profile_activation_failure_is_retryable(failure: ProfileActivationFailure) -> bool {
+    matches!(
+        failure,
+        ProfileActivationFailure::Staging
+            | ProfileActivationFailure::Start
+            | ProfileActivationFailure::EarlyExit
+            | ProfileActivationFailure::Controller
+            | ProfileActivationFailure::Timeout
+            | ProfileActivationFailure::PriorStop
     )
 }
 

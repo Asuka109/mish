@@ -20,7 +20,7 @@ pub use tun_service::{
     DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
     DevelopmentTunStartup, MacOsTunServiceClient, ManagedDnsState, TunServiceConfig,
     development_pinned_core_version, development_socket_path, parse_watchdog_dns,
-    run_core_watchdog, run_tun_service,
+    run_core_watchdog, run_tun_service, verify_development_pinned_core,
 };
 
 use std::{

@@ -85,12 +85,12 @@ therefore product requirements, not implementation details.
 | Routes | Browse complete policy-group tree, test, search, and select group children | Profile import and subscription credentials |
 | Profiles | Import, validate, update, activate, and organize profiles | Runtime traffic investigation |
 | Traffic | Inspect active/closed connections and matched route details | Long-term analytics and raw core logs |
-| Events | Follow app/core/platform events and run guided diagnostics | General settings and rule editing |
+| Events | Follow app/core/platform evidence and prepare a redacted support bundle | General settings and rule editing |
 | Settings | Configure application, capture, network, platform, update, and privacy behavior | Repeating live dashboard state |
 
 Installed mobile applications use five stable bottom destinations: Home, Routes,
 Profiles, Activity, and Settings. Home retains Status ownership. Activity groups
-Traffic and Events with secondary Connections, Rules, Events, and Diagnostics
+Traffic and Events with secondary Connections, Rules, and Events
 navigation. The desktop URLs and domain ownership remain stable. This is a
 navigation adaptation, not a different product model; see
 [`../../design/mobile-navigation-and-layout.md`](../../design/mobile-navigation-and-layout.md).
@@ -100,7 +100,7 @@ navigation adaptation, not a different product model; see
 | Slice | Proof of value | Included | Exit criteria |
 | --- | --- | --- | --- |
 | P0 macOS alpha | A valid profile can produce an observable System Proxy session | Local/URL import, validation, activation, Routes, Rule/Global/Direct, System Proxy, Status, Traffic, Events, stop/recovery | End-to-end acceptance journey passes on a clean macOS account |
-| P1 macOS beta | Mish can replace an everyday desktop proxy client powered by the Mihomo core | TUN helper, status-bar commands, signed updates, guided diagnostics, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
+| P1 macOS beta | Mish can replace an everyday desktop proxy client powered by the Mihomo core | TUN helper, status-bar commands, signed updates, semantic recovery notifications, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
 | P2 desktop expansion | Shared product works on Windows and Linux | Platform adapters, packaging, service/privilege differences | Capability matrix and signed build gates pass per OS |
 | P2 mobile feasibility | Shared UI can coexist with native VPN lifetime and platform-familiar navigation | Android `VpnService` device slice first; iOS shell, extension, and XCFramework in parallel; signed iOS device/TestFlight later | Android device VPN gates pass; iOS compile and native-fixture evidence is explicit; signed iOS device gates remain tracked |
 

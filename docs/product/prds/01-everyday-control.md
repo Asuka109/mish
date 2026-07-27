@@ -84,7 +84,8 @@ flowchart LR
 - **Core starting:** preserve the last confirmed configuration as stale, show one
   progress state, and prevent commands that cannot be queued safely.
 - **Core crash:** show the affected capture state as unknown until platform state
-  is reconciled; offer Restart core and Open diagnostics.
+  is reconciled; retain one specific semantic notification with a valid retry
+  action when retry is safe.
 - **RPC reconnecting:** keep navigation usable, mark live values stale, and
   resume streams without resetting cumulative UI state unnecessarily.
 - **System Proxy drift:** distinguish “client requested off/on” from observed OS

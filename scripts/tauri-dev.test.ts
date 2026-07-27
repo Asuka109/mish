@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import test from "node:test";
 
 import {
+  createTauriDevelopmentEnvironment,
   createTauriDevelopmentConfig,
   findAvailablePort,
   isTauriDevelopmentStartupAbort,
@@ -101,6 +102,37 @@ test("consumes the explicit Tart TUN acceptance opt-in without forwarding it", (
     parseTauriDevelopmentArguments(["--demo", "--tart-tun-acceptance"]).tartTunAcceptance,
     true,
   );
+});
+
+test("replaces a stale inherited Core override with the repository-verified binary", () => {
+  const invocation = parseTauriDevelopmentArguments([]);
+  assert.deepEqual(
+    createTauriDevelopmentEnvironment(
+      {
+        MISH_MIHOMO_BIN: "/synthetic/private/missing-mihomo",
+      },
+      "http://127.0.0.1:4174",
+      invocation,
+      "/synthetic/repository/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29",
+    ),
+    {
+      MISH_DEV_ORIGIN: "http://127.0.0.1:4174",
+      MISH_MIHOMO_BIN:
+        "/synthetic/repository/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29",
+      MISH_WEB_PORT: "4174",
+    },
+  );
+});
+
+test("keeps the backend-free demo independent from inherited Core state", () => {
+  const environment = createTauriDevelopmentEnvironment(
+    { MISH_MIHOMO_BIN: "/synthetic/private/missing-mihomo" },
+    "http://127.0.0.1:4174",
+    parseTauriDevelopmentArguments(["--demo"]),
+    null,
+  );
+  assert.equal(environment.MISH_DESKTOP_DEMO, "1");
+  assert.equal(environment.MISH_MIHOMO_BIN, undefined);
 });
 
 test("keeps the checked-in main WebView Inspector configuration default-off", () => {

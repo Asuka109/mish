@@ -85,8 +85,8 @@ const evidence: readonly Evidence[] = [
   },
   {
     file: "apps/web/src/data/events-provider.tsx",
-    includes: ["useCommandFeedback", "eventsCommandScope", "diagnosticPending"],
-    meaning: "Events diagnostics and support-bundle commands share exact operation feedback",
+    includes: ["useCommandFeedback", "eventsCommandScope", "supportBundlePending"],
+    meaning: "Events support-bundle commands use exact operation feedback",
   },
   {
     file: "crates/runtime/src/notifications.rs",

@@ -158,14 +158,14 @@ pub enum ApplicationActionId {
     FindPortsAndRetry,
     #[serde(rename = "leave-as-is")]
     LeaveAsIs,
-    #[serde(rename = "open-diagnostics")]
-    OpenDiagnostics,
     #[serde(rename = "open-system-proxy-settings")]
     OpenSystemProxySettings,
     #[serde(rename = "open-welcome")]
     OpenWelcome,
     #[serde(rename = "repair")]
     Repair,
+    #[serde(rename = "retry-profile-activation")]
+    RetryProfileActivation,
     #[serde(rename = "show-system-proxy-settings-steps")]
     ShowSystemProxySettingsSteps,
 }
@@ -174,10 +174,10 @@ impl ApplicationActionId {
         match self {
             Self::FindPortsAndRetry => "find-ports-and-retry",
             Self::LeaveAsIs => "leave-as-is",
-            Self::OpenDiagnostics => "open-diagnostics",
             Self::OpenSystemProxySettings => "open-system-proxy-settings",
             Self::OpenWelcome => "open-welcome",
             Self::Repair => "repair",
+            Self::RetryProfileActivation => "retry-profile-activation",
             Self::ShowSystemProxySettingsSteps => "show-system-proxy-settings-steps",
         }
     }
@@ -539,7 +539,6 @@ impl ApplicationNotificationContent {
         match self {
             Self::CaptureFailure(_) => &[
                 ApplicationActionId::LeaveAsIs,
-                ApplicationActionId::OpenDiagnostics,
                 ApplicationActionId::OpenSystemProxySettings,
                 ApplicationActionId::Repair,
                 ApplicationActionId::ShowSystemProxySettingsSteps,
@@ -548,7 +547,7 @@ impl ApplicationNotificationContent {
             Self::OnboardingWelcome(_) => &[ApplicationActionId::OpenWelcome],
             Self::ProfileActivationAsnFailed(_) => &[],
             Self::ProfileActivationAsnProgress(_) => &[],
-            Self::ProfileActivationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::ProfileActivationFailed(_) => &[ApplicationActionId::RetryProfileActivation],
             Self::ProfileActivationGeoipFailed(_) => &[],
             Self::ProfileActivationGeoipProgress(_) => &[],
             Self::ProfileActivationGeositeFailed(_) => &[],
@@ -576,16 +575,16 @@ impl ApplicationNotificationContent {
             Self::ServiceRemoved(_) => &[],
             Self::ServiceSaved(_) => &[],
             Self::SettingsOperationFailed(_) => &[],
-            Self::StatusOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::StatusOperationFailed(_) => &[],
             Self::SystemProxyDrift(_) => {
                 &[ApplicationActionId::LeaveAsIs, ApplicationActionId::Repair]
             }
-            Self::SystemProxyFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::SystemProxyFailed(_) => &[],
             Self::TrafficConnectionClosed(_) => &[],
             Self::TrafficConnectionsClosed(_) => &[],
-            Self::TrafficOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::TrafficOperationFailed(_) => &[],
             Self::TunDrift(_) => &[],
-            Self::TunFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::TunFailed(_) => &[],
         }
     }
 }
@@ -710,14 +709,14 @@ impl ApplicationEventContent {
     }
     pub const fn allowed_actions(&self) -> &'static [ApplicationActionId] {
         match self {
-            Self::CaptureFailure(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::CaptureFailure(_) => &[],
             Self::ControllerSessionStarted(_) => &[],
             Self::ControllerSessionStale(_) => &[],
             Self::ControllerStreamUnavailable(_) => &[],
-            Self::ProfileActivationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::ProfileActivationFailed(_) => &[],
             Self::ProxyLaunchTiming(_) => &[],
             Self::SettingsOperationFailed(_) => &[],
-            Self::TrafficOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::TrafficOperationFailed(_) => &[],
         }
     }
 }

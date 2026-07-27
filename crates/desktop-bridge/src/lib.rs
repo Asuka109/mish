@@ -2,7 +2,6 @@ mod activation;
 mod controller_source;
 mod controller_status;
 mod core_ownership;
-mod diagnostics;
 mod event_redaction;
 mod lifecycle;
 mod local_backup;
@@ -37,7 +36,6 @@ pub use core_ownership::{
     ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
     ManagedRuntimeLease, RealManagedProcessPlatform,
 };
-pub use diagnostics::{DiagnosticCoordinator, DiagnosticNetworkProbe};
 pub use lifecycle::{
     DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
 };

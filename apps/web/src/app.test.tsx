@@ -2582,7 +2582,7 @@ describe("Status fixture experience", () => {
     const center = new FixtureNotificationCenter();
     center.publish(
       notificationPublication("system-proxy.failed", {
-        actionIds: ["open-diagnostics"],
+        actionIds: [],
         dedupeKey: "system-proxy.failed",
         data: { failure: "core-unhealthy" },
         severity: "error",
@@ -2618,9 +2618,8 @@ describe("Status fixture experience", () => {
       "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
     );
     expect(notificationCenter).not.toHaveTextContent("操作失败。");
-    await user.click(within(notificationCenter).getByRole("button", { name: "打开诊断" }));
-    expect(await screen.findByRole("heading", { name: "网络诊断" })).toBeVisible();
-    expect(screen.queryByRole("dialog", { name: /通知/ })).not.toBeInTheDocument();
+    expect(within(notificationCenter).queryByRole("button", { name: "打开诊断" })).toBeNull();
+    expect(notificationCenter).toBeVisible();
   });
 
   it("remembers selected capture modes when the master control stops and resumes capture", async () => {

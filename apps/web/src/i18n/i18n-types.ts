@@ -858,10 +858,6 @@ type RootTranslation = {
 		 */
 		connections: string
 		/**
-		 * D​i​a​g​n​o​s​t​i​c​s
-		 */
-		diagnostics: string
-		/**
 		 * E​v​e​n​t​s
 		 */
 		events: string
@@ -2441,6 +2437,76 @@ type RootTranslation = {
 		 * A​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​o​r​ ​s​a​f​e​ ​s​t​o​p​p​e​d​ ​s​t​a​t​e​ ​r​e​m​a​i​n​s​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​.
 		 */
 		activationFailed: string
+		activationFailureNotification: {
+			/**
+			 * P​r​o​f​i​l​e​ ​a​c​t​i​v​a​t​i​o​n​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​m​a​n​a​g​e​d​ ​C​o​r​e​ ​b​e​c​a​m​e​ ​r​e​a​d​y​.
+			 */
+			cancelled: string
+			/**
+			 * T​h​e​ ​C​o​r​e​ ​s​t​a​r​t​e​d​,​ ​b​u​t​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​t​r​a​f​f​i​c​-​c​a​p​t​u​r​e​ ​s​t​a​t​e​.
+			 */
+			capture: string
+			/**
+			 * M​i​h​o​m​o​ ​s​t​a​r​t​e​d​,​ ​b​u​t​ ​i​t​s​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​C​o​n​t​r​o​l​l​e​r​ ​h​a​n​d​s​h​a​k​e​ ​d​i​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​.
+			 */
+			controller: string
+			/**
+			 * M​i​h​o​m​o​ ​e​x​i​t​e​d​ ​b​e​f​o​r​e​ ​i​t​s​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​C​o​n​t​r​o​l​l​e​r​ ​b​e​c​a​m​e​ ​r​e​a​d​y​.
+			 */
+			earlyExit: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​t​h​e​ ​p​i​n​n​e​d​ ​G​e​o​D​a​t​a​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+			 */
+			geodataFailed: string
+			/**
+			 * P​i​n​n​e​d​ ​G​e​o​D​a​t​a​ ​p​r​e​p​a​r​a​t​i​o​n​ ​e​x​c​e​e​d​e​d​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​a​c​t​i​v​a​t​i​o​n​ ​d​e​a​d​l​i​n​e​.
+			 */
+			geodataTimeout: string
+			/**
+			 * T​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​r​ ​n​o​ ​l​o​n​g​e​r​ ​v​a​l​i​d​ ​f​o​r​ ​a​c​t​i​v​a​t​i​o​n​.
+			 */
+			invalidProfile: string
+			/**
+			 * A​n​o​t​h​e​r​ ​p​r​o​c​e​s​s​ ​o​w​n​s​ ​a​ ​l​o​o​p​b​a​c​k​ ​l​i​s​t​e​n​e​r​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​e​ ​m​a​n​a​g​e​d​ ​C​o​r​e​.
+			 */
+			managedListenerConflict: string
+			/**
+			 * T​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​i​s​ ​m​i​s​s​i​n​g​ ​f​r​o​m​ ​t​h​e​ ​v​e​r​i​f​i​e​d​ ​d​e​v​e​l​o​p​m​e​n​t​ ​o​r​ ​p​a​c​k​a​g​e​ ​i​n​p​u​t​.
+			 */
+			missingBinary: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​a​t​ ​t​h​e​ ​p​r​e​v​i​o​u​s​ ​m​a​n​a​g​e​d​ ​C​o​r​e​ ​s​t​o​p​p​e​d​ ​s​a​f​e​l​y​.
+			 */
+			priorStop: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​g​e​ ​t​h​e​ ​v​e​r​i​f​i​e​d​ ​C​o​r​e​ ​a​n​d​ ​p​r​o​f​i​l​e​ ​i​n​ ​i​t​s​ ​p​r​i​v​a​t​e​ ​r​u​n​t​i​m​e​.
+			 */
+			staging: string
+			/**
+			 * m​a​c​O​S​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​t​h​e​ ​v​e​r​i​f​i​e​d​ ​M​i​h​o​m​o​ ​C​o​r​e​.
+			 */
+			start: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​m​i​t​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​a​t​e​ ​s​a​f​e​l​y​.
+			 */
+			stateCommit: string
+			/**
+			 * M​i​h​o​m​o​ ​d​i​d​ ​n​o​t​ ​b​e​c​o​m​e​ ​r​e​a​d​y​ ​b​e​f​o​r​e​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​l​a​u​n​c​h​ ​d​e​a​d​l​i​n​e​.
+			 */
+			timeout: string
+			/**
+			 * M​i​s​h​ ​r​e​j​e​c​t​e​d​ ​t​h​e​ ​m​a​n​a​g​e​d​ ​C​o​r​e​ ​p​a​t​h​ ​o​r​ ​p​r​i​v​a​t​e​ ​r​u​n​t​i​m​e​ ​b​o​u​n​d​a​r​y​.
+			 */
+			unsafeRuntime: string
+			/**
+			 * M​i​h​o​m​o​ ​r​e​j​e​c​t​e​d​ ​t​h​e​ ​s​t​a​g​e​d​ ​p​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​l​a​u​n​c​h​.
+			 */
+			validation: string
+			/**
+			 * T​h​e​ ​l​a​u​n​c​h​e​d​ ​C​o​r​e​ ​d​i​d​ ​n​o​t​ ​r​e​p​o​r​t​ ​t​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​v​e​r​s​i​o​n​.
+			 */
+			versionMismatch: string
+		}
 		/**
 		 * P​r​e​p​a​r​i​n​g​ ​{​a​s​s​e​t​}​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​…
 		 * @param {string} asset
@@ -2506,6 +2572,10 @@ type RootTranslation = {
 		 * C​a​n​c​e​l​ ​A​c​t​i​v​a​t​i​o​n
 		 */
 		cancelActivation: string
+		/**
+		 * R​e​t​r​y​ ​A​c​t​i​v​a​t​i​o​n
+		 */
+		retryActivation: string
 		/**
 		 * C​h​o​o​s​e​ ​a​ ​v​a​l​i​d​a​t​e​d​ ​r​e​p​l​a​c​e​m​e​n​t​ ​b​e​f​o​r​e​ ​d​e​l​e​t​i​n​g​ ​t​h​e​ ​p​r​o​f​i​l​e​ ​r​u​n​n​i​n​g​ ​i​n​ ​C​o​r​e​.
 		 */
@@ -3844,7 +3914,7 @@ type RootTranslation = {
 	events: {
 		application: {
 			/**
-			 * O​p​e​n​ ​G​u​i​d​e​d​ ​D​i​a​g​n​o​s​t​i​c​s​ ​f​o​r​ ​s​t​r​u​c​t​u​r​e​d​ ​e​v​i​d​e​n​c​e​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​ ​t​h​e​ ​c​a​p​t​u​r​e​ ​a​c​t​i​o​n​.
+			 * R​e​v​i​e​w​ ​t​h​e​ ​r​e​t​a​i​n​e​d​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​a​n​d​ ​i​t​s​ ​t​y​p​e​d​ ​r​e​c​o​v​e​r​y​ ​a​c​t​i​o​n​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
 			 */
 			captureFailureDetail: string
 			/**
@@ -3873,7 +3943,7 @@ type RootTranslation = {
 			 */
 			controllerStreamUnavailableDetail: RequiredParams<'failure'>
 			/**
-			 * A​c​t​i​v​a​t​i​o​n​ ​s​t​o​p​p​e​d​ ​w​i​t​h​ ​s​a​f​e​ ​f​a​i​l​u​r​e​ ​c​a​t​e​g​o​r​y​ ​{​f​a​i​l​u​r​e​}​.​ ​O​p​e​n​ ​G​u​i​d​e​d​ ​D​i​a​g​n​o​s​t​i​c​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+			 * A​c​t​i​v​a​t​i​o​n​ ​s​t​o​p​p​e​d​ ​w​i​t​h​ ​s​a​f​e​ ​f​a​i​l​u​r​e​ ​c​a​t​e​g​o​r​y​ ​{​f​a​i​l​u​r​e​}​.​ ​T​h​e​ ​n​o​t​i​f​i​c​a​t​i​o​n​ ​c​e​n​t​e​r​ ​r​e​t​a​i​n​s​ ​t​h​e​ ​a​v​a​i​l​a​b​l​e​ ​r​e​c​o​v​e​r​y​ ​a​c​t​i​o​n​.
 			 * @param {string} failure
 			 */
 			profileActivationFailedDetail: RequiredParams<'failure'>
@@ -4091,103 +4161,6 @@ type RootTranslation = {
 		unavailableNotice: string
 	}
 	diagnostics: {
-		/**
-		 * C​a​n​c​e​l​ ​R​u​n
-		 */
-		cancel: string
-		conclusion: {
-			/**
-			 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​s​t​a​t​e​ ​n​e​e​d​s​ ​a​t​t​e​n​t​i​o​n​.​ ​R​e​v​i​e​w​ ​i​t​s​ ​o​b​s​e​r​v​e​d​ ​s​t​a​t​e​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
-			 */
-			capture: string
-			/**
-			 * T​h​e​ ​m​a​n​a​g​e​d​ ​c​o​r​e​ ​i​s​ ​n​o​t​ ​r​e​a​d​y​ ​f​o​r​ ​r​o​u​t​e​ ​c​h​e​c​k​s​.​ ​S​t​a​r​t​ ​o​r​ ​r​e​p​a​i​r​ ​i​t​,​ ​t​h​e​n​ ​r​u​n​ ​d​i​a​g​n​o​s​t​i​c​s​ ​a​g​a​i​n​.
-			 */
-			core: string
-			/**
-			 * T​h​e​ ​f​i​x​e​d​ ​e​n​d​p​o​i​n​t​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​s​o​l​v​e​d​.​ ​C​h​e​c​k​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​D​N​S​ ​c​o​n​n​e​c​t​i​o​n​,​ ​t​h​e​n​ ​r​u​n​ ​a​g​a​i​n​.
-			 */
-			dns: string
-			/**
-			 * B​a​s​e​d​ ​o​n​ ​{​c​o​u​n​t​}​ ​s​u​p​p​o​r​t​i​n​g​ ​c​h​e​c​k​(​s​)​.
-			 * @param {number} count
-			 */
-			evidence: RequiredParams<'count'>
-			/**
-			 * N​o​ ​p​r​i​o​r​i​t​i​z​e​d​ ​f​a​i​l​u​r​e​ ​w​a​s​ ​f​o​u​n​d​ ​i​n​ ​t​h​i​s​ ​b​o​u​n​d​e​d​ ​r​u​n​.
-			 */
-			healthy: string
-			/**
-			 * T​h​e​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​c​o​n​t​e​x​t​ ​i​s​ ​n​o​t​ ​r​e​a​d​y​.​ ​S​e​l​e​c​t​ ​o​r​ ​r​e​p​a​i​r​ ​a​ ​v​a​l​i​d​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​r​e​t​r​y​.
-			 */
-			profile: string
-			/**
-			 * A​ ​s​a​f​e​ ​s​c​o​p​e​d​ ​p​r​o​x​y​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​t​h​e​ ​c​o​r​e​ ​r​e​c​o​n​n​e​c​t​s​.
-			 */
-			proxy: string
-			/**
-			 * T​h​e​ ​f​i​x​e​d​ ​e​n​d​p​o​i​n​t​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​a​c​h​e​d​ ​o​n​ ​t​h​i​s​ ​r​o​u​t​e​.​ ​C​h​e​c​k​ ​c​o​n​n​e​c​t​i​v​i​t​y​,​ ​t​h​e​n​ ​r​e​t​r​y​.
-			 */
-			reachability: string
-			/**
-			 * T​h​i​s​ ​r​u​n​ ​e​n​d​e​d​ ​b​e​f​o​r​e​ ​a​ ​s​t​a​b​l​e​ ​r​e​s​u​l​t​.​ ​R​u​n​ ​d​i​a​g​n​o​s​t​i​c​s​ ​a​g​a​i​n​ ​f​o​r​ ​a​ ​n​e​w​ ​r​u​n​t​i​m​e​ ​c​o​n​t​e​x​t​.
-			 */
-			retry: string
-			/**
-			 * C​h​e​c​k​i​n​g​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​.​ ​A​ ​c​o​n​c​l​u​s​i​o​n​ ​w​i​l​l​ ​a​p​p​e​a​r​ ​w​h​e​n​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​r​u​n​ ​f​i​n​i​s​h​e​s​.
-			 */
-			running: string
-			/**
-			 * W​h​a​t​ ​t​o​ ​d​o​ ​n​e​x​t
-			 */
-			title: string
-			/**
-			 * S​o​m​e​ ​e​v​i​d​e​n​c​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​N​o​ ​b​r​o​a​d​e​r​ ​n​e​t​w​o​r​k​ ​c​l​a​i​m​ ​i​s​ ​m​a​d​e​;​ ​r​e​t​r​y​ ​w​h​e​n​ ​t​h​e​ ​r​u​n​t​i​m​e​ ​i​s​ ​r​e​a​d​y​.
-			 */
-			unavailable: string
-		}
-		check: {
-			/**
-			 * C​a​p​t​u​r​e​ ​d​e​s​i​r​e​d​ ​/​ ​o​b​s​e​r​v​e​d
-			 */
-			capture: string
-			/**
-			 * P​i​n​n​e​d​ ​c​o​r​e​ ​h​e​a​l​t​h​ ​a​n​d​ ​v​e​r​s​i​o​n
-			 */
-			core: string
-			/**
-			 * D​e​s​k​t​o​p​ ​b​r​i​d​g​e
-			 */
-			desktopBridge: string
-			/**
-			 * D​i​r​e​c​t​ ​r​e​a​c​h​a​b​i​l​i​t​y
-			 */
-			directReachability: string
-			/**
-			 * D​N​S​ ​r​e​s​o​l​u​t​i​o​n
-			 */
-			dns: string
-			/**
-			 * A​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​c​o​n​t​e​x​t
-			 */
-			profile: string
-			/**
-			 * S​c​o​p​e​d​ ​p​r​o​x​y​ ​r​e​a​c​h​a​b​i​l​i​t​y
-			 */
-			proxyReachability: string
-		}
-		/**
-		 * R​u​n​s​ ​o​n​l​y​ ​w​h​e​n​ ​r​e​q​u​e​s​t​e​d​.​ ​R​e​s​u​l​t​s​ ​s​t​a​y​ ​i​n​ ​b​o​u​n​d​e​d​ ​l​o​c​a​l​ ​m​e​m​o​r​y​ ​a​n​d​ ​n​e​v​e​r​ ​u​p​l​o​a​d​ ​o​r​ ​c​h​a​n​g​e​ ​r​o​u​t​i​n​g​,​ ​c​a​p​t​u​r​e​,​ ​g​r​o​u​p​s​,​ ​o​r​ ​c​o​n​n​e​c​t​i​o​n​s​.
-		 */
-		description: string
-		/**
-		 * N​o​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​s​ ​i​n​ ​l​o​c​a​l​ ​h​i​s​t​o​r​y​.
-		 */
-		empty: string
-		/**
-		 * D​i​a​g​n​o​s​t​i​c​s​ ​a​r​e​ ​c​u​r​r​e​n​t​l​y​ ​u​n​a​v​a​i​l​a​b​l​e​.
-		 */
-		error: string
 		'export': {
 			/**
 			 * I​n​c​l​u​d​e​d​ ​c​a​t​e​g​o​r​i​e​s
@@ -4227,10 +4200,6 @@ type RootTranslation = {
 				 */
 				'events-summary': string
 				/**
-				 * G​u​i​d​e​d​ ​d​i​a​g​n​o​s​t​i​c​ ​c​h​e​c​k​s
-				 */
-				'diagnostic-runs': string
-				/**
 				 * R​e​d​a​c​t​i​o​n​ ​r​e​p​o​r​t​ ​e​n​t​r​i​e​s
 				 */
 				'redaction-report': string
@@ -4252,7 +4221,7 @@ type RootTranslation = {
 			 */
 			format: string
 			/**
-			 * N​o​ ​r​e​t​a​i​n​e​d​ ​e​v​e​n​t​ ​o​r​ ​d​i​a​g​n​o​s​t​i​c​ ​t​i​m​e​ ​r​a​n​g​e
+			 * N​o​ ​r​e​t​a​i​n​e​d​ ​e​v​e​n​t​ ​t​i​m​e​ ​r​a​n​g​e
 			 */
 			noHistory: string
 			/**
@@ -4324,10 +4293,6 @@ type RootTranslation = {
 				 * E​v​e​n​t​ ​m​e​s​s​a​g​e​ ​a​n​d​ ​d​e​t​a​i​l​ ​t​e​x​t​ ​(​a​g​g​r​e​g​a​t​e​s​ ​o​n​l​y​)
 				 */
 				'event-text': string
-				/**
-				 * D​i​a​g​n​o​s​t​i​c​ ​s​c​o​p​e​ ​a​n​d​ ​i​n​t​e​r​p​r​e​t​a​t​i​o​n​ ​p​r​o​s​e​ ​(​s​t​r​u​c​t​u​r​e​d​ ​f​i​e​l​d​s​ ​o​n​l​y​)
-				 */
-				'diagnostic-prose': string
 			}
 			result: {
 				/**
@@ -4364,76 +4329,6 @@ type RootTranslation = {
 			 */
 			unavailable: string
 		}
-		/**
-		 * F​i​c​t​i​o​n​a​l​ ​d​e​m​o​ ​r​e​s​u​l​t​s​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​t​ ​a​n​ ​o​p​e​r​a​t​i​o​n​a​l​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​ ​o​r​ ​a​ ​d​e​v​i​c​e​ ​o​b​s​e​r​v​a​t​i​o​n​.
-		 */
-		fixtureNotice: string
-		/**
-		 * I​n​t​e​r​p​r​e​t​a​t​i​o​n
-		 */
-		inference: string
-		/**
-		 * O​b​s​e​r​v​e​d​ ​f​a​c​t
-		 */
-		observation: string
-		/**
-		 * O​p​e​n​ ​D​i​a​g​n​o​s​t​i​c​s
-		 */
-		open: string
-		/**
-		 * P​o​l​i​c​y​ ​{​i​d​}​ ​·​ ​{​e​n​d​p​o​i​n​t​}​ ​·​ ​e​x​p​e​c​t​ ​H​T​T​P​ ​{​s​t​a​t​u​s​}​ ​·​ ​{​t​i​m​e​o​u​t​}​ ​m​s
-		 * @param {string} endpoint
-		 * @param {string} id
-		 * @param {number} status
-		 * @param {number} timeout
-		 */
-		policy: RequiredParams<'endpoint' | 'id' | 'status' | 'timeout'>
-		/**
-		 * R​o​u​t​e​ ​t​a​r​g​e​t
-		 */
-		route: string
-		/**
-		 * R​u​n​ ​D​i​a​g​n​o​s​t​i​c​s
-		 */
-		run: string
-		/**
-		 * S​c​o​p​e
-		 */
-		scope: string
-		status: {
-			/**
-			 * C​a​n​c​e​l​l​e​d
-			 */
-			cancelled: string
-			/**
-			 * C​o​m​p​l​e​t​e​d
-			 */
-			completed: string
-			/**
-			 * F​a​i​l​e​d
-			 */
-			failed: string
-			/**
-			 * I​n​v​a​l​i​d​a​t​e​d​ ​b​y​ ​r​u​n​t​i​m​e​ ​r​e​p​l​a​c​e​m​e​n​t
-			 */
-			invalidated: string
-			/**
-			 * P​a​s​s​e​d
-			 */
-			passed: string
-			/**
-			 * R​u​n​n​i​n​g
-			 */
-			running: string
-			/**
-			 * U​n​a​v​a​i​l​a​b​l​e
-			 */
-			unavailable: string
-		}
-		/**
-		 * G​u​i​d​e​d​ ​d​i​a​g​n​o​s​t​i​c​s
-		 */
-		title: string
 	}
 	destination: {
 		/**
@@ -4572,7 +4467,7 @@ type RootTranslation = {
 		}
 		events: {
 			/**
-			 * A​p​p​l​i​c​a​t​i​o​n​,​ ​c​o​r​e​,​ ​R​P​C​,​ ​a​n​d​ ​p​l​a​t​f​o​r​m​ ​e​v​e​n​t​s​ ​w​i​l​l​ ​s​u​p​p​o​r​t​ ​c​o​n​t​e​x​t​u​a​l​ ​r​e​c​o​v​e​r​y​ ​a​n​d​ ​g​u​i​d​e​d​ ​d​i​a​g​n​o​s​t​i​c​s​.
+			 * A​p​p​l​i​c​a​t​i​o​n​,​ ​c​o​r​e​,​ ​R​P​C​,​ ​a​n​d​ ​p​l​a​t​f​o​r​m​ ​e​v​e​n​t​s​ ​p​r​o​v​i​d​e​ ​r​e​t​a​i​n​e​d​ ​e​v​i​d​e​n​c​e​ ​f​o​r​ ​c​o​n​t​e​x​t​u​a​l​ ​r​e​c​o​v​e​r​y​.
 			 */
 			description: string
 			/**
@@ -4592,15 +4487,15 @@ type RootTranslation = {
 			 */
 			itemThreeLabel: string
 			/**
-			 * L​a​y​e​r​e​d​ ​c​h​e​c​k​s​ ​w​i​t​h​ ​o​b​s​e​r​v​e​d​ ​s​c​o​p​e​.
+			 * A​u​t​o​m​a​t​i​c​ ​p​r​e​f​l​i​g​h​t​ ​a​n​d​ ​s​e​m​a​n​t​i​c​ ​n​o​t​i​f​i​c​a​t​i​o​n​s​ ​r​e​t​a​i​n​ ​s​p​e​c​i​f​i​c​ ​f​a​i​l​u​r​e​s​.
 			 */
 			itemTwoDetail: string
 			/**
-			 * D​i​a​g​n​o​s​t​i​c​s
+			 * R​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e
 			 */
 			itemTwoLabel: string
 			/**
-			 * N​o​ ​d​e​s​k​t​o​p​-​b​r​i​d​g​e​ ​e​v​e​n​t​ ​b​u​f​f​e​r​ ​o​r​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​n​e​r​ ​e​x​i​s​t​s​ ​y​e​t​.
+			 * N​o​ ​d​e​s​k​t​o​p​-​b​r​i​d​g​e​ ​e​v​e​n​t​ ​b​u​f​f​e​r​ ​e​x​i​s​t​s​ ​y​e​t​.
 			 */
 			prerequisite: string
 			/**
@@ -5648,10 +5543,6 @@ export type TranslationFunctions = {
 		 * Connections
 		 */
 		connections: () => LocalizedString
-		/**
-		 * Diagnostics
-		 */
-		diagnostics: () => LocalizedString
 		/**
 		 * Events
 		 */
@@ -7176,6 +7067,76 @@ export type TranslationFunctions = {
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		activationFailureNotification: {
+			/**
+			 * Profile activation was cancelled before the managed Core became ready.
+			 */
+			cancelled: () => LocalizedString
+			/**
+			 * The Core started, but Mish could not confirm the selected traffic-capture state.
+			 */
+			capture: () => LocalizedString
+			/**
+			 * Mihomo started, but its authenticated Controller handshake did not complete.
+			 */
+			controller: () => LocalizedString
+			/**
+			 * Mihomo exited before its authenticated Controller became ready.
+			 */
+			earlyExit: () => LocalizedString
+			/**
+			 * Mish could not prepare the pinned GeoData required by this profile.
+			 */
+			geodataFailed: () => LocalizedString
+			/**
+			 * Pinned GeoData preparation exceeded the bounded activation deadline.
+			 */
+			geodataTimeout: () => LocalizedString
+			/**
+			 * The selected profile is unavailable or no longer valid for activation.
+			 */
+			invalidProfile: () => LocalizedString
+			/**
+			 * Another process owns a loopback listener required by the managed Core.
+			 */
+			managedListenerConflict: () => LocalizedString
+			/**
+			 * The pinned Mihomo Core is missing from the verified development or package input.
+			 */
+			missingBinary: () => LocalizedString
+			/**
+			 * Mish could not confirm that the previous managed Core stopped safely.
+			 */
+			priorStop: () => LocalizedString
+			/**
+			 * Mish could not stage the verified Core and profile in its private runtime.
+			 */
+			staging: () => LocalizedString
+			/**
+			 * macOS could not start the verified Mihomo Core.
+			 */
+			start: () => LocalizedString
+			/**
+			 * Mish could not commit the authoritative activation state safely.
+			 */
+			stateCommit: () => LocalizedString
+			/**
+			 * Mihomo did not become ready before the bounded launch deadline.
+			 */
+			timeout: () => LocalizedString
+			/**
+			 * Mish rejected the managed Core path or private runtime boundary.
+			 */
+			unsafeRuntime: () => LocalizedString
+			/**
+			 * Mihomo rejected the staged profile before launch.
+			 */
+			validation: () => LocalizedString
+			/**
+			 * The launched Core did not report the pinned Mihomo version.
+			 */
+			versionMismatch: () => LocalizedString
+		}
 		/**
 		 * Preparing {asset} before activation…
 		 */
@@ -7236,6 +7197,10 @@ export type TranslationFunctions = {
 		 * Cancel Activation
 		 */
 		cancelActivation: () => LocalizedString
+		/**
+		 * Retry Activation
+		 */
+		retryActivation: () => LocalizedString
 		/**
 		 * Choose a validated replacement before deleting the profile running in Core.
 		 */
@@ -8546,7 +8511,7 @@ export type TranslationFunctions = {
 	events: {
 		application: {
 			/**
-			 * Open Guided Diagnostics for structured evidence before retrying the capture action.
+			 * Review the retained capture state and its typed recovery actions before retrying.
 			 */
 			captureFailureDetail: () => LocalizedString
 			/**
@@ -8574,7 +8539,7 @@ export type TranslationFunctions = {
 			 */
 			controllerStreamUnavailableDetail: (arg: { failure: string }) => LocalizedString
 			/**
-			 * Activation stopped with safe failure category {failure}. Open Guided Diagnostics before retrying.
+			 * Activation stopped with safe failure category {failure}. The notification center retains the available recovery action.
 			 */
 			profileActivationFailedDetail: (arg: { failure: string }) => LocalizedString
 			/**
@@ -8786,102 +8751,6 @@ export type TranslationFunctions = {
 		unavailableNotice: () => LocalizedString
 	}
 	diagnostics: {
-		/**
-		 * Cancel Run
-		 */
-		cancel: () => LocalizedString
-		conclusion: {
-			/**
-			 * System Proxy state needs attention. Review its observed state before retrying.
-			 */
-			capture: () => LocalizedString
-			/**
-			 * The managed core is not ready for route checks. Start or repair it, then run diagnostics again.
-			 */
-			core: () => LocalizedString
-			/**
-			 * The fixed endpoint could not be resolved. Check the current DNS connection, then run again.
-			 */
-			dns: () => LocalizedString
-			/**
-			 * Based on {count} supporting check(s).
-			 */
-			evidence: (arg: { count: number }) => LocalizedString
-			/**
-			 * No prioritized failure was found in this bounded run.
-			 */
-			healthy: () => LocalizedString
-			/**
-			 * The active Profile context is not ready. Select or repair a valid Profile, then retry.
-			 */
-			profile: () => LocalizedString
-			/**
-			 * A safe scoped proxy observation is unavailable. Retry after the core reconnects.
-			 */
-			proxy: () => LocalizedString
-			/**
-			 * The fixed endpoint could not be reached on this route. Check connectivity, then retry.
-			 */
-			reachability: () => LocalizedString
-			/**
-			 * This run ended before a stable result. Run diagnostics again for a new runtime context.
-			 */
-			retry: () => LocalizedString
-			/**
-			 * Checking the current runtime. A conclusion will appear when the bounded run finishes.
-			 */
-			running: () => LocalizedString
-			/**
-			 * What to do next
-			 */
-			title: () => LocalizedString
-			/**
-			 * Some evidence is unavailable. No broader network claim is made; retry when the runtime is ready.
-			 */
-			unavailable: () => LocalizedString
-		}
-		check: {
-			/**
-			 * Capture desired / observed
-			 */
-			capture: () => LocalizedString
-			/**
-			 * Pinned core health and version
-			 */
-			core: () => LocalizedString
-			/**
-			 * Desktop bridge
-			 */
-			desktopBridge: () => LocalizedString
-			/**
-			 * Direct reachability
-			 */
-			directReachability: () => LocalizedString
-			/**
-			 * DNS resolution
-			 */
-			dns: () => LocalizedString
-			/**
-			 * Active Profile context
-			 */
-			profile: () => LocalizedString
-			/**
-			 * Scoped proxy reachability
-			 */
-			proxyReachability: () => LocalizedString
-		}
-		/**
-		 * Runs only when requested. Results stay in bounded local memory and never upload or change routing, capture, groups, or connections.
-		 */
-		description: () => LocalizedString
-		/**
-		 * No diagnostic runs in local history.
-		 */
-		empty: () => LocalizedString
-		/**
-		 * Diagnostics are currently unavailable.
-		 */
-		error: () => LocalizedString
 		'export': {
 			/**
 			 * Included categories
@@ -8921,10 +8790,6 @@ export type TranslationFunctions = {
 				 */
 				'events-summary': () => LocalizedString
 				/**
-				 * Guided diagnostic checks
-				 */
-				'diagnostic-runs': () => LocalizedString
-				/**
 				 * Redaction report entries
 				 */
 				'redaction-report': () => LocalizedString
@@ -8946,7 +8811,7 @@ export type TranslationFunctions = {
 			 */
 			format: () => LocalizedString
 			/**
-			 * No retained event or diagnostic time range
+			 * No retained event time range
 			 */
 			noHistory: () => LocalizedString
 			/**
@@ -9018,10 +8883,6 @@ export type TranslationFunctions = {
 				 * Event message and detail text (aggregates only)
 				 */
 				'event-text': () => LocalizedString
-				/**
-				 * Diagnostic scope and interpretation prose (structured fields only)
-				 */
-				'diagnostic-prose': () => LocalizedString
 			}
 			result: {
 				/**
@@ -9058,72 +8919,6 @@ export type TranslationFunctions = {
 			 */
 			unavailable: () => LocalizedString
 		}
-		/**
-		 * Fictional demo results. They are not an operational diagnostic run or a device observation.
-		 */
-		fixtureNotice: () => LocalizedString
-		/**
-		 * Interpretation
-		 */
-		inference: () => LocalizedString
-		/**
-		 * Observed fact
-		 */
-		observation: () => LocalizedString
-		/**
-		 * Open Diagnostics
-		 */
-		open: () => LocalizedString
-		/**
-		 * Policy {id} · {endpoint} · expect HTTP {status} · {timeout} ms
-		 */
-		policy: (arg: { endpoint: string, id: string, status: number, timeout: number }) => LocalizedString
-		/**
-		 * Route target
-		 */
-		route: () => LocalizedString
-		/**
-		 * Run Diagnostics
-		 */
-		run: () => LocalizedString
-		/**
-		 * Scope
-		 */
-		scope: () => LocalizedString
-		status: {
-			/**
-			 * Cancelled
-			 */
-			cancelled: () => LocalizedString
-			/**
-			 * Completed
-			 */
-			completed: () => LocalizedString
-			/**
-			 * Failed
-			 */
-			failed: () => LocalizedString
-			/**
-			 * Invalidated by runtime replacement
-			 */
-			invalidated: () => LocalizedString
-			/**
-			 * Passed
-			 */
-			passed: () => LocalizedString
-			/**
-			 * Running
-			 */
-			running: () => LocalizedString
-			/**
-			 * Unavailable
-			 */
-			unavailable: () => LocalizedString
-		}
-		/**
-		 * Guided diagnostics
-		 */
-		title: () => LocalizedString
 	}
 	destination: {
 		/**
@@ -9262,7 +9057,7 @@ export type TranslationFunctions = {
 		}
 		events: {
 			/**
-			 * Application, core, RPC, and platform events will support contextual recovery and guided diagnostics.
+			 * Application, core, RPC, and platform events provide retained evidence for contextual recovery.
 			 */
 			description: () => LocalizedString
 			/**
@@ -9282,15 +9077,15 @@ export type TranslationFunctions = {
 			 */
 			itemThreeLabel: () => LocalizedString
 			/**
-			 * Layered checks with observed scope.
+			 * Automatic preflight and semantic notifications retain specific failures.
 			 */
 			itemTwoDetail: () => LocalizedString
 			/**
-			 * Diagnostics
+			 * Recovery evidence
 			 */
 			itemTwoLabel: () => LocalizedString
 			/**
-			 * No desktop-bridge event buffer or diagnostic runner exists yet.
+			 * No desktop-bridge event buffer exists yet.
 			 */
 			prerequisite: () => LocalizedString
 			/**

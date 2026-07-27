@@ -1,26 +1,25 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdtempDisposableSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { copyFileSync, mkdtempDisposableSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  preparedDevelopmentMihomoPath,
+  readMacOsMihomoRelease,
+  verifyDevelopmentMihomo,
+} from "./development-mihomo.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const snapshot = path.join(repositoryRoot, "resources/geodata/snapshot");
-const binary = path.resolve(
-  process.env.MISH_MIHOMO_BIN ??
-    path.join(repositoryRoot, ".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29"),
-);
+const release = await readMacOsMihomoRelease(repositoryRoot);
+const binary = preparedDevelopmentMihomoPath(repositoryRoot, release);
 const expectedRuntimeNames = ["GeoSite.dat", "GeoIP.dat", "geoip.metadb", "ASN.mmdb"];
 
-if (!existsSync(binary)) {
-  throw new Error("The pinned Mihomo binary is missing; run `pnpm prepare:mihomo` first");
-}
+await verifyDevelopmentMihomo({
+  binary,
+  expectedSha256: release.binarySha256,
+  expectedVersion: release.version,
+});
 
 const manifest = JSON.parse(readFileSync(path.join(snapshot, "manifest.json"), "utf8")) as {
   assets: Array<{

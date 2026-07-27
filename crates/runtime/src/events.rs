@@ -99,7 +99,7 @@ impl ApplicationDiagnosticEvent {
                     .map(observation_stage_id)
                     .map(str::to_owned),
             }),
-            vec![ApplicationActionId::OpenDiagnostics],
+            Vec::new(),
         )
     }
 
@@ -155,7 +155,7 @@ impl ApplicationDiagnosticEvent {
                     failure: failure.into(),
                 },
             ),
-            vec![ApplicationActionId::OpenDiagnostics],
+            Vec::new(),
         )
     }
 
@@ -175,7 +175,7 @@ impl ApplicationDiagnosticEvent {
                     failure: failure.into(),
                 },
             ),
-            vec![ApplicationActionId::OpenDiagnostics],
+            Vec::new(),
         )
     }
 

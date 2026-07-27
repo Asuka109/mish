@@ -23,13 +23,14 @@ import {
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
 import {
   dismissNotificationToast,
   presentNotificationToast,
 } from "../data/sonner-notification-adapter";
+import { useOptionalProfiles } from "../data/profile-provider";
 import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -97,8 +98,8 @@ export function NotificationBubble({
   systemProxySettingsOpener?: SystemProxySettingsOpener;
 }) {
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
-  const navigate = useNavigate();
   const settings = useOptionalSettings();
+  const profiles = useOptionalProfiles();
   const { recoverSystemProxy, snapshot } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
   const { entries, markRead, remove, toastEntries } = useNotificationDelivery();
@@ -141,12 +142,12 @@ export function NotificationBubble({
           if (!(await settings.setOnboardingWelcomeState("open"))) return;
           dismissNotificationToast(notificationId);
           setWelcomeOpen(true);
-        } else if (actionId === "open-diagnostics") {
+        } else if (actionId === "retry-profile-activation" && profiles) {
+          const activation = profiles.snapshot?.activation;
+          if (activation?.phase !== "failure" || !activation.targetProfileId) return;
+          const result = await profiles.activateProfile(activation.targetProfileId);
+          if (!result.ok) return;
           dismissNotificationToast(notificationId);
-          setOpen(false);
-          const query = new URLSearchParams({ diagnostics: "1" });
-          if (action.diagnosticFailure) query.set("failure", action.diagnosticFailure);
-          navigate(`/events?${query}`);
         } else if (actionId === "show-system-proxy-settings-steps") {
           setOpen(false);
           setSystemProxySettingsGuidance("manual");
@@ -175,7 +176,7 @@ export function NotificationBubble({
     },
     [
       entryById,
-      navigate,
+      profiles,
       recoverSystemProxy,
       setCapture,
       settings,

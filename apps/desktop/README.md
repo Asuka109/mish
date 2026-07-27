@@ -29,17 +29,14 @@ The tracked `.env.development` deliberately sets `MISH_DEVTOOLS=1` for
 opens WebKit Inspector as a separate window:
 
 ```sh
-pnpm prepare:mihomo
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  pnpm desktop:dev
+pnpm desktop:dev
 ```
 
 An existing process environment takes precedence over the tracked development
 file. Disable the Inspector for one development process with:
 
 ```sh
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  MISH_DEVTOOLS=0 pnpm desktop:dev
+MISH_DEVTOOLS=0 pnpm desktop:dev
 ```
 
 The application still accepts explicit `--devtools` and `MISH_DEVTOOLS=1`
@@ -74,10 +71,13 @@ Outside the explicit demo commands, browser startup requires either PIN pairing
 or a valid process-local browser session; it never falls through to demo state.
 The operational desktop process generates its own 256-bit token, keeps it out
 of URLs and storage, and gives it only to authorized clients. Mihomo never
-starts merely because the Web UI opens. Operational development requires
-explicit `MISH_MIHOMO_BIN`; production accepts only the packaged pinned
-resource. When `MISH_MIHOMO_BIN` is missing, desktop setup fails immediately
-with the preparation and restart commands instead of opening an unusable window.
+starts merely because the Web UI opens. Operational development uses the
+repository-pinned manifest. The tracked launcher prepares the Core when needed,
+verifies archive and binary digests, version, regular-file type, and mode
+`0755`, then overwrites any ambient `MISH_MIHOMO_BIN` with that
+repository-managed path. Tauri revalidates the pinned digest before setup.
+Production accepts only the packaged pinned resource, and neither mode
+downloads an executable at runtime.
 
 System Proxy defaults off and is journaled, confirmed, and restored by the
 shared runtime. Source development may install the bounded root LaunchDaemon

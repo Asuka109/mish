@@ -271,7 +271,6 @@ const en = {
   mobileNavigation: {
     activity: "Activity",
     connections: "Connections",
-    diagnostics: "Diagnostics",
     events: "Events",
     home: "Home",
     primary: "Mobile navigation",
@@ -734,6 +733,27 @@ const en = {
       "Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.",
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
+    activationFailureNotification: {
+      cancelled: "Profile activation was cancelled before the managed Core became ready.",
+      capture: "The Core started, but Mish could not confirm the selected traffic-capture state.",
+      controller: "Mihomo started, but its authenticated Controller handshake did not complete.",
+      earlyExit: "Mihomo exited before its authenticated Controller became ready.",
+      geodataFailed: "Mish could not prepare the pinned GeoData required by this profile.",
+      geodataTimeout: "Pinned GeoData preparation exceeded the bounded activation deadline.",
+      invalidProfile: "The selected profile is unavailable or no longer valid for activation.",
+      managedListenerConflict:
+        "Another process owns a loopback listener required by the managed Core.",
+      missingBinary:
+        "The pinned Mihomo Core is missing from the verified development or package input.",
+      priorStop: "Mish could not confirm that the previous managed Core stopped safely.",
+      staging: "Mish could not stage the verified Core and profile in its private runtime.",
+      start: "macOS could not start the verified Mihomo Core.",
+      stateCommit: "Mish could not commit the authoritative activation state safely.",
+      timeout: "Mihomo did not become ready before the bounded launch deadline.",
+      unsafeRuntime: "Mish rejected the managed Core path or private runtime boundary.",
+      validation: "Mihomo rejected the staged profile before launch.",
+      versionMismatch: "The launched Core did not report the pinned Mihomo version.",
+    },
     geodataPreparing: "Preparing {asset:string} before activation…",
     geodataPreparingDetail: "The first download may take a few minutes.",
     geodataPrepared: "{asset:string} is ready for activation.",
@@ -753,6 +773,7 @@ const en = {
     binaryMissing:
       "The pinned Mihomo binary is missing. Prepare it explicitly for development or include the packaged production resource; Mish will not download it at runtime.",
     cancelActivation: "Cancel Activation",
+    retryActivation: "Retry Activation",
     chooseReplacement:
       "Choose a validated replacement before deleting the profile running in Core.",
     active: "Running in Core",
@@ -1141,7 +1162,7 @@ const en = {
   events: {
     application: {
       captureFailureDetail:
-        "Open Guided Diagnostics for structured evidence before retrying the capture action.",
+        "Review the retained capture state and its typed recovery actions before retrying.",
       controllerSessionStarted: "Controller event session started",
       controllerSessionStartedDetail:
         "A new session boundary was created; earlier events are not continuous.",
@@ -1151,7 +1172,7 @@ const en = {
       controllerStreamUnavailable: "Controller event stream is unavailable",
       controllerStreamUnavailableDetail: "Safe failure category: {failure:string}.",
       profileActivationFailedDetail:
-        "Activation stopped with safe failure category {failure:string}. Open Guided Diagnostics before retrying.",
+        "Activation stopped with safe failure category {failure:string}. The notification center retains the available recovery action.",
       proxyLaunchTiming: "Launch Proxy timing",
       proxyLaunchTimingDetail: "Outcome {outcome:string}; total {total:number} ms.",
       settingsOperationFailedDetail:
@@ -1217,39 +1238,6 @@ const en = {
       "The current runtime has no supported Events source. No desktop observation is claimed.",
   },
   diagnostics: {
-    cancel: "Cancel Run",
-    conclusion: {
-      capture: "System Proxy state needs attention. Review its observed state before retrying.",
-      core: "The managed core is not ready for route checks. Start or repair it, then run diagnostics again.",
-      dns: "The fixed endpoint could not be resolved. Check the current DNS connection, then run again.",
-      evidence: "Based on {count:number} supporting check(s).",
-      healthy: "No prioritized failure was found in this bounded run.",
-      profile:
-        "The active Profile context is not ready. Select or repair a valid Profile, then retry.",
-      proxy: "A safe scoped proxy observation is unavailable. Retry after the core reconnects.",
-      reachability:
-        "The fixed endpoint could not be reached on this route. Check connectivity, then retry.",
-      retry:
-        "This run ended before a stable result. Run diagnostics again for a new runtime context.",
-      running:
-        "Checking the current runtime. A conclusion will appear when the bounded run finishes.",
-      title: "What to do next",
-      unavailable:
-        "Some evidence is unavailable. No broader network claim is made; retry when the runtime is ready.",
-    },
-    check: {
-      capture: "Capture desired / observed",
-      core: "Pinned core health and version",
-      desktopBridge: "Desktop bridge",
-      directReachability: "Direct reachability",
-      dns: "DNS resolution",
-      profile: "Active Profile context",
-      proxyReachability: "Scoped proxy reachability",
-    },
-    description:
-      "Runs only when requested. Results stay in bounded local memory and never upload or change routing, capture, groups, or connections.",
-    empty: "No diagnostic runs in local history.",
-    error: "Diagnostics are currently unavailable.",
     export: {
       categories: "Included categories",
       category: {
@@ -1261,7 +1249,6 @@ const en = {
         capture: "Capture desired / observed / drift",
         "service-probes": "Direct HTTP first-response probe aggregates",
         "events-summary": "Recent event aggregates",
-        "diagnostic-runs": "Guided diagnostic checks",
         "redaction-report": "Redaction report entries",
         "termination-recovery-evidence": "Termination and recovery evidence",
       },
@@ -1269,7 +1256,7 @@ const en = {
       description:
         "Create a bounded local JSON bundle after reviewing its exact categories and exclusions. Mish never uploads it.",
       format: "Format",
-      noHistory: "No retained event or diagnostic time range",
+      noHistory: "No retained event time range",
       preparing: "Preparing preview…",
       preview: "Preview Support Bundle",
       previewDescription:
@@ -1289,7 +1276,6 @@ const en = {
         "controller-payloads": "Controller payloads",
         "status-bar-labels": "Status-bar labels",
         "event-text": "Event message and detail text (aggregates only)",
-        "diagnostic-prose": "Diagnostic scope and interpretation prose (structured fields only)",
       },
       result: {
         cancelled: "Save cancelled. Nothing was written.",
@@ -1303,26 +1289,6 @@ const en = {
       unavailable:
         "Support bundle export is unavailable in demo mode. Use the operational desktop application to preview and save locally.",
     },
-    fixtureNotice:
-      "Fictional demo results. They are not an operational diagnostic run or a device observation.",
-    inference: "Interpretation",
-    observation: "Observed fact",
-    open: "Open Diagnostics",
-    policy:
-      "Policy {id:string} · {endpoint:string} · expect HTTP {status:number} · {timeout:number} ms",
-    route: "Route target",
-    run: "Run Diagnostics",
-    scope: "Scope",
-    status: {
-      cancelled: "Cancelled",
-      completed: "Completed",
-      failed: "Failed",
-      invalidated: "Invalidated by runtime replacement",
-      passed: "Passed",
-      running: "Running",
-      unavailable: "Unavailable",
-    },
-    title: "Guided diagnostics",
   },
   destination: {
     currentState: "Current state",
@@ -1368,14 +1334,14 @@ const en = {
     },
     events: {
       description:
-        "Application, core, RPC, and platform events will support contextual recovery and guided diagnostics.",
+        "Application, core, RPC, and platform events provide retained evidence for contextual recovery.",
       itemOneDetail: "Timestamped source and severity rows.",
       itemOneLabel: "Event stream",
       itemThreeDetail: "Explicit preview and structured redaction.",
       itemThreeLabel: "Export",
-      itemTwoDetail: "Layered checks with observed scope.",
-      itemTwoLabel: "Diagnostics",
-      prerequisite: "No desktop-bridge event buffer or diagnostic runner exists yet.",
+      itemTwoDetail: "Automatic preflight and semantic notifications retain specific failures.",
+      itemTwoLabel: "Recovery evidence",
+      prerequisite: "No desktop-bridge event buffer exists yet.",
       title: "Events",
     },
     settings: {
