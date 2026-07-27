@@ -65,9 +65,14 @@ Credentials, user information, query parameters, fragments, redirects, custom
 hosts, and alternate payload names are rejected.
 
 The Stage 1 overlay is not passed to a production build. No production updater
-public key or channel endpoint exists yet. A later live-release change must
-configure the protected updater signing key, ship the matching public key,
-enable this overlay, and add the four verified assets to the existing #173
+public key or channel endpoint exists yet. No GitHub workflow can currently
+read an updater signing key, create updater attestations, or publish updater
+assets. A later live-release change must first satisfy the frozen
+workflow/tooling, protected Environment, OIDC, runner, immutable artifact,
+provenance, SBOM, digest, and separate publication controls in
+[`trusted-release-boundary.md`](../operations/trusted-release-boundary.md).
+Only then may it configure the protected updater signing key, ship the matching
+public key, enable this overlay, and add the four verified assets to the
 signed-direct candidate without weakening its DMG, SBOM, provenance,
 notarization, Gatekeeper, checksum, or Draft-only gates.
 
