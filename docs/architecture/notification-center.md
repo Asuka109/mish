@@ -75,7 +75,7 @@ bottom-right Sonner toast. A later revision of that ID updates the same toast;
 resolution dismisses it while retaining history. Stale or duplicate revisions
 are ignored.
 
-Ordinary toasts use Sonner's bounded default duration. A Rust-pinned record
+Ordinary toasts use the application's bounded eight-second default duration. A Rust-pinned record
 instead produces a persistent toast and cannot be removed from the center while
 its work is active. Resolution keeps the same record, clears its pinned state,
 dismisses the toast, and exposes per-instance removal. This gives the lifecycle
