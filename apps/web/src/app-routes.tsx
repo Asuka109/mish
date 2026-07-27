@@ -49,15 +49,16 @@ function renderDeferredRoute(children: ReactNode) {
 }
 
 interface ProductRoutesProps {
+  statusElement?: ReactNode;
   shell: ReactNode;
 }
 
-export function ProductRoutes({ shell }: ProductRoutesProps) {
+export function ProductRoutes({ shell, statusElement = <StatusPage /> }: ProductRoutesProps) {
   return (
     <Routes>
       <Route element={shell}>
         <Route index element={<Navigate replace to="/status" />} />
-        <Route element={<StatusPage />} path="status" />
+        <Route element={statusElement} path="status" />
         <Route element={renderDeferredRoute(<RoutesPage />)} path="routes" />
         <Route element={renderDeferredRoute(<RoutesPage />)} path="routes/:groupId" />
         <Route element={renderDeferredRoute(<ProfilesPage />)} path="profiles" />
