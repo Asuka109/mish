@@ -310,7 +310,7 @@ struct TunSystemDnsResolver {
     domains: Vec<String>,
     interface: Option<String>,
     nameservers: Vec<IpAddr>,
-    port: u16,
+    port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -646,7 +646,12 @@ fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()
         let Some(resolver) = current.take() else {
             return Ok(());
         };
-        if resolver.nameservers.is_empty() || resolvers.contains(&resolver) {
+        let implicit_mdns = resolver.nameservers.is_empty()
+            && resolver
+                .domains
+                .iter()
+                .any(|domain| domain.eq_ignore_ascii_case("local"));
+        if (!implicit_mdns && resolver.nameservers.is_empty()) || resolvers.contains(&resolver) {
             return Ok(());
         }
         if resolvers.len() >= TUN_DNS_RESOLVER_LIMIT {
@@ -662,7 +667,7 @@ fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()
                 domains: Vec::new(),
                 interface: None,
                 nameservers: Vec::new(),
-                port: 53,
+                port: None,
             });
             continue;
         }
@@ -714,14 +719,15 @@ fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()
         }
         if line.starts_with("port") {
             let resolver = current.as_mut().ok_or(())?;
-            resolver.port = line
-                .split_once(':')
-                .map(|(_, value)| value.trim())
-                .ok_or(())?
-                .parse::<u16>()
-                .ok()
-                .filter(|port| *port != 0)
-                .ok_or(())?;
+            resolver.port = Some(
+                line.split_once(':')
+                    .map(|(_, value)| value.trim())
+                    .ok_or(())?
+                    .parse::<u16>()
+                    .ok()
+                    .filter(|port| *port != 0)
+                    .ok_or(())?,
+            );
         }
     }
     finish_resolver(&mut resolvers, &mut current)?;
@@ -746,7 +752,7 @@ fn dns_observation_state(
     for resolver in system
         .dns_resolvers
         .iter()
-        .filter(|resolver| resolver.port == 53)
+        .filter(|resolver| resolver.port.unwrap_or(53) == 53)
     {
         for nameserver in &resolver.nameservers {
             match resolver.interface.as_deref() {
@@ -3385,15 +3391,22 @@ async fn stop_process_with_timeouts(
     graceful_timeout: Duration,
     forced_timeout: Duration,
 ) -> Result<(), ()> {
+    let mut cleanup_failed = false;
     if let Some(ownership) = state.tun.as_mut()
         && ownership.dns_applied
         && let Some(network) = ownership.network.as_ref()
     {
-        restore_network_transaction(network_controller, network_recovery, &network.dns).await?;
-        ownership.dns_applied = false;
+        if restore_network_transaction(network_controller, network_recovery, &network.dns)
+            .await
+            .is_ok()
+        {
+            ownership.dns_applied = false;
+        } else {
+            cleanup_failed = true;
+        }
     }
     let Some(mut process) = state.process.take() else {
-        return Ok(());
+        return if cleanup_failed { Err(()) } else { Ok(()) };
     };
     // SAFETY: kill receives a positive PID returned for the child owned by this service.
     let _ = unsafe { libc::kill(process.pid as i32, libc::SIGTERM) };
@@ -3421,7 +3434,7 @@ async fn stop_process_with_timeouts(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(()),
     }
-    Ok(())
+    if cleanup_failed { Err(()) } else { Ok(()) }
 }
 
 async fn restore_managed_dns_with_retry(
@@ -3815,6 +3828,45 @@ mod tests {
         }
     }
 
+    struct FailingNetworkController;
+
+    impl TunNetworkController for FailingNetworkController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
+            Box::pin(async { Err(network_ownership::NetworkControllerApplyFailure::Unchanged) })
+        }
+
+        fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            _state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async { Err(()) })
+        }
+    }
+
     #[test]
     fn development_tun_service_requires_an_exact_explicit_boundary() {
         assert_eq!(development_tun_allowed(None), Ok(false));
@@ -3865,7 +3917,7 @@ mod tests {
                 domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap()],
-                port: 53,
+                port: Some(53),
             }],
             interfaces: vec![
                 TunSystemInterface {
@@ -3957,17 +4009,19 @@ mod tests {
         assert_eq!(dns[1].interface.as_deref(), Some("en0"));
 
         let resolvers = parse_tun_dns_resolvers(
-            "DNS configuration\n\nresolver #1\n  nameserver[0] : 8.8.8.8\n  if_index : 4 (en0)\n\nresolver #2\n  domain : local.\n  nameserver[0] : 224.0.0.251\n  port : 5353\n  if_index : 4 (en0)\n",
+            "DNS configuration\n\nresolver #1\n  nameserver[0] : 8.8.8.8\n  if_index : 4 (en0)\n\nresolver #2\n  domain : local.\n  nameserver[0] : 224.0.0.251\n  port : 5353\n  if_index : 4 (en0)\n\nresolver #3\n  domain : local\n",
         )
         .unwrap();
-        assert_eq!(resolvers.len(), 2);
+        assert_eq!(resolvers.len(), 3);
         assert_eq!(
             resolvers[0].nameservers,
             ["8.8.8.8".parse::<IpAddr>().unwrap()]
         );
-        assert_eq!(resolvers[0].port, 53);
-        assert_eq!(resolvers[1].port, 5353);
+        assert_eq!(resolvers[0].port, None);
+        assert_eq!(resolvers[1].port, Some(5353));
         assert_eq!(resolvers[1].domains, ["local"]);
+        assert!(resolvers[2].nameservers.is_empty());
+        assert_eq!(resolvers[2].port, None);
     }
 
     #[test]
@@ -4039,7 +4093,7 @@ mod tests {
                 domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap()],
-                port: 53,
+                port: Some(53),
             }],
             interfaces: Vec::new(),
             routes: vec![
@@ -4071,7 +4125,7 @@ mod tests {
                 domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["192.168.1.1".parse().unwrap()],
-                port: 53,
+                port: Some(53),
             }],
             interfaces: Vec::new(),
             routes: vec![
@@ -4103,7 +4157,7 @@ mod tests {
                 domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap(), "192.168.1.1".parse().unwrap()],
-                port: 53,
+                port: Some(53),
             }],
             interfaces: Vec::new(),
             routes: vec![
@@ -5133,6 +5187,44 @@ mod tests {
 
         assert!(started.elapsed() >= Duration::from_millis(100));
         assert!(state.process.is_none());
+    }
+
+    #[tokio::test]
+    async fn failed_dns_restoration_still_stops_the_owned_core() {
+        let temporary = tempfile::tempdir().unwrap();
+        let ready = temporary.path().join("ready");
+        let mut state = child_service_state(
+            temporary.path(),
+            &format!(
+                "trap 'exit 0' TERM\ntouch {}\nwhile :; do /bin/sleep 0.2; done",
+                ready.display()
+            ),
+        );
+        state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: Vec::new(),
+            dns_applied: true,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        while !ready.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        assert!(
+            stop_process_with_timeouts(
+                &mut state,
+                &FailingNetworkController,
+                &test_network_recovery(temporary.path()),
+                Duration::from_secs(2),
+                Duration::from_millis(200),
+            )
+            .await
+            .is_err()
+        );
+
+        assert!(state.process.is_none());
+        assert!(state.tun.as_ref().is_some_and(|tun| tun.dns_applied));
     }
 
     #[tokio::test]

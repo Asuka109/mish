@@ -650,21 +650,46 @@ fn mdns_reaches_interface(
     system: &TunSystemSnapshot,
     interface: &str,
 ) -> bool {
-    resolver.port == 5353
-        && resolver
-            .domains
-            .iter()
-            .any(|domain| domain.eq_ignore_ascii_case("local"))
+    let local = resolver
+        .domains
+        .iter()
+        .any(|domain| domain.eq_ignore_ascii_case("local"));
+    let explicit = resolver.port == Some(5353)
         && resolver.nameservers.iter().any(|address| {
             is_mdns_address(*address)
                 && (resolver.interface.as_deref() == Some(interface)
-                    || super::selected_route_interface(&system.routes, *address) == Some(interface))
-        })
+                    || mdns_route_reaches_interface(&system.routes, *address, interface))
+        });
+    let implicit = resolver.port.is_none()
+        && resolver.nameservers.is_empty()
+        && resolver.interface.is_none()
+        && [
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)),
+            IpAddr::V6(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb)),
+        ]
+        .iter()
+        .any(|address| mdns_route_reaches_interface(&system.routes, *address, interface));
+    local && (explicit || implicit)
 }
 
 fn is_mdns_address(address: IpAddr) -> bool {
     address == IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251))
         || address == IpAddr::V6(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb))
+}
+
+fn mdns_route_reaches_interface(
+    routes: &[TunSystemRoute],
+    address: IpAddr,
+    interface: &str,
+) -> bool {
+    routes.iter().any(|route| {
+        route.interface == interface
+            && super::parse_route_prefix(&route.destination, address).is_some_and(
+                |(network, prefix_length)| {
+                    prefix_length > 1 && super::route_contains(network, prefix_length, address)
+                },
+            )
+    })
 }
 
 pub(super) fn encode_watchdog_dns(state: &ManagedDnsState) -> Result<String, ()> {
@@ -691,6 +716,25 @@ pub fn parse_watchdog_dns(value: &str) -> Result<ManagedDnsState, &'static str> 
     validate_managed_dns_state(&state)
         .map(|()| state)
         .map_err(|_| "invalid managed network restoration state")
+}
+
+#[cfg(test)]
+pub(super) fn test_network_snapshot() -> NetworkOwnershipSnapshot {
+    NetworkOwnershipSnapshot {
+        baseline_interface_addresses: vec!["192.168.1.10".into()],
+        baseline_mdns: Vec::new(),
+        baseline_routes: Vec::new(),
+        dns: ManagedDnsState {
+            prior_servers: vec!["192.0.2.53".parse().unwrap()],
+            schema_version: MANAGED_NETWORK_STATE_VERSION,
+            service: ManagedNetworkService {
+                id: "11111111-1111-4111-8111-111111111111".into(),
+                interface: "en0".into(),
+                kind: EligibleNetworkKind::Wifi,
+                name: "Wi-Fi".into(),
+            },
+        },
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -873,7 +917,7 @@ mod tests {
                 domains: vec!["local".into()],
                 interface: Some(interface.into()),
                 nameservers: vec!["224.0.0.251".parse().unwrap()],
-                port: 5353,
+                port: Some(5353),
             }],
             interfaces: vec![TunSystemInterface {
                 addresses: vec![address.into(), "fe80::1".into()],
@@ -1143,6 +1187,35 @@ mod tests {
                 .await
                 .unwrap()
                 .dns,
+            TunObservationComponentState::Confirmed
+        );
+    }
+
+    #[tokio::test]
+    async fn implicit_local_resolver_uses_the_physical_multicast_route() {
+        let (controller, _, _) = fixture(
+            vec![service(
+                WIFI_ID,
+                "Wi-Fi",
+                "en0",
+                EligibleNetworkKind::Wifi,
+                0,
+            )],
+            vec!["en0"],
+            vec!["192.0.2.53".parse().unwrap()],
+        );
+        let mut baseline = system("en0", "192.168.1.10");
+        baseline.dns_resolvers[0].interface = None;
+        baseline.dns_resolvers[0].nameservers.clear();
+        baseline.dns_resolvers[0].port = None;
+
+        let snapshot = controller.snapshot(&baseline).await.unwrap();
+        assert_eq!(
+            controller
+                .observe(&snapshot, &baseline, false)
+                .await
+                .unwrap()
+                .routes,
             TunObservationComponentState::Confirmed
         );
     }

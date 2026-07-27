@@ -339,10 +339,12 @@ The route and resolver baseline also protects the physical packet path. The
 Darwin split-default routes installed by the pinned Core are less specific than
 existing link-local, local-subnet, and multicast routes. The adapter requires
 those exact baseline routes to remain present and requires a scoped `.local`
-port-5353 resolver reaching `224.0.0.251` or `ff02::fb` through the selected
-physical interface. Consequently Bonjour and LAN traffic continue to use the
-more-specific physical route without a broad hard-coded subnet exception. Any
-loss or drift of that evidence prevents Applied.
+resolver. macOS may expose either explicit port-5353 multicast fields or its
+implicit `.local` resolver shape; the latter is accepted only while a
+more-specific physical route still reaches `224.0.0.251` or `ff02::fb`.
+Consequently Bonjour and LAN traffic continue to use the more-specific
+physical route without a broad hard-coded subnet exception. Any loss or drift
+of that evidence prevents Applied.
 
 Each version or system-observation step is capped at five seconds and command
 output is capped at 64 KiB. Client deadlines cover the complete server budget:
