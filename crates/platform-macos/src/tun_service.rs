@@ -3350,7 +3350,7 @@ pub async fn recover_managed_network_record(
     let network_recovery = NetworkRecoveryJournal::for_enrollment(enrollment_record, owner_uid)
         .map_err(|_| "the network recovery path was invalid")?;
     let Some(recovery) = network_recovery
-        .load()
+        .load_for_removal()
         .map_err(|_| "the network recovery record was invalid")?
     else {
         return Ok(());

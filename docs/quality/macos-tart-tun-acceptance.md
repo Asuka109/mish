@@ -198,8 +198,36 @@ The follow-up makes that reap idempotent only after freshly confirming exact
 prior DNS, retains non-mutating failure for an absent record with managed or
 foreign DNS and for a present mismatched transaction, and covers the ordering
 with a deterministic regression test.
+The next final-head review identified a compare/write race and an interrupted
+uninstall retry edge. DNS mutation now uses a synchronized, non-waiting,
+exclusive `SCPreferences` compare-and-set transaction, with deterministic
+apply and restore races proving a newly foreign value is never overwritten.
+Removal treats only a genuinely missing recovery directory as already absent;
+unsafe or invalid existing state remains blocking. A focused disposable Tart
+rerun recorded the post-review SystemConfiguration write path.
 
-The final source state passed all 78 `mish-platform-macos` unit tests plus its
+The focused rerun used a new `mish-295-atomic-20260727` macOS 26.5 arm64 clone
+from the same pinned Tahoe base digest. The final source reached `off`,
+`pending`, and `applied`; all four components were confirmed, one new `utun4`
+and the exact managed route partition appeared, service DNS became
+`198.18.0.1`, public HTTP returned 200, Traffic observed the request, and the
+LAN gateway plus multicast route remained on `en0`. Normal disable restored
+automatic DNS, four baseline `utun` interfaces, zero Mish routes, and no
+recovery record. With active DNS replaced by `203.0.113.53`, disable retained
+that foreign value and the exact journal while still removing Core, `utun`, and
+routes. Returning DNS to the managed value and restarting the Helper restored
+automatic DNS and cleared the journal through the locked transaction.
+
+For the interrupted-uninstall edge, the already-restored private recovery
+directory was moved intact to the guest Trash before retrying uninstall. The
+retry completed with `service: not-installed`, and a second retry was
+idempotent. Final inspection found automatic DNS, four baseline `utun`
+interfaces, zero Mish routes, the exact baseline System Proxy digest, and no
+Helper, Core, plist, socket, installed state directory, process, or watchdog
+job. The disposable clone, including its recoverable Trash item, was then
+stopped and deleted.
+
+The final source state passed all 80 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused
 stale-watchdog regression, all-target no-dependency Clippy gate, repository
 `pnpm check:pr`, and the required GitHub Fast PR gate also passed.

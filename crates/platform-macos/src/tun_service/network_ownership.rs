@@ -81,6 +81,12 @@ pub(super) enum NetworkControllerApplyFailure {
     Unchanged,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NetworkDnsMutationFailure {
+    MayHaveChanged,
+    Unchanged,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct NetworkServiceRecord {
     enabled: bool,
@@ -94,6 +100,20 @@ struct NetworkServiceRecord {
 
 trait NetworkServiceInventory: Send + Sync {
     fn observe(&self) -> Result<Vec<NetworkServiceRecord>, ()>;
+}
+
+trait NetworkDnsSettings: Send + Sync {
+    fn observe<'a>(
+        &'a self,
+        service: &'a ManagedNetworkService,
+    ) -> BoxFuture<'a, Result<Vec<IpAddr>, ()>>;
+
+    fn compare_and_set<'a>(
+        &'a self,
+        service: &'a ManagedNetworkService,
+        expected: &'a [IpAddr],
+        replacement: &'a [IpAddr],
+    ) -> BoxFuture<'a, Result<(), NetworkDnsMutationFailure>>;
 }
 
 pub(super) trait TunNetworkController: Send + Sync {
@@ -163,6 +183,15 @@ impl NetworkRecoveryJournal {
         Ok(Some(state))
     }
 
+    pub(super) fn load_for_removal(&self) -> Result<Option<ManagedDnsState>, ()> {
+        let parent = self.path.parent().ok_or(())?;
+        match fs::symlink_metadata(parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(()),
+            Ok(_) => self.load(),
+        }
+    }
+
     pub(super) fn persist(&self, state: &ManagedDnsState) -> Result<(), ()> {
         validate_managed_dns_state(state)?;
         if let Some(existing) = self.load()? {
@@ -230,6 +259,7 @@ impl NetworkRecoveryJournal {
 }
 
 pub(super) struct MacOsTunNetworkController {
+    dns_settings: Arc<dyn NetworkDnsSettings>,
     inventory: Arc<dyn NetworkServiceInventory>,
     runner: Arc<dyn MacOsCommandRunner>,
 }
@@ -237,6 +267,7 @@ pub(super) struct MacOsTunNetworkController {
 impl MacOsTunNetworkController {
     pub(super) fn new() -> Self {
         Self {
+            dns_settings: Arc::new(SystemConfigurationDnsSettings),
             inventory: Arc::new(SystemConfigurationInventory),
             runner: Arc::new(MacOsSystemCommandRunner),
         }
@@ -244,10 +275,15 @@ impl MacOsTunNetworkController {
 
     #[cfg(test)]
     fn with_dependencies(
+        dns_settings: Arc<dyn NetworkDnsSettings>,
         inventory: Arc<dyn NetworkServiceInventory>,
         runner: Arc<dyn MacOsCommandRunner>,
     ) -> Self {
-        Self { inventory, runner }
+        Self {
+            dns_settings,
+            inventory,
+            runner,
+        }
     }
 
     async fn default_route_interface(&self) -> Result<String, ()> {
@@ -260,32 +296,29 @@ impl MacOsTunNetworkController {
     }
 
     async fn observe_dns(&self, service: &ManagedNetworkService) -> Result<Vec<IpAddr>, ()> {
-        let current = exact_service(&self.inventory.observe()?, service)?;
-        let output = self
-            .runner
-            .run(MacOsCommand::GetDnsServers {
-                service: current.name,
-            })
-            .await
-            .map_err(|_| ())?;
-        parse_dns_servers(&output.stdout, &service.name)
+        self.dns_settings.observe(service).await
     }
 
-    async fn set_dns(&self, service: &ManagedNetworkService, servers: &[IpAddr]) -> Result<(), ()> {
-        if servers.len() > TUN_DNS_NAMESERVER_LIMIT {
-            return Err(());
+    async fn set_dns(
+        &self,
+        service: &ManagedNetworkService,
+        expected: &[IpAddr],
+        replacement: &[IpAddr],
+    ) -> Result<(), NetworkDnsMutationFailure> {
+        if expected.len() > TUN_DNS_NAMESERVER_LIMIT || replacement.len() > TUN_DNS_NAMESERVER_LIMIT
+        {
+            return Err(NetworkDnsMutationFailure::Unchanged);
         }
-        let current = exact_service(&self.inventory.observe()?, service)?;
-        self.runner
-            .run(MacOsCommand::SetDnsServers {
-                servers: servers.iter().map(IpAddr::to_string).collect(),
-                service: current.name,
-            })
+        self.dns_settings
+            .compare_and_set(service, expected, replacement)
+            .await?;
+        (self
+            .observe_dns(service)
             .await
-            .map_err(|_| ())?;
-        (self.observe_dns(service).await? == servers)
+            .map_err(|_| NetworkDnsMutationFailure::MayHaveChanged)?
+            == replacement)
             .then_some(())
-            .ok_or(())
+            .ok_or(NetworkDnsMutationFailure::MayHaveChanged)
     }
 
     async fn service_is_selected(&self, service: &ManagedNetworkService) -> Result<(), ()> {
@@ -356,17 +389,18 @@ impl TunNetworkController for MacOsTunNetworkController {
                 .map_err(|()| NetworkControllerApplyFailure::Unchanged)?;
             validate_preserved_network(snapshot, system)
                 .map_err(|()| NetworkControllerApplyFailure::Unchanged)?;
-            if self
-                .observe_dns(&snapshot.dns.service)
-                .await
-                .map_err(|()| NetworkControllerApplyFailure::Unchanged)?
-                != snapshot.dns.prior_servers
-            {
-                return Err(NetworkControllerApplyFailure::Unchanged);
-            }
-            self.set_dns(&snapshot.dns.service, &[MANAGED_DNS_ADDRESS])
-                .await
-                .map_err(|()| NetworkControllerApplyFailure::MayHaveChanged)
+            self.set_dns(
+                &snapshot.dns.service,
+                &snapshot.dns.prior_servers,
+                &[MANAGED_DNS_ADDRESS],
+            )
+            .await
+            .map_err(|failure| match failure {
+                NetworkDnsMutationFailure::MayHaveChanged => {
+                    NetworkControllerApplyFailure::MayHaveChanged
+                }
+                NetworkDnsMutationFailure::Unchanged => NetworkControllerApplyFailure::Unchanged,
+            })
         })
     }
 
@@ -380,7 +414,9 @@ impl TunNetworkController for MacOsTunNetworkController {
             if observed != [MANAGED_DNS_ADDRESS] {
                 return Err(());
             }
-            self.set_dns(&state.service, &state.prior_servers).await
+            self.set_dns(&state.service, &[MANAGED_DNS_ADDRESS], &state.prior_servers)
+                .await
+                .map_err(|_| ())
         })
     }
 
@@ -650,23 +686,6 @@ fn parse_default_route_interface(output: &str) -> Result<String, ()> {
         .ok_or(())
 }
 
-fn parse_dns_servers(output: &str, service_name: &str) -> Result<Vec<IpAddr>, ()> {
-    let output = output.trim();
-    if output == format!("There aren't any DNS Servers set on {service_name}.") {
-        return Ok(Vec::new());
-    }
-    let servers = output
-        .lines()
-        .map(str::trim)
-        .map(str::parse::<IpAddr>)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| ())?;
-    if servers.is_empty() || servers.len() > TUN_DNS_NAMESERVER_LIMIT {
-        return Err(());
-    }
-    Ok(servers)
-}
-
 fn mdns_reaches_interface(
     resolver: &TunSystemDnsResolver,
     system: &TunSystemSnapshot,
@@ -766,55 +785,332 @@ struct SystemConfigurationInventory;
 #[cfg(target_os = "macos")]
 impl NetworkServiceInventory for SystemConfigurationInventory {
     fn observe(&self) -> Result<Vec<NetworkServiceRecord>, ()> {
-        use system_configuration::{
-            core_foundation::{base::TCFType, string::CFString},
-            network_configuration::{SCNetworkInterfaceType, SCNetworkService, SCNetworkSet},
-            preferences::SCPreferences,
-            sys::network_configuration::{SCNetworkServiceGetEnabled, SCNetworkServiceGetName},
-        };
+        use system_configuration::{core_foundation::string::CFString, preferences::SCPreferences};
 
         let preferences = SCPreferences::default(&CFString::new("com.asuka109.mish.tun-helper"));
-        let order = SCNetworkSet::new(&preferences)
-            .service_order()
-            .into_iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>();
-        let mut records = Vec::new();
-        for service in SCNetworkService::get_services(&preferences).into_iter() {
-            if records.len() >= NETWORK_SERVICE_LIMIT {
-                return Err(());
-            }
-            let id = service.id().map(|value| value.to_string()).ok_or(())?;
-            let interface = service.network_interface().ok_or(())?;
-            let interface_name = interface
-                .bsd_name()
-                .map(|value| value.to_string())
-                .ok_or(())?;
-            let kind = match interface.interface_type() {
-                Some(SCNetworkInterfaceType::Ethernet) => Some(EligibleNetworkKind::Ethernet),
-                Some(SCNetworkInterfaceType::IEEE80211) => Some(EligibleNetworkKind::Wifi),
-                _ => None,
-            };
-            // SAFETY: SystemConfiguration returned live service references owned by the array.
-            let name = unsafe {
-                let value = SCNetworkServiceGetName(service.as_concrete_TypeRef());
-                (!value.is_null()).then(|| CFString::wrap_under_get_rule(value).to_string())
-            }
-            .ok_or(())?;
-            // SAFETY: the same live service reference is valid for this read-only query.
-            let enabled = unsafe { SCNetworkServiceGetEnabled(service.as_concrete_TypeRef()) != 0 };
-            let position = order.iter().position(|candidate| candidate == &id);
-            records.push(NetworkServiceRecord {
-                enabled,
-                id,
-                in_current_set: position.is_some(),
-                interface: interface_name,
-                kind,
-                name,
-                order: position.unwrap_or(NETWORK_SERVICE_LIMIT),
-            });
+        system_configuration_services(&preferences)
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct SystemConfigurationDnsSettings;
+
+#[cfg(target_os = "macos")]
+impl NetworkDnsSettings for SystemConfigurationDnsSettings {
+    fn observe<'a>(
+        &'a self,
+        service: &'a ManagedNetworkService,
+    ) -> BoxFuture<'a, Result<Vec<IpAddr>, ()>> {
+        Box::pin(async move { system_configuration_dns(service) })
+    }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        service: &'a ManagedNetworkService,
+        expected: &'a [IpAddr],
+        replacement: &'a [IpAddr],
+    ) -> BoxFuture<'a, Result<(), NetworkDnsMutationFailure>> {
+        Box::pin(
+            async move { system_configuration_compare_and_set_dns(service, expected, replacement) },
+        )
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn system_configuration_services(
+    preferences: &system_configuration::preferences::SCPreferences,
+) -> Result<Vec<NetworkServiceRecord>, ()> {
+    use system_configuration::{
+        core_foundation::{base::TCFType, string::CFString},
+        network_configuration::{SCNetworkInterfaceType, SCNetworkService, SCNetworkSet},
+        sys::network_configuration::{SCNetworkServiceGetEnabled, SCNetworkServiceGetName},
+    };
+
+    let order = SCNetworkSet::new(preferences)
+        .service_order()
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+    let mut records = Vec::new();
+    for service in SCNetworkService::get_services(preferences).into_iter() {
+        if records.len() >= NETWORK_SERVICE_LIMIT {
+            return Err(());
         }
-        Ok(records)
+        let id = service.id().map(|value| value.to_string()).ok_or(())?;
+        let interface = service.network_interface().ok_or(())?;
+        let interface_name = interface
+            .bsd_name()
+            .map(|value| value.to_string())
+            .ok_or(())?;
+        let kind = match interface.interface_type() {
+            Some(SCNetworkInterfaceType::Ethernet) => Some(EligibleNetworkKind::Ethernet),
+            Some(SCNetworkInterfaceType::IEEE80211) => Some(EligibleNetworkKind::Wifi),
+            _ => None,
+        };
+        // SAFETY: SystemConfiguration returned live service references owned by the array.
+        let name = unsafe {
+            let value = SCNetworkServiceGetName(service.as_concrete_TypeRef());
+            (!value.is_null()).then(|| CFString::wrap_under_get_rule(value).to_string())
+        }
+        .ok_or(())?;
+        // SAFETY: the same live service reference is valid for this read-only query.
+        let enabled = unsafe { SCNetworkServiceGetEnabled(service.as_concrete_TypeRef()) != 0 };
+        let position = order.iter().position(|candidate| candidate == &id);
+        records.push(NetworkServiceRecord {
+            enabled,
+            id,
+            in_current_set: position.is_some(),
+            interface: interface_name,
+            kind,
+            name,
+            order: position.unwrap_or(NETWORK_SERVICE_LIMIT),
+        });
+    }
+    Ok(records)
+}
+
+#[cfg(target_os = "macos")]
+fn system_configuration_dns(service: &ManagedNetworkService) -> Result<Vec<IpAddr>, ()> {
+    use system_configuration::{
+        core_foundation::{base::TCFType, string::CFString},
+        network_configuration::SCNetworkService,
+        preferences::SCPreferences,
+        sys::network_configuration::SCNetworkServiceCopyProtocol,
+    };
+
+    let preferences = SCPreferences::default(&CFString::new("com.asuka109.mish.tun-helper"));
+    exact_service(&system_configuration_services(&preferences)?, service)?;
+    let protocol_type = CFString::new("DNS");
+    for candidate in SCNetworkService::get_services(&preferences).into_iter() {
+        if candidate.id().as_ref().map(ToString::to_string).as_deref() != Some(&service.id) {
+            continue;
+        }
+        // SAFETY: the service belongs to this live preferences session and "DNS" is the fixed
+        // SystemConfiguration DNS protocol identifier.
+        let protocol = unsafe {
+            SCNetworkServiceCopyProtocol(
+                candidate.as_concrete_TypeRef(),
+                protocol_type.as_concrete_TypeRef(),
+            )
+        };
+        if protocol.is_null() {
+            return Err(());
+        }
+        let result = protocol_dns_servers(protocol);
+        // SAFETY: CopyProtocol returned an owned Core Foundation object.
+        unsafe {
+            system_configuration::core_foundation::base::CFRelease(protocol.cast());
+        }
+        return result;
+    }
+    Err(())
+}
+
+#[cfg(target_os = "macos")]
+fn system_configuration_compare_and_set_dns(
+    service: &ManagedNetworkService,
+    expected: &[IpAddr],
+    replacement: &[IpAddr],
+) -> Result<(), NetworkDnsMutationFailure> {
+    use system_configuration::{
+        core_foundation::{
+            array::CFArray,
+            base::{TCFType, ToVoid},
+            dictionary::{CFDictionary, CFMutableDictionary},
+            string::CFString,
+        },
+        network_configuration::SCNetworkService,
+        preferences::SCPreferences,
+        sys::{
+            network_configuration::{
+                SCNetworkProtocolGetConfiguration, SCNetworkProtocolSetConfiguration,
+                SCNetworkServiceCopyProtocol,
+            },
+            preferences::{
+                SCPreferencesApplyChanges, SCPreferencesCommitChanges, SCPreferencesLock,
+                SCPreferencesSynchronize, SCPreferencesUnlock,
+            },
+            schema_definitions::kSCPropNetDNSServerAddresses,
+        },
+    };
+
+    let preferences = SCPreferences::default(&CFString::new("com.asuka109.mish.tun-helper"));
+    // SAFETY: the preferences session is live. A non-waiting exclusive lock keeps this bounded
+    // and prevents another conforming SystemConfiguration writer from changing the value between
+    // the comparison and commit.
+    if unsafe { SCPreferencesLock(preferences.as_concrete_TypeRef(), 0) } == 0 {
+        return Err(NetworkDnsMutationFailure::Unchanged);
+    }
+    // SAFETY: refresh the live preferences snapshot after obtaining exclusivity so the comparison
+    // observes the last value committed by any writer that held the lock before us.
+    unsafe {
+        SCPreferencesSynchronize(preferences.as_concrete_TypeRef());
+    }
+    let result = (|| {
+        exact_service(
+            &system_configuration_services(&preferences)
+                .map_err(|_| NetworkDnsMutationFailure::Unchanged)?,
+            service,
+        )
+        .map_err(|_| NetworkDnsMutationFailure::Unchanged)?;
+        let protocol_type = CFString::new("DNS");
+        for candidate in SCNetworkService::get_services(&preferences).into_iter() {
+            if candidate.id().as_ref().map(ToString::to_string).as_deref() != Some(&service.id) {
+                continue;
+            }
+            // SAFETY: the service belongs to the locked preferences session and "DNS" is fixed.
+            let protocol = unsafe {
+                SCNetworkServiceCopyProtocol(
+                    candidate.as_concrete_TypeRef(),
+                    protocol_type.as_concrete_TypeRef(),
+                )
+            };
+            if protocol.is_null() {
+                return Err(NetworkDnsMutationFailure::Unchanged);
+            }
+            let update = (|| {
+                if protocol_dns_servers(protocol)
+                    .map_err(|_| NetworkDnsMutationFailure::Unchanged)?
+                    != expected
+                {
+                    return Err(NetworkDnsMutationFailure::Unchanged);
+                }
+                // SAFETY: the copied protocol remains live until explicitly released below.
+                let configuration = unsafe { SCNetworkProtocolGetConfiguration(protocol) };
+                let mut updated = if configuration.is_null() {
+                    CFMutableDictionary::new()
+                } else {
+                    // SAFETY: GetConfiguration returned a borrowed dictionary owned by protocol.
+                    let current = unsafe { CFDictionary::wrap_under_get_rule(configuration) };
+                    CFMutableDictionary::from(&current)
+                };
+                // SAFETY: this process does not own the schema constant.
+                let addresses_key =
+                    unsafe { CFString::wrap_under_get_rule(kSCPropNetDNSServerAddresses) };
+                if replacement.is_empty() {
+                    updated.remove(addresses_key.to_void());
+                } else {
+                    let addresses = replacement
+                        .iter()
+                        .map(|address| CFString::new(&address.to_string()))
+                        .collect::<Vec<_>>();
+                    let addresses = CFArray::from_CFTypes(&addresses);
+                    updated.set(
+                        addresses_key.to_void(),
+                        addresses.as_concrete_TypeRef().cast(),
+                    );
+                }
+                // SAFETY: protocol and the updated dictionary remain live for this call.
+                if unsafe {
+                    SCNetworkProtocolSetConfiguration(
+                        protocol,
+                        updated.as_concrete_TypeRef().cast(),
+                    )
+                } == 0
+                {
+                    return Err(NetworkDnsMutationFailure::Unchanged);
+                }
+                // SAFETY: the live locked session owns the pending configuration update.
+                if unsafe { SCPreferencesCommitChanges(preferences.as_concrete_TypeRef()) } == 0 {
+                    return Err(NetworkDnsMutationFailure::MayHaveChanged);
+                }
+                // SAFETY: applying follows a successful commit on the same locked session.
+                if unsafe { SCPreferencesApplyChanges(preferences.as_concrete_TypeRef()) } == 0 {
+                    return Err(NetworkDnsMutationFailure::MayHaveChanged);
+                }
+                Ok(())
+            })();
+            // SAFETY: CopyProtocol returned an owned Core Foundation object.
+            unsafe {
+                system_configuration::core_foundation::base::CFRelease(protocol.cast());
+            }
+            return update;
+        }
+        Err(NetworkDnsMutationFailure::Unchanged)
+    })();
+    // SAFETY: this function obtained the exclusive lock above and releases it on every path.
+    let unlocked = unsafe { SCPreferencesUnlock(preferences.as_concrete_TypeRef()) } != 0;
+    result.and_then(|()| {
+        unlocked
+            .then_some(())
+            .ok_or(NetworkDnsMutationFailure::MayHaveChanged)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn protocol_dns_servers(
+    protocol: system_configuration::sys::network_configuration::SCNetworkProtocolRef,
+) -> Result<Vec<IpAddr>, ()> {
+    use std::ffi::c_void;
+
+    use system_configuration::{
+        core_foundation::{
+            array::CFArray,
+            base::{CFType, TCFType, ToVoid},
+            dictionary::CFDictionary,
+            string::CFString,
+        },
+        sys::{
+            network_configuration::SCNetworkProtocolGetConfiguration,
+            schema_definitions::kSCPropNetDNSServerAddresses,
+        },
+    };
+
+    // SAFETY: callers provide a live DNS protocol reference.
+    let configuration = unsafe { SCNetworkProtocolGetConfiguration(protocol) };
+    if configuration.is_null() {
+        return Ok(Vec::new());
+    }
+    // SAFETY: GetConfiguration returned a borrowed dictionary owned by the protocol.
+    let configuration: CFDictionary<*const c_void, *const c_void> =
+        unsafe { CFDictionary::wrap_under_get_rule(configuration) };
+    let Some(addresses) = configuration
+        // SAFETY: this process does not own the schema constant.
+        .find(unsafe { kSCPropNetDNSServerAddresses }.to_void())
+        .map(|pointer| {
+            // SAFETY: the dictionary retains this value for the duration of the borrow.
+            unsafe { CFType::wrap_under_get_rule(*pointer) }
+        })
+        .and_then(CFType::downcast_into::<CFArray>)
+    else {
+        return Ok(Vec::new());
+    };
+    if addresses.len() as usize > TUN_DNS_NAMESERVER_LIMIT {
+        return Err(());
+    }
+    addresses
+        .iter()
+        .map(|pointer| {
+            // SAFETY: the array retains this value for the duration of the iteration.
+            unsafe { CFType::wrap_under_get_rule(*pointer) }
+                .downcast_into::<CFString>()
+                .ok_or(())?
+                .to_string()
+                .parse()
+                .map_err(|_| ())
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+struct SystemConfigurationDnsSettings;
+
+#[cfg(not(target_os = "macos"))]
+impl NetworkDnsSettings for SystemConfigurationDnsSettings {
+    fn observe<'a>(
+        &'a self,
+        _service: &'a ManagedNetworkService,
+    ) -> BoxFuture<'a, Result<Vec<IpAddr>, ()>> {
+        Box::pin(async { Err(()) })
+    }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        _service: &'a ManagedNetworkService,
+        _expected: &'a [IpAddr],
+        _replacement: &'a [IpAddr],
+    ) -> BoxFuture<'a, Result<(), NetworkDnsMutationFailure>> {
+        Box::pin(async { Err(NetworkDnsMutationFailure::Unchanged) })
     }
 }
 
@@ -861,6 +1157,7 @@ mod tests {
         dns: Mutex<Vec<IpAddr>>,
         fail_after_dns_write: Mutex<bool>,
         inventory_records: Arc<Mutex<Vec<NetworkServiceRecord>>>,
+        replace_dns_before_compare_and_set: Mutex<Option<Vec<IpAddr>>>,
         replace_service_after_dns_write: Mutex<bool>,
         route_interfaces: Mutex<VecDeque<String>>,
     }
@@ -881,38 +1178,63 @@ mod tests {
                     };
                     format!("route to: default\ninterface: {interface}\n")
                 }
-                MacOsCommand::GetDnsServers { service } => {
-                    let dns = self.dns.lock().unwrap();
-                    if dns.is_empty() {
-                        format!("There aren't any DNS Servers set on {service}.\n")
-                    } else {
-                        dns.iter()
-                            .map(IpAddr::to_string)
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    }
-                }
-                MacOsCommand::SetDnsServers { servers, .. } => {
-                    *self.dns.lock().unwrap() = servers
-                        .iter()
-                        .filter(|server| server.as_str() != "Empty")
-                        .map(|server| server.parse().unwrap())
-                        .collect();
-                    if *self.replace_service_after_dns_write.lock().unwrap() {
-                        self.inventory_records.lock().unwrap()[0].id = ETHERNET_ID.into();
-                    }
-                    let mut fail_after_dns_write = self.fail_after_dns_write.lock().unwrap();
-                    if *fail_after_dns_write {
-                        *fail_after_dns_write = false;
-                        return Box::pin(ready(Err(MacOsCommandError {
-                            kind: crate::MacOsCommandErrorKind::Failed,
-                        })));
-                    }
-                    String::new()
-                }
                 _ => panic!("unexpected fixture command"),
             };
             Box::pin(ready(Ok(MacOsCommandOutput { stdout: output })))
+        }
+    }
+
+    impl NetworkDnsSettings for FixtureRunner {
+        fn observe<'a>(
+            &'a self,
+            service: &'a ManagedNetworkService,
+        ) -> BoxFuture<'a, Result<Vec<IpAddr>, ()>> {
+            Box::pin(async move {
+                exact_service(&self.inventory_records.lock().unwrap(), service)?;
+                Ok(self.dns.lock().unwrap().clone())
+            })
+        }
+
+        fn compare_and_set<'a>(
+            &'a self,
+            service: &'a ManagedNetworkService,
+            expected: &'a [IpAddr],
+            replacement: &'a [IpAddr],
+        ) -> BoxFuture<'a, Result<(), NetworkDnsMutationFailure>> {
+            Box::pin(async move {
+                exact_service(&self.inventory_records.lock().unwrap(), service)
+                    .map_err(|_| NetworkDnsMutationFailure::Unchanged)?;
+                if let Some(foreign) = self
+                    .replace_dns_before_compare_and_set
+                    .lock()
+                    .unwrap()
+                    .take()
+                {
+                    *self.dns.lock().unwrap() = foreign;
+                }
+                let mut dns = self.dns.lock().unwrap();
+                if dns.as_slice() != expected {
+                    return Err(NetworkDnsMutationFailure::Unchanged);
+                }
+                self.commands
+                    .lock()
+                    .unwrap()
+                    .push(MacOsCommand::SetDnsServers {
+                        servers: replacement.iter().map(IpAddr::to_string).collect(),
+                        service: service.name.clone(),
+                    });
+                *dns = replacement.to_vec();
+                drop(dns);
+                if *self.replace_service_after_dns_write.lock().unwrap() {
+                    self.inventory_records.lock().unwrap()[0].id = ETHERNET_ID.into();
+                }
+                let mut fail_after_dns_write = self.fail_after_dns_write.lock().unwrap();
+                if *fail_after_dns_write {
+                    *fail_after_dns_write = false;
+                    return Err(NetworkDnsMutationFailure::MayHaveChanged);
+                }
+                Ok(())
+            })
         }
     }
 
@@ -986,11 +1308,16 @@ mod tests {
             dns: Mutex::new(dns),
             fail_after_dns_write: Mutex::new(false),
             inventory_records: inventory.records.clone(),
+            replace_dns_before_compare_and_set: Mutex::new(None),
             replace_service_after_dns_write: Mutex::new(false),
             route_interfaces: Mutex::new(route_interfaces.into_iter().map(str::to_owned).collect()),
         });
         (
-            MacOsTunNetworkController::with_dependencies(inventory.clone(), runner.clone()),
+            MacOsTunNetworkController::with_dependencies(
+                runner.clone(),
+                inventory.clone(),
+                runner.clone(),
+            ),
             inventory,
             runner,
         )
@@ -1159,12 +1486,46 @@ mod tests {
 
         inventory.records.lock().unwrap()[0].id = WIFI_ID.into();
         *runner.replace_service_after_dns_write.lock().unwrap() = false;
-        let restarted = MacOsTunNetworkController::with_dependencies(inventory, runner.clone());
+        let restarted =
+            MacOsTunNetworkController::with_dependencies(runner.clone(), inventory, runner.clone());
         restore_network_transaction(&restarted, &journal, &snapshot.dns)
             .await
             .unwrap();
         assert_eq!(*runner.dns.lock().unwrap(), prior);
         assert_eq!(journal.load().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn atomic_dns_compare_and_set_never_overwrites_a_racing_foreign_value() {
+        let original = service(WIFI_ID, "Wi-Fi", "en0", EligibleNetworkKind::Wifi, 0);
+        let prior = vec!["192.0.2.53".parse().unwrap()];
+        let foreign = vec!["203.0.113.53".parse().unwrap()];
+        let baseline = system("en0", "192.168.1.10");
+        let (controller, _, runner) = fixture(vec![original.clone()], vec!["en0"], prior.clone());
+        let snapshot = controller.snapshot(&baseline).await.unwrap();
+        let (_directory, journal) = recovery_fixture();
+        *runner.replace_dns_before_compare_and_set.lock().unwrap() = Some(foreign.clone());
+
+        assert_eq!(
+            apply_network_transaction(&controller, &journal, &snapshot, &baseline).await,
+            Err(NetworkApplyFailure::Clean)
+        );
+        assert_eq!(*runner.dns.lock().unwrap(), foreign);
+        assert_eq!(journal.load().unwrap(), None);
+
+        let (controller, _, runner) =
+            fixture(vec![original], vec!["en0"], vec![MANAGED_DNS_ADDRESS]);
+        let (_directory, journal) = recovery_fixture();
+        journal.persist(&snapshot.dns).unwrap();
+        *runner.replace_dns_before_compare_and_set.lock().unwrap() = Some(foreign.clone());
+
+        assert!(
+            restore_network_transaction(&controller, &journal, &snapshot.dns)
+                .await
+                .is_err()
+        );
+        assert_eq!(*runner.dns.lock().unwrap(), foreign);
+        assert_eq!(journal.load().unwrap(), Some(snapshot.dns));
     }
 
     #[tokio::test]
@@ -1320,6 +1681,15 @@ mod tests {
         std::os::unix::fs::symlink(directory.path().join("target"), &journal.path).unwrap();
         assert!(journal.load().is_err());
         assert!(journal.persist(&state).is_err());
+    }
+
+    #[test]
+    fn removal_treats_a_missing_recovery_directory_as_already_absent() {
+        let (directory, journal) = recovery_fixture();
+        drop(directory);
+
+        assert_eq!(journal.load_for_removal().unwrap(), None);
+        assert!(journal.load().is_err());
     }
 
     #[tokio::test]

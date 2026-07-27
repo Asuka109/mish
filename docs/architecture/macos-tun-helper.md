@@ -196,7 +196,11 @@ owner exit, helper exit, or Core exit. Restoration first re-resolves the stable
 service identity and reads its current DNS. It writes only when the identity
 still matches and the current value is either Mish's managed value or the
 already-restored prior value. A replacement service or foreign DNS value is
-never overwritten. A write whose result cannot be confirmed is rolled back
+never overwritten. The final identity check, DNS comparison, protocol update,
+commit, and apply run inside one non-waiting exclusive `SCPreferences` lock
+after synchronizing the locked session. A busy lock fails without mutation, so
+another conforming SystemConfiguration writer cannot replace the compared value
+before Mish's write. A write whose result cannot be confirmed is rolled back
 immediately; if exact rollback cannot be confirmed, the transaction remains
 tracked as recovery-required. The independent watchdog carries only a
 versioned, bounded copy of the same service identity, prior DNS snapshot, and
@@ -215,7 +219,10 @@ enrollment. Exact restoration and record removal are one transaction. Helper
 restart or cold boot first consumes that record; an invalid record,
 service-identity mismatch, foreign DNS value, or failed restoration remains a
 typed non-disabled recovery state. Uninstall performs the same restoration and
-refuses to discard an unresolved record.
+refuses to discard an unresolved record. An uninstall retry after the private
+recovery directory has already been removed treats that directory as
+already-absent, while an existing unsafe directory or record still fails
+closed.
 No arbitrary network service, DNS value, path, or command crosses the
 privileged protocol.
 
