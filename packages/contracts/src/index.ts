@@ -999,7 +999,7 @@ export const SupportBundlePreviewSchema = z
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(12),
     fileType: z.literal("application/json"),
-    formatVersion: z.literal(1),
+    formatVersion: z.literal(2),
     maxBytes: z.literal(256 * 1_024),
     previewId: IdentifierSchema,
     timeRange: SupportBundleTimeRangeSchema.nullable(),
@@ -1987,7 +1987,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(28),
+    protocolVersion: z.literal(29),
     statusCommands: z
       .object({
         group: z.boolean(),

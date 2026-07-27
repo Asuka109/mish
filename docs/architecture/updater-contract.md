@@ -17,7 +17,7 @@ Stage 2A implements the credential-free runtime below the installation
 boundary. One process-global Rust `UpdaterService` owns discovery, download,
 cancellation, resume, verification, persistence, and ready-candidate state.
 Desktop WebView and Browser Client callers reach the same instance through
-desktop bridge protocol 28, and the desktop host retains that same instance for
+desktop bridge protocol 29, and the desktop host retains that same instance for
 future native projections. A reconnect, remount, duplicate operation key,
 Profile change, or capture operation does not create a second updater or
 replay a consequential command.

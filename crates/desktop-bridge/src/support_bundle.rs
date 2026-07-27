@@ -19,7 +19,7 @@ use crate::{
 
 pub const SUPPORT_BUNDLE_MAX_BYTES: usize = 256 * 1_024;
 const SUPPORT_BUNDLE_EVENT_LIMIT: usize = 256;
-const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 1;
+const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 2;
 const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 9;
 pub const TERMINATION_EVIDENCE_MAX_RECORDS: usize = 32;
 pub const TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS: u64 = 30 * 24 * 60 * 60 * 1_000;
@@ -980,6 +980,8 @@ mod tests {
         }
         assert!(exported.contains("raw-profile-configuration"));
         assert!(exported.contains("event-text"));
+        assert!(exported.contains("\"formatVersion\": 2"));
+        assert_eq!(first.preview.format_version, 2);
         assert!(first.preview.content_bytes < SUPPORT_BUNDLE_MAX_BYTES);
     }
 

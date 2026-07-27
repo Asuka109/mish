@@ -64,7 +64,7 @@ See
 
 ### Desktop Startup and Settings
 
-- Desktop bridge protocol version 28 retains separate login registration,
+- Desktop bridge protocol version 29 retains separate login registration,
   login-window behavior, and application-launch behavior and adds the shared
   Rust-authoritative updater projection and operation commands.
 - Application launch behavior is one of `off`, `core`, or `proxy`. Automatic

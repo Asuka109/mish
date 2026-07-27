@@ -822,7 +822,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 28,
+            "protocolVersion": 29,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),

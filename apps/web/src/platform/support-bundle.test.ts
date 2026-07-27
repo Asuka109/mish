@@ -30,7 +30,7 @@ const preview = {
     "event-text",
   ],
   fileType: "application/json",
-  formatVersion: 1,
+  formatVersion: 2,
   maxBytes: 256 * 1_024,
   previewId: "preview-1",
   timeRange: null,

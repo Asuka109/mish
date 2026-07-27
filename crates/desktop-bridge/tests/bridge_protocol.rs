@@ -1835,7 +1835,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 28);
+    assert_eq!(info["result"]["protocolVersion"], 29);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],
