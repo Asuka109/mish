@@ -141,7 +141,6 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("status.operation-failed", {
-        actionIds: ["open-diagnostics"],
         data: { failure: error },
         dedupeKey: "status.operation-failed",
         severity: "error",
@@ -187,7 +186,6 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("system-proxy.failed", {
-        actionIds: ["open-diagnostics"],
         data: { failure: systemProxy.failure ?? undefined },
         dedupeKey: "system-proxy.failed",
         severity: "error",
@@ -203,7 +201,6 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication(tun.phase === "drift" ? "tun.drift" : "tun.failed", {
-        actionIds: tun.phase === "failed" ? ["open-diagnostics"] : [],
         dedupeKey: "tun.state-warning",
         severity: tun.phase === "drift" ? "warning" : "error",
       }),
@@ -233,7 +230,6 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("traffic.operation-failed", {
-        actionIds: ["open-diagnostics"],
         data: { failure: traffic.commandFailure },
         dedupeKey: "traffic.operation-failed",
         severity: "error",

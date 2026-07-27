@@ -2,17 +2,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
-import type {
-  DiagnosticHistoryDto,
-  DiagnosticsClient,
-  SupportBundleClient,
-  SupportBundlePreviewDto,
-} from "@mish/contracts";
+import type { SupportBundleClient, SupportBundlePreviewDto } from "@mish/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { EventsProvider } from "../data/events-provider";
-import { FixtureDiagnosticsClient } from "../data/fixture-diagnostics-client";
 import { FixtureEventsClient } from "../data/fixture-events-client";
 import { ProductProvider } from "../data/product-provider";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -20,21 +14,13 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderEvents(
-  client: FixtureEventsClient,
-  supportBundleClient?: SupportBundleClient,
-  diagnosticsClient?: DiagnosticsClient,
-) {
+function renderEvents(client: FixtureEventsClient, supportBundleClient?: SupportBundleClient) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale="en">
         <MemoryRouter initialEntries={["/events"]}>
           <ProductProvider>
-            <EventsProvider
-              client={client}
-              diagnosticsClient={diagnosticsClient}
-              supportBundleClient={supportBundleClient}
-            >
+            <EventsProvider client={client} supportBundleClient={supportBundleClient}>
               <TooltipProvider>
                 <AppRoutes />
               </TooltipProvider>
@@ -141,29 +127,6 @@ describe("Events page", () => {
     expect(await screen.findByRole("button", { name: "Resume View" })).toBeVisible();
   });
 
-  it("renders unavailable, failed, cancelled, and successful diagnostics as terminal history", async () => {
-    const fixture = new FixtureDiagnosticsClient();
-    const completed = await fixture.startRun();
-    const history: DiagnosticHistoryDto = {
-      ...completed,
-      runs: [
-        completed.runs[0]!,
-        { ...completed.runs[0]!, id: "cancelled-run", status: "cancelled" },
-        { ...completed.runs[0]!, id: "invalidated-run", status: "invalidated" },
-      ],
-    };
-    renderEvents(new FixtureEventsClient(), undefined, new TerminalDiagnosticsClient(history));
-
-    expect(await screen.findByText("Completed")).toBeVisible();
-    expect(screen.getByText("Cancelled")).toBeVisible();
-    expect(screen.getByText("Invalidated by runtime replacement")).toBeVisible();
-    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Running")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run Diagnostics" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Cancel diagnostics" })).not.toBeInTheDocument();
-  });
-
   it("copies only the selected already-redacted event text", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -196,74 +159,6 @@ describe("Events page", () => {
     expect(writeText.mock.calls[0]?.[0]).not.toContain("fixture.invalid/list?token=");
   });
 
-  it("runs only on explicit keyboard activation and separates observation from interpretation", async () => {
-    const user = userEvent.setup();
-    renderEvents(new FixtureEventsClient());
-
-    const run = await findEnabledButton("Run Diagnostics");
-    expect(screen.getByText(/Fictional demo results/)).toBeVisible();
-    expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
-
-    await waitForInitialRouteReady();
-    run.focus();
-    await user.keyboard("{Enter}");
-
-    expect(await screen.findByText("Synthetic fixture DNS failure")).toBeVisible();
-    expect(screen.getAllByText("Observed fact").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Interpretation").length).toBeGreaterThan(0);
-    expect(screen.getByText(/mish-guided-diagnostics-fixture-v1/)).toBeVisible();
-    expect(screen.getByText(/not an operational diagnostic run/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview Support Bundle" })).toBeDisabled();
-  });
-
-  it("recovers a running diagnostic after one history refresh failure", async () => {
-    const user = userEvent.setup();
-    const fixture = new FixtureDiagnosticsClient();
-    const fixtureHistory = await fixture.startRun();
-    const completed: DiagnosticHistoryDto = {
-      ...fixtureHistory,
-      adapterKind: "rpc",
-      runs: fixtureHistory.runs.map((run) => ({ ...run, adapterKind: "rpc" })),
-    };
-    const client = new RecoveringDiagnosticsClient(completed);
-    renderEvents(new FixtureEventsClient(), undefined, client);
-    await screen.findByText("No diagnostic runs in local history.");
-
-    await user.click(await findEnabledButton("Run Diagnostics"));
-
-    expect(await screen.findByText("Diagnostics are currently unavailable.")).toBeVisible();
-    client.recover();
-    expect(await screen.findByText("Completed")).toBeVisible();
-    expect(screen.queryByText("Diagnostics are currently unavailable.")).not.toBeInTheDocument();
-    expect(client.getHistory).toHaveBeenCalledTimes(3);
-  });
-
-  it("links common failure events to the focusable diagnostics section", async () => {
-    const user = userEvent.setup();
-    renderEvents(new FixtureEventsClient());
-    await screen.findByText(/Synthetic DNS lookup timed out/);
-
-    const links = screen.getAllByRole("link", { name: "Open Diagnostics" });
-    expect(links[0]).toHaveAttribute("href", "/events?diagnostics=1");
-    await user.click(links[0]);
-
-    expect(screen.getByRole("region", { name: "Guided diagnostics" })).toHaveFocus();
-  });
-
-  it("retains complete scoped result labels in a narrow window", async () => {
-    vi.stubGlobal("innerWidth", 560);
-    window.dispatchEvent(new Event("resize"));
-    const user = userEvent.setup();
-    renderEvents(new FixtureEventsClient());
-    await user.click(await screen.findByRole("button", { name: "Run Diagnostics" }));
-
-    const diagnostics = screen.getByRole("region", { name: "Guided diagnostics" });
-    expect(within(diagnostics).getAllByText("Scope").length).toBeGreaterThan(0);
-    expect(within(diagnostics).getAllByText("Route target").length).toBeGreaterThan(0);
-    expect(within(diagnostics).getAllByText("Observed fact").length).toBeGreaterThan(0);
-    expect(within(diagnostics).getAllByText("Interpretation").length).toBeGreaterThan(0);
-  });
-
   it("previews exact bounded categories before an explicit keyboard-confirmed native save", async () => {
     const user = userEvent.setup();
     const support = new TestSupportBundleClient("written");
@@ -275,7 +170,7 @@ describe("Events page", () => {
     await user.keyboard("{Enter}");
 
     const dialog = await screen.findByRole("dialog", { name: "Review redacted support bundle" });
-    expect(within(dialog).getByText("JSON · v1")).toBeVisible();
+    expect(within(dialog).getByText("JSON · v2")).toBeVisible();
     expect(within(dialog).getByText("Actual / maximum size").parentElement).toHaveTextContent(
       "12.0 KiB / 256.0 KiB",
     );
@@ -312,11 +207,11 @@ describe("Events page", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("reports path-free save failure without mutating diagnostic history", async () => {
+  it("reports path-free save failure without mutating the Events surface", async () => {
     const user = userEvent.setup();
     const support = new TestSupportBundleClient("failed");
     renderEvents(new FixtureEventsClient(), support);
-    await screen.findByText("No diagnostic runs in local history.");
+    await screen.findByRole("heading", { name: "Events" });
 
     await user.click(await findEnabledButton("Preview Support Bundle"));
     await user.click(
@@ -328,7 +223,7 @@ describe("Events page", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The support bundle could not be saved. No runtime state was changed.",
     );
-    expect(screen.getByText("No diagnostic runs in local history.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Events" })).toBeVisible();
     expect(screen.queryByText(/synthetic\/|bundle\.json/)).not.toBeInTheDocument();
   });
 });
@@ -343,8 +238,7 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     { category: "capture", itemCount: 1 },
     { category: "service-probes", itemCount: 4 },
     { category: "events-summary", itemCount: 12 },
-    { category: "diagnostic-runs", itemCount: 7 },
-    { category: "redaction-report", itemCount: 13 },
+    { category: "redaction-report", itemCount: 12 },
     { category: "termination-recovery-evidence", itemCount: 0 },
   ],
   contentBytes: 12_288,
@@ -361,10 +255,9 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     "controller-payloads",
     "status-bar-labels",
     "event-text",
-    "diagnostic-prose",
   ],
   fileType: "application/json",
-  formatVersion: 1,
+  formatVersion: 2,
   maxBytes: 256 * 1_024,
   previewId: "preview-support-bundle-1",
   timeRange: {
@@ -383,69 +276,5 @@ class TestSupportBundleClient implements SupportBundleClient {
       if (result === "failed") throw new Error("/synthetic/private/bundle.json");
       return { status: result };
     });
-  }
-}
-
-class TerminalDiagnosticsClient implements DiagnosticsClient {
-  constructor(private readonly history: DiagnosticHistoryDto) {}
-
-  async cancelRun() {
-    return structuredClone(this.history);
-  }
-
-  dispose() {}
-
-  async getHistory() {
-    return structuredClone(this.history);
-  }
-
-  async startRun() {
-    return structuredClone(this.history);
-  }
-}
-
-class RecoveringDiagnosticsClient implements DiagnosticsClient {
-  readonly getHistory = vi.fn(async () => {
-    this.historyRequests += 1;
-    if (this.historyRequests === 1) return structuredClone(this.emptyHistory);
-    if (this.historyRequests === 2) throw new Error("transient local RPC interruption");
-    await this.completion;
-    return structuredClone(this.completedHistory);
-  });
-  private readonly completion: Promise<void>;
-  private complete!: () => void;
-  private historyRequests = 0;
-  private readonly emptyHistory: DiagnosticHistoryDto;
-  private readonly runningHistory: DiagnosticHistoryDto;
-
-  constructor(private readonly completedHistory: DiagnosticHistoryDto) {
-    this.completion = new Promise((resolve) => {
-      this.complete = resolve;
-    });
-    const run = completedHistory.runs[0]!;
-    this.emptyHistory = {
-      activeRunId: null,
-      adapterKind: completedHistory.adapterKind,
-      runs: [],
-    };
-    this.runningHistory = {
-      activeRunId: run.id,
-      adapterKind: completedHistory.adapterKind,
-      runs: [{ ...run, checks: [], finishedAt: null, status: "running" }],
-    };
-  }
-
-  async cancelRun() {
-    return structuredClone(this.completedHistory);
-  }
-
-  dispose() {}
-
-  recover() {
-    this.complete();
-  }
-
-  async startRun() {
-    return structuredClone(this.runningHistory);
   }
 }

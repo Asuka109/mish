@@ -22,8 +22,8 @@ separate primary destinations. The product will instead use two destinations:
 
 - **Traffic** owns current and recently closed connection facts, including the
   matched rule and route chain.
-- **Events** owns chronological app/core/platform events, guided diagnostics,
-  and redacted export.
+- **Events** owns chronological app/core/platform evidence and redacted support
+  bundle export. Semantic notifications own recovery actions.
 
 Rules remain searchable reference data inside Traffic. Service reachability and
 route tests are diagnostic tools, not a top-level entertainment-unlock promise.
@@ -58,25 +58,23 @@ commands as unsupported and never simulate desktop mutation success. See
 [`../../architecture/traffic-data-contracts.md`](../../architecture/traffic-data-contracts.md)
 for sequence, reconnect, stale, retention, precision, and privacy semantics.
 
-## Requirements: Events and diagnostics
+## Requirements: Events and recovery evidence
 
 | ID           | Priority | Requirement                                                                                                                 | Acceptance criteria                                                                                                                                                                                                                            |
 | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | EVENT-F-001  | P0       | Events shall combine Mish application, Mihomo core, RPC, and platform-adapter events with source and severity.              | Given concurrent events, then each row has timestamp, severity, source, concise message, and optional structured detail.                                                                                                                       |
 | EVENT-F-002  | P0       | Users shall filter by severity, source, time, and text.                                                                     | Filters are composable, keyboard accessible, and do not discard the underlying bounded event buffer.                                                                                                                                           |
 | EVENT-F-003  | P0       | Users shall pause visual follow, change chronological order, and clear the local view.                                      | Clear affects the displayed local buffer only unless a separate persistent-log deletion action explicitly says otherwise.                                                                                                                      |
-| EVENT-F-004  | P0       | Common failures shall link to contextual recovery or a guided diagnostic.                                                   | A core start failure, permission denial, profile validation failure, DNS failure, and System Proxy drift each expose a relevant next action.                                                                                                   |
-| DIAG-F-001   | P0       | Guided diagnostics shall test the layers needed to localize a failure.                                                      | A run reports desktop-bridge reachability, core health, active profile validity, capture state, DNS resolution, direct reachability, and explicitly scoped proxy/group reachability.                                                           |
-| DIAG-F-002   | P0       | Diagnostic results shall distinguish observation from inference.                                                            | Each check includes scope, time, route target, observed result, and a plain-language interpretation that does not overclaim global connectivity.                                                                                               |
+| EVENT-F-004  | P0       | Common failures shall expose typed contextual recovery through semantic notifications.                                      | A core start failure, permission denial, profile validation failure, DNS failure, and System Proxy drift each retain one specific record and only valid recovery actions.                                                                       |
 | DIAG-F-003   | P1       | Users shall be able to export a redacted diagnostic bundle.                                                                 | Before export, the UI previews included categories and redactions; default output excludes credentials, subscription URLs/tokens, full user paths, IPs when not required, and raw configuration secrets.                                       |
-| DIAG-F-004   | P1       | Diagnostic bundles shall include enough version context for support.                                                        | With consent, the bundle includes app/core/OS versions, capability state, recent bounded events, profile summary/fingerprint, capture observations, and check results.                                                                         |
+| DIAG-F-004   | P1       | Diagnostic bundles shall include enough version context for support.                                                        | With consent, the bundle includes app/core/OS versions, capability state, recent bounded event aggregates, profile summary/fingerprint, capture observations, service-probe aggregates, and recovery evidence.                                 |
 | DIAG-F-005   | P1       | Service-specific tests shall be user-managed and neutrally named.                                                           | A test reports whether a configured endpoint responded through a named route; it does not promise content availability or a globally active node.                                                                                              |
 | DIAG-F-006   | P1       | Users shall be able to inspect the effective runtime configuration and its layers.                                          | Given a profile is active, when the inspector opens, then it distinguishes source profile, local overrides, platform-derived values, and final runtime output; secrets are redacted and the final view is read-only.                           |
-| DIAG-F-007   | P1       | Diagnostics and recovery actions shall be grouped by failure layer rather than placed in an unrelated advanced-action list. | Given a profile, DNS, core, capture, or update failure, then the corresponding check, evidence, and recovery action are reachable from one Diagnostics and Recovery entry point.                                                               |
+| DIAG-F-007   | P1       | Recovery actions shall be grouped by failure layer rather than placed in an unrelated advanced-action list.                 | Given a profile, DNS, core, capture, or update failure, the semantic notification and owning product surface expose the corresponding evidence and valid typed recovery action.                                                               |
 | DIAG-F-008   | P1       | Endpoint and service probes shall retain scoped result metadata.                                                            | Given a probe completes, then its result includes endpoint or service identity, route scope, observed status, relevant region only when the check supplies it, completion time, and typed failure without changing the user's route selection. |
 | EVENT-NF-001 | P0       | Default event retention shall be bounded and local.                                                                         | Restart, size, and time retention follow a documented policy; telemetry transmission does not occur without explicit opt-in.                                                                                                                   |
 
-### Current Events and Guided Diagnostics vertical slices
+### Current Events, notification, and support-bundle vertical slices
 
 The first Events delivery uses an independent snapshot/subscription contract
 for redacted Mihomo core logs plus local session-boundary observations. It keeps
@@ -85,19 +83,19 @@ joins buffers across reconnect and runtime/profile boundaries, and exposes
 explicit unavailable states for RPC tracing and platform events. Pause, follow,
 filter, order, single-event safe copy, and Clear Local are view operations only.
 
-Guided diagnostics now adds an explicit user-started, fixed-policy, read-only
-run with eight-run local memory history, cancellation, runtime replacement
-invalidation, and typed partial availability. The desktop-only P1 support bundle
-flow adds an exact redaction preview followed by explicit native-save
-confirmation. Its versioned JSON is capped at 256 KiB, uses event aggregates and
-structured diagnostic fields, excludes sensitive categories at the source, and
-is never uploaded or copied to the clipboard. Browser export is explicitly
-unavailable. No export path/content, upload, arbitrary file read, telemetry, or
-runtime mutation RPC is defined. See
+User-started Guided Diagnostics was removed because its checks duplicated
+automatic preflight, semantic notifications, Events evidence, direct service
+probes, and scoped Routes delay tests. The desktop-only P1 support bundle flow
+adds an exact redaction preview followed by explicit native-save confirmation.
+Its versioned JSON is capped at 256 KiB, uses event and service-probe
+aggregates, excludes sensitive categories at the source, and is never uploaded
+or copied to the clipboard. Browser export is explicitly unavailable. No
+export path/content, upload, arbitrary file read, telemetry, or runtime
+mutation RPC is defined. See
 [`../../architecture/events-data-contracts.md`](../../architecture/events-data-contracts.md)
 for event sequence and retention semantics, and
-[`../../architecture/diagnostics-data-contracts.md`](../../architecture/diagnostics-data-contracts.md)
-for diagnostic scope, fixed probe policy, redaction, and authority.
+[`../../architecture/support-bundle-data-contracts.md`](../../architecture/support-bundle-data-contracts.md)
+for support-bundle redaction and authority.
 
 ## Empty, reconnect, and failure behavior
 
@@ -139,8 +137,8 @@ for diagnostic scope, fixed probe policy, redaction, and authority.
 ## Dependencies
 
 - Mihomo core connections, rules, traffic, logs/events, and health data.
-- Desktop-bridge event schema, bounded storage, stream sequence/reconnect metadata,
-  and diagnostic runner.
+- Desktop-bridge event schema, bounded storage, stream sequence/reconnect
+  metadata, automatic service probes, and semantic notifications.
 - Platform observations for System Proxy, TUN, permissions, and process details.
 - Profile summary and redaction schema.
 

@@ -1,13 +1,13 @@
 use mish_runtime::{
-    ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
-    ApplicationNotificationContent, CaptureAuditReason, CaptureOperation, CapturePreflight,
-    CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError, CoreStatus,
-    DiagnosticHistory, EventsSnapshot, MishRuntime, NotificationPublication, NotificationSnapshot,
-    NotificationValidationError, ProviderAuthority, ProviderCommandExecution,
-    ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
-    StatusAdapterKind, StatusCommand, StatusCommandError, StatusSnapshot, TrafficCommandAuthority,
-    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation,
-    TrafficCommandResult, TrafficOperationFailedApplicationNotificationData,
+    ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
+    CaptureAuditReason, CaptureOperation, CapturePreflight, CaptureRecoveryAction, CaptureRequest,
+    CaptureTransitionError, CoreError, CoreStatus, EventsSnapshot, MishRuntime,
+    NotificationPublication, NotificationSnapshot, NotificationValidationError, ProviderAuthority,
+    ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
+    ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficCommandResult,
+    TrafficOperationFailedApplicationNotificationData,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
@@ -17,7 +17,6 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct DesktopRuntimeHost {
     application_snapshots: crate::snapshot_order::ApplicationSnapshotAuthority,
-    diagnostics: crate::DiagnosticCoordinator,
     mutation_authority: Option<StateMutationAuthority>,
     runtime: watch::Sender<MishRuntime>,
 }
@@ -58,7 +57,6 @@ impl DesktopRuntimeHost {
         let (runtime, _) = watch::channel(runtime);
         Self {
             application_snapshots: crate::snapshot_order::ApplicationSnapshotAuthority::new(),
-            diagnostics: crate::DiagnosticCoordinator::new(),
             mutation_authority,
             runtime,
         }
@@ -76,7 +74,6 @@ impl DesktopRuntimeHost {
     }
 
     pub fn replace(&self, runtime: MishRuntime) {
-        self.diagnostics.invalidate_active();
         let current = self.current();
         let notifications = current.notification_center();
         let recent_traffic = current.recent_traffic();
@@ -93,10 +90,6 @@ impl DesktopRuntimeHost {
         self.application_snapshots.retire_runtime();
     }
 
-    pub fn invalidate_diagnostics(&self) {
-        self.diagnostics.invalidate_active();
-    }
-
     pub fn suspend_recent_traffic(&self) {
         self.current().suspend_recent_traffic();
     }
@@ -107,23 +100,6 @@ impl DesktopRuntimeHost {
 
     pub fn discontinue_recent_traffic(&self) {
         self.current().discontinue_recent_traffic();
-    }
-
-    pub fn diagnostic_history(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
-        self.diagnostics.history(adapter_kind)
-    }
-
-    pub fn start_diagnostic_run(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
-        self.diagnostics
-            .start(self.current(), self.subscribe_changes(), adapter_kind)
-    }
-
-    pub fn cancel_diagnostic_run(
-        &self,
-        run_id: &str,
-        adapter_kind: StatusAdapterKind,
-    ) -> DiagnosticHistory {
-        self.diagnostics.cancel(run_id, adapter_kind)
     }
 
     pub fn subscribe_changes(&self) -> watch::Receiver<MishRuntime> {
@@ -606,7 +582,7 @@ impl DesktopRuntimeHost {
                                 failure: failure_id.into(),
                             },
                         ),
-                        vec![ApplicationActionId::OpenDiagnostics],
+                        Vec::new(),
                     ),
                     replaces: Vec::new(),
                     resolved: false,

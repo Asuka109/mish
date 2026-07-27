@@ -29,17 +29,14 @@ The tracked `.env.development` deliberately sets `MISH_DEVTOOLS=1` for
 opens WebKit Inspector as a separate window:
 
 ```sh
-pnpm prepare:mihomo
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  pnpm desktop:dev
+pnpm desktop:dev
 ```
 
 An existing process environment takes precedence over the tracked development
 file. Disable the Inspector for one development process with:
 
 ```sh
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  MISH_DEVTOOLS=0 pnpm desktop:dev
+MISH_DEVTOOLS=0 pnpm desktop:dev
 ```
 
 The application still accepts explicit `--devtools` and `MISH_DEVTOOLS=1`
@@ -74,10 +71,15 @@ Outside the explicit demo commands, browser startup requires either PIN pairing
 or a valid process-local browser session; it never falls through to demo state.
 The operational desktop process generates its own 256-bit token, keeps it out
 of URLs and storage, and gives it only to authorized clients. Mihomo never
-starts merely because the Web UI opens. Operational development requires
-explicit `MISH_MIHOMO_BIN`; production accepts only the packaged pinned
-resource. When `MISH_MIHOMO_BIN` is missing, desktop setup fails immediately
-with the preparation and restart commands instead of opening an unusable window.
+starts merely because the Web UI opens. When `MISH_MIHOMO_BIN` is unset, the
+tracked launcher prepares the repository pin and verifies its manifest,
+archive and binary digests, version, regular-file type, and mode `0755`. An
+explicit `MISH_MIHOMO_BIN` remains the local Core debugging override: it must
+be an absolute regular executable with mode `0755` and report the required
+macOS arm64 version. A missing or invalid explicit override fails early without
+falling back to the repository pin. Tauri revalidates the source-appropriate
+file contract before setup. Production accepts only the packaged pinned
+resource, and no application runtime downloads an executable.
 
 System Proxy defaults off and is journaled, confirmed, and restored by the
 shared runtime. Source development may install the bounded root LaunchDaemon

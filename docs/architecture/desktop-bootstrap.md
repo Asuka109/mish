@@ -121,13 +121,17 @@ still fails closed and never selects fixtures.
 13. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
     Status and Traffic readiness plus an open redacted Events stream.
-    Development accepts only an explicit
-    `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
-    downloads a binary at runtime.
+    When `MISH_MIHOMO_BIN` is unset, `desktop:dev` prepares and verifies the
+    repository-pinned Core. An explicit absolute local override is preserved
+    only after its file type, mode, executable bit, host, and required version
+    pass development validation; invalid explicit input fails without fallback.
+    Tauri revalidates file type and mode plus the pinned digest when applicable;
+    production resolves and verifies a packaged resource. No application
+    runtime downloads a binary.
 14. Every supported normal quit request first enters one shell-owned,
     one-shot graceful-exit coordinator. It prevents Tauri exit while cleanup is
-    pending, stops accepting new state mutations, invalidates active diagnostic
-    work, stops capture auditing, restores and confirms a still-owned System
+    pending, stops accepting new state mutations, stops capture auditing,
+    restores and confirms a still-owned System
     Proxy state, stops and reaps Core, and finally closes the RPC server. The
     bridge returns a bounded typed report instead of swallowing activation,
     capture, Core, server, or task-join failures. Only a fully confirmed report

@@ -71,7 +71,6 @@ impl DesktopLifecycleCoordinator {
                     runtime.publish_current_status().await;
                 }
                 self.invalidate_network_dns();
-                self.host.invalidate_diagnostics();
                 runtime
                     .pause_observations(RuntimeObservationPauseReason::Sleep)
                     .await;
@@ -101,7 +100,6 @@ impl DesktopLifecycleCoordinator {
     ) -> Result<(), LifecycleCoordinationError> {
         let _transition = self.transition.lock().await;
         let runtime = self.host.current();
-        self.host.invalidate_diagnostics();
         self.invalidate_network_dns();
         if !running {
             self.host.suspend_recent_traffic();
@@ -166,7 +164,6 @@ impl DesktopLifecycleCoordinator {
         reason: RuntimeObservationPauseReason,
     ) -> Result<(), LifecycleCoordinationError> {
         let runtime = self.host.current();
-        self.host.invalidate_diagnostics();
         if runtime.capture_operation_pending() {
             return Ok(());
         }

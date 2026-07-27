@@ -37,6 +37,13 @@ Managed listener collisions use the separate
 `profile.activation-listener-conflict` type and an activation-failure key; they
 never replace or reuse a GeoData notification.
 
+Every profile launch/preflight/runtime failure publishes one specific
+`profile.activation-failed` semantic record. Retryable Rust failure categories
+allowlist only `retry-profile-activation`; terminal categories expose no inert
+action. Starting a new activation resolves the prior failed command's record,
+while history remains retained. Events carry the same closed failure category
+as evidence but no duplicate recovery link or generic banner.
+
 Rust rejects identifiers over 96 bytes, more than eight replacements, semantic
 presentations over 2,048 serialized bytes, nesting deeper than three levels,
 more than 32 aggregate entries, or strings over 160 bytes. Sensitive key names

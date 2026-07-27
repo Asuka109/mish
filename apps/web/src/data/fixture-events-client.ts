@@ -9,7 +9,7 @@ import {
 const fixtureEvents: EventRecordDto[] = [
   {
     application: {
-      actionIds: ["open-diagnostics"],
+      actionIds: [],
       data: { failure: "fixture-capture-failed" },
       kind: "capture.failure",
     },

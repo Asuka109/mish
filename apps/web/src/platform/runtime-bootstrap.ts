@@ -9,7 +9,6 @@ import {
   type MobileFixtureBootstrapDto,
   type MobileVpnSnapshotDto,
   type EventsClient,
-  type DiagnosticsClient,
   type ProfileClient,
   type SettingsClient,
   type SettingsSnapshotDto,
@@ -21,7 +20,6 @@ import {
 import { RpcClient } from "@mish/rpc-client";
 import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcEventsClient } from "../data/rpc-events-client";
-import { RpcDiagnosticsClient } from "../data/rpc-diagnostics-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
 import { RpcNotificationClient } from "../data/rpc-notification-client";
 import { FixtureNotificationClient } from "../data/fixture-notification-client";
@@ -73,7 +71,6 @@ export interface StartupStatusClient {
   browserBackendPort?: number;
   client?: StatusClient;
   eventsClient?: EventsClient;
-  diagnosticsClient?: DiagnosticsClient;
   trafficClient?: TrafficClient;
   updaterClient?: UpdaterClient;
   dispose(): void;
@@ -176,10 +173,8 @@ function createRpcStartup(
       transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
     });
   const rpc = createRpcClient(clientName);
-  const diagnosticsRpc = createRpcClient(`${clientName}-diagnostics`);
   const client = new RpcStatusClient(rpc, true);
   const eventsClient = new RpcEventsClient(rpc);
-  const diagnosticsClient = new RpcDiagnosticsClient(diagnosticsRpc);
   const profileClient = new RpcProfileClient(
     rpc,
     runtime === "desktop" ? dependencies.invokeLocalProfilePreflight : null,
@@ -194,7 +189,6 @@ function createRpcStartup(
       runtime === "browser" ? Number.parseInt(new URL(bootstrap.rpcUrl).port, 10) : undefined,
     client,
     eventsClient,
-    diagnosticsClient,
     profileClient,
     localBackupClient: bootstrap.localBackup
       ? new DesktopLocalBackupClient({
@@ -217,8 +211,6 @@ function createRpcStartup(
     updaterClient,
     dispose: () => {
       profileClient.dispose();
-      diagnosticsClient.dispose();
-      diagnosticsRpc.dispose();
       eventsClient.dispose();
       notificationClient.dispose();
       trafficClient.dispose();

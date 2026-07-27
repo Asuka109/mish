@@ -7,14 +7,12 @@ not belong in the compact Status snapshot and do not share Traffic retention.
 The same transport-neutral contract is consumed by the browser fixture, desktop
 RPC adapter, and future native adapters.
 
-The Events surface remains read-only. It exposes a bounded local event view,
-one safe-copy action for a single already-redacted event, and an independent
-bounded Guided Diagnostics history. The desktop-only support bundle action
-exports aggregate event counts through a separate private Tauri boundary; the
-Events snapshot and RPC contracts define no export, upload, arbitrary file
-read, telemetry, core stop, or core mutation command. Guided run semantics are
-specified in
-[`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
+The Events surface remains read-only. It exposes a bounded local event view and
+one safe-copy action for a single already-redacted event. The desktop-only
+support bundle action exports aggregate event counts through a separate private
+Tauri boundary; the Events snapshot and RPC contracts define no export, upload,
+arbitrary file read, telemetry, core stop, or core mutation command. See
+[`support-bundle-data-contracts.md`](support-bundle-data-contracts.md).
 
 ## Snapshot shape
 
@@ -115,9 +113,9 @@ closed failure categories. Their constructors accept no localized copy, profile
 labels, source URLs, configuration text, Controller credentials, or arbitrary
 error strings. React localizes these payloads only when rendering. A retained
 history therefore changes language without changing identity, sequence, order,
-or replaying any notification toast. Diagnostics deep links are exposed only by
-the generated stable `open-diagnostics` action ID, never by matching English
-evidence text.
+or replaying any notification toast. Events contain no recovery deep link:
+typed notification actions own recovery, while event rows remain selectable
+evidence.
 
 The RPC contract therefore transports semantic Application events and
 non-localized redacted evidence as distinct fields. It has no compatibility

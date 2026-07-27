@@ -1,6 +1,4 @@
 import type {
-  DiagnosticHistoryDto,
-  DiagnosticsClient,
   EventsClient,
   EventsConnectionState,
   EventsSnapshotDto,
@@ -33,7 +31,6 @@ import {
   reconcileEventsSnapshot,
 } from "../pages/events-model";
 import { createFixtureEventsClient } from "./fixture-events-client";
-import { createFixtureDiagnosticsClient } from "./fixture-diagnostics-client";
 import { UnavailableSupportBundleClient } from "../platform/support-bundle";
 
 type SupportBundleResult = "idle" | "cancelled" | "written" | "failed";
@@ -41,15 +38,10 @@ type SupportBundleResult = "idle" | "cancelled" | "written" | "failed";
 interface EventsContextValue {
   clearLocal(): void;
   connection: EventsConnectionState;
-  cancelDiagnosticRun(runId: string): Promise<void>;
-  diagnosticError: string | null;
-  diagnosticHistory: DiagnosticHistoryDto | null;
-  diagnosticPending: boolean;
   error: string | null;
   events: ReturnType<typeof createEventsBufferState>["events"];
   isLoading: boolean;
   snapshot: EventsSnapshotDto | null;
-  startDiagnosticRun(): Promise<void>;
   clearSupportBundlePreview(): void;
   previewSupportBundle(): Promise<void>;
   saveSupportBundle(previewId: string): Promise<void>;
@@ -60,13 +52,10 @@ interface EventsContextValue {
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
-const diagnosticPollIntervalMilliseconds = 200;
-const diagnosticMaximumRetryMilliseconds = 2_000;
 
 interface EventsProviderProps {
   children: ReactNode;
   client?: EventsClient;
-  diagnosticsClient?: DiagnosticsClient;
   supportBundleClient?: SupportBundleClient;
 }
 
@@ -81,17 +70,8 @@ function eventsCommandScope(snapshot: EventsSnapshotDto | null) {
     : "events:unconfirmed";
 }
 
-export function EventsProvider({
-  children,
-  client,
-  diagnosticsClient,
-  supportBundleClient,
-}: EventsProviderProps) {
+export function EventsProvider({ children, client, supportBundleClient }: EventsProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureEventsClient(), [client]);
-  const resolvedDiagnosticsClient = useMemo(
-    () => diagnosticsClient ?? createFixtureDiagnosticsClient(),
-    [diagnosticsClient],
-  );
   const resolvedSupportBundleClient = useMemo(
     () => supportBundleClient ?? new UnavailableSupportBundleClient(),
     [supportBundleClient],
@@ -100,9 +80,6 @@ export function EventsProvider({
   const [connection, setConnection] = useState(() => resolvedClient.getConnectionState());
   const [buffer, setBuffer] = useState(createEventsBufferState);
   const [error, setError] = useState<string | null>(null);
-  const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticHistoryDto | null>(null);
-  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
-  const diagnosticRequest = useRef(0);
   const {
     begin: beginCommandFeedback,
     isCurrent: isCurrentCommandFeedback,
@@ -194,30 +171,6 @@ export function EventsProvider({
     };
   }, [acceptSnapshot, resetCommandFeedback, resetPendingCommandFeedback, resolvedClient]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const request = ++diagnosticRequest.current;
-    resolvedDiagnosticsClient
-      .getHistory({ signal: controller.signal })
-      .then((history) => {
-        if (request === diagnosticRequest.current) setDiagnosticHistory(history);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted && request === diagnosticRequest.current) {
-          setDiagnosticError("Diagnostics could not be loaded.");
-        }
-      });
-    return () => {
-      controller.abort();
-      const command = eventsCommands.current.get("events:diagnostics");
-      if (command) {
-        command.controller.abort();
-        transitionCommandFeedback(command.operation, "cancelled");
-        eventsCommands.current.delete("events:diagnostics");
-      }
-    };
-  }, [resolvedDiagnosticsClient, transitionCommandFeedback]);
-
   useEffect(
     () => () => {
       const command = eventsCommands.current.get("events:support-bundle");
@@ -228,37 +181,6 @@ export function EventsProvider({
     },
     [resolvedSupportBundleClient, transitionCommandFeedback],
   );
-
-  useEffect(() => {
-    if (!diagnosticHistory?.activeRunId) return;
-    const controller = new AbortController();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let retryMilliseconds = diagnosticPollIntervalMilliseconds;
-    const poll = () => {
-      const request = ++diagnosticRequest.current;
-      resolvedDiagnosticsClient
-        .getHistory({ signal: controller.signal })
-        .then((history) => {
-          if (request !== diagnosticRequest.current) return;
-          setDiagnosticHistory(history);
-          setDiagnosticError(null);
-          retryMilliseconds = diagnosticPollIntervalMilliseconds;
-          if (history.activeRunId) timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted && request === diagnosticRequest.current) {
-            setDiagnosticError("Diagnostics could not be refreshed.");
-            timeout = setTimeout(poll, retryMilliseconds);
-            retryMilliseconds = Math.min(retryMilliseconds * 2, diagnosticMaximumRetryMilliseconds);
-          }
-        });
-    };
-    timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
-    return () => {
-      controller.abort();
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [diagnosticHistory?.activeRunId, resolvedDiagnosticsClient]);
 
   const beginEventsCommand = useCallback(
     (domainKey: string) => {
@@ -285,8 +207,6 @@ export function EventsProvider({
     }
   }, []);
 
-  const diagnosticPending =
-    commandFeedbackState.operations.get("events:diagnostics")?.phase === "pending";
   const supportBundlePending =
     commandFeedbackState.operations.get("events:support-bundle")?.phase === "pending";
 
@@ -297,38 +217,7 @@ export function EventsProvider({
         setSupportBundlePreview(null);
         setSupportBundleResult("idle");
       },
-      cancelDiagnosticRun: async (runId) => {
-        const command = beginEventsCommand("events:diagnostics");
-        if (!command) return;
-        const request = ++diagnosticRequest.current;
-        try {
-          const history = await resolvedDiagnosticsClient.cancelRun(runId, {
-            signal: command.controller.signal,
-          });
-          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
-          if (request === diagnosticRequest.current && commandIsCurrent) {
-            setDiagnosticHistory(history);
-            setDiagnosticError(null);
-          }
-          if (commandIsCurrent) {
-            transitionCommandFeedback(command.operation, "success");
-          }
-        } catch {
-          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
-          if (request === diagnosticRequest.current && commandIsCurrent) {
-            setDiagnosticError("The diagnostic run could not be cancelled.");
-          }
-          if (commandIsCurrent) {
-            transitionCommandFeedback(command.operation, "failure");
-          }
-        } finally {
-          finishEventsCommand(command);
-        }
-      },
       connection,
-      diagnosticError,
-      diagnosticHistory,
-      diagnosticPending,
       error,
       events: buffer.events,
       isLoading: snapshot === null && error === null,
@@ -383,34 +272,6 @@ export function EventsProvider({
           finishEventsCommand(command);
         }
       },
-      startDiagnosticRun: async () => {
-        const command = beginEventsCommand("events:diagnostics");
-        if (!command) return;
-        const request = ++diagnosticRequest.current;
-        try {
-          const history = await resolvedDiagnosticsClient.startRun({
-            signal: command.controller.signal,
-          });
-          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
-          if (request === diagnosticRequest.current && commandIsCurrent) {
-            setDiagnosticHistory(history);
-            setDiagnosticError(null);
-          }
-          if (commandIsCurrent) {
-            transitionCommandFeedback(command.operation, "success");
-          }
-        } catch {
-          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
-          if (request === diagnosticRequest.current && commandIsCurrent) {
-            setDiagnosticError("The diagnostic run could not be started.");
-          }
-          if (commandIsCurrent) {
-            transitionCommandFeedback(command.operation, "failure");
-          }
-        } finally {
-          finishEventsCommand(command);
-        }
-      },
       supportBundleAvailability: resolvedSupportBundleClient.availability,
       supportBundlePending,
       supportBundlePreview,
@@ -420,13 +281,9 @@ export function EventsProvider({
       beginEventsCommand,
       buffer.events,
       connection,
-      diagnosticError,
-      diagnosticHistory,
-      diagnosticPending,
       error,
       finishEventsCommand,
       isCurrentCommandFeedback,
-      resolvedDiagnosticsClient,
       resolvedSupportBundleClient,
       snapshot,
       supportBundlePending,

@@ -1,6 +1,7 @@
 import {
   ProfileClientError,
   type ApplicationSnapshotDelivery,
+  type ProfileActivationSnapshotDto,
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePatchAuthorityDto,
@@ -174,12 +175,15 @@ export class FixtureProfileClient implements ProfileClient {
     _commandId: string,
     _profileId: string,
     options?: { signal?: AbortSignal },
-  ): Promise<never> {
+  ): Promise<ProfileActivationSnapshotDto> {
     if (options?.signal?.aborted) return Promise.reject(cancelled());
     return Promise.reject(unsupported());
   }
 
-  cancelActivation(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
+  cancelActivation(
+    _commandId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileActivationSnapshotDto> {
     if (options?.signal?.aborted) return Promise.reject(cancelled());
     return Promise.reject(unsupported());
   }
@@ -306,7 +310,10 @@ export class FixtureProfileClient implements ProfileClient {
     return structuredClone(this.snapshot);
   }
 
-  stopActiveProfile(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
+  stopActiveProfile(
+    _commandId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileActivationSnapshotDto> {
     if (options?.signal?.aborted) return Promise.reject(cancelled());
     return Promise.reject(unsupported());
   }

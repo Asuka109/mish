@@ -46,10 +46,10 @@
   "applicationActions": [
     "find-ports-and-retry",
     "leave-as-is",
-    "open-diagnostics",
     "open-system-proxy-settings",
     "open-welcome",
     "repair",
+    "retry-profile-activation",
     "show-system-proxy-settings-steps"
   ],
   "notifications": {
@@ -61,7 +61,6 @@
       },
       "actions": [
         "leave-as-is",
-        "open-diagnostics",
         "open-system-proxy-settings",
         "repair",
         "show-system-proxy-settings-steps"
@@ -78,7 +77,7 @@
     "profile.activation-asn-progress": { "data": { "asset": "string" } },
     "profile.activation-failed": {
       "data": { "failure": "string" },
-      "actions": ["open-diagnostics"]
+      "actions": ["retry-profile-activation"]
     },
     "profile.activation-geoip-failed": {
       "data": { "asset": "string", "outcome": "string" }
@@ -117,8 +116,7 @@
     "service.saved": { "data": { "operation": "string" } },
     "settings.operation-failed": { "data": { "failure": "string" } },
     "status.operation-failed": {
-      "data": { "failure": { "type": "string", "optional": true } },
-      "actions": ["open-diagnostics"]
+      "data": { "failure": { "type": "string", "optional": true } }
     },
     "system-proxy.drift": {
       "data": {
@@ -130,32 +128,28 @@
       "actions": ["leave-as-is", "repair"]
     },
     "system-proxy.failed": {
-      "data": { "failure": { "type": "string", "optional": true } },
-      "actions": ["open-diagnostics"]
+      "data": { "failure": { "type": "string", "optional": true } }
     },
     "traffic.connection-closed": { "data": {} },
     "traffic.connections-closed": { "data": { "count": "number" } },
     "traffic.operation-failed": {
-      "data": { "failure": "string" },
-      "actions": ["open-diagnostics"]
+      "data": { "failure": "string" }
     },
     "tun.drift": { "data": {} },
-    "tun.failed": { "data": {}, "actions": ["open-diagnostics"] }
+    "tun.failed": { "data": {} }
   },
   "applicationEvents": {
     "capture.failure": {
       "data": {
         "failure": "string",
         "observationStage": { "type": "string", "optional": true }
-      },
-      "actions": ["open-diagnostics"]
+      }
     },
     "controller.session-started": { "data": {} },
     "controller.session-stale": { "data": {} },
     "controller.stream-unavailable": { "data": { "failure": "string" } },
     "profile.activation-failed": {
-      "data": { "failure": "string" },
-      "actions": ["open-diagnostics"]
+      "data": { "failure": "string" }
     },
     "proxy.launch-timing": {
       "data": {
@@ -171,8 +165,7 @@
     },
     "settings.operation-failed": { "data": { "failure": "string" } },
     "traffic.operation-failed": {
-      "data": { "failure": "string" },
-      "actions": ["open-diagnostics"]
+      "data": { "failure": "string" }
     }
   }
 }

@@ -357,12 +357,17 @@ state is cleared and the result is an explicit safe stopped failure. The state
 and attempt documents contain no configuration, URL, Controller secret, node
 label, or absolute path.
 
-`ManagedMihomoResolver` performs no network access. Development callers must
-pass the explicit path produced by `pnpm prepare:mihomo`. Production callers
-pass the packaged sidecar/resource directory. Lookup accepts the packaged
-runtime name (`mihomo`, or `mihomo.exe`) and the target-specific bundle input
-name such as `mihomo-aarch64-apple-darwin`. Missing binaries return a typed
-missing state rather than initiating a runtime download.
+`ManagedMihomoResolver` performs no network access. When `MISH_MIHOMO_BIN` is
+unset, `desktop:dev` prepares the repository pin outside Tauri and passes its
+verified path. An explicit value remains a local development override; the
+launcher verifies its absolute regular-file path, mode `0755`, executable bit,
+host, and required version, and fails without fallback when it is invalid.
+Tauri rechecks the source-appropriate file contract and the pinned digest when
+applicable before setup. Production callers pass the packaged sidecar/resource
+directory. Lookup accepts the packaged runtime name (`mihomo`, or
+`mihomo.exe`) and the target-specific bundle input name such as
+`mihomo-aarch64-apple-darwin`. Missing binaries return a typed missing state
+rather than initiating a runtime download.
 
 ## Status mapping and reconciliation
 

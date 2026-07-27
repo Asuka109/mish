@@ -61,11 +61,6 @@ const evidence: readonly Evidence[] = [
     meaning: "Shared Rust owns Events source identity and order",
   },
   {
-    file: "crates/desktop-bridge/src/diagnostics.rs",
-    includes: ["pub struct DiagnosticCoordinator", "CancellationToken"],
-    meaning: "diagnostic orchestration is Rust but currently desktop-bridge-composed",
-  },
-  {
     file: "crates/runtime/src/notifications.rs",
     includes: ["pub struct NotificationCenter", "NOTIFICATION_RETENTION_LIMIT"],
     meaning: "Shared Rust owns semantic notification authority and retention",
@@ -203,7 +198,6 @@ const rowIds = [
   "T03",
   "E01",
   "E02",
-  "D01",
   "G01",
   "G02",
   "N01",

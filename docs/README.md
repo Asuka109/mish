@@ -56,7 +56,7 @@ of treating an implementation accident as intent.
 - [`status-data-contracts.md`](architecture/status-data-contracts.md),
   [`traffic-data-contracts.md`](architecture/traffic-data-contracts.md),
   [`events-data-contracts.md`](architecture/events-data-contracts.md), and
-  [`diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)
+  [`support-bundle-data-contracts.md`](architecture/support-bundle-data-contracts.md)
   — observable DTO and failure semantics by product area.
 - [`runtime-state-ownership.md`](architecture/runtime-state-ownership.md) —
   canonical Authority, Derived DTO, Bounded cache, Optimistic projection, and

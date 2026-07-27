@@ -34,17 +34,23 @@ opens the local WebKit Inspector as a separate window for only the current Mish
 desktop process:
 
 ```sh
-pnpm prepare:mihomo
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  pnpm desktop:dev
+pnpm desktop:dev
 ```
 
-The existing process environment takes precedence over the tracked development
-file. Disable it for one development process with:
+When `MISH_MIHOMO_BIN` is unset, the launcher prepares and verifies the
+repository-pinned Core. An explicit value remains the local Core debugging
+override and must identify an absolute regular mode-`0755` executable reporting
+the required macOS arm64 version. A missing or invalid explicit override fails
+early and never falls back to the repository pin. For example:
 
 ```sh
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  MISH_DEVTOOLS=0 pnpm desktop:dev
+MISH_MIHOMO_BIN="/absolute/path/to/local/mihomo" pnpm desktop:dev
+```
+
+Disable the Inspector for one development process with:
+
+```sh
+MISH_DEVTOOLS=0 pnpm desktop:dev
 ```
 
 The desktop launcher also recognizes `--devtools` as an application startup
@@ -144,7 +150,7 @@ Install the repository-pinned Chromium once with
 | `generate:brand`         | Regenerate repository-owned brand assets.                                      |
 | `geodata:update`         | Download the latest full GeoData snapshot and record exact release provenance. |
 | `geodata:verify-runtime` | Prove pinned Mihomo consumes the bundled files offline in both GeoData modes.  |
-| `prepare:mihomo`         | Download and verify the pinned desktop Core.                                   |
+| `prepare:mihomo`         | Explicitly prepare and verify the Core used automatically by `desktop:dev`.    |
 | `mobile-core:build`      | Build the pinned Android Mobile Core.                                          |
 | `mobile-core:verify`     | Verify Mobile Core evidence and artifacts.                                     |
 | `release:macos:fixture`  | Exercise deterministic release staging decisions without GitHub writes.        |
@@ -160,8 +166,9 @@ Desktop development builds seed the same repository snapshot into the private
 Core home. This keeps local cold-launch behavior representative of the packaged
 fallback instead of silently exercising Mihomo's network download path.
 Run `pnpm prepare:mihomo && pnpm geodata:verify-runtime` after each update. The
-runtime verifier forces all GeoData download URLs to unreachable loopback and
-requires real pinned-Mihomo validation to succeed without any download attempt.
+runtime verifier ignores ambient Core overrides, forces all GeoData download
+URLs to unreachable loopback, and requires real pinned-Mihomo validation to
+succeed without any download attempt.
 
 ## Compatibility aliases
 

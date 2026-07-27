@@ -11,11 +11,11 @@ use tokio::sync::broadcast;
 
 mod application_order;
 mod capture;
-mod diagnostics;
 mod events;
 mod lifecycle;
 mod notifications;
 mod provider;
+mod proxy_diagnostic;
 mod recent_traffic;
 mod status;
 mod traffic;
@@ -23,12 +23,12 @@ mod tun_helper;
 
 pub use application_order::*;
 pub use capture::*;
-pub use diagnostics::*;
 pub use events::*;
 pub use lifecycle::*;
 pub use mish_presentation_contract::*;
 pub use notifications::*;
 pub use provider::*;
+pub use proxy_diagnostic::*;
 pub use recent_traffic::*;
 pub use status::*;
 pub use traffic::*;
@@ -1176,7 +1176,7 @@ impl MishRuntime {
         } else if failure == CaptureFailureKind::ExternalDrift {
             vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
         } else {
-            vec![ApplicationActionId::OpenDiagnostics]
+            Vec::new()
         };
         self.record_application_event(ApplicationDiagnosticEvent::capture_transition_failure(
             error,

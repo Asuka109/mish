@@ -2248,15 +2248,20 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
             )
             .await
     });
-    let notifications = timeout(Duration::from_secs(1), notification_updates.recv())
-        .await
-        .expect("preflight failure was not published before launch cleanup completed")
-        .unwrap();
-    let preflight_failure = notifications
-        .notifications
-        .iter()
-        .find(|notification| notification.dedupe_key == "capture.failure")
-        .expect("preflight failure notification was not published");
+    let preflight_failure = timeout(Duration::from_secs(1), async {
+        loop {
+            let notifications = notification_updates.recv().await.unwrap();
+            if let Some(notification) = notifications
+                .notifications
+                .into_iter()
+                .find(|notification| notification.dedupe_key == "capture.failure")
+            {
+                break notification;
+            }
+        }
+    })
+    .await
+    .expect("preflight failure was not published before launch cleanup completed");
     assert_eq!(preflight_failure.presentation.kind(), "capture.failure");
     assert_eq!(
         serde_json::to_value(&preflight_failure.presentation).unwrap()["data"]["failure"],
@@ -2770,7 +2775,7 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
     assert_eq!(activation_event["source"], "application");
     assert_eq!(
         activation_event["application"]["actionIds"],
-        serde_json::json!(["open-diagnostics"])
+        serde_json::json!([])
     );
     assert!(activation_event.get("message").is_none());
     assert!(activation_event.get("detail").is_none());

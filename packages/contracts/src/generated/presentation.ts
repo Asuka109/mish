@@ -45,10 +45,10 @@ export type NativeActionId = (typeof nativeActionIds)[number];
 export const applicationActionIds = [
   "find-ports-and-retry",
   "leave-as-is",
-  "open-diagnostics",
   "open-system-proxy-settings",
   "open-welcome",
   "repair",
+  "retry-profile-activation",
   "show-system-proxy-settings-steps",
 ] as const;
 export const applicationActionIdSchema = z.enum(applicationActionIds);
@@ -325,13 +325,12 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
         .array(
           z.enum([
             "leave-as-is",
-            "open-diagnostics",
             "open-system-proxy-settings",
             "repair",
             "show-system-proxy-settings-steps",
           ]),
         )
-        .max(5)
+        .max(4)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationCaptureFailureDataSchema,
       kind: z.literal("capture.failure"),
@@ -380,7 +379,7 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
+        .array(z.enum(["retry-profile-activation"]))
         .max(1)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationProfileActivationFailedDataSchema,
@@ -660,8 +659,8 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationStatusOperationFailedDataSchema,
       kind: z.literal("status.operation-failed"),
@@ -680,8 +679,8 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationSystemProxyFailedDataSchema,
       kind: z.literal("system-proxy.failed"),
@@ -710,8 +709,8 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationTrafficOperationFailedDataSchema,
       kind: z.literal("traffic.operation-failed"),
@@ -730,8 +729,8 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationTunFailedDataSchema,
       kind: z.literal("tun.failed"),
@@ -884,8 +883,8 @@ export const applicationEventSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationEventCaptureFailureDataSchema,
       kind: z.literal("capture.failure"),
@@ -924,8 +923,8 @@ export const applicationEventSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationEventProfileActivationFailedDataSchema,
       kind: z.literal("profile.activation-failed"),
@@ -954,8 +953,8 @@ export const applicationEventSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.enum(["open-diagnostics"]))
-        .max(1)
+        .array(z.never())
+        .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationEventTrafficOperationFailedDataSchema,
       kind: z.literal("traffic.operation-failed"),

@@ -122,7 +122,6 @@ async function startApplication() {
                       <TrafficProvider client={startup.trafficClient}>
                         <EventsProvider
                           client={startup.eventsClient}
-                          diagnosticsClient={startup.diagnosticsClient}
                           supportBundleClient={startup.supportBundleClient}
                         >
                           <TooltipProvider delay={500}>

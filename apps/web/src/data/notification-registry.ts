@@ -10,7 +10,6 @@ import { trafficFailureMessage } from "./traffic-failure-message";
 export type NotificationActionTone = "primary" | "secondary" | "destructive";
 
 export interface NotificationActionDescriptor {
-  diagnosticFailure?: string;
   id: ApplicationActionId;
   label: string;
   tone?: NotificationActionTone;
@@ -46,7 +45,7 @@ export function presentNotification(
   return {
     actions: record.resolved
       ? []
-      : record.presentation.actionIds.map((id) => actionDescriptor(id, record.presentation, LL)),
+      : record.presentation.actionIds.map((id) => actionDescriptor(id, LL)),
     detail: copy.detail,
     duration: record.pinned ? Number.POSITIVE_INFINITY : undefined,
     id: record.id,
@@ -89,7 +88,7 @@ function knownPresentation(
       };
     case "profile.activation-failed":
       return {
-        message: LL.profiles.activationFailed(),
+        message: profileActivationFailure(string("failure"), LL),
       };
     case "profile.activation-asn-failed":
     case "profile.activation-geoip-failed":
@@ -234,38 +233,23 @@ function isTakeoverRejection(value: string | undefined) {
   ].includes(value ?? "");
 }
 
-function openDiagnosticsAction(
-  LL: TranslationFunctions,
-  diagnosticFailure?: string,
-): NotificationActionDescriptor {
-  return { diagnosticFailure, id: "open-diagnostics", label: LL.diagnostics.open() };
-}
-
 function actionDescriptor(
   id: ApplicationActionId,
-  presentation: ApplicationNotification,
   LL: TranslationFunctions,
 ): NotificationActionDescriptor {
-  const data = presentation.data as Record<string, unknown>;
-  const failure = typeof data.failure === "string" ? data.failure : undefined;
   switch (id) {
     case "find-ports-and-retry":
       return { id, label: LL.settingsPage.managedPortsFindAndRetry() };
     case "leave-as-is":
       return { id, label: LL.capture.leaveAsIs(), tone: "secondary" };
-    case "open-diagnostics":
-      return openDiagnosticsAction(
-        LL,
-        presentation.kind === "profile.activation-failed"
-          ? activationDiagnosticFailure(failure)
-          : failure,
-      );
     case "open-system-proxy-settings":
       return openSystemProxySettingsAction(LL);
     case "open-welcome":
       return { id, label: LL.onboarding.notificationAction() };
     case "repair":
       return { id, label: LL.capture.repairSystemProxy() };
+    case "retry-profile-activation":
+      return { id, label: LL.profiles.retryActivation() };
     case "show-system-proxy-settings-steps":
       return {
         id,
@@ -273,14 +257,6 @@ function actionDescriptor(
         tone: "secondary",
       };
   }
-}
-
-function activationDiagnosticFailure(failure: string | undefined) {
-  if (failure === "version-mismatch") return "version-drift";
-  if (failure === "capture") return "capture-drift";
-  if (failure === "invalid-profile") return "profile-invalid";
-  if (failure === "cancelled") return "cancelled";
-  return "core-unhealthy";
 }
 
 function openSystemProxySettingsAction(LL: TranslationFunctions): NotificationActionDescriptor {
@@ -313,6 +289,48 @@ function geodataAssetName(asset: string | undefined) {
   if (asset === "mmdb") return "MMDB";
   if (asset === "asn") return "ASN";
   return "GeoSite/GeoIP/MMDB/ASN";
+}
+
+function profileActivationFailure(failure: string | undefined, LL: TranslationFunctions) {
+  const copy = LL.profiles.activationFailureNotification;
+  switch (failure) {
+    case "invalid-profile":
+      return copy.invalidProfile();
+    case "missing-binary":
+      return copy.missingBinary();
+    case "unsafe-runtime":
+      return copy.unsafeRuntime();
+    case "staging":
+      return copy.staging();
+    case "validation":
+      return copy.validation();
+    case "geodata-failed":
+      return copy.geodataFailed();
+    case "geodata-timeout":
+      return copy.geodataTimeout();
+    case "start":
+      return copy.start();
+    case "early-exit":
+      return copy.earlyExit();
+    case "managed-listener-conflict":
+      return copy.managedListenerConflict();
+    case "version-mismatch":
+      return copy.versionMismatch();
+    case "controller":
+      return copy.controller();
+    case "timeout":
+      return copy.timeout();
+    case "cancelled":
+      return copy.cancelled();
+    case "capture":
+      return copy.capture();
+    case "prior-stop":
+      return copy.priorStop();
+    case "state-commit":
+      return copy.stateCommit();
+    default:
+      return LL.profiles.activationFailed();
+  }
 }
 
 function trafficFailure(value: string | undefined) {

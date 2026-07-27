@@ -4,12 +4,14 @@ import { createServer } from "node:net";
 import test from "node:test";
 
 import {
+  createTauriDevelopmentEnvironment,
   createTauriDevelopmentConfig,
   findAvailablePort,
   isTauriDevelopmentStartupAbort,
   parseTauriDevelopmentArguments,
   resolveTauriDevelopmentExitCode,
 } from "./tauri-dev.ts";
+import type { DevelopmentMihomoSelection } from "./development-mihomo.ts";
 
 const desktopConfig = JSON.parse(
   readFileSync(new URL("../apps/desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8"),
@@ -101,6 +103,62 @@ test("consumes the explicit Tart TUN acceptance opt-in without forwarding it", (
     parseTauriDevelopmentArguments(["--demo", "--tart-tun-acceptance"]).tartTunAcceptance,
     true,
   );
+});
+
+function developmentCore(
+  binary: string,
+  source: DevelopmentMihomoSelection["source"],
+): DevelopmentMihomoSelection {
+  return {
+    binary,
+    binarySha256: "a".repeat(64),
+    source,
+    version: "Mihomo Meta v1.19.29 darwin arm64 with fictional-go",
+  };
+}
+
+test("preserves a verified explicit local Core override", () => {
+  const invocation = parseTauriDevelopmentArguments([]);
+  assert.deepEqual(
+    createTauriDevelopmentEnvironment(
+      {
+        MISH_MIHOMO_BIN: "/synthetic/private/local-mihomo",
+      },
+      "http://127.0.0.1:4174",
+      invocation,
+      developmentCore("/synthetic/private/local-mihomo", "explicit-override"),
+    ),
+    {
+      MISH_DEV_ORIGIN: "http://127.0.0.1:4174",
+      MISH_DEVELOPMENT_CORE_SOURCE: "explicit-override",
+      MISH_MIHOMO_BIN: "/synthetic/private/local-mihomo",
+      MISH_WEB_PORT: "4174",
+    },
+  );
+});
+
+test("uses the repository pin only when no explicit override was selected", () => {
+  const binary = "/synthetic/repository/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29";
+  const environment = createTauriDevelopmentEnvironment(
+    {},
+    "http://127.0.0.1:4174",
+    parseTauriDevelopmentArguments([]),
+    developmentCore(binary, "repository-pin"),
+  );
+  assert.equal(environment.MISH_DEVELOPMENT_CORE_SOURCE, "repository-pin");
+  assert.equal(environment.MISH_MIHOMO_BIN, binary);
+});
+
+test("keeps the backend-free demo independent from inherited Core state", () => {
+  const environment = createTauriDevelopmentEnvironment(
+    { MISH_MIHOMO_BIN: "/synthetic/private/missing-mihomo" },
+    "http://127.0.0.1:4174",
+    parseTauriDevelopmentArguments(["--demo"]),
+    null,
+  );
+  assert.equal(environment.MISH_DESKTOP_DEMO, "1");
+  assert.equal(environment.MISH_DEVELOPMENT_CORE_SOURCE, undefined);
+  assert.equal(environment.MISH_MIHOMO_BIN, undefined);
 });
 
 test("keeps the checked-in main WebView Inspector configuration default-off", () => {

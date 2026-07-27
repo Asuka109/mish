@@ -591,7 +591,7 @@ mod tests {
         );
 
         let mut invalid_action = publication("invalid-action", 1);
-        invalid_action.presentation.action_ids = vec![ApplicationActionId::OpenDiagnostics];
+        invalid_action.presentation.action_ids = vec![ApplicationActionId::RetryProfileActivation];
         assert_eq!(
             center.publish(invalid_action),
             Err(NotificationValidationError::InvalidPresentation)

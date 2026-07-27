@@ -949,182 +949,6 @@ export interface NotificationSnapshotDelivery {
   snapshot: NotificationSnapshotDto;
 }
 
-export const DiagnosticRunStatusSchema = z.enum([
-  "running",
-  "completed",
-  "cancelled",
-  "invalidated",
-]);
-export type DiagnosticRunStatus = z.infer<typeof DiagnosticRunStatusSchema>;
-
-export const DiagnosticCheckKindSchema = z.enum([
-  "desktop-bridge",
-  "core",
-  "profile",
-  "capture",
-  "dns",
-  "direct-reachability",
-  "proxy-reachability",
-]);
-export type DiagnosticCheckKind = z.infer<typeof DiagnosticCheckKindSchema>;
-
-export const DiagnosticCheckStatusSchema = z.enum(["passed", "failed", "unavailable", "cancelled"]);
-export type DiagnosticCheckStatus = z.infer<typeof DiagnosticCheckStatusSchema>;
-
-export const DiagnosticFailureSchema = z.enum([
-  "cancelled",
-  "capture-drift",
-  "controller-disconnected",
-  "core-unhealthy",
-  "dns-failed",
-  "endpoint-unreachable",
-  "no-active-profile",
-  "permission-denied",
-  "profile-invalid",
-  "runtime-replaced",
-  "timeout",
-  "unavailable",
-  "version-drift",
-]);
-export type DiagnosticFailure = z.infer<typeof DiagnosticFailureSchema>;
-
-export const DiagnosticRouteTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local-bridge") }).strict(),
-  z.object({ kind: z.literal("managed-core") }).strict(),
-  z.object({ kind: z.literal("active-profile") }).strict(),
-  z.object({ kind: z.literal("capture-state") }).strict(),
-  z.object({ kind: z.literal("fixed-endpoint"), route: z.literal("direct") }).strict(),
-  z.object({ kind: z.literal("policy-group-unavailable") }).strict(),
-  z
-    .object({
-      childId: IdentifierSchema,
-      groupId: IdentifierSchema,
-      kind: z.literal("policy-group"),
-    })
-    .strict(),
-]);
-export type DiagnosticRouteTargetDto = z.infer<typeof DiagnosticRouteTargetSchema>;
-
-export const DiagnosticObservedFactSchema = z.discriminatedUnion("kind", [
-  z.object({ authenticated: z.boolean(), kind: z.literal("bridge") }).strict(),
-  z
-    .object({
-      kind: z.literal("core"),
-      phase: z.enum(["stopped", "starting", "running", "stopping", "failed"]),
-      version: BoundedTextSchema.nullable(),
-    })
-    .strict(),
-  z.object({ kind: z.literal("profile"), present: z.boolean(), valid: z.boolean() }).strict(),
-  z
-    .object({
-      desired: z.boolean(),
-      drift: z.boolean(),
-      kind: z.literal("capture"),
-      observed: SystemProxyObservedStateSchema,
-    })
-    .strict(),
-  z.object({ addressCount: NonNegativeIntegerSchema, kind: z.literal("dns") }).strict(),
-  z
-    .object({
-      httpStatus: z.number().int().min(100).max(599),
-      kind: z.literal("reachability"),
-      latencyMilliseconds: NonNegativeIntegerSchema,
-    })
-    .strict(),
-  z.object({ kind: z.literal("unavailable"), reason: BoundedTextSchema }).strict(),
-  z.object({ kind: z.literal("failure"), reason: BoundedTextSchema }).strict(),
-]);
-export type DiagnosticObservedFactDto = z.infer<typeof DiagnosticObservedFactSchema>;
-
-export const DiagnosticCheckSchema = z
-  .object({
-    failure: DiagnosticFailureSchema.nullable(),
-    finishedAt: NonNegativeIntegerSchema,
-    id: IdentifierSchema,
-    interpretation: BoundedTextSchema,
-    kind: DiagnosticCheckKindSchema,
-    observedFact: DiagnosticObservedFactSchema,
-    routeTarget: DiagnosticRouteTargetSchema,
-    scope: BoundedTextSchema,
-    startedAt: NonNegativeIntegerSchema,
-    status: DiagnosticCheckStatusSchema,
-  })
-  .strict()
-  .superRefine((check, context) => {
-    if (check.finishedAt < check.startedAt) {
-      context.addIssue({ code: "custom", message: "Diagnostic check time must be monotonic" });
-    }
-    if (check.status === "passed" && check.failure !== null) {
-      context.addIssue({ code: "custom", message: "Passed diagnostic checks cannot fail" });
-    }
-    if (check.status !== "passed" && check.failure === null) {
-      context.addIssue({
-        code: "custom",
-        message: "Non-passing diagnostic checks require a failure",
-      });
-    }
-  });
-export interface DiagnosticCheckDto extends z.infer<typeof DiagnosticCheckSchema> {}
-
-export const DiagnosticProbePolicySchema = z
-  .object({
-    endpointLabel: BoundedTextSchema,
-    expectedHttpStatus: z.number().int().min(100).max(599),
-    id: IdentifierSchema,
-    timeoutMilliseconds: z.number().int().positive().max(30_000),
-  })
-  .strict();
-export interface DiagnosticProbePolicyDto extends z.infer<typeof DiagnosticProbePolicySchema> {}
-
-export const DiagnosticRunSchema = z
-  .object({
-    adapterKind: StatusAdapterKindSchema,
-    checks: z.array(DiagnosticCheckSchema).max(16),
-    finishedAt: NonNegativeIntegerSchema.nullable(),
-    id: IdentifierSchema,
-    policy: DiagnosticProbePolicySchema,
-    profileId: IdentifierSchema.nullable(),
-    startedAt: NonNegativeIntegerSchema,
-    status: DiagnosticRunStatusSchema,
-  })
-  .strict()
-  .superRefine((run, context) => {
-    if (new Set(run.checks.map((check) => check.id)).size !== run.checks.length) {
-      context.addIssue({ code: "custom", message: "Diagnostic check IDs must be unique" });
-    }
-    if ((run.status === "running") !== (run.finishedAt === null)) {
-      context.addIssue({
-        code: "custom",
-        message: "Only running diagnostic runs omit finish time",
-      });
-    }
-  });
-export interface DiagnosticRunDto extends z.infer<typeof DiagnosticRunSchema> {}
-
-export const DiagnosticHistorySchema = z
-  .object({
-    activeRunId: IdentifierSchema.nullable(),
-    adapterKind: StatusAdapterKindSchema,
-    runs: z.array(DiagnosticRunSchema).max(8),
-  })
-  .strict()
-  .superRefine((history, context) => {
-    if (new Set(history.runs.map((run) => run.id)).size !== history.runs.length) {
-      context.addIssue({ code: "custom", message: "Diagnostic run IDs must be unique" });
-    }
-    const running = history.runs.filter((run) => run.status === "running");
-    if (running.length > 1) {
-      context.addIssue({ code: "custom", message: "Only one diagnostic run may be active" });
-    }
-    if (history.activeRunId !== (running[0]?.id ?? null)) {
-      context.addIssue({
-        code: "custom",
-        message: "Active diagnostic ID must identify the running history item",
-      });
-    }
-  });
-export interface DiagnosticHistoryDto extends z.infer<typeof DiagnosticHistorySchema> {}
-
 export const SupportBundleAvailabilitySchema = z.enum(["supported", "unavailable"]);
 export type SupportBundleAvailability = z.infer<typeof SupportBundleAvailabilitySchema>;
 
@@ -1137,7 +961,6 @@ export const SupportBundleCategorySchema = z.enum([
   "capture",
   "service-probes",
   "events-summary",
-  "diagnostic-runs",
   "redaction-report",
   "termination-recovery-evidence",
 ]);
@@ -1156,7 +979,6 @@ export const SupportBundleRedactionCategorySchema = z.enum([
   "controller-payloads",
   "status-bar-labels",
   "event-text",
-  "diagnostic-prose",
 ]);
 export type SupportBundleRedactionCategory = z.infer<typeof SupportBundleRedactionCategorySchema>;
 
@@ -1173,21 +995,21 @@ export const SupportBundleCategoryPreviewSchema = z
 
 export const SupportBundlePreviewSchema = z
   .object({
-    categories: z.array(SupportBundleCategoryPreviewSchema).length(11),
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(10),
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
-    excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(13),
+    excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(12),
     fileType: z.literal("application/json"),
-    formatVersion: z.literal(1),
+    formatVersion: z.literal(2),
     maxBytes: z.literal(256 * 1_024),
     previewId: IdentifierSchema,
     timeRange: SupportBundleTimeRangeSchema.nullable(),
   })
   .strict()
   .superRefine((preview, context) => {
-    if (new Set(preview.categories.map(({ category }) => category)).size !== 11) {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 10) {
       context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
     }
-    if (new Set(preview.excludedOrRedacted).size !== 13) {
+    if (new Set(preview.excludedOrRedacted).size !== 12) {
       context.addIssue({ code: "custom", message: "Redaction categories must be unique" });
     }
     if (preview.contentBytes > preview.maxBytes) {
@@ -2165,7 +1987,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(28),
+    protocolVersion: z.literal(29),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3281,26 +3103,6 @@ export const notificationRpcMethods = {
   },
 } as const;
 
-export const CancelDiagnosticRunCommandSchema = z.object({ runId: IdentifierSchema }).strict();
-const RpcDiagnosticHistorySchema = DiagnosticHistorySchema.safeExtend({
-  adapterKind: z.literal("rpc"),
-});
-
-export const diagnosticsRpcMethods = {
-  "diagnostics.cancelRun": {
-    params: CancelDiagnosticRunCommandSchema,
-    result: RpcDiagnosticHistorySchema,
-  },
-  "diagnostics.getHistory": {
-    params: EmptyCommandSchema,
-    result: RpcDiagnosticHistorySchema,
-  },
-  "diagnostics.startRun": {
-    params: EmptyCommandSchema,
-    result: RpcDiagnosticHistorySchema,
-  },
-} as const;
-
 export const SetAppearancePreferenceCommandSchema = z
   .object({ appearance: AppearancePreferenceSchema })
   .strict();
@@ -3449,7 +3251,6 @@ export const updaterRpcMethods = {
 
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
-  ...diagnosticsRpcMethods,
   ...eventsRpcMethods,
   ...notificationRpcMethods,
   ...profileRpcMethods,
@@ -3890,13 +3691,6 @@ export interface NotificationClient {
   ): Promise<NotificationSnapshotDto>;
   subscribeConnection(listener: (state: EventsConnectionState) => void): () => void;
   subscribeSnapshots(listener: (delivery: NotificationSnapshotDelivery) => void): () => void;
-}
-
-export interface DiagnosticsClient {
-  cancelRun(runId: string, options?: { signal?: AbortSignal }): Promise<DiagnosticHistoryDto>;
-  dispose(): void;
-  getHistory(options?: { signal?: AbortSignal }): Promise<DiagnosticHistoryDto>;
-  startRun(options?: { signal?: AbortSignal }): Promise<DiagnosticHistoryDto>;
 }
 
 export interface SupportBundleClient {
