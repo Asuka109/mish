@@ -29,6 +29,7 @@ use mish_settings::{
     SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
     WindowSurfacePreference,
 };
+use mish_updater::{UpdateChannel, UpdateOperationError, UpdaterService, UpdaterSnapshot};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -68,6 +69,7 @@ pub(crate) struct ProtocolState {
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
     pub socket_shutdown: CancellationToken,
+    pub updater: std::sync::Arc<UpdaterService>,
 }
 
 impl ProtocolState {
@@ -329,6 +331,19 @@ struct SetProcessDiscoveryModeParams {
     mode: ProcessDiscoveryMode,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdaterCheckParams {
+    channel: UpdateChannel,
+    operation_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdaterOperationParams {
+    operation_id: String,
+}
+
 struct SocketSubscriptions {
     event_ids: HashSet<String>,
     event_updates: broadcast::Receiver<()>,
@@ -343,6 +358,8 @@ struct SocketSubscriptions {
     status_updates: broadcast::Receiver<CoreStatus>,
     traffic_ids: HashSet<String>,
     traffic_updates: broadcast::Receiver<CoreStatus>,
+    updater_ids: HashSet<String>,
+    updater_updates: broadcast::Receiver<UpdaterSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -448,6 +465,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .as_ref()
         .map(|service| service.subscribe())
         .unwrap_or(inactive_settings_receiver);
+    let updater_updates = state.updater.subscribe();
     let mut authenticated = false;
     let (command_responses, mut command_response_updates) = mpsc::unbounded_channel();
     let mut subscriptions = SocketSubscriptions {
@@ -464,6 +482,8 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         status_updates,
         traffic_ids: HashSet::new(),
         traffic_updates,
+        updater_ids: HashSet::new(),
+        updater_updates,
     };
 
     loop {
@@ -680,6 +700,23 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
+            update = subscriptions.updater_updates.recv(), if authenticated && !subscriptions.updater_ids.is_empty() => {
+                let snapshot = match update {
+                    Ok(snapshot) => snapshot,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => state.updater.snapshot(),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                };
+                for subscription_id in &subscriptions.updater_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "updater.snapshot",
+                        "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
         }
     }
 }
@@ -754,6 +791,8 @@ async fn handle_message(
             | "settings.installTunHelper"
             | "settings.repairTunHelper"
             | "settings.removeTunHelper"
+            | "updater.getSnapshot"
+            | "updater.subscribe"
     ) && !request
         .params
         .as_object()
@@ -791,7 +830,8 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 27,
+            "protocolVersion": 28,
+            "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1904,6 +1944,74 @@ async fn handle_message(
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
+        "updater.getSnapshot" => {
+            serde_json::to_value(state.updater.snapshot()).expect("serializable updater snapshot")
+        }
+        "updater.check" => {
+            let params = match serde_json::from_value::<UpdaterCheckParams>(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state
+                .updater
+                .start_check(&params.operation_id, params.channel)
+            {
+                Ok(snapshot) => {
+                    serde_json::to_value(snapshot).expect("serializable updater snapshot")
+                }
+                Err(error) => return Some(updater_error_response(id, error)),
+            }
+        }
+        "updater.download" => {
+            let params = match serde_json::from_value::<UpdaterOperationParams>(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state.updater.start_download(&params.operation_id) {
+                Ok(snapshot) => {
+                    serde_json::to_value(snapshot).expect("serializable updater snapshot")
+                }
+                Err(error) => return Some(updater_error_response(id, error)),
+            }
+        }
+        "updater.cancel" => {
+            let params = match serde_json::from_value::<UpdaterOperationParams>(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state.updater.cancel(&params.operation_id) {
+                Ok(snapshot) => {
+                    serde_json::to_value(snapshot).expect("serializable updater snapshot")
+                }
+                Err(error) => return Some(updater_error_response(id, error)),
+            }
+        }
+        "updater.subscribe" => {
+            if subscription_count(subscriptions) >= 16 {
+                return Some(error_response(
+                    id,
+                    -32030,
+                    "Subscription limit reached",
+                    None,
+                ));
+            }
+            let (updates, snapshot) = state.updater.subscribe_with_snapshot();
+            subscriptions.updater_updates = updates;
+            let subscription_id = format!(
+                "updater-{}",
+                NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            subscriptions.updater_ids.insert(subscription_id.clone());
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
+        }
+        "updater.unsubscribe" => {
+            let Some(subscription_id) =
+                request.params.get("subscriptionId").and_then(Value::as_str)
+            else {
+                return Some(error_response(id, -32602, "Invalid params", None));
+            };
+            json!(subscriptions.updater_ids.remove(subscription_id))
+        }
         "rpc.cancel" => json!(false),
         method if method.starts_with("status.") => {
             return Some(error_response(
@@ -2236,6 +2344,22 @@ fn subscription_count(subscriptions: &SocketSubscriptions) -> usize {
         + subscriptions.settings_ids.len()
         + subscriptions.status_ids.len()
         + subscriptions.traffic_ids.len()
+        + subscriptions.updater_ids.len()
+}
+
+fn updater_error_response(id: Value, error: UpdateOperationError) -> Value {
+    let code = match error {
+        UpdateOperationError::InvalidOperationKey => -32602,
+        UpdateOperationError::Busy | UpdateOperationError::OperationMismatch => -32009,
+        UpdateOperationError::NotConfigured => -32020,
+        _ => -32070,
+    };
+    error_response(
+        id,
+        code,
+        "Updater operation failed",
+        Some(json!({"kind": error.code()})),
+    )
 }
 
 fn profile_activation_error_response(

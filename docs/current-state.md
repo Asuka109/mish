@@ -57,8 +57,9 @@ See
 
 ### Desktop Startup and Settings
 
-- Desktop bridge protocol version 27 exposes separate login registration,
-  login-window behavior, and application-launch behavior.
+- Desktop bridge protocol version 28 retains separate login registration,
+  login-window behavior, and application-launch behavior and adds the shared
+  Rust-authoritative updater projection and operation commands.
 - Application launch behavior is one of `off`, `core`, or `proxy`. Automatic
   startup reuses the Profile activation and capture coordinators rather than
   creating a desktop-only lifecycle.
@@ -99,8 +100,10 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
   Draft workflow foundation. Live Developer ID trust and notarization still
   require protected Apple credentials.
 - The updater has a strict channel, SemVer, signature, artifact-identity,
-  provenance, and downgrade contract. It is contract-only: the application does
-  not yet download, replace, roll back, or relaunch itself.
+  provenance, downgrade, bounded download, resume, private candidate staging,
+  restart recovery, and cross-client Rust-authority contract. The shipped app
+  remains honestly unconfigured until a production key and endpoint exist, and
+  no install, replacement, rollback, or relaunch action exists.
 
 See [`macos-packaging.md`](operations/macos-packaging.md) and
 [`updater-contract.md`](architecture/updater-contract.md).
@@ -108,8 +111,8 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
 ## Not Delivered
 
 - A notarized, stapled, publicly released Developer ID build.
-- Live automatic update discovery, download, installation, rollback, relaunch,
-  or System Proxy recovery around replacement.
+- Production-enabled automatic update discovery, installation, rollback,
+  relaunch, or System Proxy recovery around replacement.
 - A production-signed TUN helper and production Virtual Interface capability.
 - Intel macOS support or production Android, iOS, Windows, or Linux releases.
 - Evidence that the current `main` packaging workflow can execute under the

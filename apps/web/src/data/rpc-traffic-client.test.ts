@@ -99,13 +99,14 @@ async function advertiseTrafficCommands(
     result: {
       bridgeVersion: "test",
       coreConfigured: true,
-      protocolVersion: 27,
+      protocolVersion: 28,
       statusCommands: { group: false, groupDelay: false, routing: false, services: false },
       trafficCommands: {
         closeAllActive: supported,
         closeConnection: supported,
         closeFilteredVisible: supported,
       },
+      updaterConfigured: false,
     },
   });
   await flushMicrotasks();

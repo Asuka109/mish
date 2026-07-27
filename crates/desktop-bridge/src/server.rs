@@ -47,6 +47,7 @@ pub struct LoopbackServerConfig {
     pub process_icon_resolver: Option<Arc<dyn ProcessIconResolver>>,
     pub service_probes: Option<ServiceProbeConfig>,
     pub settings_service: Option<Arc<SettingsService>>,
+    pub updater_service: Option<Arc<mish_updater::UpdaterService>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -166,6 +167,7 @@ pub struct LoopbackServerHandle {
     service_probes: Option<crate::service_probes::ServiceProbeService>,
     socket_shutdown: CancellationToken,
     browser_client: Option<BrowserClientHandle>,
+    updater_service: Arc<mish_updater::UpdaterService>,
     terminal_failure: Option<BridgeShutdownFailure>,
 }
 
@@ -215,6 +217,10 @@ pub enum BridgeShutdownOutcome {
 impl LoopbackServerHandle {
     pub fn browser_client(&self) -> Option<BrowserClientHandle> {
         self.browser_client.clone()
+    }
+
+    pub fn updater_service(&self) -> Arc<mish_updater::UpdaterService> {
+        self.updater_service.clone()
     }
 
     pub async fn shutdown(mut self) -> BridgeShutdownOutcome {
@@ -392,6 +398,12 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if let Some(service_probes) = &service_probes {
         service_probes.start();
     }
+    let updater_service = config.updater_service.unwrap_or_else(|| {
+        Arc::new(mish_updater::UpdaterService::unconfigured(format!(
+            "updater-{}",
+            uuid::Uuid::new_v4()
+        )))
+    });
     let pending_launch_tokens = Arc::new(Mutex::new(VecDeque::new()));
     let browser = config.browser_assets.map(|assets| BrowserHttpState {
         assets,
@@ -427,6 +439,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,
             socket_shutdown: socket_shutdown.clone(),
+            updater: updater_service.clone(),
         },
         max_message_bytes: config.max_message_bytes,
     });
@@ -469,6 +482,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         service_probes,
         socket_shutdown,
         browser_client,
+        updater_service,
         terminal_failure: None,
     })
 }

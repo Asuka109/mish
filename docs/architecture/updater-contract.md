@@ -1,6 +1,6 @@
 # macOS updater contract
 
-## Stage 1 boundary
+## Stage 1 foundation
 
 Mish owns update selection and verification instead of exposing Tauri's updater
 plugin directly to the Web layer. Stage 1 is deliberately `contract-only`: it
@@ -10,6 +10,24 @@ operation, application replacement, relaunch, or System Proxy handoff.
 
 The desktop release-profile probe reports this boundary as `updater:
 contract-only`. It must not be interpreted as a working update path.
+
+## Stage 2A transport and staging boundary
+
+Stage 2A implements the credential-free runtime below the installation
+boundary. One process-global Rust `UpdaterService` owns discovery, download,
+cancellation, resume, verification, persistence, and ready-candidate state.
+Desktop WebView and Browser Client callers reach the same instance through
+desktop bridge protocol 28, and the desktop host retains that same instance for
+future native projections. A reconnect, remount, duplicate operation key,
+Profile change, or capture operation does not create a second updater or
+replay a consequential command.
+
+The shipped app still constructs this service as unconfigured because no
+production public key or endpoint has been approved. Its honest shared
+snapshot is `idle` with `configured: false`, and check/download commands return
+the typed `not-configured` reason. The signed-direct release probe therefore
+continues to report `updater: contract-only`. Configuring the service later is
+a release-signing/publication change; it is not an installation action.
 
 ## Selected Tauri contract
 
@@ -92,8 +110,76 @@ mismatched, replayed, wrong-channel, wrong-version, renamed, truncated, or
 substituted inputs return a typed error and no `VerifiedUpdate`.
 
 Stage 1 models replay state as the set of previously accepted metadata digests.
-Durable storage of that state belongs with the later download/install
-transaction and is not simulated here.
+Stage 2A stores a bounded set of accepted digests in the private candidate
+store and rechecks it before every discovery. Evicting an old digest never
+weakens rollback defense because the store also retains a monotonic,
+channel-specific accepted-version high-water mark. The adapter now exposes the
+same ordered contract as authenticated metadata admission followed by
+streaming verification of the complete staged payload. The compatibility
+`verify_candidate` entry point still performs both steps in order.
+
+## Authoritative operation state
+
+The Rust snapshot contains a process authority ID, monotonic revision,
+configured flag, typed `idle/checking/available/downloading/verifying/ready/
+failed/cancelled` phase, operation ID, selected channel, candidate identity,
+bounded byte progress, resumability, and one redacted terminal reason.
+Candidate identity includes version, channel, source SHA, metadata digest,
+payload name/digest/size, and payload-signature digest. It never includes an
+endpoint, credential, signature body, or private path.
+
+Check, download, and cancel commands require a bounded operation key. A
+duplicate key is idempotent; a different key cannot overtake an in-flight
+operation. Download does not begin during discovery, and `ready` never provides
+an install command. Subscription registration captures its receiver before the
+baseline, so later revisions cannot arrive before that baseline barrier.
+
+## Bounded HTTP and resume
+
+One Rustls-backed HTTP client is reused per configured updater. At most one
+redirect is followed, only from an exact credential-free `github.com` Release
+asset URL to a known HTTPS GitHub release-asset CDN path; every other redirect
+is stopped and rejected. Response encoding must be identity, and connect,
+whole-operation, and idle-body time are bounded. Metadata and signature bodies
+have independent caps. Signed payload size must be non-zero and below the
+configured disk/body cap before download admission; streamed bytes may never
+exceed the signed size.
+
+An interrupted partial is resumable only when its private manifest still binds
+the same channel, version, source SHA, payload digest/size, payload-signature
+digest, metadata digest, operation, and strong ETag. Resume sends `Range` plus
+`If-Range` and accepts only an exact `206 Content-Range` for the retained
+offset and signed total. A safe `200` response means the server ignored Range:
+Mish truncates the managed partial and restarts from byte zero. Mismatched
+range semantics, weak/missing validators, truncation, trailing bytes, changed
+identity, or overgrowth discard the partial or fail closed; no partial byte is
+ever called verified.
+
+Test-only URL rewriting maps the already-authenticated release asset basename
+to a loopback fixture server. Production configuration has no such adapter and
+accepts only the selected channel's exact credential-free application-owned
+GitHub Releases base:
+`https://github.com/Asuka109/mish/releases/download/updater-<channel>/`.
+
+## Private candidate store and restart
+
+The store root is absolute, canonical, current-user-owned, and private. Managed
+directories and mutable files are `0700`/`0600`; the published candidate
+directory and files become `0500`/`0400`. Fixed managed names, no-follow
+metadata checks, one-link files, owner/mode checks, bounded directory scans,
+permission-aware removal of immutable managed directories, same-filesystem
+temporary names, fsync, and atomic rename prevent symlink, hard-link,
+path-escape, partial-publication, and duplicate-candidate confusion. Cleanup is
+confined to this dedicated root and never follows a link or removes the link
+target.
+
+The partial manifest retains authenticated metadata and resume identity. On
+process restart, Mish re-verifies that metadata before exposing `available` or
+a typed `failed: interrupted` resumable state. A ready candidate is reconstructed
+only after rechecking private ownership/mode/link count, exact size, SHA-256,
+and Minisign over the immutable payload. Foreign, corrupt, stale, overlong, or
+unrecognized managed state is removed within a bounded scan. Unrelated files
+outside the store remain untouched.
 
 ## Provenance and diagnostics
 
@@ -108,15 +194,26 @@ fixture payload is plain text, not an application archive. Its private key is
 not stored, the key is not trusted by a shipped build, and fixture execution
 performs no Apple, GitHub, or third-party network action.
 
-## Later live boundaries
+## Deterministic verification
+
+`cargo test -p mish-updater` uses only the repository signing fixtures and a
+loopback fixture server. It covers success, exact Range resume, no-Range
+restart, cancellation, timeout, redirect rejection, metadata/body caps,
+truncated/corrupt payloads, signature and identity failure, replay, concurrent
+operation keys, monotonic replay high-water behavior, restart recovery,
+immutable ready recovery and removal, symlink/hard-link rejection, and bounded
+cleanup. Desktop bridge tests prove that simultaneous and reconnecting clients
+observe one updater authority and revision. Web tests prove that the RPC client
+accepts only newer nested revisions and never replays check/download/cancel
+during reconnect.
+
+## Later live and installation boundaries
 
 The following remain unavailable and require separate review and hands-on
 acceptance:
 
 - updater signing-key custody and rotation;
-- production public-key and channel endpoint configuration;
-- bounded, cancellable, restartable download;
-- durable replay state and download recovery;
+- production public-key and channel endpoint enablement;
 - pre-replacement System Proxy reconciliation and recovery authority;
 - application replacement, rollback, and prior-app preservation;
 - relaunch and expected-version observation; and
