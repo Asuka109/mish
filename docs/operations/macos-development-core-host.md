@@ -32,13 +32,22 @@ pnpm desktop:dev:tart-tun
 The authenticated acceptance harness may then activate only
 `fictional-tart.yaml`. Before considering activation Applied, require a
 root-owned pinned Core plus a correlated Mish-owned `utun`, the complete
-managed route partition, and the fixed DNS effect. Confirm public HTTP traffic
-through Mish with System Proxy disabled.
+managed route partition, and the managed DNS effect on the one eligible
+Wi-Fi/Ethernet service selected by the guest's actual default route. Record the
+stable SystemConfiguration service identifier, BSD interface, exact prior DNS
+servers, route table, scoped `.local` resolver, and System Proxy digest before
+activation. Confirm public HTTP traffic through Mish with System Proxy
+disabled, then confirm the pre-existing physical-interface route still handles
+the guest LAN and that a `.local` Bonjour target such as a fictional guest
+fixture remains reachable.
 
 Exercise disable, normal Quit, forced app termination, helper and Core exit,
-sleep/wake, network change, and one failed activation. Each case must clean up
-or expose bounded recoverable drift; desired state alone must never appear idle
-or Applied. Capture a redacted report, then remove the service:
+sleep/wake, network change, service replacement, foreign DNS, and one failed
+activation. Each case must either restore the exact prior DNS and Mish-owned
+network transaction or expose bounded recovery-required drift. A changed
+service identity or foreign current DNS must never be overwritten; desired
+state alone must never appear idle or Applied. Capture a redacted report, then
+remove the service:
 
 ```sh
 pnpm macos:tun:uninstall:tart
@@ -46,8 +55,9 @@ pnpm macos:tun:status
 ```
 
 Verify the prior DNS and System Proxy state are restored and that no Mish-owned
-interface, route, Core, helper socket, receipt, or installed privileged file
-remains. Finally stop and delete only the disposable clone.
+interface, route, Core, helper socket, network-recovery record, receipt, or
+installed privileged file remains. Finally stop and delete only the disposable
+clone.
 
 ## Machine checks
 

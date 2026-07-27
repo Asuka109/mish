@@ -45,6 +45,16 @@ use crate::{
     },
 };
 
+mod network_ownership;
+
+use network_ownership::{
+    MacOsTunNetworkController, NetworkApplyFailure, NetworkOwnershipObservation,
+    NetworkOwnershipSnapshot, NetworkRecoveryJournal, TunNetworkController,
+    apply_network_transaction, encode_watchdog_dns, restore_network_transaction,
+    restore_network_transaction_if_recorded,
+};
+pub use network_ownership::{ManagedDnsState, parse_watchdog_dns};
+
 pub const DEV_TUN_SERVICE_LABEL: &str = "com.asuka109.mish.tun-helper.dev";
 pub const DEV_TUN_SERVICE_CORE_PATH: &str =
     "/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev";
@@ -111,8 +121,6 @@ const TUN_ROUTE_LIMIT: usize = 512;
 const TUN_DNS_RESOLVER_LIMIT: usize = 64;
 const TUN_DNS_NAMESERVER_LIMIT: usize = 8;
 const TUN_OWNED_INTERFACE_LIMIT: usize = 4;
-const TART_MANAGED_DNS_ADDRESS: &str = "198.18.0.1";
-const TART_NETWORK_SERVICE: &str = "Ethernet";
 #[cfg(target_os = "macos")]
 const PROCESS_FD_LIMIT: usize = 4_096;
 
@@ -292,11 +300,14 @@ struct TunSystemInterface {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct TunSystemRoute {
     destination: String,
+    flags: String,
+    gateway: String,
     interface: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct TunSystemDnsResolver {
+    domains: Vec<String>,
     interface: Option<String>,
     nameservers: Vec<IpAddr>,
     port: u16,
@@ -591,7 +602,14 @@ fn parse_tun_routes(output: &str) -> Result<Vec<TunSystemRoute>, ()> {
             continue;
         }
         let interface = fields[3];
-        if !valid_interface_name(interface) || fields[0].len() > 64 {
+        if !valid_interface_name(interface)
+            || fields[0].len() > 64
+            || fields[1].len() > 128
+            || fields[2].len() > 64
+            || fields[..3]
+                .iter()
+                .any(|field| field.chars().any(char::is_control))
+        {
             continue;
         }
         if routes.len() >= TUN_ROUTE_LIMIT {
@@ -599,6 +617,8 @@ fn parse_tun_routes(output: &str) -> Result<Vec<TunSystemRoute>, ()> {
         }
         routes.push(TunSystemRoute {
             destination: fields[0].to_owned(),
+            flags: fields[2].to_owned(),
+            gateway: fields[1].to_owned(),
             interface: interface.to_owned(),
         });
     }
@@ -639,6 +659,7 @@ fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()
         if line.starts_with("resolver #") {
             finish_resolver(&mut resolvers, &mut current)?;
             current = Some(TunSystemDnsResolver {
+                domains: Vec::new(),
                 interface: None,
                 nameservers: Vec::new(),
                 port: 53,
@@ -658,6 +679,23 @@ fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()
                     return Err(());
                 }
                 resolver.nameservers.push(nameserver);
+            }
+            continue;
+        }
+        if line.starts_with("domain") || line.starts_with("search domain[") {
+            let resolver = current.as_mut().ok_or(())?;
+            let value = line
+                .split_once(':')
+                .map(|(_, value)| value.trim().trim_end_matches('.'))
+                .filter(|value| {
+                    !value.is_empty() && value.len() <= 253 && !value.chars().any(char::is_control)
+                })
+                .ok_or(())?;
+            if !resolver.domains.iter().any(|domain| domain == value) {
+                if resolver.domains.len() >= 16 {
+                    return Err(());
+                }
+                resolver.domains.push(value.to_owned());
             }
             continue;
         }
@@ -1510,6 +1548,7 @@ pub struct TunServiceConfig {
     pub runtime_root: PathBuf,
     pub socket_path: PathBuf,
     pub spawn_watchdog: bool,
+    network_controller: Arc<dyn TunNetworkController>,
     observer: Arc<dyn TunSystemObserver>,
 }
 
@@ -1560,6 +1599,7 @@ impl TunServiceConfig {
             runtime_root: required_path("MISH_TUN_SERVICE_RUNTIME_ROOT")?,
             socket_path: required_path("MISH_TUN_SERVICE_SOCKET")?,
             spawn_watchdog: true,
+            network_controller: Arc::new(MacOsTunNetworkController::new()),
             observer: Arc::new(MacOsTunSystemObserver::new()),
         })
     }
@@ -1602,18 +1642,15 @@ struct OwnedTunInterface {
 
 struct ServiceTunOwnership {
     baseline_interfaces: Vec<String>,
-    dns: Option<ManagedDnsState>,
     dns_applied: bool,
     interface: Option<OwnedTunInterface>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ManagedDnsState {
-    prior_servers: Vec<IpAddr>,
+    network: Option<NetworkOwnershipSnapshot>,
+    routes: Option<Vec<TunSystemRoute>>,
 }
 
 #[derive(Default)]
 struct ServiceState {
+    pending_network_recovery: Option<Result<ManagedDnsState, ()>>,
     process: Option<ServiceProcess>,
     tun: Option<ServiceTunOwnership>,
 }
@@ -1639,11 +1676,13 @@ struct ServiceContext {
     allow_tun: bool,
     enrollment: Arc<InstallationEnrollmentRecord>,
     installation_id: Arc<str>,
+    network_recovery: NetworkRecoveryJournal,
     observer: Arc<dyn TunSystemObserver>,
+    network_controller: Arc<dyn TunNetworkController>,
     pinned_binary_sha256: String,
     pinned_version: String,
     request_gate: Arc<Mutex<ServiceRequestGate>>,
-    manage_tart_dns: bool,
+    manage_network: bool,
     runtime_root: PathBuf,
     sealed_root: PathBuf,
     spawn_watchdog: bool,
@@ -1745,6 +1784,32 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         config.require_root,
         &config.installation_id,
     )?;
+    let recovery_owner_uid = if config.require_root {
+        0
+    } else {
+        config.allowed_uid
+    };
+    let network_recovery =
+        NetworkRecoveryJournal::for_enrollment(&config.enrollment_record, recovery_owner_uid)
+            .map_err(|_| "the network recovery path was invalid")?;
+    let pending_network_recovery = match network_recovery.load() {
+        Ok(Some(recovery)) => {
+            if restore_network_transaction(
+                config.network_controller.as_ref(),
+                &network_recovery,
+                &recovery,
+            )
+            .await
+            .is_ok()
+            {
+                None
+            } else {
+                Some(Ok(recovery))
+            }
+        }
+        Ok(None) => None,
+        Err(()) => Some(Err(())),
+    };
     let sealed_root = PathBuf::from(format!("{}.state", config.socket_path.display()));
     reset_sealed_root(&sealed_root, config.allowed_uid, config.require_root)?;
     if let Ok(metadata) = fs::symlink_metadata(&config.socket_path) {
@@ -1769,15 +1834,21 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         allow_tun: config.allow_tun,
         enrollment: Arc::new(enrollment),
         installation_id: config.installation_id.into(),
+        network_controller: config.network_controller,
+        network_recovery,
         observer: config.observer,
         pinned_binary_sha256: config.pinned_binary_sha256,
         pinned_version: config.pinned_version,
         request_gate: Arc::new(Mutex::new(ServiceRequestGate::default())),
-        manage_tart_dns: config.allow_tun && config.require_root,
+        manage_network: config.allow_tun && config.require_root,
         runtime_root,
         sealed_root,
         spawn_watchdog: config.spawn_watchdog,
-        state: Arc::new(Mutex::new(ServiceState::default())),
+        state: Arc::new(Mutex::new(ServiceState {
+            pending_network_recovery,
+            process: None,
+            tun: None,
+        })),
     };
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -1795,7 +1866,11 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
                     .as_ref()
                     .is_some_and(|process| !process_alive(process.owner_pid))
                 {
-                    stop_process(&mut state)
+                    stop_process(
+                        &mut state,
+                        context.network_controller.as_ref(),
+                        &context.network_recovery,
+                    )
                         .await
                         .map_err(|_| "orphaned managed Core cleanup failed")?;
                 }
@@ -1818,9 +1893,20 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         });
     }
     let mut state = context.state.lock().await;
-    stop_process(&mut state)
-        .await
-        .map_err(|_| "managed Core cleanup failed")?;
+    restore_pending_network_recovery(
+        &mut state,
+        context.network_controller.as_ref(),
+        &context.network_recovery,
+    )
+    .await
+    .map_err(|_| "pending network recovery failed")?;
+    stop_process(
+        &mut state,
+        context.network_controller.as_ref(),
+        &context.network_recovery,
+    )
+    .await
+    .map_err(|_| "managed Core cleanup failed")?;
     drop(state);
     fs::remove_file(&config.socket_path).map_err(|_| "socket cleanup failed")?;
     fs::remove_dir(&context.sealed_root).map_err(|_| "sealed config cleanup failed")?;
@@ -2070,7 +2156,9 @@ async fn execute_request(
     let allowed_uid = context.allowed_uid;
     let allow_tun = context.allow_tun;
     let installation_id = context.installation_id.as_ref();
-    let manage_tart_dns = context.manage_tart_dns;
+    let manage_network = context.manage_network;
+    let network_controller = &context.network_controller;
+    let network_recovery = &context.network_recovery;
     let observer = &context.observer;
     let pinned_binary_sha256 = context.pinned_binary_sha256.as_str();
     let pinned_version = context.pinned_version.as_str();
@@ -2080,10 +2168,24 @@ async fn execute_request(
     let state = &context.state;
     match command {
         ServiceCommand::Health | ServiceCommand::Status => {
-            status_response(state, installation_id, observer).await
+            status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await
         }
         ServiceCommand::Observe { launch_token } => {
-            let status = status_response(state, installation_id, observer).await;
+            let status = status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await;
             if status
                 .status
                 .core
@@ -2106,7 +2208,14 @@ async fn execute_request(
             launch_token,
             port,
         } => {
-            let status = status_response(state, installation_id, observer).await;
+            let status = status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await;
             let owns = status.status.core.as_ref().is_some_and(|core| {
                 core.launch_token == launch_token
                     && owns_listener(core.pid, &host, port).unwrap_or(false)
@@ -2129,6 +2238,14 @@ async fn execute_request(
             expected_version,
             launch_token,
         } => {
+            if state.lock().await.pending_network_recovery.is_some() {
+                return ServiceResponse::error(
+                    ServiceDiagnosticCode::SpawnFailed,
+                    None,
+                    unknown_tun_observation(),
+                    installation_id,
+                );
+            }
             if !valid_token(&launch_token)
                 || !valid_version(&expected_version)
                 || validate_launch_paths(
@@ -2202,8 +2319,11 @@ async fn execute_request(
                     installation_id,
                 );
             }
-            let managed_dns = if tun_requested && manage_tart_dns {
-                match observe_tart_dns() {
+            let managed_network = if tun_requested && manage_network {
+                match network_controller
+                    .snapshot(baseline.as_ref().expect("checked baseline"))
+                    .await
+                {
                     Ok(state) => Some(state),
                     Err(()) => {
                         return ServiceResponse::error(
@@ -2218,7 +2338,12 @@ async fn execute_request(
                 None
             };
             let mut service_state = state.lock().await;
-            reap_if_exited(&mut service_state);
+            reap_if_exited(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await;
             let correlation = current_tun_correlation(&service_state, observer.as_ref());
             if let Ok(system) = &baseline {
                 let observation =
@@ -2302,7 +2427,8 @@ async fn execute_request(
                 );
             }
             let watchdog = if spawn_watchdog {
-                match spawn_core_watchdog(pid, managed_dns.as_ref()) {
+                match spawn_core_watchdog(pid, managed_network.as_ref().map(|network| &network.dns))
+                {
                     Ok(watchdog) => Some(watchdog),
                     Err(()) => {
                         let _ = child.start_kill();
@@ -2338,17 +2464,30 @@ async fn execute_request(
                     .collect();
                 service_state.tun = Some(ServiceTunOwnership {
                     baseline_interfaces,
-                    dns: managed_dns,
                     dns_applied: false,
                     interface: None,
+                    network: managed_network,
+                    routes: None,
                 });
             }
             drop(service_state);
-            status_response(state, installation_id, observer).await
+            status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await
         }
         ServiceCommand::Enable => {
             let mut service_state = state.lock().await;
-            reap_if_exited(&mut service_state);
+            reap_if_exited(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await;
             if service_state
                 .process
                 .as_ref()
@@ -2362,24 +2501,84 @@ async fn execute_request(
                     installation_id,
                 );
             }
-            let tun = service_state.tun.as_mut().expect("checked TUN ownership");
-            if tun.dns.is_some() && !tun.dns_applied {
-                if apply_tart_dns().is_err() {
+            let pending_network = service_state
+                .tun
+                .as_ref()
+                .filter(|tun| !tun.dns_applied)
+                .and_then(|tun| tun.network.clone());
+            if let Some(network) = pending_network.as_ref() {
+                let correlation_before = current_tun_correlation(&service_state, observer.as_ref());
+                let system = match observer.observe().await {
+                    Ok(system) => system,
+                    Err(()) => {
+                        return ServiceResponse::error(
+                            ServiceDiagnosticCode::SpawnFailed,
+                            service_state.status(),
+                            unknown_tun_observation(),
+                            installation_id,
+                        );
+                    }
+                };
+                let correlation_after = current_tun_correlation(&service_state, observer.as_ref());
+                let correlation = stable_tun_correlation(correlation_before, correlation_after);
+                let precondition =
+                    service_state.tun_observation(&system, correlation_result(&correlation));
+                if !confirms_network_apply_precondition(&precondition) {
                     return ServiceResponse::error(
                         ServiceDiagnosticCode::SpawnFailed,
                         service_state.status(),
-                        unknown_tun_observation(),
+                        precondition,
                         installation_id,
                     );
                 }
-                tun.dns_applied = true;
+                match apply_network_transaction(
+                    network_controller.as_ref(),
+                    network_recovery,
+                    network,
+                    &system,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        service_state
+                            .tun
+                            .as_mut()
+                            .expect("checked TUN ownership")
+                            .dns_applied = true;
+                    }
+                    Err(failure) => {
+                        service_state
+                            .tun
+                            .as_mut()
+                            .expect("checked TUN ownership")
+                            .dns_applied = failure == NetworkApplyFailure::RecoveryRequired;
+                        return ServiceResponse::error(
+                            ServiceDiagnosticCode::SpawnFailed,
+                            service_state.status(),
+                            unknown_tun_observation(),
+                            installation_id,
+                        );
+                    }
+                }
             }
             drop(service_state);
-            status_response(state, installation_id, observer).await
+            status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await
         }
         ServiceCommand::Stop { launch_token } => {
             let mut service_state = state.lock().await;
-            reap_if_exited(&mut service_state);
+            reap_if_exited(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await;
             if service_state.process.as_ref().is_some_and(|process| {
                 process.launch_token != launch_token || process.owner_pid != peer_pid
             }) {
@@ -2390,7 +2589,14 @@ async fn execute_request(
                     installation_id,
                 );
             }
-            if stop_process(&mut service_state).await.is_err() {
+            if stop_process(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await
+            .is_err()
+            {
                 return ServiceResponse::error(
                     ServiceDiagnosticCode::StopFailed,
                     service_state.status(),
@@ -2399,7 +2605,14 @@ async fn execute_request(
                 );
             }
             drop(service_state);
-            status_response(state, installation_id, observer).await
+            status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await
         }
         ServiceCommand::Disable | ServiceCommand::StopAll => {
             let mut service_state = state.lock().await;
@@ -2413,7 +2626,21 @@ async fn execute_request(
                     installation_id,
                 );
             }
-            if stop_process(&mut service_state).await.is_err() {
+            if restore_pending_network_recovery(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await
+            .is_err()
+                || stop_process(
+                    &mut service_state,
+                    network_controller.as_ref(),
+                    network_recovery,
+                )
+                .await
+                .is_err()
+            {
                 return ServiceResponse::error(
                     ServiceDiagnosticCode::StopFailed,
                     service_state.status(),
@@ -2422,7 +2649,14 @@ async fn execute_request(
                 );
             }
             drop(service_state);
-            status_response(state, installation_id, observer).await
+            status_response(
+                state,
+                installation_id,
+                observer,
+                network_controller,
+                network_recovery,
+            )
+            .await
         }
     }
 }
@@ -2622,7 +2856,7 @@ impl ServiceState {
                 });
             }
         }
-        let Some(owned) = ownership.interface.as_ref() else {
+        let Some(owned) = ownership.interface.clone() else {
             let state = if candidates.is_empty() {
                 TunObservationComponentState::Absent
             } else {
@@ -2645,12 +2879,17 @@ impl ServiceState {
             .addresses
             .iter()
             .any(|address| address.contains(':') && !address.starts_with("fe80:"));
-        let expected_routes = 8 + usize::from(ipv6_required) * 8;
-        let route_count = required_route_count(system, &owned.name, ipv6_required);
-        let routes = match route_count {
-            0 => TunObservationComponentState::Absent,
-            count if count == expected_routes => TunObservationComponentState::Confirmed,
-            _ => TunObservationComponentState::Partial,
+        let routes = match managed_route_fingerprint(system, &owned.name, ipv6_required) {
+            Ok(None) => TunObservationComponentState::Absent,
+            Ok(Some(current)) => match ownership.routes.as_ref() {
+                None => {
+                    ownership.routes = Some(current);
+                    TunObservationComponentState::Confirmed
+                }
+                Some(expected) if expected == &current => TunObservationComponentState::Confirmed,
+                Some(_) => TunObservationComponentState::Foreign,
+            },
+            Err(()) => TunObservationComponentState::Partial,
         };
         let dns = if ownership.dns_applied && current.is_none() {
             TunObservationComponentState::Partial
@@ -2659,6 +2898,77 @@ impl ServiceState {
         };
         TunNetworkObservation::new(core, interface, routes, dns, tun_observation_now())
     }
+
+    fn tun_observation_with_network(
+        &mut self,
+        system: &TunSystemSnapshot,
+        correlated_sockets: Option<Result<&[OwnedTunSocket], ()>>,
+        network: Option<Result<NetworkOwnershipObservation, ()>>,
+    ) -> TunNetworkObservation {
+        let (manages_network, dns_applied) = self
+            .tun
+            .as_ref()
+            .map(|ownership| (ownership.network.is_some(), ownership.dns_applied))
+            .unwrap_or((false, false));
+        let mut observation = self.tun_observation(system, correlated_sockets);
+        if !manages_network {
+            return observation;
+        }
+        let network = match network {
+            Some(Ok(network)) => network,
+            Some(Err(())) | None => NetworkOwnershipObservation {
+                dns: TunObservationComponentState::Unknown,
+                routes: TunObservationComponentState::Unknown,
+            },
+        };
+        observation.dns = managed_network_dns_observation(
+            observation.core,
+            observation.dns,
+            network.dns,
+            dns_applied,
+        );
+        if observation.routes == TunObservationComponentState::Confirmed
+            && network.routes != TunObservationComponentState::Confirmed
+        {
+            observation.routes = network.routes;
+        }
+        observation
+    }
+}
+
+fn managed_network_dns_observation(
+    core: TunObservationComponentState,
+    packet_path: TunObservationComponentState,
+    transaction: TunObservationComponentState,
+    dns_applied: bool,
+) -> TunObservationComponentState {
+    if !dns_applied && core == TunObservationComponentState::Confirmed {
+        return match transaction {
+            TunObservationComponentState::Foreign => TunObservationComponentState::Foreign,
+            TunObservationComponentState::Unknown => TunObservationComponentState::Unknown,
+            _ => TunObservationComponentState::Partial,
+        };
+    }
+    if packet_path == TunObservationComponentState::Confirmed
+        && transaction != TunObservationComponentState::Confirmed
+    {
+        return transaction;
+    }
+    if dns_applied && packet_path == TunObservationComponentState::Absent {
+        return if transaction == TunObservationComponentState::Confirmed {
+            TunObservationComponentState::Partial
+        } else {
+            transaction
+        };
+    }
+    packet_path
+}
+
+fn confirms_network_apply_precondition(observation: &TunNetworkObservation) -> bool {
+    observation.is_fresh_at(tun_observation_now())
+        && observation.core == TunObservationComponentState::Confirmed
+        && observation.interface == TunObservationComponentState::Confirmed
+        && observation.routes == TunObservationComponentState::Confirmed
 }
 
 const REQUIRED_IPV4_ROUTES: &[&[&str]] = &[
@@ -2695,6 +3005,53 @@ fn required_route_count(system: &TunSystemSnapshot, interface: &str, ipv6: bool)
             .count()
     };
     count(REQUIRED_IPV4_ROUTES) + usize::from(ipv6) * count(REQUIRED_IPV6_ROUTES)
+}
+
+fn managed_route_fingerprint(
+    system: &TunSystemSnapshot,
+    interface: &str,
+    ipv6: bool,
+) -> Result<Option<Vec<TunSystemRoute>>, ()> {
+    let required = REQUIRED_IPV4_ROUTES
+        .iter()
+        .chain(ipv6.then_some(REQUIRED_IPV6_ROUTES).into_iter().flatten());
+    let mut routes = Vec::new();
+    let mut missing = false;
+    for destinations in required {
+        let matches = system
+            .routes
+            .iter()
+            .filter(|route| {
+                route.interface == interface && destinations.contains(&route.destination.as_str())
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => missing = true,
+            [route] => routes.push((*route).clone()),
+            _ => return Err(()),
+        }
+    }
+    if routes.is_empty() {
+        return Ok(None);
+    }
+    if missing {
+        return Err(());
+    }
+    routes.sort_by(|left, right| {
+        (
+            &left.destination,
+            &left.gateway,
+            &left.flags,
+            &left.interface,
+        )
+            .cmp(&(
+                &right.destination,
+                &right.gateway,
+                &right.flags,
+                &right.interface,
+            ))
+    });
+    Ok(Some(routes))
 }
 
 fn is_utun(value: &str) -> bool {
@@ -2751,15 +3108,53 @@ async fn status_response(
     state: &Mutex<ServiceState>,
     installation_id: &str,
     observer: &Arc<dyn TunSystemObserver>,
+    network_controller: &Arc<dyn TunNetworkController>,
+    network_recovery: &NetworkRecoveryJournal,
 ) -> ServiceResponse {
     let mut state = state.lock().await;
-    reap_if_exited(&mut state);
+    reap_if_exited(&mut state, network_controller.as_ref(), network_recovery).await;
+    let pending_recovery_dns = match state.pending_network_recovery.as_ref() {
+        Some(Ok(recovery)) => Some(
+            network_controller
+                .observe_recovery(recovery)
+                .await
+                .unwrap_or(TunObservationComponentState::Unknown),
+        ),
+        Some(Err(())) => Some(TunObservationComponentState::Unknown),
+        None => None,
+    };
     let correlation_before = current_tun_correlation(&state, observer.as_ref());
     let system = observer.observe().await;
     let correlation_after = current_tun_correlation(&state, observer.as_ref());
     let correlation = stable_tun_correlation(correlation_before, correlation_after);
-    let observation = match system {
-        Ok(system) => state.tun_observation(&system, correlation_result(&correlation)),
+    let network_observation = match (
+        system.as_ref(),
+        state
+            .tun
+            .as_ref()
+            .and_then(|ownership| ownership.network.as_ref()),
+    ) {
+        (Ok(system), Some(network)) => Some(
+            network_controller
+                .observe(
+                    network,
+                    system,
+                    state
+                        .tun
+                        .as_ref()
+                        .is_some_and(|ownership| ownership.dns_applied),
+                )
+                .await,
+        ),
+        (_, Some(_)) => Some(Err(())),
+        (_, None) => None,
+    };
+    let mut observation = match system {
+        Ok(system) => state.tun_observation_with_network(
+            &system,
+            correlation_result(&correlation),
+            network_observation,
+        ),
         Err(()) => {
             let mut observation = unknown_tun_observation();
             observation.core = if state.process.is_some() && state.tun.is_some() {
@@ -2770,8 +3165,16 @@ async fn status_response(
             observation
         }
     };
+    if let Some(recovery_dns) = pending_recovery_dns {
+        observation.dns = if recovery_dns == TunObservationComponentState::Confirmed {
+            TunObservationComponentState::Partial
+        } else {
+            recovery_dns
+        };
+    }
     if observation.confirms_disabled_at(tun_observation_now())
         && state.process.is_none()
+        && state.pending_network_recovery.is_none()
         && state
             .tun
             .as_ref()
@@ -2816,7 +3219,11 @@ fn unknown_tun_observation() -> TunNetworkObservation {
     TunNetworkObservation::unknown(tun_observation_now())
 }
 
-fn reap_if_exited(state: &mut ServiceState) {
+async fn reap_if_exited(
+    state: &mut ServiceState,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+) {
     if state
         .process
         .as_mut()
@@ -2825,8 +3232,10 @@ fn reap_if_exited(state: &mut ServiceState) {
         let process = state.process.take().expect("exited process must exist");
         if let Some(ownership) = state.tun.as_mut()
             && ownership.dns_applied
-            && let Some(dns) = ownership.dns.as_ref()
-            && restore_tart_dns(dns).is_ok()
+            && let Some(network) = ownership.network.as_ref()
+            && restore_network_transaction(network_controller, network_recovery, &network.dns)
+                .await
+                .is_ok()
         {
             ownership.dns_applied = false;
         }
@@ -2855,8 +3264,8 @@ fn spawn_core_watchdog(
         .arg(core_pid.to_string());
     if let Some(managed_dns) = managed_dns {
         command
-            .arg("--restore-tart-dns")
-            .arg(encode_watchdog_dns(managed_dns));
+            .arg("--restore-managed-network")
+            .arg(encode_watchdog_dns(managed_dns).map_err(|_| ())?);
     }
     let output = command.output().map_err(|_| ())?;
     if !output.status.success() || output.stdout.len() > 4_096 || output.stderr.len() > 4_096 {
@@ -2886,17 +3295,23 @@ pub async fn run_core_watchdog(
     {
         return Err("invalid Core watchdog identity");
     }
+    let network_controller = MacOsTunNetworkController::new();
+    let network_recovery = NetworkRecoveryJournal::development_root();
     loop {
         if !process_alive(core_pid) {
             if let Some(managed_dns) = &managed_dns {
-                restore_tart_dns_with_retry(managed_dns).await?;
+                restore_managed_dns_with_retry(&network_controller, &network_recovery, managed_dns)
+                    .await?;
             }
             return Ok(());
         }
         if !process_alive(expected_parent) {
-            if let Some(managed_dns) = &managed_dns {
-                restore_tart_dns_with_retry(managed_dns).await?;
-            }
+            let restoration = if let Some(managed_dns) = &managed_dns {
+                restore_managed_dns_with_retry(&network_controller, &network_recovery, managed_dns)
+                    .await
+            } else {
+                Ok(())
+            };
             // SAFETY: signal is sent only to the positive Core PID supplied by the helper.
             let _ = unsafe { libc::kill(core_pid as i32, libc::SIGTERM) };
             let deadline = tokio::time::Instant::now() + FORCED_STOP_TIMEOUT;
@@ -2907,26 +3322,74 @@ pub async fn run_core_watchdog(
                 // SAFETY: the bounded graceful period expired for the same Core PID.
                 let _ = unsafe { libc::kill(core_pid as i32, libc::SIGKILL) };
             }
-            return Ok(());
+            return restoration;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
 
-async fn stop_process(state: &mut ServiceState) -> Result<(), ()> {
-    stop_process_with_timeouts(state, BOUNDED_STEP_TIMEOUT, FORCED_STOP_TIMEOUT).await
+pub async fn recover_managed_network_record(
+    enrollment_record: &Path,
+    owner_uid: u32,
+) -> Result<(), &'static str> {
+    let network_recovery = NetworkRecoveryJournal::for_enrollment(enrollment_record, owner_uid)
+        .map_err(|_| "the network recovery path was invalid")?;
+    let Some(recovery) = network_recovery
+        .load()
+        .map_err(|_| "the network recovery record was invalid")?
+    else {
+        return Ok(());
+    };
+    restore_network_transaction(
+        &MacOsTunNetworkController::new(),
+        &network_recovery,
+        &recovery,
+    )
+    .await
+    .map_err(|_| "the managed network could not be restored")
+}
+
+async fn stop_process(
+    state: &mut ServiceState,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+) -> Result<(), ()> {
+    stop_process_with_timeouts(
+        state,
+        network_controller,
+        network_recovery,
+        BOUNDED_STEP_TIMEOUT,
+        FORCED_STOP_TIMEOUT,
+    )
+    .await
+}
+
+async fn restore_pending_network_recovery(
+    state: &mut ServiceState,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+) -> Result<(), ()> {
+    let Some(recovery) = state.pending_network_recovery.as_ref() else {
+        return Ok(());
+    };
+    let recovery = recovery.as_ref().map_err(|_| ())?.clone();
+    restore_network_transaction(network_controller, network_recovery, &recovery).await?;
+    state.pending_network_recovery = None;
+    Ok(())
 }
 
 async fn stop_process_with_timeouts(
     state: &mut ServiceState,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
     graceful_timeout: Duration,
     forced_timeout: Duration,
 ) -> Result<(), ()> {
     if let Some(ownership) = state.tun.as_mut()
         && ownership.dns_applied
-        && let Some(dns) = ownership.dns.as_ref()
+        && let Some(network) = ownership.network.as_ref()
     {
-        restore_tart_dns(dns)?;
+        restore_network_transaction(network_controller, network_recovery, &network.dns).await?;
         ownership.dns_applied = false;
     }
     let Some(mut process) = state.process.take() else {
@@ -2961,106 +3424,21 @@ async fn stop_process_with_timeouts(
     Ok(())
 }
 
-fn observe_tart_dns() -> Result<ManagedDnsState, ()> {
-    let output = StdCommand::new("/usr/sbin/networksetup")
-        .args(["-getdnsservers", TART_NETWORK_SERVICE])
-        .output()
-        .map_err(|_| ())?;
-    if !output.status.success() || output.stdout.len() > 4_096 || !output.stderr.is_empty() {
-        return Err(());
-    }
-    parse_tart_dns_output(&String::from_utf8(output.stdout).map_err(|_| ())?)
-        .map(|prior_servers| ManagedDnsState { prior_servers })
-}
-
-fn parse_tart_dns_output(output: &str) -> Result<Vec<IpAddr>, ()> {
-    let output = output.trim();
-    if output == format!("There aren't any DNS Servers set on {TART_NETWORK_SERVICE}.") {
-        return Ok(Vec::new());
-    }
-    let servers = output
-        .lines()
-        .map(str::trim)
-        .map(str::parse::<IpAddr>)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| ())?;
-    if servers.is_empty() || servers.len() > TUN_DNS_NAMESERVER_LIMIT {
-        return Err(());
-    }
-    Ok(servers)
-}
-
-fn apply_tart_dns() -> Result<(), ()> {
-    set_tart_dns(&[TART_MANAGED_DNS_ADDRESS
-        .parse()
-        .expect("fixed Tart DNS address is valid")])
-}
-
-fn restore_tart_dns(state: &ManagedDnsState) -> Result<(), ()> {
-    set_tart_dns(&state.prior_servers)
-}
-
-fn set_tart_dns(servers: &[IpAddr]) -> Result<(), ()> {
-    if servers.len() > TUN_DNS_NAMESERVER_LIMIT {
-        return Err(());
-    }
-    let mut command = StdCommand::new("/usr/sbin/networksetup");
-    command.arg("-setdnsservers").arg(TART_NETWORK_SERVICE);
-    if servers.is_empty() {
-        command.arg("Empty");
-    } else {
-        command.args(servers.iter().map(IpAddr::to_string));
-    }
-    let output = command.output().map_err(|_| ())?;
-    if !output.status.success() || output.stdout.len() > 4_096 || output.stderr.len() > 4_096 {
-        return Err(());
-    }
-    let observed = observe_tart_dns()?;
-    if observed.prior_servers == servers {
-        Ok(())
-    } else {
-        Err(())
-    }
-}
-
-async fn restore_tart_dns_with_retry(state: &ManagedDnsState) -> Result<(), &'static str> {
+async fn restore_managed_dns_with_retry(
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+    state: &ManagedDnsState,
+) -> Result<(), &'static str> {
     for _ in 0..5 {
-        if restore_tart_dns(state).is_ok() {
+        if restore_network_transaction_if_recorded(network_controller, network_recovery, state)
+            .await
+            .is_ok()
+        {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    Err("managed Tart DNS restoration failed")
-}
-
-fn encode_watchdog_dns(state: &ManagedDnsState) -> String {
-    if state.prior_servers.is_empty() {
-        "automatic".to_owned()
-    } else {
-        state
-            .prior_servers
-            .iter()
-            .map(IpAddr::to_string)
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-}
-
-pub fn parse_watchdog_dns(value: &str) -> Result<ManagedDnsState, &'static str> {
-    if value == "automatic" {
-        return Ok(ManagedDnsState {
-            prior_servers: Vec::new(),
-        });
-    }
-    let prior_servers = value
-        .split(',')
-        .map(str::parse::<IpAddr>)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "invalid managed Tart DNS restoration state")?;
-    if prior_servers.is_empty() || prior_servers.len() > TUN_DNS_NAMESERVER_LIMIT {
-        return Err("invalid managed Tart DNS restoration state");
-    }
-    Ok(ManagedDnsState { prior_servers })
+    Err("managed network DNS restoration failed")
 }
 
 fn validate_regular_file(
@@ -3451,32 +3829,6 @@ mod tests {
     }
 
     #[test]
-    fn tart_dns_state_is_bounded_and_round_trips_through_the_watchdog_boundary() {
-        assert_eq!(
-            parse_tart_dns_output("There aren't any DNS Servers set on Ethernet.\n").unwrap(),
-            Vec::<IpAddr>::new()
-        );
-        assert_eq!(
-            parse_tart_dns_output("192.0.2.53\n2001:db8::53\n").unwrap(),
-            [
-                "192.0.2.53".parse::<IpAddr>().unwrap(),
-                "2001:db8::53".parse::<IpAddr>().unwrap()
-            ]
-        );
-        for invalid in ["", "not-an-address", "192.0.2.1 extra"] {
-            assert!(parse_tart_dns_output(invalid).is_err());
-        }
-
-        let automatic = parse_watchdog_dns("automatic").unwrap();
-        assert!(automatic.prior_servers.is_empty());
-        let explicit = parse_watchdog_dns("192.0.2.53,2001:db8::53").unwrap();
-        assert_eq!(encode_watchdog_dns(&explicit), "192.0.2.53,2001:db8::53");
-        for invalid in ["", "automatic,192.0.2.53", "not-an-address"] {
-            assert!(parse_watchdog_dns(invalid).is_err());
-        }
-    }
-
-    #[test]
     fn managed_runtime_launch_layout_requires_the_explicit_tart_boundary() {
         let temporary = tempfile::tempdir().unwrap();
         let binary = write_fixture_binary(temporary.path());
@@ -3510,6 +3862,7 @@ mod tests {
     fn baseline_snapshot() -> TunSystemSnapshot {
         TunSystemSnapshot {
             dns_resolvers: vec![TunSystemDnsResolver {
+                domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap()],
                 port: 53,
@@ -3526,6 +3879,8 @@ mod tests {
             ],
             routes: vec![TunSystemRoute {
                 destination: "default".into(),
+                flags: "UGScg".into(),
+                gateway: "192.168.1.1".into(),
                 interface: "en0".into(),
             }],
         }
@@ -3542,6 +3897,8 @@ mod tests {
                 .iter()
                 .map(|destinations| TunSystemRoute {
                     destination: destinations[0].into(),
+                    flags: "US".into(),
+                    gateway: "utun1".into(),
                     interface: "utun1".into(),
                 }),
         );
@@ -3559,15 +3916,17 @@ mod tests {
 
     fn tracked_state() -> ServiceState {
         ServiceState {
+            pending_network_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
-                dns: None,
                 dns_applied: false,
                 interface: Some(OwnedTunInterface {
                     addresses: vec!["198.18.0.1".into()],
                     name: "utun1".into(),
                 }),
+                network: None,
+                routes: None,
             }),
         }
     }
@@ -3587,6 +3946,8 @@ mod tests {
         .unwrap();
         assert_eq!(routes.len(), 3);
         assert_eq!(routes[0].interface, "utun7");
+        assert_eq!(routes[0].gateway, "198.18.0.1");
+        assert_eq!(routes[0].flags, "UGSc");
 
         let dns = parse_tun_dns_resolvers(
             "DNS configuration\n\nresolver #1\n  nameserver[0] : 198.18.0.2\n  if_index : 19 (utun7)\n\nresolver #2\n  nameserver[0] : 192.168.1.1\n  if_index : 4 (en0)\n",
@@ -3596,7 +3957,7 @@ mod tests {
         assert_eq!(dns[1].interface.as_deref(), Some("en0"));
 
         let resolvers = parse_tun_dns_resolvers(
-            "DNS configuration\n\nresolver #1\n  nameserver[0] : 8.8.8.8\n  if_index : 4 (en0)\n\nresolver #2\n  nameserver[0] : 224.0.0.251\n  port : 5353\n  if_index : 4 (en0)\n",
+            "DNS configuration\n\nresolver #1\n  nameserver[0] : 8.8.8.8\n  if_index : 4 (en0)\n\nresolver #2\n  domain : local.\n  nameserver[0] : 224.0.0.251\n  port : 5353\n  if_index : 4 (en0)\n",
         )
         .unwrap();
         assert_eq!(resolvers.len(), 2);
@@ -3606,6 +3967,7 @@ mod tests {
         );
         assert_eq!(resolvers[0].port, 53);
         assert_eq!(resolvers[1].port, 5353);
+        assert_eq!(resolvers[1].domains, ["local"]);
     }
 
     #[test]
@@ -3674,6 +4036,7 @@ mod tests {
     fn confirms_dns_hijack_when_system_nameserver_routes_through_owned_tun() {
         let system = TunSystemSnapshot {
             dns_resolvers: vec![TunSystemDnsResolver {
+                domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap()],
                 port: 53,
@@ -3682,10 +4045,14 @@ mod tests {
             routes: vec![
                 TunSystemRoute {
                     destination: "8/5".into(),
+                    flags: "US".into(),
+                    gateway: "utun7".into(),
                     interface: "utun7".into(),
                 },
                 TunSystemRoute {
                     destination: "default".into(),
+                    flags: "UGScg".into(),
+                    gateway: "192.168.1.1".into(),
                     interface: "en0".into(),
                 },
             ],
@@ -3701,6 +4068,7 @@ mod tests {
     fn rejects_dns_hijack_when_a_more_specific_route_bypasses_owned_tun() {
         let system = TunSystemSnapshot {
             dns_resolvers: vec![TunSystemDnsResolver {
+                domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["192.168.1.1".parse().unwrap()],
                 port: 53,
@@ -3709,10 +4077,14 @@ mod tests {
             routes: vec![
                 TunSystemRoute {
                     destination: "128/1".into(),
+                    flags: "US".into(),
+                    gateway: "utun7".into(),
                     interface: "utun7".into(),
                 },
                 TunSystemRoute {
                     destination: "192.168.1".into(),
+                    flags: "UCS".into(),
+                    gateway: "link#4".into(),
                     interface: "en0".into(),
                 },
             ],
@@ -3728,6 +4100,7 @@ mod tests {
     fn reports_partial_dns_hijack_when_only_some_nameservers_use_owned_tun() {
         let system = TunSystemSnapshot {
             dns_resolvers: vec![TunSystemDnsResolver {
+                domains: Vec::new(),
                 interface: Some("en0".into()),
                 nameservers: vec!["8.8.8.8".parse().unwrap(), "192.168.1.1".parse().unwrap()],
                 port: 53,
@@ -3736,10 +4109,14 @@ mod tests {
             routes: vec![
                 TunSystemRoute {
                     destination: "8/5".into(),
+                    flags: "US".into(),
+                    gateway: "utun7".into(),
                     interface: "utun7".into(),
                 },
                 TunSystemRoute {
                     destination: "192.168.1".into(),
+                    flags: "UCS".into(),
+                    gateway: "link#4".into(),
                     interface: "en0".into(),
                 },
             ],
@@ -3763,13 +4140,31 @@ mod tests {
         );
         assert!(!partial_observation.confirms_enabled_at(tun_observation_now()));
 
+        let mut changed_route_state = tracked_state();
+        assert_eq!(
+            changed_route_state
+                .tun_observation(&healthy_snapshot(), None)
+                .routes,
+            TunObservationComponentState::Confirmed
+        );
+        let mut changed_route = healthy_snapshot();
+        changed_route.routes[1].gateway = "198.18.0.254".into();
+        assert_eq!(
+            changed_route_state
+                .tun_observation(&changed_route, None)
+                .routes,
+            TunObservationComponentState::Foreign
+        );
+
         let mut foreign_state = ServiceState {
+            pending_network_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
-                dns: None,
                 dns_applied: false,
                 interface: None,
+                network: None,
+                routes: None,
             }),
         };
         let mut foreign = healthy_snapshot();
@@ -3792,14 +4187,94 @@ mod tests {
     }
 
     #[test]
+    fn managed_dns_never_confirms_before_the_exact_transaction_is_applied() {
+        assert_eq!(
+            managed_network_dns_observation(
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                false,
+            ),
+            TunObservationComponentState::Partial
+        );
+        assert_eq!(
+            managed_network_dns_observation(
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Foreign,
+                false,
+            ),
+            TunObservationComponentState::Foreign
+        );
+        assert_eq!(
+            managed_network_dns_observation(
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                true,
+            ),
+            TunObservationComponentState::Confirmed
+        );
+
+        let ready = TunNetworkObservation::new(
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Partial,
+            tun_observation_now(),
+        );
+        assert!(confirms_network_apply_precondition(&ready));
+        let mut incomplete = ready;
+        incomplete.routes = TunObservationComponentState::Partial;
+        assert!(!confirms_network_apply_precondition(&incomplete));
+    }
+
+    #[tokio::test]
+    async fn invalid_restart_recovery_state_never_reports_disabled() {
+        let state = Mutex::new(ServiceState {
+            pending_network_recovery: Some(Err(())),
+            process: None,
+            tun: None,
+        });
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![baseline_snapshot()],
+            Ok(Vec::new()),
+        ));
+        let controller: Arc<dyn TunNetworkController> = Arc::new(MacOsTunNetworkController::new());
+        let temporary = tempfile::tempdir().unwrap();
+        let recovery = test_network_recovery(temporary.path());
+
+        let response = status_response(&state, "fixture", &observer, &controller, &recovery).await;
+
+        assert_eq!(
+            response.status.observation.dns,
+            TunObservationComponentState::Unknown
+        );
+        assert!(
+            !response
+                .status
+                .observation
+                .confirms_disabled_at(tun_observation_now())
+        );
+        let mut state = state.lock().await;
+        assert!(
+            restore_pending_network_recovery(&mut state, controller.as_ref(), &recovery)
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
     fn sole_foreign_utun_racing_launch_is_never_claimed() {
         let mut state = ServiceState {
+            pending_network_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
-                dns: None,
                 dns_applied: false,
                 interface: None,
+                network: None,
+                routes: None,
             }),
         };
 
@@ -3960,6 +4435,7 @@ mod tests {
             runtime_root,
             socket_path: socket_path.clone(),
             spawn_watchdog: false,
+            network_controller: Arc::new(MacOsTunNetworkController::new()),
             observer: Arc::new(SequenceObserver::new(snapshots, owned_interfaces)),
         }));
         for _ in 0..100 {
@@ -4020,6 +4496,7 @@ mod tests {
             runtime_root,
             socket_path: socket_path.clone(),
             spawn_watchdog: false,
+            network_controller: Arc::new(MacOsTunNetworkController::new()),
             observer: Arc::new(SequenceObserver::new(
                 vec![baseline_snapshot()],
                 Ok(Vec::new()),
@@ -4578,6 +5055,7 @@ mod tests {
         let sealed_config = root.join("sealed-config.yaml");
         fs::write(&sealed_config, "tun:\n  enable: false\n").unwrap();
         ServiceState {
+            pending_network_recovery: None,
             process: Some(ServiceProcess {
                 child,
                 launch_token: uuid::Uuid::new_v4().to_string(),
@@ -4588,6 +5066,12 @@ mod tests {
             }),
             tun: None,
         }
+    }
+
+    fn test_network_recovery(root: &Path) -> NetworkRecoveryJournal {
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let owner_uid = unsafe { libc::getuid() };
+        NetworkRecoveryJournal::for_enrollment(&root.join("enrollment.json"), owner_uid).unwrap()
     }
 
     #[tokio::test]
@@ -4609,6 +5093,8 @@ mod tests {
 
         stop_process_with_timeouts(
             &mut state,
+            &MacOsTunNetworkController::new(),
+            &test_network_recovery(temporary.path()),
             Duration::from_secs(2),
             Duration::from_millis(200),
         )
@@ -4637,6 +5123,8 @@ mod tests {
 
         stop_process_with_timeouts(
             &mut state,
+            &MacOsTunNetworkController::new(),
+            &test_network_recovery(temporary.path()),
             Duration::from_millis(100),
             Duration::from_secs(1),
         )

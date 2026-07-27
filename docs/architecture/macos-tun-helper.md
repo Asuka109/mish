@@ -180,19 +180,44 @@ layouts are unchanged and fail-closed.
 Inside this boundary, the service accepts only Mish's fixed private managed
 runtime layout and the existing pinned Core. The generated policy fixes
 `fake-ip-range` to `198.18.0.1/16` and the upstream resolver to `1.1.1.1`.
-When activation is explicitly enabled, the service snapshots the exact DNS
-state of Tart's fixed `Ethernet` service and sets it to `198.18.0.1`. It
-restores the snapshot on disable, normal owner exit, forced owner exit, helper
-exit, or Core exit. The independent watchdog validates the fixed service,
-managed address, and bounded prior DNS snapshot before performing the same
-restoration. No arbitrary network service, DNS value, path, or command crosses
-the privilege boundary.
+When activation is explicitly enabled, the service resolves the current
+default route to exactly one enabled Wi-Fi or Ethernet
+`SCNetworkService`. It rejects virtual, unsupported, absent, or ambiguous
+topologies. The ownership snapshot binds the service's stable
+SystemConfiguration identifier, display name, BSD interface, interface kind,
+addresses, exact prior DNS servers, bounded routes on that physical interface,
+and the scoped `.local` mDNS resolver. Only that service's DNS is set to
+`198.18.0.1`.
+Unrelated services, resolvers, routes, VPNs, and System Proxy settings are
+never mutated.
+
+The exact prior DNS list is restored on disable, normal owner exit, forced
+owner exit, helper exit, or Core exit. Restoration first re-resolves the stable
+service identity and reads its current DNS. It writes only when the identity
+still matches and the current value is either Mish's managed value or the
+already-restored prior value. A replacement service or foreign DNS value is
+never overwritten. A write whose result cannot be confirmed is rolled back
+immediately; if exact rollback cannot be confirmed, the transaction remains
+tracked as recovery-required. The independent watchdog carries only a
+versioned, bounded copy of the same service identity and prior DNS snapshot.
+Before the DNS write, the service also atomically commits that same bounded
+state to a root-owned mode-`0600` recovery record beside the installation
+enrollment. Exact restoration and record removal are one transaction. Helper
+restart or cold boot first consumes that record; an invalid record,
+service-identity mismatch, foreign DNS value, or failed restoration remains a
+typed non-disabled recovery state. Uninstall performs the same restoration and
+refuses to discard an unresolved record.
+No arbitrary network service, DNS value, path, or command crosses the
+privileged protocol.
 
 This DNS transaction exists because the fixed Mihomo `any:53` listener and
 Darwin route policy must be observed on the actual guest packet path. A helper
 acknowledgement or desired configuration is insufficient. Applied requires a
 fresh service observation that correlates the root-owned child with Mish's
-`utun` and confirms the managed route partition and DNS effect.
+`utun` and confirms the managed route partition and DNS effect. The DNS write
+itself is ordered after a fresh, bracketed child-descriptor correlation and a
+complete exact route fingerprint; an incomplete or changing packet path cannot
+reach that mutation.
 
 Core activation candidates are separately bounded by runtime ownership. Startup
 removes only UUID-named stale candidates after orphan recovery, failed staging
@@ -298,23 +323,37 @@ states cannot confirm enabled.
 Fixed, bounded `/sbin/ifconfig`, `/usr/sbin/netstat -rn`, and
 `/usr/sbin/scutil --dns` observations then confirm the correlated interface and
 the managed Darwin IPv4 route partition (plus the IPv6 partition when the
-interface has a non-link-local IPv6 address). DNS is confirmed from the fixed
-`any:53` policy only when every observed port-53 system nameserver is either
-scoped directly to the owned interface or its longest-prefix route uses that
-interface. Non-port-53 resolvers do not prove or disprove this packet-path
-effect. A missing route remains partial, a mixture of captured and bypassing
-nameservers is partial, and nameservers whose more specific routes use another
-interface leave DNS absent. This observes Mihomo's actual Darwin DNS hijack
-path without changing system DNS settings. Each version or system-observation
-step is capped at five seconds and command output is capped at 64 KiB. Client
-deadlines cover the complete server budget: one observation step for read-only
-requests, three steps plus process settling for start, and graceful stop,
-bounded forced stop, and final observation for stop. A response margin keeps a
-completed bounded operation from being reported unavailable while the service
-continues changing state. Parsers cap interfaces, routes, resolvers,
-nameservers, names, addresses, process descriptors, and child-owned interfaces.
-Configuration `tun.enable` is used only to decide whether to begin ownership
-tracking and is never returned as observed runtime truth.
+interface has a non-link-local IPv6 address). The first complete route
+observation is retained as an exact destination, gateway, flags, and interface
+fingerprint. Later missing, duplicate, or changed-fingerprint routes are
+partial or foreign and cannot confirm Applied.
+
+DNS is confirmed from the fixed `any:53` policy only when every observed
+port-53 system nameserver is either scoped directly to the owned interface or
+its longest-prefix route uses that interface. Non-port-53 resolvers do not
+prove or disprove this packet-path effect. A missing route remains partial, a
+mixture of captured and bypassing nameservers is partial, and nameservers whose
+more specific routes use another interface leave DNS absent.
+
+The route and resolver baseline also protects the physical packet path. The
+Darwin split-default routes installed by the pinned Core are less specific than
+existing link-local, local-subnet, and multicast routes. The adapter requires
+those exact baseline routes to remain present and requires a scoped `.local`
+port-5353 resolver reaching `224.0.0.251` or `ff02::fb` through the selected
+physical interface. Consequently Bonjour and LAN traffic continue to use the
+more-specific physical route without a broad hard-coded subnet exception. Any
+loss or drift of that evidence prevents Applied.
+
+Each version or system-observation step is capped at five seconds and command
+output is capped at 64 KiB. Client deadlines cover the complete server budget:
+one observation step for read-only requests, three steps plus process settling
+for start, and graceful stop, bounded forced stop, and final observation for
+stop. A response margin keeps a completed bounded operation from being
+reported unavailable while the service continues changing state. Parsers cap
+interfaces, routes, resolvers, nameservers, names, addresses, process
+descriptors, and child-owned interfaces. Configuration `tun.enable` is used
+only to decide whether to begin ownership tracking and is never returned as
+observed runtime truth.
 
 An untracked `utun` carrying an IPv4 address is foreign rather than absent.
 This conservative rule prevents a helper restart, orphaned Core, or another
