@@ -1,10 +1,10 @@
 # Tailwind Variants styling ownership
 
-Production reusable components use the original `tailwind-variants` build in
+Production reusable components use the default `tailwind-variants` entry in
 `@mish/ui`. The configured `@mish/ui/tv` entry point is the only direct
-`tailwind-variants` consumer and keeps `tailwind-merge` as the single merge
-boundary for component recipes and the exported `cn` helper. Its font-size
-class group recognizes Mish's semantic `text-title`, `text-body`,
+`tailwind-variants` consumer and keeps its built-in conflict resolver as the
+single merge boundary for component recipes and the exported `cn` helper. Its
+font-size class group recognizes Mish's semantic `text-title`, `text-body`,
 `text-metadata`, `text-caption`, `text-label-small`, and `text-micro` utilities
 before the broader text-color matcher. Caller typography overrides therefore
 remain last without conflicting with `text-fg` or other foreground colors.
@@ -32,11 +32,11 @@ scanned by `apps/web/src/styles.css` through `@source`.
 
 Long recipes use `tailwind-variants` `cx()` to group complete static utility
 literals into readable lines. `cx()` only concatenates those groups; the TV
-recipe remains the single `tailwind-merge` boundary, including the final caller
-`className` override.
+recipe remains the single conflict-resolution boundary, including the final
+caller `className` override.
 
 Semantic custom utilities are used when a valid theme-generated class belongs
-to an ambiguous `tailwind-merge` group. For example, `spinner-border` consumes
+to an ambiguous conflict group. For example, `spinner-border` consumes
 the named spinner border-width token without being mistaken for a border color
 and removed next to `border-current`. Theme-generated typography utilities keep
 their native Tailwind `text-*` shape because the configured merge entry point
@@ -85,7 +85,7 @@ semantics with visual-only state.
 - the route focus manager's heading reset and the static `user-authored-label`
   utility;
 - the semantic `spinner-border` utility whose name avoids an ambiguous
-  `tailwind-merge` group;
+  conflict group;
 - reduced-motion, browser/desktop text selection, WebKit drag suppression, and
   desktop cursor/pressed feedback policies that intentionally cross component
   boundaries; and
