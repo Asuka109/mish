@@ -1776,20 +1776,6 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
             return Err("the TUN service must run as root");
         }
     }
-    let allowed_binary = validate_regular_file(
-        &config.allowed_binary,
-        config.allowed_uid,
-        config.require_root,
-    )?;
-    verify_core_digest(&allowed_binary, &config.pinned_binary_sha256)
-        .map_err(|_| "the pinned Core digest did not match")?;
-    let runtime_root = validate_runtime_root(&config.runtime_root, config.allowed_uid)?;
-    let enrollment = load_installation_enrollment(
-        &config.enrollment_record,
-        config.allowed_uid,
-        config.require_root,
-        &config.installation_id,
-    )?;
     let recovery_owner_uid = if config.require_root {
         0
     } else {
@@ -1816,6 +1802,20 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         Ok(None) => None,
         Err(()) => Some(Err(())),
     };
+    let allowed_binary = validate_regular_file(
+        &config.allowed_binary,
+        config.allowed_uid,
+        config.require_root,
+    )?;
+    verify_core_digest(&allowed_binary, &config.pinned_binary_sha256)
+        .map_err(|_| "the pinned Core digest did not match")?;
+    let runtime_root = validate_runtime_root(&config.runtime_root, config.allowed_uid)?;
+    let enrollment = load_installation_enrollment(
+        &config.enrollment_record,
+        config.allowed_uid,
+        config.require_root,
+        &config.installation_id,
+    )?;
     let sealed_root = PathBuf::from(format!("{}.state", config.socket_path.display()));
     reset_sealed_root(&sealed_root, config.allowed_uid, config.require_root)?;
     if let Ok(metadata) = fs::symlink_metadata(&config.socket_path) {
@@ -3845,7 +3845,13 @@ mod tests {
     };
     use rand_core::OsRng;
     use std::{
-        collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex, time::Instant,
+        collections::VecDeque,
+        os::unix::fs::PermissionsExt,
+        sync::{
+            Arc, Mutex as StdMutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Instant,
     };
 
     struct SequenceObserver {
@@ -3971,6 +3977,88 @@ mod tests {
         ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
             Box::pin(async { Ok(TunObservationComponentState::Confirmed) })
         }
+    }
+
+    struct ColdBootRecoveryController {
+        restored: Arc<AtomicBool>,
+    }
+
+    impl TunNetworkController for ColdBootRecoveryController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
+            Box::pin(async { Err(network_ownership::NetworkControllerApplyFailure::Unchanged) })
+        }
+
+        fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            self.restored.store(true, Ordering::SeqCst);
+            Box::pin(async { Ok(()) })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            _state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async { Err(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_boot_recovers_dns_before_core_prerequisite_validation() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let uid = unsafe { libc::getuid() };
+        let enrollment_record = temporary.path().join("missing-enrollment.json");
+        let network_recovery =
+            NetworkRecoveryJournal::for_enrollment(&enrollment_record, uid).unwrap();
+        let recovery = network_ownership::test_network_snapshot().dns;
+        network_recovery.persist(&recovery).unwrap();
+        let restored = Arc::new(AtomicBool::new(false));
+
+        let result = run_tun_service(TunServiceConfig {
+            allowed_binary: temporary.path().join("missing-core"),
+            allowed_uid: uid,
+            allow_tun: true,
+            enrollment_record,
+            installation_id: "a".repeat(64),
+            pinned_binary_sha256: "a".repeat(64),
+            pinned_version: "v1.19.29".into(),
+            require_root: false,
+            runtime_root: temporary.path().join("missing-runtime"),
+            socket_path: temporary.path().join("helper.sock"),
+            spawn_watchdog: false,
+            network_controller: Arc::new(ColdBootRecoveryController {
+                restored: restored.clone(),
+            }),
+            observer: Arc::new(SequenceObserver::new(
+                vec![baseline_snapshot()],
+                Ok(Vec::new()),
+            )),
+        })
+        .await;
+
+        assert_eq!(result, Err("allowed binary is unavailable"));
+        assert!(restored.load(Ordering::SeqCst));
+        assert_eq!(network_recovery.load(), Ok(None));
     }
 
     #[test]

@@ -243,7 +243,9 @@ prepared/applied phase: a watchdog cannot consume prior DNS while apply is
 still in flight, while managed DNS remains recoverable if apply dies before
 marking the record. Closed-command client deadlines now cover every sequential
 system observation and default-route lookup, including Enable's complete
-post-apply status.
+post-apply status. Cold-start recovery also runs immediately after the root
+check and before new-request prerequisites; a deterministic regression removes
+the exact journal and restores DNS even when the pinned Core is absent.
 
 The 2026-07-27 final-head rerun used the unique disposable clone
 `mish-295-final-20260727` from the same pinned Tahoe base digest and exercised
@@ -267,7 +269,7 @@ watchdogs were absent. The clone, including its guest-only discarded clone
 attempts, was then stopped and deleted; only the two stopped OCI base caches
 remained.
 
-The final source state passed all 85 `mish-platform-macos` unit tests plus its
+The final source state passed all 86 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused
 stale-watchdog regression, all-target no-dependency Clippy gate, repository
 `pnpm check:pr`, and the required GitHub Fast PR gate also passed.

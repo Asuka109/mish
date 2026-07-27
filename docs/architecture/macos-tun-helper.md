@@ -228,14 +228,16 @@ idempotent when one wins the compare-and-set race.
 Before the DNS write, the service also atomically commits that same bounded
 state in prepared phase to a root-owned mode-`0600` recovery record beside the
 installation enrollment, then atomically marks it applied after the DNS write.
-Exact restoration and record removal are one transaction. Helper
-restart or cold boot first consumes that record; an invalid record,
-service-identity mismatch, foreign DNS value, or failed restoration remains a
-typed non-disabled recovery state. Uninstall performs the same restoration and
-refuses to discard an unresolved record. An uninstall retry after the private
-recovery directory has already been removed treats that directory as
-already-absent, while an existing unsafe directory or record still fails
-closed.
+Exact restoration and record removal are one transaction. Immediately after
+confirming its root identity, Helper restart or cold boot first consumes that
+record before validating the Core binary, runtime root, or enrollment needed
+for new requests. A missing or damaged request prerequisite therefore cannot
+strand managed DNS. An invalid record, service-identity mismatch, foreign DNS
+value, or failed restoration remains a typed non-disabled recovery state.
+Uninstall performs the same restoration and refuses to discard an unresolved
+record. An uninstall retry after the private recovery directory has already
+been removed treats that directory as already-absent, while an existing unsafe
+directory or record still fails closed.
 No arbitrary network service, DNS value, path, or command crosses the
 privileged protocol.
 
