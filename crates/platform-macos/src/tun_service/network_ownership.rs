@@ -414,9 +414,18 @@ impl TunNetworkController for MacOsTunNetworkController {
             if observed != [MANAGED_DNS_ADDRESS] {
                 return Err(());
             }
-            self.set_dns(&state.service, &[MANAGED_DNS_ADDRESS], &state.prior_servers)
+            match self
+                .set_dns(&state.service, &[MANAGED_DNS_ADDRESS], &state.prior_servers)
                 .await
-                .map_err(|_| ())
+            {
+                Ok(()) => Ok(()),
+                Err(NetworkDnsMutationFailure::Unchanged) => {
+                    (self.observe_dns(&state.service).await? == state.prior_servers)
+                        .then_some(())
+                        .ok_or(())
+                }
+                Err(NetworkDnsMutationFailure::MayHaveChanged) => Err(()),
+            }
         })
     }
 
@@ -836,17 +845,17 @@ fn system_configuration_services(
         if records.len() >= NETWORK_SERVICE_LIMIT {
             return Err(());
         }
-        let id = service.id().map(|value| value.to_string()).ok_or(())?;
         let interface = service.network_interface().ok_or(())?;
+        let kind = match interface.interface_type() {
+            Some(SCNetworkInterfaceType::Ethernet) => Some(EligibleNetworkKind::Ethernet),
+            Some(SCNetworkInterfaceType::IEEE80211) => Some(EligibleNetworkKind::Wifi),
+            _ => continue,
+        };
+        let id = service.id().map(|value| value.to_string()).ok_or(())?;
         let interface_name = interface
             .bsd_name()
             .map(|value| value.to_string())
             .ok_or(())?;
-        let kind = match interface.interface_type() {
-            Some(SCNetworkInterfaceType::Ethernet) => Some(EligibleNetworkKind::Ethernet),
-            Some(SCNetworkInterfaceType::IEEE80211) => Some(EligibleNetworkKind::Wifi),
-            _ => None,
-        };
         // SAFETY: SystemConfiguration returned live service references owned by the array.
         let name = unsafe {
             let value = SCNetworkServiceGetName(service.as_concrete_TypeRef());
@@ -1776,5 +1785,32 @@ mod tests {
             );
             assert_eq!(*runner.dns.lock().unwrap(), unowned_dns);
         }
+    }
+
+    #[tokio::test]
+    async fn simultaneous_watchdog_and_helper_restoration_is_idempotent() {
+        let (_directory, journal) = recovery_fixture();
+        let (controller, _, runner) = fixture(
+            vec![service(
+                WIFI_ID,
+                "Wi-Fi",
+                "en0",
+                EligibleNetworkKind::Wifi,
+                0,
+            )],
+            vec!["en0"],
+            vec![MANAGED_DNS_ADDRESS],
+        );
+        let state = test_network_snapshot().dns;
+        journal.persist(&state).unwrap();
+        *runner.replace_dns_before_compare_and_set.lock().unwrap() =
+            Some(state.prior_servers.clone());
+
+        restore_network_transaction(&controller, &journal, &state)
+            .await
+            .unwrap();
+
+        assert_eq!(*runner.dns.lock().unwrap(), state.prior_servers);
+        assert_eq!(journal.load().unwrap(), None);
     }
 }

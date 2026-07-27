@@ -183,7 +183,8 @@ runtime layout and the existing pinned Core. The generated policy fixes
 When activation is explicitly enabled, the service resolves the current
 default route to exactly one enabled Wi-Fi or Ethernet
 `SCNetworkService`. It rejects virtual, unsupported, absent, or ambiguous
-topologies. The ownership snapshot binds the service's stable
+topologies without requiring unrelated unsupported virtual services to expose a
+BSD interface name. The ownership snapshot binds the service's stable
 SystemConfiguration identifier, display name, BSD interface, interface kind,
 addresses, exact prior DNS servers, bounded routes on that physical interface,
 and the scoped `.local` mDNS resolver. Only that service's DNS is set to
@@ -212,7 +213,9 @@ otherwise identical. If the watchdog already restored the exact prior DNS and
 removed its record, the Helper's later reap of that same exited Core is
 idempotent only after freshly confirming that exact prior DNS; managed, foreign,
 or unknown DNS without the record and any present mismatched record still fail
-closed without mutation.
+closed without mutation. The same exact-prior confirmation makes simultaneous
+watchdog and Helper restoration idempotent when one wins the compare-and-set
+race.
 Before the DNS write, the service also atomically commits that same bounded
 state to a root-owned mode-`0600` recovery record beside the installation
 enrollment. Exact restoration and record removal are one transaction. Helper
