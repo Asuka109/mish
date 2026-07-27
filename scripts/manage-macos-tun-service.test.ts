@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempDisposableSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempDisposableSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,9 +15,23 @@ import test from "node:test";
 
 import {
   buildDevelopmentServiceUninstallScript,
+  buildInstallationDiscoveryRequest,
+  buildRotationRequest,
+  canonicalRotationTranscript,
+  ensureInstallationClientKey,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
 } from "./manage-macos-tun-service.ts";
+
+test("discovery request uses the Rust enum field names at the framed boundary", () => {
+  const requestId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(buildInstallationDiscoveryRequest(requestId), {
+    command: { kind: "health" },
+    kind: "discovery",
+    protocol_version: 3,
+    request_id: requestId,
+  });
+});
 
 function writePinnedCoreFixture(workspace: string) {
   const sourceCore = path.join(workspace, ".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
@@ -125,7 +146,7 @@ test("reports bounded typed failures for unavailable, invalid, malformed, and ab
   );
 });
 
-test("uninstall moves only fixed service targets into a recoverable Trash quarantine", () => {
+test("uninstall deletes the public enrollment and moves only non-key targets to Trash", () => {
   const script = buildDevelopmentServiceUninstallScript(
     501,
     20,
@@ -133,6 +154,14 @@ test("uninstall moves only fixed service targets into a recoverable Trash quaran
   );
 
   assert.match(script, /launchctl' 'bootout' 'system\/com\.asuka109\.mish\.tun-helper\.dev/u);
+  assert.match(
+    script,
+    /if \[ -x '\/Library\/PrivilegedHelperTools\/com\.asuka109\.mish\.tun-helper\.dev' \]; then '\/usr\/bin\/env' 'MISH_TUN_SERVICE_ALLOWED_UID=501' 'MISH_TUN_SERVICE_ENROLLMENT_RECORD=\/Library\/Application Support\/com\.asuka109\.mish\/tun-helper-dev\/enrollment\.json' '\/Library\/PrivilegedHelperTools\/com\.asuka109\.mish\.tun-helper\.dev' '--remove-enrollment'/u,
+  );
+  assert.match(
+    script,
+    /else '\/bin\/rmdir' '\/Library\/Application Support\/com\.asuka109\.mish\/tun-helper-dev' >\/dev\/null 2>&1 \|\| true; fi/u,
+  );
   for (const target of [
     "/Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist",
     "/Library/PrivilegedHelperTools/com.asuka109.mish.tun-helper.dev",
@@ -144,7 +173,11 @@ test("uninstall moves only fixed service targets into a recoverable Trash quaran
   }
   assert.match(script, /'\/bin\/mv'/u);
   assert.match(script, /'\/usr\/sbin\/chown' '-R' '501:20'/u);
-  assert.doesNotMatch(script, /\/bin\/rm|\/usr\/bin\/trash/u);
+  assert.doesNotMatch(
+    script,
+    /'\/bin\/mv' '\/Library\/Application Support\/com\.asuka109\.mish\/tun-helper-dev'/u,
+  );
+  assert.doesNotMatch(script, /'\/bin\/rm'|\/usr\/bin\/trash/u);
 });
 
 test("accepts the TUN service capability only behind the exact Tart acceptance option", () => {
@@ -158,6 +191,23 @@ test("accepts the TUN service capability only behind the exact Tart acceptance o
     tartTerminalAuthorization: false,
     tartTunAcceptance: true,
   });
+  assert.deepEqual(parseDevelopmentServiceArguments(["rotate-key"]), {
+    action: "rotate-key",
+    tartTerminalAuthorization: false,
+    tartTunAcceptance: false,
+  });
+  assert.deepEqual(
+    parseDevelopmentServiceArguments([
+      "reset-key",
+      "--tart-tun-acceptance",
+      "--tart-terminal-authorization",
+    ]),
+    {
+      action: "reset-key",
+      tartTerminalAuthorization: true,
+      tartTunAcceptance: true,
+    },
+  );
   assert.deepEqual(
     parseDevelopmentServiceArguments([
       "install",
@@ -179,6 +229,67 @@ test("accepts the TUN service capability only behind the exact Tart acceptance o
   ]) {
     assert.throws(() => parseDevelopmentServiceArguments(arguments_), /Usage:/u);
   }
+});
+
+test("persists one reusable P-256 client key in a user-owned mode-0600 record", async () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish installation key "));
+  const runtime = path.join(temporary.path, "runtime");
+  mkdirSync(runtime, { mode: 0o700 });
+  const uid = process.getuid!();
+  const keyPath = path.join(runtime, "tun-client-key.json");
+
+  const first = await ensureInstallationClientKey(keyPath, uid);
+  const second = await ensureInstallationClientKey(keyPath, uid);
+
+  assert.equal(first.algorithm, "p256-sha256");
+  assert.equal(first.schemaVersion, 1);
+  assert.match(first.keyId, /^[a-f0-9]{64}$/u);
+  assert.equal(second.keyId, first.keyId);
+  assert.equal(second.privateKeyPkcs8, first.privateKeyPkcs8);
+  const metadata = statSync(keyPath);
+  assert.equal(metadata.uid, uid);
+  assert.equal(metadata.mode & 0o777, 0o600);
+  assert.equal(metadata.nlink, 1);
+});
+
+test("rotation transcript matches Rust and both signatures cover the replacement", async () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish rotation keys "));
+  const runtime = path.join(temporary.path, "runtime");
+  mkdirSync(runtime, { mode: 0o700 });
+  const uid = process.getuid!();
+  const current = await ensureInstallationClientKey(path.join(runtime, "current.json"), uid);
+  const replacement = await ensureInstallationClientKey(
+    path.join(runtime, "replacement.json"),
+    uid,
+  );
+  const request = buildRotationRequest(
+    current,
+    replacement,
+    {
+      algorithm: "p256-sha256",
+      generation: 7,
+      installationId: "a".repeat(64),
+      keyId: current.keyId,
+      protocolVersion: 3,
+    },
+    uid,
+  );
+  assert.notEqual(request.oldSignature, request.newSignature);
+  assert.equal(request.currentGeneration, 7);
+  assert.equal(request.replacementKeyId, replacement.keyId);
+
+  const vector = {
+    ...request,
+    currentKeyId: "b".repeat(64),
+    newSignature: "",
+    oldSignature: "",
+    replacementKeyId: "c".repeat(64),
+    replacementPublicKeySpki: Buffer.from([1, 2, 3]).toString("base64"),
+  };
+  assert.equal(
+    createHash("sha256").update(canonicalRotationTranscript(vector)).digest("hex"),
+    "dc0e227c96271cf1f957732e703b489bea0d41c3318284fb332aa23b45ebfd57",
+  );
 });
 
 test(
@@ -227,6 +338,36 @@ test(
       "utf8",
     );
     assert.match(preparedPlist, /<key>MISH_TUN_SERVICE_ALLOW_TUN<\/key><string>0<\/string>/u);
+    assert.match(
+      preparedPlist,
+      /<key>MISH_TUN_SERVICE_ENROLLMENT_RECORD<\/key><string>\/Library\/Application Support\/com\.asuka109\.mish\/tun-helper-dev\/enrollment\.json<\/string>/u,
+    );
+    const preparedPrivateKey = readFileSync(
+      path.join(
+        workspace,
+        "home/Library/Application Support/com.asuka109.mish/runtime/tun-client-key.json",
+      ),
+      "utf8",
+    );
+    const preparedEnrollment = readFileSync(
+      path.join(
+        workspace,
+        "home/Library/Application Support/com.asuka109.mish/runtime/tun-service-installer/enrollment.json",
+      ),
+      "utf8",
+    );
+    assert.equal(
+      statSync(
+        path.join(
+          workspace,
+          "home/Library/Application Support/com.asuka109.mish/runtime/tun-client-key.json",
+        ),
+      ).mode & 0o777,
+      0o600,
+    );
+    assert.match(preparedPrivateKey, /"privateKeyPkcs8":/u);
+    assert.doesNotMatch(preparedEnrollment, /privateKey|privateKeyPkcs8/u);
+    assert.doesNotMatch(preparedPlist, /privateKey|privateKeyPkcs8/u);
     assert.deepEqual(readFileSync(commandLog, "utf8").trim().split("\n"), [
       "rustup:which cargo --toolchain stable",
       "cargo:build -p mish-platform-macos --features development-core-host --bin mish-tun-helper --bin mish-core-host-ctl",
