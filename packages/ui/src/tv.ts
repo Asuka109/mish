@@ -7,7 +7,7 @@ import {
   type TWMergeConfig,
 } from "tailwind-variants";
 
-const twMergeConfig: TWMergeConfig = {
+const twMergeConfig = {
   extend: {
     classGroups: {
       "font-size": [
@@ -17,7 +17,7 @@ const twMergeConfig: TWMergeConfig = {
       ],
     },
   },
-};
+} satisfies TWMergeConfig;
 
 export const tv = createTV({ twMerge: true, twMergeConfig });
 

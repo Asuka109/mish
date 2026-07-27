@@ -31,6 +31,25 @@ primarily attributable to the upstream session implementation. These
 secondary chunks are listed for diagnosis but are not compared numerically
 because the baseline used a different chunk graph.
 
+## Tailwind Variants 3.3 upgrade
+
+The 3.3.0 upgrade replaces the external merge implementation with Tailwind
+Variants' built-in conflict resolver while retaining the configured
+`TWMergeConfig` boundary. An isolated regression test verifies that semantic
+typography configuration is active before any recipe is created.
+
+The comparison below uses production builds from the same source state with
+only `tailwind-variants` changed:
+
+| Production artifact    | 3.2.2 raw / gzip   | 3.3.0 raw / gzip   | Change raw / gzip |
+| ---------------------- | ------------------ | ------------------ | ----------------- |
+| Primary application JS | 953.71 / 284.02 kB | 961.87 / 286.66 kB | +8.16 / +2.64 kB  |
+| Total emitted CSS      | 130.09 / 21.87 kB  | 130.09 / 21.87 kB  | No change         |
+
+`@mish/ui` is the only direct Tailwind Variants dependency in the workspace.
+`apps/web` consumes the configured `@mish/ui/tv` entry point and does not own
+duplicate merge dependencies.
+
 ## Automated evidence
 
 - `pnpm check:styles` confirms complete static utilities, the explicit
@@ -45,7 +64,8 @@ because the baseline used a different chunk graph.
   exceptions.
 - Long TV recipes and static class lists are grouped with `cx()` using complete
   class literals. `cx()` performs concatenation only; the enclosing TV recipe
-  remains the single `tailwind-merge` boundary and caller overrides remain last.
+  remains the single conflict-resolution boundary and caller overrides remain
+  last.
 - All production recipes consume the configured `@mish/ui/tv` entry point. Its
   extended font-size group classifies the exact semantic `text-*` typography
   levels before the broader text-color matcher. The semantic levels conflict
@@ -59,8 +79,8 @@ because the baseline used a different chunk graph.
   pre-mount startup failure and the documented, unmounted `DestinationPage`
   reference.
 - TypeScript, lint, format, design-token, documentation, unit, browser, and
-  production-build gates cover the candidate. The 47-file/312-test Web unit
-  suite and 10-file/33-test Chromium suite exercise desktop, compact browser,
+  production-build gates cover the candidate. The 61-file/441-test Web unit
+  suite and 20-file/76-test Chromium suite exercise desktop, compact browser,
   and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
   override merging, notification wrapping/removal/hover/focus behavior, service
