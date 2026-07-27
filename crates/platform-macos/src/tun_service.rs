@@ -1162,14 +1162,14 @@ impl MacOsTunServiceClient {
 
 fn service_request_timeout(command: &ServiceCommand) -> Duration {
     let server_budget = match command {
-        ServiceCommand::Health
-        | ServiceCommand::Status
-        | ServiceCommand::Enable
+        ServiceCommand::Health => BOUNDED_STEP_TIMEOUT,
+        ServiceCommand::Status
         | ServiceCommand::Observe { .. }
-        | ServiceCommand::OwnsListener { .. } => BOUNDED_STEP_TIMEOUT,
-        ServiceCommand::Start { .. } => BOUNDED_STEP_TIMEOUT * 3 + STARTUP_SETTLE_TIME,
+        | ServiceCommand::OwnsListener { .. } => BOUNDED_STEP_TIMEOUT * 2,
+        ServiceCommand::Enable => BOUNDED_STEP_TIMEOUT * 4,
+        ServiceCommand::Start { .. } => BOUNDED_STEP_TIMEOUT * 5 + STARTUP_SETTLE_TIME,
         ServiceCommand::Stop { .. } | ServiceCommand::Disable | ServiceCommand::StopAll => {
-            BOUNDED_STEP_TIMEOUT * 2 + FORCED_STOP_TIMEOUT
+            BOUNDED_STEP_TIMEOUT * 3 + FORCED_STOP_TIMEOUT
         }
     };
     server_budget + CLIENT_RESPONSE_SLACK
@@ -5487,6 +5487,7 @@ mod tests {
         let observe = service_request_timeout(&ServiceCommand::Observe {
             launch_token: uuid::Uuid::new_v4().to_string(),
         });
+        let enable = service_request_timeout(&ServiceCommand::Enable);
         let start = service_request_timeout(&ServiceCommand::Start {
             binary: PathBuf::from("/fixture/mihomo"),
             config_directory: PathBuf::from("/fixture/home"),
@@ -5497,16 +5498,18 @@ mod tests {
         let stop = service_request_timeout(&ServiceCommand::StopAll);
 
         assert_eq!(health, BOUNDED_STEP_TIMEOUT + CLIENT_RESPONSE_SLACK);
-        assert_eq!(observe, health);
+        assert_eq!(observe, BOUNDED_STEP_TIMEOUT * 2 + CLIENT_RESPONSE_SLACK);
+        assert_eq!(enable, BOUNDED_STEP_TIMEOUT * 4 + CLIENT_RESPONSE_SLACK);
         assert_eq!(
             start,
-            BOUNDED_STEP_TIMEOUT * 3 + STARTUP_SETTLE_TIME + CLIENT_RESPONSE_SLACK
+            BOUNDED_STEP_TIMEOUT * 5 + STARTUP_SETTLE_TIME + CLIENT_RESPONSE_SLACK
         );
         assert_eq!(
             stop,
-            BOUNDED_STEP_TIMEOUT * 2 + FORCED_STOP_TIMEOUT + CLIENT_RESPONSE_SLACK
+            BOUNDED_STEP_TIMEOUT * 3 + FORCED_STOP_TIMEOUT + CLIENT_RESPONSE_SLACK
         );
-        assert!(start > BOUNDED_STEP_TIMEOUT);
+        assert!(enable > observe);
+        assert!(start > enable);
         assert!(stop > BOUNDED_STEP_TIMEOUT);
     }
 

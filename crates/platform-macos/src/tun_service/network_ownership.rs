@@ -19,6 +19,7 @@ use super::{
 use crate::{MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner};
 
 const MANAGED_NETWORK_STATE_VERSION: u16 = 2;
+const NETWORK_RECOVERY_RECORD_VERSION: u16 = 1;
 const MANAGED_DNS_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1));
 const NETWORK_SERVICE_LIMIT: usize = 64;
 const WATCHDOG_STATE_MAX_BYTES: usize = 4_096;
@@ -47,6 +48,21 @@ pub struct ManagedDnsState {
     schema_version: u16,
     service: ManagedNetworkService,
     transaction_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum NetworkRecoveryPhase {
+    Applied,
+    Prepared,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NetworkRecoveryRecord {
+    phase: NetworkRecoveryPhase,
+    record_schema_version: u16,
+    state: ManagedDnsState,
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +177,10 @@ impl NetworkRecoveryJournal {
     }
 
     pub(super) fn load(&self) -> Result<Option<ManagedDnsState>, ()> {
+        Ok(self.load_record()?.map(|record| record.state))
+    }
+
+    fn load_record(&self) -> Result<Option<NetworkRecoveryRecord>, ()> {
         validate_private_parent(&self.path, self.owner_uid)?;
         let metadata = match fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
@@ -178,9 +198,12 @@ impl NetworkRecoveryJournal {
             return Err(());
         }
         let bytes = fs::read(&self.path).map_err(|_| ())?;
-        let state = serde_json::from_slice::<ManagedDnsState>(&bytes).map_err(|_| ())?;
-        validate_managed_dns_state(&state)?;
-        Ok(Some(state))
+        let record = serde_json::from_slice::<NetworkRecoveryRecord>(&bytes).map_err(|_| ())?;
+        if record.record_schema_version != NETWORK_RECOVERY_RECORD_VERSION {
+            return Err(());
+        }
+        validate_managed_dns_state(&record.state)?;
+        Ok(Some(record))
     }
 
     pub(super) fn load_for_removal(&self) -> Result<Option<ManagedDnsState>, ()> {
@@ -194,10 +217,37 @@ impl NetworkRecoveryJournal {
 
     pub(super) fn persist(&self, state: &ManagedDnsState) -> Result<(), ()> {
         validate_managed_dns_state(state)?;
-        if let Some(existing) = self.load()? {
-            return (existing == *state).then_some(()).ok_or(());
+        if let Some(existing) = self.load_record()? {
+            return (existing.state == *state).then_some(()).ok_or(());
         }
-        let bytes = serde_json::to_vec(state).map_err(|_| ())?;
+        self.write_record(&NetworkRecoveryRecord {
+            phase: NetworkRecoveryPhase::Prepared,
+            record_schema_version: NETWORK_RECOVERY_RECORD_VERSION,
+            state: state.clone(),
+        })
+    }
+
+    fn mark_applied(&self, state: &ManagedDnsState) -> Result<(), ()> {
+        validate_managed_dns_state(state)?;
+        match self.load_record()? {
+            Some(record)
+                if record.state == *state && record.phase == NetworkRecoveryPhase::Applied =>
+            {
+                return Ok(());
+            }
+            Some(record)
+                if record.state == *state && record.phase == NetworkRecoveryPhase::Prepared => {}
+            Some(_) | None => return Err(()),
+        }
+        self.write_record(&NetworkRecoveryRecord {
+            phase: NetworkRecoveryPhase::Applied,
+            record_schema_version: NETWORK_RECOVERY_RECORD_VERSION,
+            state: state.clone(),
+        })
+    }
+
+    fn write_record(&self, record: &NetworkRecoveryRecord) -> Result<(), ()> {
+        let bytes = serde_json::to_vec(record).map_err(|_| ())?;
         if bytes.is_empty() || bytes.len() > WATCHDOG_STATE_MAX_BYTES {
             return Err(());
         }
@@ -236,16 +286,16 @@ impl NetworkRecoveryJournal {
     }
 
     pub(super) fn clear(&self, expected: &ManagedDnsState) -> Result<(), ()> {
-        if self.load()?.as_ref() != Some(expected) {
+        if self.load_record()?.as_ref().map(|record| &record.state) != Some(expected) {
             return Err(());
         }
         self.remove()
     }
 
     fn clear_if_present(&self, expected: &ManagedDnsState) -> Result<(), ()> {
-        match self.load()? {
+        match self.load_record()? {
             None => Ok(()),
-            Some(current) if &current == expected => self.remove(),
+            Some(current) if &current.state == expected => self.remove(),
             Some(_) => Err(()),
         }
     }
@@ -506,7 +556,16 @@ pub(super) async fn apply_network_transaction(
         return Err(NetworkApplyFailure::Clean);
     }
     match controller.apply(snapshot, system).await {
-        Ok(()) => Ok(()),
+        Ok(()) if journal.mark_applied(&snapshot.dns).is_ok() => Ok(()),
+        Ok(()) => {
+            if controller.restore(&snapshot.dns).await.is_ok()
+                && journal.clear_if_present(&snapshot.dns).is_ok()
+            {
+                Err(NetworkApplyFailure::Clean)
+            } else {
+                Err(NetworkApplyFailure::RecoveryRequired)
+            }
+        }
         Err(NetworkControllerApplyFailure::Unchanged) => {
             if journal.clear(&snapshot.dns).is_ok() {
                 Err(NetworkApplyFailure::Clean)
@@ -552,10 +611,15 @@ pub(super) async fn restore_network_transaction_if_recorded(
     journal: &NetworkRecoveryJournal,
     state: &ManagedDnsState,
 ) -> Result<(), ()> {
-    match journal.load()? {
+    let record = match journal.load_record()? {
         None => return Ok(()),
-        Some(recorded) if recorded == *state => {}
+        Some(record) if record.state == *state => record,
         Some(_) => return Err(()),
+    };
+    if record.phase == NetworkRecoveryPhase::Prepared
+        && controller.observe_recovery(state).await? != TunObservationComponentState::Partial
+    {
+        return Err(());
     }
     controller.restore(state).await?;
     journal.clear_if_present(state)
@@ -1275,6 +1339,75 @@ mod tests {
         }
     }
 
+    struct WatchdogBeforeApplyController {
+        dns: Mutex<Vec<IpAddr>>,
+        journal: NetworkRecoveryJournal,
+    }
+
+    impl TunNetworkController for WatchdogBeforeApplyController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), NetworkControllerApplyFailure>> {
+            Box::pin(async move {
+                assert!(
+                    restore_network_transaction_if_recorded(self, &self.journal, &snapshot.dns,)
+                        .await
+                        .is_err()
+                );
+                *self.dns.lock().unwrap() = vec![MANAGED_DNS_ADDRESS];
+                Ok(())
+            })
+        }
+
+        fn restore<'a>(&'a self, state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            Box::pin(async move {
+                let mut dns = self.dns.lock().unwrap();
+                if *dns == state.prior_servers {
+                    return Ok(());
+                }
+                if *dns != [MANAGED_DNS_ADDRESS] {
+                    return Err(());
+                }
+                *dns = state.prior_servers.clone();
+                Ok(())
+            })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async move {
+                let dns = self.dns.lock().unwrap();
+                Ok(if *dns == state.prior_servers {
+                    TunObservationComponentState::Confirmed
+                } else if *dns == [MANAGED_DNS_ADDRESS] {
+                    TunObservationComponentState::Partial
+                } else {
+                    TunObservationComponentState::Foreign
+                })
+            })
+        }
+    }
+
     fn service(
         id: &str,
         name: &str,
@@ -1563,6 +1696,36 @@ mod tests {
         );
         assert_eq!(*runner.dns.lock().unwrap(), foreign);
         assert_eq!(journal.load().unwrap(), Some(snapshot.dns));
+    }
+
+    #[tokio::test]
+    async fn watchdog_cannot_consume_a_prepared_transaction_before_dns_apply() {
+        let baseline = system("en0", "192.168.1.10");
+        let snapshot = test_network_snapshot();
+        let (_directory, journal) = recovery_fixture();
+        let controller = WatchdogBeforeApplyController {
+            dns: Mutex::new(snapshot.dns.prior_servers.clone()),
+            journal: journal.clone(),
+        };
+
+        apply_network_transaction(&controller, &journal, &snapshot, &baseline)
+            .await
+            .unwrap();
+
+        assert_eq!(*controller.dns.lock().unwrap(), vec![MANAGED_DNS_ADDRESS]);
+        assert_eq!(
+            journal.load_record().unwrap(),
+            Some(NetworkRecoveryRecord {
+                phase: NetworkRecoveryPhase::Applied,
+                record_schema_version: NETWORK_RECOVERY_RECORD_VERSION,
+                state: snapshot.dns.clone(),
+            })
+        );
+        restore_network_transaction_if_recorded(&controller, &journal, &snapshot.dns)
+            .await
+            .unwrap();
+        assert_eq!(*controller.dns.lock().unwrap(), snapshot.dns.prior_servers);
+        assert_eq!(journal.load().unwrap(), None);
     }
 
     #[tokio::test]

@@ -208,22 +208,27 @@ immediately; if exact rollback cannot be confirmed, the transaction remains
 tracked as recovery-required. The independent watchdog carries only a
 versioned, bounded copy of the same service identity, prior DNS snapshot, and
 root-generated transaction UUID. A watchdog restores or clears the recovery
-record only when that complete transaction identity still matches, then removes
-its submitted launchd job after completion. A stale watchdog therefore cannot
-restore or consume a later transaction even when the service and prior DNS are
-otherwise identical. If Helper reap or explicit stop cannot restore DNS because
-the non-waiting preferences lock is temporarily busy, it stops Core but leaves
-the independent watchdog registered to finish its bounded recovery loop and
-retains the exact pending transaction in memory. Later status or start handling
-retries that transaction. If the watchdog already restored the exact prior DNS
-and removed its record, the Helper converges to off only after freshly
-confirming that exact prior DNS; managed, foreign, or unknown DNS without the
-record and any present mismatched record still fail closed without mutation.
-The same exact-prior confirmation makes simultaneous watchdog and Helper
-restoration idempotent when one wins the compare-and-set race.
+record only when that complete transaction identity still matches. The record
+has an atomic `prepared`/`applied` phase: while prepared, prior DNS cannot be
+treated as completed recovery because the in-flight apply may still commit;
+managed DNS remains recoverable if the process dies between its write and the
+applied marker. The watchdog then removes its submitted launchd job after its
+bounded attempt. A stale watchdog therefore cannot restore or consume a later
+transaction even when the service and prior DNS are otherwise identical. If
+Helper reap or explicit stop cannot restore DNS because the non-waiting
+preferences lock is temporarily busy, it stops Core but leaves the independent
+watchdog registered to finish its bounded recovery loop and retains the exact
+pending transaction in memory. Later status or start handling retries that
+transaction. If the watchdog already restored the exact prior DNS and removed
+its record, the Helper converges to off only after freshly confirming that
+exact prior DNS; managed, foreign, or unknown DNS without the record and any
+present mismatched record still fail closed without mutation. The same
+exact-prior confirmation makes simultaneous watchdog and Helper restoration
+idempotent when one wins the compare-and-set race.
 Before the DNS write, the service also atomically commits that same bounded
-state to a root-owned mode-`0600` recovery record beside the installation
-enrollment. Exact restoration and record removal are one transaction. Helper
+state in prepared phase to a root-owned mode-`0600` recovery record beside the
+installation enrollment, then atomically marks it applied after the DNS write.
+Exact restoration and record removal are one transaction. Helper
 restart or cold boot first consumes that record; an invalid record,
 service-identity mismatch, foreign DNS value, or failed restoration remains a
 typed non-disabled recovery state. Uninstall performs the same restoration and
@@ -374,10 +379,12 @@ of that evidence prevents Applied.
 
 Each version or system-observation step is capped at five seconds and command
 output is capped at 64 KiB. Client deadlines cover the complete server budget:
-one observation step for read-only requests, three steps plus process settling
-for start, and graceful stop, bounded forced stop, and final observation for
-stop. A response margin keeps a completed bounded operation from being
-reported unavailable while the service continues changing state. Parsers cap
+system observation plus network-service lookup for read-only requests; the
+precondition observation, apply-time lookup, and complete post-apply status for
+enable; five steps plus process settling for start; and graceful stop, bounded
+forced stop, and complete final status for stop. A response margin keeps a
+completed bounded operation from being reported unavailable while the service
+continues changing state. Parsers cap
 interfaces, routes, resolvers, nameservers, names, addresses, process
 descriptors, and child-owned interfaces. Configuration `tun.enable` is used
 only to decide whether to begin ownership tracking and is never returned as
