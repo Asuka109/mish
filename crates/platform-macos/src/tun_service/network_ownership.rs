@@ -213,6 +213,14 @@ impl NetworkRecoveryJournal {
         self.remove()
     }
 
+    fn clear_if_present(&self, expected: &ManagedDnsState) -> Result<(), ()> {
+        match self.load()? {
+            None => Ok(()),
+            Some(current) if &current == expected => self.remove(),
+            Some(_) => Err(()),
+        }
+    }
+
     fn remove(&self) -> Result<(), ()> {
         fs::remove_file(&self.path).map_err(|_| ())?;
         fs::File::open(self.path.parent().ok_or(())?)
@@ -476,8 +484,20 @@ pub(super) async fn restore_network_transaction(
     journal: &NetworkRecoveryJournal,
     state: &ManagedDnsState,
 ) -> Result<(), ()> {
-    controller.restore(state).await?;
-    journal.clear(state)
+    match journal.load()? {
+        Some(recorded) if recorded == *state => {
+            controller.restore(state).await?;
+            journal.clear_if_present(state)
+        }
+        Some(_) => Err(()),
+        None => match controller.observe_recovery(state).await? {
+            TunObservationComponentState::Confirmed => Ok(()),
+            TunObservationComponentState::Absent
+            | TunObservationComponentState::Partial
+            | TunObservationComponentState::Foreign
+            | TunObservationComponentState::Unknown => Err(()),
+        },
+    }
 }
 
 pub(super) async fn restore_network_transaction_if_recorded(
@@ -491,7 +511,7 @@ pub(super) async fn restore_network_transaction_if_recorded(
         Some(_) => return Err(()),
     }
     controller.restore(state).await?;
-    journal.clear(state)
+    journal.clear_if_present(state)
 }
 
 fn validate_preserved_network(
@@ -1326,6 +1346,11 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(
+            restore_network_transaction(&controller, &journal, &stale)
+                .await
+                .is_err()
+        );
         assert_eq!(*runner.dns.lock().unwrap(), vec![MANAGED_DNS_ADDRESS]);
         assert_eq!(journal.load().unwrap(), Some(current.clone()));
 
@@ -1337,5 +1362,49 @@ mod tests {
             vec!["192.0.2.53".parse::<IpAddr>().unwrap()]
         );
         assert_eq!(journal.load().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn completed_watchdog_restoration_is_idempotent_for_helper_reap() {
+        let (_directory, journal) = recovery_fixture();
+        let (controller, _, runner) = fixture(
+            vec![service(
+                WIFI_ID,
+                "Wi-Fi",
+                "en0",
+                EligibleNetworkKind::Wifi,
+                0,
+            )],
+            vec!["en0"],
+            vec![MANAGED_DNS_ADDRESS],
+        );
+        let state = test_network_snapshot().dns;
+        journal.persist(&state).unwrap();
+
+        restore_network_transaction_if_recorded(&controller, &journal, &state)
+            .await
+            .unwrap();
+        restore_network_transaction(&controller, &journal, &state)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *runner.dns.lock().unwrap(),
+            vec!["192.0.2.53".parse::<IpAddr>().unwrap()]
+        );
+        assert_eq!(journal.load().unwrap(), None);
+
+        for unowned_dns in [
+            vec![MANAGED_DNS_ADDRESS],
+            vec!["203.0.113.53".parse::<IpAddr>().unwrap()],
+        ] {
+            *runner.dns.lock().unwrap() = unowned_dns.clone();
+            assert!(
+                restore_network_transaction(&controller, &journal, &state)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(*runner.dns.lock().unwrap(), unowned_dns);
+        }
     }
 }

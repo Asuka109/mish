@@ -204,7 +204,11 @@ root-generated transaction UUID. A watchdog restores or clears the recovery
 record only when that complete transaction identity still matches, then removes
 its submitted launchd job after completion. A stale watchdog therefore cannot
 restore or consume a later transaction even when the service and prior DNS are
-otherwise identical.
+otherwise identical. If the watchdog already restored the exact prior DNS and
+removed its record, the Helper's later reap of that same exited Core is
+idempotent only after freshly confirming that exact prior DNS; managed, foreign,
+or unknown DNS without the record and any present mismatched record still fail
+closed without mutation.
 Before the DNS write, the service also atomically commits that same bounded
 state to a root-owned mode-`0600` recovery record beside the installation
 enrollment. Exact restoration and record removal are one transaction. Helper

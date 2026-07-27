@@ -192,8 +192,14 @@ mismatched records non-mutating, and made a completed or blocked watchdog
 remove its submitted job. The final foreign-DNS, service-replacement, Helper
 exit, Core exit, and forced-owner runs all showed the schema-v2 journal retained
 only for the exact unresolved transaction and zero stale watchdog jobs.
+Final-head review then identified the narrower ordering where the watchdog
+restores DNS and removes the exact record before the Helper reaps the same Core.
+The follow-up makes that reap idempotent only after freshly confirming exact
+prior DNS, retains non-mutating failure for an absent record with managed or
+foreign DNS and for a present mismatched transaction, and covers the ordering
+with a deterministic regression test.
 
-The final source state passed all 77 `mish-platform-macos` unit tests plus its
+The final source state passed all 78 `mish-platform-macos` unit tests plus its
 integration and doc-test targets with `development-core-host`. The focused
 stale-watchdog regression, all-target no-dependency Clippy gate, repository
 `pnpm check:pr`, and the required GitHub Fast PR gate also passed.
