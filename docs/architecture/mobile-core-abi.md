@@ -129,6 +129,9 @@ reconciles again if its requested sequence predates retained history.
 The Go reference wrapper uses the pinned Mihomo parser, executor, TUN listener,
 policy-group interfaces, routing mode, and connection statistics directly. A
 small C fixture exercises the complete contract without claiming a device VPN.
+The Android validation bridge has a separate fake-native C harness that proves
+bounded input, explicit initialization, status/envelope mapping, and exactly-once
+response release without returning native response contents.
 The Android artifacts are built from source with Go `c-shared` and explicit NDK
 Clang targets.
 

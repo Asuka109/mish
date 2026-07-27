@@ -161,6 +161,78 @@ export const MobileVpnEventSchema = z
   });
 export interface MobileVpnEventDto extends z.infer<typeof MobileVpnEventSchema> {}
 
+export const MobileConfigValidationFailureSchema = z.enum([
+  "cancelled",
+  "client-uninitialized",
+  "configuration-rejected",
+  "configuration-too-large",
+  "core-initialization-failed",
+  "core-unavailable",
+  "duplicate-command",
+  "malformed-native-response",
+  "native-response-too-large",
+  "native-validation-failed",
+  "plugin-failure",
+  "stale-authority",
+]);
+export type MobileConfigValidationFailure = z.infer<typeof MobileConfigValidationFailureSchema>;
+
+export const MobileConfigValidationResultSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    failure: MobileConfigValidationFailureSchema.nullable(),
+    message: z.string().min(1).max(256),
+    outcome: z.enum(["valid", "invalid", "failed"]),
+    sequence: z.number().int().nonnegative().nullable(),
+    sessionId: z.string().min(1).max(128).nullable(),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if ((result.sequence === null) !== (result.sessionId === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Mobile validation authority must be complete or absent",
+      });
+    }
+    if (result.outcome === "valid" && (result.failure !== null || result.sessionId === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "A valid Mobile Core result requires authority and no failure",
+      });
+    }
+    if (
+      result.outcome === "invalid" &&
+      (result.failure !== "configuration-rejected" || result.sessionId === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "An invalid Mobile Core result requires authority and a rejected configuration",
+      });
+    }
+    if (
+      result.outcome === "failed" &&
+      (result.failure === null || result.failure === "configuration-rejected")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A failed Mobile Core result requires a non-validation failure",
+      });
+    }
+    if (
+      result.sessionId === null &&
+      result.failure !== "client-uninitialized" &&
+      result.failure !== "stale-authority"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only uninitialized or stale validation failures may omit authority",
+      });
+    }
+  });
+export interface MobileConfigValidationResultDto extends z.infer<
+  typeof MobileConfigValidationResultSchema
+> {}
+
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);
 export type ProbeStatus = z.infer<typeof ProbeStatusSchema>;
 

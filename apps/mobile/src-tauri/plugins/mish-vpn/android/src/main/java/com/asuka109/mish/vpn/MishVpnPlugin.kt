@@ -21,6 +21,9 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @TauriPlugin(
     permissions = [
@@ -33,6 +36,10 @@ import app.tauri.plugin.Plugin
 class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val coreProbe = MishMobileCoreProbe()
     private val store = MishVpnStateStore(activity)
+    private val validationCoordinator = MobileConfigValidationCoordinator(store, coreProbe)
+    private val validationExecutor: ExecutorService = Executors.newFixedThreadPool(2) { runnable ->
+        Thread(runnable, "mish-config-validation").apply { isDaemon = true }
+    }
     private var receiverRegistered = false
     private val snapshotReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -50,9 +57,16 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     override fun onDestroy(activity: AppCompatActivity) {
-        if (!receiverRegistered) return
-        this.activity.unregisterReceiver(snapshotReceiver)
-        receiverRegistered = false
+        if (receiverRegistered) {
+            this.activity.unregisterReceiver(snapshotReceiver)
+            receiverRegistered = false
+        }
+        validationExecutor.shutdown()
+        runCatching {
+            if (!validationExecutor.awaitTermination(750, TimeUnit.MILLISECONDS)) {
+                validationExecutor.shutdownNow()
+            }
+        }
     }
 
     @Command
@@ -144,6 +158,34 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_STOP)
         activity.startService(intent)
         invoke.resolveObject(reconcileSnapshot())
+    }
+
+    @Command
+    fun validateConfig(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(ValidateConfigArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(
+                    MobileConfigValidationResult.failure(
+                        store.current(),
+                        "plugin-failure",
+                        "The Android validation plugin rejected malformed command input.",
+                    ),
+                )
+                return
+            }
+        runCatching {
+            validationExecutor.execute {
+                invoke.resolveObject(validationCoordinator.validate(args))
+            }
+        }.onFailure {
+            invoke.resolveObject(
+                MobileConfigValidationResult.failure(
+                    store.current(),
+                    "plugin-failure",
+                    "The Android validation plugin is unavailable.",
+                ),
+            )
+        }
     }
 
     private fun reconcileSnapshot(): MobileVpnSnapshot {

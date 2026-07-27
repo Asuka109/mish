@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "request_vpn_consent",
     "start_fixture_lifecycle",
     "stop",
+    "validate_config",
 ];
 
 fn main() {

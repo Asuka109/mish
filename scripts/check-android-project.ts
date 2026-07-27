@@ -20,7 +20,10 @@ const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
 const pluginNativeBridge = source(`${pluginRoot}/android/src/main/cpp/mish_vpn_jni.c`);
+const mobileCoreHeader = source("mobile-core/abi/mish_mobile_core.h");
 const pluginPermission = source(`${pluginRoot}/permissions/default.toml`);
+const pluginRustModels = source(`${pluginRoot}/src/models.rs`);
+const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
 const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
@@ -34,6 +37,36 @@ const kotlin = readdirSync(kotlinRoot)
   .filter((path) => path.endsWith(".kt"))
   .map((path) => readFileSync(resolve(kotlinRoot, path), "utf8"))
   .join("\n");
+
+function numericConstant(sourceText: string, pattern: RegExp, name: string): number {
+  const match = sourceText.match(pattern);
+  invariant(match?.[1], `Missing numeric constant: ${name}`);
+  return Number(match[1].replaceAll("_", ""));
+}
+
+const mobileCoreMaxConfigBytes = numericConstant(
+  mobileCoreHeader,
+  /MISH_CORE_MAX_CONFIG_BYTES_V1\s+(\d+)u/u,
+  "Mobile Core ABI configuration limit",
+);
+for (const [sourceText, pattern, name] of [
+  [
+    mobileVpnClient,
+    /MOBILE_CORE_MAX_CONFIG_BYTES_V1\s*=\s*([\d_]+)/u,
+    "TypeScript configuration limit",
+  ],
+  [
+    pluginRustModels,
+    /MOBILE_CORE_MAX_CONFIG_BYTES_V1:\s*usize\s*=\s*([\d_]+)/u,
+    "Rust configuration limit",
+  ],
+  [kotlin, /MOBILE_CORE_MAX_CONFIG_BYTES_V1\s*=\s*([\d_]+)/u, "Kotlin configuration limit"],
+] as const) {
+  invariant(
+    numericConstant(sourceText, pattern, name) === mobileCoreMaxConfigBytes,
+    `${name} must match MISH_CORE_MAX_CONFIG_BYTES_V1.`,
+  );
+}
 
 for (const setting of [
   'buildToolsVersion = "36.1.0"',
@@ -129,6 +162,9 @@ for (const requirement of [
   "class FixtureVpnBackend",
   'System.loadLibrary("mish_vpn_jni")',
   "class MishMobileCoreProbe",
+  "class MobileConfigValidationCoordinator",
+  "nativeValidateConfig",
+  "MOBILE_CORE_MAX_CONFIG_BYTES_V1",
   "recoverAfterProcessStart",
   'trigger("snapshot"',
 ]) {
@@ -156,13 +192,27 @@ for (const requirement of [
 for (const requirement of [
   'dlopen("libmish_mobile_core.so"',
   "mish_core_abi_version_v1",
+  "mish_core_initialize_v1",
+  "mish_core_validate_config_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
+  "mish_vpn_validate_config",
   "MISH_CORE_MAX_RESPONSE_BYTES_V1",
 ]) {
   invariant(
     pluginNativeBridge.includes(requirement),
     `Android Mobile Core probe is missing: ${requirement}`,
+  );
+}
+for (const forbidden of [
+  "mish_core_load_config_v1",
+  "mish_core_start_v1",
+  "mish_core_stop_v1",
+  "mish_core_command_v1",
+]) {
+  invariant(
+    !pluginNativeBridge.includes(forbidden),
+    `The validation-only JNI bridge must not resolve lifecycle symbol: ${forbidden}`,
   );
 }
 for (const requirement of [
@@ -184,12 +234,14 @@ for (const command of [
   "request_vpn_consent",
   "start_fixture_lifecycle",
   "stop",
+  "validate_config",
 ]) {
   invariant(pluginBuild.includes(`"${command}"`), `Typed VPN command is missing: ${command}`);
 }
 invariant(
   pluginPermission.includes('"allow-request-vpn-consent"') &&
     pluginPermission.includes('"allow-start-fixture-lifecycle"') &&
+    pluginPermission.includes('"allow-validate-config"') &&
     mobileRust.includes("tauri_plugin_mish_vpn::init()"),
   "The bounded Mish VPN plugin and permissions must remain registered.",
 );
@@ -208,5 +260,5 @@ invariant(
 );
 
 console.log(
-  "Android project valid: API 36, protected fixture VpnService, verified optional Mobile Core probe, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, protected fixture VpnService, bounded validation-only Mobile Core bridge, predictive back, and no generated TV/FileProvider residue.",
 );

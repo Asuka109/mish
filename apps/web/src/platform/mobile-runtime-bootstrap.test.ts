@@ -41,6 +41,14 @@ function createVpnClient(): MobileVpnClient {
     startFixtureLifecycle: vi.fn(async () => vpnSnapshot),
     stop: vi.fn(async () => vpnSnapshot),
     subscribe: vi.fn(() => () => undefined),
+    validateConfig: vi.fn(async () => ({
+      contractVersion: 1 as const,
+      failure: "core-unavailable" as const,
+      message: "The packaged Mobile Core is unavailable.",
+      outcome: "failed" as const,
+      sequence: vpnSnapshot.sequence,
+      sessionId: vpnSnapshot.sessionId,
+    })),
   };
 }
 

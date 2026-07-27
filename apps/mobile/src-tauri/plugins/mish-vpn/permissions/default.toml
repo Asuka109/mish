@@ -12,4 +12,5 @@ permissions = [
   "allow-request-vpn-consent",
   "allow-start-fixture-lifecycle",
   "allow-stop",
+  "allow-validate-config",
 ]

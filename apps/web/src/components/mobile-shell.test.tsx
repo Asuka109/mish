@@ -47,6 +47,14 @@ const vpnClient: MobileVpnClient = {
   startFixtureLifecycle: async () => vpnSnapshot,
   stop: async () => vpnSnapshot,
   subscribe: () => () => undefined,
+  validateConfig: async () => ({
+    contractVersion: 1,
+    failure: "core-unavailable",
+    message: "The packaged Mobile Core is unavailable.",
+    outcome: "failed",
+    sequence: vpnSnapshot.sequence,
+    sessionId: vpnSnapshot.sessionId,
+  }),
 };
 
 function renderShell(path: string) {
