@@ -2244,7 +2244,22 @@ async fn execute_request(
             expected_version,
             launch_token,
         } => {
-            if state.lock().await.pending_network_recovery.is_some() {
+            let mut service_state = state.lock().await;
+            reap_if_exited(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await;
+            let _ = restore_pending_network_recovery(
+                &mut service_state,
+                network_controller.as_ref(),
+                network_recovery,
+            )
+            .await;
+            let recovery_pending = service_state.pending_network_recovery.is_some();
+            drop(service_state);
+            if recovery_pending {
                 return ServiceResponse::error(
                     ServiceDiagnosticCode::SpawnFailed,
                     None,
@@ -3119,6 +3134,9 @@ async fn status_response(
 ) -> ServiceResponse {
     let mut state = state.lock().await;
     reap_if_exited(&mut state, network_controller.as_ref(), network_recovery).await;
+    let _ =
+        restore_pending_network_recovery(&mut state, network_controller.as_ref(), network_recovery)
+            .await;
     let pending_recovery_dns = match state.pending_network_recovery.as_ref() {
         Some(Ok(recovery)) => Some(
             network_controller
@@ -3229,8 +3247,7 @@ async fn reap_if_exited(
     state: &mut ServiceState,
     network_controller: &dyn TunNetworkController,
     network_recovery: &NetworkRecoveryJournal,
-) -> bool {
-    let mut watchdog_retained = false;
+) {
     if state
         .process
         .as_mut()
@@ -3238,6 +3255,7 @@ async fn reap_if_exited(
     {
         let process = state.process.take().expect("exited process must exist");
         let mut network_restored = true;
+        let mut pending_network_recovery = None;
         if let Some(ownership) = state.tun.as_mut()
             && ownership.dns_applied
             && let Some(network) = ownership.network.as_ref()
@@ -3249,16 +3267,19 @@ async fn reap_if_exited(
                 ownership.dns_applied = false;
             } else {
                 network_restored = false;
+                pending_network_recovery = Some(network.dns.clone());
             }
         }
         if network_restored && let Some(watchdog) = process.watchdog.as_ref() {
             remove_core_watchdog(watchdog);
-        } else if !network_restored {
-            watchdog_retained = process.watchdog.is_some();
+        }
+        if let Some(recovery) = pending_network_recovery
+            && state.pending_network_recovery.is_none()
+        {
+            state.pending_network_recovery = Some(Ok(recovery));
         }
         let _ = fs::remove_file(process.sealed_config);
     }
-    watchdog_retained
 }
 
 fn spawn_core_watchdog(
@@ -3397,7 +3418,23 @@ async fn restore_pending_network_recovery(
         return Ok(());
     };
     let recovery = recovery.as_ref().map_err(|_| ())?.clone();
+    if state
+        .tun
+        .as_ref()
+        .and_then(|ownership| ownership.network.as_ref())
+        .is_some_and(|network| network.dns != recovery)
+    {
+        return Err(());
+    }
     restore_network_transaction(network_controller, network_recovery, &recovery).await?;
+    if let Some(ownership) = state.tun.as_mut()
+        && ownership
+            .network
+            .as_ref()
+            .is_some_and(|network| network.dns == recovery)
+    {
+        ownership.dns_applied = false;
+    }
     state.pending_network_recovery = None;
     Ok(())
 }
@@ -3882,6 +3919,50 @@ mod tests {
             _state: &'a ManagedDnsState,
         ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
             Box::pin(async { Err(()) })
+        }
+    }
+
+    struct RecoveredNetworkController;
+
+    impl TunNetworkController for RecoveredNetworkController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Err(()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
+            Box::pin(async { Err(network_ownership::NetworkControllerApplyFailure::Unchanged) })
+        }
+
+        fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async {
+                Ok(NetworkOwnershipObservation {
+                    dns: TunObservationComponentState::Confirmed,
+                    routes: TunObservationComponentState::Confirmed,
+                })
+            })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            _state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async { Ok(TunObservationComponentState::Confirmed) })
         }
     }
 
@@ -5252,25 +5333,71 @@ mod tests {
         state.process.as_mut().unwrap().watchdog = Some(ServiceWatchdog {
             launchd_label: "com.asuka109.mish.test-watchdog".into(),
         });
+        let network = network_ownership::test_network_snapshot();
+        let recovery = network.dns.clone();
         state.tun = Some(ServiceTunOwnership {
             baseline_interfaces: Vec::new(),
             dns_applied: true,
             interface: None,
-            network: Some(network_ownership::test_network_snapshot()),
+            network: Some(network),
             routes: None,
         });
         state.process.as_mut().unwrap().child.wait().await.unwrap();
 
-        assert!(
-            reap_if_exited(
-                &mut state,
-                &FailingNetworkController,
-                &test_network_recovery(temporary.path()),
-            )
-            .await
-        );
+        reap_if_exited(
+            &mut state,
+            &FailingNetworkController,
+            &test_network_recovery(temporary.path()),
+        )
+        .await;
         assert!(state.process.is_none());
         assert!(state.tun.as_ref().is_some_and(|tun| tun.dns_applied));
+        assert_eq!(state.pending_network_recovery, Some(Ok(recovery)));
+    }
+
+    #[tokio::test]
+    async fn status_converges_after_the_retained_watchdog_completes_recovery() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let network = network_ownership::test_network_snapshot();
+        let recovery = network.dns.clone();
+        let state = Mutex::new(ServiceState {
+            pending_network_recovery: Some(Ok(recovery)),
+            process: None,
+            tun: Some(ServiceTunOwnership {
+                baseline_interfaces: vec!["utun0".into()],
+                dns_applied: true,
+                interface: None,
+                network: Some(network),
+                routes: None,
+            }),
+        });
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![baseline_snapshot()],
+            Ok(Vec::new()),
+        ));
+        let controller: Arc<dyn TunNetworkController> = Arc::new(RecoveredNetworkController);
+
+        let response = status_response(
+            &state,
+            "fixture",
+            &observer,
+            &controller,
+            &test_network_recovery(temporary.path()),
+        )
+        .await;
+
+        assert!(
+            response
+                .status
+                .observation
+                .confirms_disabled_at(tun_observation_now()),
+            "{:?}",
+            response.status.observation
+        );
+        let state = state.lock().await;
+        assert!(state.pending_network_recovery.is_none());
+        assert!(state.tun.is_none());
     }
 
     #[tokio::test]
