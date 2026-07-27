@@ -279,6 +279,7 @@ impl LoopbackServerHandle {
         if let Some(service_probes) = &self.service_probes {
             service_probes.shutdown();
         }
+        self.updater_service.shutdown().await;
         if let Err(failure) = self.runtime.current().shutdown().await {
             return BridgeShutdownOutcome::Failed {
                 failure: match failure {

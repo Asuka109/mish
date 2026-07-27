@@ -1926,6 +1926,7 @@ async fn handle_message(
             match state
                 .updater
                 .start_check(&params.operation_id, params.channel)
+                .await
             {
                 Ok(snapshot) => {
                     serde_json::to_value(snapshot).expect("serializable updater snapshot")
@@ -1950,7 +1951,7 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match state.updater.cancel(&params.operation_id) {
+            match state.updater.cancel(&params.operation_id).await {
                 Ok(snapshot) => {
                     serde_json::to_value(snapshot).expect("serializable updater snapshot")
                 }
