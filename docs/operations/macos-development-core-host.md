@@ -63,8 +63,10 @@ cargo test -p mish-platform-macos --features development-core-host \
 
 The build command must finish without an administrator prompt. The tests cover
 the pinned digest and version, canonical private candidate shape, configuration
-size, TUN rejection, stale and replayed requests, one-owner lifecycle, bounded
-stop, helper-parent crash watchdog, and release-artifact exclusion.
+size, TUN rejection, canonical P-256 transcript vectors, wrong
+key/peer/command rejection, bounded challenge expiry and replay, dual-proof
+rotation, administrator reset, one-owner lifecycle, bounded stop,
+helper-parent crash watchdog, and release-artifact exclusion.
 
 ## Install and health
 
@@ -79,7 +81,13 @@ pnpm macos:core-host:health
 Accept the administrator dialog. Re-run `install` once to prove the operation
 is idempotent. `status` must report `"service":"installed"`. `health` must
 report `"ok":true`, helper protocol version `3`, a 64-character installation
-identity, and `"core":null`.
+identity, and the same `p256-sha256` enrollment key identifier and generation.
+The user-owned
+`~/Library/Application Support/com.asuka109.mish/runtime/tun-client-key.json`
+must be a regular single-link mode-`0600` file. The root-owned enrollment file
+must contain only the matching public key and metadata. The wire-level unsigned
+discovery does not expose a Core launch token or network state;
+`macos:core-host:health` uses authenticated status and reports `"core":null`.
 
 Cancel one administrator dialog during a later reinstall. The command must
 return `authorization-cancelled` and the previously healthy installation must
@@ -128,6 +136,13 @@ While one valid `run` command owns the Core, start another valid `run` command
 from a second process. The second owner must be rejected and must not replace or
 stop the first Core.
 
+Use a second same-user client with a different private-key record in a
+temporary mode-`0700` runtime root. Unsigned health discovery may return the
+bounded version/enrollment metadata, but `status`, `run`, `disable`, and every
+other consequential command must reject its proof. The trusted client must
+continue to report no Core or the unchanged original Core, with no TUN, route,
+DNS, or System Proxy mutation.
+
 For helper-crash cleanup, start the valid candidate, then terminate only the
 development helper with administrator authorization:
 
@@ -138,6 +153,36 @@ sudo pkill -9 -x mish-tun-helper
 The separate watchdog must terminate the pinned Core within five seconds.
 `launchd` may restart the helper, after which health must return with
 `"core":null`. No candidate may be adopted as a new owner.
+
+## Rotate and reset the internal key
+
+With the helper healthy and idle, run:
+
+```sh
+pnpm macos:core-host:rotate-key
+pnpm macos:core-host:health
+```
+
+Accept the administrator dialog. The key identifier must change, generation
+must advance by exactly one, the old private key must no longer authenticate,
+and the replacement key must survive app and helper restart. Interrupt one
+fixture rotation before privileged commit and one after commit but before local
+finalization; the first keeps the current key, while the second authenticates
+through the mode-`0600` pending record and finalizes it on the next successful
+command. There is no interval in which both public keys authenticate.
+
+For the lost-key path, move the active private key into a disposable test
+quarantine and run:
+
+```sh
+pnpm macos:core-host:reset-key
+pnpm macos:core-host:health
+```
+
+Reset requires a new administrator authorization, advances generation once,
+and leaves the helper idle with no Core or network effect. No ordinary socket
+command can perform this reset. Remove only the disposable quarantined key
+after the result is verified.
 
 ## Complete uninstall
 
@@ -155,13 +200,19 @@ targets must be absent:
 /Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist
 /Library/PrivilegedHelperTools/com.asuka109.mish.tun-helper.dev
 /Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev
+/Library/Application Support/com.asuka109.mish/tun-helper-dev/enrollment.json
 /var/run/com.asuka109.mish.tun-helper.<uid>.sock
 /var/run/com.asuka109.mish.tun-helper.<uid>.sock.state
+~/Library/Application Support/com.asuka109.mish/runtime/tun-client-key.json
+~/Library/Application Support/com.asuka109.mish/runtime/tun-client-key.pending.json
 ~/Library/Application Support/com.asuka109.mish/runtime/tun-service-installer
 ```
 
 Removed service artifacts and the installer receipt are moved into a uniquely
 named `Mish Core Host Uninstall …` folder in the current user's Trash so the
-operation is recoverable. The candidate created for this walkthrough is
-user-owned test data and may be moved to Trash separately. Shared system
-directories are intentionally left intact.
+non-secret operation is recoverable. The fixed root enrollment record and its
+private directory are validated and deleted by the installed helper before
+that helper is moved. The private installation-key records are deleted instead
+of copied into Trash. The candidate created for this walkthrough is user-owned
+test data and may be moved to Trash separately. Shared system directories are
+intentionally left intact.

@@ -164,6 +164,20 @@ test("rejects development Core-host artifacts from every release bundle mode", a
   );
 });
 
+test("rejects internal installation-key material from every release profile", async () => {
+  for (const mode of ["ad-hoc", "production"] as const) {
+    const bundle = fixture(mode === "production");
+    using temporary = bundle.temporary;
+    const credential = path.join(bundle.application, "Contents/Resources/tun-client-key.json");
+    writeFileSync(credential, "must-not-ship");
+    chmodSync(credential, 0o400);
+    await assert.rejects(
+      verifyMacOsPrivilegedBundle(bundle.application, mode),
+      /privileged artifacts|unexpected privileged artifacts/u,
+    );
+  }
+});
+
 test("requires an explicit development feature to build Core-host executables", () => {
   const metadata = spawnSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
     encoding: "utf8",

@@ -94,6 +94,24 @@ HTTPProxy : 127.0.0.1`,
   assert.throws(() => applyMacOsAppCleanup(inspection), /blocked/u);
 });
 
+test("cleanup preserves installation keys until the TUN lifecycle uninstalls them", () => {
+  const { applications, home } = fixture();
+  const runtime = path.join(home, "Library/Application Support/com.asuka109.mish/runtime");
+  mkdirSync(runtime, { recursive: true });
+  writeFileSync(path.join(runtime, "tun-client-key.json"), "fixture");
+
+  const inspection = inspectMacOsAppCleanup({
+    homeDirectory: home,
+    processTable: "",
+    proxyState: "",
+    systemApplicationsDirectory: applications,
+  });
+
+  assert.equal(inspection.blockers.length, 1);
+  assert.match(inspection.blockers[0], /macos:tun:uninstall/u);
+  assert.throws(() => applyMacOsAppCleanup(inspection), /blocked/u);
+});
+
 test("loopback proxy detection requires an enabled supported proxy kind", () => {
   assert.equal(hasEnabledLoopbackSystemProxy("HTTPEnable : 0\nHTTPProxy : 127.0.0.1\n"), false);
   assert.equal(hasEnabledLoopbackSystemProxy("HTTPEnable : 1\nHTTPProxy : proxy.example\n"), false);

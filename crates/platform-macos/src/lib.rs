@@ -1,9 +1,17 @@
 //! Narrow macOS System Proxy adapter.
 
+mod installation_key;
 mod process_icon;
 mod production_tun;
 mod tun_service;
 
+pub use installation_key::{
+    DEV_TUN_CLIENT_KEY_FILE_NAME, DEV_TUN_INSTALLATION_KEY_ALGORITHM,
+    DEV_TUN_INSTALLATION_KEY_RECORD_VERSION, DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+    DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME, DEV_TUN_SERVICE_ENROLLMENT_PATH,
+    InstallationEnrollmentOperation, InstallationEnrollmentReceipt,
+    apply_installation_enrollment_operation, remove_installation_enrollment,
+};
 pub use process_icon::*;
 pub use production_tun::*;
 
