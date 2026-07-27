@@ -49,8 +49,15 @@ Evidence labels on this page have strict meanings:
   state.
 - Web command feedback is keyed by operation and scope instead of relying on
   one shared optimistic boolean.
+- The cross-platform audit classifies Status/capture, Profile/configuration,
+  Routes, Traffic, Events/Diagnostics, Settings, notifications, updater,
+  lifecycle, desktop transport, Android Tauri/Kotlin/JNI, and Mobile Core state
+  by reset scope and canonical cleanup owner. Desktop RPC and mobile Tauri are
+  projections of one Shared Rust domain boundary; mobile must not embed the
+  desktop loopback bridge.
 
 See
+[`cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md),
 [`runtime-state-ownership.md`](architecture/runtime-state-ownership.md),
 [`status-data-contracts.md`](architecture/status-data-contracts.md), and
 [`traffic-data-contracts.md`](architecture/traffic-data-contracts.md).
@@ -110,6 +117,16 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
 
 ## Not Delivered
 
+- Shared Rust authority for the Android VPN product lifecycle. The current
+  Phase 0 prototype intentionally owns fixture phase/sequence/persistence in
+  Kotlin and projects fixture Status/Profile/Traffic/Events/Settings clients.
+- Production mobile Profile activation, configuration loading, TUN/socket
+  protection, Routes, Traffic commands, Events, Diagnostics, or semantic
+  notification projection. The staged Mobile Core and JNI path expose only
+  bounded ABI/version evidence.
+- Production Android-specific page composition beyond the current mobile shell
+  and fixture banner. Shared route components are not evidence for a universal
+  desktop/mobile page.
 - A notarized, stapled, publicly released Developer ID build.
 - Production-enabled automatic update discovery, installation, rollback,
   relaunch, or System Proxy recovery around replacement.
