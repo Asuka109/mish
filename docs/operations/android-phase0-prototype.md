@@ -12,11 +12,14 @@ uses a protected foreground service and honest notification, serializes
 lifecycle transitions, and publishes versioned snapshots and events across
 Activity or WebView recreation. Its replaceable fixture backend reports VPN
 capability as unavailable. An explicitly staged, checksum-matched native Core
-may report its ABI and version identity through a bounded JNI probe, but the
-fixture never initializes or starts it. It never calls
-`VpnService.Builder.establish`, creates a TUN, captures traffic, or starts
-Mihomo. No subscription, token, node, or user configuration is included. This
-work proves the **compiled shell** evidence
+may report its ABI and version identity through a bounded JNI probe. The typed
+mobile adapter may also carry caller-owned fictional configuration bytes through
+Tauri, Kotlin, and JNI to initialize the Core and invoke
+`mish_core_validate_config_v1`. Validation never loads that configuration,
+starts Core, or changes the fixture snapshot. The prototype never calls
+`VpnService.Builder.establish`, creates a TUN, or captures traffic. No
+subscription, token, node, or private configuration is included. This work
+proves the **compiled shell** evidence
 level and part of the **native fixture** level defined by
 [`../quality/mobile-validation.md`](../quality/mobile-validation.md). It does
 not prove an **installable app** because no Android device or emulator was
@@ -77,7 +80,8 @@ official sources:
   always returns `unavailable`; the honest fixture notification remains
   foreground only until explicit stop, revoke, or destruction. `vpnActive`
   remains false throughout. Core availability describes only verified package
-  identity and does not imply initialization, TUN ownership, or traffic capture.
+  identity and does not imply loaded configuration, TUN ownership, or traffic
+  capture. Validation-only initialization is not lifecycle activation.
 
 ## Retained local toolchain
 

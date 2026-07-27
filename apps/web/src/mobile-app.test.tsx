@@ -1,4 +1,4 @@
-import type { MobileVpnSnapshotDto } from "@mish/contracts";
+import type { MobileConfigValidationResultDto, MobileVpnSnapshotDto } from "@mish/contracts";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,14 @@ const vpnClient: MobileVpnClient = {
     handler(snapshot);
     return () => undefined;
   },
+  validateConfig: async (): Promise<MobileConfigValidationResultDto> => ({
+    contractVersion: 1,
+    failure: "core-unavailable",
+    message: "The packaged Mobile Core is unavailable.",
+    outcome: "failed",
+    sequence: snapshot.sequence,
+    sessionId: snapshot.sessionId,
+  }),
 };
 
 describe("mobile application routes", () => {

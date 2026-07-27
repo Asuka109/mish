@@ -125,9 +125,13 @@ verification anchors that evidence to the source manifest, current wrapper
 digest, current-host Go archive, NDK and build settings, ABI paths, ELF
 machines, exported symbols, checksums, and SBOM. This preserves same-host
 reproducibility without assuming that Go `c-shared` output is byte-identical
-across Darwin and Linux hosts. A small JNI shim loads the exact ABI by soname
-and exposes only bounded version evidence at this stage; it does not yet
-transfer configuration, a TUN descriptor, or Core lifecycle authority.
+across Darwin and Linux hosts. A small JNI shim loads the exact ABI by soname,
+reports bounded version evidence, and carries one bounded validation-only
+configuration command. That command initializes the Core with a fail-closed
+socket-protection callback, invokes `mish_core_validate_config_v1`, validates
+and frees every response envelope exactly once, and returns only a closed
+redacted result. It never loads configuration, supplies a TUN descriptor, or
+changes Core or VPN lifecycle authority.
 
 ## Android lifecycle
 

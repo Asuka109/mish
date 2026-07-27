@@ -1,6 +1,9 @@
 use tauri::{AppHandle, Runtime, plugin::PluginApi};
 
-use crate::{MobileVpnSnapshot, Result};
+use crate::{
+    MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
+    MobileVpnSnapshot, Result,
+};
 
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime>(AppHandle<R>);
@@ -28,5 +31,29 @@ impl<R: Runtime> MishVpn<R> {
 
     pub fn stop(&self) -> Result<MobileVpnSnapshot> {
         self.get_snapshot()
+    }
+
+    pub fn validate_config(
+        &self,
+        request: MobileConfigValidationRequest,
+    ) -> MobileConfigValidationResult {
+        if let Some(result) = MobileConfigValidationResult::preflight(&request) {
+            return result;
+        }
+        let snapshot = MobileVpnSnapshot::unsupported();
+        if snapshot.sequence != request.sequence || snapshot.session_id != request.session_id {
+            return MobileConfigValidationResult::failure(
+                MobileConfigValidationFailure::StaleAuthority,
+                "The mobile runtime authority is stale.",
+                snapshot.sequence,
+                &snapshot.session_id,
+            );
+        }
+        MobileConfigValidationResult::failure(
+            MobileConfigValidationFailure::CoreUnavailable,
+            "Mobile Core configuration validation is unavailable on this platform.",
+            snapshot.sequence,
+            &snapshot.session_id,
+        )
     }
 }

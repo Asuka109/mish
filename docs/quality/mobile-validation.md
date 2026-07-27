@@ -80,8 +80,17 @@ For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
 boundary: consent, foreground notification, serialization, reconstruction, and
 recovery may be exercised, but every start must finish `unavailable` with
 `vpnActive=false`. A separately staged Core may report verified package identity
-as available, but the fixture does not initialize or start it. No fixture result
+as available. The bounded configuration-validation slice may initialize that
+Core and call `mish_core_validate_config_v1`, but it never loads configuration,
+starts Core, supplies a TUN descriptor, or changes VPN state. No fixture result
 satisfies any item in the VPN behavior subsection below.
+
+Configuration validation carries only caller-owned fictional bytes and current
+mobile session/sequence authority. Input over the ABI limit, cancellation,
+duplicate commands, stale authority, plugin/JNI failure, every ABI status, and
+malformed or oversized native envelopes resolve to closed bounded product
+results. Native envelope contents, raw configuration, URLs, credentials, nodes,
+tokens, and paths never enter results, logs, persistence, or fixture snapshots.
 
 ### VPN behavior
 

@@ -1,4 +1,4 @@
-import type { MobileVpnSnapshotDto } from "@mish/contracts";
+import type { MobileConfigValidationResultDto, MobileVpnSnapshotDto } from "@mish/contracts";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -54,6 +54,17 @@ class TestMobileVpnClient implements MobileVpnClient {
 
   async initialize() {
     return this.snapshot;
+  }
+
+  async validateConfig(): Promise<MobileConfigValidationResultDto> {
+    return {
+      contractVersion: 1,
+      failure: "core-unavailable",
+      message: "The packaged Mobile Core is unavailable.",
+      outcome: "failed",
+      sequence: this.snapshot.sequence,
+      sessionId: this.snapshot.sessionId,
+    };
   }
 
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void) {
