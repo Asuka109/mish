@@ -146,13 +146,20 @@ jobs:
           set -euo pipefail
 
           runner_root="${RUNNER_TEMP%/_work/_temp}"
-          service_label="$(<"$runner_root/.service")"
-          [[ "$service_label" =~ ^actions\.runner\.[A-Za-z0-9._-]+$ ]]
-          restart_target="gui/$(id -u)/$service_label"
-          /bin/launchctl print "$restart_target" >/dev/null
+          restart_log="$HOME/.local/state/mish-runner/restart.log"
+          [[ "$runner_root" == "$HOME/actions-runner/mish" ]]
+          [[ -x "$runner_root/svc.sh" ]]
+          "$runner_root/svc.sh" status >/dev/null
 
-          restart_label="mish.runner-restart.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
-          /bin/launchctl submit -l "$restart_label" -- \
-            /bin/bash -c '/bin/sleep 10; /bin/launchctl kickstart -k "$1"' \
-            _ "$restart_target"
+          /bin/mkdir -p "$HOME/.local/state/mish-runner"
+          (
+            cd "$HOME"
+            /usr/bin/nohup /usr/bin/env -i \
+              HOME="$HOME" \
+              PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+              /bin/bash -c \
+              '/bin/sleep 10; "$1/svc.sh" stop; "$1/svc.sh" start' \
+              _ "$runner_root" \
+              >"$restart_log" 2>&1 </dev/null &
+          )
           echo "runner_restart=scheduled" >>"$GITHUB_STEP_SUMMARY"
