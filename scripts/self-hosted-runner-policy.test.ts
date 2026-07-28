@@ -89,6 +89,8 @@ test("runner hooks clean only validated runner-owned resources on the shared acc
   assert.match(hygiene, /lsof.*-d cwd/u);
   assert.match(hygiene, /kill -TERM/u);
   assert.match(hygiene, /kill -KILL/u);
+  assert.match(hygiene, /GITHUB_WORKSPACE/u);
+  assert.match(hygiene, /mkdir -p "\$workspace"/u);
   assert.doesNotMatch(hygiene, /pkill[^\n]*-u/u);
   assert.doesNotMatch(hygiene, /\bsudo\b|\bosascript\b|\/bin\/rm|\brm -/u);
   assert.match(read("scripts/self-hosted-runner-job-started.sh"), /hygiene\.sh" started/u);

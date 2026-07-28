@@ -135,6 +135,7 @@ delete_runner_keychains() {
 
 clear_workspace() {
   local directory
+  local workspace
   [[ "$work_root" == "$HOME/actions-runner/mish/_work" ]] ||
     fail "refusing to clear an unexpected workspace"
 
@@ -142,6 +143,13 @@ clear_workspace() {
     /bin/mkdir -p "$directory"
     /usr/bin/find "$directory" -depth -mindepth 1 -delete
   done
+
+  if [[ "$mode" == "started" ]]; then
+    workspace="${GITHUB_WORKSPACE:-}"
+    [[ "$workspace" == "$work_root"/* ]] ||
+      fail "GitHub workspace is outside the registered runner work root"
+    /bin/mkdir -p "$workspace"
+  fi
 }
 
 cleanup() {

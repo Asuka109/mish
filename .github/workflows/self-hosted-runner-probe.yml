@@ -22,6 +22,30 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 5
     steps:
+      - name: Restore the workspace after the previous hook version
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          runner_root="${RUNNER_TEMP%/_work/_temp}"
+          [[ "$GITHUB_WORKSPACE" == "$runner_root/_work/"* ]]
+          /bin/mkdir -p "$GITHUB_WORKSPACE"
+      - name: Check out the corrected hook revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install the corrected hook revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          hook_root="$HOME/.local/share/mish-runner-hooks"
+          [[ "$MISH_RUNNER_HOOK_ROOT" == "$hook_root" ]]
+          /usr/bin/install -m 700 \
+            scripts/self-hosted-runner-hygiene.sh \
+            scripts/self-hosted-runner-job-started.sh \
+            scripts/self-hosted-runner-job-completed.sh \
+            "$hook_root/"
       - name: Inspect the existing runner without exposing local identity
         shell: bash
         run: |
