@@ -42,9 +42,25 @@ jobs:
             console_relation=same
           fi
 
-          service_process=absent
-          if /usr/bin/pgrep -f "$runner_root/bin/Runner.Listener" >/dev/null; then
-            service_process=present
+          listener_process=absent
+          listener_parent=absent
+          listener_pid="$(/usr/bin/pgrep -f 'Runner.Listener' | /usr/bin/head -n 1 || true)"
+          if [[ -n "$listener_pid" ]]; then
+            listener_process=present
+            listener_parent_pid="$(/bin/ps -p "$listener_pid" -o ppid= | /usr/bin/xargs)"
+            if [[ -n "$listener_parent_pid" ]]; then
+              listener_parent="$(/bin/ps -p "$listener_parent_pid" -o comm= | /usr/bin/xargs basename)"
+            fi
+          fi
+
+          service_definition=absent
+          service_loaded=absent
+          if [[ -f "$runner_root/.service" ]]; then
+            service_definition=present
+            service_label="$(<"$runner_root/.service")"
+            if /bin/launchctl print "gui/$(id -u)/$service_label" >/dev/null 2>&1; then
+              service_loaded=present
+            fi
           fi
 
           hook_started=absent
@@ -72,7 +88,10 @@ jobs:
             echo "runner_root=~/actions-runner/mish"
             echo "architecture=$(uname -m)"
             echo "console_user_relation=$console_relation"
-            echo "service_process=$service_process"
+            echo "listener_process=$listener_process"
+            echo "listener_parent=$listener_parent"
+            echo "service_definition=$service_definition"
+            echo "service_loaded=$service_loaded"
             echo "hook_started=$hook_started"
             echo "hook_completed=$hook_completed"
             echo "android_sdk=$android_sdk"
