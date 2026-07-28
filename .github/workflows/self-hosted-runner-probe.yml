@@ -22,53 +22,22 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 5
     steps:
-      - name: Repair the installed hook without using a downloaded action
+      - name: Check out the corrected hook revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install the repository hook revision
         shell: bash
-        working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          runner_root="${RUNNER_TEMP%/_work/_temp}"
-          hook_file="$HOME/.local/share/mish-runner-hooks/self-hosted-runner-hygiene.sh"
-          [[ "$GITHUB_WORKSPACE" == "$runner_root/_work/"* ]]
-          [[ -f "$hook_file" ]]
-
-          HOOK_FILE="$hook_file" node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from "node:fs";
-
-          const path = process.env.HOOK_FILE;
-          const source = readFileSync(path, "utf8");
-          const start = source.indexOf("clear_workspace() {");
-          const end = source.indexOf("\n}\n\ncleanup()", start);
-          if (start < 0 || end < 0) {
-            throw new Error("installed cleanup function was not recognized");
-          }
-          const replacement = `clear_workspace() {
-            local directory
-            local workspace
-            [[ "$work_root" == "$HOME/actions-runner/mish/_work" ]] ||
-              fail "refusing to clear an unexpected workspace"
-
-            if [[ "$mode" == "started" ]]; then
-              workspace="\${GITHUB_WORKSPACE:-}"
-              [[ "$workspace" == "$work_root"/* ]] ||
-                fail "GitHub workspace is outside the registered runner work root"
-              /bin/mkdir -p "$workspace"
-              return
-            fi
-
-            for directory in "$work_root/mish" "$work_root/_actions" "$work_root/_temp"; do
-              /bin/mkdir -p "$directory"
-              /usr/bin/find "$directory" -depth -mindepth 1 -delete
-            done
-          }`;
-          writeFileSync(path, source.slice(0, start) + replacement + source.slice(end + 2), {
-            mode: 0o700,
-          });
-          NODE
-
-          /bin/chmod 700 "$hook_file"
-          /bin/bash -n "$hook_file"
-          /bin/mkdir -p "$GITHUB_WORKSPACE"
+          hook_root="$HOME/.local/share/mish-runner-hooks"
+          [[ "$MISH_RUNNER_HOOK_ROOT" == "$hook_root" ]]
+          /usr/bin/install -m 700 \
+            scripts/self-hosted-runner-hygiene.sh \
+            scripts/self-hosted-runner-job-started.sh \
+            scripts/self-hosted-runner-job-completed.sh \
+            "$hook_root/"
       - name: Inspect the existing runner without exposing local identity
         shell: bash
         run: |
