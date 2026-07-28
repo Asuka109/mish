@@ -751,8 +751,7 @@ const en = {
         "The pinned Mihomo Core is missing from the verified development or package input.",
       priorStop: "Mish could not confirm that the previous managed Core stopped safely.",
       staging: "Mish could not stage the verified Core and profile in its private runtime.",
-      start:
-        "Mish could not start its packaged Mihomo Core. Check the selected profile and retry.",
+      start: "Mish could not start its packaged Mihomo Core. Check the selected profile and retry.",
       stateCommit: "Mish could not commit the authoritative activation state safely.",
       timeout: "Mihomo did not become ready before the bounded launch deadline.",
       unsafeRuntime: "Mish rejected the managed Core path or private runtime boundary.",
