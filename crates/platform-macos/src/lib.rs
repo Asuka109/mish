@@ -1,6 +1,7 @@
 //! Narrow macOS System Proxy adapter.
 
 mod installation_key;
+pub mod internal_tun_package_machine;
 mod process_icon;
 mod production_tun;
 mod tun_service;

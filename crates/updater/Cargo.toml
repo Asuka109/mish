@@ -9,6 +9,7 @@ base64 = "0.22.1"
 futures-util = "0.3.33"
 libc = "0.2.186"
 minisign-verify = "0.2.5"
+mish-state-machine = { path = "../state-machine" }
 reqwest = { version = "0.13.2", default-features = false, features = ["http2", "rustls", "stream"] }
 semver = "1.0.28"
 serde = { version = "1.0.228", features = ["derive"] }

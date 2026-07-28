@@ -77,6 +77,14 @@ After extracting the archive on the target Mac, use only its visible resources:
 4. Run **Uninstall Internal TUN Alpha.command** to remove the service, Core,
    socket/state, enrollment, receipts, and active/pending client key.
 
+The package controller implements these commands as one typed lifecycle using
+the repository state-machine kernel. Install and repair cannot publish
+`healthy-disabled` from administrator approval or launchd acknowledgement
+alone: fixed artifacts, receipts, enrollment, protocol, Helper health, Core
+absence, and disabled network observation must all verify. A post-mutation
+failure rolls back or reports `repair-required`; uninstall retains its
+pre-mutation ownership check and fails closed for foreign or partial state.
+
 An isolated Tart guest may exercise the same fixed native controller through
 its explicit `--tart-terminal-authorization` option. That option replaces only
 the macOS dialog with a visible `sudo` password prompt, is accepted only for

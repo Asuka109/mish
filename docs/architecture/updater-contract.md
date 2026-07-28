@@ -172,6 +172,15 @@ effect ID, and SHA-256 digests of the machine authority and operation ID.
 Endpoint URLs, credentials, raw metadata or payload bodies, signature material,
 private paths, Profile data, and platform observations are never included.
 
+The accepted Check vocabulary now runs through the repository-owned
+`mish-state-machine` kernel. `CheckState`, `CheckInput`, `CheckEffect`,
+projection, and updater errors remain owned by `mish-updater`; only bounded
+admission, correlation, owned effect tasks, finalizers, shutdown, and redacted
+evidence moved to the shared execution layer. This migration does not change
+the public updater DTO/RPC behavior or the discovery-to-commit cancellation
+cutoff. See
+[`state-machine-kernel.md`](state-machine-kernel.md).
+
 #### Go/no-go review for follow-up aggregates
 
 | Review dimension          | Prior Check orchestration                                                        | Typed reducer proof                                                                                                                 |

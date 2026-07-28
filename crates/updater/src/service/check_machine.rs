@@ -2,6 +2,9 @@ use super::{
     AvailableCandidate, UpdateCandidateIdentity, UpdateChannel, UpdateOperationError, UpdatePhase,
     UpdateProgress, UpdaterError,
 };
+use mish_state_machine::{
+    CorrelatedEffect, Correlation, EffectBatch, EffectMode, Machine, TaskFailure, Transition,
+};
 
 pub(super) const DISCOVER_EFFECT_ID: u64 = 1;
 pub(super) const COMMIT_AVAILABLE_EFFECT_ID: u64 = 2;
@@ -35,14 +38,7 @@ impl CheckOperation {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(super) struct EffectCorrelation {
-    pub machine_authority: String,
-    pub scope_epoch: u64,
-    pub operation_id: String,
-    pub admitted_revision: u64,
-    pub effect_id: u64,
-}
+pub(super) type EffectCorrelation = Correlation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CheckTaskFailure {
@@ -290,6 +286,20 @@ impl CheckEffect {
             Self::Discover { correlation, .. }
             | Self::CommitAvailable { correlation, .. }
             | Self::Cancel { correlation } => correlation,
+        }
+    }
+}
+
+impl CorrelatedEffect for CheckEffect {
+    fn correlation(&self) -> &Correlation {
+        self.correlation()
+    }
+
+    fn mode(&self) -> EffectMode {
+        if matches!(self, Self::Cancel { .. }) {
+            EffectMode::Cancel
+        } else {
+            EffectMode::Spawn
         }
     }
 }
@@ -561,6 +571,94 @@ pub(super) fn reduce(
                 DecisionDisposition::Duplicate,
             )),
         },
+    }
+}
+
+pub(super) struct CheckMachine;
+
+impl Machine for CheckMachine {
+    type State = CheckState;
+    type Input = CheckInput;
+    type Effect = CheckEffect;
+    type Error = UpdateOperationError;
+
+    fn reduce(
+        &self,
+        state: &Self::State,
+        input: &Self::Input,
+    ) -> Transition<Self::State, Self::Effect, Self::Error> {
+        let decision = match reduce(state, input.clone()) {
+            Ok(decision) => decision,
+            Err(error) => return Transition::Rejected(error),
+        };
+        match decision.disposition {
+            DecisionDisposition::Duplicate | DecisionDisposition::CancelTooLate => {
+                Transition::Unchanged
+            }
+            DecisionDisposition::RetiredCompletion => Transition::Retired,
+            DecisionDisposition::Applied if !decision.effects.is_empty() => {
+                let mut effects = decision.effects.into_iter();
+                let first = effects.next().expect("checked non-empty effects");
+                Transition::EffectEmitting {
+                    state: decision.next,
+                    effects: EffectBatch::from_first(first, effects.collect()),
+                }
+            }
+            DecisionDisposition::Applied => match decision.next {
+                CheckState::Stable { available: Some(_) } => Transition::Committed(decision.next),
+                CheckState::Cancelled { .. }
+                | CheckState::Retired {
+                    terminal: RetiredTerminal::Cancelled,
+                    ..
+                } => Transition::Cancelled(decision.next),
+                CheckState::Failed { .. }
+                | CheckState::NoUpdate { .. }
+                | CheckState::Retired {
+                    terminal: RetiredTerminal::Failed { .. },
+                    ..
+                } => Transition::Failed(decision.next),
+                _ => Transition::Accepted(decision.next),
+            },
+        }
+    }
+
+    fn state_label(&self, state: &Self::State) -> &'static str {
+        state.label()
+    }
+
+    fn input_label(&self, input: &Self::Input) -> &'static str {
+        input.label()
+    }
+
+    fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation> {
+        match input {
+            CheckInput::CheckRequested { operation, .. } => {
+                Some(operation.correlation(DISCOVER_EFFECT_ID))
+            }
+            CheckInput::EffectCompleted(completion) => Some(completion.correlation.clone()),
+            CheckInput::CancelRequested { .. } | CheckInput::ShutdownRequested => {
+                state.operation().map(|operation| operation.correlation(0))
+            }
+        }
+    }
+
+    fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
+        CheckInput::EffectCompleted(CheckCompletion {
+            correlation,
+            outcome: CheckEffectOutcome::TaskFailed(match failure {
+                TaskFailure::Aborted => CheckTaskFailure::Aborted,
+                TaskFailure::CompletionConflict => CheckTaskFailure::CompletionConflict,
+                TaskFailure::Panicked => CheckTaskFailure::Panicked,
+            }),
+        })
+    }
+
+    fn shutdown(&self) -> Self::Input {
+        CheckInput::ShutdownRequested
+    }
+
+    fn unavailable(&self) -> Self::Error {
+        UpdateOperationError::Busy
     }
 }
 

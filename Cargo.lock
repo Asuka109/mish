@@ -2794,6 +2794,7 @@ dependencies = [
  "mish-bridge",
  "mish-runtime",
  "mish-settings",
+ "mish-state-machine",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -2808,6 +2809,7 @@ dependencies = [
  "system-configuration",
  "tempfile",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -2871,6 +2873,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mish-state-machine"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "mish-updater"
 version = "0.1.0"
 dependencies = [
@@ -2879,6 +2894,7 @@ dependencies = [
  "futures-util",
  "libc",
  "minisign-verify",
+ "mish-state-machine",
  "reqwest",
  "semver",
  "serde",
