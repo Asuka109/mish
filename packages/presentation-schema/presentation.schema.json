@@ -55,6 +55,7 @@
   "notifications": {
     "capture.failure": {
       "data": {
+        "captureMode": { "type": "string", "optional": true },
         "failure": "string",
         "observationStage": { "type": "string", "optional": true },
         "takeoverReason": { "type": "string", "optional": true }

@@ -101,6 +101,7 @@ export type NativeMessage =
 
 const applicationNotificationCaptureFailureDataSchema = z
   .object({
+    captureMode: z.string().optional(),
     failure: z.string(),
     observationStage: z.string().optional(),
     takeoverReason: z.string().optional(),

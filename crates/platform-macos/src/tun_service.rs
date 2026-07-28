@@ -868,6 +868,7 @@ fn route_contains(network: IpAddr, prefix_length: u8, address: IpAddr) -> bool {
 
 #[derive(Clone, Debug)]
 pub struct MacOsTunServiceClient {
+    authenticated_request: Arc<Mutex<()>>,
     client_keys: Option<InstallationClientKeyStore>,
     lifecycle: Option<TunServiceLifecycle>,
     socket_path: PathBuf,
@@ -961,6 +962,7 @@ struct InternalTunPackageResult {
 impl MacOsTunServiceClient {
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
             lifecycle: None,
             socket_path,
@@ -972,6 +974,7 @@ impl MacOsTunServiceClient {
         client_keys: InstallationClientKeyStore,
     ) -> Self {
         Self {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: Some(client_keys),
             lifecycle: None,
             socket_path,
@@ -1048,6 +1051,10 @@ impl MacOsTunServiceClient {
     }
 
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
+        // One packaged application owns one authenticated Helper command stream. Core readiness,
+        // watchdog observation, and Capture reconciliation may poll concurrently, but the Helper
+        // lifecycle machine intentionally admits only one privileged operation at a time.
+        let _authenticated_request = self.authenticated_request.lock().await;
         let request_timeout = service_request_timeout(&command);
         let request_id = uuid::Uuid::new_v4().to_string();
         let mut client_nonce = [0_u8; 32];
@@ -4375,6 +4382,26 @@ mod tests {
         snapshots: StdMutex<VecDeque<TunSystemSnapshot>>,
     }
 
+    struct DelayedObserver {
+        delay: Duration,
+        snapshot: TunSystemSnapshot,
+    }
+
+    impl TunSystemObserver for DelayedObserver {
+        fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>> {
+            let delay = self.delay;
+            let snapshot = self.snapshot.clone();
+            Box::pin(async move {
+                tokio::time::sleep(delay).await;
+                Ok(snapshot)
+            })
+        }
+
+        fn owned_utun_sockets(&self, _pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+            Ok(Vec::new())
+        }
+    }
+
     impl SequenceObserver {
         fn new(
             snapshots: Vec<TunSystemSnapshot>,
@@ -5186,6 +5213,19 @@ mod tests {
         PathBuf,
         tokio::task::JoinHandle<Result<(), &'static str>>,
     ) {
+        fixture_with_observer(Arc::new(SequenceObserver::new(snapshots, owned_interfaces))).await
+    }
+
+    async fn fixture_with_observer(
+        observer: Arc<dyn TunSystemObserver>,
+    ) -> (
+        tempfile::TempDir,
+        MacOsTunServiceClient,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        tokio::task::JoinHandle<Result<(), &'static str>>,
+    ) {
         let temporary = tempfile::tempdir().unwrap();
         let binary = write_fixture_binary(temporary.path());
         let runtime_root = temporary.path().join("runtime");
@@ -5220,7 +5260,7 @@ mod tests {
             socket_path: socket_path.clone(),
             spawn_watchdog: false,
             network_controller: Arc::new(MacOsTunNetworkController::new()),
-            observer: Arc::new(SequenceObserver::new(snapshots, owned_interfaces)),
+            observer,
         }));
         for _ in 0..100 {
             if socket_path.exists() {
@@ -5688,6 +5728,36 @@ mod tests {
                 .unwrap()
                 .confirms_disabled_at(tun_observation_now())
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn one_client_serializes_concurrent_authenticated_observations() {
+        let (_temporary, client, _binary, _home, _config_file, server) =
+            fixture_with_observer(Arc::new(DelayedObserver {
+                delay: Duration::from_millis(100),
+                snapshot: baseline_snapshot(),
+            }))
+            .await;
+        let barrier = Arc::new(tokio::sync::Barrier::new(3));
+        let first_client = client.clone();
+        let first_barrier = barrier.clone();
+        let first = tokio::spawn(async move {
+            first_barrier.wait().await;
+            first_client.request(ServiceCommand::Status).await
+        });
+        let second_client = client.clone();
+        let second_barrier = barrier.clone();
+        let second = tokio::spawn(async move {
+            second_barrier.wait().await;
+            second_client.request(ServiceCommand::Status).await
+        });
+
+        barrier.wait().await;
+        let (first, second) = tokio::join!(first, second);
+
+        assert!(first.unwrap().is_ok());
+        assert!(second.unwrap().is_ok());
         server.abort();
     }
 
@@ -6190,6 +6260,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
@@ -6225,6 +6296,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
@@ -6258,6 +6330,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),

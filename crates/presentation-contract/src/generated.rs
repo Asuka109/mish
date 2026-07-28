@@ -186,6 +186,8 @@ impl ApplicationActionId {
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureFailureApplicationNotificationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_mode: Option<String>,
     pub failure: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub observation_stage: Option<String>,

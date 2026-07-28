@@ -131,6 +131,16 @@ describe("notification presentation registry", () => {
     expect(JSON.stringify(presentation)).not.toContain("protected-pac");
   });
 
+  it("presents TUN drift without System Proxy recovery copy or actions", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { captureMode: "tun", failure: "external-drift" }),
+      i18nObject("zh"),
+    );
+
+    expect(presentation.message).toBe("虚拟网卡的实际状态与 Mish 中的选择不一致。");
+    expect(presentation.actions).toEqual([]);
+  });
+
   it("derives lifecycle without storing localized copy", () => {
     const progress = presentNotification(
       record("profile.activation-geosite-progress", { asset: "geo-site" }, [], { pinned: true }),

@@ -62,8 +62,9 @@ use uuid::Uuid;
 const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 
 #[derive(Default)]
-struct HealthyTunPlatform {
+struct InstallableTunPlatform {
     enabled: Mutex<bool>,
+    installed: AtomicBool,
 }
 
 #[test]
@@ -325,27 +326,34 @@ async fn legacy_geodata_validation_process_evidence_is_typed() {
     cancellation_controller.shutdown().await;
 }
 
-impl TunHelperPlatform for HealthyTunPlatform {
+impl TunHelperPlatform for InstallableTunPlatform {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
-        TunHelperSnapshot {
-            availability: TunHelperAvailability::Available,
-            expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
-            health: TunHelperHealth::Healthy,
-            installation_id: None,
-            installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
-            last_failure: None,
-            phase: TunHelperLifecyclePhase::Idle,
-        }
+        TunHelperSnapshot::unavailable(
+            TunHelperAvailability::PermissionRequired,
+            TunHelperHealth::NotInstalled,
+            mish_runtime::TunHelperFailureKind::PermissionDenied,
+        )
     }
 
     fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
-        Box::pin(async { Ok(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)) })
+        let installed = self.installed.load(Ordering::Relaxed);
+        Box::pin(async move {
+            Ok(if installed {
+                TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)
+            } else {
+                TunHelperObservation::not_installed()
+            })
+        })
     }
 
     fn run_lifecycle(
         &self,
-        _operation: TunHelperLifecycleOperation,
+        operation: TunHelperLifecycleOperation,
     ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        self.installed.store(
+            operation != TunHelperLifecycleOperation::Remove,
+            Ordering::Relaxed,
+        );
         Box::pin(async { Ok(()) })
     }
 
@@ -453,7 +461,7 @@ async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_a
 }
 
 #[tokio::test]
-async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
+async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
@@ -463,7 +471,7 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
     let controller = FakeController::start("v1.19.29").await;
     let tun_helper = Arc::new(TunHelperController::new(Arc::new(
-        HealthyTunPlatform::default(),
+        InstallableTunPlatform::default(),
     )));
     let capture = Arc::new(CaptureReconciler::new_with_tun(
         Arc::new(MemoryCapturePlatform::default()),
@@ -526,13 +534,14 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
         .await
         .unwrap();
     let system_proxy_core = host.current();
+    tun_helper.install().await.unwrap();
 
-    let dual = coordinator
+    let tun = coordinator
         .set_capture(
             CaptureRequest {
                 active: true,
                 selection: CaptureSelection {
-                    system_proxy: true,
+                    system_proxy: false,
                     tun: true,
                 },
             },
@@ -542,10 +551,10 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
         .unwrap();
 
     assert!(!system_proxy_core.is_same_instance(&host.current()));
-    assert_eq!(dual["runtime"]["systemProxy"]["phase"], "applied");
-    assert_eq!(dual["runtime"]["tun"]["phase"], "applied");
-    assert_eq!(dual["runtime"]["captureSelection"]["systemProxy"], true);
-    assert_eq!(dual["runtime"]["captureSelection"]["tun"], true);
+    assert_eq!(tun["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(tun["runtime"]["tun"]["phase"], "applied");
+    assert_eq!(tun["runtime"]["captureSelection"]["systemProxy"], false);
+    assert_eq!(tun["runtime"]["captureSelection"]["tun"], true);
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
     assert_eq!(config["find-process-mode"].as_str(), Some("always"));
@@ -555,7 +564,7 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
             CaptureRequest {
                 active: false,
                 selection: CaptureSelection {
-                    system_proxy: true,
+                    system_proxy: false,
                     tun: true,
                 },
             },
@@ -571,7 +580,7 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
         .launch_proxy(
             &Uuid::new_v4().to_string(),
             CaptureSelection {
-                system_proxy: true,
+                system_proxy: false,
                 tun: true,
             },
             StatusAdapterKind::Rpc,
@@ -580,7 +589,7 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
         .unwrap();
 
     assert!(!stopped_core.is_same_instance(&host.current()));
-    assert_eq!(relaunched["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(relaunched["runtime"]["systemProxy"]["phase"], "off");
     assert_eq!(relaunched["runtime"]["tun"]["phase"], "applied");
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));

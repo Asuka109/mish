@@ -77,7 +77,13 @@ function knownPresentation(
   const boolean = (key: string) => data[key] === true;
   switch (type) {
     case "capture.failure":
-      return captureFailurePresentation(string("failure"), string("takeoverReason"), resolved, LL);
+      return captureFailurePresentation(
+        string("failure"),
+        string("captureMode"),
+        string("takeoverReason"),
+        resolved,
+        LL,
+      );
     case "local-proxy.feedback":
       return { message: localProxyFeedback(string("outcome"), LL) };
     case "onboarding.welcome":
@@ -217,6 +223,7 @@ function knownPresentation(
 
 function captureFailurePresentation(
   failure: string | undefined,
+  captureMode: string | undefined,
   takeoverReason: string | undefined,
   resolved: boolean,
   LL: TranslationFunctions,
@@ -237,6 +244,7 @@ function captureFailurePresentation(
     return { message: LL.capture.systemProxyCoreFailure() };
   }
   if (failure === "external-drift") {
+    if (captureMode === "tun") return { message: LL.capture.tunDrift() };
     return { message: LL.capture.systemProxyDrift() };
   }
   return { message: LL.capture.systemProxyFailure() };

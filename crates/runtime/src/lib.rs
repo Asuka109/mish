@@ -79,6 +79,24 @@ fn system_proxy_takeover_rejection_presentation_id(
     }
 }
 
+fn capture_failure_action_ids(
+    error: &CaptureTransitionError,
+    system_proxy_phase: Option<SystemProxyPhase>,
+) -> Vec<ApplicationActionId> {
+    if error.takeover_rejection.is_some() {
+        vec![
+            ApplicationActionId::OpenSystemProxySettings,
+            ApplicationActionId::ShowSystemProxySettingsSteps,
+        ]
+    } else if error.kind == CaptureFailureKind::ExternalDrift
+        && system_proxy_phase == Some(SystemProxyPhase::Drift)
+    {
+        vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
+    } else {
+        Vec::new()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CorePhase {
@@ -1178,16 +1196,13 @@ impl MishRuntime {
 
     fn record_capture_failure(&self, error: &CaptureTransitionError) {
         let failure = error.kind;
-        let action_ids = if error.takeover_rejection.is_some() {
-            vec![
-                ApplicationActionId::OpenSystemProxySettings,
-                ApplicationActionId::ShowSystemProxySettingsSteps,
-            ]
-        } else if failure == CaptureFailureKind::ExternalDrift {
-            vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
-        } else {
-            Vec::new()
-        };
+        let capture_status = self.capture.as_ref().map(|capture| capture.status());
+        let action_ids = capture_failure_action_ids(
+            error,
+            capture_status
+                .as_ref()
+                .map(|status| status.system_proxy.phase),
+        );
         self.record_application_event(ApplicationDiagnosticEvent::capture_transition_failure(
             error,
         ));
@@ -1197,6 +1212,15 @@ impl MishRuntime {
             presentation: ApplicationNotification::new(
                 ApplicationNotificationContent::CaptureFailure(
                     CaptureFailureApplicationNotificationData {
+                        capture_mode: capture_status.as_ref().and_then(|status| {
+                            if status.tun.phase == TunPhase::Drift {
+                                Some("tun".into())
+                            } else if status.system_proxy.phase == SystemProxyPhase::Drift {
+                                Some("system-proxy".into())
+                            } else {
+                                None
+                            }
+                        }),
                         failure: capture_failure_presentation_id(failure).into(),
                         observation_stage: error
                             .observation_stage
@@ -1482,6 +1506,43 @@ mod proxy_session_uptime_tests {
         assert_eq!(
             uptime.observe(Some(&capture(false, false)), base + Duration::from_secs(9)),
             0
+        );
+    }
+}
+
+#[cfg(test)]
+mod capture_failure_notification_tests {
+    use super::{
+        ApplicationActionId, CaptureFailureKind, CaptureTransitionError, SystemProxyPhase,
+        capture_failure_action_ids,
+    };
+
+    #[test]
+    fn tun_external_drift_does_not_offer_system_proxy_recovery_actions() {
+        let actions = capture_failure_action_ids(
+            &CaptureTransitionError::new(
+                CaptureFailureKind::ExternalDrift,
+                "TUN observation is foreign",
+            ),
+            Some(SystemProxyPhase::Applied),
+        );
+
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn system_proxy_external_drift_retains_bounded_recovery_actions() {
+        let actions = capture_failure_action_ids(
+            &CaptureTransitionError::new(
+                CaptureFailureKind::ExternalDrift,
+                "System Proxy observation is foreign",
+            ),
+            Some(SystemProxyPhase::Drift),
+        );
+
+        assert_eq!(
+            actions,
+            vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
         );
     }
 }
