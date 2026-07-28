@@ -1,7 +1,7 @@
 use mish_platform_macos::{
     DEV_TUN_SERVICE_ENROLLMENT_PATH, InstallationEnrollmentOperation, TunServiceConfig,
-    apply_installation_enrollment_operation, parse_watchdog_dns, remove_installation_enrollment,
-    run_core_watchdog, run_tun_service,
+    apply_installation_enrollment_operation, parse_watchdog_dns, recover_managed_network_record,
+    remove_installation_enrollment, run_core_watchdog, run_tun_service,
 };
 use std::path::{Path, PathBuf};
 
@@ -36,6 +36,10 @@ async fn main() {
                 std::process::exit(2);
             }
             if operation == "--remove-enrollment" {
+                if let Err(message) = recover_managed_network_record(&enrollment_path, 0).await {
+                    eprintln!("Mish managed network recovery failed: {message}");
+                    std::process::exit(2);
+                }
                 match remove_installation_enrollment(&enrollment_path, allowed_uid, true) {
                     Ok(()) => println!("{{\"operation\":\"remove\"}}"),
                     Err(message) => {
@@ -83,7 +87,7 @@ async fn main() {
                 .and_then(|value| value.parse::<u32>().ok())
                 .unwrap_or(0);
             let managed_dns = match arguments.next().as_deref() {
-                Some("--restore-tart-dns") => match arguments.next() {
+                Some("--restore-managed-network") => match arguments.next() {
                     Some(value) if arguments.next().is_none() => match parse_watchdog_dns(&value) {
                         Ok(state) => Some(state),
                         Err(message) => {
@@ -92,7 +96,7 @@ async fn main() {
                         }
                     },
                     _ => {
-                        eprintln!("Mish Core watchdog received invalid DNS restoration state");
+                        eprintln!("Mish Core watchdog received invalid network restoration state");
                         std::process::exit(2);
                     }
                 },

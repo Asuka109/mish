@@ -22,8 +22,8 @@ pub use tun_service::{
     DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
     DevelopmentInstallationDiscovery, DevelopmentTunStartup, MacOsTunServiceClient,
     ManagedDnsState, TunServiceConfig, development_pinned_core_version, development_socket_path,
-    parse_watchdog_dns, run_core_watchdog, run_tun_service, verify_development_core_file,
-    verify_development_pinned_core,
+    parse_watchdog_dns, recover_managed_network_record, run_core_watchdog, run_tun_service,
+    verify_development_core_file, verify_development_pinned_core,
 };
 
 use std::{
@@ -1054,6 +1054,9 @@ pub enum MacOsCommand {
     GetAutoProxyUrl {
         service: String,
     },
+    GetDnsServers {
+        service: String,
+    },
     GetProxyBypassDomains {
         service: String,
     },
@@ -1080,6 +1083,10 @@ pub enum MacOsCommand {
     },
     SetAutoProxyState {
         enabled: bool,
+        service: String,
+    },
+    SetDnsServers {
+        servers: Vec<String>,
         service: String,
     },
     SetProxyAutoDiscovery {
@@ -1124,6 +1131,7 @@ impl MacOsCommand {
             },
             Self::GetProxy { kind, service } => networksetup_spec([proxy_get_flag(*kind), service]),
             Self::GetAutoProxyUrl { service } => networksetup_spec(["-getautoproxyurl", service]),
+            Self::GetDnsServers { service } => networksetup_spec(["-getdnsservers", service]),
             Self::GetProxyBypassDomains { service } => {
                 networksetup_spec(["-getproxybypassdomains", service])
             }
@@ -1156,6 +1164,18 @@ impl MacOsCommand {
                 service,
                 if *enabled { "on" } else { "off" },
             ]),
+            Self::SetDnsServers { servers, service } => {
+                let servers = if servers.is_empty() {
+                    vec!["Empty".to_owned()]
+                } else {
+                    servers.clone()
+                };
+                networksetup_spec(
+                    std::iter::once("-setdnsservers".to_owned())
+                        .chain(std::iter::once(service.clone()))
+                        .chain(servers),
+                )
+            }
             Self::SetProxyAutoDiscovery { enabled, service } => networksetup_spec([
                 "-setproxyautodiscovery",
                 service,
@@ -2358,6 +2378,27 @@ Network interfaces: en0
             MacOsCommand::ListNetworkServiceOrder.spec(),
             MacOsCommandSpec {
                 arguments: vec!["-listnetworkserviceorder".into()],
+                program: "/usr/sbin/networksetup",
+            }
+        );
+        assert_eq!(
+            MacOsCommand::GetDnsServers {
+                service: "Wi-Fi".into(),
+            }
+            .spec(),
+            MacOsCommandSpec {
+                arguments: vec!["-getdnsservers".into(), "Wi-Fi".into()],
+                program: "/usr/sbin/networksetup",
+            }
+        );
+        assert_eq!(
+            MacOsCommand::SetDnsServers {
+                servers: Vec::new(),
+                service: "USB LAN".into(),
+            }
+            .spec(),
+            MacOsCommandSpec {
+                arguments: vec!["-setdnsservers".into(), "USB LAN".into(), "Empty".into(),],
                 program: "/usr/sbin/networksetup",
             }
         );

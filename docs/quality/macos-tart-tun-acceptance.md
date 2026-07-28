@@ -196,3 +196,143 @@ active/pending client keys were absent. No Mish Helper or Core process
 remained. The host Mac received no Helper installation or network mutation,
 and the disposable Issue #296 clone was stopped and deleted after retaining
 this redacted evidence.
+
+## Dynamic real-host network ownership (Issue #295)
+
+The 2026-07-27 run used the unique disposable clone
+`mish-295-real-host-20260727` from
+`ghcr.io/cirruslabs/macos-tahoe-base:latest` at digest
+`sha256:a8e1c8305758643f513fdccdd829c2243687c60791083dea42f73f0b7aeb435c`.
+The guest ran macOS 26.5 on Apple Silicon. The host Mac received no helper
+installation or network mutation. The final network transaction implementation
+was commit `6d050c7`.
+
+Before activation, the guest had one enabled `Ethernet` service on the actual
+default-route interface `en0`, automatic DNS, four unrelated baseline `utun`
+interfaces, and no Mish route. The selected service's stable
+SystemConfiguration identifier and transaction UUID were observed but are
+redacted here. The root recovery record was a regular mode-`0600` schema-v2
+file containing only that service identity, exact prior DNS, and one
+root-generated transaction UUID.
+
+Activation observed `off`, `pending`, then `applied`; Applied appeared only
+after Core, DNS, the child-PID-correlated interface, and the exact route
+partition were all confirmed. Exactly one new `utun4` appeared, the selected
+service DNS became `198.18.0.1`, public HTTP returned 200, and Mish Traffic
+observed the port-80 connection while System Proxy remained disabled. The
+guest's `192.168.64.0/24` LAN and `224.0.0.251` multicast routes continued to
+use `en0`; the NAT gateway remained reachable with no packet loss. A fictional
+Bonjour service registered as `mish295-fixture._http._tcp.local`, resolved to
+the guest's `.local` hostname and port, and the hostname resolved to the guest
+addresses while TUN was active. This exercised macOS's native implicit
+`.local` resolver shape, which contained no explicit nameserver or port.
+
+| Scenario                   | Final real-macOS observation                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Disable                    | A bounded retry was required in the network-change journey; the final result was `off` with all four components absent, automatic DNS restored, four baseline `utun` interfaces, no recovery record, and the original System Proxy digest.                                                                                                                                                                                                                                                               |
+| Normal and forced app exit | SIGTERM and SIGKILL both removed the owned Core, `utun`, routes, DNS effect, journal, and watchdog without affecting the baseline interfaces or System Proxy.                                                                                                                                                                                                                                                                                                                                            |
+| Helper exit and restart    | SIGKILL of only the Helper caused the independent watchdog to restore DNS and terminate Core. Launchd started a new Helper; the watchdog submission removed itself and left no recurring job.                                                                                                                                                                                                                                                                                                            |
+| Core exit                  | SIGKILL of only Core restored automatic DNS, removed the owned interface and routes, cleared the exact journal, and converged to observed `off`.                                                                                                                                                                                                                                                                                                                                                         |
+| Failed activation          | With the installed Helper deliberately booted out, activation returned `capability-unavailable` plus `helper-connection-failed`; DNS, routes, interfaces, and System Proxy did not change.                                                                                                                                                                                                                                                                                                               |
+| Foreign DNS                | Replacing managed DNS with the documentation-only address `203.0.113.53` produced `observation-foreign` and recovery-required drift. Owner exit still terminated Core and removed routes, but did not overwrite the foreign value; the exact schema-v2 journal remained. A restarted Helper reported Core/interface/routes absent and DNS foreign and rejected new activation. Once DNS was returned to the exact managed value, Helper restart restored the prior automatic DNS and removed the record. |
+| Service replacement        | Renaming `Ethernet` to `Ethernet-Replaced` preserved the BSD interface but changed the bound stable identity, so DNS and routes became foreign and never Applied. Cleanup removed Core and routes without retargeting or changing DNS and retained the original-identity journal. Restoring the original identity and restarting Helper completed exact DNS restoration.                                                                                                                                 |
+| Interface off/on           | While the service was Disabled, the app reported recovery-required foreign DNS/routes and never Applied. After the same service returned, a fresh complete observation was required before Applied returned; the following bounded disable restored the exact baseline.                                                                                                                                                                                                                                  |
+| Sleep/wake                 | Virtualization.framework rejected `pmset sleepnow` with `0xe00002e2`. During the established process suspend/continue simulation, public HTTP still returned 200, DNS remained managed, and LAN continued through `en0`; after continue all four components were freshly confirmed before final disable.                                                                                                                                                                                                 |
+
+The first foreign-DNS journey exposed that a previously completed
+`launchctl submit` watchdog could be restarted as a keep-alive job and consume a
+later journal whose service and prior DNS happened to match. Commit `6d050c7`
+made every journal/watchdog snapshot transaction-unique, made absent or
+mismatched records non-mutating, and made a completed or blocked watchdog
+remove its submitted job. The final foreign-DNS, service-replacement, Helper
+exit, Core exit, and forced-owner runs all showed the schema-v2 journal retained
+only for the exact unresolved transaction and zero stale watchdog jobs.
+Final-head review then identified the narrower ordering where the watchdog
+restores DNS and removes the exact record before the Helper reaps the same Core.
+The follow-up makes that reap idempotent only after freshly confirming exact
+prior DNS, retains non-mutating failure for an absent record with managed or
+foreign DNS and for a present mismatched transaction, and covers the ordering
+with a deterministic regression test.
+The next final-head review identified a compare/write race and an interrupted
+uninstall retry edge. DNS mutation now uses a synchronized, non-waiting,
+exclusive `SCPreferences` compare-and-set transaction, with deterministic
+apply and restore races proving a newly foreign value is never overwritten.
+Removal treats only a genuinely missing recovery directory as already absent;
+unsafe or invalid existing state remains blocking. A focused disposable Tart
+rerun recorded the post-review SystemConfiguration write path.
+
+The focused rerun used a new `mish-295-atomic-20260727` macOS 26.5 arm64 clone
+from the same pinned Tahoe base digest. The final source reached `off`,
+`pending`, and `applied`; all four components were confirmed, one new `utun4`
+and the exact managed route partition appeared, service DNS became
+`198.18.0.1`, public HTTP returned 200, Traffic observed the request, and the
+LAN gateway plus multicast route remained on `en0`. Normal disable restored
+automatic DNS, four baseline `utun` interfaces, zero Mish routes, and no
+recovery record. With active DNS replaced by `203.0.113.53`, disable retained
+that foreign value and the exact journal while still removing Core, `utun`, and
+routes. Returning DNS to the managed value and restarting the Helper restored
+automatic DNS and cleared the journal through the locked transaction.
+
+For the interrupted-uninstall edge, the already-restored private recovery
+directory was moved intact to the guest Trash before retrying uninstall. The
+retry completed with `service: not-installed`, and a second retry was
+idempotent. Final inspection found automatic DNS, four baseline `utun`
+interfaces, zero Mish routes, the exact baseline System Proxy digest, and no
+Helper, Core, plist, socket, installed state directory, process, or watchdog
+job. The disposable clone, including its recoverable Trash item, was then
+stopped and deleted.
+
+Final review also made unsupported virtual services without BSD names
+non-blocking for the eligible physical-service inventory and made simultaneous
+watchdog/Helper restoration converge after an exact-prior DNS reobservation.
+The deterministic concurrent-recovery regression covers the exact-prior winner;
+the existing conservative cases continue to reject managed, foreign, partial,
+or unknown values. Helper reap and explicit stop both retain the independent
+watchdog whenever DNS restoration is still pending, so temporary
+preferences-lock contention cannot cancel the watchdog's bounded retry loop.
+The Helper retains that exact pending transaction after stopping Core; later
+status and start handling retry it, accept only an exact-prior observation
+after the watchdog wins, clear the in-memory applied bit, and converge to
+observed off without a restart. The root journal now records an atomic
+prepared/applied phase: a watchdog cannot consume prior DNS while apply is
+still in flight, while managed DNS remains recoverable if apply dies before
+marking the record. Closed-command client deadlines now cover every sequential
+system observation and default-route lookup, including Enable's complete
+post-apply status. Cold-start recovery also runs immediately after the root
+check and before new-request prerequisites; a deterministic regression removes
+the exact journal and restores DNS even when the pinned Core is absent.
+
+The 2026-07-27 final-head rerun used the unique disposable clone
+`mish-295-final-20260727` from the same pinned Tahoe base digest and exercised
+commit `8ec1c14`. The guest again ran macOS 26.5 on Apple Silicon; the
+maintainer host received no Helper installation or network mutation. The
+repository harness observed `off`, `pending`, then `applied`, with Core, DNS,
+interface, and routes all confirmed. It recorded one new `utun4`, managed DNS
+`198.18.0.1`, public HTTP 200, and a matching Traffic connection while System
+Proxy remained disabled. The LAN gateway and `224.0.0.251` route both remained
+on `en0`.
+
+The live root journal was a single-link mode-`0600` file with outer recovery
+schema 1, inner managed-state schema 2, and phase `applied`; its service
+interface was the dynamically selected `en0`, its prior DNS list was empty
+(automatic), and its transaction ID had canonical UUID length. Disable
+returned to observed `off` with all four components absent, automatic DNS, four
+baseline `utun` interfaces, zero Mish routes, no journal, and the exact baseline
+System Proxy digest. Uninstall returned `not-installed`; the Helper
+registration, root state directory, installed binary, related processes, and
+watchdogs were absent. The clone, including its guest-only discarded clone
+attempts, was then stopped and deleted; only the two stopped OCI base caches
+remained.
+
+The final source state passed all 86 `mish-platform-macos` unit tests plus its
+integration and doc-test targets with `development-core-host`. The focused
+stale-watchdog regression, all-target no-dependency Clippy gate, repository
+`pnpm check:pr`, and the required GitHub Fast PR gate also passed.
+
+`pnpm macos:tun:uninstall:tart` returned `not-installed`. The LaunchDaemon,
+Helper, pinned Core, private socket and state directory, enrollment, network
+recovery record, active and pending client keys, installer receipt, Core/app
+processes, and watchdog jobs were absent. DNS exactly matched the prior
+automatic state, the baseline `utun` count was four, Mish route count was zero,
+and the complete System Proxy digest matched the pre-activation digest. The
+disposable Issue #295 clone was then stopped and deleted.

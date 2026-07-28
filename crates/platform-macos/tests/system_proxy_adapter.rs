@@ -91,7 +91,10 @@ impl MacOsCommandRunner for FixtureRunner {
             | MacOsCommand::SetAutoProxyState { .. }
             | MacOsCommand::SetProxyAutoDiscovery { .. }
             | MacOsCommand::SetProxyBypassDomains { .. } => "",
-            MacOsCommand::DnsConfiguration | MacOsCommand::NetworkInformation => {
+            MacOsCommand::DnsConfiguration
+            | MacOsCommand::GetDnsServers { .. }
+            | MacOsCommand::NetworkInformation
+            | MacOsCommand::SetDnsServers { .. } => {
                 panic!("Network and DNS commands do not belong to the System Proxy fixture")
             }
         };
@@ -371,6 +374,8 @@ impl MacOsCommandRunner for StatefulCrashRunner {
             MacOsCommand::InterfaceConfiguration
             | MacOsCommand::RoutingTable
             | MacOsCommand::DnsConfiguration
+            | MacOsCommand::GetDnsServers { .. }
+            | MacOsCommand::SetDnsServers { .. }
             | MacOsCommand::NetworkInformation => {
                 panic!("non-System-Proxy command reached crash fixture")
             }
