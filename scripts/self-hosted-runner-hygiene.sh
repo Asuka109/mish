@@ -139,17 +139,18 @@ clear_workspace() {
   [[ "$work_root" == "$HOME/actions-runner/mish/_work" ]] ||
     fail "refusing to clear an unexpected workspace"
 
-  for directory in "$work_root/mish" "$work_root/_actions" "$work_root/_temp"; do
-    /bin/mkdir -p "$directory"
-    /usr/bin/find "$directory" -depth -mindepth 1 -delete
-  done
-
   if [[ "$mode" == "started" ]]; then
     workspace="${GITHUB_WORKSPACE:-}"
     [[ "$workspace" == "$work_root"/* ]] ||
       fail "GitHub workspace is outside the registered runner work root"
     /bin/mkdir -p "$workspace"
+    return
   fi
+
+  for directory in "$work_root/mish" "$work_root/_actions" "$work_root/_temp"; do
+    /bin/mkdir -p "$directory"
+    /usr/bin/find "$directory" -depth -mindepth 1 -delete
+  done
 }
 
 cleanup() {
