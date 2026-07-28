@@ -1,17 +1,22 @@
 # macOS Packaging and Signing
 
-Mish produces one Apple Silicon test package from pushes to `main`. Pull
-requests run the bounded `check:pr` gate but never build or upload an app
-archive. Daily and manual inspection own complete validation. Packaging remains
-independent, so a failed application build cannot reach artifact upload.
+Mish defines one Apple Silicon test-package job for pushes to `main`. Pull
+requests run the bounded `check:pr` gate on an isolated GitHub-hosted Ubuntu
+runner but never build or upload an app archive. Daily and manual inspection
+own complete validation. Packaging remains independent, so a failed application
+build cannot reach artifact upload.
 
-The latest reviewed `main` package run for `1a6fb1b`
-([CI run 30214824233](https://github.com/Asuka109/mish/actions/runs/30214824233))
+The latest reviewed `main` package run for `cecdf798`
+([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
 created both hosted package jobs, but each completed with zero executed steps.
 The repository's current Actions account state therefore still leaves CI
 packaging unavailable. This leaves current CI artifact evidence unavailable; it
 is not evidence of a product implementation failure and does not establish
 future Actions capacity.
+
+The repository-wide trust boundary is documented in
+[`trusted-release-boundary.md`](trusted-release-boundary.md). Protected signing,
+notarization, attestation, publication, and deployment are currently disabled.
 
 ## Alpha ad-hoc DMG
 
@@ -169,13 +174,11 @@ certificate, identity, keychain, or notary input. The build entry point is:
 pnpm desktop:bundle:signed-direct:macos
 ```
 
-Do not run that command with a real identity outside the maintainer-owned,
-reviewer-protected `macos-developer-id` GitHub Environment from Issue #171.
-Ordinary Stage 1 repository verification defines and tests the input boundary
-without provisioning, importing, or reading credentials. The protected
-workflow executor imports the complete credential set into an ephemeral
-keychain, verifies the one exact Developer ID identity, and gives the nested
-build step only:
+Do not run that command with a real identity. The repository currently has no
+reviewer-protected `macos-developer-id` Environment and no executable protected
+signer. Ordinary Stage 1 repository verification defines and tests the input
+boundary without provisioning, importing, or reading credentials. A future
+signer may give the nested build step only:
 
 - `APPLE_SIGNING_IDENTITY`, containing an exact `Developer ID Application: … (TEAMID)` identity;
 - `MISH_EXPECTED_APPLE_TEAM_IDENTIFIER`, matching that identity; and
@@ -183,12 +186,10 @@ build step only:
   reviewer-protected boundary has already been crossed.
 
 The build step rejects certificate payloads, passwords, notary keys, inherited
-package modes, and raw `MISH_APPLE_*` inputs. Import and cleanup remain owned by
-the protected workflow executor, not by general packaging code or pull-request
-CI. The executor and an independent `always()` cleanup step both target the
-same bounded runner-temporary directory. The keychain search list is restored,
-the temporary keychain is locked and deleted, and temporary certificate and
-notary-key material is removed before any candidate upload.
+package modes, and raw `MISH_APPLE_*` inputs. Future import and cleanup belong
+only to reviewed protected tooling, never general packaging code or
+pull-request CI. That tooling must consume a verified unsigned artifact rather
+than checking out or executing candidate source while secrets are available.
 
 The profile signs the pinned Mihomo executable first with identifier
 `com.asuka109.mish.mihomo`, then lets Tauri seal `Mish.app` with identifier
@@ -226,14 +227,12 @@ evidence only.
 
 Credential-free Stage 1 verification does not produce a live Developer ID
 artifact, DMG, notarization submission, stapled ticket, Gatekeeper acceptance,
-release, live updater, Intel binary, or production TUN capability. The repository
-contains an unexecuted real path for after #171: it creates a headless signed
-DMG, submits that exact DMG with `notarytool`, requires an accepted terminal
-result and issue-free log, staples and validates the ticket, reruns strict
-Developer ID and disk-image Gatekeeper assessments, generates an SPDX 2.3 SBOM,
-and binds GitHub provenance and SBOM attestations to the unchanged final DMG.
-Any unsupported attestation capability or failed Apple/GitHub operation stops
-before Draft staging.
+release, live updater, Intel binary, or production TUN capability. Local
+release tooling retains credential-handling and evidence functions for
+fixture-backed contract tests, but no GitHub workflow can invoke those
+functions. Activating them requires the independently reviewed two-phase
+unsigned-build/protected-signer design in
+[`trusted-release-boundary.md`](trusted-release-boundary.md).
 
 Issue #174's credential-free updater foundation adds a separate
 [`application-owned updater contract`](../architecture/updater-contract.md).
@@ -245,56 +244,43 @@ download, resume, verification, and private candidate staging. Neither adds
 updater assets to the protected release candidate, enables a production key or
 endpoint, or claims installation.
 
-## Draft release staging
+## Credential-free candidate validation
 
-The **Stage macOS Draft** Actions workflow is the manual staging boundary for an
-already-versioned source commit. Its `Run workflow` form requires an explicit
-`alpha-ad-hoc` or `signed-direct` profile; secret presence never chooses a
-profile. It also requires a prerelease SemVer such as `0.1.0-alpha.1`, accepts
-an optional full source SHA, and defaults to a read-only dry run. A blank source
-freezes the current `main` commit. An explicit source must be one full commit
-SHA reachable from that frozen `main`.
+The **Validate macOS Release Candidate** workflow is not a staging workflow.
+It requires an explicit `alpha-ad-hoc` or `signed-direct` profile and a
+prerelease SemVer, accepts only an optional full source SHA, and contains no
+input that can enable signing or publication.
 
-The prerelease base version must match all desktop version declarations in the
-selected source. The workflow checks out that exact commit for every later job;
-it never rebuilds a floating branch. Release tooling is independently frozen
-from the same dispatch-time `main`, so an older reachable source can be staged
-without borrowing application code from a later commit.
+The source-freeze job is allocated only for the exact Mish repository and IDs,
+maintainer actor, `workflow_dispatch`, `refs/heads/main`, and the reviewed
+workflow path. `github.workflow_sha`, `github.sha`, checked-out `HEAD`, and
+`origin/main` must all match. The optional source must be a full SHA reachable
+from that frozen main. Every later job checks out the exact source and isolated
+release tooling at the workflow SHA.
 
-For `alpha-ad-hoc`, the selected source must preserve #168's
-`pnpm desktop:bundle:macos` command. The workflow runs `pnpm check:all`,
-preserves the existing Alpha build and read-only DMG inspection contract, then
-generates the same deterministic candidate files:
+For `alpha-ad-hoc`, untrusted source runs on a GitHub-hosted macOS runner with
+`contents: read`, no secrets, no OIDC, and no protected Environment. After the
+existing complete validation and read-only DMG inspection, the workflow
+generates:
 
 - `Mish-<version>-arm64.dmg`
 - `SHA256SUMS.txt`
 - `release-metadata.json`
+- `trusted-candidate-manifest.json`
 
-The metadata records the full source SHA, exact `v<version>` tag, ARM64
-architecture, minimum macOS version, pinned Mihomo version, ad-hoc signing mode,
-Draft Pre-release kind, and the expected
-`rejection-or-app-scoped-open-anyway` Gatekeeper boundary. The checksum manifest
-covers the DMG and metadata. The Alpha branch remains credential-free and keeps
-the same source, build, candidate, permission, conflict, retry, and Draft-only
-mutation contract as before profile selection was added.
+The manifest binds the full source, main, workflow, tooling, actor, event, ref,
+run, and every file digest. The candidate is retained for one day. A separate
+read-only job downloads by immutable artifact ID, rejects substitution or
+unexpected files, reruns the release decision, and labels the result explicitly
+as not project-trusted and not staged.
 
-For `signed-direct`, the default dry run stops after complete repository
-validation and a credential-free plan. It verifies the trusted
-`workflow_dispatch`/`main`/repository/permission boundary and reports that no
-live Apple result was observed. Disabling dry run routes the next job through
-the reviewer-protected `macos-developer-id` Environment. Missing approval means
-the job never starts; an untrusted event, fork, profile drift, or any missing
-credential fails before keychain creation or signing.
+For `signed-direct`, the workflow runs only complete repository validation,
+the credential-free signed boundary plan, updater fixtures, and adversarial
+trust-boundary fixtures. No workflow references Apple secrets or invokes the
+local signing, notarization, attestation, tag, Release, publication, or
+deployment functions. The profile cannot produce a signed candidate.
 
-The protected executor records one ordered evidence chain: temporary keychain
-creation and certificate import; exact identity verification; the existing
-signed-direct bundle build and package verification; headless DMG creation;
-notary submission and accepted terminal log; stapling and validation;
-independent strict code-signing and Gatekeeper disk-image assessment; SBOM
-generation; and temporary-material cleanup. A later credential-free job binds
-GitHub provenance and SBOM attestations to that exact DMG, freezes the DMG,
-SBOM, evidence, and attestation-bundle digests, and writes one checksum manifest
-covering the complete candidate:
+The future signed release and updater asset sets remain documented contracts:
 
 - `Mish-<version>-arm64.dmg`
 - `macos-sbom.spdx.json`
@@ -302,42 +288,24 @@ covering the complete candidate:
 - `provenance-attestation.sigstore.json`
 - `sbom-attestation.sigstore.json`
 - `SHA256SUMS.txt`
-
-Only after the exact candidate uploads successfully can read-only staging
-planning run. The signed Draft write job depends on protected execution,
-cleanup, both attestations, final digest verification, candidate upload, and
-the read-only decision. A missing ticket, Apple rejection, assessment failure,
-attestation or upload failure, changed artifact, changed checksum, conflicting
-tag, or non-Draft remote state stops the workflow. It never moves an existing
-tag or publishes a Release.
-
-After the separately reviewed live updater-signing boundary exists, the same
-signed-direct release must additionally publish the four assets fixed by the
-updater contract:
-
 - `Mish-<version>-aarch64.app.tar.gz`
 - `Mish-<version>-aarch64.app.tar.gz.sig`
 - `mish-<channel>.json`
 - `mish-<channel>.json.sig`
 
-Those future additions must remain bound to the same source, version, and
-candidate evidence. Stage 1 deliberately leaves this live publication step
-unavailable.
-
-All source, validation, build, and decision jobs retain `contents: read`.
-GitHub attestation receives only the narrowly required OIDC and attestation
-permissions. Only the final profile-specific staging job has `contents: write`.
-The workflow is manual-only, has no pull-request or fork trigger, scopes
-concurrency by profile and version, and never cancels another candidate.
-Publishing either Draft remains a separate human action.
+They must not be created until the protected two-phase signer and separate
+publisher satisfy
+[`trusted-release-boundary.md`](trusted-release-boundary.md).
 
 Run the local deterministic decisions, tests, and workflow contract without
-reading secrets, contacting Apple, creating a tag, or creating a Release:
+reading secrets, contacting Apple, creating a tag, creating an attestation, or
+creating a Release:
 
 ```sh
 pnpm release:macos:fixture
 pnpm release:macos:signed:fixture
 pnpm release:macos:updater:fixture
+pnpm release:trusted-boundary:fixture
 pnpm test:macos:release
 pnpm test:macos:signed-release
 pnpm check:macos:release-workflow
@@ -525,10 +493,14 @@ name. Run the development TUN uninstaller before application-state cleanup so
 the private key is deleted by its owning lifecycle instead of being retained in
 Trash while a helper installation remains.
 
-## Developer ID and notarization secrets
+## Future Developer ID and notarization inputs
 
-The unexecuted `signed-direct` live workflow path requires the protected
-`macos-developer-id` Environment and all of these Environment secrets:
+No workflow currently reads or provisions Developer ID or notarization inputs.
+Do not add them to repository secrets or an unprotected Environment. After the
+activation prerequisites in
+[`trusted-release-boundary.md`](trusted-release-boundary.md) are observed, the
+reviewed signer design expects these values only inside the protected
+`macos-developer-id` Environment:
 
 | Secret                              | Purpose                                        |
 | ----------------------------------- | ---------------------------------------------- |
@@ -539,19 +511,19 @@ The unexecuted `signed-direct` live workflow path requires the protected
 | `MISH_APPLE_NOTARY_API_ISSUER_ID`   | App Store Connect API issuer ID                |
 | `MISH_APPLE_NOTARY_API_PRIVATE_KEY` | Complete private `.p8` key contents            |
 
-Do not commit certificates, passwords, or private keys. A partial secret set
-fails before creating the temporary keychain instead of silently falling back
-to ad-hoc signing. Certificate configuration therefore always implies
-notarization configuration for this workflow. The build child receives only
-the exact identity, derived team identifier, and protected-boundary marker; it
-never receives the certificate, passwords, or notary key. See Tauri's official
+Do not commit certificates, passwords, or private keys. A future partial input
+set must fail before creating a temporary keychain instead of silently falling
+back to ad-hoc signing. Certificate configuration therefore always implies
+notarization configuration for the protected signer. The build phase receives
+none of these values. A later signing tool may receive them only after
+independent request and artifact verification. See Tauri's official
 [macOS code-signing and notarization guide](https://v2.tauri.app/distribute/sign/macos/)
 for the upstream environment-variable contract.
 
-Configuring these secrets is not proof of Developer ID trust, notarization,
-Gatekeeper acceptance, or release readiness. Only observed, ordered evidence
-from an accepted protected run can make the exact candidate Draft-eligible, and
-Stage 1 repository tests do not produce that evidence.
+Configuring inputs is not proof of Developer ID trust, notarization, Gatekeeper
+acceptance, or release readiness. Only observed, ordered evidence from an
+accepted protected run can make the exact candidate Draft-eligible.
+Credential-free repository tests do not produce that evidence.
 
 ## Future TUN-enabled production gate
 

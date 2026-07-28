@@ -104,8 +104,15 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
 
 - `alpha-ad-hoc` builds a credential-free Apple Silicon System Proxy-only DMG.
 - `signed-direct` has a credential-free policy, bundle-shape, identity, and
-  Draft workflow foundation. Live Developer ID trust and notarization still
-  require protected Apple credentials.
+  deterministic fixture foundation. The repository-wide trust policy now pins
+  workflow dependencies, moves untrusted PR code off the self-hosted runner,
+  freezes repository/workflow/tooling/source identity, binds credential-free
+  candidates to immutable artifact IDs and complete manifests, and rejects
+  adversarial refs, actors, reusable callers, runners, and substitutions.
+- Protected signing, notarization, attestation, publication, and deployment are
+  fail-closed and absent from executable workflows. The private repository's
+  current plan cannot enforce protected branches or reviewer-protected
+  Environments, so the checked-in activation flag remains false.
 - The updater has a strict channel, SemVer, signature, artifact-identity,
   provenance, downgrade, bounded download, resume, private candidate staging,
   restart recovery, and cross-client Rust-authority contract. The shipped app
@@ -128,6 +135,9 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
   and fixture banner. Shared route components are not evidence for a universal
   desktop/mobile page.
 - A notarized, stapled, publicly released Developer ID build.
+- A runner-executed protected release gate, enforced CODEOWNERS review,
+  reviewer-protected signing/publication Environments, custom workflow-bound
+  OIDC subject, or server-side full-SHA action policy.
 - Production-enabled automatic update discovery, installation, rollback,
   relaunch, or System Proxy recovery around replacement.
 - A production-signed TUN helper and production Virtual Interface capability.
@@ -140,7 +150,7 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
 ### Hosted `main` Packaging Evidence
 
 The latest reviewed push run,
-[CI run 30214824233](https://github.com/Asuka109/mish/actions/runs/30214824233),
+[CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515),
 created the macOS and Android packaging jobs but both completed with zero
 executed steps. Until the account-level Actions restriction is removed and a
 clean run succeeds, local fixture and package verification remain the current

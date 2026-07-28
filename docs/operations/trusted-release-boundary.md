@@ -1,0 +1,170 @@
+# Trusted CI, Signing, and Publication Boundary
+
+Mish currently has no executable trusted signing, notarization, attestation,
+publication, release, or deployment job. This is an intentional fail-closed
+state, not evidence that a protected gate ran successfully.
+
+The repository is private and its current GitHub plan does not expose protected
+branches, rulesets, or reviewer-protected Environments. Repository Actions
+settings also do not enforce a selected action allowlist or full-SHA pinning,
+and the repository OIDC subject uses GitHub's default template. Therefore
+`.github/trusted-release-policy.json` keeps protected execution and OIDC
+disabled. No production secret or signing identity may be configured while
+that flag is false.
+
+The latest reviewed hosted `main` run for `cecdf798`
+([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
+created macOS and Android jobs, but GitHub allocated neither job: both completed
+with zero steps and no logs. Local checks and credential-free fixtures are the
+available evidence. They are not a runner-executed protected gate.
+
+## Threat model
+
+The boundary treats pull-request code, fork code, merge refs, arbitrary refs,
+workflow inputs, cached state, uploaded artifacts, reusable-workflow callers,
+and self-hosted runner state as untrusted. A malicious contribution must not be
+able to:
+
+- read a repository or Environment secret;
+- mint a trusted OIDC identity;
+- run on a maintainer workstation or signer;
+- select protected tooling or a protected workflow revision;
+- substitute a source commit, artifact, SBOM, provenance statement, or digest;
+- invoke a privileged reusable workflow with attacker-controlled inputs; or
+- create a tag, Release, attestation, deployment, or Mish-signed artifact.
+
+Routine PR validation runs only on `ubuntu-24.04` with `contents: read`. It does
+not use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
+upload. The existing `asuk-mini` runner may remain registered for trusted local
+operations, but no untrusted workflow targets it.
+
+## Current executable workflow
+
+`Validate macOS Release Candidate` is manual and credential-free. GitHub
+evaluates its source-freeze job condition before allocating a runner. The
+condition fixes:
+
+- repository name, immutable repository ID, and owner ID;
+- `workflow_dispatch` on `refs/heads/main`;
+- the maintainer actor and matching triggering actor;
+- the exact workflow path on `refs/heads/main`; and
+- `github.workflow_sha == github.sha`.
+
+The first checkout uses `github.workflow_sha`, fetches complete `main` history,
+does not persist the token, and proves that local `HEAD` and `origin/main`
+equal that workflow SHA. An optional source must be a full commit SHA reachable
+from the frozen main SHA. All later jobs check out the exact source and an
+isolated `.release-tooling` tree at the workflow SHA.
+
+The Alpha build is still untrusted. It executes candidate source only on a
+GitHub-hosted runner with `contents: read`, then writes a deterministic
+candidate manifest. The manifest binds repository, actor, event, ref, run,
+source SHA, main SHA, workflow SHA, tooling SHA, every relative file name,
+role, byte count, SHA-256, and the canonical whole-set SHA-256. Upload uses
+one-day retention. The read-only decision job downloads by immutable artifact
+ID, rejects symlinks, missing or unexpected files, digest drift, identity
+drift, and artifact-name drift, and then reports explicitly that the candidate
+is not a project-trusted release.
+
+The signed-direct branch runs only repository validation and credential-free
+policy, updater, and adversarial fixtures. There is no job with an Environment,
+secret reference, write permission, OIDC permission, signing command,
+attestation command, tag/Release mutation, or deployment command.
+
+## Future activation prerequisites
+
+Live protected jobs may be added only in one reviewed change after every item
+below is observed through `pnpm audit:ci:trust-settings`:
+
+1. Upgrade the private repository plan or change visibility so GitHub exposes
+   protected branches/rulesets and reviewer-protected Environments.
+2. Protect `main`; require the Fast PR gate, approving review, and CODEOWNERS
+   review; dismiss stale approvals; require conversation resolution; prohibit
+   force pushes and deletion; and prevent an administrator bypass.
+3. Configure `macos-developer-id` and `release-publication` with selected
+   `main` only, required reviewer `18379948`, and no administrator bypass.
+   Store signer inputs only in `macos-developer-id`; the publication
+   Environment must not receive Apple credentials.
+4. Restrict repository Actions to the explicit allowlist and require every
+   action to use a full commit SHA. The checked-in workflows already pin and
+   deterministically verify those SHAs; repository settings must add the
+   server-side control.
+5. Configure OIDC only if a protected service requires it. Its subject and
+   provider trust policy must bind repository and owner IDs, event, main ref,
+   exact workflow and reusable-workflow paths and SHAs, Environment, actor ID,
+   run ID, and run attempt. A broad repository-only subject is insufficient.
+6. Keep untrusted and protected jobs on GitHub-hosted images. A future dedicated
+   signer may use an ephemeral isolated runner group only if GitHub can restrict
+   it to the exact protected workflow. A general self-hosted label is forbidden.
+7. Keep protected reusable workflows disabled unless a caller and callee are
+   both pinned by full commit SHA and the callee independently validates every
+   input. `secrets: inherit`, branch/tag references, arbitrary callers, and
+   caller-supplied commands or paths are forbidden.
+
+`.github/CODEOWNERS` already requests `@Asuka109` review for workflows, trust
+policy, release/updater tooling, packaging configuration, entitlements,
+documentation, package commands, and the ownership map itself. On the current
+plan this is review routing, not enforceable required review; the activation
+flag must remain false until server-side review enforcement is observed.
+
+## Future protected data flow
+
+A later signer must use two distinct phases:
+
+1. An unprivileged GitHub-hosted build receives no secret, write token, OIDC
+   token, protected Environment, or signer runner. It builds the exact frozen
+   source, emits an unsigned application, SBOM, and build provenance, creates
+   the complete manifest, uploads once, and records the immutable artifact ID.
+2. A protected signer defined by the reviewed main workflow depends on an
+   independent trust-verification job. The signer rechecks repository, event,
+   actor, ref, workflow SHA, tooling SHA, source ancestry, manifest, immutable
+   artifact ID, provenance subject, SBOM subject, and complete file set before
+   the first secret-consuming step. It never checks out or executes candidate
+   source. It signs only the verified unsigned payload with frozen tooling.
+
+Signing and notarization evidence must then bind the same source, workflow,
+tooling, unsigned digest, signed digest, SBOM, provenance, identity, ticket,
+and assessment results. A separate `release-publication` approval must
+redownload by immutable artifact ID, verify GitHub attestations with the exact
+signer workflow identity, recheck all local digests and expected file names,
+and create only the immutable tag and Draft Pre-release selected by policy.
+Publication must never rebuild or modify the candidate.
+
+Updater signing and any Internal TUN artifact follow the same flow but require
+their own exact roles and identities. Neither is activated or staged here.
+
+## Deterministic verification
+
+Run:
+
+```sh
+pnpm check:trusted-ci
+pnpm release:trusted-boundary:fixture
+pnpm test:macos:release
+pnpm test:macos:signed-release
+pnpm check:macos:release-workflow
+pnpm audit:ci:trust-settings
+```
+
+The adversarial fixture rejects fork repositories, PR events, merge refs,
+untrusted actors, workflow/tooling drift, non-ancestor source SHAs, self-hosted
+runners, reusable-workflow callers, disabled protected execution, artifact
+substitution, unexpected files, invalid immutable artifact IDs, and symlinks.
+It also rejects hard links, excessive directory depth or file count, and an
+oversized manifest. The live settings audit is read-only. While controls are
+unavailable it returns `disabled-fail-closed`; enabling protected execution
+with any blocker changes that result to `unsafe` and fails.
+
+## GitHub platform references
+
+- [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+  — full commit SHA action pinning and untrusted-code guidance.
+- [Deployments and Environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
+  — required reviewers, branch/tag restrictions, secret availability, and
+  self-hosted runner caveats.
+- [Contexts reference](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts)
+  — `workflow_ref`, `workflow_sha`, actor, repository, run, and ref identities.
+- [OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)
+  — reusable-workflow and custom subject claims.
+- [Artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
+  — provenance and SBOM subjects and verification.

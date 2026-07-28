@@ -65,9 +65,14 @@ Credentials, user information, query parameters, fragments, redirects, custom
 hosts, and alternate payload names are rejected.
 
 The Stage 1 overlay is not passed to a production build. No production updater
-public key or channel endpoint exists yet. A later live-release change must
-configure the protected updater signing key, ship the matching public key,
-enable this overlay, and add the four verified assets to the existing #173
+public key or channel endpoint exists yet. No GitHub workflow can currently
+read an updater signing key, create updater attestations, or publish updater
+assets. A later live-release change must first satisfy the frozen
+workflow/tooling, protected Environment, OIDC, runner, immutable artifact,
+provenance, SBOM, digest, and separate publication controls in
+[`trusted-release-boundary.md`](../operations/trusted-release-boundary.md).
+Only then may it configure the protected updater signing key, ship the matching
+public key, enable this overlay, and add the four verified assets to the
 signed-direct candidate without weakening its DMG, SBOM, provenance,
 notarization, Gatekeeper, checksum, or Draft-only gates.
 
@@ -133,6 +138,58 @@ duplicate key is idempotent; a different key cannot overtake an in-flight
 operation. Download does not begin during discovery, and `ready` never provides
 an install command. Subscription registration captures its receiver before the
 baseline, so later revisions cannot arrive before that baseline barrier.
+
+### Check typed reducer proof
+
+Updater Check is owned by a repository-specific, data-bearing
+`CheckState`/`CheckInput`/`CheckEffect` model. The synchronous reducer contains
+no I/O, clock, logging, task spawn, or platform call. It distinguishes Stable,
+Checking, CommittingAvailable, NoUpdate, Failed, Cancelled, and Retired states,
+then exhaustively projects them to the existing public updater DTO. In
+particular, the internal NoUpdate and CommittingAvailable refinements do not
+add a public phase or change existing RPC behavior.
+
+A bounded Tokio inbox serializes Check admission. The owning runtime spawns
+only reducer-emitted effects, retains every task handle, and turns panic,
+abort, completion conflict, cancellation, and shutdown into reducer inputs.
+Reducer admission and public projection share one synchronous outer-state
+cutover with download admission, but no aggregate lock crosses an await. Every
+effect completion carries the machine authority, scope epoch, operation ID,
+admitted revision, and effect ID; a mismatch is recorded as retired evidence
+and cannot mutate state.
+
+Cancellation remains a request while discovery owns the outcome.
+Checking → CommittingAvailable is the commit point: cancellation before it
+wins when the discovery effect or its finalizer returns, while cancellation
+after it is explicitly too late and cannot erase a candidate being committed.
+Shutdown requests cancellation, waits for owned tasks for a bounded grace
+period, aborts an uncooperative task, joins it, and retires the aggregate with a
+deterministic terminal projection.
+
+Transition evidence is retained in a bounded in-memory ring. It contains only
+sequence, state/input labels, disposition, scope epoch, admitted revision,
+effect ID, and SHA-256 digests of the machine authority and operation ID.
+Endpoint URLs, credentials, raw metadata or payload bodies, signature material,
+private paths, Profile data, and platform observations are never included.
+
+#### Go/no-go review for follow-up aggregates
+
+| Review dimension          | Prior Check orchestration                                                        | Typed reducer proof                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Legal state               | DTO fields were mutated across orchestration branches                            | Data-bearing variants make illegal field combinations unrepresentable and one exhaustive Adapter owns DTO projection                |
+| Admission and ordering    | Mutex checks and a spawned operation task shared lifecycle responsibility        | One bounded inbox admits commands; complete authority/scope/operation/revision/effect correlation rejects retired work              |
+| Cancellation commit point | Cancellation was token-driven without an explicit persistence cutoff             | CommittingAvailable names the cutoff; barrier tests prove cancel-before and cancel-after behavior                                   |
+| Task failure and shutdown | Task ownership did not structurally require every exit to finalize the aggregate | Owned handles and finalizer inputs cover success, failure, panic, abort, completion conflict, and bounded shutdown                  |
+| Verification surface      | Outcomes depended mainly on end-to-end service tests                             | Pure transition tables, bounded model exploration, paused-time tests, and barrier/failure fakes test the decision boundary directly |
+| Interface cost            | Check behavior was interleaved with service I/O                                  | Domain types and reducer remain private; no framework, generic StateMachine abstraction, protocol phase, or Web authority was added |
+
+The proof is **GO** on invariant clarity, failure handling, and interface
+readability: stale work is rejected by one complete correlation rule,
+cancellation has one named commit point, and every owned task exit has a
+deterministic reducer path. This conclusion authorizes dependent architecture
+work only after Issue #285 is accepted, its required gates pass, and the change
+is merged. It does not authorize Capture/TUN, download/install, UI,
+publication, or a generic state-machine framework.
 
 ## Bounded HTTP and resume
 
@@ -202,10 +259,15 @@ restart, cancellation, timeout, redirect rejection, metadata/body caps,
 truncated/corrupt payloads, signature and identity failure, replay, concurrent
 operation keys, monotonic replay high-water behavior, restart recovery,
 immutable ready recovery and removal, symlink/hard-link rejection, and bounded
-cleanup. Desktop bridge tests prove that simultaneous and reconnecting clients
-observe one updater authority and revision. Web tests prove that the RPC client
-accepts only newer nested revisions and never replays check/download/cancel
-during reconnect.
+cleanup. Check-specific tests additionally cover its legal transition table,
+bounded model sequences and DTO invariants, duplicate and competing admission,
+all five correlation mismatches, equal-revision conflict, timeout, cancellation
+on both sides of the commit point, commit failure, panic, aborted and
+uncooperative tasks, bounded shutdown, and bounded redacted evidence. Desktop
+bridge tests prove that simultaneous and reconnecting clients observe one
+updater authority and revision. Web tests prove that the RPC client accepts
+only newer nested revisions and never replays check/download/cancel during
+reconnect.
 
 ## Later live and installation boundaries
 

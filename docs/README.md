@@ -23,7 +23,7 @@ of treating an implementation accident as intent.
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)           | [`architecture/native-localization.md`](architecture/native-localization.md), TUN, packaging, network/DNS, or sidebar document below                                                                                         |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)             | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
 | Validation/release claims | The target-specific quality document                                                                   | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
-| Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                       | [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                                                                                                     |
+| Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                       | [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md), [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                 |
 | Signed macOS updates      | [`architecture/updater-contract.md`](architecture/updater-contract.md)                                 | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                                                                                                                                             |
 
 ## Contract index
@@ -93,6 +93,11 @@ of treating an implementation accident as intent.
 - [`operations/macos-packaging.md`](operations/macos-packaging.md) and
   [`quality/macos-p0-acceptance.md`](quality/macos-p0-acceptance.md) — macOS
   packaging, signing, installation, daily journey, and recovery.
+- [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
+  — fail-closed PR/fork isolation, frozen workflow/tooling identity, candidate
+  manifest and immutable artifact binding, CODEOWNERS, Environment/OIDC/runner
+  activation prerequisites, adversarial fixtures, and current GitHub plan
+  limitations.
 - [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)
   and [`quality/mobile-validation.md`](quality/mobile-validation.md) — Android
   build/device procedure and mobile evidence levels.
@@ -108,6 +113,9 @@ of treating an implementation accident as intent.
 - [`operations/macos-packaging.md`](operations/macos-packaging.md) records the
   evidence-backed System Proxy-only release boundary and remaining engineering
   work.
+- [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
+  records why protected execution is disabled and the controls required before
+  any signer, attester, publisher, or deployment can exist.
 - [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) records material
   upstream attribution, license sources, and unresolved dependency questions.
 

@@ -1,11 +1,16 @@
 use std::{
     cmp::Ordering,
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, VecDeque},
     fmt,
     fs::{self, File, OpenOptions},
+    future::Future,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering as AtomicOrdering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -21,7 +26,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
     io::AsyncWriteExt,
-    sync::broadcast,
+    sync::{broadcast, mpsc, oneshot},
+    task::{Id as TaskId, JoinHandle, JoinSet},
     time::{timeout, timeout_at},
 };
 use tokio_util::sync::CancellationToken;
@@ -31,6 +37,12 @@ use uuid::Uuid;
 use crate::{
     UpdateChannel, UpdatePolicy, UpdaterAdapter, UpdaterError, VerifiedMetadata,
     VerifyMetadataRequest, parse_version, validate_channel_version,
+};
+
+mod check_machine;
+use check_machine::{
+    CheckCompletion, CheckDecision, CheckEffect, CheckEffectOutcome, CheckInput, CheckOperation,
+    CheckState, CheckTaskFailure, DecisionDisposition, EffectCorrelation,
 };
 
 const STORE_SCHEMA_VERSION: u8 = 1;
@@ -45,6 +57,9 @@ const CANDIDATE_DIRECTORY: &str = "candidate";
 const CANDIDATE_PAYLOAD: &str = "payload";
 const CANDIDATE_MANIFEST: &str = "manifest.json";
 const STRONG_ETAG_MAX_BYTES: usize = 256;
+const CHECK_INBOX_CAPACITY: usize = 32;
+const CHECK_EVIDENCE_LIMIT: usize = 64;
+const CHECK_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -132,6 +147,21 @@ pub struct UpdaterSnapshot {
     pub progress: Option<UpdateProgress>,
     pub resumable: bool,
     pub terminal_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdaterCheckTransitionEvidence {
+    pub sequence: u64,
+    pub machine_authority_sha256: Option<String>,
+    pub scope_epoch: Option<u64>,
+    pub admitted_revision: Option<u64>,
+    pub effect_id: Option<u64>,
+    pub operation_id_sha256: Option<String>,
+    pub from: String,
+    pub input: String,
+    pub to: String,
+    pub disposition: String,
 }
 
 impl UpdaterSnapshot {
@@ -231,7 +261,7 @@ impl Default for UpdaterLimits {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct AvailableCandidate {
     metadata: VerifiedMetadata,
     metadata_bytes: Vec<u8>,
@@ -271,9 +301,711 @@ struct ConfiguredUpdater {
     store: CandidateStore,
 }
 
+type CheckEffectFuture = Pin<Box<dyn Future<Output = CheckCompletion> + Send + 'static>>;
+
+trait CheckEffectExecutor: Send + Sync {
+    fn execute(&self, effect: CheckEffect, cancellation: CancellationToken) -> CheckEffectFuture;
+}
+
+struct ProductionCheckEffectExecutor {
+    configured: Arc<ConfiguredUpdater>,
+    state: Arc<Mutex<RuntimeState>>,
+}
+
+impl CheckEffectExecutor for ProductionCheckEffectExecutor {
+    fn execute(&self, effect: CheckEffect, cancellation: CancellationToken) -> CheckEffectFuture {
+        let configured = self.configured.clone();
+        let state = self.state.clone();
+        Box::pin(async move {
+            match effect {
+                CheckEffect::Discover {
+                    correlation,
+                    channel,
+                } => {
+                    let result = discover(&configured, &state, channel, &cancellation)
+                        .await
+                        .map(Box::new);
+                    CheckCompletion {
+                        correlation,
+                        outcome: CheckEffectOutcome::Discovery(result),
+                    }
+                }
+                CheckEffect::CommitAvailable {
+                    correlation,
+                    candidate,
+                } => {
+                    let operation_id = correlation.operation_id.clone();
+                    let result = configured
+                        .store
+                        .persist_available(&candidate, &operation_id);
+                    CheckCompletion {
+                        correlation,
+                        outcome: CheckEffectOutcome::Commit(result),
+                    }
+                }
+                CheckEffect::Cancel { correlation } => CheckCompletion {
+                    correlation,
+                    outcome: CheckEffectOutcome::TaskFailed(CheckTaskFailure::CompletionConflict),
+                },
+            }
+        })
+    }
+}
+
+enum CheckCommand {
+    Start {
+        operation_id: String,
+        channel: UpdateChannel,
+        reply: oneshot::Sender<Result<UpdaterSnapshot, UpdateOperationError>>,
+    },
+    Cancel {
+        operation_id: String,
+        reply: oneshot::Sender<Result<UpdaterSnapshot, UpdateOperationError>>,
+    },
+    Shutdown {
+        reply: oneshot::Sender<()>,
+    },
+}
+
+struct OwnedCheckEffect {
+    cancellation: CancellationToken,
+    correlation: EffectCorrelation,
+}
+
+struct CheckRuntime {
+    actor: Mutex<Option<JoinHandle<()>>>,
+    closed: AtomicBool,
+    sender: mpsc::Sender<CheckCommand>,
+    shutdown: CancellationToken,
+}
+
+impl CheckRuntime {
+    fn spawn(
+        authority_id: String,
+        state: Arc<Mutex<RuntimeState>>,
+        updates: broadcast::Sender<UpdaterSnapshot>,
+        evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+        executor: Arc<dyn CheckEffectExecutor>,
+    ) -> Self {
+        let (sender, receiver) = mpsc::channel(CHECK_INBOX_CAPACITY);
+        let shutdown = CancellationToken::new();
+        let actor_shutdown = shutdown.clone();
+        let actor = tokio::spawn(run_check_actor(
+            authority_id,
+            state,
+            updates,
+            evidence,
+            executor,
+            receiver,
+            actor_shutdown,
+        ));
+        Self {
+            actor: Mutex::new(Some(actor)),
+            closed: AtomicBool::new(false),
+            sender,
+            shutdown,
+        }
+    }
+
+    async fn start(
+        &self,
+        operation_id: String,
+        channel: UpdateChannel,
+    ) -> Result<UpdaterSnapshot, UpdateOperationError> {
+        if self.closed.load(AtomicOrdering::Acquire) {
+            return Err(UpdateOperationError::Busy);
+        }
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(CheckCommand::Start {
+                operation_id,
+                channel,
+                reply,
+            })
+            .map_err(|_| UpdateOperationError::Busy)?;
+        response.await.map_err(|_| UpdateOperationError::Busy)?
+    }
+
+    async fn cancel(&self, operation_id: String) -> Result<UpdaterSnapshot, UpdateOperationError> {
+        if self.closed.load(AtomicOrdering::Acquire) {
+            return Err(UpdateOperationError::OperationMismatch);
+        }
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(CheckCommand::Cancel {
+                operation_id,
+                reply,
+            })
+            .map_err(|_| UpdateOperationError::Busy)?;
+        response.await.map_err(|_| UpdateOperationError::Busy)?
+    }
+
+    async fn shutdown(&self) {
+        if self.closed.swap(true, AtomicOrdering::AcqRel) {
+            return;
+        }
+        let (reply, response) = oneshot::channel();
+        if self
+            .sender
+            .send(CheckCommand::Shutdown { reply })
+            .await
+            .is_ok()
+        {
+            let _ = response.await;
+        }
+        let actor = self
+            .actor
+            .lock()
+            .expect("updater Check actor lock poisoned")
+            .take();
+        if let Some(actor) = actor {
+            let _ = actor.await;
+        }
+    }
+}
+
+impl Drop for CheckRuntime {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+        if let Some(actor) = self
+            .actor
+            .lock()
+            .expect("updater Check actor lock poisoned")
+            .take()
+        {
+            actor.abort();
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_check_actor(
+    authority_id: String,
+    state: Arc<Mutex<RuntimeState>>,
+    updates: broadcast::Sender<UpdaterSnapshot>,
+    evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: Arc<dyn CheckEffectExecutor>,
+    mut receiver: mpsc::Receiver<CheckCommand>,
+    shutdown: CancellationToken,
+) {
+    let mut machine = CheckState::idle();
+    let mut next_scope_epoch = 1_u64;
+    let mut effects = JoinSet::new();
+    let mut owned_effects = HashMap::<TaskId, OwnedCheckEffect>::new();
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => {
+                begin_check_shutdown(
+                    &mut machine,
+                    &state,
+                    &updates,
+                    &evidence,
+                    &executor,
+                    &mut effects,
+                    &mut owned_effects,
+                );
+                drain_check_effects(
+                    &mut machine,
+                    &state,
+                    &updates,
+                    &evidence,
+                    &executor,
+                    &mut effects,
+                    &mut owned_effects,
+                ).await;
+                return;
+            }
+            joined = effects.join_next_with_id(), if !owned_effects.is_empty() => {
+                if let Some(joined) = joined {
+                    finish_owned_check_effect(
+                        joined,
+                        &mut machine,
+                        &state,
+                        &updates,
+                        &evidence,
+                        &executor,
+                        &mut effects,
+                        &mut owned_effects,
+                    );
+                }
+            }
+            command = receiver.recv() => {
+                let Some(command) = command else {
+                    begin_check_shutdown(
+                        &mut machine,
+                        &state,
+                        &updates,
+                        &evidence,
+                        &executor,
+                        &mut effects,
+                        &mut owned_effects,
+                    );
+                    drain_check_effects(
+                        &mut machine,
+                        &state,
+                        &updates,
+                        &evidence,
+                        &executor,
+                        &mut effects,
+                        &mut owned_effects,
+                    ).await;
+                    return;
+                };
+                match command {
+                    CheckCommand::Start {
+                        operation_id,
+                        channel,
+                        reply,
+                    } => {
+                        let mut outer = state.lock().expect("updater state poisoned");
+                        let snapshot = outer.snapshot.clone();
+                        let operation = CheckOperation {
+                            machine_authority: authority_id.clone(),
+                            scope_epoch: next_scope_epoch,
+                            operation_id,
+                            admitted_revision: snapshot.revision.saturating_add(1),
+                            channel,
+                        };
+                        let input = CheckInput::CheckRequested {
+                            operation,
+                            outer_phase: snapshot.phase,
+                            outer_operation_id: snapshot.operation_id,
+                            outer_channel: snapshot.channel,
+                        };
+                        let result = check_machine::reduce(&machine, input.clone()).map(|decision| {
+                            if matches!(
+                                decision.next,
+                                CheckState::Checking {
+                                    cancel_requested: false,
+                                    ..
+                                }
+                            ) && !matches!(machine, CheckState::Checking { .. })
+                            {
+                                next_scope_epoch = next_scope_epoch.saturating_add(1);
+                            }
+                            let should_project = apply_check_machine_decision(
+                                &mut machine,
+                                input,
+                                decision,
+                                &evidence,
+                                &executor,
+                                &mut effects,
+                                &mut owned_effects,
+                            );
+                            if should_project {
+                                project_check_state_locked(&machine, &mut outer, &updates);
+                            }
+                            outer.snapshot.clone()
+                        });
+                        drop(outer);
+                        let _ = reply.send(result);
+                    }
+                    CheckCommand::Cancel {
+                        operation_id,
+                        reply,
+                    } => {
+                        let input = CheckInput::CancelRequested { operation_id };
+                        let result = check_machine::reduce(&machine, input.clone()).map(|decision| {
+                            apply_check_decision(
+                                &mut machine,
+                                input,
+                                decision,
+                                &state,
+                                &updates,
+                                &evidence,
+                                &executor,
+                                &mut effects,
+                                &mut owned_effects,
+                            );
+                            state
+                                .lock()
+                                .expect("updater state poisoned")
+                                .snapshot
+                                .clone()
+                        });
+                        let _ = reply.send(result);
+                    }
+                    CheckCommand::Shutdown { reply } => {
+                        begin_check_shutdown(
+                            &mut machine,
+                            &state,
+                            &updates,
+                            &evidence,
+                            &executor,
+                            &mut effects,
+                            &mut owned_effects,
+                        );
+                        drain_check_effects(
+                            &mut machine,
+                            &state,
+                            &updates,
+                            &evidence,
+                            &executor,
+                            &mut effects,
+                            &mut owned_effects,
+                        ).await;
+                        let _ = reply.send(());
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn begin_check_shutdown(
+    machine: &mut CheckState,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) {
+    let input = CheckInput::ShutdownRequested;
+    let decision =
+        check_machine::reduce(machine, input.clone()).expect("Check shutdown is infallible");
+    apply_check_decision(
+        machine,
+        input,
+        decision,
+        state,
+        updates,
+        evidence,
+        executor,
+        effects,
+        owned_effects,
+    );
+}
+
+async fn drain_check_effects(
+    machine: &mut CheckState,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) {
+    let graceful = async {
+        while let Some(joined) = effects.join_next_with_id().await {
+            finish_owned_check_effect(
+                joined,
+                machine,
+                state,
+                updates,
+                evidence,
+                executor,
+                effects,
+                owned_effects,
+            );
+        }
+    };
+    if timeout(CHECK_SHUTDOWN_GRACE, graceful).await.is_err() {
+        effects.abort_all();
+        while let Some(joined) = effects.join_next_with_id().await {
+            finish_owned_check_effect(
+                joined,
+                machine,
+                state,
+                updates,
+                evidence,
+                executor,
+                effects,
+                owned_effects,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_owned_check_effect(
+    joined: Result<(TaskId, CheckCompletion), tokio::task::JoinError>,
+    machine: &mut CheckState,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) {
+    let task_id = match &joined {
+        Ok((task_id, _)) => *task_id,
+        Err(error) => error.id(),
+    };
+    let Some(owned) = owned_effects.remove(&task_id) else {
+        return;
+    };
+    let completion = match joined {
+        Ok((_, completion)) if completion.correlation == owned.correlation => completion,
+        Ok((_, completion)) => {
+            apply_check_completion(
+                machine,
+                completion,
+                state,
+                updates,
+                evidence,
+                executor,
+                effects,
+                owned_effects,
+            );
+            CheckCompletion {
+                correlation: owned.correlation,
+                outcome: CheckEffectOutcome::TaskFailed(CheckTaskFailure::CompletionConflict),
+            }
+        }
+        Err(error) => CheckCompletion {
+            correlation: owned.correlation,
+            outcome: CheckEffectOutcome::TaskFailed(if error.is_panic() {
+                CheckTaskFailure::Panicked
+            } else {
+                CheckTaskFailure::Aborted
+            }),
+        },
+    };
+    apply_check_completion(
+        machine,
+        completion,
+        state,
+        updates,
+        evidence,
+        executor,
+        effects,
+        owned_effects,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_check_completion(
+    machine: &mut CheckState,
+    completion: CheckCompletion,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) {
+    let input = CheckInput::EffectCompleted(completion);
+    let decision =
+        check_machine::reduce(machine, input.clone()).expect("effect completion is infallible");
+    apply_check_decision(
+        machine,
+        input,
+        decision,
+        state,
+        updates,
+        evidence,
+        executor,
+        effects,
+        owned_effects,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_check_decision(
+    machine: &mut CheckState,
+    input: CheckInput,
+    decision: CheckDecision,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) {
+    if apply_check_machine_decision(
+        machine,
+        input,
+        decision,
+        evidence,
+        executor,
+        effects,
+        owned_effects,
+    ) {
+        project_check_state(machine, state, updates);
+    }
+}
+
+fn apply_check_machine_decision(
+    machine: &mut CheckState,
+    input: CheckInput,
+    decision: CheckDecision,
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    executor: &Arc<dyn CheckEffectExecutor>,
+    effects: &mut JoinSet<CheckCompletion>,
+    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+) -> bool {
+    let from = machine.label();
+    let correlation = input_correlation(machine, &input);
+    let should_project = decision.disposition == DecisionDisposition::Applied
+        && matches!(
+            input,
+            CheckInput::CheckRequested { .. } | CheckInput::EffectCompleted(_)
+        );
+    *machine = decision.next;
+    record_check_evidence(
+        evidence,
+        from,
+        input.label(),
+        machine.label(),
+        decision.disposition,
+        correlation.as_ref(),
+    );
+    for effect in decision.effects {
+        match effect {
+            CheckEffect::Cancel { correlation } => {
+                if let Some(owned) = owned_effects
+                    .values()
+                    .find(|owned| owned.correlation == correlation)
+                {
+                    owned.cancellation.cancel();
+                }
+            }
+            effect => {
+                let cancellation = CancellationToken::new();
+                let correlation = effect.correlation().clone();
+                let task = effects.spawn(executor.execute(effect, cancellation.clone()));
+                owned_effects.insert(
+                    task.id(),
+                    OwnedCheckEffect {
+                        cancellation,
+                        correlation,
+                    },
+                );
+            }
+        }
+    }
+    should_project
+}
+
+fn input_correlation(machine: &CheckState, input: &CheckInput) -> Option<EffectCorrelation> {
+    match input {
+        CheckInput::CheckRequested { operation, .. } => {
+            Some(operation.correlation(check_machine::DISCOVER_EFFECT_ID))
+        }
+        CheckInput::EffectCompleted(completion) => Some(completion.correlation.clone()),
+        CheckInput::CancelRequested { .. } | CheckInput::ShutdownRequested => machine
+            .operation()
+            .map(|operation| operation.correlation(0)),
+    }
+}
+
+fn record_check_evidence(
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    from: &str,
+    input: &str,
+    to: &str,
+    disposition: DecisionDisposition,
+    correlation: Option<&EffectCorrelation>,
+) {
+    let mut evidence = evidence
+        .lock()
+        .expect("updater Check evidence lock poisoned");
+    let sequence = evidence
+        .back()
+        .map_or(1, |record| record.sequence.saturating_add(1));
+    if evidence.len() == CHECK_EVIDENCE_LIMIT {
+        evidence.pop_front();
+    }
+    evidence.push_back(UpdaterCheckTransitionEvidence {
+        sequence,
+        machine_authority_sha256: correlation
+            .map(|value| digest(value.machine_authority.as_bytes())),
+        scope_epoch: correlation.map(|value| value.scope_epoch),
+        admitted_revision: correlation.map(|value| value.admitted_revision),
+        effect_id: correlation.map(|value| value.effect_id),
+        operation_id_sha256: correlation.map(|value| digest(value.operation_id.as_bytes())),
+        from: from.to_owned(),
+        input: input.to_owned(),
+        to: to.to_owned(),
+        disposition: match disposition {
+            DecisionDisposition::Applied => "applied",
+            DecisionDisposition::CancelTooLate => "cancel-too-late",
+            DecisionDisposition::Duplicate => "duplicate",
+            DecisionDisposition::RetiredCompletion => "retired-completion",
+        }
+        .to_owned(),
+    });
+}
+
+fn project_check_state(
+    machine: &CheckState,
+    state: &Arc<Mutex<RuntimeState>>,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+) {
+    let mut state = state.lock().expect("updater state poisoned");
+    project_check_state_locked(machine, &mut state, updates);
+}
+
+fn project_check_state_locked(
+    machine: &CheckState,
+    state: &mut RuntimeState,
+    updates: &broadcast::Sender<UpdaterSnapshot>,
+) {
+    let projection = machine.projection();
+    let changed = state.snapshot.phase != projection.phase
+        || state.snapshot.operation_id != projection.operation_id
+        || state.snapshot.channel != projection.channel
+        || state.snapshot.candidate != projection.candidate
+        || state.snapshot.progress != projection.progress
+        || state.snapshot.resumable != projection.resumable
+        || state.snapshot.terminal_reason != projection.terminal_reason;
+    if !changed {
+        return;
+    }
+    state.snapshot.revision = state.snapshot.revision.saturating_add(1);
+    state.snapshot.phase = projection.phase;
+    state.snapshot.operation_id = projection.operation_id;
+    state.snapshot.channel = projection.channel;
+    state.snapshot.candidate = projection.candidate;
+    state.snapshot.progress = projection.progress;
+    state.snapshot.resumable = projection.resumable;
+    state.snapshot.terminal_reason = projection.terminal_reason;
+    match machine {
+        CheckState::Checking {
+            cancel_requested: false,
+            ..
+        } => {
+            state.available = None;
+            state.active_cancel = None;
+        }
+        CheckState::Stable {
+            available: Some((_, candidate)),
+        } => {
+            state.available = Some(candidate.clone());
+            state.active_cancel = None;
+        }
+        CheckState::Retired {
+            terminal: check_machine::RetiredTerminal::Available { candidate },
+            ..
+        } => {
+            state.available = Some(candidate.as_ref().clone());
+            state.active_cancel = None;
+        }
+        CheckState::NoUpdate { .. }
+        | CheckState::Failed { .. }
+        | CheckState::Cancelled { .. }
+        | CheckState::Retired { .. } => {
+            state.active_cancel = None;
+        }
+        CheckState::Checking {
+            cancel_requested: true,
+            ..
+        }
+        | CheckState::CommittingAvailable { .. }
+        | CheckState::Stable { available: None } => {}
+    }
+    publish(updates, &state.snapshot);
+}
+
 pub struct UpdaterService {
-    configured: Option<ConfiguredUpdater>,
-    state: Mutex<RuntimeState>,
+    check: Option<CheckRuntime>,
+    check_evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    configured: Option<Arc<ConfiguredUpdater>>,
+    state: Arc<Mutex<RuntimeState>>,
     updates: broadcast::Sender<UpdaterSnapshot>,
 }
 
@@ -282,13 +1014,15 @@ impl UpdaterService {
         let snapshot = UpdaterSnapshot::idle(authority_id.into(), false);
         let (updates, _) = broadcast::channel(32);
         Self {
+            check: None,
+            check_evidence: Arc::new(Mutex::new(VecDeque::new())),
             configured: None,
-            state: Mutex::new(RuntimeState {
+            state: Arc::new(Mutex::new(RuntimeState {
                 snapshot,
                 accepted: AcceptedMetadata::empty(),
                 available: None,
                 active_cancel: None,
-            }),
+            })),
             updates,
         }
     }
@@ -340,22 +1074,42 @@ impl UpdaterService {
         let recovered = store.recover(&adapter, &policy, &limits)?;
         let snapshot = recovered.snapshot(authority_id);
         let (updates, _) = broadcast::channel(32);
+        let configured = Arc::new(ConfiguredUpdater {
+            adapter,
+            client,
+            endpoint,
+            fixture_rewrite,
+            limits,
+            policy,
+            store,
+        });
+        let state = Arc::new(Mutex::new(RuntimeState {
+            snapshot,
+            accepted: recovered.accepted,
+            available: recovered.available,
+            active_cancel: None,
+        }));
+        let check_evidence = Arc::new(Mutex::new(VecDeque::new()));
+        let check = CheckRuntime::spawn(
+            state
+                .lock()
+                .expect("updater state poisoned")
+                .snapshot
+                .authority_id
+                .clone(),
+            state.clone(),
+            updates.clone(),
+            check_evidence.clone(),
+            Arc::new(ProductionCheckEffectExecutor {
+                configured: configured.clone(),
+                state: state.clone(),
+            }),
+        );
         Ok(Self {
-            configured: Some(ConfiguredUpdater {
-                adapter,
-                client,
-                endpoint,
-                fixture_rewrite,
-                limits,
-                policy,
-                store,
-            }),
-            state: Mutex::new(RuntimeState {
-                snapshot,
-                accepted: recovered.accepted,
-                available: recovered.available,
-                active_cancel: None,
-            }),
+            check: Some(check),
+            check_evidence,
+            configured: Some(configured),
+            state,
             updates,
         })
     }
@@ -379,8 +1133,17 @@ impl UpdaterService {
         (receiver, self.snapshot())
     }
 
-    pub fn start_check(
-        self: &Arc<Self>,
+    pub fn check_transition_evidence(&self) -> Vec<UpdaterCheckTransitionEvidence> {
+        self.check_evidence
+            .lock()
+            .expect("updater Check evidence lock poisoned")
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub async fn start_check(
+        &self,
         operation_id: &str,
         channel: UpdateChannel,
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
@@ -391,42 +1154,11 @@ impl UpdaterService {
                 UpdaterError::ChannelMismatch,
             ));
         }
-        let operation_id = operation_id.to_owned();
-        let cancel = CancellationToken::new();
-        let snapshot = {
-            let mut state = self.state.lock().expect("updater state poisoned");
-            if state.snapshot.operation_id.as_deref() == Some(operation_id.as_str())
-                && state.snapshot.phase != UpdatePhase::Idle
-            {
-                return if state.snapshot.channel == Some(channel) {
-                    Ok(state.snapshot.clone())
-                } else {
-                    Err(UpdateOperationError::OperationMismatch)
-                };
-            }
-            if operation_in_flight(state.snapshot.phase) {
-                return Err(UpdateOperationError::Busy);
-            }
-            state.available = None;
-            state.active_cancel = Some(cancel.clone());
-            transition(
-                &mut state.snapshot,
-                UpdatePhase::Checking,
-                Some(operation_id.clone()),
-                Some(channel),
-                None,
-                None,
-                false,
-                None,
-            );
-            publish(&self.updates, &state.snapshot);
-            state.snapshot.clone()
-        };
-        let service = self.clone();
-        tokio::spawn(async move {
-            service.run_check(operation_id, channel, cancel).await;
-        });
-        Ok(snapshot)
+        self.check
+            .as_ref()
+            .expect("configured updater has a Check runtime")
+            .start(operation_id.to_owned(), channel)
+            .await
     }
 
     pub fn start_download(
@@ -489,209 +1221,182 @@ impl UpdaterService {
         Ok(self.snapshot())
     }
 
-    pub fn cancel(&self, operation_id: &str) -> Result<UpdaterSnapshot, UpdateOperationError> {
+    pub async fn cancel(
+        &self,
+        operation_id: &str,
+    ) -> Result<UpdaterSnapshot, UpdateOperationError> {
         self.require_configured()?;
         validate_operation_id(operation_id)?;
-        let state = self.state.lock().expect("updater state poisoned");
-        if state.snapshot.operation_id.as_deref() != Some(operation_id) {
-            return Err(UpdateOperationError::OperationMismatch);
+        {
+            let state = self.state.lock().expect("updater state poisoned");
+            if state.snapshot.phase != UpdatePhase::Checking {
+                if state.snapshot.operation_id.as_deref() != Some(operation_id) {
+                    return Err(UpdateOperationError::OperationMismatch);
+                }
+                if let Some(cancel) = &state.active_cancel {
+                    cancel.cancel();
+                }
+                return Ok(state.snapshot.clone());
+            }
         }
-        if let Some(cancel) = &state.active_cancel {
-            cancel.cancel();
+        self.check
+            .as_ref()
+            .expect("configured updater has a Check runtime")
+            .cancel(operation_id.to_owned())
+            .await
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(check) = &self.check {
+            check.shutdown().await;
         }
-        Ok(state.snapshot.clone())
     }
 
     fn require_configured(&self) -> Result<&ConfiguredUpdater, UpdateOperationError> {
         self.configured
-            .as_ref()
+            .as_deref()
             .ok_or(UpdateOperationError::NotConfigured)
     }
+}
 
-    async fn run_check(
-        self: Arc<Self>,
-        operation_id: String,
-        channel: UpdateChannel,
-        cancel: CancellationToken,
-    ) {
-        let result = self.discover(channel, &cancel).await;
-        match result {
-            Ok(available) => {
-                let Some(configured) = &self.configured else {
-                    return;
-                };
-                if configured
-                    .store
-                    .persist_available(&available, &operation_id)
-                    .is_err()
-                {
-                    self.finish_failure(
-                        &operation_id,
-                        UpdatePhase::Checking,
-                        UpdateOperationError::StoreIo,
-                    );
-                    return;
-                }
-                let mut state = self.state.lock().expect("updater state poisoned");
-                if !current_operation(&state, &operation_id, UpdatePhase::Checking) {
-                    return;
-                }
-                state.active_cancel = None;
-                state.available = Some(available.clone());
-                transition(
-                    &mut state.snapshot,
-                    UpdatePhase::Available,
-                    Some(operation_id),
-                    Some(channel),
-                    Some(available.identity()),
-                    None,
-                    false,
-                    None,
-                );
-                publish(&self.updates, &state.snapshot);
-            }
-            Err(UpdateOperationError::Cancelled) => {
-                self.finish_cancelled(&operation_id, UpdatePhase::Checking, false);
-            }
-            Err(error) => self.finish_failure(&operation_id, UpdatePhase::Checking, error),
-        }
+async fn discover(
+    configured: &ConfiguredUpdater,
+    state: &Mutex<RuntimeState>,
+    channel: UpdateChannel,
+    cancel: &CancellationToken,
+) -> Result<AvailableCandidate, UpdateOperationError> {
+    let metadata_url = configured
+        .endpoint
+        .join(channel.metadata_name())
+        .map_err(|_| UpdateOperationError::NotConfigured)?;
+    let signature_url = configured
+        .endpoint
+        .join(&format!("{}.sig", channel.metadata_name()))
+        .map_err(|_| UpdateOperationError::NotConfigured)?;
+    let metadata = fetch_bounded(
+        configured,
+        &metadata_url,
+        configured.limits.max_metadata_bytes,
+        cancel,
+    )
+    .await?;
+    let signature = fetch_bounded(
+        configured,
+        &signature_url,
+        configured.limits.max_signature_bytes,
+        cancel,
+    )
+    .await?;
+    let metadata_signature =
+        String::from_utf8(signature).map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let accepted = state
+        .lock()
+        .expect("updater state poisoned")
+        .accepted
+        .clone();
+    let verified = configured.adapter.verify_metadata(VerifyMetadataRequest {
+        accepted_metadata_sha256: &accepted.digests,
+        metadata: &metadata,
+        metadata_signature: metadata_signature.trim(),
+        policy: configured.policy.clone(),
+    })?;
+    accepted.require_newer(&verified)?;
+    if verified.channel != channel {
+        return Err(UpdateOperationError::Verification(
+            UpdaterError::ChannelMismatch,
+        ));
     }
-
-    async fn discover(
-        &self,
-        channel: UpdateChannel,
-        cancel: &CancellationToken,
-    ) -> Result<AvailableCandidate, UpdateOperationError> {
-        let configured = self.require_configured()?;
-        let metadata_url = configured
-            .endpoint
-            .join(channel.metadata_name())
-            .map_err(|_| UpdateOperationError::NotConfigured)?;
-        let signature_url = configured
-            .endpoint
-            .join(&format!("{}.sig", channel.metadata_name()))
-            .map_err(|_| UpdateOperationError::NotConfigured)?;
-        let metadata = self
-            .fetch_bounded(&metadata_url, configured.limits.max_metadata_bytes, cancel)
-            .await?;
-        let signature = self
-            .fetch_bounded(
-                &signature_url,
-                configured.limits.max_signature_bytes,
-                cancel,
-            )
-            .await?;
-        let metadata_signature =
-            String::from_utf8(signature).map_err(|_| UpdateOperationError::InvalidResponse)?;
-        let accepted = self
-            .state
-            .lock()
-            .expect("updater state poisoned")
-            .accepted
-            .clone();
-        let verified = configured.adapter.verify_metadata(VerifyMetadataRequest {
-            accepted_metadata_sha256: &accepted.digests,
-            metadata: &metadata,
-            metadata_signature: metadata_signature.trim(),
-            policy: configured.policy.clone(),
-        })?;
-        accepted.require_newer(&verified)?;
-        if verified.channel != channel {
-            return Err(UpdateOperationError::Verification(
-                UpdaterError::ChannelMismatch,
-            ));
-        }
-        if verified.artifact_size > configured.limits.max_artifact_bytes {
-            return Err(UpdateOperationError::OversizedPayload);
-        }
-        let artifact_signature_url = Url::parse(&format!("{}.sig", verified.artifact_url))
-            .map_err(|_| UpdateOperationError::InvalidResponse)?;
-        let artifact_signature = match self
-            .fetch_bounded(
-                &artifact_signature_url,
-                configured.limits.max_signature_bytes,
-                cancel,
-            )
-            .await
-        {
-            Err(UpdateOperationError::InvalidResponse) => {
-                return Err(UpdateOperationError::Verification(
-                    UpdaterError::MissingArtifactSignature,
-                ));
-            }
-            result => result?,
-        };
-        let artifact_signature = String::from_utf8(artifact_signature)
-            .map_err(|_| UpdateOperationError::InvalidResponse)?;
-        let artifact_signature = artifact_signature.trim();
-        if artifact_signature.is_empty() {
+    if verified.artifact_size > configured.limits.max_artifact_bytes {
+        return Err(UpdateOperationError::OversizedPayload);
+    }
+    let artifact_signature_url = Url::parse(&format!("{}.sig", verified.artifact_url))
+        .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let artifact_signature = match fetch_bounded(
+        configured,
+        &artifact_signature_url,
+        configured.limits.max_signature_bytes,
+        cancel,
+    )
+    .await
+    {
+        Err(UpdateOperationError::InvalidResponse) => {
             return Err(UpdateOperationError::Verification(
                 UpdaterError::MissingArtifactSignature,
             ));
         }
-        if artifact_signature != verified.artifact_signature {
-            return Err(UpdateOperationError::Verification(
-                UpdaterError::ArtifactSignatureMismatch,
-            ));
-        }
-        Ok(AvailableCandidate {
-            metadata: verified,
-            metadata_bytes: metadata,
-            metadata_signature: metadata_signature.trim().to_owned(),
-        })
+        result => result?,
+    };
+    let artifact_signature =
+        String::from_utf8(artifact_signature).map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let artifact_signature = artifact_signature.trim();
+    if artifact_signature.is_empty() {
+        return Err(UpdateOperationError::Verification(
+            UpdaterError::MissingArtifactSignature,
+        ));
     }
+    if artifact_signature != verified.artifact_signature {
+        return Err(UpdateOperationError::Verification(
+            UpdaterError::ArtifactSignatureMismatch,
+        ));
+    }
+    Ok(AvailableCandidate {
+        metadata: verified,
+        metadata_bytes: metadata,
+        metadata_signature: metadata_signature.trim().to_owned(),
+    })
+}
 
-    async fn fetch_bounded(
-        &self,
-        logical_url: &Url,
-        maximum: u64,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<u8>, UpdateOperationError> {
-        let configured = self.require_configured()?;
-        let request_url = request_url(configured, logical_url)?;
-        let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
-        let response = tokio::select! {
+async fn fetch_bounded(
+    configured: &ConfiguredUpdater,
+    logical_url: &Url,
+    maximum: u64,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, UpdateOperationError> {
+    let request_url = request_url(configured, logical_url)?;
+    let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
+    let response = tokio::select! {
+        _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
+        response = timeout_at(deadline, configured.client
+            .get(request_url)
+            .header(ACCEPT_ENCODING, "identity")
+            .send()) => response
+                .map_err(|_| UpdateOperationError::Timeout)?
+                .map_err(map_reqwest_error)?,
+    };
+    reject_redirect_or_status(&response)?;
+    ensure_identity_encoding(&response)?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > maximum)
+    {
+        return Err(UpdateOperationError::OversizedMetadata);
+    }
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    loop {
+        let next = tokio::select! {
             _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
-            response = timeout_at(deadline, configured.client
-                .get(request_url)
-                .header(ACCEPT_ENCODING, "identity")
-                .send()) => response
+            next = timeout_at(deadline, timeout(configured.limits.idle_timeout, stream.next())) =>
+                next
                     .map_err(|_| UpdateOperationError::Timeout)?
-                    .map_err(map_reqwest_error)?,
+                    .map_err(|_| UpdateOperationError::Timeout)?,
         };
-        reject_redirect_or_status(&response)?;
-        ensure_identity_encoding(&response)?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > maximum)
+        let Some(chunk) = next else {
+            break;
+        };
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        if (body.len() as u64)
+            .checked_add(chunk.len() as u64)
+            .is_none_or(|length| length > maximum)
         {
             return Err(UpdateOperationError::OversizedMetadata);
         }
-        let mut stream = response.bytes_stream();
-        let mut body = Vec::new();
-        loop {
-            let next = tokio::select! {
-                _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
-                next = timeout_at(deadline, timeout(configured.limits.idle_timeout, stream.next())) =>
-                    next
-                        .map_err(|_| UpdateOperationError::Timeout)?
-                        .map_err(|_| UpdateOperationError::Timeout)?,
-            };
-            let Some(chunk) = next else {
-                break;
-            };
-            let chunk = chunk.map_err(map_reqwest_error)?;
-            if (body.len() as u64)
-                .checked_add(chunk.len() as u64)
-                .is_none_or(|length| length > maximum)
-            {
-                return Err(UpdateOperationError::OversizedMetadata);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        Ok(body)
+        body.extend_from_slice(&chunk);
     }
+    Ok(body)
+}
 
+impl UpdaterService {
     async fn run_download(
         self: Arc<Self>,
         operation_id: String,
@@ -1016,13 +1721,6 @@ impl UpdaterService {
         );
         publish(&self.updates, &state.snapshot);
     }
-}
-
-fn operation_in_flight(phase: UpdatePhase) -> bool {
-    matches!(
-        phase,
-        UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Verifying
-    )
 }
 
 fn current_operation(state: &RuntimeState, operation_id: &str, phase: UpdatePhase) -> bool {
@@ -2027,7 +2725,11 @@ mod tests {
     };
     use futures_util::stream;
     use tempfile::TempDir;
-    use tokio::{net::TcpListener, task::JoinHandle};
+    use tokio::{
+        net::TcpListener,
+        sync::{Barrier, Notify},
+        task::JoinHandle,
+    };
 
     use super::*;
     use crate::InstalledUpdate;
@@ -2044,6 +2746,372 @@ mod tests {
     const ARTIFACT_SIGNATURE: &str = include_str!(
         "../../../scripts/fixtures/macos-updater/Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig"
     );
+
+    #[derive(Clone)]
+    enum FakeDiscovery {
+        Barrier {
+            release: Arc<Notify>,
+            started: Arc<Notify>,
+        },
+        CompletionConflict,
+        Immediate,
+        Panic,
+        Pending,
+    }
+
+    #[derive(Clone)]
+    enum FakeCommit {
+        Barrier {
+            release: Arc<Notify>,
+            started: Arc<Notify>,
+        },
+        Failure(UpdateOperationError),
+        Immediate,
+    }
+
+    struct FakeCheckEffectExecutor {
+        candidate: AvailableCandidate,
+        discovery: FakeDiscovery,
+        commit: FakeCommit,
+    }
+
+    impl CheckEffectExecutor for FakeCheckEffectExecutor {
+        fn execute(
+            &self,
+            effect: CheckEffect,
+            _cancellation: CancellationToken,
+        ) -> CheckEffectFuture {
+            let candidate = self.candidate.clone();
+            let discovery = self.discovery.clone();
+            let commit = self.commit.clone();
+            Box::pin(async move {
+                match effect {
+                    CheckEffect::Discover {
+                        mut correlation, ..
+                    } => match discovery {
+                        FakeDiscovery::Barrier { release, started } => {
+                            started.notify_one();
+                            release.notified().await;
+                            CheckCompletion {
+                                correlation,
+                                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                            }
+                        }
+                        FakeDiscovery::CompletionConflict => {
+                            correlation.scope_epoch = correlation.scope_epoch.saturating_add(1);
+                            CheckCompletion {
+                                correlation,
+                                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                            }
+                        }
+                        FakeDiscovery::Immediate => CheckCompletion {
+                            correlation,
+                            outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                        },
+                        FakeDiscovery::Panic => panic!("injected Check effect panic"),
+                        FakeDiscovery::Pending => std::future::pending().await,
+                    },
+                    CheckEffect::CommitAvailable { correlation, .. } => match commit {
+                        FakeCommit::Barrier { release, started } => {
+                            started.notify_one();
+                            release.notified().await;
+                            CheckCompletion {
+                                correlation,
+                                outcome: CheckEffectOutcome::Commit(Ok(())),
+                            }
+                        }
+                        FakeCommit::Failure(error) => CheckCompletion {
+                            correlation,
+                            outcome: CheckEffectOutcome::Commit(Err(error)),
+                        },
+                        FakeCommit::Immediate => CheckCompletion {
+                            correlation,
+                            outcome: CheckEffectOutcome::Commit(Ok(())),
+                        },
+                    },
+                    CheckEffect::Cancel { correlation } => CheckCompletion {
+                        correlation,
+                        outcome: CheckEffectOutcome::TaskFailed(
+                            CheckTaskFailure::CompletionConflict,
+                        ),
+                    },
+                }
+            })
+        }
+    }
+
+    fn fake_candidate() -> AvailableCandidate {
+        AvailableCandidate {
+            metadata: crate::VerifiedMetadata {
+                artifact_name: "Mish-0.1.1-alpha.2-aarch64.app.tar.gz".into(),
+                artifact_sha256: "a".repeat(64),
+                artifact_signature: "private signature material".into(),
+                artifact_size: 16,
+                artifact_url: "https://credential@example.invalid/private".into(),
+                channel: UpdateChannel::Alpha,
+                channel_switch: false,
+                metadata_sha256: "b".repeat(64),
+                skipped_version: false,
+                source_sha: "c".repeat(40),
+                version: "0.1.1-alpha.2".into(),
+            },
+            metadata_bytes: b"raw private metadata body".to_vec(),
+            metadata_signature: "private metadata signature".into(),
+        }
+    }
+
+    type FakeCheckRuntime = (
+        Arc<CheckRuntime>,
+        Arc<Mutex<RuntimeState>>,
+        Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    );
+
+    fn fake_check_runtime(discovery: FakeDiscovery) -> FakeCheckRuntime {
+        fake_check_runtime_with_commit(discovery, FakeCommit::Immediate)
+    }
+
+    fn fake_check_runtime_with_commit(
+        discovery: FakeDiscovery,
+        commit: FakeCommit,
+    ) -> FakeCheckRuntime {
+        let snapshot = UpdaterSnapshot::idle("test-authority".into(), true);
+        let state = Arc::new(Mutex::new(RuntimeState {
+            snapshot,
+            accepted: AcceptedMetadata::empty(),
+            available: None,
+            active_cancel: None,
+        }));
+        let (updates, _) = broadcast::channel(32);
+        let evidence = Arc::new(Mutex::new(VecDeque::new()));
+        let runtime = Arc::new(CheckRuntime::spawn(
+            "test-authority".into(),
+            state.clone(),
+            updates,
+            evidence.clone(),
+            Arc::new(FakeCheckEffectExecutor {
+                candidate: fake_candidate(),
+                discovery,
+                commit,
+            }),
+        ));
+        (runtime, state, evidence)
+    }
+
+    async fn wait_runtime_phase(
+        state: &Arc<Mutex<RuntimeState>>,
+        phase: UpdatePhase,
+    ) -> UpdaterSnapshot {
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let snapshot = state.lock().unwrap().snapshot.clone();
+                if snapshot.phase == phase {
+                    return snapshot;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bounded_inbox_serializes_single_flight_admission() {
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (runtime, state, _) = fake_check_runtime(FakeDiscovery::Barrier {
+            release: release.clone(),
+            started: started.clone(),
+        });
+        let mut commands = JoinSet::new();
+        for index in 0..64 {
+            let runtime = runtime.clone();
+            commands.spawn(async move {
+                runtime
+                    .start(format!("operation-{index}"), UpdateChannel::Alpha)
+                    .await
+            });
+        }
+        started.notified().await;
+        let mut admitted = 0;
+        let mut busy = 0;
+        while let Some(result) = commands.join_next().await {
+            match result.unwrap() {
+                Ok(snapshot) => {
+                    admitted += 1;
+                    assert_eq!(snapshot.phase, UpdatePhase::Checking);
+                }
+                Err(UpdateOperationError::Busy) => busy += 1,
+                Err(error) => panic!("unexpected admission result: {error:?}"),
+            }
+        }
+        assert_eq!(admitted, 1);
+        assert_eq!(busy, 63);
+        release.notify_one();
+        wait_runtime_phase(&state, UpdatePhase::Available).await;
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn barrier_completion_cannot_cross_cancel_linearization() {
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (runtime, state, evidence) = fake_check_runtime(FakeDiscovery::Barrier {
+            release: release.clone(),
+            started: started.clone(),
+        });
+        let checking = runtime
+            .start("operation-a".into(), UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        assert_eq!(checking.phase, UpdatePhase::Checking);
+        started.notified().await;
+        let cancelling = runtime.cancel("operation-a".into()).await.unwrap();
+        assert_eq!(cancelling.phase, UpdatePhase::Checking);
+        release.notify_one();
+        let cancelled = wait_runtime_phase(&state, UpdatePhase::Cancelled).await;
+        assert_eq!(cancelled.operation_id.as_deref(), Some("operation-a"));
+        assert!(cancelled.candidate.is_none());
+        let rendered = serde_json::to_string(&*evidence.lock().unwrap()).unwrap();
+        assert!(rendered.contains("checking-cancel-requested"));
+        assert!(!rendered.contains("credential"));
+        assert!(!rendered.contains("raw private metadata"));
+        assert!(!rendered.contains("signature material"));
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn commit_barrier_is_cancel_cutoff_and_commit_failure_is_terminal() {
+        let commit_started = Arc::new(Notify::new());
+        let commit_release = Arc::new(Notify::new());
+        let (runtime, state, evidence) = fake_check_runtime_with_commit(
+            FakeDiscovery::Immediate,
+            FakeCommit::Barrier {
+                release: commit_release.clone(),
+                started: commit_started.clone(),
+            },
+        );
+        runtime
+            .start("operation-a".into(), UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        commit_started.notified().await;
+
+        let too_late = runtime.cancel("operation-a".into()).await.unwrap();
+        assert_eq!(too_late.phase, UpdatePhase::Checking);
+        assert!(
+            evidence
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|record| record.disposition == "cancel-too-late")
+        );
+
+        commit_release.notify_one();
+        let available = wait_runtime_phase(&state, UpdatePhase::Available).await;
+        assert!(available.candidate.is_some());
+        runtime.shutdown().await;
+
+        let (runtime, state, _) = fake_check_runtime_with_commit(
+            FakeDiscovery::Immediate,
+            FakeCommit::Failure(UpdateOperationError::StoreIo),
+        );
+        runtime
+            .start("operation-b".into(), UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        let failed = wait_runtime_phase(&state, UpdatePhase::Failed).await;
+        assert_eq!(failed.terminal_reason.as_deref(), Some("store-io"));
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn panic_and_conflicting_completion_finalize_without_stuck_checking() {
+        for (discovery, expected) in [
+            (FakeDiscovery::Panic, "effect-panicked"),
+            (
+                FakeDiscovery::CompletionConflict,
+                "effect-completion-conflict",
+            ),
+        ] {
+            let (runtime, state, evidence) = fake_check_runtime(discovery);
+            runtime
+                .start("operation-a".into(), UpdateChannel::Alpha)
+                .await
+                .unwrap();
+            let failed = wait_runtime_phase(&state, UpdatePhase::Failed).await;
+            assert_eq!(failed.terminal_reason.as_deref(), Some(expected));
+            if expected == "effect-completion-conflict" {
+                assert!(
+                    evidence
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|record| { record.disposition == "retired-completion" })
+                );
+            }
+            runtime.shutdown().await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn paused_time_shutdown_aborts_and_finalizes_uncooperative_effect() {
+        let (runtime, state, evidence) = fake_check_runtime(FakeDiscovery::Pending);
+        runtime
+            .start("operation-a".into(), UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        let shutdown = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                runtime.shutdown().await;
+            })
+        };
+        tokio::task::yield_now().await;
+        tokio::time::advance(CHECK_SHUTDOWN_GRACE + Duration::from_millis(1)).await;
+        shutdown.await.unwrap();
+        let snapshot = state.lock().unwrap().snapshot.clone();
+        assert_eq!(snapshot.phase, UpdatePhase::Cancelled);
+        assert!(
+            evidence
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|record| { record.input == "effect-aborted" && record.to == "retired" })
+        );
+    }
+
+    #[tokio::test]
+    async fn evidence_is_bounded_and_contains_complete_nonsecret_correlation() {
+        let (runtime, state, evidence) = fake_check_runtime(FakeDiscovery::Immediate);
+        for index in 0..40 {
+            runtime
+                .start(format!("secret-operation-{index}"), UpdateChannel::Alpha)
+                .await
+                .unwrap();
+            wait_runtime_phase(&state, UpdatePhase::Available).await;
+        }
+        let evidence = evidence.lock().unwrap().clone();
+        assert_eq!(evidence.len(), CHECK_EVIDENCE_LIMIT);
+        assert!(evidence.iter().all(|record| {
+            record
+                .machine_authority_sha256
+                .as_ref()
+                .is_some_and(|value| value.len() == 64)
+                && record.scope_epoch.is_some()
+                && record.admitted_revision.is_some()
+                && record.effect_id.is_some()
+                && record
+                    .operation_id_sha256
+                    .as_ref()
+                    .is_some_and(|value| value.len() == 64)
+        }));
+        let rendered = serde_json::to_string(&evidence).unwrap();
+        assert!(!rendered.contains("test-authority"));
+        assert!(!rendered.contains("secret-operation"));
+        assert!(!rendered.contains("example.invalid"));
+        assert!(!rendered.contains("private"));
+        runtime.shutdown().await;
+    }
 
     #[derive(Clone, Copy, Debug)]
     enum MetadataMode {
@@ -2286,6 +3354,43 @@ mod tests {
         )
     }
 
+    async fn configured_service_with_fake_check(
+        server: &FixtureServer,
+        root: &Path,
+        discovery: FakeDiscovery,
+    ) -> Arc<UpdaterService> {
+        let mut service = UpdaterService::configured_inner(
+            "test-authority".into(),
+            PUBLIC_KEY.trim(),
+            policy(),
+            server.base.clone(),
+            root.to_path_buf(),
+            limits(),
+            Some(server.base.clone()),
+        )
+        .await
+        .unwrap();
+        service
+            .check
+            .as_ref()
+            .expect("configured service has a Check runtime")
+            .shutdown()
+            .await;
+        let check = CheckRuntime::spawn(
+            service.snapshot().authority_id,
+            service.state.clone(),
+            service.updates.clone(),
+            service.check_evidence.clone(),
+            Arc::new(FakeCheckEffectExecutor {
+                candidate: fake_candidate(),
+                discovery,
+                commit: FakeCommit::Immediate,
+            }),
+        );
+        service.check = Some(check);
+        Arc::new(service)
+    }
+
     async fn wait_phase(service: &UpdaterService, phase: UpdatePhase) -> UpdaterSnapshot {
         timeout(Duration::from_secs(8), async {
             loop {
@@ -2303,6 +3408,7 @@ mod tests {
     async fn discover_available(service: &Arc<UpdaterService>, operation_id: &str) {
         service
             .start_check(operation_id, UpdateChannel::Alpha)
+            .await
             .unwrap();
         let snapshot = wait_phase(service, UpdatePhase::Available).await;
         assert_eq!(snapshot.operation_id.as_deref(), Some(operation_id));
@@ -2329,7 +3435,9 @@ mod tests {
         let root = temporary.path().join("updates");
         let service = configured_service(&server, &root, "process-a", limits()).await;
         assert_eq!(
-            service.start_check("wrong-channel", UpdateChannel::Stable),
+            service
+                .start_check("wrong-channel", UpdateChannel::Stable)
+                .await,
             Err(UpdateOperationError::Verification(
                 UpdaterError::ChannelMismatch
             ))
@@ -2337,17 +3445,21 @@ mod tests {
         assert_eq!(service.snapshot().phase, UpdatePhase::Idle);
         let checking = service
             .start_check("operation-a", UpdateChannel::Alpha)
+            .await
             .unwrap();
         assert_eq!(checking.phase, UpdatePhase::Checking);
         assert_eq!(
             service
                 .start_check("operation-a", UpdateChannel::Alpha)
+                .await
                 .unwrap()
                 .revision,
             checking.revision
         );
         assert_eq!(
-            service.start_check("operation-b", UpdateChannel::Alpha),
+            service
+                .start_check("operation-b", UpdateChannel::Alpha)
+                .await,
             Err(UpdateOperationError::Busy)
         );
         wait_phase(&service, UpdatePhase::Available).await;
@@ -2385,6 +3497,114 @@ mod tests {
             .discard_candidate()
             .unwrap();
         assert!(!root.join(CANDIDATE_DIRECTORY).exists());
+    }
+
+    #[tokio::test]
+    async fn check_and_download_admission_share_one_atomic_outer_cutover() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let service = configured_service(
+            &server,
+            &temporary.path().join("updates"),
+            "process-a",
+            limits(),
+        )
+        .await;
+        discover_available(&service, "operation-a").await;
+        *server.state.artifact_mode.lock().unwrap() = ArtifactMode::Slow;
+
+        let barrier = Arc::new(Barrier::new(3));
+        let check = {
+            let barrier = barrier.clone();
+            let service = service.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                service
+                    .start_check("operation-b", UpdateChannel::Alpha)
+                    .await
+            })
+        };
+        let download = {
+            let barrier = barrier.clone();
+            let service = service.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                service.start_download("operation-a")
+            })
+        };
+        barrier.wait().await;
+        let check = check.await.unwrap();
+        let download = download.await.unwrap();
+
+        assert_ne!(check.is_ok(), download.is_ok());
+        if check.is_ok() {
+            assert_eq!(download, Err(UpdateOperationError::OperationMismatch));
+            wait_phase(&service, UpdatePhase::Failed).await;
+        } else {
+            assert_eq!(check, Err(UpdateOperationError::Busy));
+            service.cancel("operation-a").await.unwrap();
+            wait_phase(&service, UpdatePhase::Cancelled).await;
+        }
+        service.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_check_start_and_cancel_never_report_an_unrouted_success() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let service = configured_service_with_fake_check(
+            &server,
+            &temporary.path().join("updates"),
+            FakeDiscovery::Barrier {
+                release: release.clone(),
+                started: started.clone(),
+            },
+        )
+        .await;
+
+        for index in 0..64 {
+            let operation_id = format!("operation-{index}");
+            let barrier = Arc::new(Barrier::new(3));
+            let start = {
+                let barrier = barrier.clone();
+                let operation_id = operation_id.clone();
+                let service = service.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    service
+                        .start_check(&operation_id, UpdateChannel::Alpha)
+                        .await
+                })
+            };
+            let cancel = {
+                let barrier = barrier.clone();
+                let operation_id = operation_id.clone();
+                let service = service.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    service.cancel(&operation_id).await
+                })
+            };
+            barrier.wait().await;
+            assert_eq!(start.await.unwrap().unwrap().phase, UpdatePhase::Checking);
+            let cancel = cancel.await.unwrap();
+            started.notified().await;
+            release.notify_one();
+
+            match cancel {
+                Ok(snapshot) => {
+                    assert_eq!(snapshot.phase, UpdatePhase::Checking);
+                    wait_phase(&service, UpdatePhase::Cancelled).await;
+                }
+                Err(UpdateOperationError::OperationMismatch) => {
+                    wait_phase(&service, UpdatePhase::Available).await;
+                }
+                result => panic!("unexpected cancellation result: {result:?}"),
+            }
+        }
+        service.shutdown().await;
     }
 
     #[cfg(unix)]
@@ -2437,7 +3657,7 @@ mod tests {
         })
         .await
         .unwrap();
-        service.cancel("resume-operation").unwrap();
+        service.cancel("resume-operation").await.unwrap();
         let cancelled = wait_phase(&service, UpdatePhase::Cancelled).await;
         assert!(cancelled.resumable);
         *server.state.artifact_mode.lock().unwrap() = ArtifactMode::Success;
@@ -2478,7 +3698,7 @@ mod tests {
         })
         .await
         .unwrap();
-        service.cancel("restart-operation").unwrap();
+        service.cancel("restart-operation").await.unwrap();
         wait_phase(&service, UpdatePhase::Cancelled).await;
         *server.state.artifact_mode.lock().unwrap() = ArtifactMode::IgnoreRange;
         service.start_download("restart-operation").unwrap();
@@ -2513,6 +3733,7 @@ mod tests {
             .await;
             service
                 .start_check("failure-operation", UpdateChannel::Alpha)
+                .await
                 .unwrap();
             let failed = wait_phase(&service, UpdatePhase::Failed).await;
             assert_eq!(failed.terminal_reason.as_deref(), Some(expected));
@@ -2540,6 +3761,7 @@ mod tests {
             .await;
             service
                 .start_check("sidecar-failure", UpdateChannel::Alpha)
+                .await
                 .unwrap();
             let failed = wait_phase(&service, UpdatePhase::Failed).await;
             assert_eq!(failed.terminal_reason.as_deref(), Some(expected));
@@ -2590,7 +3812,10 @@ mod tests {
         discover_available(&service, "first").await;
         service.start_download("first").unwrap();
         wait_phase(&service, UpdatePhase::Ready).await;
-        service.start_check("second", UpdateChannel::Alpha).unwrap();
+        service
+            .start_check("second", UpdateChannel::Alpha)
+            .await
+            .unwrap();
         let failed = wait_phase(&service, UpdatePhase::Failed).await;
         assert_eq!(failed.terminal_reason.as_deref(), Some("metadata-replay"));
         assert_eq!(server.state.artifact_requests.load(Ordering::SeqCst), 1);
@@ -2658,7 +3883,7 @@ mod tests {
         })
         .await
         .unwrap();
-        service.cancel("restart-resume").unwrap();
+        service.cancel("restart-resume").await.unwrap();
         wait_phase(&service, UpdatePhase::Cancelled).await;
         drop(service);
 

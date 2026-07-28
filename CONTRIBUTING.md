@@ -55,6 +55,14 @@ evidence. Do not add telemetry, hosted dependencies, proprietary components,
 third-party artwork, provider branding, or privileged behavior without an
 explicit review of the applicable technical and license boundaries.
 
+Changes to workflows, action pins, release/updater tooling, packaging or
+signing configuration, trust-policy checks, Environments, OIDC assumptions,
+runner selection, permissions, or `CODEOWNERS` require the owner review defined
+in `.github/CODEOWNERS`. The current repository plan cannot enforce that review
+server-side, so protected signing, attestation, publication, and deployment
+must remain disabled until the activation audit in
+`docs/operations/trusted-release-boundary.md` passes.
+
 ## Licensing and provenance
 
 By submitting a contribution, you confirm that you have authority to contribute
