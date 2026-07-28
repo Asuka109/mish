@@ -20,10 +20,11 @@ Status traffic samples and Current Profile preference. This audit maps those
 states to reset scopes, ordering keys, and terminal transitions without
 creating a parallel ownership model.
 
-The audit does not introduce a state-machine library or perform a
-repository-wide state rewrite. It identifies bounded deepening opportunities
-where one Module can provide more **Leverage** through a smaller **Interface**
-and better **Locality** for transition tests.
+The original audit did not introduce a state-machine library or perform a
+repository-wide state rewrite. Issue #305 later superseded only the narrow
+"no generic machine wrapper" conclusion with a small repository-owned
+execution kernel. Domain states and reducers remain specific, and the
+repository-wide rewrite remains out of scope.
 
 ## Evidence method
 
@@ -321,21 +322,29 @@ Application of the rule:
 
 ## State-machine adoption decisions
 
-| Lifecycle                       | Current representation                                                           | Decision                                                                                        | Evidence                                                                                                                        |
-| ------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Application launch              | ordered bootstrap plus one-shot exit coordinator                                 | Keep ordinary typed stages and explicit cleanup; no library                                     | launch has platform I/O and failure evidence that a library cannot commit or roll back                                          |
-| Profile/Core activation         | data-bearing Rust enum plus one exhaustive DTO Adapter and transactional manager | Keep the typed state and existing public DTO; no library                                        | command scope/revision, cancellation ownership, terminal evidence, rollback, retry, and shutdown are structurally constrained   |
-| Updater Check                   | data-bearing Rust State/Input/Effect reducer plus bounded Tokio effect owner     | Keep the domain-specific reducer and existing public DTO; no library or generic machine wrapper | full effect correlation, explicit commit/cancel cutoff, owned finalizers, redacted evidence, and model/barrier tests are local  |
-| Capture/System Proxy/TUN        | typed phase enums plus reconcilers and journal                                   | Keep; add operation/revision envelope, not a library                                            | schema refinements and transaction tests already reject most impossible states                                                  |
-| Bridge connectivity/reconnect   | TypeScript discriminated union plus transport identity                           | Keep; add connection epoch to application snapshot envelopes                                    | transport lifecycle is deterministic and bounded                                                                                |
-| Diagnostics                     | Rust run/status enums, run ID, token, finalizer                                  | Keep unchanged; no library                                                                      | cancellation and runtime replacement are terminal in tests                                                                      |
-| Command pending/success/failure | one shared operation-keyed reducer plus domain payloads outside it               | Keep the reducer Module at Product, Profile, Traffic, Events, and current-Profile command seams | operation/scope identity, legal terminal phases, duplicate rejection, and exact cleanup have one property-tested implementation |
-| Graceful shutdown               | atomic claim plus typed cleanup report                                           | Keep unchanged; no library                                                                      | racing quit sources and failed-cleanup retry are deterministic                                                                  |
+This table records the original typed-state decisions. The accepted
+[`state-machine-kernel.md`](state-machine-kernel.md) now supplies common
+bounded admission, correlation, task ownership, finalization, and evidence for
+eligible Rust lifecycles. The checked
+[`state-machine-registry.json`](state-machine-registry.json) is authoritative
+for current `conforming`, `migration-required`, and `intentionally-excluded`
+classification.
 
-No lifecycle justifies XState or another state-machine dependency. Typed Rust
-enums, TypeScript discriminated unions, reducers, operation IDs, and explicit
-epoch/revision acceptance provide the needed correctness with less Interface
-surface.
+| Lifecycle                       | Current representation                                                           | Decision                                                                                         | Evidence                                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Application launch              | ordered bootstrap plus one-shot exit coordinator                                 | Keep ordinary typed stages and explicit cleanup; no library                                      | launch has platform I/O and failure evidence that a library cannot commit or roll back                                            |
+| Profile/Core activation         | data-bearing Rust enum plus one exhaustive DTO Adapter and transactional manager | Keep the typed state and existing public DTO; no library                                         | command scope/revision, cancellation ownership, terminal evidence, rollback, retry, and shutdown are structurally constrained     |
+| Updater Check                   | data-bearing Rust State/Input/Effect reducer plus bounded Tokio effect owner     | Conforming: retain the domain reducer/public DTO and use the repository kernel                   | full effect correlation, explicit commit/cancel cutoff, owned finalizers, redacted evidence, and model/barrier tests remain local |
+| Capture/System Proxy/TUN        | typed phase enums plus reconcilers and journal                                   | Split: TUN Helper/Core/network conforms; Capture/System Proxy requires a later bounded migration | existing journals and observations remain domain authority; the kernel does not generalize their business reducer                 |
+| Bridge connectivity/reconnect   | TypeScript discriminated union plus transport identity                           | Keep; add connection epoch to application snapshot envelopes                                     | transport lifecycle is deterministic and bounded                                                                                  |
+| Diagnostics                     | Rust run/status enums, run ID, token, finalizer                                  | Keep unchanged; no library                                                                       | cancellation and runtime replacement are terminal in tests                                                                        |
+| Command pending/success/failure | one shared operation-keyed reducer plus domain payloads outside it               | Keep the reducer Module at Product, Profile, Traffic, Events, and current-Profile command seams  | operation/scope identity, legal terminal phases, duplicate rejection, and exact cleanup have one property-tested implementation   |
+| Graceful shutdown               | atomic claim plus typed cleanup report                                           | Keep unchanged; no library                                                                       | racing quit sources and failed-cleanup retry are deterministic                                                                    |
+
+No lifecycle justifies XState or another third-party state-machine dependency.
+Typed Rust enums, TypeScript discriminated unions, domain reducers, operation
+IDs, explicit epoch/revision acceptance, and the small repository-owned kernel
+provide the needed correctness without a macro DSL or universal product state.
 
 ## Deepening opportunities and implementation backlog
 

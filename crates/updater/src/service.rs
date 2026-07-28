@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{BTreeSet, VecDeque},
     fmt,
     fs::{self, File, OpenOptions},
     future::Future,
@@ -9,13 +9,17 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering as AtomicOrdering},
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
+use mish_state_machine::{
+    Disposition, EffectExecutor as KernelEffectExecutor, Machine as _, RunnerConfig, RunnerHandle,
+    TransitionObserver, spawn_runner,
+};
 use reqwest::{
     Client, Response, StatusCode,
     header::{
@@ -26,8 +30,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
     io::AsyncWriteExt,
-    sync::{broadcast, mpsc, oneshot},
-    task::{Id as TaskId, JoinHandle, JoinSet},
+    sync::broadcast,
     time::{timeout, timeout_at},
 };
 use tokio_util::sync::CancellationToken;
@@ -41,8 +44,8 @@ use crate::{
 
 mod check_machine;
 use check_machine::{
-    CheckCompletion, CheckDecision, CheckEffect, CheckEffectOutcome, CheckInput, CheckOperation,
-    CheckState, CheckTaskFailure, DecisionDisposition, EffectCorrelation,
+    CheckCompletion, CheckEffect, CheckEffectOutcome, CheckInput, CheckMachine, CheckOperation,
+    CheckState, CheckTaskFailure,
 };
 
 const STORE_SCHEMA_VERSION: u8 = 1;
@@ -57,7 +60,6 @@ const CANDIDATE_DIRECTORY: &str = "candidate";
 const CANDIDATE_PAYLOAD: &str = "payload";
 const CANDIDATE_MANIFEST: &str = "manifest.json";
 const STRONG_ETAG_MAX_BYTES: usize = 256;
-const CHECK_INBOX_CAPACITY: usize = 32;
 const CHECK_EVIDENCE_LIMIT: usize = 64;
 const CHECK_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
@@ -289,6 +291,7 @@ struct RuntimeState {
     accepted: AcceptedMetadata,
     available: Option<AvailableCandidate>,
     active_cancel: Option<CancellationToken>,
+    check_admission_pending: bool,
 }
 
 struct ConfiguredUpdater {
@@ -352,58 +355,90 @@ impl CheckEffectExecutor for ProductionCheckEffectExecutor {
     }
 }
 
-enum CheckCommand {
-    Start {
-        operation_id: String,
-        channel: UpdateChannel,
-        reply: oneshot::Sender<Result<UpdaterSnapshot, UpdateOperationError>>,
-    },
-    Cancel {
-        operation_id: String,
-        reply: oneshot::Sender<Result<UpdaterSnapshot, UpdateOperationError>>,
-    },
-    Shutdown {
-        reply: oneshot::Sender<()>,
-    },
+struct CheckKernelExecutor {
+    inner: Arc<dyn CheckEffectExecutor>,
 }
 
-struct OwnedCheckEffect {
-    cancellation: CancellationToken,
-    correlation: EffectCorrelation,
+impl KernelEffectExecutor<CheckMachine> for CheckKernelExecutor {
+    fn execute(
+        &self,
+        effect: CheckEffect,
+        cancellation: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = CheckInput> + Send + 'static>> {
+        let completion = self.inner.execute(effect, cancellation);
+        Box::pin(async move { CheckInput::EffectCompleted(completion.await) })
+    }
+}
+
+struct CheckProjectionObserver {
+    evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    state: Arc<Mutex<RuntimeState>>,
+    updates: broadcast::Sender<UpdaterSnapshot>,
+}
+
+impl TransitionObserver<CheckMachine> for CheckProjectionObserver {
+    fn transitioned(
+        &self,
+        previous: &CheckState,
+        input: &CheckInput,
+        current: &CheckState,
+        disposition: Disposition,
+    ) {
+        record_projected_check_evidence(&self.evidence, previous, input, current, disposition);
+        let check_requested = matches!(input, CheckInput::CheckRequested { .. });
+        let should_project = !matches!(
+            disposition,
+            Disposition::Rejected | Disposition::Unchanged | Disposition::Retired
+        ) && matches!(
+            input,
+            CheckInput::CheckRequested { .. } | CheckInput::EffectCompleted(_)
+        );
+        if !check_requested && !should_project {
+            return;
+        }
+        let mut state = self.state.lock().expect("updater state poisoned");
+        if check_requested {
+            state.check_admission_pending = false;
+        }
+        if should_project {
+            project_check_state_locked(current, &mut state, &self.updates);
+        }
+    }
 }
 
 struct CheckRuntime {
-    actor: Mutex<Option<JoinHandle<()>>>,
-    closed: AtomicBool,
-    sender: mpsc::Sender<CheckCommand>,
-    shutdown: CancellationToken,
+    next_scope_epoch: AtomicU64,
+    runner: RunnerHandle<CheckMachine>,
+    state: Arc<Mutex<RuntimeState>>,
 }
 
 impl CheckRuntime {
     fn spawn(
-        authority_id: String,
         state: Arc<Mutex<RuntimeState>>,
         updates: broadcast::Sender<UpdaterSnapshot>,
         evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
         executor: Arc<dyn CheckEffectExecutor>,
     ) -> Self {
-        let (sender, receiver) = mpsc::channel(CHECK_INBOX_CAPACITY);
-        let shutdown = CancellationToken::new();
-        let actor_shutdown = shutdown.clone();
-        let actor = tokio::spawn(run_check_actor(
-            authority_id,
-            state,
-            updates,
+        let observer = Arc::new(CheckProjectionObserver {
             evidence,
-            executor,
-            receiver,
-            actor_shutdown,
-        ));
+            state: state.clone(),
+            updates,
+        });
+        let runner = spawn_runner(
+            Arc::new(CheckMachine),
+            CheckState::idle(),
+            Arc::new(CheckKernelExecutor { inner: executor }),
+            observer,
+            RunnerConfig {
+                evidence_limit: CHECK_EVIDENCE_LIMIT,
+                shutdown_grace: CHECK_SHUTDOWN_GRACE,
+                ..RunnerConfig::default()
+            },
+        );
         Self {
-            actor: Mutex::new(Some(actor)),
-            closed: AtomicBool::new(false),
-            sender,
-            shutdown,
+            next_scope_epoch: AtomicU64::new(1),
+            runner,
+            state,
         }
     }
 
@@ -412,532 +447,103 @@ impl CheckRuntime {
         operation_id: String,
         channel: UpdateChannel,
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
-        if self.closed.load(AtomicOrdering::Acquire) {
-            return Err(UpdateOperationError::Busy);
-        }
-        let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(CheckCommand::Start {
-                operation_id,
-                channel,
-                reply,
+        let snapshot = {
+            let mut state = self.state.lock().expect("updater state poisoned");
+            if state.check_admission_pending {
+                return Err(UpdateOperationError::Busy);
+            }
+            // Reserve the outer cutover before the bounded runner admits the
+            // command so download admission cannot cross this Check request.
+            state.check_admission_pending = true;
+            state.snapshot.clone()
+        };
+        let operation = CheckOperation {
+            machine_authority: snapshot.authority_id.clone(),
+            scope_epoch: self.next_scope_epoch.fetch_add(1, AtomicOrdering::AcqRel),
+            operation_id,
+            admitted_revision: snapshot.revision.saturating_add(1),
+            channel,
+        };
+        let admission = self
+            .runner
+            .admit(CheckInput::CheckRequested {
+                operation,
+                outer_phase: snapshot.phase,
+                outer_operation_id: snapshot.operation_id,
+                outer_channel: snapshot.channel,
             })
-            .map_err(|_| UpdateOperationError::Busy)?;
-        response.await.map_err(|_| UpdateOperationError::Busy)?
+            .await;
+        if admission.is_err() {
+            self.state
+                .lock()
+                .expect("updater state poisoned")
+                .check_admission_pending = false;
+        }
+        admission?;
+        Ok(self
+            .state
+            .lock()
+            .expect("updater state poisoned")
+            .snapshot
+            .clone())
     }
 
     async fn cancel(&self, operation_id: String) -> Result<UpdaterSnapshot, UpdateOperationError> {
-        if self.closed.load(AtomicOrdering::Acquire) {
-            return Err(UpdateOperationError::OperationMismatch);
-        }
-        let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(CheckCommand::Cancel {
-                operation_id,
-                reply,
-            })
-            .map_err(|_| UpdateOperationError::Busy)?;
-        response.await.map_err(|_| UpdateOperationError::Busy)?
+        self.runner
+            .admit(CheckInput::CancelRequested { operation_id })
+            .await?;
+        Ok(self
+            .state
+            .lock()
+            .expect("updater state poisoned")
+            .snapshot
+            .clone())
     }
 
     async fn shutdown(&self) {
-        if self.closed.swap(true, AtomicOrdering::AcqRel) {
-            return;
-        }
-        let (reply, response) = oneshot::channel();
-        if self
-            .sender
-            .send(CheckCommand::Shutdown { reply })
-            .await
-            .is_ok()
-        {
-            let _ = response.await;
-        }
-        let actor = self
-            .actor
-            .lock()
-            .expect("updater Check actor lock poisoned")
-            .take();
-        if let Some(actor) = actor {
-            let _ = actor.await;
-        }
+        let _ = self.runner.shutdown().await;
     }
 }
 
-impl Drop for CheckRuntime {
-    fn drop(&mut self) {
-        self.shutdown.cancel();
-        if let Some(actor) = self
-            .actor
-            .lock()
-            .expect("updater Check actor lock poisoned")
-            .take()
-        {
-            actor.abort();
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_check_actor(
-    authority_id: String,
-    state: Arc<Mutex<RuntimeState>>,
-    updates: broadcast::Sender<UpdaterSnapshot>,
-    evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: Arc<dyn CheckEffectExecutor>,
-    mut receiver: mpsc::Receiver<CheckCommand>,
-    shutdown: CancellationToken,
-) {
-    let mut machine = CheckState::idle();
-    let mut next_scope_epoch = 1_u64;
-    let mut effects = JoinSet::new();
-    let mut owned_effects = HashMap::<TaskId, OwnedCheckEffect>::new();
-
-    loop {
-        tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => {
-                begin_check_shutdown(
-                    &mut machine,
-                    &state,
-                    &updates,
-                    &evidence,
-                    &executor,
-                    &mut effects,
-                    &mut owned_effects,
-                );
-                drain_check_effects(
-                    &mut machine,
-                    &state,
-                    &updates,
-                    &evidence,
-                    &executor,
-                    &mut effects,
-                    &mut owned_effects,
-                ).await;
-                return;
-            }
-            joined = effects.join_next_with_id(), if !owned_effects.is_empty() => {
-                if let Some(joined) = joined {
-                    finish_owned_check_effect(
-                        joined,
-                        &mut machine,
-                        &state,
-                        &updates,
-                        &evidence,
-                        &executor,
-                        &mut effects,
-                        &mut owned_effects,
-                    );
-                }
-            }
-            command = receiver.recv() => {
-                let Some(command) = command else {
-                    begin_check_shutdown(
-                        &mut machine,
-                        &state,
-                        &updates,
-                        &evidence,
-                        &executor,
-                        &mut effects,
-                        &mut owned_effects,
-                    );
-                    drain_check_effects(
-                        &mut machine,
-                        &state,
-                        &updates,
-                        &evidence,
-                        &executor,
-                        &mut effects,
-                        &mut owned_effects,
-                    ).await;
-                    return;
-                };
-                match command {
-                    CheckCommand::Start {
-                        operation_id,
-                        channel,
-                        reply,
-                    } => {
-                        let mut outer = state.lock().expect("updater state poisoned");
-                        let snapshot = outer.snapshot.clone();
-                        let operation = CheckOperation {
-                            machine_authority: authority_id.clone(),
-                            scope_epoch: next_scope_epoch,
-                            operation_id,
-                            admitted_revision: snapshot.revision.saturating_add(1),
-                            channel,
-                        };
-                        let input = CheckInput::CheckRequested {
-                            operation,
-                            outer_phase: snapshot.phase,
-                            outer_operation_id: snapshot.operation_id,
-                            outer_channel: snapshot.channel,
-                        };
-                        let result = check_machine::reduce(&machine, input.clone()).map(|decision| {
-                            if matches!(
-                                decision.next,
-                                CheckState::Checking {
-                                    cancel_requested: false,
-                                    ..
-                                }
-                            ) && !matches!(machine, CheckState::Checking { .. })
-                            {
-                                next_scope_epoch = next_scope_epoch.saturating_add(1);
-                            }
-                            let should_project = apply_check_machine_decision(
-                                &mut machine,
-                                input,
-                                decision,
-                                &evidence,
-                                &executor,
-                                &mut effects,
-                                &mut owned_effects,
-                            );
-                            if should_project {
-                                project_check_state_locked(&machine, &mut outer, &updates);
-                            }
-                            outer.snapshot.clone()
-                        });
-                        drop(outer);
-                        let _ = reply.send(result);
-                    }
-                    CheckCommand::Cancel {
-                        operation_id,
-                        reply,
-                    } => {
-                        let input = CheckInput::CancelRequested { operation_id };
-                        let result = check_machine::reduce(&machine, input.clone()).map(|decision| {
-                            apply_check_decision(
-                                &mut machine,
-                                input,
-                                decision,
-                                &state,
-                                &updates,
-                                &evidence,
-                                &executor,
-                                &mut effects,
-                                &mut owned_effects,
-                            );
-                            state
-                                .lock()
-                                .expect("updater state poisoned")
-                                .snapshot
-                                .clone()
-                        });
-                        let _ = reply.send(result);
-                    }
-                    CheckCommand::Shutdown { reply } => {
-                        begin_check_shutdown(
-                            &mut machine,
-                            &state,
-                            &updates,
-                            &evidence,
-                            &executor,
-                            &mut effects,
-                            &mut owned_effects,
-                        );
-                        drain_check_effects(
-                            &mut machine,
-                            &state,
-                            &updates,
-                            &evidence,
-                            &executor,
-                            &mut effects,
-                            &mut owned_effects,
-                        ).await;
-                        let _ = reply.send(());
-                        return;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn begin_check_shutdown(
-    machine: &mut CheckState,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
+fn record_projected_check_evidence(
     evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
+    previous: &CheckState,
+    input: &CheckInput,
+    current: &CheckState,
+    disposition: Disposition,
 ) {
-    let input = CheckInput::ShutdownRequested;
-    let decision =
-        check_machine::reduce(machine, input.clone()).expect("Check shutdown is infallible");
-    apply_check_decision(
-        machine,
-        input,
-        decision,
-        state,
-        updates,
-        evidence,
-        executor,
-        effects,
-        owned_effects,
-    );
-}
-
-async fn drain_check_effects(
-    machine: &mut CheckState,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
-) {
-    let graceful = async {
-        while let Some(joined) = effects.join_next_with_id().await {
-            finish_owned_check_effect(
-                joined,
-                machine,
-                state,
-                updates,
-                evidence,
-                executor,
-                effects,
-                owned_effects,
-            );
-        }
-    };
-    if timeout(CHECK_SHUTDOWN_GRACE, graceful).await.is_err() {
-        effects.abort_all();
-        while let Some(joined) = effects.join_next_with_id().await {
-            finish_owned_check_effect(
-                joined,
-                machine,
-                state,
-                updates,
-                evidence,
-                executor,
-                effects,
-                owned_effects,
-            );
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn finish_owned_check_effect(
-    joined: Result<(TaskId, CheckCompletion), tokio::task::JoinError>,
-    machine: &mut CheckState,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
-) {
-    let task_id = match &joined {
-        Ok((task_id, _)) => *task_id,
-        Err(error) => error.id(),
-    };
-    let Some(owned) = owned_effects.remove(&task_id) else {
-        return;
-    };
-    let completion = match joined {
-        Ok((_, completion)) if completion.correlation == owned.correlation => completion,
-        Ok((_, completion)) => {
-            apply_check_completion(
-                machine,
-                completion,
-                state,
-                updates,
-                evidence,
-                executor,
-                effects,
-                owned_effects,
-            );
-            CheckCompletion {
-                correlation: owned.correlation,
-                outcome: CheckEffectOutcome::TaskFailed(CheckTaskFailure::CompletionConflict),
-            }
-        }
-        Err(error) => CheckCompletion {
-            correlation: owned.correlation,
-            outcome: CheckEffectOutcome::TaskFailed(if error.is_panic() {
-                CheckTaskFailure::Panicked
-            } else {
-                CheckTaskFailure::Aborted
-            }),
-        },
-    };
-    apply_check_completion(
-        machine,
-        completion,
-        state,
-        updates,
-        evidence,
-        executor,
-        effects,
-        owned_effects,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn apply_check_completion(
-    machine: &mut CheckState,
-    completion: CheckCompletion,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
-) {
-    let input = CheckInput::EffectCompleted(completion);
-    let decision =
-        check_machine::reduce(machine, input.clone()).expect("effect completion is infallible");
-    apply_check_decision(
-        machine,
-        input,
-        decision,
-        state,
-        updates,
-        evidence,
-        executor,
-        effects,
-        owned_effects,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn apply_check_decision(
-    machine: &mut CheckState,
-    input: CheckInput,
-    decision: CheckDecision,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
-) {
-    if apply_check_machine_decision(
-        machine,
-        input,
-        decision,
-        evidence,
-        executor,
-        effects,
-        owned_effects,
-    ) {
-        project_check_state(machine, state, updates);
-    }
-}
-
-fn apply_check_machine_decision(
-    machine: &mut CheckState,
-    input: CheckInput,
-    decision: CheckDecision,
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    executor: &Arc<dyn CheckEffectExecutor>,
-    effects: &mut JoinSet<CheckCompletion>,
-    owned_effects: &mut HashMap<TaskId, OwnedCheckEffect>,
-) -> bool {
-    let from = machine.label();
-    let correlation = input_correlation(machine, &input);
-    let should_project = decision.disposition == DecisionDisposition::Applied
-        && matches!(
-            input,
-            CheckInput::CheckRequested { .. } | CheckInput::EffectCompleted(_)
-        );
-    *machine = decision.next;
-    record_check_evidence(
-        evidence,
-        from,
-        input.label(),
-        machine.label(),
-        decision.disposition,
-        correlation.as_ref(),
-    );
-    for effect in decision.effects {
-        match effect {
-            CheckEffect::Cancel { correlation } => {
-                if let Some(owned) = owned_effects
-                    .values()
-                    .find(|owned| owned.correlation == correlation)
-                {
-                    owned.cancellation.cancel();
-                }
-            }
-            effect => {
-                let cancellation = CancellationToken::new();
-                let correlation = effect.correlation().clone();
-                let task = effects.spawn(executor.execute(effect, cancellation.clone()));
-                owned_effects.insert(
-                    task.id(),
-                    OwnedCheckEffect {
-                        cancellation,
-                        correlation,
-                    },
-                );
-            }
-        }
-    }
-    should_project
-}
-
-fn input_correlation(machine: &CheckState, input: &CheckInput) -> Option<EffectCorrelation> {
-    match input {
-        CheckInput::CheckRequested { operation, .. } => {
-            Some(operation.correlation(check_machine::DISCOVER_EFFECT_ID))
-        }
-        CheckInput::EffectCompleted(completion) => Some(completion.correlation.clone()),
-        CheckInput::CancelRequested { .. } | CheckInput::ShutdownRequested => machine
-            .operation()
-            .map(|operation| operation.correlation(0)),
-    }
-}
-
-fn record_check_evidence(
-    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
-    from: &str,
-    input: &str,
-    to: &str,
-    disposition: DecisionDisposition,
-    correlation: Option<&EffectCorrelation>,
-) {
+    let correlation = CheckMachine.input_correlation(previous, input);
     let mut evidence = evidence
         .lock()
         .expect("updater Check evidence lock poisoned");
     let sequence = evidence
         .back()
-        .map_or(1, |record| record.sequence.saturating_add(1));
+        .map_or(1, |entry| entry.sequence.saturating_add(1));
     if evidence.len() == CHECK_EVIDENCE_LIMIT {
         evidence.pop_front();
     }
+    let disposition = match (disposition, previous.label(), input.label()) {
+        (Disposition::Unchanged, "committing-available", "cancel-requested") => "cancel-too-late",
+        (Disposition::Unchanged, _, _) => "duplicate",
+        (Disposition::Retired, _, _) => "retired-completion",
+        _ => "applied",
+    };
     evidence.push_back(UpdaterCheckTransitionEvidence {
         sequence,
         machine_authority_sha256: correlation
+            .as_ref()
             .map(|value| digest(value.machine_authority.as_bytes())),
-        scope_epoch: correlation.map(|value| value.scope_epoch),
-        admitted_revision: correlation.map(|value| value.admitted_revision),
-        effect_id: correlation.map(|value| value.effect_id),
-        operation_id_sha256: correlation.map(|value| digest(value.operation_id.as_bytes())),
-        from: from.to_owned(),
-        input: input.to_owned(),
-        to: to.to_owned(),
-        disposition: match disposition {
-            DecisionDisposition::Applied => "applied",
-            DecisionDisposition::CancelTooLate => "cancel-too-late",
-            DecisionDisposition::Duplicate => "duplicate",
-            DecisionDisposition::RetiredCompletion => "retired-completion",
-        }
-        .to_owned(),
+        scope_epoch: correlation.as_ref().map(|value| value.scope_epoch),
+        admitted_revision: correlation.as_ref().map(|value| value.admitted_revision),
+        effect_id: correlation.as_ref().map(|value| value.effect_id),
+        operation_id_sha256: correlation
+            .as_ref()
+            .map(|value| digest(value.operation_id.as_bytes())),
+        from: previous.label().to_owned(),
+        input: input.label().to_owned(),
+        to: current.label().to_owned(),
+        disposition: disposition.to_owned(),
     });
-}
-
-fn project_check_state(
-    machine: &CheckState,
-    state: &Arc<Mutex<RuntimeState>>,
-    updates: &broadcast::Sender<UpdaterSnapshot>,
-) {
-    let mut state = state.lock().expect("updater state poisoned");
-    project_check_state_locked(machine, &mut state, updates);
 }
 
 fn project_check_state_locked(
@@ -1022,6 +628,7 @@ impl UpdaterService {
                 accepted: AcceptedMetadata::empty(),
                 available: None,
                 active_cancel: None,
+                check_admission_pending: false,
             })),
             updates,
         }
@@ -1088,15 +695,10 @@ impl UpdaterService {
             accepted: recovered.accepted,
             available: recovered.available,
             active_cancel: None,
+            check_admission_pending: false,
         }));
         let check_evidence = Arc::new(Mutex::new(VecDeque::new()));
         let check = CheckRuntime::spawn(
-            state
-                .lock()
-                .expect("updater state poisoned")
-                .snapshot
-                .authority_id
-                .clone(),
             state.clone(),
             updates.clone(),
             check_evidence.clone(),
@@ -1171,6 +773,9 @@ impl UpdaterService {
         let cancel = CancellationToken::new();
         let available = {
             let mut state = self.state.lock().expect("updater state poisoned");
+            if state.check_admission_pending {
+                return Err(UpdateOperationError::OperationMismatch);
+            }
             if state.snapshot.operation_id.as_deref() != Some(operation_id.as_str()) {
                 return Err(UpdateOperationError::OperationMismatch);
             }
@@ -2728,7 +2333,7 @@ mod tests {
     use tokio::{
         net::TcpListener,
         sync::{Barrier, Notify},
-        task::JoinHandle,
+        task::{JoinHandle, JoinSet},
     };
 
     use super::*;
@@ -2880,11 +2485,11 @@ mod tests {
             accepted: AcceptedMetadata::empty(),
             available: None,
             active_cancel: None,
+            check_admission_pending: false,
         }));
         let (updates, _) = broadcast::channel(32);
         let evidence = Arc::new(Mutex::new(VecDeque::new()));
         let runtime = Arc::new(CheckRuntime::spawn(
-            "test-authority".into(),
             state.clone(),
             updates,
             evidence.clone(),
@@ -3377,7 +2982,6 @@ mod tests {
             .shutdown()
             .await;
         let check = CheckRuntime::spawn(
-            service.snapshot().authority_id,
             service.state.clone(),
             service.updates.clone(),
             service.check_evidence.clone(),

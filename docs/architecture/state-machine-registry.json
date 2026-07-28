@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "classifications": ["conforming", "migration-required", "intentionally-excluded"],
+  "machines": [
+    {
+      "id": "updater-check",
+      "classification": "conforming",
+      "canonicalOwner": "crates/updater/src/service/check_machine.rs",
+      "recoveryBoundary": "Private updater candidate store; restart re-verifies staged bytes and signed metadata."
+    },
+    {
+      "id": "internal-tun-alpha-package",
+      "classification": "conforming",
+      "canonicalOwner": "crates/platform-macos/src/internal_tun_package_machine.rs",
+      "recoveryBoundary": "Root and user receipts, installation enrollment, launchd observation, fixed artifact verification, and explicit repair-required output."
+    },
+    {
+      "id": "tun-helper-core-network",
+      "classification": "conforming",
+      "canonicalOwner": "crates/platform-macos/src/tun_service/lifecycle_machine.rs",
+      "recoveryBoundary": "Root-owned network recovery journal plus fresh Core, utun, route, DNS, socket, peer, and installation-key observation."
+    },
+    {
+      "id": "runtime-profile-activation",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/runtime and crates/profile",
+      "recoveryBoundary": "Runtime identity, Profile activation identity, candidate home, capture journal, and authoritative application snapshot."
+    },
+    {
+      "id": "capture-system-proxy",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/runtime and crates/platform-macos",
+      "recoveryBoundary": "Capture journal, exact prior System Proxy state, final OS re-observation, and explicit drift/recovery-required evidence."
+    },
+    {
+      "id": "application-core-lifecycle",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/desktop-bridge",
+      "recoveryBoundary": "Managed runtime identity, process ownership, candidate home, controller readiness, and stop/rollback confirmation."
+    },
+    {
+      "id": "updater-continuation",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/updater",
+      "recoveryBoundary": "Versioned private partial/candidate store, immutable release identity, resume validators, and signed metadata high-water marks."
+    },
+    {
+      "id": "settings-backup-transactions",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/settings and crates/runtime",
+      "recoveryBoundary": "Settings revision, atomic settings record, bounded backup manifest, and exact restore validation."
+    },
+    {
+      "id": "desktop-application-lifecycle",
+      "classification": "migration-required",
+      "canonicalOwner": "apps/desktop/src-tauri and crates/desktop-bridge",
+      "recoveryBoundary": "One graceful-exit owner, aggregate cleanup report, runtime retirement, and native projection teardown."
+    },
+    {
+      "id": "diagnostics-run",
+      "classification": "migration-required",
+      "canonicalOwner": "crates/runtime",
+      "recoveryBoundary": "Process-local run ID and runtime identity; no durable resume, but cancellation and finalization are required."
+    },
+    {
+      "id": "bridge-connectivity",
+      "classification": "intentionally-excluded",
+      "canonicalOwner": "packages/rpc-client and apps/web",
+      "recoveryBoundary": "Connection-local epoch/subscription identity and authoritative reconnect baseline; this is a TypeScript transport state machine, not a Rust internal lifecycle."
+    },
+    {
+      "id": "platform-observation-adapters",
+      "classification": "intentionally-excluded",
+      "canonicalOwner": "crates/platform-macos",
+      "recoveryBoundary": "Simple bounded one-shot observation has no mutation or multi-step recovery; transactional adapters must be separately classified before adding orchestration."
+    },
+    {
+      "id": "ephemeral-react-interactions",
+      "classification": "intentionally-excluded",
+      "canonicalOwner": "apps/web",
+      "recoveryBoundary": "Hover, disclosure, filter, animation, and reversible local presentation state are discarded on remount and never publish product authority."
+    }
+  ]
+}

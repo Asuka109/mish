@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     ffi::OsStr,
     fs,
+    future::Future,
     io::{Read, Write},
     net::IpAddr,
     os::{
@@ -10,7 +11,10 @@ use std::{
     },
     path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+    },
     time::Duration,
 };
 
@@ -25,6 +29,9 @@ use mish_runtime::{
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
     TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState, tun_observation_now,
 };
+use mish_state_machine::{
+    Correlation, EffectExecutor, NoopObserver, RunnerConfig, RunnerHandle, spawn_runner,
+};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -33,8 +40,10 @@ use tokio::{
     net::{UnixListener, UnixStream},
     process::{Child, Command},
     sync::Mutex,
+    task::JoinSet,
     time::timeout,
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner,
@@ -45,8 +54,13 @@ use crate::{
     },
 };
 
+mod lifecycle_machine;
 mod network_ownership;
 
+use lifecycle_machine::{
+    LifecycleOperation, ObservedLifecycle, TunLifecycleEffect, TunLifecycleInput,
+    TunLifecycleMachine, TunLifecycleOutcome, TunLifecycleState,
+};
 use network_ownership::{
     MacOsTunNetworkController, NetworkApplyFailure, NetworkOwnershipObservation,
     NetworkOwnershipSnapshot, NetworkRecoveryJournal, TunNetworkController,
@@ -121,6 +135,7 @@ const TUN_ROUTE_LIMIT: usize = 512;
 const TUN_DNS_RESOLVER_LIMIT: usize = 64;
 const TUN_DNS_NAMESERVER_LIMIT: usize = 8;
 const TUN_OWNED_INTERFACE_LIMIT: usize = 4;
+const SERVICE_CONNECTION_TASK_LIMIT: usize = 32;
 #[cfg(target_os = "macos")]
 const PROCESS_FD_LIMIT: usize = 4_096;
 
@@ -1706,22 +1721,80 @@ struct OutstandingChallenge {
 
 #[derive(Clone)]
 struct ServiceContext {
+    enrollment: Arc<InstallationEnrollmentRecord>,
+    installation_id: Arc<str>,
+    lifecycle: RunnerHandle<TunLifecycleMachine>,
+    lifecycle_scope: Arc<AtomicU64>,
+    network_recovery: NetworkRecoveryJournal,
+    network_controller: Arc<dyn TunNetworkController>,
+    request_gate: Arc<Mutex<ServiceRequestGate>>,
+    sealed_root: PathBuf,
+    state: Arc<Mutex<ServiceState>>,
+}
+
+#[derive(Clone)]
+struct ServiceOperationContext {
     allowed_binary: PathBuf,
     allowed_uid: u32,
     allow_tun: bool,
-    enrollment: Arc<InstallationEnrollmentRecord>,
     installation_id: Arc<str>,
+    manage_network: bool,
+    network_controller: Arc<dyn TunNetworkController>,
     network_recovery: NetworkRecoveryJournal,
     observer: Arc<dyn TunSystemObserver>,
-    network_controller: Arc<dyn TunNetworkController>,
     pinned_binary_sha256: String,
     pinned_version: String,
-    request_gate: Arc<Mutex<ServiceRequestGate>>,
-    manage_network: bool,
     runtime_root: PathBuf,
     sealed_root: PathBuf,
     spawn_watchdog: bool,
     state: Arc<Mutex<ServiceState>>,
+}
+
+struct TunLifecycleExecutor {
+    context: ServiceOperationContext,
+}
+
+impl EffectExecutor<TunLifecycleMachine> for TunLifecycleExecutor {
+    fn execute(
+        &self,
+        effect: TunLifecycleEffect,
+        _cancellation: CancellationToken,
+    ) -> std::pin::Pin<Box<dyn Future<Output = TunLifecycleInput> + Send + 'static>> {
+        let context = self.context.clone();
+        Box::pin(async move {
+            let correlation = mish_state_machine::CorrelatedEffect::correlation(&effect).clone();
+            let outcome = match effect {
+                TunLifecycleEffect::Execute {
+                    command,
+                    peer_pid,
+                    request_id,
+                    ..
+                } => {
+                    let response =
+                        execute_request_effect(command.clone(), peer_pid, &request_id, &context)
+                            .await;
+                    TunLifecycleOutcome::Executed {
+                        observed: classify_lifecycle_observation(&command, &response),
+                        response,
+                    }
+                }
+                TunLifecycleEffect::Verify {
+                    desired,
+                    observed,
+                    response,
+                    ..
+                } => TunLifecycleOutcome::Verified {
+                    desired,
+                    observed,
+                    response,
+                },
+            };
+            TunLifecycleInput::EffectCompleted {
+                correlation,
+                outcome,
+            }
+        })
+    }
 }
 
 impl ServiceRequestGate {
@@ -1863,33 +1936,70 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
     if unsafe { libc::chown(socket.as_ptr(), config.allowed_uid, u32::MAX) } != 0 {
         return Err("socket ownership failed");
     }
-    let context = ServiceContext {
+    let state = Arc::new(Mutex::new(ServiceState {
+        pending_network_recovery,
+        process: None,
+        tun: None,
+    }));
+    let installation_id: Arc<str> = config.installation_id.into();
+    let operation_context = ServiceOperationContext {
         allowed_binary,
         allowed_uid: config.allowed_uid,
         allow_tun: config.allow_tun,
+        installation_id: installation_id.clone(),
+        manage_network: config.allow_tun && config.require_root,
+        network_controller: config.network_controller.clone(),
+        network_recovery: network_recovery.clone(),
+        observer: config.observer.clone(),
+        pinned_binary_sha256: config.pinned_binary_sha256.clone(),
+        pinned_version: config.pinned_version.clone(),
+        runtime_root: runtime_root.clone(),
+        sealed_root: sealed_root.clone(),
+        spawn_watchdog: config.spawn_watchdog,
+        state: state.clone(),
+    };
+    let recovery_required = state.lock().await.pending_network_recovery.is_some();
+    let lifecycle = spawn_runner(
+        Arc::new(TunLifecycleMachine),
+        TunLifecycleState::initial(recovery_required),
+        Arc::new(TunLifecycleExecutor {
+            context: operation_context,
+        }),
+        Arc::new(NoopObserver),
+        RunnerConfig::default(),
+    );
+    let context = ServiceContext {
         enrollment: Arc::new(enrollment),
-        installation_id: config.installation_id.into(),
+        installation_id,
+        lifecycle,
+        lifecycle_scope: Arc::new(AtomicU64::new(1)),
         network_controller: config.network_controller,
         network_recovery,
-        observer: config.observer,
-        pinned_binary_sha256: config.pinned_binary_sha256,
-        pinned_version: config.pinned_version,
         request_gate: Arc::new(Mutex::new(ServiceRequestGate::default())),
-        manage_network: config.allow_tun && config.require_root,
-        runtime_root,
         sealed_root,
-        spawn_watchdog: config.spawn_watchdog,
-        state: Arc::new(Mutex::new(ServiceState {
-            pending_network_recovery,
-            process: None,
-            tun: None,
-        })),
+        state,
     };
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "termination handler failed")?;
     let mut owner_monitor = tokio::time::interval(Duration::from_secs(1));
+    let mut connections = JoinSet::new();
     loop {
+        while let Some(joined) = connections.try_join_next() {
+            if joined.is_err() {
+                return Err("service connection task failed");
+            }
+        }
+        if connections.len() == SERVICE_CONNECTION_TASK_LIMIT {
+            if connections
+                .join_next()
+                .await
+                .is_some_and(|joined| joined.is_err())
+            {
+                return Err("service connection task failed");
+            }
+            continue;
+        }
         #[cfg(unix)]
         let accepted = tokio::select! {
             accepted = listener.accept() => Some(accepted),
@@ -1923,10 +2033,26 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
             continue;
         }
         let context = context.clone();
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _ = handle_connection(stream, peer, context).await;
         });
     }
+    let drain_connections = async {
+        while let Some(joined) = connections.join_next().await {
+            if joined.is_err() {
+                return Err(());
+            }
+        }
+        Ok(())
+    };
+    if timeout(DEV_CORE_HOST_HANDSHAKE_TIMEOUT * 2, drain_connections)
+        .await
+        .is_err()
+    {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+    }
+    let _ = context.lifecycle.shutdown().await;
     let mut state = context.state.lock().await;
     restore_pending_network_recovery(
         &mut state,
@@ -2186,6 +2312,76 @@ async fn execute_request(
     peer_pid: u32,
     request_id: &str,
     context: &ServiceContext,
+) -> ServiceResponse {
+    let operation_id = uuid::Uuid::new_v4().to_string();
+    let admitted_revision = context.lifecycle_scope.fetch_add(1, AtomicOrdering::AcqRel);
+    let operation = LifecycleOperation {
+        correlation: Correlation {
+            machine_authority: context.installation_id.to_string(),
+            scope_epoch: admitted_revision,
+            operation_id: operation_id.clone(),
+            admitted_revision,
+            effect_id: 0,
+        },
+        command,
+        peer_pid,
+        request_id: request_id.to_owned(),
+    };
+    if context
+        .lifecycle
+        .admit(TunLifecycleInput::Command(operation))
+        .await
+        .is_err()
+    {
+        return ServiceResponse::error(
+            ServiceDiagnosticCode::AlreadyOwned,
+            None,
+            unknown_tun_observation(),
+            &context.installation_id,
+        );
+    }
+    let response = loop {
+        if let Some(response) = context.lifecycle.snapshot().terminal(&operation_id) {
+            break response;
+        }
+        tokio::task::yield_now().await;
+    };
+    let _ = context
+        .lifecycle
+        .admit(TunLifecycleInput::Acknowledge { operation_id })
+        .await;
+    response
+}
+
+fn classify_lifecycle_observation(
+    command: &ServiceCommand,
+    response: &ServiceResponse,
+) -> ObservedLifecycle {
+    let now = tun_observation_now();
+    if response.status.observation.confirms_enabled_at(now) {
+        ObservedLifecycle::Enabled
+    } else if response.status.observation.confirms_disabled_at(now) {
+        ObservedLifecycle::Disabled {
+            core_running: response.status.core.is_some(),
+        }
+    } else if response.ok
+        && response.status.core.is_some()
+        && matches!(
+            command,
+            ServiceCommand::Start { .. } | ServiceCommand::Status
+        )
+    {
+        ObservedLifecycle::Disabled { core_running: true }
+    } else {
+        ObservedLifecycle::RecoveryRequired
+    }
+}
+
+async fn execute_request_effect(
+    command: ServiceCommand,
+    peer_pid: u32,
+    request_id: &str,
+    context: &ServiceOperationContext,
 ) -> ServiceResponse {
     let allowed_binary = &context.allowed_binary;
     let allowed_uid = context.allowed_uid;

@@ -161,6 +161,29 @@ path/command, or network-mutation action. Its LaunchDaemon fixes
 future production layouts remain free of all Internal TUN Alpha artifacts and
 fail closed if one appears.
 
+Package install, repair, and uninstall now execute through the typed
+`PackageMachine`. Its explicit states are absent, staging, awaiting
+authorization, installing, starting, verifying, healthy-disabled, rolling
+back, repair-required, and uninstalling. Administrator authorization remains
+inside the fixed controller-pinning boundary. Only full artifact, receipt,
+launchd, socket, protocol, enrollment, Helper version, Core-absence, and
+network-disabled observation can commit healthy-disabled; failed
+post-mutation verification enters rollback or repair-required.
+
+The privileged Helper/Core/network command path separately uses
+`TunLifecycleMachine` with disabled, starting, applying, verifying, enabled,
+restoring, and recovery-required states. The shared runner serializes bounded
+admission and owns all mutation/verification effects. Domain adapters retain
+the private socket, peer identity, P-256 proof, Core process and utun
+correlation, network transaction, and recovery journal. A command or generated
+configuration remains intent only and cannot publish enabled or disabled
+without fresh observation.
+
+Both machines follow
+[`state-machine-kernel.md`](state-machine-kernel.md). Internal TUN Alpha still
+ships with `MISH_TUN_SERVICE_ALLOW_TUN=0`; its package controller exposes no
+enable command and completes only as healthy-disabled.
+
 The package is ad-hoc, not Developer ID signed, Apple-trusted, or notarized. It
 is only for explicitly trusted internal distribution. Its file-backed
 mode-`0600` private key does not protect against same-user malware. Production

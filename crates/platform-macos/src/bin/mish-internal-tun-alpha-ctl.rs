@@ -9,7 +9,9 @@ use std::{
         fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
+    pin::Pin,
     process::{Command, Output},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -18,9 +20,15 @@ use mish_platform_macos::{
     DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL, DEV_TUN_SERVICE_PLIST_PATH,
     InstallationClientKeyStore, InstallationEnrollmentOperation, InstallationEnrollmentRecord,
     MacOsTunServiceClient, apply_installation_enrollment_operation,
+    internal_tun_package_machine::{
+        ObservedPackageState, PackageEffect, PackageEffectOutcome, PackageFailure, PackageInput,
+        PackageMachine, PackageOperation, PackageOperationKind, PackageProjection, PackageState,
+        PackageSuccess,
+    },
     load_installation_enrollment_for_user, remove_installation_enrollment,
 };
 use mish_runtime::tun_observation_now;
+use mish_state_machine::{Correlation, EffectExecutor, NoopObserver, RunnerConfig, spawn_runner};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -237,7 +245,9 @@ async fn run_user_action(
             )
             .await
         }
-        UserAction::Uninstall => uninstall(&package, uid, gid, &home, tart_terminal_authorization),
+        UserAction::Uninstall => {
+            uninstall(&package, uid, gid, &home, tart_terminal_authorization).await
+        }
     }
 }
 
@@ -847,105 +857,377 @@ async fn install_or_repair(
     home: &Path,
     tart_terminal_authorization: bool,
 ) -> Result<serde_json::Value, String> {
+    run_package_lifecycle(action, package, uid, gid, home, tart_terminal_authorization).await
+}
+
+#[derive(Clone)]
+struct PreparedPackageLifecycle {
+    installation_id: Option<String>,
+    plist: Option<String>,
+    privileged_controller: StagedPrivilegedController,
+    runtime: PathBuf,
+}
+
+struct PackageLifecycleExecutor {
+    action: UserAction,
+    gid: u32,
+    home: PathBuf,
+    package: VerifiedPackage,
+    prepared: Arc<Mutex<Option<PreparedPackageLifecycle>>>,
+    tart_terminal_authorization: bool,
+    uid: u32,
+}
+
+impl EffectExecutor<PackageMachine> for PackageLifecycleExecutor {
+    fn execute(
+        &self,
+        effect: PackageEffect,
+        _cancellation: tokio_util::sync::CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = PackageInput> + Send + 'static>> {
+        let action = self.action;
+        let gid = self.gid;
+        let home = self.home.clone();
+        let package = self.package.clone();
+        let prepared = self.prepared.clone();
+        let tart_terminal_authorization = self.tart_terminal_authorization;
+        let uid = self.uid;
+        Box::pin(async move {
+            let correlation = mish_state_machine::CorrelatedEffect::correlation(&effect).clone();
+            let outcome = match effect {
+                PackageEffect::Stage { .. } => {
+                    match prepare_package_lifecycle(action, &package, uid, &home) {
+                        Ok(value) => {
+                            *prepared.lock().expect("package preparation lock poisoned") =
+                                Some(value);
+                            PackageEffectOutcome::Staged
+                        }
+                        Err(error) => PackageEffectOutcome::Failed(package_failure(error)),
+                    }
+                }
+                PackageEffect::Authorize { .. } => {
+                    let prepared = prepared
+                        .lock()
+                        .expect("package preparation lock poisoned")
+                        .clone();
+                    match prepared {
+                        Some(prepared) => {
+                            let privileged_action = if action == UserAction::Uninstall {
+                                "__privileged-uninstall"
+                            } else {
+                                "__privileged-install"
+                            };
+                            match run_authorized(
+                                privileged_action,
+                                &package,
+                                &prepared.privileged_controller,
+                                uid,
+                                gid,
+                                &home,
+                                tart_terminal_authorization,
+                            ) {
+                                Ok(()) => PackageEffectOutcome::Authorized,
+                                Err(error) => {
+                                    let _ = cleanup_installer_files(&installer_root(&home), uid);
+                                    PackageEffectOutcome::Failed(package_failure(error))
+                                }
+                            }
+                        }
+                        None => PackageEffectOutcome::Failed(PackageFailure::recovery_required(
+                            "package-preparation-missing",
+                        )),
+                    }
+                }
+                PackageEffect::CommitReceipt { .. } => {
+                    let prepared = prepared
+                        .lock()
+                        .expect("package preparation lock poisoned")
+                        .clone();
+                    match prepared
+                        .ok_or_else(|| "package-preparation-missing".to_string())
+                        .and_then(|prepared| {
+                            commit_local_installation_receipt(&package, uid, &home, &prepared)
+                        }) {
+                        Ok(()) => PackageEffectOutcome::ReceiptCommitted,
+                        Err(error) => PackageEffectOutcome::Failed(PackageFailure::clean(format!(
+                            "post-install-receipt-failed:{error}"
+                        ))),
+                    }
+                }
+                PackageEffect::AwaitReady { .. } => {
+                    match retry_post_install_health(
+                        || health(&package, uid, &home),
+                        POST_INSTALL_HEALTH_ATTEMPTS,
+                        POST_INSTALL_HEALTH_RETRY_DELAY,
+                    )
+                    .await
+                    {
+                        Ok(value) => match package_success(&value) {
+                            Ok(success) => PackageEffectOutcome::Ready(success),
+                            Err(error) => {
+                                PackageEffectOutcome::Failed(PackageFailure::clean(error))
+                            }
+                        },
+                        Err(error) => PackageEffectOutcome::Failed(PackageFailure::clean(format!(
+                            "post-install-health-failed:{error}"
+                        ))),
+                    }
+                }
+                PackageEffect::Verify { .. } => match health(&package, uid, &home).await {
+                    Ok(value) => match package_success(&value) {
+                        Ok(success) => {
+                            let cleanup = cleanup_installer_files(&installer_root(&home), uid);
+                            match cleanup {
+                                Ok(()) => PackageEffectOutcome::Verified(success),
+                                Err(error) => PackageEffectOutcome::Failed(
+                                    PackageFailure::recovery_required(error),
+                                ),
+                            }
+                        }
+                        Err(error) => PackageEffectOutcome::Failed(PackageFailure::clean(error)),
+                    },
+                    Err(error) => PackageEffectOutcome::Failed(PackageFailure::clean(format!(
+                        "post-install-verification-failed:{error}"
+                    ))),
+                },
+                PackageEffect::Rollback { .. } => {
+                    let prepared = prepared
+                        .lock()
+                        .expect("package preparation lock poisoned")
+                        .clone();
+                    match prepared {
+                        Some(prepared)
+                            if run_authorized(
+                                "__privileged-uninstall",
+                                &package,
+                                &prepared.privileged_controller,
+                                uid,
+                                gid,
+                                &home,
+                                tart_terminal_authorization,
+                            )
+                            .is_ok()
+                                && remove_user_installation_state(&home, uid).is_ok()
+                                && cleanup_installer_files(&installer_root(&home), uid).is_ok() =>
+                        {
+                            PackageEffectOutcome::RolledBack
+                        }
+                        _ => PackageEffectOutcome::Failed(PackageFailure::recovery_required(
+                            "cleanup-unconfirmed",
+                        )),
+                    }
+                }
+                PackageEffect::FinalizeUninstall { .. } => {
+                    let prepared = prepared
+                        .lock()
+                        .expect("package preparation lock poisoned")
+                        .clone();
+                    match prepared {
+                        Some(prepared)
+                            if remove_user_installation_state(&home, uid).is_ok()
+                                && cleanup_installer_files(&installer_root(&home), uid).is_ok()
+                                && validate_directory(&prepared.runtime, uid, true).is_ok() =>
+                        {
+                            PackageEffectOutcome::UninstallFinalized
+                        }
+                        _ => PackageEffectOutcome::Failed(PackageFailure::recovery_required(
+                            "uninstall-finalization-failed",
+                        )),
+                    }
+                }
+            };
+            PackageInput::EffectCompleted {
+                correlation,
+                outcome,
+            }
+        })
+    }
+}
+
+fn prepare_package_lifecycle(
+    action: UserAction,
+    package: &VerifiedPackage,
+    uid: u32,
+    home: &Path,
+) -> Result<PreparedPackageLifecycle, String> {
     let runtime = ensure_private_runtime(home, uid)?;
     let installer = installer_root(home);
     ensure_private_directory(&installer, uid)?;
     let privileged_controller = stage_privileged_controller(package, &installer, uid)?;
+    if action == UserAction::Uninstall {
+        return Ok(PreparedPackageLifecycle {
+            installation_id: None,
+            plist: None,
+            privileged_controller,
+            runtime,
+        });
+    }
     let (installation_id, plist) = render_plist_inputs(package, uid, home)?;
     let candidate_path = installer.join("enrollment.json");
     let key_store = InstallationClientKeyStore::for_runtime_root(&runtime, uid);
-    let candidate = key_store
+    key_store
         .write_public_candidate(&candidate_path, &installation_id)
         .map_err(|_| "installation-key-preparation-failed")?;
-    let plist_path = installer.join("launch-daemon.plist");
-    write_private_file(&plist_path, plist.as_bytes(), uid)?;
-
-    let authorized = run_authorized(
-        "__privileged-install",
-        package,
-        &privileged_controller,
+    write_private_file(
+        &installer.join("launch-daemon.plist"),
+        plist.as_bytes(),
         uid,
-        gid,
-        home,
-        tart_terminal_authorization,
-    );
-    if let Err(error) = authorized {
-        cleanup_installer_files(&installer, uid)?;
-        return Err(error);
-    }
-    let local_commit = (|| {
-        let root_receipt = read_receipt(Path::new(ROOT_RECEIPT_PATH), 0, 0o444)?;
-        validate_receipt(
-            &root_receipt,
-            package,
-            uid,
-            &installation_id,
-            &sha256_bytes(plist.as_bytes()),
-        )?;
-        let receipt_bytes =
-            serde_json::to_vec(&root_receipt).map_err(|_| "user-receipt-invalid")?;
-        write_private_file(&user_receipt_path(home), &receipt_bytes, uid)
-    })();
-    if let Err(error) = local_commit {
-        let authorized_cleanup = run_authorized(
-            "__privileged-uninstall",
-            package,
-            &privileged_controller,
-            uid,
-            gid,
-            home,
-            tart_terminal_authorization,
-        );
-        if authorized_cleanup.is_ok() {
-            remove_user_installation_state(home, uid)?;
-            cleanup_installer_files(&installer, uid)?;
-            return Err(format!("post-install-receipt-failed:{error}"));
-        }
-        cleanup_installer_files(&installer, uid)?;
-        return Err(format!(
-            "post-install-receipt-failed:{error}:cleanup-unconfirmed"
-        ));
-    }
+    )?;
+    Ok(PreparedPackageLifecycle {
+        installation_id: Some(installation_id),
+        plist: Some(plist),
+        privileged_controller,
+        runtime,
+    })
+}
 
-    let health = match retry_post_install_health(
-        || health(package, uid, home),
-        POST_INSTALL_HEALTH_ATTEMPTS,
-        POST_INSTALL_HEALTH_RETRY_DELAY,
-    )
-    .await
+fn commit_local_installation_receipt(
+    package: &VerifiedPackage,
+    uid: u32,
+    home: &Path,
+    prepared: &PreparedPackageLifecycle,
+) -> Result<(), String> {
+    let installation_id = prepared
+        .installation_id
+        .as_deref()
+        .ok_or_else(|| "installation-id-missing".to_string())?;
+    let plist = prepared
+        .plist
+        .as_deref()
+        .ok_or_else(|| "installation-plist-missing".to_string())?;
+    let root_receipt = read_receipt(Path::new(ROOT_RECEIPT_PATH), 0, 0o444)?;
+    validate_receipt(
+        &root_receipt,
+        package,
+        uid,
+        installation_id,
+        &sha256_bytes(plist.as_bytes()),
+    )?;
+    let receipt_bytes = serde_json::to_vec(&root_receipt).map_err(|_| "user-receipt-invalid")?;
+    write_private_file(&user_receipt_path(home), &receipt_bytes, uid)
+}
+
+fn package_success(value: &serde_json::Value) -> Result<PackageSuccess, String> {
+    Ok(PackageSuccess {
+        generation: value["generation"]
+            .as_u64()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| "installed-health-generation-invalid".to_string())?,
+        installation_id: value["installationId"]
+            .as_str()
+            .filter(|value| valid_digest(value))
+            .ok_or_else(|| "installed-health-identity-invalid".to_string())?
+            .to_owned(),
+        key_id: value["keyId"]
+            .as_str()
+            .filter(|value| valid_digest(value))
+            .ok_or_else(|| "installed-health-key-invalid".to_string())?
+            .to_owned(),
+    })
+}
+
+fn package_failure(error: String) -> PackageFailure {
+    if error.contains("cleanup-unconfirmed")
+        || error.contains("incomplete")
+        || error.contains("authorization-rejected")
     {
-        Ok(value) => value,
-        Err(error) => {
-            let authorized_cleanup = run_authorized(
-                "__privileged-uninstall",
-                package,
-                &privileged_controller,
-                uid,
-                gid,
-                home,
-                tart_terminal_authorization,
-            );
-            if authorized_cleanup.is_ok() {
-                remove_user_installation_state(home, uid)?;
-                cleanup_installer_files(&installer, uid)?;
-                return Err(format!("post-install-health-failed:{error}"));
-            }
-            cleanup_installer_files(&installer, uid)?;
-            return Err(format!(
-                "post-install-health-failed:{error}:cleanup-unconfirmed"
-            ));
+        PackageFailure::recovery_required(error)
+    } else {
+        PackageFailure::clean(error)
+    }
+}
+
+async fn run_package_lifecycle(
+    action: UserAction,
+    package: &VerifiedPackage,
+    uid: u32,
+    gid: u32,
+    home: &Path,
+    tart_terminal_authorization: bool,
+) -> Result<serde_json::Value, String> {
+    let observed = observed_package_state(package, uid)?;
+    let kind = match action {
+        UserAction::Install => PackageOperationKind::Install,
+        UserAction::Repair => PackageOperationKind::Repair,
+        UserAction::Uninstall => PackageOperationKind::Uninstall,
+        UserAction::Health | UserAction::Status => {
+            return Err("unsupported-lifecycle-action".into());
         }
     };
-    cleanup_installer_files(&installer, uid)?;
-    Ok(json!({
-        "generation": health["generation"],
-        "installationId": installation_id,
-        "keyId": candidate.key_id,
-        "ok": true,
-        "operation": if action == UserAction::Repair { "repair" } else { "install" },
-        "profile": PROFILE,
-        "state": "healthy-disabled",
-    }))
+    let operation_name = match kind {
+        PackageOperationKind::Install => "install",
+        PackageOperationKind::Repair => "repair",
+        PackageOperationKind::Uninstall => "uninstall",
+    };
+    let runner = spawn_runner(
+        Arc::new(PackageMachine),
+        PackageState::initial(observed),
+        Arc::new(PackageLifecycleExecutor {
+            action,
+            gid,
+            home: home.to_path_buf(),
+            package: package.clone(),
+            prepared: Arc::new(Mutex::new(None)),
+            tart_terminal_authorization,
+            uid,
+        }),
+        Arc::new(NoopObserver),
+        RunnerConfig::default(),
+    );
+    let operation = PackageOperation {
+        correlation: Correlation {
+            machine_authority: format!("internal-tun-package:{}", package.manifest_digest),
+            scope_epoch: 1,
+            operation_id: Uuid::new_v4().to_string(),
+            admitted_revision: 1,
+            effect_id: 0,
+        },
+        initial: observed,
+        kind,
+    };
+    runner
+        .admit(PackageInput::Begin(operation))
+        .await
+        .map_err(|_| "package-lifecycle-busy".to_string())?;
+    let projection = loop {
+        match runner.snapshot().projection() {
+            PackageProjection::InFlight { .. } => tokio::task::yield_now().await,
+            projection => break projection,
+        }
+    };
+    let result = match projection {
+        PackageProjection::HealthyDisabled(success) => Ok(json!({
+            "generation": success.generation,
+            "installationId": success.installation_id,
+            "keyId": success.key_id,
+            "ok": true,
+            "operation": operation_name,
+            "profile": PROFILE,
+            "state": "healthy-disabled",
+        })),
+        PackageProjection::Absent => Ok(json!({
+            "ok": true,
+            "profile": PROFILE,
+            "service": "not-installed",
+        })),
+        PackageProjection::Failed(failure) => Err(failure.code),
+        PackageProjection::Retired => Err("package-lifecycle-retired".into()),
+        PackageProjection::InFlight { .. } => unreachable!("loop exits only for terminal states"),
+    };
+    let _ = runner.shutdown().await;
+    result
+}
+
+fn observed_package_state(
+    package: &VerifiedPackage,
+    uid: u32,
+) -> Result<ObservedPackageState, String> {
+    let value = status(package, uid)?;
+    match value["service"].as_str() {
+        Some("not-installed") => Ok(ObservedPackageState::Absent),
+        Some("installed") => Ok(ObservedPackageState::HealthyDisabled),
+        Some("repair-required") => Ok(ObservedPackageState::RepairRequired),
+        _ => Err("package-observation-invalid".into()),
+    }
 }
 
 fn run_authorized(
@@ -1576,38 +1858,22 @@ fn status(package: &VerifiedPackage, uid: u32) -> Result<serde_json::Value, Stri
     }))
 }
 
-fn uninstall(
+async fn uninstall(
     package: &VerifiedPackage,
     uid: u32,
     gid: u32,
     home: &Path,
     tart_terminal_authorization: bool,
 ) -> Result<serde_json::Value, String> {
-    let runtime = ensure_private_runtime(home, uid)?;
-    let installer = installer_root(home);
-    ensure_private_directory(&installer, uid)?;
-    let privileged_controller = stage_privileged_controller(package, &installer, uid)?;
-    let authorized = run_authorized(
-        "__privileged-uninstall",
+    run_package_lifecycle(
+        UserAction::Uninstall,
         package,
-        &privileged_controller,
         uid,
         gid,
         home,
         tart_terminal_authorization,
-    );
-    if let Err(error) = authorized {
-        cleanup_installer_files(&installer, uid)?;
-        return Err(error);
-    }
-    remove_user_installation_state(home, uid)?;
-    cleanup_installer_files(&installer, uid)?;
-    validate_directory(&runtime, uid, true)?;
-    Ok(json!({
-        "ok": true,
-        "profile": PROFILE,
-        "service": "not-installed",
-    }))
+    )
+    .await
 }
 
 fn privileged_uninstall(

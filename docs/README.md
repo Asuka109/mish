@@ -19,6 +19,7 @@ of treating an implementation accident as intent.
 | Mihomo lifecycle/API      | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)       | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                       |
 | Cross-platform authority  | [`architecture/cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md) | The area-specific domain contract, mobile runtime boundary, and platform composition documents                                                                                                                               |
 | Runtime state ownership   | [`architecture/runtime-state-ownership.md`](architecture/runtime-state-ownership.md)                   | The area-specific Status, Traffic, Profile, Settings, Events, notification, or native contract                                                                                                                               |
+| High-risk state machines  | [`architecture/state-machine-kernel.md`](architecture/state-machine-kernel.md)                         | [`architecture/state-machine-registry.json`](architecture/state-machine-registry.json), then the owning domain contract                                                                                                      |
 | Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                                     | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)           | [`architecture/native-localization.md`](architecture/native-localization.md), TUN, packaging, network/DNS, or sidebar document below                                                                                         |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)             | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
@@ -45,6 +46,11 @@ of treating an implementation accident as intent.
 - [`state-lifecycle-race-audit.md`](architecture/state-lifecycle-race-audit.md)
   — repository-wide state scope, transition, race, optimistic-state, cleanup,
   and bounded state-machine adoption decisions.
+- [`state-machine-kernel.md`](architecture/state-machine-kernel.md) and
+  [`state-machine-registry.json`](architecture/state-machine-registry.json) —
+  the repository-owned typed reducer/runner/effect convention, durable
+  recovery boundary, eligibility rule, and checked classification of remaining
+  internal lifecycles.
 - [`cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md)
   — evidence-backed Shared Rust, platform-adapter, transport, and React
   ownership; Android duplication risks; migration graph; and bounded vertical
