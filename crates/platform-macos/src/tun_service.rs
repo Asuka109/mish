@@ -1039,6 +1039,14 @@ impl MacOsTunServiceClient {
         }
     }
 
+    fn privileged_core_launch_binary(&self, requested: &Path) -> PathBuf {
+        if self.internal_tun_alpha_lifecycle().is_some() {
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        } else {
+            requested.to_path_buf()
+        }
+    }
+
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
         let request_timeout = service_request_timeout(&command);
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -1554,9 +1562,10 @@ impl PrivilegedCoreHost for MacOsTunServiceClient {
         request: PrivilegedCoreLaunchRequest,
     ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
         Box::pin(async move {
+            let binary = self.privileged_core_launch_binary(request.binary());
             let status = self
                 .request(ServiceCommand::Start {
-                    binary: request.binary().to_path_buf(),
+                    binary,
                     config_directory: request.config_directory().to_path_buf(),
                     config_file: request.config_file().to_path_buf(),
                     expected_version: request.expected_version().to_owned(),
@@ -4579,6 +4588,26 @@ mod tests {
                 Err("invalid development TUN boundary")
             );
         }
+    }
+
+    #[test]
+    fn internal_tun_alpha_launches_only_the_installed_fixed_core() {
+        let requested =
+            Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
+        let internal = MacOsTunServiceClient::internal_tun_alpha(
+            PathBuf::from("/Volumes/Mish TUN Alpha"),
+            "0.1.0-internal-tun-alpha.4",
+        );
+        let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
+
+        assert_eq!(
+            internal.privileged_core_launch_binary(requested),
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        );
+        assert_eq!(
+            development.privileged_core_launch_binary(requested),
+            requested
+        );
     }
 
     #[test]
