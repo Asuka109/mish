@@ -2295,7 +2295,7 @@ describe("desktop RPC experience", () => {
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(tun).toBeDisabled();
     expect(tun).toHaveAccessibleDescription(
-      /Virtual Interface is not available in this version of Mish/i,
+      /Install, approve, or repair the Internal TUN service in Settings/i,
     );
 
     const globalMode = screen.getByRole("button", { name: "Global" });

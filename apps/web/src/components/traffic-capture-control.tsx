@@ -92,7 +92,10 @@ export function TrafficCaptureControl({
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable =
     adapterKind === "rpc" && isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
-  const tunDescriptionId = statusDescriptionIds.tunUnavailable;
+  const tunRequiresPermission = capabilities.tun === "permission-required";
+  const tunDescriptionId = tunRequiresPermission
+    ? statusDescriptionIds.tunPermission
+    : statusDescriptionIds.tunUnavailable;
 
   function getHelpDescription(mode: "systemProxy" | "tun", availability: CapabilityAvailability) {
     if (adapterKind === "fixture") {
@@ -204,7 +207,11 @@ export function TrafficCaptureControl({
                   <span>{LL.capture.tun()}</span>
                 </Toggle>
               </TooltipTrigger>
-              <TooltipContent>{LL.capabilities.tunUnavailable()}</TooltipContent>
+              <TooltipContent>
+                {tunRequiresPermission
+                  ? getHelpDescription("tun", capabilities.tun)
+                  : LL.capabilities.tunUnavailable()}
+              </TooltipContent>
             </Tooltip>
           )}
           <Button

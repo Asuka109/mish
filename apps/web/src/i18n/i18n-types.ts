@@ -1758,7 +1758,7 @@ type RootTranslation = {
 		 */
 		systemProxyUnavailable: string
 		/**
-		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​q​u​i​r​e​s​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​c​h​a​n​g​e​.
+		 * I​n​s​t​a​l​l​,​ ​a​p​p​r​o​v​e​,​ ​o​r​ ​r​e​p​a​i​r​ ​t​h​e​ ​I​n​t​e​r​n​a​l​ ​T​U​N​ ​s​e​r​v​i​c​e​ ​i​n​ ​S​e​t​t​i​n​g​s​ ​b​e​f​o​r​e​ ​u​s​i​n​g​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​.
 		 */
 		tunPermission: string
 		/**
@@ -2499,7 +2499,7 @@ type RootTranslation = {
 			 */
 			staging: string
 			/**
-			 * m​a​c​O​S​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​t​h​e​ ​v​e​r​i​f​i​e​d​ ​M​i​h​o​m​o​ ​C​o​r​e​.
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​i​t​s​ ​p​a​c​k​a​g​e​d​ ​M​i​h​o​m​o​ ​C​o​r​e​.​ ​C​h​e​c​k​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​r​e​t​r​y​.
 			 */
 			start: string
 			/**
@@ -6444,7 +6444,7 @@ export type TranslationFunctions = {
 		 */
 		systemProxyUnavailable: () => LocalizedString
 		/**
-		 * Virtual Interface requires permission before it can change.
+		 * Install, approve, or repair the Internal TUN service in Settings before using Virtual Interface.
 		 */
 		tunPermission: () => LocalizedString
 		/**
@@ -7141,7 +7141,7 @@ export type TranslationFunctions = {
 			 */
 			staging: () => LocalizedString
 			/**
-			 * macOS could not start the verified Mihomo Core.
+			 * Mish could not start its packaged Mihomo Core. Check the selected profile and retry.
 			 */
 			start: () => LocalizedString
 			/**

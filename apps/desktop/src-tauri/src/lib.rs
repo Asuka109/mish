@@ -1377,6 +1377,9 @@ fn internal_tun_alpha_package_root_from_executable(
         .and_then(Path::parent)
         .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("Mish.app"))
         .ok_or_else(|| io::Error::other("Internal TUN Alpha application bundle is malformed"))?;
+    if app_bundle == Path::new("/Applications/Mish.app") {
+        return Ok(PathBuf::from("/Volumes/Mish TUN Alpha"));
+    }
     app_bundle
         .parent()
         .map(Path::to_path_buf)
@@ -2167,10 +2170,17 @@ mod tests {
     }
 
     #[test]
-    fn internal_tun_alpha_derives_only_the_sibling_package_root() {
+    fn internal_tun_alpha_uses_the_package_or_exact_mounted_installer_root() {
         assert_eq!(
             internal_tun_alpha_package_root_from_executable(Path::new(
                 "/Volumes/Mish TUN Alpha/Mish.app/Contents/MacOS/mish-desktop"
+            ))
+            .unwrap(),
+            PathBuf::from("/Volumes/Mish TUN Alpha")
+        );
+        assert_eq!(
+            internal_tun_alpha_package_root_from_executable(Path::new(
+                "/Applications/Mish.app/Contents/MacOS/mish-desktop"
             ))
             .unwrap(),
             PathBuf::from("/Volumes/Mish TUN Alpha")

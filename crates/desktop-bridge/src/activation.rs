@@ -901,19 +901,29 @@ impl MihomoActivationManager {
             config_directory: Some(home.clone()),
             config_file: Some(config_file.clone()),
         };
-        let process = Arc::new(match (&self.privileged_host, &self.ownership) {
-            (Some(host), _) => DesktopMihomoProcess::new_pinned_privileged(
-                process_config,
-                PINNED_MIHOMO_VERSION,
-                host.clone(),
-            ),
-            (None, Some(ownership)) => DesktopMihomoProcess::new_pinned_owned(
-                process_config,
-                PINNED_MIHOMO_VERSION,
-                ownership.clone(),
-            ),
-            (None, None) => DesktopMihomoProcess::new_pinned(process_config, PINNED_MIHOMO_VERSION),
-        });
+        let process = Arc::new(
+            match (
+                policy.execution_backend(self.privileged_host.is_some()),
+                &self.privileged_host,
+                &self.ownership,
+            ) {
+                (ManagedExecutionBackend::Privileged, Some(host), _) => {
+                    DesktopMihomoProcess::new_pinned_privileged(
+                        process_config,
+                        PINNED_MIHOMO_VERSION,
+                        host.clone(),
+                    )
+                }
+                (_, _, Some(ownership)) => DesktopMihomoProcess::new_pinned_owned(
+                    process_config,
+                    PINNED_MIHOMO_VERSION,
+                    ownership.clone(),
+                ),
+                (_, _, None) => {
+                    DesktopMihomoProcess::new_pinned(process_config, PINNED_MIHOMO_VERSION)
+                }
+            },
+        );
         let profile = ProfileMappingContext::new(
             record.metadata.id.as_str(),
             record.effective_fingerprint().as_str(),
@@ -2075,6 +2085,12 @@ pub struct ManagedRuntimePolicy {
     tun_enabled: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ManagedExecutionBackend {
+    Managed,
+    Privileged,
+}
+
 impl ManagedRuntimePolicy {
     pub fn new(
         controller_address: SocketAddr,
@@ -2138,6 +2154,14 @@ impl ManagedRuntimePolicy {
     pub fn proxy_endpoint(&self) -> &LoopbackProxyEndpoint {
         &self.proxy_endpoint
     }
+
+    fn execution_backend(&self, privileged_host_available: bool) -> ManagedExecutionBackend {
+        if self.tun_enabled && privileged_host_available {
+            ManagedExecutionBackend::Privileged
+        } else {
+            ManagedExecutionBackend::Managed
+        }
+    }
 }
 
 impl fmt::Debug for ManagedRuntimePolicy {
@@ -2148,6 +2172,49 @@ impl fmt::Debug for ManagedRuntimePolicy {
             .field("controller_secret", &"[redacted]")
             .field("tun_enabled", &self.tun_enabled)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod managed_execution_backend_tests {
+    use super::*;
+
+    #[test]
+    fn packaged_privileged_host_is_reserved_for_explicit_tun_policy() {
+        let regular = ManagedRuntimePolicy::new(
+            "127.0.0.1:43123".parse().unwrap(),
+            "application-controller-secret",
+        )
+        .unwrap();
+        let helper = mish_runtime::TunHelperSnapshot {
+            availability: mish_runtime::TunHelperAvailability::Available,
+            expected_version: mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned(),
+            health: mish_runtime::TunHelperHealth::Healthy,
+            installation_id: Some("installation-alpha".to_owned()),
+            installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
+            last_failure: None,
+            phase: mish_runtime::TunHelperLifecyclePhase::Idle,
+        };
+        let tun = ManagedRuntimePolicy::new(
+            "127.0.0.1:43124".parse().unwrap(),
+            "application-controller-secret",
+        )
+        .unwrap()
+        .with_tun_enabled(&helper, true)
+        .unwrap();
+
+        assert_eq!(
+            regular.execution_backend(true),
+            ManagedExecutionBackend::Managed
+        );
+        assert_eq!(
+            tun.execution_backend(true),
+            ManagedExecutionBackend::Privileged
+        );
+        assert_eq!(
+            tun.execution_backend(false),
+            ManagedExecutionBackend::Managed
+        );
     }
 }
 
