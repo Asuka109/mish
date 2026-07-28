@@ -158,6 +158,8 @@ pub enum ApplicationActionId {
     FindPortsAndRetry,
     #[serde(rename = "leave-as-is")]
     LeaveAsIs,
+    #[serde(rename = "open-profiles")]
+    OpenProfiles,
     #[serde(rename = "open-system-proxy-settings")]
     OpenSystemProxySettings,
     #[serde(rename = "open-welcome")]
@@ -174,6 +176,7 @@ impl ApplicationActionId {
         match self {
             Self::FindPortsAndRetry => "find-ports-and-retry",
             Self::LeaveAsIs => "leave-as-is",
+            Self::OpenProfiles => "open-profiles",
             Self::OpenSystemProxySettings => "open-system-proxy-settings",
             Self::OpenWelcome => "open-welcome",
             Self::Repair => "repair",
@@ -553,6 +556,7 @@ impl ApplicationNotificationContent {
         match self {
             Self::CaptureFailure(_) => &[
                 ApplicationActionId::LeaveAsIs,
+                ApplicationActionId::OpenProfiles,
                 ApplicationActionId::OpenSystemProxySettings,
                 ApplicationActionId::Repair,
                 ApplicationActionId::ShowSystemProxySettingsSteps,

@@ -100,6 +100,7 @@ function applicationEventCopy(
 }
 
 function captureFailureMessage(failure: string | undefined, LL: TranslationFunctions) {
+  if (failure === "configuration-required") return LL.capture.configurationRequired();
   if (failure === "permission-denied") return LL.capture.systemProxyPermissionFailure();
   if (failure === "core-unhealthy") return LL.capture.systemProxyCoreFailure();
   if (failure === "invalid-recovery") return LL.capture.systemProxyInvalidRecovery();

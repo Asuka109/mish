@@ -229,6 +229,12 @@ function captureFailurePresentation(
   LL: TranslationFunctions,
 ): PresentationCopy {
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
+  if (failure === "configuration-required") {
+    return {
+      message: LL.capture.configurationRequired(),
+      title: LL.capture.configurationRequiredTitle(),
+    };
+  }
   if (isTakeoverRejection(takeoverReason)) {
     return {
       message: LL.settingsPage.systemProxyTakeoverRejected(),
@@ -272,6 +278,8 @@ function actionDescriptor(
       return { id, label: LL.capture.leaveAsIs(), tone: "secondary" };
     case "open-system-proxy-settings":
       return openSystemProxySettingsAction(LL);
+    case "open-profiles":
+      return { id, label: LL.capture.openProfiles() };
     case "open-welcome":
       return { id, label: LL.onboarding.notificationAction() };
     case "repair":

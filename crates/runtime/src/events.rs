@@ -271,6 +271,7 @@ fn capture_failure_id(failure: CaptureFailureKind) -> &'static str {
         CaptureFailureKind::ApplyFailed => "apply-failed",
         CaptureFailureKind::CapabilityUnavailable => "capability-unavailable",
         CaptureFailureKind::ConfirmationFailed => "confirmation-failed",
+        CaptureFailureKind::ConfigurationRequired => "configuration-required",
         CaptureFailureKind::CoreUnhealthy => "core-unhealthy",
         CaptureFailureKind::ExternalDrift => "external-drift",
         CaptureFailureKind::InvalidRecovery => "invalid-recovery",
@@ -403,6 +404,16 @@ mod tests {
         assert_eq!(event.presentation().kind(), "capture.failure");
         assert!(!format!("{event:?}").contains("service"));
         assert!(!format!("{event:?}").contains("PAC"));
+    }
+
+    #[test]
+    fn missing_configuration_is_a_typed_capture_failure() {
+        let event =
+            ApplicationDiagnosticEvent::capture_failure(CaptureFailureKind::ConfigurationRequired);
+
+        assert_eq!(event.level(), EventLevel::Error);
+        assert_eq!(event.presentation().kind(), "capture.failure");
+        assert!(format!("{event:?}").contains("configuration-required"));
     }
 
     #[test]

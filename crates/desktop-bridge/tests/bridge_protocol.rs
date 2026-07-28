@@ -2742,6 +2742,153 @@ async fn profile_selection_subscription_publishes_the_same_confirmed_authority()
 }
 
 #[tokio::test]
+async fn missing_profile_capture_failure_is_shared_by_rpc_clients_and_reconnects() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().join("profiles")).unwrap());
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "missing-profile-rpc-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform,
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let safe_runtime =
+        MishRuntime::with_capture(Arc::new(DesktopMihomoProcess::new(no_core())), capture);
+    let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let activation = Arc::new(ProfileActivationCoordinator::new(
+        profile_service.clone(),
+        Arc::new(MihomoActivationManager::new(
+            ManagedMihomoResolver::development(
+                root.path().join("unused-mihomo"),
+                root.path().join("runtime"),
+            ),
+            ActivationTiming::default(),
+        )),
+        runtime_host.clone(),
+        safe_runtime,
+        || ManagedRuntimePolicy::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 1)), "unused"),
+    ));
+    let mut bridge_config = config();
+    bridge_config.profile_activation = Some(activation);
+    bridge_config.profile_service = Some(profile_service);
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
+        .await
+        .unwrap();
+
+    let mut status_observer = socket(bridge.address).await;
+    let mut notification_observer = socket(bridge.address).await;
+    let mut commander = socket(bridge.address).await;
+    for socket in [
+        &mut status_observer,
+        &mut notification_observer,
+        &mut commander,
+    ] {
+        authenticate(socket).await;
+    }
+    request(
+        &mut status_observer,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    request(
+        &mut notification_observer,
+        json!({"jsonrpc":"2.0", "id":2, "method":"notifications.subscribe", "params":{}}),
+    )
+    .await;
+
+    let rejected = request(
+        &mut commander,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["data"]["kind"], "configuration-required");
+
+    let mut operation_id = None;
+    for _ in 0..3 {
+        let update = next_json(&mut status_observer).await;
+        let operation = &update["params"]["snapshot"]["runtime"]["captureOperation"];
+        if operation["phase"] == "failed" {
+            operation_id = operation["operationId"].as_str().map(str::to_owned);
+            assert_eq!(
+                update["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+                "off"
+            );
+            assert_eq!(
+                update["params"]["snapshot"]["runtime"]["tun"]["phase"],
+                "off"
+            );
+            break;
+        }
+    }
+    let operation_id = operation_id.expect("status client did not observe the terminal operation");
+    let notification = next_json(&mut notification_observer).await;
+    let retained = &notification["params"]["snapshot"]["notifications"];
+    assert_eq!(retained.as_array().unwrap().len(), 1);
+    assert_eq!(
+        retained[0]["presentation"]["data"]["failure"],
+        "configuration-required"
+    );
+    assert_eq!(
+        retained[0]["presentation"]["actionIds"],
+        json!(["open-profiles"])
+    );
+    assert!(journal.0.lock().unwrap().is_none());
+
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut reconnected = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut reconnected).await;
+    let reconnected_status = request(
+        &mut reconnected,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        reconnected_status["result"]["runtime"]["captureOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        reconnected_status["result"]["runtime"]["captureOperation"]["phase"],
+        "failed"
+    );
+    assert_eq!(reconnected_status["result"]["runtime"]["phase"], "inactive");
+    let reconnected_notifications = request(
+        &mut reconnected,
+        json!({"jsonrpc":"2.0", "id":5, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        reconnected_notifications["result"]["notifications"][0]["presentation"]["actionIds"],
+        json!(["open-profiles"])
+    );
+    assert_eq!(
+        reconnected_notifications["result"]["notifications"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn authenticated_profile_file_action_opens_the_shared_directory() {
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("profiles");
