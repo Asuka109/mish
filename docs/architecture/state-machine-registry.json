@@ -28,9 +28,9 @@
     },
     {
       "id": "capture-system-proxy",
-      "classification": "migration-required",
-      "canonicalOwner": "crates/runtime and crates/platform-macos",
-      "recoveryBoundary": "Capture journal, exact prior System Proxy state, final OS re-observation, and explicit drift/recovery-required evidence."
+      "classification": "conforming",
+      "canonicalOwner": "crates/runtime/src/capture/machine.rs",
+      "recoveryBoundary": "The existing Capture journal and exact prior System Proxy/TUN state remain authoritative; restart and every terminal apply restore are decided from fresh platform observation and explicit drift/recovery-required evidence."
     },
     {
       "id": "application-core-lifecycle",

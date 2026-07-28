@@ -174,21 +174,28 @@ Invariants:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Off
-    Off --> PendingApply: active request
-    PendingApply --> Applied: journal saved + OS mutation confirmed
-    PendingApply --> Off: no mutation or fully restored failure
-    PendingApply --> Failed: typed failure
-    Applied --> PendingRestore: stop, Quit, network/Core audit
-    PendingRestore --> Off: exact prior state restored + journal cleared
-    PendingRestore --> Drift: external state or restoration mismatch
-    Failed --> PendingApply: retry
-    Drift --> PendingRestore: repair or relinquish action
+    [*] --> Stable
+    Stable --> Transitioning: admitted request or reserved aggregate launch
+    Stable --> Reconciling: startup, network, or Core audit
+    Transitioning --> Reconciling: mutation completed; authoritative observation required
+    Transitioning --> RecoveryRequired: mutation/finalizer cannot prove safe state
+    Reconciling --> Stable: observation commits Applied, Off, or typed failure
+    Reconciling --> RecoveryRequired: unknown authority, drift, or observation failure
+    RecoveryRequired --> Transitioning: repair or relinquish
+    Stable --> ShuttingDown: terminal shutdown
+    Transitioning --> ShuttingDown: cancel and join owned effect
+    Reconciling --> ShuttingDown: cancel and join owned effect
+    RecoveryRequired --> ShuttingDown: terminal shutdown
+    ShuttingDown --> Retired: restoration observation and finalizers complete
 ```
 
-The typed phase is sufficient; adding a library would not improve the
-platform transaction. The missing leverage is an operation/revision envelope
-at the projection seam, not more states.
+The Capture-owned outer reducer now uses the repository kernel while preserving
+the existing platform journal and System Proxy/TUN adapters. The public
+pending/applied/failed/recovery-required DTO remains unchanged. Request success
+and desired state are never commit evidence: only a later authoritative
+Core/platform observation may enter `Applied`. Scope epoch, operation ID,
+revision, and effect correlation retire stale, duplicate, equal-revision, and
+late completions without mutating the active aggregate.
 
 ### Bridge reconnect and subscription replacement
 
@@ -330,16 +337,16 @@ eligible Rust lifecycles. The checked
 for current `conforming`, `migration-required`, and `intentionally-excluded`
 classification.
 
-| Lifecycle                       | Current representation                                                           | Decision                                                                                         | Evidence                                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| Application launch              | ordered bootstrap plus one-shot exit coordinator                                 | Keep ordinary typed stages and explicit cleanup; no library                                      | launch has platform I/O and failure evidence that a library cannot commit or roll back                                            |
-| Profile/Core activation         | data-bearing Rust enum plus one exhaustive DTO Adapter and transactional manager | Keep the typed state and existing public DTO; no library                                         | command scope/revision, cancellation ownership, terminal evidence, rollback, retry, and shutdown are structurally constrained     |
-| Updater Check                   | data-bearing Rust State/Input/Effect reducer plus bounded Tokio effect owner     | Conforming: retain the domain reducer/public DTO and use the repository kernel                   | full effect correlation, explicit commit/cancel cutoff, owned finalizers, redacted evidence, and model/barrier tests remain local |
-| Capture/System Proxy/TUN        | typed phase enums plus reconcilers and journal                                   | Split: TUN Helper/Core/network conforms; Capture/System Proxy requires a later bounded migration | existing journals and observations remain domain authority; the kernel does not generalize their business reducer                 |
-| Bridge connectivity/reconnect   | TypeScript discriminated union plus transport identity                           | Keep; add connection epoch to application snapshot envelopes                                     | transport lifecycle is deterministic and bounded                                                                                  |
-| Diagnostics                     | Rust run/status enums, run ID, token, finalizer                                  | Keep unchanged; no library                                                                       | cancellation and runtime replacement are terminal in tests                                                                        |
-| Command pending/success/failure | one shared operation-keyed reducer plus domain payloads outside it               | Keep the reducer Module at Product, Profile, Traffic, Events, and current-Profile command seams  | operation/scope identity, legal terminal phases, duplicate rejection, and exact cleanup have one property-tested implementation   |
-| Graceful shutdown               | atomic claim plus typed cleanup report                                           | Keep unchanged; no library                                                                       | racing quit sources and failed-cleanup retry are deterministic                                                                    |
+| Lifecycle                       | Current representation                                                               | Decision                                                                                                             | Evidence                                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Application launch              | ordered bootstrap plus one-shot exit coordinator                                     | Keep ordinary typed stages and explicit cleanup; no library                                                          | launch has platform I/O and failure evidence that a library cannot commit or roll back                                                                           |
+| Profile/Core activation         | data-bearing Rust enum plus one exhaustive DTO Adapter and transactional manager     | Keep the typed state and existing public DTO; no library                                                             | command scope/revision, cancellation ownership, terminal evidence, rollback, retry, and shutdown are structurally constrained                                    |
+| Updater Check                   | data-bearing Rust State/Input/Effect reducer plus bounded Tokio effect owner         | Conforming: retain the domain reducer/public DTO and use the repository kernel                                       | full effect correlation, explicit commit/cancel cutoff, owned finalizers, redacted evidence, and model/barrier tests remain local                                |
+| Capture/System Proxy/TUN        | Capture-owned outer State/Input/Effect reducer plus existing reconcilers and journal | Conforming: retain public DTOs and platform adapters while the repository kernel owns bounded effects and finalizers | authoritative Core/platform observation gates `Applied`; scope/revision/effect correlation retires stale completion; existing journals remain recovery authority |
+| Bridge connectivity/reconnect   | TypeScript discriminated union plus transport identity                               | Keep; add connection epoch to application snapshot envelopes                                                         | transport lifecycle is deterministic and bounded                                                                                                                 |
+| Diagnostics                     | Rust run/status enums, run ID, token, finalizer                                      | Keep unchanged; no library                                                                                           | cancellation and runtime replacement are terminal in tests                                                                                                       |
+| Command pending/success/failure | one shared operation-keyed reducer plus domain payloads outside it                   | Keep the reducer Module at Product, Profile, Traffic, Events, and current-Profile command seams                      | operation/scope identity, legal terminal phases, duplicate rejection, and exact cleanup have one property-tested implementation                                  |
+| Graceful shutdown               | atomic claim plus typed cleanup report                                               | Keep unchanged; no library                                                                                           | racing quit sources and failed-cleanup retry are deterministic                                                                                                   |
 
 No lifecycle justifies XState or another third-party state-machine dependency.
 Typed Rust enums, TypeScript discriminated unions, domain reducers, operation

@@ -37,6 +37,7 @@ const conformingSources = new Map([
   ["updater-check", "impl Machine for CheckMachine"],
   ["internal-tun-alpha-package", "impl Machine for PackageMachine"],
   ["tun-helper-core-network", "impl Machine for TunLifecycleMachine"],
+  ["capture-system-proxy", "impl Machine for CaptureMachine"],
 ]);
 
 const failures: string[] = [];

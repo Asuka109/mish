@@ -9,12 +9,22 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
+use mish_state_machine::{RunnerConfig, RunnerHandle, spawn_runner};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    sync::{Mutex as AsyncMutex, broadcast},
+    sync::{Mutex as AsyncMutex, broadcast, oneshot, watch},
     time::{Instant, sleep, timeout_at},
 };
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+mod machine;
+
+use machine::{
+    AuditOutcome, CaptureEffects, CaptureExecutor, CaptureInput, CaptureMachine,
+    CaptureProjectionObserver, CaptureState, EffectOutcome, StableCapture, TransitionMode,
+    TransitionStage,
+};
 
 use crate::{
     CapabilityAvailability, CaptureSelection, TunHelperAvailability, TunHelperController,
@@ -480,11 +490,23 @@ pub struct CaptureRequest {
 /// The contained platform state is deliberately opaque and never serialized or logged because it
 /// can contain private service names, proxy hosts, and PAC URLs. A reconciler accepts the token
 /// only when it created it, and always re-reads both journal and platform state before mutation.
+#[derive(Clone, Debug)]
 pub struct CapturePreflight {
     reconciler_id: u64,
     system_proxy: Option<SystemProxyPreflight>,
 }
 
+struct CapturePreflightGuard(Option<CancellationToken>);
+
+impl Drop for CapturePreflightGuard {
+    fn drop(&mut self) {
+        if let Some(cancellation) = self.0.take() {
+            cancellation.cancel();
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct SystemProxyPreflight {
     journal: Option<CaptureJournal>,
     observed: NetworkServiceProxyState,
@@ -1891,369 +1913,34 @@ impl TunReconciler {
     }
 }
 
-struct AggregateCaptureState {
-    confirmed: CaptureRuntimeStatus,
-    next_operation_id: u64,
-    pending_projection: Option<CaptureRuntimeStatus>,
-}
-
 type ConfirmedCaptureObserver = Arc<dyn Fn(&CaptureRuntimeStatus) + Send + Sync>;
 
 #[derive(Clone, Debug)]
 pub struct CaptureOperation {
-    operation_id: String,
+    correlation: mish_state_machine::Correlation,
     previous: CaptureRuntimeStatus,
-    scope_epoch: String,
+    public_operation_id: String,
+    request: CaptureRequest,
 }
 
-pub struct CaptureReconciler {
+impl CaptureOperation {
+    fn matches(&self, operation: &machine::ActiveOperation) -> bool {
+        self.correlation.same_operation(&operation.correlation)
+    }
+}
+
+#[derive(Clone)]
+struct CaptureEffectAdapter {
     identity: u64,
-    operation: AsyncMutex<()>,
-    runtime_transition: AtomicBool,
-    scope_epoch: String,
-    state: Mutex<AggregateCaptureState>,
     system_proxy: Arc<SystemProxyReconciler>,
     tun: Option<Arc<TunReconciler>>,
-    confirmed_observer: Mutex<Option<ConfirmedCaptureObserver>>,
-    updates: broadcast::Sender<CaptureRuntimeStatus>,
 }
 
-pub struct CaptureRuntimeTransition {
-    reconciler: Arc<CaptureReconciler>,
-}
-
-impl Drop for CaptureRuntimeTransition {
-    fn drop(&mut self) {
-        self.reconciler
-            .runtime_transition
-            .store(false, Ordering::Release);
-    }
-}
-
-impl CaptureReconciler {
-    pub fn new(
-        platform: Arc<dyn CapturePlatform>,
-        journal: Arc<dyn CaptureJournalStore>,
-        endpoint: LoopbackProxyEndpoint,
-    ) -> Self {
-        Self::new_with_tun(platform, journal, endpoint, None)
-    }
-
-    pub fn new_with_tun(
-        platform: Arc<dyn CapturePlatform>,
-        journal: Arc<dyn CaptureJournalStore>,
-        endpoint: LoopbackProxyEndpoint,
-        helper: Option<Arc<TunHelperController>>,
-    ) -> Self {
-        let system_proxy = Arc::new(SystemProxyReconciler::new(platform, journal, endpoint));
-        let tun = helper.map(|helper| Arc::new(TunReconciler::new(helper)));
-        let mut status = system_proxy.status();
-        if let Some(tun) = &tun {
-            status.tun = tun.status();
-        }
-        let scope_epoch = Uuid::new_v4().to_string();
-        status.capture_operation = CaptureOperationStatus::idle(scope_epoch.clone());
-        let (updates, _) = broadcast::channel(32);
-        Self {
-            identity: NEXT_CAPTURE_RECONCILER_ID.fetch_add(1, Ordering::Relaxed),
-            operation: AsyncMutex::new(()),
-            runtime_transition: AtomicBool::new(false),
-            scope_epoch,
-            state: Mutex::new(AggregateCaptureState {
-                confirmed: status,
-                next_operation_id: 1,
-                pending_projection: None,
-            }),
-            system_proxy,
-            tun,
-            confirmed_observer: Mutex::new(None),
-            updates,
-        }
-    }
-
-    pub fn begin_runtime_transition(
-        self: &Arc<Self>,
-    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
-        self.runtime_transition
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| runtime_transition_error())?;
-        Ok(CaptureRuntimeTransition {
-            reconciler: self.clone(),
-        })
-    }
-
-    pub fn status(&self) -> CaptureRuntimeStatus {
-        let state = self
-            .state
-            .lock()
-            .expect("aggregate capture state lock poisoned");
-        state
-            .pending_projection
-            .as_ref()
-            .unwrap_or(&state.confirmed)
-            .clone()
-    }
-
-    /// Returns the last state confirmed by the capture platforms, excluding any public pending
-    /// operation projection. Runtime handoff and rollback decisions must use this state so a
-    /// newly requested launch is not mistaken for capture already owned by the previous runtime.
-    pub fn confirmed_status(&self) -> CaptureRuntimeStatus {
-        self.state
-            .lock()
-            .expect("aggregate capture state lock poisoned")
-            .confirmed
-            .clone()
-    }
-
-    /// Publishes every aggregate Capture transition so transports can render the same
-    /// pending, confirmed, and attention phases without inventing local operation state.
-    pub fn subscribe(&self) -> broadcast::Receiver<CaptureRuntimeStatus> {
-        self.updates.subscribe()
-    }
-
-    pub(crate) fn set_confirmed_observer(&self, observer: ConfirmedCaptureObserver) {
-        *self
-            .confirmed_observer
-            .lock()
-            .expect("confirmed Capture observer lock poisoned") = Some(observer);
-    }
-
-    /// Admits one aggregate operation before any launch preparation begins.
-    ///
-    /// The prior terminal identity is retired only here, when a newer operation is accepted in
-    /// the same scope. Scope replacement constructs a new reconciler with an idle identity.
-    pub fn admit_operation(
-        &self,
-        request: &CaptureRequest,
-    ) -> Result<CaptureOperation, CaptureTransitionError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("aggregate capture state lock poisoned");
-        if state.pending_projection.is_some() {
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Another aggregate Capture operation is already pending",
-            ));
-        }
-        let operation_id = state.next_operation_id.to_string();
-        state.next_operation_id = state.next_operation_id.checked_add(1).ok_or_else(|| {
-            CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "The bounded aggregate Capture operation identity was exhausted",
-            )
-        })?;
-        let previous = state.confirmed.clone();
-        let operation = CaptureOperation {
-            operation_id: operation_id.clone(),
-            previous: previous.clone(),
-            scope_epoch: self.scope_epoch.clone(),
-        };
-        let mut pending = previous;
-        pending.capture_operation = CaptureOperationStatus {
-            operation_id: Some(operation_id),
-            phase: CaptureOperationPhase::Pending,
-            scope_epoch: self.scope_epoch.clone(),
-        };
-        pending.capture_selection = request.selection.clone();
-        pending.system_proxy.desired = request.active && request.selection.system_proxy;
-        pending.system_proxy.failure = None;
-        pending.system_proxy.phase = SystemProxyPhase::Pending;
-        pending.tun.desired = request.active && request.selection.tun;
-        pending.tun.failure = None;
-        pending.tun.phase = TunPhase::Pending;
-        state.pending_projection = Some(pending.clone());
-        drop(state);
-        let _ = self.updates.send(pending);
-        Ok(operation)
-    }
-
-    pub fn finish_operation_failure(
-        &self,
-        operation: &CaptureOperation,
-        error: &CaptureTransitionError,
-    ) -> CaptureRuntimeStatus {
-        let recovery_required = error.kind == CaptureFailureKind::RollbackFailed;
-        {
-            let mut state = self
-                .state
-                .lock()
-                .expect("aggregate capture state lock poisoned");
-            let matches_terminal = state.confirmed.capture_operation.scope_epoch
-                == operation.scope_epoch
-                && state.confirmed.capture_operation.operation_id.as_deref()
-                    == Some(operation.operation_id.as_str())
-                && state.confirmed.capture_operation.phase != CaptureOperationPhase::Pending;
-            if matches_terminal {
-                if recovery_required
-                    && state.confirmed.capture_operation.phase
-                        != CaptureOperationPhase::RecoveryRequired
-                {
-                    state.confirmed.capture_operation.phase =
-                        CaptureOperationPhase::RecoveryRequired;
-                    let status = state.confirmed.clone();
-                    drop(state);
-                    let _ = self.updates.send(status.clone());
-                    return status;
-                }
-                if !recovery_required {
-                    let mut status = operation.previous.clone();
-                    status.capture_operation = CaptureOperationStatus {
-                        operation_id: Some(operation.operation_id.clone()),
-                        phase: CaptureOperationPhase::Failed,
-                        scope_epoch: operation.scope_epoch.clone(),
-                    };
-                    state.confirmed = status.clone();
-                    drop(state);
-                    if let Some(observer) = self
-                        .confirmed_observer
-                        .lock()
-                        .expect("confirmed Capture observer lock poisoned")
-                        .clone()
-                    {
-                        observer(&status);
-                    }
-                    let _ = self.updates.send(status.clone());
-                    return status;
-                }
-                return state.confirmed.clone();
-            }
-        }
-        let status = if recovery_required {
-            self.confirmed_status()
-        } else {
-            operation.previous.clone()
-        };
-        self.finish_operation(
-            operation,
-            status,
-            if recovery_required {
-                CaptureOperationPhase::RecoveryRequired
-            } else {
-                CaptureOperationPhase::Failed
-            },
-        )
-        .unwrap_or_else(|| self.status())
-    }
-
-    pub fn availability(&self) -> CapabilityAvailability {
-        self.system_proxy.availability()
-    }
-
-    /// Settings owns the durable choice; capture only reads the latest bounded policy when a
-    /// new System Proxy transaction begins.  Existing journals always restore exactly.
-    pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
-        self.system_proxy.set_takeover_policy(policy);
-    }
-
-    pub fn tun_availability(&self) -> CapabilityAvailability {
-        self.tun
-            .as_ref()
-            .map_or(CapabilityAvailability::Unavailable, |tun| {
-                tun.availability()
-            })
-    }
-
-    pub fn local_proxy_endpoint(&self) -> &LoopbackProxyEndpoint {
-        &self.system_proxy.endpoint
-    }
-
-    /// Reconcile capture for shutdown while holding the aggregate operation authority. A missing
-    /// System Proxy journal means there was no committed mutation to restore, so an unrelated
-    /// observation failure must not prevent the process from exiting.
-    pub async fn reconcile_for_shutdown(&self) -> Result<(), CaptureTransitionError> {
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let _operation = self.operation.try_lock().map_err(|_| {
-            CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Another aggregate Capture operation is already in progress",
-            )
-        })?;
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let owns_system_proxy = self.system_proxy.load_validated_journal()?.is_some();
-        let status = self.confirmed_status();
-        let tun_may_be_active =
-            status.tun_enabled || status.tun.desired || !matches!(status.tun.phase, TunPhase::Off);
-        if !owns_system_proxy && !tun_may_be_active {
-            return Ok(());
-        }
-        let request = CaptureRequest {
-            active: false,
-            selection: status.capture_selection,
-        };
-        let operation = self.admit_operation(&request)?;
-        self.reconcile_locked(request, false, &operation).await?;
-        Ok(())
-    }
-
-    pub async fn test_local_proxy(
-        &self,
-        core_healthy: bool,
-        core_owns_listener: bool,
-    ) -> LocalProxyTestResult {
-        let endpoint = &self.system_proxy.endpoint;
-        let result = |phase| LocalProxyTestResult {
-            host: endpoint.host().to_string(),
-            phase,
-            port: endpoint.port(),
-        };
-        if !core_healthy {
-            return result(LocalProxyTestPhase::CoreUnhealthy);
-        }
-        if !core_owns_listener {
-            return result(LocalProxyTestPhase::ListenerUnavailable);
-        }
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return result(LocalProxyTestPhase::RuntimeTransition);
-        }
-        let _operation = self.operation.lock().await;
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return result(LocalProxyTestPhase::RuntimeTransition);
-        }
-        match self
-            .system_proxy
-            .platform
-            .confirm_proxy_listener(endpoint)
-            .await
-        {
-            Ok(()) => result(LocalProxyTestPhase::Ready),
-            Err(_) => result(LocalProxyTestPhase::ListenerUnavailable),
-        }
-    }
-
-    pub async fn reconcile(
+impl CaptureEffectAdapter {
+    async fn preflight(
         &self,
         request: CaptureRequest,
-        core_healthy: bool,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let _operation = self.operation.try_lock().map_err(|_| {
-            CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Another aggregate Capture operation is already in progress",
-            )
-        })?;
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let operation = self.admit_operation(&request)?;
-        self.reconcile_locked(request, core_healthy, &operation)
-            .await
-    }
-
-    pub async fn preflight(
-        &self,
-        request: &CaptureRequest,
     ) -> Result<CapturePreflight, CaptureTransitionError> {
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
         let system_proxy = if request.active && request.selection.system_proxy {
             Some(self.system_proxy.preflight().await?)
         } else {
@@ -2265,331 +1952,29 @@ impl CaptureReconciler {
         })
     }
 
-    pub async fn reconcile_with_preflight(
-        &self,
-        request: CaptureRequest,
-        core_healthy: bool,
-        preflight: CapturePreflight,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if preflight.reconciler_id != self.identity
-            || self.runtime_transition.load(Ordering::Acquire)
-        {
-            return Err(runtime_transition_error());
-        }
-        let _operation = self.operation.try_lock().map_err(|_| {
-            CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Another aggregate Capture operation is already in progress",
-            )
-        })?;
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let operation = self.admit_operation(&request)?;
-        self.reconcile_locked_with_preflight(request, core_healthy, Some(preflight), &operation)
-            .await
-    }
-
-    pub async fn reconcile_admitted_with_preflight(
-        &self,
-        request: CaptureRequest,
-        core_healthy: bool,
-        preflight: CapturePreflight,
-        operation: &CaptureOperation,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if preflight.reconciler_id != self.identity
-            || self.runtime_transition.load(Ordering::Acquire)
-        {
-            return Err(runtime_transition_error());
-        }
-        let _operation_guard = self.operation.try_lock().map_err(|_| {
-            CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Another aggregate Capture operation is already in progress",
-            )
-        })?;
-        if self.runtime_transition.load(Ordering::Acquire) || !self.operation_is_pending(operation)
-        {
-            return Err(runtime_transition_error());
-        }
-        self.reconcile_locked_with_preflight(request, core_healthy, Some(preflight), operation)
-            .await
-    }
-
-    pub async fn reconcile_runtime_transition(
-        &self,
-        transition: &CaptureRuntimeTransition,
-        request: CaptureRequest,
-        core_healthy: bool,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if !std::ptr::eq(self, Arc::as_ptr(&transition.reconciler))
-            || !self.runtime_transition.load(Ordering::Acquire)
-        {
-            return Err(runtime_transition_error());
-        }
-        let _operation = self.operation.lock().await;
-        let operation = self.admit_operation(&request)?;
-        self.reconcile_locked(request, core_healthy, &operation)
-            .await
-    }
-
-    async fn reconcile_locked(
-        &self,
-        request: CaptureRequest,
-        core_healthy: bool,
-        operation: &CaptureOperation,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        self.reconcile_locked_with_preflight(request, core_healthy, None, operation)
-            .await
-    }
-
-    async fn reconcile_locked_with_preflight(
-        &self,
-        request: CaptureRequest,
-        core_healthy: bool,
-        preflight: Option<CapturePreflight>,
-        operation: &CaptureOperation,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        let previous = self.confirmed_status();
-        let system_proxy_desired = request.active && request.selection.system_proxy;
-        let tun_desired = request.active && request.selection.tun;
-        if tun_desired && self.tun_availability() != CapabilityAvailability::Supported {
-            let failure = self
-                .tun
-                .as_ref()
-                .map(|tun| helper_snapshot_failure(&tun.helper.snapshot()))
-                .unwrap_or(TunFailureKind::CapabilityUnavailable);
-            let mut status = previous;
-            status.tun.desired = true;
-            status.tun.failure = Some(failure);
-            status.tun.phase = TunPhase::Failed;
-            self.finish_operation(operation, status, CaptureOperationPhase::Failed);
-            return Err(capture_error_from_tun_failure(failure));
-        }
-        if !self.operation_is_pending(operation) {
-            return Err(runtime_transition_error());
-        }
-
-        let tun_was_disabled = previous.tun_enabled && !tun_desired;
-        if tun_was_disabled && let Err(error) = self.set_tun(false, core_healthy).await {
-            let status = self.combined_status(request.selection);
-            self.finish_operation_for_error(operation, status, &error);
-            return Err(error);
-        }
-
-        if let Err(error) = self
-            .set_system_proxy(
-                system_proxy_desired,
-                &request.selection,
-                core_healthy,
-                preflight.and_then(|preflight| preflight.system_proxy),
-            )
-            .await
-        {
-            if tun_was_disabled && self.set_tun(true, core_healthy).await.is_err() {
-                let mut status = self.combined_status(request.selection);
-                status.tun.failure = Some(TunFailureKind::RollbackFailed);
-                status.tun.phase = TunPhase::Drift;
-                self.finish_operation(operation, status, CaptureOperationPhase::RecoveryRequired);
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RollbackFailed,
-                    "Traffic capture failed and the prior TUN state could not be confirmed",
-                ));
-            }
-            let status = self.combined_status(request.selection);
-            self.finish_operation_for_error(operation, status, &error);
-            return Err(error);
-        }
-
-        if tun_desired && let Err(original) = self.set_tun(true, core_healthy).await {
-            let original_tun_failure = self.tun.as_ref().and_then(|tun| tun.status().failure);
-            let rollback_system = self
-                .set_system_proxy(
-                    previous.system_proxy_enabled,
-                    &previous.capture_selection,
-                    core_healthy,
-                    None,
-                )
-                .await;
-            let rollback_tun = self.set_tun(previous.tun_enabled, core_healthy).await;
-            let mut status = self.combined_status(previous.capture_selection.clone());
-            if rollback_system.is_err() || rollback_tun.is_err() {
-                status.system_proxy.failure = Some(CaptureFailureKind::RollbackFailed);
-                status.system_proxy.phase = SystemProxyPhase::Drift;
-                status.tun.failure = Some(TunFailureKind::RollbackFailed);
-                status.tun.phase = TunPhase::Drift;
-                self.finish_operation(operation, status, CaptureOperationPhase::RecoveryRequired);
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RollbackFailed,
-                    "Traffic capture failed and the prior state could not be confirmed",
-                ));
-            }
-            status.tun.desired = true;
-            status.tun.failure = original_tun_failure;
-            status.tun.phase = TunPhase::Failed;
-            self.finish_operation(operation, status, CaptureOperationPhase::Failed);
-            return Err(original);
-        }
-
-        let status = self.combined_status(request.selection);
-        Ok(self
-            .finish_operation(operation, status, CaptureOperationPhase::Applied)
-            .unwrap_or_else(|| self.status()))
-    }
-
-    pub async fn audit(
-        &self,
-        reason: CaptureAuditReason,
-        core_healthy: bool,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Ok(self.status());
-        }
-        let _operation = self.operation.lock().await;
-        if self.runtime_transition.load(Ordering::Acquire) || self.has_pending_operation() {
-            return Ok(self.status());
-        }
-        let previous = self.confirmed_status();
-        let selection = previous.capture_selection.clone();
-        let request = CaptureRequest {
-            active: previous.system_proxy.desired || previous.tun.desired,
-            selection: selection.clone(),
-        };
-        let system_result = self
-            .system_proxy
-            .audit_with_mutation(reason, core_healthy)
-            .await;
-        let tun_result = match &self.tun {
-            Some(tun) => tun.audit(core_healthy).await,
-            None => Ok((TunRuntimeStatus::off(), false)),
-        };
-        let mutated =
-            matches!(&system_result, Ok((_, true))) || matches!(&tun_result, Ok((_, true)));
-        let status = self.combined_status(selection);
-        let authoritative_transition = !same_authoritative_capture_state(&previous, &status);
-        let error = system_result.err().or_else(|| tun_result.err());
-        if !mutated && !authoritative_transition {
-            return error.map_or(Ok(previous), Err);
-        }
-        let operation = self.admit_operation(&request)?;
-        if let Some(error) = error {
-            self.finish_operation_for_error(&operation, status, &error);
-            return Err(error);
-        }
-        let phase = if status.system_proxy.phase == SystemProxyPhase::Drift
-            || status.tun.phase == TunPhase::Drift
-        {
-            CaptureOperationPhase::RecoveryRequired
-        } else {
-            CaptureOperationPhase::Applied
-        };
-        Ok(self
-            .finish_operation(&operation, status, phase)
-            .unwrap_or_else(|| self.status()))
-    }
-
-    pub async fn recover(
-        &self,
-        action: CaptureRecoveryAction,
-        core_healthy: bool,
-    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if self.runtime_transition.load(Ordering::Acquire) {
-            return Err(runtime_transition_error());
-        }
-        let _operation = self.operation.lock().await;
-        let selection = self.confirmed_status().capture_selection;
-        let request = CaptureRequest {
-            active: self.confirmed_status().system_proxy.desired
-                || self.confirmed_status().tun.desired,
-            selection: selection.clone(),
-        };
-        let operation = self.admit_operation(&request)?;
-        if let Err(error) = self.system_proxy.recover(action, core_healthy).await {
-            let status = self.combined_status(selection);
-            self.finish_operation_for_error(&operation, status, &error);
-            return Err(error);
-        }
-        let status = self.combined_status(selection);
-        Ok(self
-            .finish_operation(&operation, status, CaptureOperationPhase::Applied)
-            .unwrap_or_else(|| self.status()))
-    }
-
-    fn operation_is_pending(&self, operation: &CaptureOperation) -> bool {
-        self.state
-            .lock()
-            .expect("aggregate capture state lock poisoned")
-            .pending_projection
+    fn tun_availability(&self) -> CapabilityAvailability {
+        self.tun
             .as_ref()
-            .is_some_and(|status| {
-                status.capture_operation.scope_epoch == operation.scope_epoch
-                    && status.capture_operation.operation_id.as_deref()
-                        == Some(operation.operation_id.as_str())
-                    && status.capture_operation.phase == CaptureOperationPhase::Pending
+            .map_or(CapabilityAvailability::Unavailable, |tun| {
+                tun.availability()
             })
     }
 
-    fn has_pending_operation(&self) -> bool {
-        self.state
-            .lock()
-            .expect("aggregate capture state lock poisoned")
-            .pending_projection
-            .is_some()
-    }
-
-    fn finish_operation_for_error(
-        &self,
-        operation: &CaptureOperation,
-        status: CaptureRuntimeStatus,
-        error: &CaptureTransitionError,
-    ) {
-        let phase = if error.kind == CaptureFailureKind::RollbackFailed
-            || status.system_proxy.phase == SystemProxyPhase::Drift
-            || status.tun.phase == TunPhase::Drift
-        {
-            CaptureOperationPhase::RecoveryRequired
-        } else {
-            CaptureOperationPhase::Failed
-        };
-        self.finish_operation(operation, status, phase);
-    }
-
-    fn finish_operation(
-        &self,
-        operation: &CaptureOperation,
-        mut status: CaptureRuntimeStatus,
-        phase: CaptureOperationPhase,
-    ) -> Option<CaptureRuntimeStatus> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("aggregate capture state lock poisoned");
-        let pending = state.pending_projection.as_ref()?;
-        if pending.capture_operation.scope_epoch != operation.scope_epoch
-            || pending.capture_operation.operation_id.as_deref()
-                != Some(operation.operation_id.as_str())
-            || pending.capture_operation.phase != CaptureOperationPhase::Pending
-        {
-            return None;
+    fn combined_status(&self, selection: CaptureSelection) -> CaptureRuntimeStatus {
+        let system_proxy = self.system_proxy.status();
+        let tun = self
+            .tun
+            .as_ref()
+            .map_or_else(TunRuntimeStatus::off, |tun| tun.status());
+        CaptureRuntimeStatus {
+            capture_operation: CaptureOperationStatus::detached(),
+            capture_selection: selection,
+            system_proxy: system_proxy.system_proxy,
+            system_proxy_enabled: system_proxy.system_proxy_enabled,
+            tun_enabled: tun.phase == TunPhase::Applied
+                && tun.observed == TunObservedState::Enabled,
+            tun,
         }
-        status.capture_operation = CaptureOperationStatus {
-            operation_id: Some(operation.operation_id.clone()),
-            phase,
-            scope_epoch: operation.scope_epoch.clone(),
-        };
-        state.confirmed = status.clone();
-        state.pending_projection = None;
-        drop(state);
-        if let Some(observer) = self
-            .confirmed_observer
-            .lock()
-            .expect("confirmed Capture observer lock poisoned")
-            .clone()
-        {
-            observer(&status);
-        }
-        let _ = self.updates.send(status.clone());
-        Some(status)
     }
 
     async fn set_system_proxy(
@@ -2630,21 +2015,757 @@ impl CaptureReconciler {
         }
     }
 
-    fn combined_status(&self, selection: CaptureSelection) -> CaptureRuntimeStatus {
-        let system_proxy = self.system_proxy.status();
-        let tun = self
-            .tun
-            .as_ref()
-            .map_or_else(TunRuntimeStatus::off, |tun| tun.status());
-        CaptureRuntimeStatus {
-            capture_operation: self.confirmed_status().capture_operation,
-            capture_selection: selection,
-            system_proxy: system_proxy.system_proxy,
-            system_proxy_enabled: system_proxy.system_proxy_enabled,
-            tun_enabled: tun.phase == TunPhase::Applied
-                && tun.observed == TunObservedState::Enabled,
-            tun,
+    async fn transition(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<CapturePreflight>,
+        previous: CaptureRuntimeStatus,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        let system_proxy_desired = request.active && request.selection.system_proxy;
+        let tun_desired = request.active && request.selection.tun;
+        if tun_desired && self.tun_availability() != CapabilityAvailability::Supported {
+            let failure = self
+                .tun
+                .as_ref()
+                .map(|tun| helper_snapshot_failure(&tun.helper.snapshot()))
+                .unwrap_or(TunFailureKind::CapabilityUnavailable);
+            if let Some(tun) = &self.tun {
+                let previous = tun.status();
+                tun.record_failure(true, failure, previous.observed, previous.observation);
+            }
+            return Err(capture_error_from_tun_failure(failure));
         }
+
+        let tun_was_disabled = previous.tun_enabled && !tun_desired;
+        if tun_was_disabled {
+            self.set_tun(false, core_healthy).await?;
+        }
+
+        if let Err(error) = self
+            .set_system_proxy(
+                system_proxy_desired,
+                &request.selection,
+                core_healthy,
+                preflight.and_then(|preflight| preflight.system_proxy),
+            )
+            .await
+        {
+            if tun_was_disabled && self.set_tun(true, core_healthy).await.is_err() {
+                if let Some(tun) = &self.tun {
+                    tun.record_drift(TunFailureKind::RollbackFailed);
+                }
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Traffic capture failed and the prior TUN state could not be confirmed",
+                ));
+            }
+            return Err(error);
+        }
+
+        if tun_desired && let Err(original) = self.set_tun(true, core_healthy).await {
+            let original_tun_failure = self.tun.as_ref().and_then(|tun| tun.status().failure);
+            let rollback_system = self
+                .set_system_proxy(
+                    previous.system_proxy_enabled,
+                    &previous.capture_selection,
+                    core_healthy,
+                    None,
+                )
+                .await;
+            let rollback_tun = self.set_tun(previous.tun_enabled, core_healthy).await;
+            if rollback_system.is_err() || rollback_tun.is_err() {
+                let system = self.system_proxy.status();
+                self.system_proxy
+                    .record_drift_failure(system, CaptureFailureKind::RollbackFailed);
+                if let Some(tun) = &self.tun {
+                    tun.record_drift(TunFailureKind::RollbackFailed);
+                }
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Traffic capture failed and the prior state could not be confirmed",
+                ));
+            }
+            if let Some(tun) = &self.tun
+                && let Some(failure) = original_tun_failure
+            {
+                let current = tun.status();
+                tun.record_failure(true, failure, current.observed, current.observation);
+            }
+            return Err(original);
+        }
+
+        Ok(self.combined_status(request.selection))
+    }
+
+    async fn observe(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        let system_result = self
+            .system_proxy
+            .audit_with_mutation(CaptureAuditReason::Periodic, core_healthy)
+            .await;
+        let tun_result = match &self.tun {
+            Some(tun) => tun.audit(core_healthy).await,
+            None => Ok((TunRuntimeStatus::off(), false)),
+        };
+        let status = self.combined_status(request.selection.clone());
+        if let Some(error) = system_result.err().or_else(|| tun_result.err()) {
+            return Err(error);
+        }
+        let system_proxy_desired = request.active && request.selection.system_proxy;
+        let tun_desired = request.active && request.selection.tun;
+        let system_proxy_confirmed = if system_proxy_desired {
+            status.system_proxy_enabled
+                && status.system_proxy.phase == SystemProxyPhase::Applied
+                && status.system_proxy.observed == SystemProxyObservedState::Mish
+        } else {
+            !status.system_proxy_enabled && status.system_proxy.phase == SystemProxyPhase::Off
+        };
+        let tun_confirmed = if tun_desired {
+            status.tun_enabled
+                && status.tun.phase == TunPhase::Applied
+                && status.tun.observed == TunObservedState::Enabled
+        } else {
+            !status.tun_enabled && status.tun.phase == TunPhase::Off
+        };
+        if !system_proxy_confirmed || !tun_confirmed {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::ObservationFailed,
+                "Capture mutation could not be confirmed by authoritative platform observation",
+            ));
+        }
+        Ok(status)
+    }
+
+    async fn audit_outcome(
+        &self,
+        reason: CaptureAuditReason,
+        core_healthy: bool,
+        previous: CaptureRuntimeStatus,
+    ) -> AuditOutcome {
+        let selection = previous.capture_selection.clone();
+        let system_result = self
+            .system_proxy
+            .audit_with_mutation(reason, core_healthy)
+            .await;
+        let tun_result = match &self.tun {
+            Some(tun) => tun.audit(core_healthy).await,
+            None => Ok((TunRuntimeStatus::off(), false)),
+        };
+        let mutated =
+            matches!(&system_result, Ok((_, true))) || matches!(&tun_result, Ok((_, true)));
+        let status = self.combined_status(selection);
+        let authoritative_transition = !same_authoritative_capture_state(&previous, &status);
+        AuditOutcome {
+            error: system_result.err().or_else(|| tun_result.err()),
+            mutated: mutated || authoritative_transition,
+            status,
+        }
+    }
+
+    async fn recover(
+        &self,
+        action: CaptureRecoveryAction,
+        core_healthy: bool,
+        request: CaptureRequest,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        self.system_proxy.recover(action, core_healthy).await?;
+        Ok(self.combined_status(request.selection))
+    }
+
+    async fn shutdown(
+        &self,
+        previous: CaptureRuntimeStatus,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        let owns_system_proxy = self.system_proxy.load_validated_journal()?.is_some();
+        let tun_may_be_active = previous.tun_enabled
+            || previous.tun.desired
+            || !matches!(previous.tun.phase, TunPhase::Off);
+        if !owns_system_proxy && !tun_may_be_active {
+            return Ok(previous);
+        }
+        let request = CaptureRequest {
+            active: false,
+            selection: previous.capture_selection.clone(),
+        };
+        self.transition(request.clone(), false, None, previous)
+            .await?;
+        self.observe(request, false).await
+    }
+}
+
+impl CaptureEffects for CaptureEffectAdapter {
+    fn preflight(
+        &self,
+        request: CaptureRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<CapturePreflight, CaptureTransitionError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let adapter = self.clone();
+        Box::pin(async move { adapter.preflight(request).await })
+    }
+
+    fn mutate(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<CapturePreflight>,
+        previous: CaptureRuntimeStatus,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = EffectOutcome> + Send + 'static>> {
+        let adapter = self.clone();
+        Box::pin(async move {
+            let selection = request.selection.clone();
+            let result = adapter
+                .transition(request, core_healthy, preflight, previous.clone())
+                .await;
+            let selection = if result.is_err() {
+                previous.capture_selection
+            } else {
+                selection
+            };
+            EffectOutcome {
+                error: result.err(),
+                status: adapter.combined_status(selection),
+            }
+        })
+    }
+
+    fn observe(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = EffectOutcome> + Send + 'static>> {
+        let adapter = self.clone();
+        Box::pin(async move {
+            let selection = request.selection.clone();
+            let result = adapter.observe(request, core_healthy).await;
+            EffectOutcome {
+                error: result.err(),
+                status: adapter.combined_status(selection),
+            }
+        })
+    }
+
+    fn audit(
+        &self,
+        reason: CaptureAuditReason,
+        core_healthy: bool,
+        previous: CaptureRuntimeStatus,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = AuditOutcome> + Send + 'static>> {
+        let adapter = self.clone();
+        Box::pin(async move { adapter.audit_outcome(reason, core_healthy, previous).await })
+    }
+
+    fn recover(
+        &self,
+        action: CaptureRecoveryAction,
+        core_healthy: bool,
+        request: CaptureRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = EffectOutcome> + Send + 'static>> {
+        let adapter = self.clone();
+        Box::pin(async move {
+            let selection = request.selection.clone();
+            let result = adapter.recover(action, core_healthy, request).await;
+            EffectOutcome {
+                error: result.err(),
+                status: adapter.combined_status(selection),
+            }
+        })
+    }
+
+    fn shutdown(
+        &self,
+        previous: CaptureRuntimeStatus,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<CaptureRuntimeStatus, CaptureTransitionError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let adapter = self.clone();
+        Box::pin(async move { adapter.shutdown(previous).await })
+    }
+}
+
+pub struct CaptureReconciler {
+    identity: u64,
+    machine_updates: watch::Receiver<u64>,
+    runner: RunnerHandle<CaptureMachine>,
+    runtime_transition: AtomicBool,
+    system_proxy: Arc<SystemProxyReconciler>,
+    tun: Option<Arc<TunReconciler>>,
+    confirmed_observer: Arc<Mutex<Option<ConfirmedCaptureObserver>>>,
+    updates: broadcast::Sender<CaptureRuntimeStatus>,
+}
+
+pub struct CaptureRuntimeTransition {
+    reconciler: Arc<CaptureReconciler>,
+}
+
+impl Drop for CaptureRuntimeTransition {
+    fn drop(&mut self) {
+        self.reconciler
+            .runtime_transition
+            .store(false, Ordering::Release);
+    }
+}
+
+impl CaptureReconciler {
+    pub fn new(
+        platform: Arc<dyn CapturePlatform>,
+        journal: Arc<dyn CaptureJournalStore>,
+        endpoint: LoopbackProxyEndpoint,
+    ) -> Self {
+        Self::new_with_tun(platform, journal, endpoint, None)
+    }
+
+    pub fn new_with_tun(
+        platform: Arc<dyn CapturePlatform>,
+        journal: Arc<dyn CaptureJournalStore>,
+        endpoint: LoopbackProxyEndpoint,
+        helper: Option<Arc<TunHelperController>>,
+    ) -> Self {
+        let system_proxy = Arc::new(SystemProxyReconciler::new(platform, journal, endpoint));
+        let tun = helper.map(|helper| Arc::new(TunReconciler::new(helper)));
+        let mut status = system_proxy.status();
+        if let Some(tun) = &tun {
+            status.tun = tun.status();
+        }
+        let scope_epoch = Uuid::new_v4().to_string();
+        status.capture_operation = CaptureOperationStatus::idle(scope_epoch.clone());
+        let (updates, _) = broadcast::channel(32);
+        let (machine_updates, machine_updates_receiver) = watch::channel(0);
+        let confirmed_observer = Mutex::new(None);
+        let confirmed_observer = Arc::new(confirmed_observer);
+        let identity = NEXT_CAPTURE_RECONCILER_ID.fetch_add(1, Ordering::Relaxed);
+        let machine = Arc::new(CaptureMachine {
+            machine_authority: scope_epoch,
+            scope_epoch: identity,
+        });
+        let runner = spawn_runner(
+            machine,
+            CaptureState::Stable(StableCapture {
+                last_error: None,
+                projection: status,
+                next_operation_id: 1,
+                revision: 0,
+            }),
+            Arc::new(CaptureExecutor {
+                effects: Arc::new(CaptureEffectAdapter {
+                    identity,
+                    system_proxy: system_proxy.clone(),
+                    tun: tun.clone(),
+                }),
+            }),
+            Arc::new(CaptureProjectionObserver {
+                confirmed: confirmed_observer.clone(),
+                machine_updates,
+                updates: updates.clone(),
+            }),
+            RunnerConfig::default(),
+        );
+        Self {
+            identity,
+            machine_updates: machine_updates_receiver,
+            runner,
+            runtime_transition: AtomicBool::new(false),
+            system_proxy,
+            tun,
+            confirmed_observer,
+            updates,
+        }
+    }
+
+    pub fn begin_runtime_transition(
+        self: &Arc<Self>,
+    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+        self.runtime_transition
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| runtime_transition_error())?;
+        Ok(CaptureRuntimeTransition {
+            reconciler: self.clone(),
+        })
+    }
+
+    pub fn status(&self) -> CaptureRuntimeStatus {
+        self.runner.snapshot().projection().clone()
+    }
+
+    /// Returns the last state confirmed by the capture platforms, excluding any public pending
+    /// operation projection. Runtime handoff and rollback decisions must use this state so a
+    /// newly requested launch is not mistaken for capture already owned by the previous runtime.
+    pub fn confirmed_status(&self) -> CaptureRuntimeStatus {
+        self.runner.snapshot().confirmed_projection().clone()
+    }
+
+    /// Publishes every aggregate Capture transition so transports can render the same
+    /// pending, confirmed, and attention phases without inventing local operation state.
+    pub fn subscribe(&self) -> broadcast::Receiver<CaptureRuntimeStatus> {
+        self.updates.subscribe()
+    }
+
+    pub(crate) fn set_confirmed_observer(&self, observer: ConfirmedCaptureObserver) {
+        *self
+            .confirmed_observer
+            .lock()
+            .expect("confirmed Capture observer lock poisoned") = Some(observer);
+    }
+
+    /// Admits one aggregate operation before any launch preparation begins.
+    ///
+    /// The prior terminal identity is retired only here, when a newer operation is accepted in
+    /// the same scope. Scope replacement constructs a new reconciler with an idle identity.
+    pub async fn admit_operation(
+        &self,
+        request: &CaptureRequest,
+    ) -> Result<CaptureOperation, CaptureTransitionError> {
+        let admission = self
+            .runner
+            .admit(CaptureInput::Reserve {
+                request: request.clone(),
+                mode: TransitionMode::Prepared,
+            })
+            .await?;
+        admission
+            .state
+            .operation()
+            .ok_or_else(runtime_transition_error)
+    }
+
+    pub async fn finish_operation_failure(
+        &self,
+        operation: &CaptureOperation,
+        error: &CaptureTransitionError,
+    ) -> CaptureRuntimeStatus {
+        let _ = self
+            .runner
+            .admit(CaptureInput::FailReserved {
+                error: error.clone(),
+                operation: operation.clone(),
+            })
+            .await;
+        self.status()
+    }
+
+    pub fn availability(&self) -> CapabilityAvailability {
+        self.system_proxy.availability()
+    }
+
+    /// Settings owns the durable choice; capture only reads the latest bounded policy when a
+    /// new System Proxy transaction begins.  Existing journals always restore exactly.
+    pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
+        self.system_proxy.set_takeover_policy(policy);
+    }
+
+    pub fn tun_availability(&self) -> CapabilityAvailability {
+        self.tun
+            .as_ref()
+            .map_or(CapabilityAvailability::Unavailable, |tun| {
+                tun.availability()
+            })
+    }
+
+    pub fn local_proxy_endpoint(&self) -> &LoopbackProxyEndpoint {
+        &self.system_proxy.endpoint
+    }
+
+    /// Reconcile capture for shutdown while holding the aggregate operation authority. A missing
+    /// System Proxy journal means there was no committed mutation to restore, so an unrelated
+    /// observation failure must not prevent the process from exiting.
+    pub async fn reconcile_for_shutdown(&self) -> Result<(), CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        if self.has_pending_operation() {
+            return Err(runtime_transition_error());
+        }
+        let admission = self.runner.shutdown().await;
+        match admission.state {
+            CaptureState::Retired(state) => state.error.map_or(Ok(()), Err),
+            _ => Err(runtime_transition_error()),
+        }
+    }
+
+    pub async fn test_local_proxy(
+        &self,
+        core_healthy: bool,
+        core_owns_listener: bool,
+    ) -> LocalProxyTestResult {
+        let endpoint = &self.system_proxy.endpoint;
+        let result = |phase| LocalProxyTestResult {
+            host: endpoint.host().to_string(),
+            phase,
+            port: endpoint.port(),
+        };
+        if !core_healthy {
+            return result(LocalProxyTestPhase::CoreUnhealthy);
+        }
+        if !core_owns_listener {
+            return result(LocalProxyTestPhase::ListenerUnavailable);
+        }
+        if self.runtime_transition.load(Ordering::Acquire) || self.has_pending_operation() {
+            return result(LocalProxyTestPhase::RuntimeTransition);
+        }
+        match self
+            .system_proxy
+            .platform
+            .confirm_proxy_listener(endpoint)
+            .await
+        {
+            Ok(()) => result(LocalProxyTestPhase::Ready),
+            Err(_) => result(LocalProxyTestPhase::ListenerUnavailable),
+        }
+    }
+
+    pub async fn reconcile(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        self.start_and_wait(request, core_healthy, None, TransitionMode::Ordinary)
+            .await
+    }
+
+    pub async fn preflight(
+        &self,
+        request: &CaptureRequest,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        self.preflight_cancellable(request, CancellationToken::new())
+            .await
+    }
+
+    pub async fn preflight_cancellable(
+        &self,
+        request: &CaptureRequest,
+        cancellation: CancellationToken,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let (reply, response) = oneshot::channel();
+        let request_cancellation = cancellation.child_token();
+        let mut guard = CapturePreflightGuard(Some(request_cancellation.clone()));
+        let mut machine_updates = self.machine_updates.clone();
+        let admission = self
+            .runner
+            .admit(CaptureInput::Preflight {
+                cancellation: request_cancellation,
+                reply: Arc::new(Mutex::new(Some(reply))),
+                request: request.clone(),
+            })
+            .await?;
+        let operation = admission
+            .state
+            .operation()
+            .ok_or_else(runtime_transition_error)?;
+        let result = response.await.map_err(|_| runtime_transition_error())?;
+        loop {
+            let state = self.runner.snapshot();
+            let preflight_pending = match &state {
+                CaptureState::Transitioning(current) => {
+                    operation.matches(&current.operation)
+                        && current.stage == TransitionStage::Preflighting
+                }
+                CaptureState::Reconciling(current) => operation.matches(&current.operation),
+                _ => false,
+            };
+            if !preflight_pending {
+                break;
+            }
+            machine_updates
+                .changed()
+                .await
+                .map_err(|_| runtime_transition_error())?;
+        }
+        guard.0.take();
+        result
+    }
+
+    pub async fn reconcile_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: CapturePreflight,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if preflight.reconciler_id != self.identity
+            || self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        self.start_and_wait(
+            request,
+            core_healthy,
+            Some(preflight),
+            TransitionMode::Ordinary,
+        )
+        .await
+    }
+
+    pub async fn reconcile_admitted_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if preflight.reconciler_id != self.identity
+            || self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        if self.runtime_transition.load(Ordering::Acquire) || !self.operation_is_pending(operation)
+        {
+            return Err(runtime_transition_error());
+        }
+        let mut machine_updates = self.machine_updates.clone();
+        self.runner
+            .admit(CaptureInput::ExecuteReserved {
+                core_healthy,
+                operation: operation.clone(),
+                preflight: Some(Box::new(preflight)),
+                request,
+            })
+            .await?;
+        self.wait_for_operation(operation, &mut machine_updates)
+            .await
+    }
+
+    pub async fn reconcile_runtime_transition(
+        &self,
+        transition: &CaptureRuntimeTransition,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if !std::ptr::eq(self, Arc::as_ptr(&transition.reconciler))
+            || !self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        self.start_and_wait(
+            request,
+            core_healthy,
+            None,
+            TransitionMode::RuntimeReplacement,
+        )
+        .await
+    }
+
+    async fn start_and_wait(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<CapturePreflight>,
+        mode: TransitionMode,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        let mut machine_updates = self.machine_updates.clone();
+        let admission = self
+            .runner
+            .admit(CaptureInput::Start {
+                core_healthy,
+                mode,
+                preflight: preflight.map(Box::new),
+                request,
+            })
+            .await?;
+        let operation = admission
+            .state
+            .operation()
+            .ok_or_else(runtime_transition_error)?;
+        self.wait_for_operation(&operation, &mut machine_updates)
+            .await
+    }
+
+    async fn wait_for_operation(
+        &self,
+        operation: &CaptureOperation,
+        machine_updates: &mut watch::Receiver<u64>,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        loop {
+            let state = self.runner.snapshot();
+            if !state
+                .active_operation()
+                .is_some_and(|active| operation.matches(active))
+            {
+                let status = state.projection().clone();
+                if let Some(error) = state.last_error() {
+                    return Err(error.clone());
+                }
+                return Ok(status);
+            }
+            machine_updates
+                .changed()
+                .await
+                .map_err(|_| runtime_transition_error())?;
+        }
+    }
+
+    pub async fn audit(
+        &self,
+        reason: CaptureAuditReason,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) || self.has_pending_operation() {
+            return Ok(self.status());
+        }
+        let mut machine_updates = self.machine_updates.clone();
+        let admission = self
+            .runner
+            .admit(CaptureInput::Audit {
+                core_healthy,
+                reason,
+            })
+            .await?;
+        let Some(operation) = admission.state.operation() else {
+            return Ok(admission.state.projection().clone());
+        };
+        self.wait_for_operation(&operation, &mut machine_updates)
+            .await
+    }
+
+    pub async fn recover(
+        &self,
+        action: CaptureRecoveryAction,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let mut machine_updates = self.machine_updates.clone();
+        let admission = self
+            .runner
+            .admit(CaptureInput::Recover {
+                action,
+                core_healthy,
+            })
+            .await?;
+        let operation = admission
+            .state
+            .operation()
+            .ok_or_else(runtime_transition_error)?;
+        self.wait_for_operation(&operation, &mut machine_updates)
+            .await
+    }
+
+    fn operation_is_pending(&self, operation: &CaptureOperation) -> bool {
+        self.runner
+            .snapshot()
+            .active_operation()
+            .is_some_and(|active| operation.matches(active))
+    }
+
+    fn has_pending_operation(&self) -> bool {
+        self.runner.snapshot().active_operation().is_some()
     }
 }
 

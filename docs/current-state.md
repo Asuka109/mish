@@ -43,7 +43,11 @@ Evidence labels on this page have strict meanings:
   WebView, Browser Client, native status menu, and reconnecting clients.
   Application snapshots have monotonic ordering, runtime-scoped commands reject
   replaced-runtime completion, capture operations have explicit identities, and
-  Profile activation has a typed data-bearing lifecycle.
+  Profile activation has a typed data-bearing lifecycle. Capture's aggregate
+  lifecycle is a domain-owned outer state machine whose `Applied` terminal is
+  gated by authoritative Core/platform observation; its existing System Proxy
+  journal, TUN adapter, public protocol, and cross-surface projections are
+  unchanged.
 - Recent Traffic authority is retained on the Rust side. Web pause/resume keeps
   a presentation snapshot while continuing to receive the latest authoritative
   state.

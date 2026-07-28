@@ -14,7 +14,7 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
-    CoreRuntime, LoopbackProxyEndpoint, MishRuntime, RuntimeShutdownFailure,
+    CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -844,18 +844,25 @@ impl MihomoActivationManager {
     pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
         self.recover_startup().await?;
         let mut state = self.state.lock().await;
-        state.capture_transition = None;
+        let capture_transition = match state.capture_transition.take() {
+            Some(transition) => Some(transition),
+            None => match &self.capture {
+                Some(capture) => Some(
+                    capture
+                        .clone()
+                        .begin_runtime_transition()
+                        .map_err(|_| MihomoActivationError::CaptureFailed)?,
+                ),
+                None => None,
+            },
+        };
         if let Some(active) = state.active.as_ref() {
+            self.suspend_capture(capture_transition.as_ref()).await?;
             active
                 .runtime
-                .shutdown()
+                .stop_core()
                 .await
-                .map_err(|failure| match failure {
-                    RuntimeShutdownFailure::CaptureRestoration => {
-                        MihomoActivationError::CaptureFailed
-                    }
-                    RuntimeShutdownFailure::CoreStop => MihomoActivationError::ShutdownFailed,
-                })?;
+                .map_err(|_| MihomoActivationError::ShutdownFailed)?;
         }
         if let Some(active) = state.active.take() {
             active.source.close().await;
