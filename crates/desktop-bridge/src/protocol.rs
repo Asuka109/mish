@@ -2171,6 +2171,14 @@ async fn set_aggregate_capture(
     state: &ProtocolState,
     params: SetCaptureParams,
 ) -> Result<Value, CaptureTransitionError> {
+    ensure_capture_surface_authority(
+        state,
+        &CaptureRequest {
+            active: params.active,
+            selection: params.selection.clone(),
+        },
+    )
+    .await?;
     if !params.active {
         return set_capture_with_core_reactivation(
             state,
@@ -2218,18 +2226,6 @@ async fn requested_capture_selection(
     state: &ProtocolState,
     selection: CaptureSelection,
 ) -> Result<CaptureSelection, CaptureTransitionError> {
-    if selection.system_proxy && selection.tun {
-        return Err(CaptureTransitionError::new(
-            CaptureFailureKind::UnsupportedSelection,
-            "System Proxy and Virtual Interface are mutually exclusive Capture modes",
-        ));
-    }
-    if selection.tun && state.client_surface == RpcClientSurface::Browser {
-        return Err(CaptureTransitionError::new(
-            CaptureFailureKind::CapabilityUnavailable,
-            "Virtual Interface can only be controlled by the packaged desktop application",
-        ));
-    }
     let snapshot = state
         .runtime
         .status_snapshot_typed(StatusAdapterKind::Rpc)
@@ -2249,6 +2245,31 @@ async fn requested_capture_selection(
         Err(CaptureTransitionError::new(
             CaptureFailureKind::UnsupportedSelection,
             "No available Capture mode can be launched on this system",
+        ))
+    }
+}
+
+async fn ensure_capture_surface_authority(
+    state: &ProtocolState,
+    request: &CaptureRequest,
+) -> Result<(), CaptureTransitionError> {
+    if state.client_surface == RpcClientSurface::Native {
+        return Ok(());
+    }
+    let snapshot = state
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    let requested_tun = request.active && request.selection.tun;
+    let current_tun = &snapshot.runtime.tun;
+    let preserves_off = !requested_tun && !current_tun.desired;
+    let preserves_applied = requested_tun && current_tun.desired && snapshot.runtime.tun_enabled;
+    if preserves_off || preserves_applied {
+        Ok(())
+    } else {
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::CapabilityUnavailable,
+            "Virtual Interface can only be changed by the packaged desktop application",
         ))
     }
 }

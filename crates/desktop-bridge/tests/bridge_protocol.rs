@@ -414,7 +414,17 @@ impl WindowSurfacePlatform for MemoryWindowSurfacePlatform {
 
 struct MemoryNetworkDnsPlatform;
 
-struct HealthyTunHelperPlatform;
+#[derive(Default)]
+struct HealthyTunHelperPlatform {
+    enabled: Mutex<bool>,
+    set_count: AtomicUsize,
+}
+
+impl HealthyTunHelperPlatform {
+    fn set_count(&self) -> usize {
+        self.set_count.load(Ordering::SeqCst)
+    }
+}
 
 impl TunHelperPlatform for HealthyTunHelperPlatform {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
@@ -441,10 +451,19 @@ impl TunHelperPlatform for HealthyTunHelperPlatform {
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
-        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+        let enabled = *self.enabled.lock().unwrap();
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
     }
 
-    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        self.set_count.fetch_add(1, Ordering::SeqCst);
+        *self.enabled.lock().unwrap() = enabled;
         Box::pin(async { Ok(()) })
     }
 }
@@ -526,6 +545,33 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
     (
         MishRuntime::with_capture(Arc::new(RunningCore), capture),
         platform,
+    )
+}
+
+fn capture_runtime_with_tun() -> (MishRuntime, Arc<HealthyTunHelperPlatform>) {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "rpc-tun-fixture-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let helper_platform = Arc::new(HealthyTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    ));
+    (
+        MishRuntime::with_capture(Arc::new(RunningCore), capture),
+        helper_platform,
     )
 }
 
@@ -1892,7 +1938,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
 async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle() {
     let mut bridge_config = config();
     bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
-        TunHelperController::new(Arc::new(HealthyTunHelperPlatform)),
+        TunHelperController::new(Arc::new(HealthyTunHelperPlatform::default())),
     ))));
     let bridge = start_loopback_server(bridge_config, runtime(no_core()))
         .await
@@ -2991,7 +3037,7 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
     assert_eq!(tun["error"]["code"], -32050);
     assert_eq!(tun["error"]["data"]["kind"], "capability-unavailable");
     assert!(tun.get("result").is_none());
-    let ambiguous = request(
+    let unavailable_combination = request(
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
@@ -2999,9 +3045,12 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         }),
     )
     .await;
-    assert_eq!(ambiguous["error"]["code"], -32050);
-    assert_eq!(ambiguous["error"]["data"]["kind"], "unsupported-selection");
-    assert!(ambiguous.get("result").is_none());
+    assert_eq!(unavailable_combination["error"]["code"], -32050);
+    assert_eq!(
+        unavailable_combination["error"]["data"]["kind"],
+        "capability-unavailable"
+    );
+    assert!(unavailable_combination.get("result").is_none());
     let after_rejected_tun = request(
         &mut ws,
         json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
@@ -3015,6 +3064,109 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         after_rejected_tun["result"]["runtime"]["captureSelection"]["tun"],
         false
     );
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn native_capture_rpc_supports_combined_capture_without_reissuing_applied_tun() {
+    let (runtime, helper) = capture_runtime_with_tun();
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+
+    let tun = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(tun.get("error").is_none());
+    assert_eq!(tun["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(tun["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let combined = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(combined.get("error").is_none());
+    assert_eq!(combined["result"]["runtime"]["systemProxyEnabled"], true);
+    assert_eq!(combined["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(
+        combined["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":true,"tun":true})
+    );
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut browser).await;
+    let browser_tun_only = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(browser_tun_only.get("error").is_none());
+    assert_eq!(
+        browser_tun_only["result"]["runtime"]["systemProxyEnabled"],
+        false
+    );
+    assert_eq!(browser_tun_only["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_combined = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(browser_combined.get("error").is_none());
+    assert_eq!(
+        browser_combined["result"]["runtime"]["systemProxyEnabled"],
+        true
+    );
+    assert_eq!(browser_combined["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_stop = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert_eq!(browser_stop["error"]["code"], -32050);
+    assert_eq!(
+        browser_stop["error"]["data"]["kind"],
+        "capability-unavailable"
+    );
+    assert_eq!(helper.set_count(), 1);
+
+    let stopped = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":7, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(stopped.get("error").is_none());
+    assert_eq!(stopped["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(stopped["result"]["runtime"]["tunEnabled"], false);
+    assert_eq!(helper.set_count(), 2);
+
     bridge.shutdown().await;
 }
 

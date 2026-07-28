@@ -242,9 +242,7 @@ export function StatusPage() {
         : LL.status.deviceActivity();
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
-    const selection = selected
-      ? { systemProxy: mode === "systemProxy", tun: mode === "tun" }
-      : { ...captureRuntime.captureSelection, [mode]: false };
+    const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
     setOptimisticCaptureSelection(selection);
     setPendingCaptureMode(mode);
