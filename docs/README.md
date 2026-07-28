@@ -24,6 +24,7 @@ of treating an implementation accident as intent.
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)           | [`architecture/native-localization.md`](architecture/native-localization.md), TUN, packaging, network/DNS, or sidebar document below                                                                                         |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)             | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
 | Validation/release claims | The target-specific quality document                                                                   | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
+| GitHub Actions / Mac mini | [`operations/self-hosted-macos-runner.md`](operations/self-hosted-macos-runner.md)                     | [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md), [`quality/production-web-validation.md`](quality/production-web-validation.md)                                                           |
 | Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                       | [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md), [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                 |
 | Signed macOS updates      | [`architecture/updater-contract.md`](architecture/updater-contract.md)                                 | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                                                                                                                                             |
 
@@ -104,6 +105,9 @@ of treating an implementation accident as intent.
   manifest and immutable artifact binding, CODEOWNERS, Environment/OIDC/runner
   activation prerequisites, adversarial fixtures, and current GitHub plan
   limitations.
+- [`operations/self-hosted-macos-runner.md`](operations/self-hosted-macos-runner.md)
+  — trusted event routing, dedicated Mac mini account, runner lifecycle,
+  cleanup hooks, offline behavior, rollback, and hands-on acceptance.
 - [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)
   and [`quality/mobile-validation.md`](quality/mobile-validation.md) — Android
   build/device procedure and mobile evidence levels.

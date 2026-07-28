@@ -6,8 +6,8 @@ state, not evidence that a protected gate ran successfully.
 
 The repository is private and its current GitHub plan does not expose protected
 branches, rulesets, or reviewer-protected Environments. Repository Actions
-settings also do not enforce a selected action allowlist or full-SHA pinning,
-and the repository OIDC subject uses GitHub's default template. Therefore
+settings enforce selected actions and full-SHA pins for routine CI, while the
+repository OIDC subject still uses GitHub's default template. Therefore
 `.github/trusted-release-policy.json` keeps protected execution and OIDC
 disabled. No production secret or signing identity may be configured while
 that flag is false.
@@ -33,10 +33,14 @@ able to:
 - invoke a privileged reusable workflow with attacker-controlled inputs; or
 - create a tag, Release, attestation, deployment, or Mish-signed artifact.
 
-Routine PR validation runs only on `ubuntu-24.04` with `contents: read`. It does
-not use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
-upload. The existing `asuk-mini` runner may remain registered for trusted local
-operations, but no untrusted workflow targets it.
+Routine PR validation uses the reviewed default-branch `pull_request_target`
+workflow only for the repository owner's same-repository head SHA. Forks,
+another actor, Dependabot, merge refs, and modified workflow definitions fail
+before allocation. The job uses the dedicated repository-level Mac mini runner
+with `contents: read`; it receives no secret or OIDC token, calls no reusable
+workflow, restores no main-scoped dependency cache, and uploads no artifact.
+The complete runner lifecycle and cleanup contract is in
+[`self-hosted-macos-runner.md`](self-hosted-macos-runner.md).
 
 ## Current executable workflow
 
@@ -56,9 +60,10 @@ equal that workflow SHA. An optional source must be a full commit SHA reachable
 from the frozen main SHA. All later jobs check out the exact source and an
 isolated `.release-tooling` tree at the workflow SHA.
 
-The Alpha build is still untrusted. It executes candidate source only on a
-GitHub-hosted runner with `contents: read`, then writes a deterministic
-candidate manifest. The manifest binds repository, actor, event, ref, run,
+The Alpha build remains a credential-free candidate rather than a trusted
+release. It executes only a frozen source reachable from reviewed `main` on the
+dedicated runner with `contents: read`, then writes a deterministic candidate
+manifest. The manifest binds repository, actor, event, ref, run,
 source SHA, main SHA, workflow SHA, tooling SHA, every relative file name,
 role, byte count, SHA-256, and the canonical whole-set SHA-256. Upload uses
 one-day retention. The read-only decision job downloads by immutable artifact
@@ -73,14 +78,13 @@ attestation command, tag/Release mutation, or deployment command.
 
 The `internal-tun-alpha` branch is a credential-free private artifact staging
 lane, not protected signing or release publication. It requires source, frozen
-`main`, workflow, and tooling to be the same full SHA. One isolated
-GitHub-hosted Apple Silicon job builds the ad-hoc package, deterministic DMG,
-SPDX SBOM, in-toto/SLSA provenance, and complete candidate manifest. A separate
-Apple Silicon job downloads only that immutable artifact ID and mounts the DMG
-read-only for independent verification. A secretless Ubuntu job binds the
-candidate and verification artifact IDs into a final non-overwriting 14-day
-stage, and a fresh Apple Silicon job reverifies the final artifact ID before
-writing any successful summary.
+`main`, workflow, and tooling to be the same full SHA. Serialized jobs on the
+dedicated Apple Silicon runner build the ad-hoc package, deterministic DMG,
+SPDX SBOM, in-toto/SLSA provenance, and complete candidate manifest; download
+only immutable artifact IDs for independent read-only verification; bind
+candidate and verification into a non-overwriting 14-day stage; and reverify
+the final artifact ID before writing any successful summary. Workspace cleanup
+between jobs prevents the later verifier from trusting the prior checkout.
 
 The final manifest binds repository/actor/event/ref/run identity, source and
 workflow/tooling SHA, profile/version, Helper/Core/plist digests and versions,
@@ -92,8 +96,8 @@ substituted, unexpected, missing, or mismatched input fails closed.
 replacing an existing immutable stage.
 
 This lane retains only `contents: read` repository permission. It receives no
-secret, OIDC token, protected Environment, self-hosted runner, Apple credential,
-tag/Release mutation, or deployment permission. Its ad-hoc DMG remains private
+secret, OIDC token, protected Environment, Apple credential, tag/Release
+mutation, or deployment permission. Its ad-hoc DMG remains private
 Internal TUN Alpha material and cannot become project-trusted or public release
 evidence. Billing or runner allocation failure produces no final artifact and
 must not be reported as successful staging.
@@ -112,17 +116,18 @@ below is observed through `pnpm audit:ci:trust-settings`:
    `main` only, required reviewer `18379948`, and no administrator bypass.
    Store signer inputs only in `macos-developer-id`; the publication
    Environment must not receive Apple credentials.
-4. Restrict repository Actions to the explicit allowlist and require every
-   action to use a full commit SHA. The checked-in workflows already pin and
-   deterministically verify those SHAs; repository settings must add the
-   server-side control.
+4. Preserve the existing selected-action and full-commit-SHA repository
+   setting. The checked-in workflows independently allowlist and verify the
+   exact SHAs.
 5. Configure OIDC only if a protected service requires it. Its subject and
    provider trust policy must bind repository and owner IDs, event, main ref,
    exact workflow and reusable-workflow paths and SHAs, Environment, actor ID,
    run ID, and run attempt. A broad repository-only subject is insufficient.
-6. Keep untrusted and protected jobs on GitHub-hosted images. A future dedicated
-   signer may use an ephemeral isolated runner group only if GitHub can restrict
-   it to the exact protected workflow. A general self-hosted label is forbidden.
+6. Keep future external/untrusted validation on GitHub-hosted or ephemeral
+   images. Keep protected secret-bearing jobs on GitHub-hosted images; a future
+   dedicated signer may use an ephemeral isolated runner group only if GitHub
+   can restrict it to the exact protected workflow. The persistent routine-CI
+   runner is forbidden for signing, notarization, publication, and deployment.
 7. Keep protected reusable workflows disabled unless a caller and callee are
    both pinned by full commit SHA and the callee independently validates every
    input. `secrets: inherit`, branch/tag references, arbitrary callers, and

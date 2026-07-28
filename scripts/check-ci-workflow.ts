@@ -12,19 +12,20 @@ type Step = {
 };
 
 type Job = {
+  concurrency?: { "cancel-in-progress"?: boolean; group?: string };
   env?: Record<string, unknown>;
   if?: string;
   needs?: unknown;
+  permissions?: Record<string, string>;
   "runs-on"?: string | string[];
   steps?: Step[];
   "timeout-minutes"?: number;
 };
 
 type Workflow = {
-  concurrency?: { group?: string };
   jobs?: Record<string, Job>;
   on?: {
-    pull_request?: unknown;
+    pull_request_target?: { types?: string[] };
     push?: { branches?: string[] };
     schedule?: Array<{ cron?: string }>;
     workflow_dispatch?: {
@@ -47,9 +48,8 @@ const workflow = document.toJS() as Workflow;
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"),
 ) as { scripts?: Record<string, string> };
-const pullRequestOnly = "github.event_name == 'pull_request'";
-const inspectionOnly =
-  "github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))";
+const runnerLabels = ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"];
+const concurrencyGroup = "mish-self-hosted-ci";
 const packageTrigger =
   "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))";
 const pnpmAction = "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271";
@@ -75,7 +75,7 @@ function step(jobValue: Job, name: string): Step {
   return value;
 }
 
-function assertNodeCache(jobValue: Job, label: string): void {
+function assertNodeSetup(jobValue: Job, label: string, cache: boolean): void {
   const pnpm = step(jobValue, "Set up pnpm");
   invariant(pnpm.uses === pnpmAction, `${label} must pin the reviewed pnpm setup action.`);
   invariant(pnpm.with?.version === "11.13.1", `${label} must pin the workspace pnpm version.`);
@@ -83,11 +83,16 @@ function assertNodeCache(jobValue: Job, label: string): void {
 
   const node = step(jobValue, "Set up Node.js");
   invariant(node.uses === setupNodeAction, `${label} must pin the reviewed Node setup action.`);
-  invariant(node.with?.cache === "pnpm", `${label} must restore the pnpm store cache.`);
-  invariant(
-    node.with?.["cache-dependency-path"] === "pnpm-lock.yaml",
-    `${label} must key the pnpm cache from pnpm-lock.yaml.`,
-  );
+  invariant(node.with?.["node-version"] === "24.10.0", `${label} must pin Node.js 24.10.0.`);
+  if (cache) {
+    invariant(node.with?.cache === "pnpm", `${label} must restore the pnpm store cache.`);
+    invariant(
+      node.with?.["cache-dependency-path"] === "pnpm-lock.yaml",
+      `${label} must key the pnpm cache from pnpm-lock.yaml.`,
+    );
+  } else {
+    invariant(node.with?.cache === undefined, `${label} must not write a main-scoped cache.`);
+  }
 }
 
 function assertRustCache(jobValue: Job, stepName: string, sharedKey: string): void {
@@ -104,8 +109,11 @@ function assertRustCache(jobValue: Job, stepName: string, sharedKey: string): vo
 }
 
 invariant(
-  workflow.on && Object.prototype.hasOwnProperty.call(workflow.on, "pull_request"),
-  "CI must validate pull requests.",
+  workflow.on &&
+    Object.prototype.hasOwnProperty.call(workflow.on, "pull_request_target") &&
+    JSON.stringify(workflow.on.pull_request_target?.types) ===
+      JSON.stringify(["opened", "reopened", "synchronize", "ready_for_review"]),
+  "CI must validate bounded pull_request_target activities from the default workflow.",
 );
 invariant(
   JSON.stringify(workflow.on?.push?.branches) === JSON.stringify(["main"]),
@@ -127,19 +135,47 @@ invariant(
   JSON.stringify(dispatchTask.options) === JSON.stringify(["inspection", "packages", "all"]),
   "Manual CI dispatch must support inspection, packages, or both.",
 );
-invariant(
-  workflow.concurrency?.group?.includes("github.event_name"),
-  "CI concurrency must not let an inspection cancel a package run.",
-);
+for (const [jobName, candidate] of Object.entries(workflow.jobs ?? {})) {
+  invariant(
+    JSON.stringify(candidate["runs-on"]) === JSON.stringify(runnerLabels),
+    `${jobName} must route only to the exact dedicated Apple Silicon runner labels.`,
+  );
+  invariant(
+    JSON.stringify(candidate.permissions) === JSON.stringify({ contents: "read" }),
+    `${jobName} must independently retain contents: read.`,
+  );
+  invariant(
+    candidate.concurrency?.group === concurrencyGroup &&
+      candidate.concurrency["cancel-in-progress"] === false,
+    `${jobName} must share the non-cancelling runner concurrency lock.`,
+  );
+  const boundary = candidate.steps?.[0];
+  invariant(
+    boundary?.name === "Verify dedicated runner boundary" &&
+      boundary.run?.includes('"$RUNNER_NAME" = "mish-macos-arm64-01"') &&
+      boundary.run.includes('"$(id -un)" = "mish-ci"') &&
+      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
+      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED") &&
+      boundary.run.includes("/dev/console"),
+    `${jobName} must fail closed on runner identity, account, hooks, and inactive console use.`,
+  );
+}
 
 const prGate = job("pr-gate");
-invariant(prGate.if === pullRequestOnly, "The fast gate must run only for pull requests.");
 invariant(
-  prGate["runs-on"] === "ubuntu-24.04",
-  "The untrusted fast gate must use an isolated GitHub-hosted runner.",
+  prGate.if?.includes("github.event_name == 'pull_request_target'") &&
+    prGate.if.includes("github.actor_id == '18379948'") &&
+    prGate.if.includes("github.event.pull_request.head.repo.id == 1304960811") &&
+    prGate.if.includes("github.event.pull_request.head.repo.full_name == 'Asuka109/mish'") &&
+    prGate.if.includes("github.workflow_sha == github.sha"),
+  "The fast gate must bind the exact repository, owner actor, default workflow, and head repository.",
 );
 invariant(prGate["timeout-minutes"] === 10, "The fast gate must retain its ten-minute ceiling.");
-assertNodeCache(prGate, "The fast gate");
+assertNodeSetup(prGate, "The fast gate", false);
+invariant(
+  step(prGate, "Check out repository").with?.ref === "${{ github.event.pull_request.head.sha }}",
+  "The fast gate must check out the exact head SHA, never the pull-request merge ref.",
+);
 invariant(
   step(prGate, "Install dependencies").run === "pnpm install --frozen-lockfile",
   "The fast gate must install frozen dependencies.",
@@ -163,9 +199,14 @@ invariant(
 );
 
 const inspectMain = job("inspect-main");
-invariant(inspectMain.if === inspectionOnly, "Heavy validation must be inspection-only.");
-invariant(inspectMain["runs-on"] === "macos-15", "Main inspection must use macos-15.");
-assertNodeCache(inspectMain, "Main inspection");
+invariant(
+  inspectMain.if?.includes("github.event_name == 'schedule'") &&
+    inspectMain.if.includes("github.event_name == 'workflow_dispatch'") &&
+    inspectMain.if.includes("github.ref == 'refs/heads/main'") &&
+    inspectMain.if.includes("github.workflow_sha == github.sha"),
+  "Heavy validation must be trusted main schedule/manual inspection only.",
+);
+assertNodeSetup(inspectMain, "Main inspection", true);
 assertRustCache(inspectMain, "Cache Rust dependencies and build outputs", "main-inspection");
 invariant(
   step(inspectMain, "Check out repository").with?.ref === "main",
@@ -185,13 +226,16 @@ invariant(
 );
 
 const packageMacos = job("package-macos");
-invariant(packageMacos["runs-on"] === "macos-15", "Packaging must use macos-15 ARM64.");
 invariant(
-  packageMacos.if === packageTrigger,
-  "Packaging must use only main push or manual package dispatch.",
+  packageMacos.if?.includes("github.event_name == 'push'") &&
+    packageMacos.if.includes("github.event_name == 'workflow_dispatch'") &&
+    packageMacos.if.includes("github.ref == 'refs/heads/main'") &&
+    packageMacos.if.includes("github.actor_id == '18379948'") &&
+    packageMacos.if.includes("github.workflow_sha == github.sha"),
+  "Packaging must use only owner-triggered trusted main push or manual dispatch.",
 );
 invariant(packageMacos.needs === undefined, "Packaging must remain independent from validation.");
-assertNodeCache(packageMacos, "macOS packaging");
+assertNodeSetup(packageMacos, "macOS packaging", true);
 assertRustCache(packageMacos, "Cache Rust dependencies and build outputs", "macos-package");
 
 const upload = step(packageMacos, "Upload Apple Silicon test package");
@@ -286,16 +330,15 @@ invariant(
 );
 
 const packageAndroid = job("package-android");
-invariant(packageAndroid["runs-on"] === "ubuntu-24.04", "Android packaging must use Ubuntu 24.04.");
 invariant(
-  packageAndroid.if === packageTrigger,
-  "Android packaging must use only main push or manual package dispatch.",
+  packageAndroid.if === packageMacos.if,
+  "Android and macOS packaging must share the same trusted-main routing guard.",
 );
 invariant(
   packageAndroid.needs === undefined,
   "Android packaging must remain independent from validation.",
 );
-assertNodeCache(packageAndroid, "Android packaging");
+assertNodeSetup(packageAndroid, "Android packaging", true);
 assertRustCache(
   packageAndroid,
   "Cache Rust dependencies and Android build outputs",
@@ -418,7 +461,11 @@ invariant(
   !androidVerification.includes("mobile-core/evidence/android-v1.19.29/SHA256SUMS"),
   "CI must verify packaged Core hashes against the current host build evidence.",
 );
+invariant(
+  androidVerification.includes("shasum -a 256") && !androidVerification.includes("sha256sum"),
+  "Android package verification must use the macOS-native SHA-256 command.",
+);
 
 console.log(
-  "CI workflow contract valid: PRs use the fast gate, main pushes package, and scheduled/manual main inspections run the heavy suite.",
+  "CI workflow contract valid: owner-only same-repository PR heads, trusted main packages, and scheduled/manual main inspections use the dedicated serialized Apple Silicon runner.",
 );

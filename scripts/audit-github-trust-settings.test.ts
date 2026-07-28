@@ -10,6 +10,14 @@ import {
 
 const policy: TrustPolicy = {
   activation: { enabled: false },
+  actions: {
+    allowed: {
+      "Swatinem/rust-cache": "e18b497796c12c097a38f9edb9d0641fb99eee32",
+      "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
+      "android-actions/setup-android": "40fd30fb8d7440372e1316f5d1809ec01dcd3699",
+      "pnpm/action-setup": "0ebf47130e4866e96fce0953f49152a61190b271",
+    },
+  },
   protected: {
     environments: {
       "macos-developer-id": {
@@ -30,6 +38,10 @@ const policy: TrustPolicy = {
     defaultBranch: "main",
     name: "Asuka109/mish",
     trustedRef: "refs/heads/main",
+  },
+  trustedSelfHostedCi: {
+    runnerLabels: ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"],
+    runnerName: "mish-macos-arm64-01",
   },
 };
 
@@ -91,6 +103,32 @@ function readyEndpoints(): TrustEndpointResults {
       use_immutable_subject: true,
     }),
     rulesets: result([]),
+    runners: result({
+      runners: [
+        {
+          labels: [
+            { name: "self-hosted" },
+            { name: "macOS" },
+            { name: "ARM64" },
+            { name: "mish" },
+            { name: "trusted-ci" },
+          ],
+          name: "mish-macos-arm64-01",
+          os: "macOS",
+          status: "online",
+        },
+      ],
+      total_count: 1,
+    }),
+    selectedActions: result({
+      github_owned_allowed: true,
+      patterns_allowed: [
+        "Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32",
+        "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699",
+        "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271",
+      ],
+      verified_allowed: false,
+    }),
     workflowToken: result({
       can_approve_pull_request_reviews: false,
       default_workflow_permissions: "read",
@@ -162,6 +200,55 @@ test("wrong reviewers or additional deployment refs fail closed", () => {
   assert.ok(
     evaluateGitHubTrustSettings(policy, additionalBranch).blockers.some((blocker) =>
       blocker.includes("release-publication"),
+    ),
+  );
+});
+
+test("missing, offline, or broadly labeled routine runner fails closed", () => {
+  const offline = readyEndpoints();
+  offline.runners = result({
+    runners: [
+      {
+        labels: [
+          { name: "self-hosted" },
+          { name: "macOS" },
+          { name: "ARM64" },
+          { name: "mish" },
+          { name: "trusted-ci" },
+        ],
+        name: "mish-macos-arm64-01",
+        os: "macOS",
+        status: "offline",
+      },
+    ],
+  });
+  assert.ok(
+    evaluateGitHubTrustSettings(policy, offline).blockers.some((blocker) =>
+      blocker.includes("dedicated self-hosted macOS runner"),
+    ),
+  );
+
+  const extraLabel = readyEndpoints();
+  extraLabel.runners = result({
+    runners: [
+      {
+        labels: [
+          { name: "self-hosted" },
+          { name: "macOS" },
+          { name: "ARM64" },
+          { name: "mish" },
+          { name: "trusted-ci" },
+          { name: "general-purpose" },
+        ],
+        name: "mish-macos-arm64-01",
+        os: "macOS",
+        status: "online",
+      },
+    ],
+  });
+  assert.ok(
+    evaluateGitHubTrustSettings(policy, extraLabel).blockers.some((blocker) =>
+      blocker.includes("exact required label"),
     ),
   );
 });

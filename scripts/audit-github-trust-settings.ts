@@ -18,6 +18,9 @@ interface EnvironmentPolicy {
 
 export interface TrustPolicy {
   activation: { enabled: boolean };
+  actions: {
+    allowed: Record<string, string>;
+  };
   repository: {
     name: string;
     defaultBranch: string;
@@ -25,6 +28,10 @@ export interface TrustPolicy {
   };
   protected: {
     environments: Record<string, EnvironmentPolicy>;
+  };
+  trustedSelfHostedCi: {
+    runnerLabels: string[];
+    runnerName: string;
   };
 }
 
@@ -217,6 +224,7 @@ function safeObservation(name: string, result: ApiResult): unknown {
     const body = result.body as {
       runners?: Array<{
         labels?: Array<{ name?: string }>;
+        busy?: boolean;
         name?: string;
         os?: string;
         status?: string;
@@ -226,6 +234,7 @@ function safeObservation(name: string, result: ApiResult): unknown {
     return {
       body: {
         runners: (body.runners ?? []).map((runner) => ({
+          busy: runner.busy,
           labels: (runner.labels ?? []).map((label) => label.name),
           name: runner.name,
           os: runner.os,
@@ -298,6 +307,7 @@ export function collectGitHubTrustEndpoints(
     repository: api(`repos/${repository}`),
     rulesets: api(`repos/${repository}/rulesets?includes_parents=true&per_page=100`),
     runners: api(`repos/${repository}/actions/runners?per_page=100`),
+    selectedActions: api(`repos/${repository}/actions/permissions/selected-actions`),
     workflowToken: api(`repos/${repository}/actions/permissions/workflow`),
   };
 
@@ -455,6 +465,27 @@ export function evaluateGitHubTrustSettings(
       "Repository Actions settings do not enforce a selected allowlist and full commit SHA pinning.",
     );
   }
+  const selectedActions = endpoints.selectedActions.body as
+    | {
+        github_owned_allowed?: boolean;
+        patterns_allowed?: string[];
+        verified_allowed?: boolean;
+      }
+    | undefined;
+  const expectedThirdPartyActions = Object.entries(trustPolicy.actions.allowed)
+    .filter(([name]) => !name.startsWith("actions/"))
+    .map(([name, sha]) => `${name}@${sha}`)
+    .sort();
+  if (
+    endpoints.selectedActions.status !== 0 ||
+    selectedActions?.github_owned_allowed !== true ||
+    selectedActions.verified_allowed !== false ||
+    !sameStrings(selectedActions.patterns_allowed ?? [], expectedThirdPartyActions)
+  ) {
+    blockers.push(
+      "Repository selected-action settings do not exactly allow GitHub-owned actions plus the reviewed third-party SHA pins.",
+    );
+  }
 
   const rulesetProtectsMain = Object.entries(endpoints)
     .filter(([name]) => name.startsWith("ruleset:"))
@@ -496,6 +527,32 @@ export function evaluateGitHubTrustSettings(
     workflowToken.can_approve_pull_request_reviews !== false
   ) {
     blockers.push("Default workflow token permissions are not read-only and review-disabled.");
+  }
+  const runners = endpoints.runners.body as
+    | {
+        runners?: Array<{
+          labels?: Array<{ name?: string }>;
+          name?: string;
+          os?: string;
+          status?: string;
+        }>;
+      }
+    | undefined;
+  const exactRunner = (runners?.runners ?? []).find(
+    (runner) => runner.name === trustPolicy.trustedSelfHostedCi.runnerName,
+  );
+  const observedLabels = (exactRunner?.labels ?? []).flatMap((label) =>
+    label.name === undefined ? [] : [label.name],
+  );
+  if (
+    endpoints.runners.status !== 0 ||
+    exactRunner?.os !== "macOS" ||
+    exactRunner.status !== "online" ||
+    !sameStrings(observedLabels, trustPolicy.trustedSelfHostedCi.runnerLabels)
+  ) {
+    blockers.push(
+      "The dedicated self-hosted macOS runner is absent, offline, or missing an exact required label.",
+    );
   }
   const latestJobs = endpoints.latestMainJobs.body as
     | {

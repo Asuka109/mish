@@ -1,18 +1,19 @@
 # macOS Packaging and Signing
 
-Mish defines one Apple Silicon test-package job for pushes to `main`. Pull
-requests run the bounded `check:pr` gate on an isolated GitHub-hosted Ubuntu
-runner but never build or upload an app archive. Daily and manual inspection
-own complete validation. Packaging remains independent, so a failed application
-build cannot reach artifact upload.
+Mish defines one Apple Silicon test-package job for pushes to `main`. Owner-only
+same-repository pull-request heads run the bounded `check:pr` gate through the
+reviewed default-branch workflow but never build or upload an app archive.
+Daily and manual inspection own complete validation. Every job uses the
+dedicated serialized Mac mini runner; packaging remains independent, so a
+failed application build cannot reach artifact upload.
 
-The latest reviewed `main` package run for `cecdf798`
+The last hosted `main` package run for `cecdf798`
 ([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
 created both hosted package jobs, but each completed with zero executed steps.
-The repository's current Actions account state therefore still leaves CI
-packaging unavailable. This leaves current CI artifact evidence unavailable; it
-is not evidence of a product implementation failure and does not establish
-future Actions capacity.
+That run is external zero-step billing evidence, not a product failure. Current
+availability and runner operations are owned by
+[`self-hosted-macos-runner.md`](self-hosted-macos-runner.md); no self-hosted
+success is claimed until its hands-on checklist has real run evidence.
 
 The repository-wide trust boundary is documented in
 [`trusted-release-boundary.md`](trusted-release-boundary.md). Protected signing,

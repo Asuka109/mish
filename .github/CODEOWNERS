@@ -6,6 +6,9 @@
 /scripts/check-trusted-ci-policy.ts @Asuka109
 /scripts/audit-github-trust-settings.ts @Asuka109
 /scripts/audit-github-trust-settings.test.ts @Asuka109
+/scripts/self-hosted-runner-hygiene.sh @Asuka109
+/scripts/self-hosted-runner-job-started.sh @Asuka109
+/scripts/self-hosted-runner-job-completed.sh @Asuka109
 /scripts/trusted-release-policy.ts @Asuka109
 /scripts/trusted-release-policy.test.ts @Asuka109
 /scripts/development-mihomo.ts @Asuka109
@@ -25,6 +28,8 @@
 /apps/desktop/src-tauri/tauri.*.conf.json @Asuka109
 /docs/operations/macos-packaging.md @Asuka109
 /docs/operations/trusted-release-boundary.md @Asuka109
+/docs/operations/self-hosted-macos-runner.md @Asuka109
 /docs/architecture/updater-contract.md @Asuka109
 /package.json @Asuka109
 /pnpm-lock.yaml @Asuka109
+/rust-toolchain.toml @Asuka109

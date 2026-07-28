@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-candidate-${{ inputs.profile }}-${{ inputs.version }}
+  group: mish-self-hosted-ci
   cancel-in-progress: false
 
 env:
@@ -49,7 +49,12 @@ jobs:
       github.workflow_sha == github.sha
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 10
     outputs:
       artifact_name: ${{ steps.source.outputs.artifact_name }}
@@ -65,6 +70,17 @@ jobs:
       tooling_sha: ${{ github.workflow_sha }}
       version: ${{ steps.source.outputs.version }}
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -74,7 +90,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
       - name: Confirm workflow and tooling revision
         shell: bash
         env:
@@ -172,11 +188,27 @@ jobs:
     needs: freeze-source
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 60
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -198,7 +230,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Cache Rust dependencies and build outputs
@@ -272,9 +304,25 @@ jobs:
       - verify-candidate
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 10
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -291,7 +339,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
       - name: Download exact immutable candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -367,11 +415,27 @@ jobs:
     needs: freeze-source
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 90
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -393,7 +457,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
@@ -451,11 +515,27 @@ jobs:
       - build-internal-tun-candidate
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.verification-upload.outputs.artifact-id }}
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -472,7 +552,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
       - name: Download exact immutable Internal TUN candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -531,11 +611,27 @@ jobs:
       - verify-internal-tun-candidate
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 10
     outputs:
       artifact_id: ${{ steps.stage-upload.outputs.artifact-id }}
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -552,7 +648,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
       - name: Download exact candidate by immutable ID
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -622,9 +718,25 @@ jobs:
       - stage-internal-tun-alpha
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 20
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -641,7 +753,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
       - name: Download final stage by immutable ID
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -708,9 +820,25 @@ jobs:
     needs: freeze-source
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - mish
+      - trusted-ci
     timeout-minutes: 60
     steps:
+      - name: Verify dedicated runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(id -un)" = "mish-ci"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -732,7 +860,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Cache Rust dependencies and build outputs
