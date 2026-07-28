@@ -123,12 +123,29 @@ template with the installation-identity placeholder). The fixed socket, kernel
 UID/PID checks, canonical path/ownership/freshness gates, closed typed commands,
 single-owner lifecycle, and canonical challenge-response are unchanged.
 
+Before requesting administrator authorization, the running controller copies
+its already verified executable to a private mode-`0500` staging file and
+binds its exact manifest size and SHA-256 digest into the authorization
+request. The root shell copies that candidate into a new root-owned mode-`0700`
+temporary directory, independently requires the expected owner, group, mode,
+single link, size, and SHA-256 digest, and only then executes the root-owned
+mode-`0500` copy. The privileged process verifies its own canonical staging
+path and digest again before it revalidates the original closed package. A
+same-UID replacement of either user-writable source therefore fails before
+untrusted bytes can execute as root.
+
 The package lifecycle adds matching root-owned and user-owned receipts bound to
 the exact manifest digest, Helper/Core/plist digests, versions, installation
 identity, installing UID, enrollment key identifier, and generation. Health
 requires those receipts and fixed installed artifacts to match, then requires
 an authenticated protocol-v3 status with no Core and a fresh disabled network
 observation.
+
+Uninstall reads and validates the root enrollment and receipt before any
+`launchctl` stop or global filesystem mutation. Both records must authorize
+the requesting UID and agree on installation identity, key identifier, and
+generation. A partial, foreign, or unowned global layout fails closed; a clean
+not-installed layout permits only the private user-state cleanup.
 
 This package deliberately exposes no Core start, TUN enable/disable, arbitrary
 path/command, or network-mutation action. Its LaunchDaemon fixes

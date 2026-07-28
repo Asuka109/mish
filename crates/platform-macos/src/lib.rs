@@ -10,8 +10,9 @@ pub use installation_key::{
     DEV_TUN_INSTALLATION_KEY_RECORD_VERSION, DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
     DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME, DEV_TUN_SERVICE_ENROLLMENT_PATH,
     InstallationClientKeyStore, InstallationEnrollmentOperation, InstallationEnrollmentReceipt,
-    InstallationPublicKeyCandidate, apply_installation_enrollment_operation,
-    load_installation_enrollment_for_user, remove_installation_enrollment,
+    InstallationEnrollmentRecord, InstallationPublicKeyCandidate,
+    apply_installation_enrollment_operation, load_installation_enrollment_for_user,
+    remove_installation_enrollment,
 };
 pub use process_icon::*;
 pub use production_tun::*;

@@ -14,9 +14,9 @@ use std::{
 use mish_platform_macos::{
     DEV_TUN_INSTALLATION_KEY_ALGORITHM, DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_ENROLLMENT_PATH,
     DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL, DEV_TUN_SERVICE_PLIST_PATH,
-    InstallationClientKeyStore, InstallationEnrollmentOperation, MacOsTunServiceClient,
-    apply_installation_enrollment_operation, load_installation_enrollment_for_user,
-    remove_installation_enrollment,
+    InstallationClientKeyStore, InstallationEnrollmentOperation, InstallationEnrollmentRecord,
+    MacOsTunServiceClient, apply_installation_enrollment_operation,
+    load_installation_enrollment_for_user, remove_installation_enrollment,
 };
 use mish_runtime::tun_observation_now;
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,9 @@ const ROOT_RECEIPT_DIRECTORY: &str =
 const ROOT_RECEIPT_PATH: &str =
     "/Library/Application Support/com.asuka109.mish/internal-tun-alpha/receipt.json";
 const INSTALLER_DIRECTORY_NAME: &str = "internal-tun-alpha-installer";
+const PRIVILEGED_CONTROLLER_STAGE_NAME: &str = "privileged-controller";
+const PRIVILEGED_CONTROLLER_ROOT_PREFIX: &str =
+    "/private/var/tmp/com.asuka109.mish.internal-tun-alpha.";
 const USER_RECEIPT_NAME: &str = "internal-tun-alpha-receipt.json";
 const INSTALLATION_ID_PLACEHOLDER: &str = "__MISH_INSTALLATION_ID__";
 const UID_PLACEHOLDER: &str = "__MISH_ALLOWED_UID__";
@@ -103,6 +106,13 @@ struct VerifiedPackage {
     root: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+struct StagedPrivilegedController {
+    path: PathBuf,
+    sha256: String,
+    size: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct InstallationReceipt {
@@ -161,17 +171,30 @@ async fn run() -> Result<serde_json::Value, String> {
         {
             run_user_action(action, package_root, true).await
         }
-        [action, package_root, uid, gid, home]
-            if action == "__privileged-install" || action == "__privileged-uninstall" =>
-        {
+        [
+            action,
+            package_root,
+            uid,
+            gid,
+            home,
+            controller_sha256,
+            controller_size,
+        ] if action == "__privileged-install" || action == "__privileged-uninstall" => {
             if unsafe { libc::geteuid() } != 0 {
                 return Err("administrator-authorization-required".into());
             }
+            let controller_size = controller_size
+                .parse::<u64>()
+                .ok()
+                .filter(|value| *value > 0 && *value <= PACKAGE_FILE_MAX_BYTES)
+                .ok_or_else(|| "privileged-controller-size-invalid".to_string())?;
+            validate_privileged_controller_runtime(controller_sha256, controller_size)?;
             let uid = parse_identity(uid, "uid")?;
             let gid = parse_identity(gid, "gid")?;
             let home = PathBuf::from(home);
             validate_user_home(&home, uid)?;
             let package = verify_package(Path::new(package_root), uid)?;
+            validate_package_controller_binding(&package, controller_sha256, controller_size)?;
             if action == "__privileged-install" {
                 privileged_install(&package, uid, gid, &home)
             } else {
@@ -537,6 +560,60 @@ fn package_file<'a>(package: &'a VerifiedPackage, role: &str) -> Result<&'a Pack
         .ok_or_else(|| format!("package-role-missing:{role}"))
 }
 
+fn validate_package_controller_binding(
+    package: &VerifiedPackage,
+    expected_sha256: &str,
+    expected_size: u64,
+) -> Result<(), String> {
+    let controller = package_file(package, "controller")?;
+    if !valid_digest(expected_sha256)
+        || controller.path != CONTROLLER_RELATIVE_PATH
+        || controller.sha256 != expected_sha256
+        || controller.size != expected_size
+    {
+        return Err("package-controller-binding-mismatch".into());
+    }
+    Ok(())
+}
+
+fn validate_privileged_controller_runtime(
+    expected_sha256: &str,
+    expected_size: u64,
+) -> Result<(), String> {
+    if !valid_digest(expected_sha256)
+        || expected_size == 0
+        || expected_size > PACKAGE_FILE_MAX_BYTES
+    {
+        return Err("privileged-controller-binding-invalid".into());
+    }
+    let executable = env::current_exe().map_err(|_| "privileged-controller-path-unavailable")?;
+    let executable =
+        fs::canonicalize(&executable).map_err(|_| "privileged-controller-path-unavailable")?;
+    let parent = executable
+        .parent()
+        .ok_or_else(|| "privileged-controller-parent-invalid".to_string())?;
+    let parent_text = parent
+        .to_str()
+        .ok_or_else(|| "privileged-controller-parent-invalid".to_string())?;
+    if !parent_text.starts_with(PRIVILEGED_CONTROLLER_ROOT_PREFIX)
+        || executable.file_name().and_then(|value| value.to_str())
+            != Some("mish-internal-tun-alpha-ctl")
+    {
+        return Err("privileged-controller-path-rejected".into());
+    }
+    validate_root_directory(parent, 0o700)?;
+    validate_regular_file(&executable, 0, 0o500, Some(expected_size))?;
+    if fs::symlink_metadata(&executable)
+        .map_err(|_| "privileged-controller-metadata-unavailable")?
+        .gid()
+        != 0
+        || sha256_file(&executable)? != expected_sha256
+    {
+        return Err("privileged-controller-binding-mismatch".into());
+    }
+    Ok(())
+}
+
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -665,6 +742,73 @@ fn write_private_file(path: &Path, bytes: &[u8], uid: u32) -> Result<(), String>
     result
 }
 
+fn stage_privileged_controller(
+    package: &VerifiedPackage,
+    installer: &Path,
+    uid: u32,
+) -> Result<StagedPrivilegedController, String> {
+    let controller = package_file(package, "controller")?;
+    let source = package.root.join(CONTROLLER_RELATIVE_PATH);
+    let destination = installer.join(PRIVILEGED_CONTROLLER_STAGE_NAME);
+    let temporary = installer.join(format!(
+        ".{PRIVILEGED_CONTROLLER_STAGE_NAME}.{}",
+        Uuid::new_v4()
+    ));
+    let result = (|| {
+        let mut input = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&source)
+            .map_err(|_| "privileged-controller-source-unavailable")?;
+        let mut output = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o500)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(|_| "privileged-controller-stage-create-failed")?;
+        let copied = std::io::copy(&mut input, &mut output)
+            .map_err(|_| "privileged-controller-stage-copy-failed")?;
+        if copied != controller.size {
+            return Err("privileged-controller-stage-size-mismatch".into());
+        }
+        output
+            .sync_all()
+            .map_err(|_| "privileged-controller-stage-sync-failed")?;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o500))
+            .map_err(|_| "privileged-controller-stage-permissions-failed")?;
+        validate_regular_file(&temporary, uid, 0o500, Some(controller.size))?;
+        if sha256_file(&temporary)? != controller.sha256 {
+            return Err("privileged-controller-stage-digest-mismatch".into());
+        }
+        fs::rename(&temporary, &destination)
+            .map_err(|_| "privileged-controller-stage-commit-failed")?;
+        sync_parent(&destination)?;
+        let staged = StagedPrivilegedController {
+            path: destination,
+            sha256: controller.sha256.clone(),
+            size: controller.size,
+        };
+        validate_staged_privileged_controller(&staged, uid)?;
+        Ok(staged)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn validate_staged_privileged_controller(
+    controller: &StagedPrivilegedController,
+    uid: u32,
+) -> Result<(), String> {
+    validate_regular_file(&controller.path, uid, 0o500, Some(controller.size))?;
+    if !valid_digest(&controller.sha256) || sha256_file(&controller.path)? != controller.sha256 {
+        return Err("privileged-controller-stage-digest-mismatch".into());
+    }
+    Ok(())
+}
+
 async fn install_or_repair(
     action: UserAction,
     package: &VerifiedPackage,
@@ -676,6 +820,7 @@ async fn install_or_repair(
     let runtime = ensure_private_runtime(home, uid)?;
     let installer = installer_root(home);
     ensure_private_directory(&installer, uid)?;
+    let privileged_controller = stage_privileged_controller(package, &installer, uid)?;
     let (installation_id, plist) = render_plist_inputs(package, uid, home)?;
     let candidate_path = installer.join("enrollment.json");
     let key_store = InstallationClientKeyStore::for_runtime_root(&runtime, uid);
@@ -688,6 +833,7 @@ async fn install_or_repair(
     let authorized = run_authorized(
         "__privileged-install",
         package,
+        &privileged_controller,
         uid,
         gid,
         home,
@@ -711,31 +857,47 @@ async fn install_or_repair(
         write_private_file(&user_receipt_path(home), &receipt_bytes, uid)
     })();
     if let Err(error) = local_commit {
-        let _ = run_authorized(
+        let authorized_cleanup = run_authorized(
             "__privileged-uninstall",
             package,
+            &privileged_controller,
             uid,
             gid,
             home,
             tart_terminal_authorization,
         );
+        if authorized_cleanup.is_ok() {
+            remove_user_installation_state(home, uid)?;
+            cleanup_installer_files(&installer, uid)?;
+            return Err(format!("post-install-receipt-failed:{error}"));
+        }
         cleanup_installer_files(&installer, uid)?;
-        return Err(format!("post-install-receipt-failed:{error}"));
+        return Err(format!(
+            "post-install-receipt-failed:{error}:cleanup-unconfirmed"
+        ));
     }
 
     let health = match health(package, uid, home).await {
         Ok(value) => value,
         Err(error) => {
-            let _ = run_authorized(
+            let authorized_cleanup = run_authorized(
                 "__privileged-uninstall",
                 package,
+                &privileged_controller,
                 uid,
                 gid,
                 home,
                 tart_terminal_authorization,
             );
+            if authorized_cleanup.is_ok() {
+                remove_user_installation_state(home, uid)?;
+                cleanup_installer_files(&installer, uid)?;
+                return Err(format!("post-install-health-failed:{error}"));
+            }
             cleanup_installer_files(&installer, uid)?;
-            return Err(format!("post-install-health-failed:{error}"));
+            return Err(format!(
+                "post-install-health-failed:{error}:cleanup-unconfirmed"
+            ));
         }
     };
     cleanup_installer_files(&installer, uid)?;
@@ -753,31 +915,16 @@ async fn install_or_repair(
 fn run_authorized(
     privileged_action: &str,
     package: &VerifiedPackage,
+    controller: &StagedPrivilegedController,
     uid: u32,
     gid: u32,
     home: &Path,
     tart_terminal_authorization: bool,
 ) -> Result<(), String> {
-    let controller = package.root.join(CONTROLLER_RELATIVE_PATH);
-    let arguments = [
-        controller
-            .to_str()
-            .ok_or_else(|| "controller-path-invalid".to_string())?,
-        privileged_action,
-        package
-            .root
-            .to_str()
-            .ok_or_else(|| "package-root-invalid".to_string())?,
-        &uid.to_string(),
-        &gid.to_string(),
-        home.to_str()
-            .ok_or_else(|| "installing-user-home-invalid".to_string())?,
-    ];
-    let script = arguments
-        .iter()
-        .map(|value| quote_shell(value))
-        .collect::<Vec<_>>()
-        .join(" ");
+    validate_staged_privileged_controller(controller, uid)?;
+    validate_package_controller_binding(package, &controller.sha256, controller.size)?;
+    let script =
+        privileged_controller_script(privileged_action, package, controller, uid, gid, home)?;
     if tart_terminal_authorization {
         let status = Command::new("/usr/bin/sudo")
             .args(["/bin/sh", "-c", &script])
@@ -822,6 +969,82 @@ fn run_authorized(
         return Ok(());
     }
     Err("privileged-lifecycle-failed".into())
+}
+
+fn privileged_controller_script(
+    privileged_action: &str,
+    package: &VerifiedPackage,
+    controller: &StagedPrivilegedController,
+    uid: u32,
+    gid: u32,
+    home: &Path,
+) -> Result<String, String> {
+    if privileged_action != "__privileged-install" && privileged_action != "__privileged-uninstall"
+    {
+        return Err("privileged-lifecycle-action-rejected".into());
+    }
+    if !valid_digest(&controller.sha256)
+        || controller.size == 0
+        || controller.size > PACKAGE_FILE_MAX_BYTES
+    {
+        return Err("privileged-controller-binding-invalid".into());
+    }
+    let staged_path = controller
+        .path
+        .to_str()
+        .ok_or_else(|| "controller-path-invalid".to_string())?;
+    let package_root = package
+        .root
+        .to_str()
+        .ok_or_else(|| "package-root-invalid".to_string())?;
+    let home = home
+        .to_str()
+        .ok_or_else(|| "installing-user-home-invalid".to_string())?;
+    let invocation = [
+        "\"$ROOT_CONTROLLER\"".to_string(),
+        quote_shell(privileged_action),
+        quote_shell(package_root),
+        quote_shell(&uid.to_string()),
+        quote_shell(&gid.to_string()),
+        quote_shell(home),
+        quote_shell(&controller.sha256),
+        quote_shell(&controller.size.to_string()),
+    ]
+    .join(" ");
+    Ok(format!(
+        "set -eu\n\
+umask 077\n\
+PIN_SOURCE={}\n\
+EXPECTED_SHA256={}\n\
+EXPECTED_SIZE={}\n\
+EXPECTED_UID={}\n\
+EXPECTED_GID={}\n\
+PIN_ROOT=''\n\
+ROOT_CONTROLLER=''\n\
+cleanup_pin() {{\n\
+  if [ -n \"$ROOT_CONTROLLER\" ]; then /bin/rm -f \"$ROOT_CONTROLLER\"; fi\n\
+  if [ -n \"$PIN_ROOT\" ]; then /bin/rmdir \"$PIN_ROOT\"; fi\n\
+}}\n\
+trap cleanup_pin EXIT HUP INT TERM\n\
+PIN_ROOT=$(/usr/bin/mktemp -d '{}XXXXXX')\n\
+ROOT_CONTROLLER=\"$PIN_ROOT/mish-internal-tun-alpha-ctl\"\n\
+PIN_SOURCE_METADATA=$(/usr/bin/stat -f '%u:%g:%Lp:%l:%z' \"$PIN_SOURCE\")\n\
+[ \"$PIN_SOURCE_METADATA\" = \"$EXPECTED_UID:$EXPECTED_GID:500:1:$EXPECTED_SIZE\" ] || exit 70\n\
+/bin/cp -X \"$PIN_SOURCE\" \"$ROOT_CONTROLLER\"\n\
+/bin/chmod 0500 \"$ROOT_CONTROLLER\"\n\
+PIN_METADATA=$(/usr/bin/stat -f '%u:%g:%Lp:%l:%z' \"$ROOT_CONTROLLER\")\n\
+[ \"$PIN_METADATA\" = \"0:0:500:1:$EXPECTED_SIZE\" ] || exit 71\n\
+PIN_DIGEST=$(/usr/bin/shasum -a 256 \"$ROOT_CONTROLLER\" | /usr/bin/awk '{{print $1}}')\n\
+[ \"$PIN_DIGEST\" = \"$EXPECTED_SHA256\" ] || exit 72\n\
+{}\n",
+        quote_shell(staged_path),
+        quote_shell(&controller.sha256),
+        quote_shell(&controller.size.to_string()),
+        quote_shell(&uid.to_string()),
+        quote_shell(&gid.to_string()),
+        PRIVILEGED_CONTROLLER_ROOT_PREFIX,
+        invocation
+    ))
 }
 
 fn quote_shell(value: &str) -> String {
@@ -954,33 +1177,64 @@ fn privileged_install(
 }
 
 fn validate_existing_installation_owner(uid: u32) -> Result<(), String> {
-    match fs::symlink_metadata(DEV_TUN_SERVICE_ENROLLMENT_PATH) {
-        Ok(_) => {
-            load_installation_enrollment_for_user(
-                Path::new(DEV_TUN_SERVICE_ENROLLMENT_PATH),
-                uid,
-                true,
-            )
-            .map_err(|_| "existing-installation-owner-rejected")?;
-            return Ok(());
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("existing-installation-owner-unavailable".into()),
+    let enrollment = read_optional_enrollment(uid)?;
+    let receipt = read_optional_root_receipt()?;
+    if let Some(enrollment) = enrollment.as_ref()
+        && enrollment.installing_uid != uid
+    {
+        return Err("existing-installation-owner-rejected".into());
     }
-    match fs::symlink_metadata(ROOT_RECEIPT_PATH) {
-        Ok(_) => {
-            let receipt = read_receipt(Path::new(ROOT_RECEIPT_PATH), 0, 0o444)?;
-            if receipt.schema_version != 1
-                || receipt.profile != PROFILE
-                || receipt.installing_uid != uid
-            {
-                return Err("existing-installation-owner-rejected".into());
-            }
-            Ok(())
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    if let Some(receipt) = receipt.as_ref()
+        && (receipt.schema_version != 1
+            || receipt.profile != PROFILE
+            || receipt.installing_uid != uid)
+    {
+        return Err("existing-installation-owner-rejected".into());
+    }
+    if let (Some(enrollment), Some(receipt)) = (enrollment.as_ref(), receipt.as_ref()) {
+        validate_enrollment_receipt_identity(uid, enrollment, receipt)?;
+    }
+    Ok(())
+}
+
+fn read_optional_enrollment(uid: u32) -> Result<Option<InstallationEnrollmentRecord>, String> {
+    match fs::symlink_metadata(DEV_TUN_SERVICE_ENROLLMENT_PATH) {
+        Ok(_) => load_installation_enrollment_for_user(
+            Path::new(DEV_TUN_SERVICE_ENROLLMENT_PATH),
+            uid,
+            true,
+        )
+        .map(Some)
+        .map_err(|_| "existing-installation-owner-rejected".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err("existing-installation-owner-unavailable".into()),
     }
+}
+
+fn read_optional_root_receipt() -> Result<Option<InstallationReceipt>, String> {
+    match fs::symlink_metadata(ROOT_RECEIPT_PATH) {
+        Ok(_) => read_receipt(Path::new(ROOT_RECEIPT_PATH), 0, 0o444).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("existing-installation-owner-unavailable".into()),
+    }
+}
+
+fn validate_enrollment_receipt_identity(
+    uid: u32,
+    enrollment: &InstallationEnrollmentRecord,
+    receipt: &InstallationReceipt,
+) -> Result<(), String> {
+    if enrollment.installing_uid != uid
+        || receipt.installing_uid != uid
+        || receipt.schema_version != 1
+        || receipt.profile != PROFILE
+        || enrollment.helper_installation_id != receipt.installation_id
+        || enrollment.key_id != receipt.key_id
+        || enrollment.generation != receipt.generation
+    {
+        return Err("existing-installation-owner-rejected".into());
+    }
+    Ok(())
 }
 
 fn ensure_root_directory(path: &Path, mode: u32) -> Result<(), String> {
@@ -1293,22 +1547,26 @@ fn uninstall(
     home: &Path,
     tart_terminal_authorization: bool,
 ) -> Result<serde_json::Value, String> {
-    run_authorized(
+    let runtime = ensure_private_runtime(home, uid)?;
+    let installer = installer_root(home);
+    ensure_private_directory(&installer, uid)?;
+    let privileged_controller = stage_privileged_controller(package, &installer, uid)?;
+    let authorized = run_authorized(
         "__privileged-uninstall",
         package,
+        &privileged_controller,
         uid,
         gid,
         home,
         tart_terminal_authorization,
-    )?;
-    remove_private_file(&user_receipt_path(home), uid, 0o600)?;
-    remove_private_file(&runtime_root(home).join("tun-client-key.json"), uid, 0o600)?;
-    remove_private_file(
-        &runtime_root(home).join("tun-client-key.pending.json"),
-        uid,
-        0o600,
-    )?;
-    cleanup_installer_files(&installer_root(home), uid)?;
+    );
+    if let Err(error) = authorized {
+        cleanup_installer_files(&installer, uid)?;
+        return Err(error);
+    }
+    remove_user_installation_state(home, uid)?;
+    cleanup_installer_files(&installer, uid)?;
+    validate_directory(&runtime, uid, true)?;
     Ok(json!({
         "ok": true,
         "profile": PROFILE,
@@ -1322,6 +1580,7 @@ fn privileged_uninstall(
     _gid: u32,
     _home: &Path,
 ) -> Result<serde_json::Value, String> {
+    validate_uninstall_authorization(uid)?;
     privileged_cleanup(uid)?;
     let mut retained = [
         DEV_TUN_SERVICE_HELPER_PATH,
@@ -1338,6 +1597,58 @@ fn privileged_uninstall(
         return Err("privileged-uninstall-incomplete".into());
     }
     Ok(json!({ "ok": true }))
+}
+
+fn validate_uninstall_authorization(uid: u32) -> Result<(), String> {
+    let enrollment = read_optional_enrollment(uid)?;
+    let receipt = read_optional_root_receipt()?;
+    let global_artifacts_present = global_installation_artifacts_present(uid)?;
+    validate_uninstall_authorization_state(
+        uid,
+        enrollment.as_ref(),
+        receipt.as_ref(),
+        global_artifacts_present,
+    )
+}
+
+fn validate_uninstall_authorization_state(
+    uid: u32,
+    enrollment: Option<&InstallationEnrollmentRecord>,
+    receipt: Option<&InstallationReceipt>,
+    global_artifacts_present: bool,
+) -> Result<(), String> {
+    match (enrollment, receipt) {
+        (Some(enrollment), Some(receipt)) => {
+            validate_enrollment_receipt_identity(uid, enrollment, receipt)
+        }
+        (None, None) if !global_artifacts_present => Ok(()),
+        _ => Err("uninstall-authorization-rejected".into()),
+    }
+}
+
+fn global_installation_artifacts_present(uid: u32) -> Result<bool, String> {
+    if [
+        DEV_TUN_SERVICE_HELPER_PATH,
+        DEV_TUN_SERVICE_CORE_PATH,
+        DEV_TUN_SERVICE_PLIST_PATH,
+        ROOT_RECEIPT_DIRECTORY,
+    ]
+    .iter()
+    .any(|path| fs::symlink_metadata(path).is_ok())
+    {
+        return Ok(true);
+    }
+    let socket = format!("/var/run/com.asuka109.mish.tun-helper.{uid}.sock");
+    if fs::symlink_metadata(&socket).is_ok()
+        || fs::symlink_metadata(format!("{socket}.state")).is_ok()
+    {
+        return Ok(true);
+    }
+    let launchd = command_output(
+        "/bin/launchctl",
+        &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+    )?;
+    Ok(launchd.status.success())
 }
 
 fn privileged_cleanup(uid: u32) -> Result<(), String> {
@@ -1440,12 +1751,26 @@ fn remove_private_file(path: &Path, uid: u32, mode: u32) -> Result<(), String> {
     }
 }
 
+fn remove_user_installation_state(home: &Path, uid: u32) -> Result<(), String> {
+    remove_private_file(&user_receipt_path(home), uid, 0o600)?;
+    remove_private_file(&runtime_root(home).join("tun-client-key.json"), uid, 0o600)?;
+    remove_private_file(
+        &runtime_root(home).join("tun-client-key.pending.json"),
+        uid,
+        0o600,
+    )
+}
+
 fn cleanup_installer_files(installer: &Path, uid: u32) -> Result<(), String> {
     match fs::symlink_metadata(installer) {
         Ok(_) => {
             validate_directory(installer, uid, true)?;
-            for name in ["enrollment.json", "launch-daemon.plist"] {
-                remove_private_file(&installer.join(name), uid, 0o600)?;
+            for (name, mode) in [
+                ("enrollment.json", 0o600),
+                ("launch-daemon.plist", 0o600),
+                (PRIVILEGED_CONTROLLER_STAGE_NAME, 0o500),
+            ] {
+                remove_private_file(&installer.join(name), uid, mode)?;
             }
             let mut entries =
                 fs::read_dir(installer).map_err(|_| "installer-directory-unavailable")?;
@@ -1483,6 +1808,73 @@ fn require_command_success(
 mod tests {
     use super::*;
 
+    fn controller_package(root: &Path, bytes: &[u8]) -> VerifiedPackage {
+        let resources = root.join("Resources");
+        fs::create_dir_all(&resources).unwrap();
+        let controller = resources.join("mish-internal-tun-alpha-ctl");
+        fs::write(&controller, bytes).unwrap();
+        fs::set_permissions(&controller, fs::Permissions::from_mode(0o755)).unwrap();
+        VerifiedPackage {
+            manifest: PackageManifest {
+                allow_tun: false,
+                architecture: "arm64".into(),
+                core_version: "v1.19.29".into(),
+                developer_id_required: false,
+                files: vec![PackageFile {
+                    mode: 0o755,
+                    path: CONTROLLER_RELATIVE_PATH.into(),
+                    role: "controller".into(),
+                    sha256: sha256_bytes(bytes),
+                    size: bytes.len() as u64,
+                }],
+                helper_version: "3".into(),
+                installation_identity_scheme: IDENTITY_SCHEME.into(),
+                minimum_macos_version: 13,
+                network_mutation_enabled: false,
+                package_version: "fixture".into(),
+                profile: PROFILE.into(),
+                protocol_version: PROTOCOL_VERSION,
+                schema_version: 1,
+            },
+            manifest_digest: "0".repeat(64),
+            root: root.to_path_buf(),
+        }
+    }
+
+    fn matching_installation_records(
+        uid: u32,
+    ) -> (InstallationEnrollmentRecord, InstallationReceipt) {
+        let installation_id = "a".repeat(64);
+        let key_id = "b".repeat(64);
+        (
+            InstallationEnrollmentRecord {
+                algorithm: DEV_TUN_INSTALLATION_KEY_ALGORITHM.into(),
+                generation: 1,
+                helper_installation_id: installation_id.clone(),
+                installing_uid: uid,
+                key_id: key_id.clone(),
+                public_key_spki: "fixture".into(),
+                schema_version: 1,
+            },
+            InstallationReceipt {
+                core_sha256: "c".repeat(64),
+                core_version: "v1.19.29".into(),
+                generation: 1,
+                helper_sha256: "d".repeat(64),
+                helper_version: "3".into(),
+                installation_id,
+                key_id,
+                manifest_sha256: "e".repeat(64),
+                package_version: "fixture".into(),
+                plist_sha256: "f".repeat(64),
+                profile: PROFILE.into(),
+                protocol_version: PROTOCOL_VERSION,
+                schema_version: 1,
+                installing_uid: uid,
+            },
+        )
+    }
+
     #[test]
     fn lifecycle_parser_is_closed() {
         assert_eq!(parse_user_action("install").unwrap(), UserAction::Install);
@@ -1509,6 +1901,111 @@ mod tests {
             quote_shell("/tmp/Mish's $package"),
             "'/tmp/Mish'\"'\"'s $package'"
         );
+    }
+
+    #[test]
+    fn privileged_controller_is_pinned_and_reverified_before_root_execution() {
+        let temporary = tempfile::tempdir().unwrap();
+        let package_root = temporary.path().join("package");
+        let installer = temporary.path().join("installer");
+        fs::create_dir(&package_root).unwrap();
+        fs::create_dir(&installer).unwrap();
+        fs::set_permissions(&installer, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let package = controller_package(&package_root, b"trusted-controller");
+        let staged = stage_privileged_controller(&package, &installer, uid).unwrap();
+
+        fs::write(
+            package.root.join(CONTROLLER_RELATIVE_PATH),
+            b"replacement-controller",
+        )
+        .unwrap();
+        validate_staged_privileged_controller(&staged, uid).unwrap();
+        assert_eq!(fs::read(&staged.path).unwrap(), b"trusted-controller");
+
+        fs::set_permissions(&staged.path, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(&staged.path, b"same-user-replacement").unwrap();
+        fs::set_permissions(&staged.path, fs::Permissions::from_mode(0o500)).unwrap();
+        assert!(validate_staged_privileged_controller(&staged, uid).is_err());
+
+        let staged = StagedPrivilegedController {
+            path: installer.join("controller with ' quotes"),
+            sha256: "a".repeat(64),
+            size: 123,
+        };
+        let script = privileged_controller_script(
+            "__privileged-install",
+            &package,
+            &staged,
+            uid,
+            20,
+            Path::new("/Users/fixture"),
+        )
+        .unwrap();
+        let copy = script.find("/bin/cp -X").unwrap();
+        let digest = script.find("PIN_DIGEST=").unwrap();
+        let execution = script.rfind("\"$ROOT_CONTROLLER\"").unwrap();
+        assert!(copy < digest && digest < execution);
+        assert!(script.contains("0:0:500:1:$EXPECTED_SIZE"));
+        assert!(script.contains("exit 72"));
+        assert!(!script.contains(CONTROLLER_RELATIVE_PATH));
+        assert!(
+            privileged_controller_script(
+                "__privileged-arbitrary",
+                &package,
+                &staged,
+                uid,
+                20,
+                Path::new("/Users/fixture"),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn uninstall_authorization_rejects_foreign_partial_and_unowned_global_state() {
+        let uid = 501;
+        let (enrollment, receipt) = matching_installation_records(uid);
+        validate_uninstall_authorization_state(uid, Some(&enrollment), Some(&receipt), true)
+            .unwrap();
+        validate_uninstall_authorization_state(uid, None, None, false).unwrap();
+
+        let mut foreign_enrollment = enrollment.clone();
+        foreign_enrollment.installing_uid = 502;
+        assert!(
+            validate_uninstall_authorization_state(
+                uid,
+                Some(&foreign_enrollment),
+                Some(&receipt),
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_uninstall_authorization_state(uid, Some(&enrollment), None, true).is_err()
+        );
+        assert!(validate_uninstall_authorization_state(uid, None, Some(&receipt), true).is_err());
+        assert!(validate_uninstall_authorization_state(uid, None, None, true).is_err());
+    }
+
+    #[test]
+    fn failed_install_cleanup_removes_private_receipt_and_keys() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = runtime_root(temporary.path());
+        fs::create_dir_all(&runtime).unwrap();
+        let uid = unsafe { libc::getuid() };
+        for path in [
+            user_receipt_path(temporary.path()),
+            runtime.join("tun-client-key.json"),
+            runtime.join("tun-client-key.pending.json"),
+        ] {
+            fs::write(&path, b"private").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        remove_user_installation_state(temporary.path(), uid).unwrap();
+        assert!(!user_receipt_path(temporary.path()).exists());
+        assert!(!runtime.join("tun-client-key.json").exists());
+        assert!(!runtime.join("tun-client-key.pending.json").exists());
     }
 
     #[test]

@@ -81,9 +81,16 @@ Every lifecycle invocation revalidates the canonical package directory,
 closed file set, regular single-link ownership/modes, manifest and artifact
 digests, fixed LaunchDaemon template, pinned Core version, root-owned installed
 layout, receipts, installation identity, enrollment, protocol, and fresh
-authenticated health. Administrator cancellation runs no privileged command.
-An install failure stops and removes the incomplete fixed service instead of
-advertising partial trust. Identical reinstall preserves the same key and
+authenticated health. Before the administrator prompt, the verified controller
+is copied to a private mode-`0500` staging file with its manifest size and
+SHA-256 digest fixed in the authorization request. The root shell copies it
+again into a new root-only temporary directory and independently checks root
+ownership, mode, single link, size, and digest before execution. Administrator
+cancellation runs no privileged command. An install failure stops and removes
+the incomplete fixed service and its private receipt/key state instead of
+advertising partial trust. Uninstall validates matching root enrollment and
+receipt ownership before stopping launchd or removing a global path; partial
+or foreign state fails closed. Identical reinstall preserves the same key and
 generation.
 
 The package has no enable, disable, Core-run, arbitrary-command, arbitrary-path,
