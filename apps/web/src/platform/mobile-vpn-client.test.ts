@@ -1,25 +1,74 @@
 import type { PluginListener } from "@tauri-apps/api/core";
+import type { MobileVpnSnapshotDto } from "@mish/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MOBILE_CORE_MAX_CONFIG_BYTES_V1, MobileVpnFixtureClient } from "./mobile-vpn-client";
 
-function snapshot(sequence: number, phase = "stopped") {
+function snapshot(
+  sequence: number,
+  phase: MobileVpnSnapshotDto["phase"] = "stopped",
+  sessionId = "session-1",
+): MobileVpnSnapshotDto {
   return {
     backendKind: "fixture",
     contractVersion: 1,
     coreAbiVersion: null,
     coreAvailability: "unavailable",
     coreCommit: null,
+    configFailureInjectionAvailable: false,
+    coreConfigState: "unloaded",
     coreVersion: null,
     coreWrapperRevision: null,
     foreground: false,
+    loadedConfigDigest: null,
+    loadedConfigRevision: null,
     message: "Fixture only. No TUN or Core is available.",
     notificationPermission: "required",
     permission: "required",
     phase,
     sequence,
-    sessionId: "session-1",
+    sessionId,
     updatedAtMillis: sequence,
+    validatedConfigDigest: null,
+    validatedConfigRevision: null,
     vpnActive: false,
+    vpnAvailability: "unavailable",
+    tunAvailability: "unavailable",
+  };
+}
+
+const configA = "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n";
+const configADigest = "68f2de0232c31d5790035632a9b745bc2e3dfb926d55cd36c4e0fdfa8d54ddc5";
+
+function loadResult(resultSnapshot: MobileVpnSnapshotDto, overrides: Record<string, unknown> = {}) {
+  return {
+    cancellation: "not-requested",
+    contractVersion: 1,
+    digest: configADigest,
+    failure: null,
+    message: "Configuration loaded. VPN and TUN remain unavailable.",
+    operationId: "load-a",
+    outcome: "first-load",
+    revision: "fixture-a",
+    rollback: "not-needed",
+    snapshot: resultSnapshot,
+    timing: "on-time",
+    ...overrides,
+  };
+}
+
+function loadedConfigSnapshot(sequence: number): MobileVpnSnapshotDto {
+  return {
+    ...snapshot(sequence),
+    coreAbiVersion: 1,
+    coreAvailability: "available",
+    coreCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+    coreConfigState: "loaded",
+    coreVersion: "v1.19.29",
+    coreWrapperRevision: "mish-mobile-core-v1",
+    loadedConfigDigest: configADigest,
+    loadedConfigRevision: "fixture-a",
+    validatedConfigDigest: configADigest,
+    validatedConfigRevision: "fixture-a",
   };
 }
 
@@ -92,6 +141,35 @@ describe("MobileVpnFixtureClient", () => {
     expect(client.getSnapshot()?.phase).toBe("unavailable");
   });
 
+  it("accepts runtime replacement once and rejects late events from the retired session", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    const client = new MobileVpnFixtureClient({
+      invoke: async () => snapshot(8),
+      listen: async (nextHandler) => {
+        handler = nextHandler;
+        return { unregister: vi.fn() } as unknown as PluginListener;
+      },
+    });
+    await client.initialize();
+
+    handler?.({
+      eventKind: "snapshot-changed",
+      eventVersion: 1,
+      sequence: 1,
+      sessionId: "session-2",
+      snapshot: snapshot(1, "stopped", "session-2"),
+    });
+    handler?.({
+      eventKind: "snapshot-changed",
+      eventVersion: 1,
+      sequence: 9,
+      sessionId: "session-1",
+      snapshot: snapshot(9),
+    });
+
+    expect(client.getSnapshot()).toMatchObject({ sequence: 1, sessionId: "session-2" });
+  });
+
   it("rejects capability inflation", async () => {
     const client = new MobileVpnFixtureClient({
       invoke: async () => ({ ...snapshot(1), vpnActive: true }),
@@ -128,6 +206,134 @@ describe("MobileVpnFixtureClient", () => {
       "get_snapshot",
       "validate_config",
     ]);
+  });
+
+  it("loads an admitted revision through the closed command and accepts its terminal snapshot", async () => {
+    const loadedSnapshot = loadedConfigSnapshot(6);
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_snapshot") return snapshot(4);
+      expect(command).toBe("load_config");
+      expect(args).toEqual({
+        request: {
+          configBytes: Array.from(new TextEncoder().encode(configA)),
+          digest: configADigest,
+          injectFailure: false,
+          operationId: "load-a",
+          revision: "fixture-a",
+          sequence: 4,
+          sessionId: "session-1",
+          timeoutMillis: 5_000,
+        },
+      });
+      return loadResult(loadedSnapshot);
+    });
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+
+    const result = await client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-a", timeoutMillis: 5_000 },
+    );
+
+    expect(result.outcome).toBe("first-load");
+    expect(client.getSnapshot()).toEqual(loadedSnapshot);
+    expect(JSON.stringify(result)).not.toContain(configA);
+  });
+
+  it("orders cancellation through the native barrier without inventing unloaded state", async () => {
+    let resolveLoad: ((value: unknown) => void) | undefined;
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "get_snapshot") return snapshot(4);
+      if (command === "cancel_config_load") {
+        return { accepted: true, contractVersion: 1, operationId: "load-a" };
+      }
+      return new Promise((resolve) => {
+        resolveLoad = resolve;
+      });
+    });
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+    const controller = new AbortController();
+    const pending = client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-a", signal: controller.signal },
+    );
+    await vi.waitFor(() => {
+      expect(invoke.mock.calls.map(([command]) => command)).toContain("load_config");
+    });
+    controller.abort();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    resolveLoad?.(
+      loadResult(snapshot(5), {
+        cancellation: "before-load",
+        failure: "cancelled",
+        message: "Configuration loading was cancelled before the native load barrier.",
+        outcome: "cancelled",
+        rollback: "unloaded",
+      }),
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      cancellation: "before-load",
+      failure: "cancelled",
+      outcome: "cancelled",
+    });
+    expect(invoke.mock.calls.map(([command]) => command)).toContain("cancel_config_load");
+    expect(client.getSnapshot()?.coreConfigState).toBe("unloaded");
+  });
+
+  it("rejects repeated loads and malformed native completion without exposing response text", async () => {
+    let resolveLoad: ((value: unknown) => void) | undefined;
+    let response: unknown = new Promise((resolve) => {
+      resolveLoad = resolve;
+    });
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "get_snapshot") return snapshot(4);
+      return await response;
+    });
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+    const first = client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-a" },
+    );
+    await vi.waitFor(() => {
+      expect(invoke.mock.calls.map(([command]) => command)).toContain("load_config");
+    });
+
+    const duplicate = await client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-b" },
+    );
+    expect(duplicate).toMatchObject({ failure: "duplicate-command", outcome: "failed" });
+    resolveLoad?.(loadResult(loadedConfigSnapshot(5)));
+    await expect(first).resolves.toMatchObject({ outcome: "first-load" });
+
+    response = {
+      ...loadResult(loadedConfigSnapshot(6)),
+      nativeResponse: "password: fictional-secret",
+    };
+    const malformed = await client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-c" },
+    );
+    expect(malformed).toMatchObject({ failure: "plugin-failure" });
+    expect(JSON.stringify(malformed)).not.toContain("fictional-secret");
+    expect(invoke.mock.calls.filter(([command]) => command === "load_config")).toHaveLength(2);
   });
 
   it("maps rejected configuration without exposing native response text", async () => {

@@ -29,7 +29,7 @@ fn mobile_fixture_bootstrap() -> MobileFixtureBootstrap {
             availability: "unavailable",
             kind: "fixture",
         },
-        message: "Native fixture connected. VPN and embedded Core are not implemented.",
+        message: "Native fixture connected. Bounded Core loading is separate from unavailable VPN/TUN.",
         platform: if cfg!(target_os = "android") {
             "android"
         } else if cfg!(target_os = "ios") {

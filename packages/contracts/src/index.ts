@@ -91,9 +91,16 @@ export const MobileVpnSnapshotSchema = z
     coreAbiVersion: z.literal(1).nullable(),
     coreAvailability: z.enum(["unavailable", "available"]),
     coreCommit: z.string().min(7).max(64).nullable(),
+    configFailureInjectionAvailable: z.boolean(),
+    coreConfigState: z.enum(["unloaded", "loaded", "unknown"]),
     coreVersion: z.string().min(1).max(32).nullable(),
     coreWrapperRevision: z.string().min(1).max(64).nullable(),
     foreground: z.boolean(),
+    loadedConfigDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .nullable(),
+    loadedConfigRevision: z.string().min(1).max(128).nullable(),
     message: z.string().min(1).max(512),
     notificationPermission: MobileVpnNotificationPermissionSchema,
     permission: MobileVpnPermissionSchema,
@@ -101,7 +108,14 @@ export const MobileVpnSnapshotSchema = z
     sequence: z.number().int().nonnegative(),
     sessionId: z.string().min(1).max(128),
     updatedAtMillis: z.number().int().nonnegative(),
+    validatedConfigDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .nullable(),
+    validatedConfigRevision: z.string().min(1).max(128).nullable(),
     vpnActive: z.literal(false),
+    vpnAvailability: z.literal("unavailable"),
+    tunAvailability: z.literal("unavailable"),
   })
   .strict()
   .superRefine((snapshot, context) => {
@@ -134,6 +148,26 @@ export const MobileVpnSnapshotSchema = z
         code: "custom",
         message: "The Phase 0 fixture must never report a running VPN",
         path: ["phase"],
+      });
+    }
+    if ((snapshot.validatedConfigDigest === null) !== (snapshot.validatedConfigRevision === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Validated configuration identity must be complete or absent",
+        path: ["validatedConfigDigest"],
+      });
+    }
+    const loadedIdentityComplete =
+      snapshot.loadedConfigDigest !== null && snapshot.loadedConfigRevision !== null;
+    if (
+      (snapshot.coreConfigState === "loaded" && !loadedIdentityComplete) ||
+      (snapshot.coreConfigState !== "loaded" &&
+        (snapshot.loadedConfigDigest !== null || snapshot.loadedConfigRevision !== null))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Loaded configuration identity must agree with authoritative Core state",
+        path: ["coreConfigState"],
       });
     }
   });
@@ -231,6 +265,111 @@ export const MobileConfigValidationResultSchema = z
   });
 export interface MobileConfigValidationResultDto extends z.infer<
   typeof MobileConfigValidationResultSchema
+> {}
+
+export const MobileConfigLoadFailureSchema = z.enum([
+  "cancelled",
+  "configuration-rejected",
+  "configuration-too-large",
+  "core-initialization-failed",
+  "core-unavailable",
+  "digest-mismatch",
+  "duplicate-command",
+  "invalid-input",
+  "jni-exception",
+  "kotlin-exception",
+  "malformed-native-response",
+  "native-load-rejected",
+  "native-response-too-large",
+  "plugin-failure",
+  "runtime-replaced",
+  "stale-authority",
+  "timeout",
+]);
+export type MobileConfigLoadFailure = z.infer<typeof MobileConfigLoadFailureSchema>;
+
+export const MobileConfigLoadResultSchema = z
+  .object({
+    cancellation: z.enum(["not-requested", "before-load", "too-late"]),
+    contractVersion: z.literal(1),
+    digest: z.string().max(64),
+    failure: MobileConfigLoadFailureSchema.nullable(),
+    message: z.string().min(1).max(256),
+    operationId: z.string().max(128),
+    outcome: z.enum(["first-load", "replacement", "no-op", "failed", "cancelled"]),
+    revision: z.string().max(128),
+    rollback: z.enum(["not-needed", "preserved", "unloaded", "unknown"]),
+    snapshot: MobileVpnSnapshotSchema.nullable(),
+    timing: z.enum(["on-time", "timed-out"]),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (
+      result.failure === null &&
+      (result.outcome === "failed" || result.outcome === "cancelled")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Failed and cancelled loads require a typed failure",
+        path: ["failure"],
+      });
+    }
+    if (
+      result.outcome !== "failed" &&
+      (!/^[0-9a-f]{64}$/u.test(result.digest) ||
+        result.operationId.length === 0 ||
+        result.revision.length === 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Successful or cancelled load results require complete bounded identity",
+      });
+    }
+    if (result.failure === "cancelled" && result.outcome !== "cancelled") {
+      context.addIssue({
+        code: "custom",
+        message: "Cancelled failure requires cancelled outcome",
+        path: ["outcome"],
+      });
+    }
+    if ((result.timing === "timed-out") !== (result.failure === "timeout")) {
+      context.addIssue({
+        code: "custom",
+        message: "Timed-out load results require the timeout failure category",
+        path: ["timing"],
+      });
+    }
+    if (result.outcome === "no-op" && result.rollback !== "not-needed") {
+      context.addIssue({
+        code: "custom",
+        message: "No-op load cannot claim rollback",
+        path: ["rollback"],
+      });
+    }
+    if (
+      ["first-load", "replacement", "no-op"].includes(result.outcome) &&
+      (result.snapshot?.coreConfigState !== "loaded" ||
+        result.snapshot.loadedConfigDigest !== result.digest ||
+        result.snapshot.loadedConfigRevision !== result.revision)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Successful load outcome requires a matching authoritative loaded snapshot",
+        path: ["snapshot"],
+      });
+    }
+  });
+export interface MobileConfigLoadResultDto extends z.infer<typeof MobileConfigLoadResultSchema> {}
+
+export const MobileConfigCancelResultSchema = z
+  .object({
+    accepted: z.boolean(),
+    contractVersion: z.literal(1),
+    operationId: z.string().max(128),
+  })
+  .strict();
+export interface MobileConfigCancelResultDto extends z.infer<
+  typeof MobileConfigCancelResultSchema
 > {}
 
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);

@@ -5,7 +5,9 @@ use tauri::{
 };
 
 use crate::{
-    MobileConfigValidationRequest, MobileConfigValidationResult, MobileVpnSnapshot, Result,
+    MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadRequest,
+    MobileConfigLoadResult, MobileConfigValidationRequest, MobileConfigValidationResult,
+    MobileVpnSnapshot, Result,
 };
 
 const PLUGIN_IDENTIFIER: &str = "com.asuka109.mish.vpn";
@@ -58,5 +60,29 @@ impl<R: Runtime> MishVpn<R> {
         self.0
             .run_mobile_plugin("validateConfig", &request)
             .unwrap_or_else(|_| MobileConfigValidationResult::plugin_failure(&request))
+    }
+
+    pub fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
+        if let Some(result) = MobileConfigLoadResult::preflight(&request) {
+            return result;
+        }
+        self.0
+            .run_mobile_plugin("loadConfig", &request)
+            .unwrap_or_else(|_| {
+                MobileConfigLoadResult::plugin_failure(&request, self.get_snapshot().ok())
+            })
+    }
+
+    pub fn cancel_config_load(
+        &self,
+        request: MobileConfigCancelRequest,
+    ) -> MobileConfigCancelResult {
+        self.0
+            .run_mobile_plugin("cancelConfigLoad", &request)
+            .unwrap_or(MobileConfigCancelResult {
+                accepted: false,
+                contract_version: 1,
+                operation_id: request.operation_id,
+            })
     }
 }

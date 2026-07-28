@@ -9,6 +9,8 @@ const COMMANDS: &[&str] = &[
     "start_fixture_lifecycle",
     "stop",
     "validate_config",
+    "load_config",
+    "cancel_config_load",
 ];
 
 fn main() {

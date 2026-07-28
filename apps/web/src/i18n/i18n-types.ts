@@ -908,11 +908,53 @@ type RootTranslation = {
 		 */
 		authorityLabel: string
 		/**
+		 * F​i​c​t​i​o​n​a​l​ ​M​o​b​i​l​e​ ​C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​a​c​t​i​o​n​s
+		 */
+		configActionsLabel: string
+		/**
+		 * C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
+		 */
+		configLabel: string
+		/**
+		 * T​h​e​ ​e​x​a​c​t​ ​v​a​l​i​d​a​t​e​d​ ​r​e​v​i​s​i​o​n​ ​i​s​ ​l​o​a​d​e​d​ ​i​n​ ​C​o​r​e​.​ ​T​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​s​t​a​r​t​ ​a​ ​p​r​o​x​y​ ​o​r​ ​V​P​N​.
+		 */
+		configLoadedDescription: string
+		/**
+		 * L​o​a​d​e​d​ ​·​ ​{​r​e​v​i​s​i​o​n​}
+		 * @param {string} revision
+		 */
+		configLoadedValue: RequiredParams<'revision'>
+		/**
+		 * T​h​e​ ​n​a​t​i​v​e​ ​o​u​t​c​o​m​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​p​r​o​v​e​n​.​ ​E​x​p​l​i​c​i​t​ ​r​e​c​o​v​e​r​y​ ​i​s​ ​r​e​q​u​i​r​e​d​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​c​l​a​i​m​.
+		 */
+		configUnknownDescription: string
+		/**
+		 * R​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
+		 */
+		configUnknownValue: string
+		/**
+		 * N​o​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​i​s​ ​l​o​a​d​e​d​ ​i​n​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​C​o​r​e​ ​p​r​o​c​e​s​s​.
+		 */
+		configUnloadedDescription: string
+		/**
+		 * U​n​l​o​a​d​e​d
+		 */
+		configUnloadedValue: string
+		/**
+		 * T​h​i​s​ ​r​e​v​i​s​i​o​n​ ​p​a​s​s​e​d​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​n​a​t​i​v​e​ ​c​o​n​t​r​a​c​t​ ​b​u​t​ ​i​s​ ​n​o​t​ ​c​u​r​r​e​n​t​l​y​ ​l​o​a​d​e​d​.
+		 */
+		configValidatedDescription: string
+		/**
+		 * V​a​l​i​d​a​t​e​d​ ​·​ ​{​r​e​v​i​s​i​o​n​}
+		 * @param {string} revision
+		 */
+		configValidatedValue: RequiredParams<'revision'>
+		/**
 		 * E​m​b​e​d​d​e​d​ ​C​o​r​e
 		 */
 		coreLabel: string
 		/**
-		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​T​h​i​s​ ​f​i​x​t​u​r​e​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​o​r​ ​s​t​a​r​t​ ​t​h​e​ ​C​o​r​e​.
+		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​L​o​a​d​i​n​g​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​V​P​N​/​T​U​N​ ​o​r​ ​s​t​a​r​t​ ​t​r​a​f​f​i​c​ ​h​a​n​d​l​i​n​g​.
 		 */
 		corePackagedDescription: string
 		/**
@@ -937,7 +979,7 @@ type RootTranslation = {
 		 */
 		failedState: string
 		/**
-		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​e​x​e​r​c​i​s​e​s​ ​A​n​d​r​o​i​d​ ​p​e​r​m​i​s​s​i​o​n​ ​a​n​d​ ​l​i​f​e​c​y​c​l​e​ ​h​a​n​d​l​i​n​g​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
+		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​l​o​a​d​s​ ​o​n​l​y​ ​r​e​p​o​s​i​t​o​r​y​-​o​w​n​e​d​ ​f​i​c​t​i​o​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.​ ​I​t​ ​c​a​n​n​o​t​ ​s​t​a​r​t​ ​a​ ​p​r​o​x​y​,​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​,​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
 		 */
 		fixtureDescription: string
 		/**
@@ -952,6 +994,10 @@ type RootTranslation = {
 		 * V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​r​e​q​u​i​r​e​d
 		 */
 		permissionRequiredState: string
+		/**
+		 * L​o​a​d​ ​F​i​x​t​u​r​e​ ​A
+		 */
+		loadConfigAction: string
 		/**
 		 * P​r​o​f​i​l​e
 		 */
@@ -972,6 +1018,14 @@ type RootTranslation = {
 		 * R​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
 		 */
 		recoveryState: string
+		/**
+		 * I​n​j​e​c​t​ ​F​a​i​l​e​d​ ​R​e​p​l​a​c​e
+		 */
+		rejectReplacementAction: string
+		/**
+		 * R​e​p​l​a​c​e​ ​w​i​t​h​ ​F​i​x​t​u​r​e​ ​B
+		 */
+		replaceConfigAction: string
 		/**
 		 * R​e​t​r​y​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
 		 */
@@ -5606,11 +5660,51 @@ export type TranslationFunctions = {
 		 */
 		authorityLabel: () => LocalizedString
 		/**
+		 * Fictional Mobile Core configuration actions
+		 */
+		configActionsLabel: () => LocalizedString
+		/**
+		 * Core configuration
+		 */
+		configLabel: () => LocalizedString
+		/**
+		 * The exact validated revision is loaded in Core. This does not start a proxy or VPN.
+		 */
+		configLoadedDescription: () => LocalizedString
+		/**
+		 * Loaded · {revision}
+		 */
+		configLoadedValue: (arg: { revision: string }) => LocalizedString
+		/**
+		 * The native outcome could not be proven. Explicit recovery is required before another claim.
+		 */
+		configUnknownDescription: () => LocalizedString
+		/**
+		 * Recovery required
+		 */
+		configUnknownValue: () => LocalizedString
+		/**
+		 * No configuration is loaded in the current Core process.
+		 */
+		configUnloadedDescription: () => LocalizedString
+		/**
+		 * Unloaded
+		 */
+		configUnloadedValue: () => LocalizedString
+		/**
+		 * This revision passed the bounded native contract but is not currently loaded.
+		 */
+		configValidatedDescription: () => LocalizedString
+		/**
+		 * Validated · {revision}
+		 */
+		configValidatedValue: (arg: { revision: string }) => LocalizedString
+		/**
 		 * Embedded Core
 		 */
 		coreLabel: () => LocalizedString
 		/**
-		 * Package identity is verified. This fixture does not initialize or start the Core.
+		 * Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.
 		 */
 		corePackagedDescription: () => LocalizedString
 		/**
@@ -5634,7 +5728,7 @@ export type TranslationFunctions = {
 		 */
 		failedState: () => LocalizedString
 		/**
-		 * This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.
+		 * This bounded fixture loads only repository-owned fictional configuration. It cannot start a proxy, create a TUN, or route traffic.
 		 */
 		fixtureDescription: () => LocalizedString
 		/**
@@ -5649,6 +5743,10 @@ export type TranslationFunctions = {
 		 * VPN permission required
 		 */
 		permissionRequiredState: () => LocalizedString
+		/**
+		 * Load Fixture A
+		 */
+		loadConfigAction: () => LocalizedString
 		/**
 		 * Profile
 		 */
@@ -5669,6 +5767,14 @@ export type TranslationFunctions = {
 		 * Recovery required
 		 */
 		recoveryState: () => LocalizedString
+		/**
+		 * Inject Failed Replace
+		 */
+		rejectReplacementAction: () => LocalizedString
+		/**
+		 * Replace with Fixture B
+		 */
+		replaceConfigAction: () => LocalizedString
 		/**
 		 * Retry Lifecycle Check
 		 */

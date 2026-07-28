@@ -284,26 +284,42 @@ const en = {
   },
   mobileHome: {
     authorityLabel: "VPN / Core",
+    configActionsLabel: "Fictional Mobile Core configuration actions",
+    configLabel: "Core configuration",
+    configLoadedDescription:
+      "The exact validated revision is loaded in Core. This does not start a proxy or VPN.",
+    configLoadedValue: "Loaded · {revision:string}",
+    configUnknownDescription:
+      "The native outcome could not be proven. Explicit recovery is required before another claim.",
+    configUnknownValue: "Recovery required",
+    configUnloadedDescription: "No configuration is loaded in the current Core process.",
+    configUnloadedValue: "Unloaded",
+    configValidatedDescription:
+      "This revision passed the bounded native contract but is not currently loaded.",
+    configValidatedValue: "Validated · {revision:string}",
     coreLabel: "Embedded Core",
     corePackagedDescription:
-      "Package identity is verified. This fixture does not initialize or start the Core.",
+      "Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.",
     coreUnavailableDescription: "No verified embedded Core package is available to this build.",
     coreVersion: "Mihomo {version:string}",
     currentSection: "Current setup",
     failedDescription: "Android could not complete the native lifecycle check.",
     failedState: "Lifecycle check failed",
     fixtureDescription:
-      "This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.",
+      "This bounded fixture loads only repository-owned fictional configuration. It cannot start a proxy, create a TUN, or route traffic.",
     fixtureLabel: "Development boundary",
     permissionRequiredDescription:
       "Review Android VPN permission before checking the native lifecycle.",
     permissionRequiredState: "VPN permission required",
+    loadConfigAction: "Load Fixture A",
     profileLabel: "Profile",
     profileUnavailableDescription:
       "No native Profile authority is connected, so no current Profile is claimed.",
     readinessSection: "Runtime readiness",
     recoveryDescription: "The native lifecycle must be reset safely before another check.",
     recoveryState: "Recovery required",
+    rejectReplacementAction: "Inject Failed Replace",
+    replaceConfigAction: "Replace with Fixture B",
     retryAction: "Retry Lifecycle Check",
     routingLabel: "Routing mode",
     routingUnavailableDescription:

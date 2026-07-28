@@ -93,6 +93,16 @@ int main(void) {
   assert(contains(&response, "\"loaded\":true"));
   release(&response);
 
+  assert(mish_core_load_config_v1((uint8_t *)forbidden_config,
+                                  strlen(forbidden_config), &response) ==
+         MISH_CORE_CONFIG_REJECTED_V1);
+  release(&response);
+  assert(mish_core_snapshot_v1((uint8_t *)status_snapshot,
+                               strlen(status_snapshot), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "\"loaded\":true"));
+  release(&response);
+
   assert(mish_core_start_v1((uint8_t *)start, strlen(start), &response) ==
          MISH_CORE_OK_V1);
   assert(contains(&response, "\"phase\":\"running\""));

@@ -126,12 +126,15 @@ digest, current-host Go archive, NDK and build settings, ABI paths, ELF
 machines, exported symbols, checksums, and SBOM. This preserves same-host
 reproducibility without assuming that Go `c-shared` output is byte-identical
 across Darwin and Linux hosts. A small JNI shim loads the exact ABI by soname,
-reports bounded version evidence, and carries one bounded validation-only
-configuration command. That command initializes the Core with a fail-closed
-socket-protection callback, invokes `mish_core_validate_config_v1`, validates
-and frees every response envelope exactly once, and returns only a closed
-redacted result. It never loads configuration, supplies a TUN descriptor, or
-changes Core or VPN lifecycle authority.
+reports bounded version evidence, and carries bounded validation and
+configuration-load commands. Loading is admitted only after the exact bytes,
+revision, and SHA-256 identity pass the existing validation contract. The JNI
+bridge serializes initialization, validation, load, status reconciliation, and
+response release; every response is freed exactly once and only closed redacted
+results cross JNI. A well-formed failed v1 replacement preserves the prior
+loaded identity. Malformed, interrupted, or runtime-replaced outcomes publish
+unknown instead of inventing loaded state. This slice never starts Core,
+supplies a TUN descriptor, or changes VPN authority.
 
 ## Android lifecycle
 
