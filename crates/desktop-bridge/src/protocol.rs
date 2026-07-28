@@ -366,6 +366,12 @@ struct SetProcessDiscoveryModeParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetCloseOldConnectionsAfterGroupSwitchParams {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdaterCheckParams {
     channel: UpdateChannel,
     operation_id: String,
@@ -857,7 +863,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 29,
+            "protocolVersion": 30,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
@@ -1957,6 +1963,25 @@ async fn handle_message(
             };
             match service.set_process_discovery_mode(params.mode) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(state, id, error)),
+            }
+        }
+        "settings.setCloseOldConnectionsAfterGroupSwitch" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetCloseOldConnectionsAfterGroupSwitchParams =
+                match serde_json::from_value(request.params) {
+                    Ok(params) => params,
+                    Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service.set_close_old_connections_after_group_switch(params.enabled) {
+                Ok(snapshot) => {
+                    state
+                        .runtime
+                        .set_policy_group_connection_cleanup_enabled(params.enabled);
+                    serde_json::to_value(snapshot).expect("serializable settings")
+                }
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }

@@ -86,6 +86,22 @@ function applicationEventCopy(
         }),
         message: LL.events.application.proxyLaunchTiming(),
       };
+    case "route.old-child-cleanup":
+      return {
+        detail: `${LL.events.application.routeOldChildCleanupDetail({
+          closed: number("closedCount"),
+          failed: number("failedCount"),
+          failure: string("failure") ?? "none",
+          mode: string("mode") ?? "unknown",
+          phase: string("phase") ?? "unknown",
+          target: number("targetCount"),
+        })} ${LL.events.application.routeOldChildCleanupRevisionDetail({
+          catalog: string("catalogRevision") ?? "unknown",
+          membership: string("membershipRevision") ?? "unknown",
+          session: number("controllerSessionRevision"),
+        })}`,
+        message: LL.events.application.routeOldChildCleanup(),
+      };
     case "settings.operation-failed":
       return {
         detail: LL.events.application.settingsOperationFailedDetail(),

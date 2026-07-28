@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{
         Arc, Mutex,
@@ -21,10 +21,12 @@ use mish_bridge::{
     LoopbackServerConfig, ProfileMappingContext, compose_desktop_runtime, start_loopback_server,
 };
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProviderCommandOperation,
-    ProviderCommandPhase, ProviderCommandResult, ProviderKind, ProviderUpdateFailure,
-    ProviderUpdatePhase, RoutingMode, RuntimeObservationPauseReason, StatusAdapterKind,
-    StatusCommand, StatusCommandErrorKind, StatusDataSource,
+    CoreError, CorePhase, CoreRuntime, CoreStatus, GroupSelectionCleanupFailure,
+    GroupSelectionCleanupMode, GroupSelectionCleanupPhase, MishRuntime,
+    PolicyGroupConnectionCleanupPreference, ProviderCommandOperation, ProviderCommandPhase,
+    ProviderCommandResult, ProviderKind, ProviderUpdateFailure, ProviderUpdatePhase, RoutingMode,
+    RuntimeObservationPauseReason, StatusAdapterKind, StatusCommand, StatusCommandErrorKind,
+    StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -85,17 +87,23 @@ struct FakeControllerState {
     available: watch::Sender<bool>,
     configs: RwLock<Value>,
     connections: RwLock<Value>,
+    connection_close_delay_milliseconds: AtomicUsize,
     close_limit: AtomicUsize,
+    close_all_count: AtomicUsize,
+    closed_connection_ids: Mutex<Vec<String>>,
     delay_mode: AtomicUsize,
     delay_requests: Mutex<Vec<String>>,
+    disappearing_connection_ids: Mutex<BTreeSet<String>>,
     logs: broadcast::Sender<Value>,
     logs_available: watch::Sender<bool>,
     memory: watch::Sender<Value>,
     mutation_count: AtomicUsize,
     mutation_status: AtomicUsize,
+    late_connection: Mutex<Option<Value>>,
     proxies: RwLock<Value>,
     proxy_providers: RwLock<Value>,
     rejected_provider: Mutex<Option<String>>,
+    rejected_connection_ids: Mutex<BTreeSet<String>>,
     rule_providers: RwLock<Value>,
     rules: RwLock<Value>,
     traffic: watch::Sender<Value>,
@@ -122,17 +130,23 @@ impl FakeController {
             available,
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
+            connection_close_delay_milliseconds: AtomicUsize::new(0),
             close_limit: AtomicUsize::new(usize::MAX),
+            close_all_count: AtomicUsize::new(0),
+            closed_connection_ids: Mutex::new(Vec::new()),
             delay_mode: AtomicUsize::new(0),
             delay_requests: Mutex::new(Vec::new()),
+            disappearing_connection_ids: Mutex::new(BTreeSet::new()),
             logs,
             logs_available,
             memory,
             mutation_count: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(StatusCode::NO_CONTENT.as_u16().into()),
+            late_connection: Mutex::new(None),
             proxies: RwLock::new(proxies()),
             proxy_providers: RwLock::new(proxy_providers()),
             rejected_provider: Mutex::new(None),
+            rejected_connection_ids: Mutex::new(BTreeSet::new()),
             rule_providers: RwLock::new(rule_providers()),
             rules: RwLock::new(rules()),
             traffic,
@@ -335,7 +349,22 @@ async fn update_provider_endpoint(
 }
 
 async fn connections_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
-    unary(&state, &state.connections).await
+    if !available(&state) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    let snapshot = state.connections.read().await.clone();
+    let late = state
+        .late_connection
+        .lock()
+        .expect("late connection poisoned")
+        .take();
+    if let Some(late) = late {
+        state.connections.write().await["connections"]
+            .as_array_mut()
+            .expect("fixture connections")
+            .push(late);
+    }
+    Json(snapshot).into_response()
 }
 
 async fn close_connection_endpoint(
@@ -343,6 +372,45 @@ async fn close_connection_endpoint(
     State(state): State<Arc<FakeControllerState>>,
 ) -> Response {
     state.mutation_count.fetch_add(1, Ordering::AcqRel);
+    state
+        .closed_connection_ids
+        .lock()
+        .expect("closed connection IDs poisoned")
+        .push(id.clone());
+    let close_delay = Duration::from_millis(
+        state
+            .connection_close_delay_milliseconds
+            .load(Ordering::Acquire) as u64,
+    );
+    if !close_delay.is_zero() {
+        sleep(close_delay).await;
+    }
+    if state
+        .disappearing_connection_ids
+        .lock()
+        .expect("disappearing connection IDs poisoned")
+        .remove(&id)
+    {
+        let mut connections = state.connections.write().await;
+        connections["connections"] = Value::Array(
+            connections["connections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|connection| connection["id"] != id)
+                .cloned()
+                .collect(),
+        );
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if state
+        .rejected_connection_ids
+        .lock()
+        .expect("rejected connection IDs poisoned")
+        .contains(&id)
+    {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     let status =
         StatusCode::from_u16(state.mutation_status.load(Ordering::Acquire) as u16).unwrap();
     if !status.is_success() {
@@ -365,6 +433,7 @@ async fn close_connection_endpoint(
 
 async fn close_all_connections_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
     state.mutation_count.fetch_add(1, Ordering::AcqRel);
+    state.close_all_count.fetch_add(1, Ordering::AcqRel);
     let status =
         StatusCode::from_u16(state.mutation_status.load(Ordering::Acquire) as u16).unwrap();
     if !status.is_success() {
@@ -645,23 +714,40 @@ fn connections_many(ids: &[&str]) -> Value {
         "downloadTotal": 100,
         "uploadTotal": 50,
         "memory": 4096,
-        "connections": ids.iter().map(|id| json!({
-            "id": id,
-            "metadata": {
-                "network": "tcp",
-                "type": "HTTP",
-                "sourceIP": "192.0.2.1",
-                "destinationIP": "198.51.100.1",
-                "sourcePort": "50000",
-                "destinationPort": "443"
-            },
-            "upload": 50,
-            "download": 100,
-            "start": "2026-07-19T00:00:00Z",
-            "chains": ["DIRECT", "SELECT"],
-            "rule": "MATCH",
-            "rulePayload": ""
-        })).collect::<Vec<_>>()
+        "connections": ids.iter().map(|id| connection_value(
+            id,
+            &["DIRECT", "SELECT"],
+            "tcp",
+        )).collect::<Vec<_>>()
+    })
+}
+
+fn connection_value(id: &str, chains: &[&str], network: &str) -> Value {
+    json!({
+        "id": id,
+        "metadata": {
+            "network": network,
+            "type": if network == "udp" { "UDP" } else { "HTTP" },
+            "sourceIP": "192.0.2.1",
+            "destinationIP": "198.51.100.1",
+            "sourcePort": "50000",
+            "destinationPort": "443"
+        },
+        "upload": 50,
+        "download": 100,
+        "start": "2026-07-19T00:00:00Z",
+        "chains": chains,
+        "rule": "MATCH",
+        "rulePayload": ""
+    })
+}
+
+fn connection_snapshot(values: Vec<Value>) -> Value {
+    json!({
+        "downloadTotal": 100,
+        "uploadTotal": 50,
+        "memory": 4096,
+        "connections": values
     })
 }
 
@@ -689,6 +775,32 @@ fn source_config_for_profile(
     config.reconnect_delay = Duration::from_millis(30);
     config.confirmation_timeout = Duration::from_millis(150);
     config
+}
+
+async fn selector_target_ids(runtime: &MishRuntime) -> (String, String, String) {
+    let snapshot = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+    let group_id = snapshot
+        .groups
+        .iter()
+        .find(|group| group.label == "SELECT")
+        .unwrap()
+        .id
+        .clone();
+    let direct_child_id = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.label == "DIRECT")
+        .unwrap()
+        .id
+        .clone();
+    let new_child_id = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.label == "节点 🚄")
+        .unwrap()
+        .id
+        .clone();
+    (group_id, direct_child_id, new_child_id)
 }
 
 fn bridge_config() -> LoopbackServerConfig {
@@ -1301,6 +1413,557 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
 
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_cleanup_closes_only_fresh_old_direct_child_connections() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference.clone();
+    config.cleanup_interval = Duration::from_millis(15);
+    config.cleanup_timeout = Duration::from_millis(500);
+    config.cleanup_quiet_scans = 2;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+
+    let initial = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+    let selector = initial
+        .groups
+        .iter()
+        .find(|group| group.label == "SELECT")
+        .unwrap();
+    let group_id = selector.id.clone();
+    let new_child_id = initial
+        .nodes
+        .iter()
+        .find(|node| node.label == "节点 🚄")
+        .unwrap()
+        .id
+        .clone();
+
+    *fake.state.connections.write().await = connection_snapshot(vec![
+        connection_value("target-flat", &["DIRECT", "SELECT"], "tcp"),
+        connection_value("target-nested", &["节点 🚄", "DIRECT", "SELECT"], "tcp"),
+        connection_value("target-udp", &["DIRECT", "SELECT"], "udp"),
+        connection_value("already-gone", &["DIRECT", "SELECT"], "tcp"),
+        connection_value("new-path", &["节点 🚄", "SELECT"], "tcp"),
+        connection_value("unrelated-group", &["DIRECT", "OTHER"], "tcp"),
+        connection_value("indirect-old-child", &["DIRECT", "OTHER", "SELECT"], "tcp"),
+        connection_value("reversed-chain", &["SELECT", "DIRECT"], "tcp"),
+        connection_value("duplicate-group", &["DIRECT", "SELECT", "SELECT"], "tcp"),
+        connection_value(
+            "duplicate-old-child",
+            &["DIRECT", "DIRECT", "SELECT"],
+            "tcp",
+        ),
+        connection_value("unmapped-chain", &["unmapped", "DIRECT", "SELECT"], "tcp"),
+        connection_value("missing-group", &["DIRECT"], "tcp"),
+    ]);
+    *fake
+        .state
+        .late_connection
+        .lock()
+        .expect("late connection poisoned") = Some(connection_value(
+        "late-target",
+        &["DIRECT", "SELECT"],
+        "tcp",
+    ));
+    fake.state
+        .disappearing_connection_ids
+        .lock()
+        .expect("disappearing connection IDs poisoned")
+        .insert("already-gone".into());
+
+    let selected = runtime
+        .select_group_child_typed(group_id.clone(), new_child_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    let cleanup = selected.group_selection_operation;
+    assert!(cleanup.selection_confirmed);
+    assert_eq!(
+        cleanup.cleanup_mode,
+        GroupSelectionCleanupMode::OldDirectChild
+    );
+    assert_eq!(cleanup.cleanup_phase, GroupSelectionCleanupPhase::Completed);
+    assert_eq!(cleanup.target_count, 5);
+    assert_eq!(cleanup.closed_count, 5);
+    assert_eq!(cleanup.failed_count, 0);
+    assert!(cleanup.scan_count >= 3);
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+    let closed = fake
+        .state
+        .closed_connection_ids
+        .lock()
+        .expect("closed connection IDs poisoned")
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        closed,
+        [
+            "already-gone",
+            "late-target",
+            "target-flat",
+            "target-nested",
+            "target-udp",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    );
+    let remaining = fake.state.connections.read().await["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|connection| connection["id"].as_str().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    for preserved in [
+        "new-path",
+        "unrelated-group",
+        "indirect-old-child",
+        "reversed-chain",
+        "duplicate-group",
+        "duplicate-old-child",
+        "unmapped-chain",
+        "missing-group",
+    ] {
+        assert!(
+            remaining.contains(preserved),
+            "{preserved} must be preserved"
+        );
+    }
+
+    let event_snapshot = runtime.events_snapshot(StatusAdapterKind::Rpc);
+    let cleanup_event = event_snapshot["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| event["application"]["kind"] == "route.old-child-cleanup")
+        .unwrap();
+    let event_json = cleanup_event.to_string();
+    for private in [
+        "192.0.2.1",
+        "198.51.100.1",
+        "节点 🚄",
+        "DIRECT",
+        "SELECT",
+        "target-flat",
+        "late-target",
+    ] {
+        assert!(!event_json.contains(private));
+    }
+
+    cleanup_preference.set_enabled(false);
+    *fake.state.connections.write().await = connection_snapshot(vec![connection_value(
+        "off-preserves-existing",
+        &["节点 🚄", "SELECT"],
+        "tcp",
+    )]);
+    let refreshed = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+    let direct_child_id = refreshed
+        .nodes
+        .iter()
+        .find(|node| node.label == "DIRECT")
+        .unwrap()
+        .id
+        .clone();
+    let close_count_before = fake
+        .state
+        .closed_connection_ids
+        .lock()
+        .expect("closed connection IDs poisoned")
+        .len();
+    let selected = runtime
+        .select_group_child_typed(group_id, direct_child_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(
+        selected.group_selection_operation.cleanup_mode,
+        GroupSelectionCleanupMode::Off
+    );
+    assert_eq!(
+        selected.group_selection_operation.cleanup_phase,
+        GroupSelectionCleanupPhase::Skipped
+    );
+    assert_eq!(
+        fake.state
+            .closed_connection_ids
+            .lock()
+            .expect("closed connection IDs poisoned")
+            .len(),
+        close_count_before
+    );
+    assert_eq!(
+        fake.state.connections.read().await["connections"][0]["id"],
+        "off-preserves-existing"
+    );
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_cleanup_reports_individual_close_rejection_as_partial() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference;
+    config.cleanup_interval = Duration::from_millis(10);
+    config.cleanup_timeout = Duration::from_millis(300);
+    config.cleanup_quiet_scans = 2;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+    *fake.state.connections.write().await = connection_snapshot(vec![
+        connection_value("close-succeeds", &["DIRECT", "SELECT"], "tcp"),
+        connection_value("close-rejected", &["DIRECT", "SELECT"], "udp"),
+    ]);
+    fake.state
+        .rejected_connection_ids
+        .lock()
+        .expect("rejected connection IDs poisoned")
+        .insert("close-rejected".into());
+
+    let selected = runtime
+        .select_group_child_typed(group_id, new_child_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    let cleanup = selected.group_selection_operation;
+    assert!(cleanup.selection_confirmed);
+    assert_eq!(cleanup.cleanup_phase, GroupSelectionCleanupPhase::Partial);
+    assert_eq!(
+        cleanup.cleanup_failure,
+        Some(GroupSelectionCleanupFailure::ControllerRejected)
+    );
+    assert_eq!(cleanup.target_count, 2);
+    assert_eq!(cleanup.closed_count, 1);
+    assert_eq!(cleanup.failed_count, 1);
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+    assert_eq!(
+        fake.state.connections.read().await["connections"][0]["id"],
+        "close-rejected"
+    );
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_cleanup_reports_a_bounded_quiet_scan_timeout() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference;
+    config.cleanup_interval = Duration::from_millis(20);
+    config.cleanup_timeout = Duration::from_millis(60);
+    config.cleanup_quiet_scans = 100;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+    *fake.state.connections.write().await = connection_snapshot(Vec::new());
+
+    let selected = runtime
+        .select_group_child_typed(group_id, new_child_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    let cleanup = selected.group_selection_operation;
+    assert!(cleanup.selection_confirmed);
+    assert_eq!(cleanup.cleanup_phase, GroupSelectionCleanupPhase::Partial);
+    assert_eq!(
+        cleanup.cleanup_failure,
+        Some(GroupSelectionCleanupFailure::Timeout)
+    );
+    assert_eq!(cleanup.target_count, 0);
+    assert_eq!(cleanup.closed_count, 0);
+    assert!(cleanup.scan_count < 100);
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_replacement_terminates_group_selection_cleanup() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference;
+    config.cleanup_interval = Duration::from_millis(25);
+    config.cleanup_timeout = Duration::from_secs(2);
+    config.cleanup_quiet_scans = 100;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+    *fake.state.connections.write().await = connection_snapshot(Vec::new());
+    let command_source = source.clone();
+    let command = tokio::spawn(async move {
+        command_source
+            .select_group_child(group_id, new_child_id)
+            .await
+    });
+    timeout(Duration::from_secs(1), async {
+        loop {
+            if fake.state.proxies.read().await["proxies"]["SELECT"]["now"] == "节点 🚄" {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("selection was not applied");
+
+    source
+        .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
+        .await;
+    command.await.unwrap().unwrap();
+    let cleanup = runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await
+        .group_selection_operation;
+    assert!(cleanup.selection_confirmed);
+    assert_eq!(cleanup.cleanup_phase, GroupSelectionCleanupPhase::Skipped);
+    assert_eq!(
+        cleanup.cleanup_failure,
+        Some(GroupSelectionCleanupFailure::RuntimeReplaced)
+    );
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_cleanup_stops_when_catalog_membership_changes() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference;
+    config.cleanup_interval = Duration::from_millis(30);
+    config.cleanup_timeout = Duration::from_secs(1);
+    config.cleanup_quiet_scans = 10;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+    *fake.state.connections.write().await = connection_snapshot(vec![connection_value(
+        "closed-before-catalog-change",
+        &["DIRECT", "SELECT"],
+        "tcp",
+    )]);
+    let command_source = source.clone();
+    let command_group_id = group_id.clone();
+    let command = tokio::spawn(async move {
+        command_source
+            .select_group_child(command_group_id, new_child_id)
+            .await
+    });
+    wait_for(Duration::from_secs(1), || {
+        fake.state
+            .closed_connection_ids
+            .lock()
+            .expect("closed connection IDs poisoned")
+            .iter()
+            .any(|id| id == "closed-before-catalog-change")
+    })
+    .await;
+    let mut changed = proxies();
+    changed["proxies"]["SELECT"]["now"] = json!("节点 🚄");
+    changed["proxies"]["SELECT"]["all"] = json!(["DIRECT", "节点 🚄", "EXTRA"]);
+    changed["proxies"]["EXTRA"] = proxy("EXTRA", "VLESS");
+    *fake.state.proxies.write().await = changed;
+
+    command.await.unwrap().unwrap();
+    let cleanup = runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await
+        .group_selection_operation;
+    assert_eq!(cleanup.cleanup_phase, GroupSelectionCleanupPhase::Partial);
+    assert_eq!(
+        cleanup.cleanup_failure,
+        Some(GroupSelectionCleanupFailure::StaleRevision)
+    );
+    assert_eq!(cleanup.target_count, 1);
+    assert_eq!(cleanup.closed_count, 1);
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn second_group_switch_cancels_and_supersedes_the_old_cleanup() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+    cleanup_preference.set_enabled(true);
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(5);
+    config.connection_cleanup_preference = cleanup_preference;
+    config.cleanup_interval = Duration::from_millis(25);
+    config.cleanup_timeout = Duration::from_secs(2);
+    config.cleanup_quiet_scans = 10;
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, direct_child_id, new_child_id) = selector_target_ids(&runtime).await;
+    *fake.state.connections.write().await = connection_snapshot(vec![connection_value(
+        "first-switch-in-flight",
+        &["DIRECT", "SELECT"],
+        "tcp",
+    )]);
+    fake.state
+        .connection_close_delay_milliseconds
+        .store(150, Ordering::Release);
+
+    let first_source = source.clone();
+    let first_group_id = group_id.clone();
+    let first = tokio::spawn(async move {
+        first_source
+            .select_group_child(first_group_id, new_child_id)
+            .await
+    });
+    timeout(Duration::from_secs(1), async {
+        loop {
+            if fake.state.proxies.read().await["proxies"]["SELECT"]["now"] == "节点 🚄" {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("first selection was not applied");
+    wait_for(Duration::from_secs(1), || {
+        fake.state
+            .closed_connection_ids
+            .lock()
+            .expect("closed connection IDs poisoned")
+            .iter()
+            .any(|id| id == "first-switch-in-flight")
+    })
+    .await;
+
+    let second_source = source.clone();
+    let second = tokio::spawn(async move {
+        second_source
+            .select_group_child(group_id, direct_child_id)
+            .await
+    });
+    sleep(Duration::from_millis(25)).await;
+    assert_eq!(
+        fake.state.proxies.read().await["proxies"]["SELECT"]["now"],
+        "节点 🚄",
+        "the second PUT must wait until the in-flight old cleanup exits"
+    );
+    second.await.unwrap().unwrap();
+    first.await.unwrap().unwrap();
+    let final_snapshot = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+    let selected_group = final_snapshot
+        .groups
+        .iter()
+        .find(|group| group.label == "SELECT")
+        .unwrap();
+    let direct_id = final_snapshot
+        .nodes
+        .iter()
+        .find(|node| node.label == "DIRECT")
+        .unwrap()
+        .id
+        .as_str();
+    assert_eq!(selected_group.selected_child_id.as_deref(), Some(direct_id));
+    assert_eq!(
+        final_snapshot.group_selection_operation.cleanup_phase,
+        GroupSelectionCleanupPhase::Completed
+    );
+    assert_eq!(
+        final_snapshot.group_selection_operation.cleanup_failure,
+        None
+    );
+    assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
+
+    let cleanup_events = runtime.events_snapshot(StatusAdapterKind::Rpc)["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["application"]["kind"] == "route.old-child-cleanup")
+        .map(|event| event["application"]["data"]["phase"].clone())
+        .collect::<Vec<_>>();
+    assert!(cleanup_events.contains(&json!("partial")));
+    assert_eq!(cleanup_events.last(), Some(&json!("completed")));
+
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

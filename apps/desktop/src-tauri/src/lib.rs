@@ -34,8 +34,8 @@ use mish_platform_macos::{
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
     CaptureAuditReason, CaptureReconciler, CaptureSelection, LoopbackProxyEndpoint,
-    PlatformLifecycleEventSource, StatusAdapterKind as RuntimeStatusAdapterKind,
-    TunHelperController, TunHelperPlatform,
+    PlatformLifecycleEventSource, PolicyGroupConnectionCleanupPreference,
+    StatusAdapterKind as RuntimeStatusAdapterKind, TunHelperController, TunHelperPlatform,
 };
 use mish_settings::{
     ApplicationLaunchBehavior, FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences,
@@ -1018,15 +1018,28 @@ fn initialize(
                 .preferences
                 .system_proxy_takeover_policy,
         );
+        let connection_cleanup_preference = PolicyGroupConnectionCleanupPreference::default();
+        connection_cleanup_preference.set_enabled(
+            settings_service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .close_old_connections_after_group_switch,
+        );
         // Settings is authoritative for this durable choice.  A local-backup restore publishes
         // the same snapshot stream, so the next capture transaction observes the restored
         // policy without applying any operating-system setting during restore itself.
         let capture_policy_sync = capture.clone();
+        let connection_cleanup_policy_sync = connection_cleanup_preference.clone();
         let mut settings_policy_updates = settings_service.subscribe();
         tauri::async_runtime::spawn(async move {
             while let Ok(snapshot) = settings_policy_updates.recv().await {
                 capture_policy_sync.set_system_proxy_takeover_policy(
                     snapshot.preferences.system_proxy_takeover_policy,
+                );
+                connection_cleanup_policy_sync.set_enabled(
+                    snapshot
+                        .preferences
+                        .close_old_connections_after_group_switch,
                 );
             }
         });
@@ -1046,21 +1059,24 @@ fn initialize(
         let privileged_host = internal_tun_service
             .or_else(|| development_tun_service.filter(|_| development_service_ready))
             .map(|service| service as Arc<dyn PrivilegedCoreHost>);
-        let activation_manager = Arc::new(match privileged_host {
-            Some(host) => MihomoActivationManager::new_privileged(
-                resolver,
-                ActivationTiming::default(),
-                Some(capture.clone()),
-                core_ownership,
-                host,
-            ),
-            None => MihomoActivationManager::new_managed(
-                resolver,
-                ActivationTiming::default(),
-                Some(capture.clone()),
-                core_ownership,
-            ),
-        });
+        let activation_manager = Arc::new(
+            (match privileged_host {
+                Some(host) => MihomoActivationManager::new_privileged(
+                    resolver,
+                    ActivationTiming::default(),
+                    Some(capture.clone()),
+                    core_ownership,
+                    host,
+                ),
+                None => MihomoActivationManager::new_managed(
+                    resolver,
+                    ActivationTiming::default(),
+                    Some(capture.clone()),
+                    core_ownership,
+                ),
+            })
+            .with_connection_cleanup_preference(connection_cleanup_preference),
+        );
         let managed = activation_manager.managed_state().await;
         let prior_profile_id = managed
             .last_successful_profile_id()
@@ -1458,6 +1474,7 @@ fn desktop_settings_capabilities() -> SettingsCapabilities {
             launch_at_login: SettingsAvailability::Unavailable,
             native_sidebar_material: SettingsAvailability::Unavailable,
             network_dns: SettingsAvailability::Unavailable,
+            policy_group_connection_cleanup: SettingsAvailability::Supported,
             status_bar: SettingsAvailability::Unavailable,
             tun: SettingsAvailability::Unavailable,
             updates: SettingsAvailability::ComingLater,

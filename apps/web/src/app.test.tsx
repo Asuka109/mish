@@ -190,6 +190,7 @@ class DesktopSettingsClient implements SettingsClient {
       launchAtLogin: "supported",
       nativeSidebarMaterial: "supported",
       networkDns: "supported",
+      policyGroupConnectionCleanup: "supported",
       statusBar: "supported",
       tun: "unavailable",
       updates: "coming-later",
@@ -287,6 +288,10 @@ class DesktopSettingsClient implements SettingsClient {
   );
   setProcessDiscoveryMode = vi.fn(async (mode: "always" | "strict" | "off") => {
     this.snapshot.preferences.processDiscoveryMode = mode;
+    return this.getSnapshot();
+  });
+  setCloseOldConnectionsAfterGroupSwitch = vi.fn(async (enabled: boolean) => {
+    this.snapshot.preferences.closeOldConnectionsAfterGroupSwitch = enabled;
     return this.getSnapshot();
   });
   findManagedPorts = vi.fn(async () => {
@@ -1312,6 +1317,34 @@ describe("production routes", () => {
       expect(settingsClient.setProcessDiscoveryMode).toHaveBeenCalledWith("strict"),
     );
     expect(settingsClient.snapshot.preferences.processDiscoveryMode).toBe("strict");
+  });
+
+  it("persists the accessible default-Off old-path cleanup setting", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const cleanupGroup = await screen.findByRole("group", {
+      name: "Close old-path connections after switching",
+    });
+    expect(within(cleanupGroup).getByRole("button", { name: "Off" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText(/closes only Mihomo-tracked logical connections/i)).toBeInTheDocument();
+    await user.click(within(cleanupGroup).getByRole("button", { name: "On" }));
+
+    await waitFor(() =>
+      expect(settingsClient.setCloseOldConnectionsAfterGroupSwitch).toHaveBeenCalledWith(true),
+    );
+    expect(settingsClient.snapshot.preferences.closeOldConnectionsAfterGroupSwitch).toBe(true);
   });
 
   it("reallocates managed ports and retries the aggregate proxy command", async () => {

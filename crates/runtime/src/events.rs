@@ -9,13 +9,15 @@ use mish_presentation_contract::{
     CaptureFailureApplicationEventData, ControllerSessionStaleApplicationEventData,
     ControllerSessionStartedApplicationEventData, ControllerStreamUnavailableApplicationEventData,
     ProfileActivationFailedApplicationEventData, ProxyLaunchTimingApplicationEventData,
-    SettingsOperationFailedApplicationEventData, TrafficOperationFailedApplicationEventData,
+    RouteOldChildCleanupApplicationEventData, SettingsOperationFailedApplicationEventData,
+    TrafficOperationFailedApplicationEventData,
 };
 use serde::Serialize;
 
 use crate::{
-    ApplicationSnapshotOrder, CaptureFailureKind, CaptureTransitionError, StatusAdapterKind,
-    SystemProxyObservationStage,
+    ApplicationSnapshotOrder, CaptureFailureKind, CaptureTransitionError,
+    GroupSelectionCleanupFailure, GroupSelectionCleanupMode, GroupSelectionCleanupPhase,
+    GroupSelectionOperation, StatusAdapterKind, SystemProxyObservationStage,
 };
 
 pub const EVENTS_BUFFER_LIMIT: usize = 1_024;
@@ -167,6 +169,48 @@ impl ApplicationDiagnosticEvent {
         )
     }
 
+    pub fn route_old_child_cleanup(operation: &GroupSelectionOperation) -> Self {
+        let level = match operation.cleanup_phase {
+            GroupSelectionCleanupPhase::Completed | GroupSelectionCleanupPhase::Skipped => {
+                EventLevel::Info
+            }
+            GroupSelectionCleanupPhase::Partial => EventLevel::Warning,
+            GroupSelectionCleanupPhase::Failed => EventLevel::Error,
+            GroupSelectionCleanupPhase::Idle => EventLevel::Debug,
+        };
+        Self::new(
+            level,
+            ApplicationEventContent::RouteOldChildCleanup(
+                RouteOldChildCleanupApplicationEventData {
+                    catalog_revision: operation.catalog_revision.clone(),
+                    closed_count: u64::from(operation.closed_count),
+                    controller_session_revision: operation.controller_session_revision,
+                    failed_count: u64::from(operation.failed_count),
+                    failure: operation
+                        .cleanup_failure
+                        .map(group_selection_cleanup_failure_id)
+                        .map(str::to_owned),
+                    membership_revision: operation.membership_revision.clone(),
+                    mode: match operation.cleanup_mode {
+                        GroupSelectionCleanupMode::Off => "off",
+                        GroupSelectionCleanupMode::OldDirectChild => "old-direct-child",
+                    }
+                    .into(),
+                    phase: match operation.cleanup_phase {
+                        GroupSelectionCleanupPhase::Idle => "idle",
+                        GroupSelectionCleanupPhase::Completed => "completed",
+                        GroupSelectionCleanupPhase::Skipped => "skipped",
+                        GroupSelectionCleanupPhase::Partial => "partial",
+                        GroupSelectionCleanupPhase::Failed => "failed",
+                    }
+                    .into(),
+                    target_count: u64::from(operation.target_count),
+                },
+            ),
+            Vec::new(),
+        )
+    }
+
     pub fn traffic_failure(failure: impl Into<String>) -> Self {
         Self::new(
             EventLevel::Error,
@@ -185,6 +229,19 @@ impl ApplicationDiagnosticEvent {
 
     pub fn presentation(&self) -> &ApplicationEvent {
         &self.presentation
+    }
+}
+
+fn group_selection_cleanup_failure_id(failure: GroupSelectionCleanupFailure) -> &'static str {
+    match failure {
+        GroupSelectionCleanupFailure::Cancelled => "cancelled",
+        GroupSelectionCleanupFailure::ControllerRejected => "controller-rejected",
+        GroupSelectionCleanupFailure::Disconnected => "disconnected",
+        GroupSelectionCleanupFailure::InconsistentObservation => "inconsistent-observation",
+        GroupSelectionCleanupFailure::RuntimeReplaced => "runtime-replaced",
+        GroupSelectionCleanupFailure::StaleRevision => "stale-revision",
+        GroupSelectionCleanupFailure::Timeout => "timeout",
+        GroupSelectionCleanupFailure::VersionDrift => "version-drift",
     }
 }
 

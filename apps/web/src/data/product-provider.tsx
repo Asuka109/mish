@@ -44,7 +44,9 @@ export type ProductCommandState =
   | { phase: "success" }
   | { error: StatusClientError; phase: "failure" };
 
-export type ProductCommandResult = { ok: true } | { error: StatusClientError; ok: false };
+export type ProductCommandResult =
+  | { ok: true; snapshot?: StatusSnapshotDto }
+  | { error: StatusClientError; ok: false };
 
 export type LocalProxyTestState =
   | { phase: "idle" }
@@ -415,13 +417,13 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       try {
         const nextSnapshot = await execute(controller.signal);
         if (!isCurrentCommandFeedback(feedbackOperation, "pending")) {
-          return { ok: true } satisfies ProductCommandResult;
+          return { ok: true, snapshot: nextSnapshot } satisfies ProductCommandResult;
         }
         const accepted = acceptSnapshot(nextSnapshot, "command");
         if (isCurrentCommandFeedback(feedbackOperation, "pending")) {
           transitionCommandFeedback(feedbackOperation, accepted ? "success" : "superseded");
         }
-        return { ok: true } satisfies ProductCommandResult;
+        return { ok: true, snapshot: nextSnapshot } satisfies ProductCommandResult;
       } catch (error) {
         const typedError = toStatusClientError(error);
         if (!isCurrentCommandFeedback(feedbackOperation, "pending")) {
