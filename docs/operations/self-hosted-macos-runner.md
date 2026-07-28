@@ -9,23 +9,27 @@ The production identity is:
 
 | Property           | Required value                                        |
 | ------------------ | ----------------------------------------------------- |
-| GitHub runner name | `mish-macos-arm64-01`                                 |
-| macOS account      | `mish-ci`                                             |
+| GitHub runner name | `asuk-mini`                                           |
+| macOS account      | Existing non-root Mac mini login; trusted code only   |
 | Labels             | `self-hosted`, `macOS`, `ARM64`, `mish`, `trusted-ci` |
-| Runner directory   | `/Users/mish-ci/actions-runner`                       |
-| Hook directory     | `/Users/mish-ci/.local/share/mish-runner-hooks`       |
+| Runner directory   | `~/actions-runner/mish`                               |
+| Hook directory     | `~/.local/share/mish-runner-hooks`                    |
 | Concurrency key    | `mish-self-hosted-ci`                                 |
 
 The runner is repository-level, so it is available only to `Asuka109/mish`.
-The additional `trusted-ci` label prevents the older `asuk-mini` registration
-from accepting migrated jobs during setup or rollback.
+The `trusted-ci` label was added to the existing `asuk-mini` registration only
+after its identity, Apple Silicon architecture, repository scope, runner root,
+loaded LaunchAgent, and prior successful Mish run were confirmed.
 
 ## Threat model and routing
 
 The machine is persistent and therefore is not a clean security boundary
-between jobs. Mish compensates with a closed trigger set, a dedicated account,
-full-SHA action pins, read-only tokens, serialized execution, outside-workspace
-hooks, and complete workspace disposal.
+between jobs. The existing registration also runs under the current console
+account. That exception is acceptable only while all executable workflow
+sources are owned and reviewed by the sole repository owner and no external
+contribution is accepted. Mish compensates with a closed trigger set, an exact
+runner identity, full-SHA action pins, read-only tokens, serialized execution,
+outside-workspace hooks, and runner-workspace disposal.
 
 The PR gate deliberately uses `pull_request_target` so GitHub loads the
 workflow definition from reviewed `main`. It runs candidate code only when the
@@ -45,8 +49,9 @@ notarization, attestation, publication, and deployment remain disabled and
 must not use this persistent runner.
 
 If external contribution opens later, disable the PR self-hosted route before
-accepting it. Restore an untrusted GitHub-hosted Linux lane or an ephemeral
-single-job runner; do not broaden the actor/repository guard.
+accepting it. Restore an untrusted GitHub-hosted Linux lane, an ephemeral
+single-job runner, or a dedicated standard macOS account; do not broaden the
+actor/repository guard while using the console account.
 
 ## Complete job matrix
 
@@ -72,11 +77,20 @@ full-SHA pins. No current workflow reads a repository or Environment secret.
 
 ## Account and host prerequisites
 
-Create `mish-ci` in System Settings as a **Standard** user. It must have no
-administrator membership, Apple Account, SSH keys, GitHub CLI login, FileVault
-unlock authority, copied shell dotfiles, Developer ID identity, notarization
-credential, personal Keychain item, network share credential, or access to the
-interactive user's home. Do not enable Remote Login for it.
+The installed `asuk-mini` runner predates this contract and uses the current
+non-root console account. Workflows must therefore execute only exact
+owner-authored repository code. They must not read personal Keychain items,
+shell profiles, SSH/GitHub credentials, mounted network shares, or files
+outside `~/actions-runner/mish/_work`. The cleanup hook is workspace-scoped:
+it never terminates all processes belonging to the account and never deletes
+outside the exact runner work, runner-created DMG, or runner-created temporary
+Keychain paths.
+
+Do not use the Mac mini interactively for development while a CI job is
+running. Routine verification is headless and must not invoke Finder,
+AppleScript, or GUI applications. A future runner should use a dedicated
+Standard account; the current shared-account exception must not be copied to a
+second machine.
 
 Install current macOS security updates and Xcode Command Line Tools. The
 workflow pins Node `24.10.0`, pnpm `11.13.1`, Temurin 17, Android command-line
@@ -85,18 +99,15 @@ Rust `1.97.1` toolchain plus Clippy, rustfmt, and both Android targets.
 `rust-toolchain.toml`, setup actions, the Gradle wrapper, and lockfiles are the
 authority; undocumented global versions are not.
 
-The macOS runner service is a per-user LaunchAgent. Log into `mish-ci` once
-after boot, start the service, then use Fast User Switching back to the normal
-interactive account. Never leave `mish-ci` as `/dev/console`; the first job
-step and pre-job hook reject that state so CI cannot open windows or steal
-focus.
+The macOS runner service is a per-user LaunchAgent. The existing service must
+remain loaded after login and recover after reboot. The workflow is responsible
+for remaining headless even though the service account is also `/dev/console`.
 
-## Install and register
+## Reuse and configure the existing registration
 
-1. In repository **Settings → Actions → Runners**, remove the old runner only
-   after its local service is stopped. Download the current Apple Silicon
-   runner archive using GitHub's displayed URL and verify the displayed
-   SHA-256 before extracting it into `~/actions-runner`.
+1. Confirm repository **Settings → Actions → Runners** shows `asuk-mini`
+   online with `self-hosted`, `macOS`, `ARM64`, `mish`, and `trusted-ci`.
+   Do not create a duplicate registration.
 2. From a clean checkout of the reviewed delivery commit, install the three
    hook files outside the runner application directory:
 
@@ -108,56 +119,52 @@ focus.
      "$HOME/.local/share/mish-runner-hooks/"
    ```
 
-3. Register with the time-limited repository token pasted into a silent shell
-   variable. Never put the token in a file, command history, log, issue, PR, or
-   support bundle:
+3. Update `~/actions-runner/mish/.env` without printing its existing content.
+   Resolve paths at write time; literal `~` is not valid in runner hook
+   variables:
 
    ```sh
-   cd "$HOME/actions-runner"
-   read -rs RUNNER_TOKEN
-   ./config.sh \
-     --url https://github.com/Asuka109/mish \
-     --token "$RUNNER_TOKEN" \
-     --name mish-macos-arm64-01 \
-     --labels mish,trusted-ci \
-     --work _work \
-     --unattended
-   unset RUNNER_TOKEN
+   runner_root="$HOME/actions-runner/mish"
+   hook_root="$HOME/.local/share/mish-runner-hooks"
+   env_file="$runner_root/.env"
+   env_next="$runner_root/.env.mish-next"
+   grep -Ev '^(MISH_RUNNER_ROOT|MISH_RUNNER_HOOK_ROOT|ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED)=' \
+     "$env_file" > "$env_next"
+   {
+     printf 'MISH_RUNNER_ROOT=%s\n' "$runner_root"
+     printf 'MISH_RUNNER_HOOK_ROOT=%s\n' "$hook_root"
+     printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s/self-hosted-runner-job-started.sh\n' "$hook_root"
+     printf 'ACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s/self-hosted-runner-job-completed.sh\n' "$hook_root"
+   } >> "$env_next"
+   chmod 600 "$env_next"
+   mv "$env_next" "$env_file"
    ```
 
-4. Add these exact lines to `~/actions-runner/.env` and mode it `0600`:
-
-   ```text
-   MISH_RUNNER_USER=mish-ci
-   MISH_RUNNER_ROOT=/Users/mish-ci/actions-runner
-   MISH_RUNNER_HOOK_ROOT=/Users/mish-ci/.local/share/mish-runner-hooks
-   ACTIONS_RUNNER_HOOK_JOB_STARTED=/Users/mish-ci/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh
-   ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/Users/mish-ci/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh
-   PATH=/opt/homebrew/bin:/Users/mish-ci/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin
-   ```
-
-5. Install and start the LaunchAgent:
+4. Restart and verify the existing LaunchAgent:
 
    ```sh
-   cd "$HOME/actions-runner"
-   ./svc.sh install
+   cd "$HOME/actions-runner/mish"
+   ./svc.sh stop
    ./svc.sh start
    ./svc.sh status
    ```
 
-The runner must appear online with the exact name and five labels before any
-workflow is dispatched. Registration tokens are time-limited bootstrap data;
-the configured runner credential remains only in the runner directory.
+The runner must return online with the exact name and five labels. No
+registration token is needed for this reuse path. If recovery ever requires
+re-registration, use a time-limited token through a silent variable; never put
+it in a file, command history, log, issue, PR, or support bundle.
 
 ## Hygiene and failure recovery
 
 GitHub invokes the installed pre/post hooks synchronously outside the checkout.
-Both verify the dedicated user, Apple Silicon, exact runner/hook roots, and an
-inactive runner desktop. They terminate only an explicit process allowlist for
-the dedicated UID, detach only disk images whose backing file is inside the
-runner work root, delete only runner-created temporary Keychains, and empty
-only `/Users/mish-ci/actions-runner/_work`. DMG detach uses five normal retries
-and never force-detaches. A cleanup failure fails the job.
+Both verify a non-root user, Apple Silicon, exact runner/hook roots, and runner
+directory ownership. They terminate only processes whose current directory is
+inside `~/actions-runner/mish/_work`, excluding the hook and its ancestors.
+They detach only disk images whose backing file is inside that work root,
+delete only runner-created temporary Keychains, and empty only the repository,
+downloaded-action, and temporary subdirectories below the work root. DMG
+detach uses five normal retries and never force-detaches. A cleanup failure
+fails the job.
 
 The post hook handles ordinary success, failure, and cancellation. If a crash,
 power loss, runner update, or forced termination prevents it, the next pre-hook
@@ -165,13 +172,13 @@ performs the same cleanup before source checkout. The workflow default uses
 headless DMG creation and `hdiutil attach -readonly -nobrowse -noautoopen`;
 Finder styling remains an explicit local-only command.
 
-After reboot, log into `mish-ci`, switch away, and verify `./svc.sh status`.
-After a runner auto-update, rerun the identity/hook smoke job. If the runner is
+After reboot and login, verify `./svc.sh status`. After a runner auto-update,
+rerun the identity/hook smoke job. If the runner is
 suspected compromised, stop it immediately, remove its GitHub registration,
-preserve `_diag` only for private incident review, delete the dedicated account
-and runner directory through the macOS account-removal flow, then reinstall
-from a verified archive. There are no CI secrets to rotate; rotate any
-credential found on the account because its presence violates this contract.
+preserve `_diag` only for private incident review, move the replacement to a
+fresh dedicated Standard account, and reinstall from a verified archive.
+Because this runner shares the console account, rotate any personal credential
+that evidence shows the job accessed.
 
 ## Offline behavior, rollback, and a second runner
 
@@ -192,14 +199,15 @@ Rollback order is:
 4. Generate a time-limited removal token in repository Settings, run
    `./config.sh remove --token "$RUNNER_TOKEN"` through a silent variable, and
    confirm the runner disappears from GitHub.
-5. Remove the dedicated macOS account and its home through System Settings.
+5. Remove the `trusted-ci` label and the installed Mish hook files; preserve
+   the console account and unrelated personal files.
 
 Because no branch rule can currently require these checks, unregistering does
 not strand a server-enforced required check. It does remove all workable CI
 capacity until another exact-label runner or hosted funding is restored.
 
 A future second runner uses a new identity such as
-`mish-macos-arm64-02`, the same dedicated-account contract, and the same
+`mish-macos-arm64-02`, a dedicated Standard account, and the same
 labels. The shared concurrency key deliberately prevents parallel jobs today.
 Remove or split that lock only after jobs have separate accounts/workspaces and
 tests prove that Keychains, DMGs, Android SDK state, Cargo targets, browser
@@ -216,7 +224,7 @@ Evidence is complete only after all of these are observed on the real Mac mini:
 - success, deliberate failure, and cancellation each show both hook phases and
   leave no workspace, leaked process, temporary Keychain, or runner-owned DMG;
 - two queued jobs serialize;
-- reboot/login/Fast User Switching restores the service;
+- reboot/login restores the service;
 - no Finder window opens and focus remains with the interactive account;
 - logs and artifacts contain no token, secret, or personal account path;
 - stop/unregister and re-register recover without a stranded required check.

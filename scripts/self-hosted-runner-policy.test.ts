@@ -48,11 +48,11 @@ test("every workflow job uses the exact dedicated runner boundary", () => {
       assert.deepEqual(job.permissions, { contents: "read" }, `${relative} ${name}`);
       const boundary = job.steps?.[0];
       assert.equal(boundary?.name, "Verify dedicated runner boundary", `${relative} ${name}`);
-      assert.match(boundary?.run ?? "", /RUNNER_NAME.*mish-macos-arm64-01/u);
-      assert.match(boundary?.run ?? "", /id -un.*mish-ci/u);
+      assert.match(boundary?.run ?? "", /RUNNER_NAME.*asuk-mini/u);
+      assert.match(boundary?.run ?? "", /id -u.*-ne 0/u);
+      assert.match(boundary?.run ?? "", /MISH_RUNNER_ROOT.*actions-runner\/mish/u);
       assert.match(boundary?.run ?? "", /ACTIONS_RUNNER_HOOK_JOB_STARTED/u);
       assert.match(boundary?.run ?? "", /ACTIONS_RUNNER_HOOK_JOB_COMPLETED/u);
-      assert.match(boundary?.run ?? "", /\/dev\/console/u);
     }
     assert.doesNotMatch(parsed.source, /\$\{\{\s*secrets\./u);
   }
@@ -78,19 +78,18 @@ test("pull requests use the trusted default workflow and exact owner head SHA", 
   assert.doesNotMatch(ci.source, /refs\/pull\//u);
 });
 
-test("runner hooks clean only the dedicated account and validated workspace", () => {
+test("runner hooks clean only validated runner-owned resources on the shared account", () => {
   const hygiene = read("scripts/self-hosted-runner-hygiene.sh");
-  assert.match(hygiene, /expected_user="\$\{MISH_RUNNER_USER:-mish-ci\}"/u);
-  assert.match(hygiene, /runner_root.*\$HOME\/actions-runner/u);
+  assert.match(hygiene, /runner_root.*\$HOME\/actions-runner\/mish/u);
   assert.match(hygiene, /hook_root.*\$HOME\/\.local\/share\/mish-runner-hooks/u);
-  assert.match(hygiene, /console_user.*\/dev\/console/u);
   assert.match(hygiene, /"\$image_path".*"\$work_root"\/\*/su);
   assert.match(hygiene, /hdiutil detach "\$mountpoint"/u);
   assert.doesNotMatch(hygiene, /hdiutil detach[^\n]*-force/u);
   assert.match(hygiene, /security delete-keychain/u);
-  assert.match(hygiene, /find "\$work_root" -depth -mindepth 1 -delete/u);
-  assert.match(hygiene, /pkill -TERM -u "\$uid_value" -x/u);
-  assert.match(hygiene, /pkill -KILL -u "\$uid_value" -x/u);
+  assert.match(hygiene, /lsof.*-d cwd/u);
+  assert.match(hygiene, /kill -TERM/u);
+  assert.match(hygiene, /kill -KILL/u);
+  assert.doesNotMatch(hygiene, /pkill[^\n]*-u/u);
   assert.doesNotMatch(hygiene, /\bsudo\b|\bosascript\b|\/bin\/rm|\brm -/u);
   assert.match(read("scripts/self-hosted-runner-job-started.sh"), /hygiene\.sh" started/u);
   assert.match(read("scripts/self-hosted-runner-job-completed.sh"), /hygiene\.sh" completed/u);

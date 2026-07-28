@@ -59,7 +59,8 @@ export interface TrustedReleasePolicy {
     enabled: boolean;
     repositoryOnly: boolean;
     runnerName: string;
-    runnerUser: string;
+    runnerAccountMode: string;
+    runnerRoot: string;
     runnerLabels: string[];
     allowedEvents: string[];
     actorIds: string[];
@@ -77,6 +78,7 @@ export interface TrustedReleasePolicy {
       started: string;
       completed: string;
       requireInactiveConsoleUser: boolean;
+      workspaceScopedProcessCleanup: boolean;
     };
     allowSecrets: boolean;
     allowOidc: boolean;

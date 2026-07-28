@@ -74,13 +74,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -202,13 +203,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -316,13 +318,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -429,13 +432,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -529,13 +533,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -625,13 +630,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -730,13 +736,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -832,13 +839,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = "mish-macos-arm64-01"
+          test "$RUNNER_NAME" = "asuk-mini"
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -un)" = "mish-ci"
+          test "$(id -u)" -ne 0
+          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
+          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
           test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
           test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
-          test "$(/usr/bin/stat -f '%Su' /dev/console)" != "mish-ci"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

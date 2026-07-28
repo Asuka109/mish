@@ -99,3 +99,59 @@ jobs:
             printf '%s ' "${available_tools[@]}"
             printf '\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check out the trusted bootstrap revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install workspace-scoped runner hooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          runner_root="${RUNNER_TEMP%/_work/_temp}"
+          hook_root="$HOME/.local/share/mish-runner-hooks"
+          env_file="$runner_root/.env"
+          env_next="$runner_root/.env.mish-next"
+
+          [[ "$runner_root" == "$HOME/actions-runner/mish" ]]
+          [[ -f "$env_file" ]]
+          /usr/bin/install -d -m 700 "$hook_root"
+          /usr/bin/install -m 700 \
+            scripts/self-hosted-runner-hygiene.sh \
+            scripts/self-hosted-runner-job-started.sh \
+            scripts/self-hosted-runner-job-completed.sh \
+            "$hook_root/"
+
+          /usr/bin/grep -Ev \
+            '^(MISH_RUNNER_ROOT|MISH_RUNNER_HOOK_ROOT|ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED)=' \
+            "$env_file" >"$env_next"
+          {
+            printf 'MISH_RUNNER_ROOT=%s\n' "$runner_root"
+            printf 'MISH_RUNNER_HOOK_ROOT=%s\n' "$hook_root"
+            printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s/self-hosted-runner-job-started.sh\n' "$hook_root"
+            printf 'ACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s/self-hosted-runner-job-completed.sh\n' "$hook_root"
+          } >>"$env_next"
+          /bin/chmod 600 "$env_next"
+          /bin/mv "$env_next" "$env_file"
+
+          /usr/bin/cmp -s \
+            scripts/self-hosted-runner-hygiene.sh \
+            "$hook_root/self-hosted-runner-hygiene.sh"
+          echo "runner_hook_install=passed" >>"$GITHUB_STEP_SUMMARY"
+      - name: Schedule the existing LaunchAgent restart
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runner_root="${RUNNER_TEMP%/_work/_temp}"
+          service_label="$(<"$runner_root/.service")"
+          expected_label="actions.runner.Asuka109-mish.asuk-mini"
+          [[ "$service_label" == "$expected_label" ]]
+
+          restart_label="mish.runner-restart.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          /bin/launchctl submit -l "$restart_label" -- \
+            /bin/bash -c \
+            "/bin/sleep 10; /bin/launchctl kickstart -k gui/$(id -u)/$expected_label"
+          echo "runner_restart=scheduled" >>"$GITHUB_STEP_SUMMARY"

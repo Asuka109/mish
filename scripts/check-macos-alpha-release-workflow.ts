@@ -178,12 +178,12 @@ for (const [name, candidate] of Object.entries(workflow.jobs ?? {})) {
   const boundary = candidate.steps?.[0];
   invariant(
     boundary?.name === "Verify dedicated runner boundary" &&
-      boundary.run?.includes('"$RUNNER_NAME" = "mish-macos-arm64-01"') &&
-      boundary.run.includes('"$(id -un)" = "mish-ci"') &&
+      boundary.run?.includes('"$RUNNER_NAME" = "asuk-mini"') &&
+      boundary.run.includes('"$(id -u)" -ne 0') &&
+      boundary.run.includes('"$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"') &&
       boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED") &&
-      boundary.run.includes("/dev/console"),
-    `${name} must fail closed on runner identity, account, hooks, and console isolation.`,
+      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED"),
+    `${name} must fail closed on runner identity, non-root ownership, and hooks.`,
   );
   for (const checkout of candidate.steps?.filter((candidateStep) =>
     candidateStep.uses?.startsWith("actions/checkout@"),

@@ -106,7 +106,7 @@ of treating an implementation accident as intent.
   activation prerequisites, adversarial fixtures, and current GitHub plan
   limitations.
 - [`operations/self-hosted-macos-runner.md`](operations/self-hosted-macos-runner.md)
-  — trusted event routing, dedicated Mac mini account, runner lifecycle,
+  — trusted event routing, existing Mac mini runner boundary, lifecycle,
   cleanup hooks, offline behavior, rollback, and hands-on acceptance.
 - [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)
   and [`quality/mobile-validation.md`](quality/mobile-validation.md) — Android

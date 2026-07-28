@@ -41,7 +41,7 @@ const policy: TrustPolicy = {
   },
   trustedSelfHostedCi: {
     runnerLabels: ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"],
-    runnerName: "mish-macos-arm64-01",
+    runnerName: "asuk-mini",
   },
 };
 
@@ -113,7 +113,7 @@ function readyEndpoints(): TrustEndpointResults {
             { name: "mish" },
             { name: "trusted-ci" },
           ],
-          name: "mish-macos-arm64-01",
+          name: "asuk-mini",
           os: "macOS",
           status: "online",
         },
@@ -216,7 +216,7 @@ test("missing, offline, or broadly labeled routine runner fails closed", () => {
           { name: "mish" },
           { name: "trusted-ci" },
         ],
-        name: "mish-macos-arm64-01",
+        name: "asuk-mini",
         os: "macOS",
         status: "offline",
       },
@@ -240,7 +240,7 @@ test("missing, offline, or broadly labeled routine runner fails closed", () => {
           { name: "trusted-ci" },
           { name: "general-purpose" },
         ],
-        name: "mish-macos-arm64-01",
+        name: "asuk-mini",
         os: "macOS",
         status: "online",
       },

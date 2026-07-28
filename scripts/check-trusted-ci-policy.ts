@@ -124,11 +124,14 @@ function assertTrustedSelfHostedJob(
   invariant(
     boundary?.name === "Verify dedicated runner boundary" &&
       boundary.run?.includes(`"$RUNNER_NAME" = "${policy.trustedSelfHostedCi.runnerName}"`) &&
-      boundary.run.includes(`"$(id -un)" = "${policy.trustedSelfHostedCi.runnerUser}"`) &&
+      boundary.run.includes('"$(id -u)" -ne 0') &&
+      boundary.run.includes('"$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"') &&
+      boundary.run.includes(
+        '"$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"',
+      ) &&
       boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED") &&
-      boundary.run.includes("/dev/console"),
-    `${relative} ${jobName} does not fail closed on runner identity, account, hooks, and console isolation.`,
+      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED"),
+    `${relative} ${jobName} does not fail closed on runner identity, non-root ownership, and hooks.`,
   );
 }
 
@@ -201,8 +204,9 @@ invariant(
 invariant(
   policy.trustedSelfHostedCi.enabled === true &&
     policy.trustedSelfHostedCi.repositoryOnly === true &&
-    policy.trustedSelfHostedCi.runnerName === "mish-macos-arm64-01" &&
-    policy.trustedSelfHostedCi.runnerUser === "mish-ci" &&
+    policy.trustedSelfHostedCi.runnerName === "asuk-mini" &&
+    policy.trustedSelfHostedCi.runnerAccountMode === "shared-console-trusted-owner-only" &&
+    policy.trustedSelfHostedCi.runnerRoot === "~/actions-runner/mish" &&
     JSON.stringify(policy.trustedSelfHostedCi.runnerLabels) ===
       JSON.stringify(["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"]) &&
     JSON.stringify(policy.trustedSelfHostedCi.allowedEvents) ===
@@ -216,7 +220,8 @@ invariant(
     policy.trustedSelfHostedCi.pullRequest.checkoutHeadSha === true &&
     policy.trustedSelfHostedCi.pullRequest.allowForks === false &&
     policy.trustedSelfHostedCi.pullRequest.allowMergeRefs === false &&
-    policy.trustedSelfHostedCi.hooks.requireInactiveConsoleUser === true &&
+    policy.trustedSelfHostedCi.hooks.requireInactiveConsoleUser === false &&
+    policy.trustedSelfHostedCi.hooks.workspaceScopedProcessCleanup === true &&
     policy.trustedSelfHostedCi.allowSecrets === false &&
     policy.trustedSelfHostedCi.allowOidc === false &&
     policy.trustedSelfHostedCi.allowReusableWorkflowCalls === false &&
