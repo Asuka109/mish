@@ -108,6 +108,9 @@ const en = {
       "Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.",
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install Helper",
+    tunHelperLifecycleApplied: "{operation:string} completed and was confirmed.",
+    tunHelperLifecycleFailed: "{operation:string} needs recovery: {failure:string}.",
+    tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
     launchAtLogin: "When device starts",

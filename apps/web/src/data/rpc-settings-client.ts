@@ -171,6 +171,7 @@ export class RpcSettingsClient implements SettingsClient {
         ...snapshot.capabilities,
         backupRestore: "unavailable" as const,
         nativeSidebarMaterial: "unavailable" as const,
+        tun: "unavailable" as const,
         windowLifecycle: "unavailable" as const,
       },
     };

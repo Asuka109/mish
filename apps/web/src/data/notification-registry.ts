@@ -186,6 +186,26 @@ function knownPresentation(
       return { message: LL.traffic.closeAllActiveSucceeded({ count: number("count") ?? 0 }) };
     case "traffic.operation-failed":
       return { message: trafficFailureMessage(LL, trafficFailure(string("failure"))) };
+    case "tun-helper.lifecycle": {
+      const operation =
+        string("operation") === "install"
+          ? LL.settingsPage.installTunHelper()
+          : string("operation") === "repair"
+            ? LL.settingsPage.repairTunHelper()
+            : LL.settingsPage.removeTunHelper();
+      if (string("outcome") === "pending") {
+        return { message: LL.settingsPage.tunHelperLifecyclePending({ operation }) };
+      }
+      if (string("outcome") === "applied") {
+        return { message: LL.settingsPage.tunHelperLifecycleApplied({ operation }) };
+      }
+      return {
+        message: LL.settingsPage.tunHelperLifecycleFailed({
+          failure: string("failure") ?? "unknown",
+          operation,
+        }),
+      };
+    }
     case "tun.drift":
       return { message: LL.capture.tunDrift() };
     case "tun.failed":

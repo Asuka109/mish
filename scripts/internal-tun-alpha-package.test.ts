@@ -41,7 +41,7 @@ const template = `<?xml version="1.0" encoding="UTF-8"?>
 <key>ProgramArguments</key><array><string>/Library/PrivilegedHelperTools/com.asuka109.mish.tun-helper.dev</string></array>
 <key>EnvironmentVariables</key><dict>
 <key>MISH_TUN_SERVICE_ALLOWED_UID</key><string>__MISH_ALLOWED_UID__</string>
-<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>0</string>
+<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>
 <key>MISH_TUN_SERVICE_CORE_BINARY</key><string>/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev</string>
 <key>MISH_TUN_SERVICE_ENROLLMENT_RECORD</key><string>/Library/Application Support/com.asuka109.mish/tun-helper-dev/enrollment.json</string>
 <key>MISH_TUN_SERVICE_INSTALLATION_ID</key><string>__MISH_INSTALLATION_ID__</string>
@@ -55,6 +55,8 @@ async function fixture() {
   const parent = await realpath(temporary);
   const root = path.join(parent, "Mish-Internal-TUN-Alpha-fixture-arm64");
   await mkdir(path.join(root, "Resources"), { recursive: true, mode: 0o755 });
+  await mkdir(path.join(root, "Mish.app/Contents/MacOS"), { recursive: true, mode: 0o755 });
+  await mkdir(path.join(root, "Mish.app/Contents/Resources"), { recursive: true, mode: 0o755 });
   await chmod(root, 0o755);
   await chmod(path.join(root, "Resources"), 0o755);
   for (const [relative, mode] of fixtureFiles) {
@@ -64,6 +66,14 @@ async function fixture() {
         ? "#!/bin/sh\nexit 0\n"
         : `fixture:${relative}\n`;
     await writeFile(path.join(root, relative), content, { mode });
+    await chmod(path.join(root, relative), mode);
+  }
+  for (const [relative, mode] of [
+    ["Mish.app/Contents/Info.plist", 0o644],
+    ["Mish.app/Contents/MacOS/mish-desktop", 0o755],
+    ["Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin", 0o755],
+  ] as const) {
+    await writeFile(path.join(root, relative), `fixture:${relative}\n`, { mode });
     await chmod(path.join(root, relative), mode);
   }
   const manifest = await createInternalTunAlphaManifest(root, {
@@ -99,15 +109,15 @@ async function withFixture(
   }
 }
 
-test("accepts only the closed disabled Internal TUN Alpha package", async () => {
+test("accepts only the closed operational Internal TUN Alpha package", async () => {
   await withFixture(async ({ verify }) => {
     const manifest = await verify();
     assert.equal(manifest.profile, "internal-tun-alpha");
-    assert.equal(manifest.allowTun, false);
-    assert.equal(manifest.networkMutationEnabled, false);
+    assert.equal(manifest.allowTun, true);
+    assert.equal(manifest.networkMutationEnabled, true);
     assert.equal(manifest.developerIdRequired, false);
     assert.equal(manifest.protocolVersion, 3);
-    assert.equal(manifest.files.length, 12);
+    assert.equal(manifest.files.length, 15);
   });
 });
 
@@ -156,10 +166,10 @@ test("rejects profile drift, unknown fields, mutable policy, and stale hashes", 
       manifest.profile = "alpha-ad-hoc";
     },
     (manifest: Record<string, unknown>) => {
-      manifest.allowTun = true;
+      manifest.allowTun = false;
     },
     (manifest: Record<string, unknown>) => {
-      manifest.networkMutationEnabled = true;
+      manifest.networkMutationEnabled = false;
     },
     (manifest: Record<string, unknown>) => {
       manifest.developerIdRequired = true;
@@ -213,7 +223,7 @@ test("rejects symlinks, hard links, loose modes, and unexpected profile artifact
     await assert.rejects(verify(), /metadata/iu);
   });
   for (const relative of [
-    "Mish.app",
+    "Mish.app/Contents/Resources/foreign",
     "Contents/Library/LaunchDaemons/production.plist",
     "Resources/tun-client-key.json",
   ]) {
@@ -229,12 +239,12 @@ test("rejects duplicate manifest entries and unbounded manifest input", async ()
   await withFixture(async ({ manifest, root, verify }) => {
     manifest.files[1] = { ...manifest.files[0] };
     await writeFile(path.join(root, internalTunAlphaManifestName), `${JSON.stringify(manifest)}\n`);
-    await assert.rejects(verify(), /contract/iu);
+    await assert.rejects(verify(), /contract|duplicate/iu);
   });
   await withFixture(async ({ manifest, root, verify }) => {
-    const bytes = `${JSON.stringify(manifest)}${" ".repeat(70 * 1024)}\n`;
+    const bytes = `${JSON.stringify(manifest)}${" ".repeat(1024 * 1024)}\n`;
     await writeFile(path.join(root, internalTunAlphaManifestName), bytes);
-    assert.ok((await readFile(path.join(root, internalTunAlphaManifestName))).length > 64 * 1024);
+    assert.ok((await readFile(path.join(root, internalTunAlphaManifestName))).length > 1024 * 1024);
     await assert.rejects(verify(), /size/iu);
   });
 });

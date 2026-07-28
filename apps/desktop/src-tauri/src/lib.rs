@@ -64,6 +64,7 @@ const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
 const DEVELOPMENT_CORE_SOURCE_ENV: &str = "MISH_DEVELOPMENT_CORE_SOURCE";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
 const TART_TUN_ACCEPTANCE_ENV: &str = "MISH_TART_TUN_ACCEPTANCE";
+const INTERNAL_TUN_ALPHA_PROFILE: &str = "internal-tun-alpha";
 const DEVTOOLS_ARGUMENT: &str = "--devtools";
 const RELEASE_PROFILE_EVIDENCE_ARGUMENT: &str = "--release-profile-evidence";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
@@ -911,10 +912,25 @@ fn initialize(
     });
     #[cfg(not(feature = "development-core-host"))]
     let development_tun_service: Option<Arc<MacOsTunServiceClient>> = None;
+    let internal_tun_service =
+        if cfg!(target_os = "macos") && internal_tun_alpha_package_version().is_some() {
+            Some(Arc::new(MacOsTunServiceClient::internal_tun_alpha(
+                internal_tun_alpha_package_root()?,
+                internal_tun_alpha_package_version()
+                    .expect("internal TUN package version checked before client construction"),
+            )))
+        } else {
+            None
+        };
     let tun_helper_platform: Arc<dyn TunHelperPlatform> = match production_team_identifier() {
         Some(team_identifier) if cfg!(target_os = "macos") => {
             Arc::new(MacOsProductionTunHelperPlatform::system(team_identifier))
         }
+        _ if internal_tun_service.is_some() => internal_tun_service
+            .as_ref()
+            .cloned()
+            .map(|service| service as Arc<dyn TunHelperPlatform>)
+            .expect("internal TUN service checked before selection"),
         _ if tart_tun_acceptance => development_tun_service
             .as_ref()
             .cloned()
@@ -970,7 +986,8 @@ fn initialize(
             },
             _ => false,
         };
-        let startup_mihomo = development_service_ready
+        let internal_tun_profile = internal_tun_service.is_some();
+        let startup_mihomo = (development_service_ready || internal_tun_profile)
             .then(|| PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
             .or(requested_mihomo);
         let resolver = managed_mihomo_resolver(
@@ -1026,8 +1043,8 @@ fn initialize(
         .map_err(|error| io::Error::other(error.to_string()))?;
         let runtime_host =
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
-        let privileged_host = development_tun_service
-            .filter(|_| development_service_ready)
+        let privileged_host = internal_tun_service
+            .or_else(|| development_tun_service.filter(|_| development_service_ready))
             .map(|service| service as Arc<dyn PrivilegedCoreHost>);
         let activation_manager = Arc::new(match privileged_host {
             Some(host) => MihomoActivationManager::new_privileged(
@@ -1331,11 +1348,48 @@ fn production_team_identifier() -> Option<&'static str> {
     )
 }
 
+fn internal_tun_alpha_package_version() -> Option<&'static str> {
+    internal_tun_alpha_package_version_for_profile(
+        option_env!("MISH_MACOS_RELEASE_PROFILE"),
+        option_env!("MISH_INTERNAL_TUN_PACKAGE_VERSION"),
+    )
+}
+
+fn internal_tun_alpha_package_version_for_profile(
+    release_profile: Option<&'static str>,
+    package_version: Option<&'static str>,
+) -> Option<&'static str> {
+    matches!(release_profile, Some(INTERNAL_TUN_ALPHA_PROFILE))
+        .then_some(package_version.filter(|version| !version.is_empty()))
+        .flatten()
+}
+
+fn internal_tun_alpha_package_root() -> Result<PathBuf, io::Error> {
+    internal_tun_alpha_package_root_from_executable(&std::env::current_exe()?)
+}
+
+fn internal_tun_alpha_package_root_from_executable(
+    executable: &Path,
+) -> Result<PathBuf, io::Error> {
+    let app_bundle = executable
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("Mish.app"))
+        .ok_or_else(|| io::Error::other("Internal TUN Alpha application bundle is malformed"))?;
+    app_bundle
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| io::Error::other("Internal TUN Alpha package root is unavailable"))
+}
+
 fn release_profile_evidence() -> ReleaseProfileEvidence {
     let profile = option_env!("MISH_MACOS_RELEASE_PROFILE").unwrap_or("development");
     ReleaseProfileEvidence {
         profile,
-        tun: if production_team_identifier().is_some() {
+        tun: if production_team_identifier().is_some()
+            || internal_tun_alpha_package_version().is_some()
+        {
             SettingsAvailability::Supported
         } else {
             SettingsAvailability::Unavailable
@@ -1869,18 +1923,24 @@ impl Drop for TemporarySupportBundle {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, sync::Mutex};
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt,
+        path::{Path, PathBuf},
+        sync::Mutex,
+    };
 
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
         DevtoolsStartupSource, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction, PRODUCTION_ORIGINS,
         SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus, allowed_origins,
         atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
-        generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
-        production_team_identifier_for_profile, read_local_backup, release_profile_evidence,
-        resolve_devtools_behavior, save_support_bundle_selection, should_intercept_exit_request,
-        should_show_main_window, system_proxy_only_capture_selection,
-        validate_development_mihomo_environment,
+        generate_auth_token, internal_tun_alpha_package_root_from_executable,
+        internal_tun_alpha_package_version_for_profile, invalidate_pending,
+        main_window_close_action, managed_mihomo_resolver, production_team_identifier_for_profile,
+        read_local_backup, release_profile_evidence, resolve_devtools_behavior,
+        save_support_bundle_selection, should_intercept_exit_request, should_show_main_window,
+        system_proxy_only_capture_selection, validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -2075,12 +2135,51 @@ mod tests {
             evidence.tun,
             if matches!(
                 evidence.profile,
-                "tun-production" | "tun-production-fixture"
+                "tun-production" | "tun-production-fixture" | "internal-tun-alpha"
             ) {
                 mish_settings::SettingsAvailability::Supported
             } else {
                 mish_settings::SettingsAvailability::Unavailable
             }
+        );
+    }
+
+    #[test]
+    fn internal_tun_alpha_requires_its_exact_compile_time_package_version() {
+        assert_eq!(
+            internal_tun_alpha_package_version_for_profile(
+                Some("internal-tun-alpha"),
+                Some("internal-tun-alpha-v1")
+            ),
+            Some("internal-tun-alpha-v1")
+        );
+        assert_eq!(
+            internal_tun_alpha_package_version_for_profile(Some("internal-tun-alpha"), None),
+            None
+        );
+        assert_eq!(
+            internal_tun_alpha_package_version_for_profile(
+                Some("signed-direct"),
+                Some("internal-tun-alpha-v1")
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn internal_tun_alpha_derives_only_the_sibling_package_root() {
+        assert_eq!(
+            internal_tun_alpha_package_root_from_executable(Path::new(
+                "/Volumes/Mish TUN Alpha/Mish.app/Contents/MacOS/mish-desktop"
+            ))
+            .unwrap(),
+            PathBuf::from("/Volumes/Mish TUN Alpha")
+        );
+        assert!(
+            internal_tun_alpha_package_root_from_executable(Path::new(
+                "/Applications/Other.app/Contents/MacOS/mish-desktop"
+            ))
+            .is_err()
         );
     }
 

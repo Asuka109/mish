@@ -83,9 +83,15 @@ adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
 current mutation surface. The browser fixture supports isolated demo mutations.
-The desktop RPC adapter supports System Proxy capture and recovery plus the
-shared TUN enable/disable command when its signed helper is confirmed healthy,
-and advertises routing and group commands only when a Controller source owns
+The native desktop RPC adapter supports System Proxy capture and recovery plus
+the shared TUN enable/disable command when the exact packaged helper is
+confirmed healthy. The Developer-ID-free `internal-tun-alpha` profile is
+supported only after its package version, installation identity, protocol,
+enrollment, ownership, health, and fresh disabled observation succeed. Browser
+RPC connections receive a TUN-unavailable capability projection and cannot
+invoke Helper lifecycle or TUN Capture mutations, while they may still observe
+the published runtime state. Unsupported packages remain unavailable.
+The adapter advertises routing and group commands only when a Controller source owns
 their reconciliation; lifecycle-only or missing-core composition keeps those
 Controller commands disabled. Persisted profile activation uses the separate
 authenticated Profiles command seam from both Profiles and the Status profile

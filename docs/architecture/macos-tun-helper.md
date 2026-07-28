@@ -154,12 +154,14 @@ the requesting UID and agree on installation identity, key identifier, and
 generation. A partial, foreign, or unowned global layout fails closed; a clean
 not-installed layout permits only the private user-state cleanup.
 
-This package deliberately exposes no Core start, TUN enable/disable, arbitrary
-path/command, or network-mutation action. Its LaunchDaemon fixes
-`MISH_TUN_SERVICE_ALLOW_TUN=0`; post-install is healthy and disabled.
-`alpha-ad-hoc`, `signed-direct`, Browser Client/application resources, and
-future production layouts remain free of all Internal TUN Alpha artifacts and
-fail closed if one appears.
+The package controller deliberately exposes no Core start, TUN enable/disable,
+arbitrary path/command, or parameterized network-mutation action. The `.4`
+package includes `Mish.app` and fixes `MISH_TUN_SERVICE_ALLOW_TUN=1`, but
+post-install remains healthy and disabled. Only the app's shared Rust Capture
+authority can stage the bounded candidate and invoke the existing authenticated
+typed Helper commands. `alpha-ad-hoc`, `signed-direct`, Browser Client, and
+future production layouts remain free of Internal TUN Alpha authority and fail
+closed if one appears.
 
 Package install, repair, and uninstall now execute through the typed
 `PackageMachine`. Its explicit states are absent, staging, awaiting
@@ -180,9 +182,12 @@ configuration remains intent only and cannot publish enabled or disabled
 without fresh observation.
 
 Both machines follow
-[`state-machine-kernel.md`](state-machine-kernel.md). Internal TUN Alpha still
-ships with `MISH_TUN_SERVICE_ALLOW_TUN=0`; its package controller exposes no
-enable command and completes only as healthy-disabled.
+[`state-machine-kernel.md`](state-machine-kernel.md). Internal TUN Alpha ships
+with a fixed TUN-capable Helper policy, but its package controller still
+exposes no enable command and completes only as healthy-disabled. Applied
+Capture requires fresh observation of the exact root-owned Core, Core-owned
+utun, managed route partition, and DNS packet path; acknowledgement or desired
+state alone never commits success.
 
 The package is ad-hoc, not Developer ID signed, Apple-trusted, or notarized. It
 is only for explicitly trusted internal distribution. Its file-backed

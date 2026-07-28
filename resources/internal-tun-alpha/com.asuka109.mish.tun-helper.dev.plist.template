@@ -9,7 +9,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>MISH_TUN_SERVICE_ALLOWED_UID</key><string>__MISH_ALLOWED_UID__</string>
-    <key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>0</string>
+    <key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>
     <key>MISH_TUN_SERVICE_CORE_BINARY</key><string>/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev</string>
     <key>MISH_TUN_SERVICE_ENROLLMENT_RECORD</key><string>/Library/Application Support/com.asuka109.mish/tun-helper-dev/enrollment.json</string>
     <key>MISH_TUN_SERVICE_INSTALLATION_ID</key><string>__MISH_INSTALLATION_ID__</string>

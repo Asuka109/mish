@@ -22,7 +22,7 @@ import {
   type DispatchIdentity,
 } from "./trusted-release-policy.ts";
 
-const packageVersion = "0.1.0-internal-tun-alpha.3";
+const packageVersion = "0.1.0-internal-tun-alpha.4";
 const dmgName = `Mish-Internal-TUN-Alpha-${packageVersion}-arm64.dmg`;
 const packageManifestName = "internal-tun-alpha-package-manifest.json";
 const sbomName = "internal-tun-alpha-sbom.spdx.json";
@@ -263,20 +263,36 @@ function assertPackageManifest(value: unknown): asserts value is PackageManifest
       manifest.minimumMacosVersion === 13 &&
       manifest.protocolVersion === 3 &&
       manifest.developerIdRequired === false &&
-      manifest.allowTun === false &&
-      manifest.networkMutationEnabled === false &&
+      manifest.allowTun === true &&
+      manifest.networkMutationEnabled === true &&
       manifest.installationIdentityScheme === "sha256-helper-core-rendered-plist-v1" &&
       /^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(manifest.coreVersion) &&
       /^[1-9][0-9]*$/u.test(manifest.helperVersion),
     "Internal TUN Alpha package profile, version, or disabled boundary changed.",
   );
   invariant(
-    Array.isArray(manifest.files) &&
-      manifest.files.length === expectedPackageFiles.length &&
-      JSON.stringify(
-        manifest.files.map(({ mode, path: file, role }) => ({ mode, path: file, role })),
-      ) === JSON.stringify(expectedPackageFiles),
+    Array.isArray(manifest.files) && manifest.files.length > expectedPackageFiles.length,
     "Internal TUN Alpha package layout differs from the accepted closed layout.",
+  );
+  const declared = new Map(
+    manifest.files.map((file) => [
+      file.path,
+      { mode: file.mode, path: file.path, role: file.role },
+    ]),
+  );
+  const applicationFiles = manifest.files.filter((file) => file.role === "application");
+  invariant(
+    declared.size === manifest.files.length &&
+      JSON.stringify(expectedPackageFiles.map(({ path: file }) => declared.get(file))) ===
+        JSON.stringify(expectedPackageFiles) &&
+      manifest.files.length === expectedPackageFiles.length + applicationFiles.length &&
+      applicationFiles.some((file) => file.path === "Mish.app/Contents/Info.plist") &&
+      applicationFiles.some((file) => file.path === "Mish.app/Contents/MacOS/mish-desktop") &&
+      applicationFiles.some(
+        (file) => file.path === "Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin",
+      ) &&
+      applicationFiles.every((file) => file.path.startsWith("Mish.app/")),
+    "Internal TUN Alpha package application or fixed layout is incomplete.",
   );
   for (const file of manifest.files) {
     assertExactObjectKeys(
@@ -286,6 +302,7 @@ function assertPackageManifest(value: unknown): asserts value is PackageManifest
     );
     invariant(
       sha256Digest.test(file.sha256) &&
+        (file.mode === 0o644 || file.mode === 0o755) &&
         Number.isSafeInteger(file.size) &&
         file.size > 0 &&
         file.size <= 256 * 1024 * 1024,
@@ -404,7 +421,7 @@ function assertProvenance(
     "Internal TUN Alpha provenance source or profile changed.",
   );
   const expectedInternal = {
-    allowTun: false,
+    allowTun: true,
     controllerSha256: packageFileByRole(manifest, "controller").sha256,
     coreSha256: packageFileByRole(manifest, "core").sha256,
     coreVersion: manifest.coreVersion,
@@ -413,7 +430,7 @@ function assertProvenance(
     helperVersion: manifest.helperVersion,
     installationIdentityScheme: manifest.installationIdentityScheme,
     minimumMacosVersion: 13,
-    networkMutationEnabled: false,
+    networkMutationEnabled: true,
     packageManifestSha256: fileSha256(path.join(directory, packageManifestName)),
     plistTemplateSha256: packageFileByRole(manifest, "launch-daemon-template").sha256,
     protocolVersion: 3,
@@ -777,13 +794,17 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
         ),
       "Internal TUN Alpha verification did not mount the DMG read-only.",
     );
-    const expectedEntries = [
-      "Resources",
-      ...manifest.files.map((file) => file.path),
-      "internal-tun-alpha-manifest.json",
-    ].sort();
+    const expectedEntries = new Set(["internal-tun-alpha-manifest.json"]);
+    for (const file of manifest.files) {
+      expectedEntries.add(file.path);
+      let parent = path.posix.dirname(file.path);
+      while (parent !== ".") {
+        expectedEntries.add(parent);
+        parent = path.posix.dirname(parent);
+      }
+    }
     invariant(
-      JSON.stringify(walk(mountpoint)) === JSON.stringify(expectedEntries),
+      JSON.stringify(walk(mountpoint)) === JSON.stringify([...expectedEntries].sort()),
       "Internal TUN Alpha DMG layout is partial, duplicated, substituted, or unexpected.",
     );
     const ownerUid = process.getuid?.();
@@ -792,8 +813,10 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
       ownerUid !== undefined && ownerGid !== undefined,
       "Internal TUN Alpha verifier cannot observe its UID/GID.",
     );
-    for (const directory of [mountpoint, path.join(mountpoint, "Resources")]) {
+    for (const relative of ["", ...walk(mountpoint)]) {
+      const directory = path.join(mountpoint, relative);
       const metadata = lstatSync(directory);
+      if (!metadata.isDirectory()) continue;
       invariant(
         metadata.isDirectory() &&
           !metadata.isSymbolicLink() &&
@@ -825,6 +848,20 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
     }
     verifyAdHocSignature(path.join(mountpoint, packageFileByRole(manifest, "controller").path));
     verifyAdHocSignature(path.join(mountpoint, packageFileByRole(manifest, "helper").path));
+    const app = path.join(mountpoint, "Mish.app");
+    const appExecutable = path.join(app, "Contents/MacOS/mish-desktop");
+    verifyArm64(appExecutable);
+    verifyAdHocSignature(app);
+    const releaseEvidence = JSON.parse(
+      execFileSync(appExecutable, ["--release-profile-evidence"], {
+        encoding: "utf8",
+        timeout: 5_000,
+      }),
+    ) as { profile?: string; tun?: string };
+    invariant(
+      releaseEvidence.profile === "internal-tun-alpha" && releaseEvidence.tun === "supported",
+      "Internal TUN Alpha app does not expose the exact packaged TUN profile.",
+    );
 
     for (const [role, source] of [
       ["license", "LICENSE"],
@@ -863,12 +900,11 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
       "utf8",
     );
     invariant(
-      plist.includes("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>0</string>") &&
-        !plist.includes("<string>1</string>") &&
+      plist.includes("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>") &&
         !plist.includes("SMAppService") &&
         !plist.includes("MachServices") &&
         !plist.includes("BundleProgram"),
-      "Internal TUN Alpha plist leaks a production or network-mutation profile.",
+      "Internal TUN Alpha plist leaks a production or variable privileged profile.",
     );
   } finally {
     if (attached) detach(mountpoint);

@@ -58,6 +58,7 @@ const sampleData = {
   "traffic.connection-closed": {},
   "traffic.connections-closed": { count: 3 },
   "traffic.operation-failed": { failure: "timeout" },
+  "tun-helper.lifecycle": { operation: "install", outcome: "applied" },
   "tun.drift": {},
   "tun.failed": {},
 } satisfies ApplicationNotificationDataByKind;

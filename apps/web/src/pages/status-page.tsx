@@ -242,7 +242,9 @@ export function StatusPage() {
         : LL.status.deviceActivity();
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
-    const selection = { ...captureRuntime.captureSelection, [mode]: selected };
+    const selection = selected
+      ? { systemProxy: mode === "systemProxy", tun: mode === "tun" }
+      : { ...captureRuntime.captureSelection, [mode]: false };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
     setOptimisticCaptureSelection(selection);
     setPendingCaptureMode(mode);
@@ -311,8 +313,13 @@ export function StatusPage() {
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
                 commandSupported={captureSupported}
-                disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
+                disabled={
+                  capturePending ||
+                  captureRuntime.captureOperation.phase === "recovery-required" ||
+                  captureRuntime.systemProxy.recoveryActions.length > 0
+                }
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+                onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}
                 pendingMode={pendingCaptureMode}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}

@@ -351,6 +351,22 @@ type RootTranslation = {
 		 */
 		installTunHelper: string
 		/**
+		 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​m​p​l​e​t​e​d​ ​a​n​d​ ​w​a​s​ ​c​o​n​f​i​r​m​e​d​.
+		 * @param {string} operation
+		 */
+		tunHelperLifecycleApplied: RequiredParams<'operation'>
+		/**
+		 * {​o​p​e​r​a​t​i​o​n​}​ ​n​e​e​d​s​ ​r​e​c​o​v​e​r​y​:​ ​{​f​a​i​l​u​r​e​}​.
+		 * @param {string} failure
+		 * @param {string} operation
+		 */
+		tunHelperLifecycleFailed: RequiredParams<'failure' | 'operation'>
+		/**
+		 * {​o​p​e​r​a​t​i​o​n​}​ ​i​s​ ​a​w​a​i​t​i​n​g​ ​m​a​c​O​S​ ​c​o​n​f​i​r​m​a​t​i​o​n​.
+		 * @param {string} operation
+		 */
+		tunHelperLifecyclePending: RequiredParams<'operation'>
+		/**
 		 * C​h​a​n​g​e​s​ ​M​i​s​h​ ​i​n​t​e​r​f​a​c​e​ ​c​o​p​y​ ​o​n​l​y​.​ ​P​r​o​f​i​l​e​,​ ​g​r​o​u​p​,​ ​n​o​d​e​,​ ​a​n​d​ ​s​e​r​v​i​c​e​ ​l​a​b​e​l​s​ ​r​e​m​a​i​n​ ​u​n​c​h​a​n​g​e​d​.
 		 */
 		languageDescription: string
@@ -5041,6 +5057,18 @@ export type TranslationFunctions = {
 		 * Install Helper
 		 */
 		installTunHelper: () => LocalizedString
+		/**
+		 * {operation} completed and was confirmed.
+		 */
+		tunHelperLifecycleApplied: (arg: { operation: string }) => LocalizedString
+		/**
+		 * {operation} needs recovery: {failure}.
+		 */
+		tunHelperLifecycleFailed: (arg: { failure: string, operation: string }) => LocalizedString
+		/**
+		 * {operation} is awaiting macOS confirmation.
+		 */
+		tunHelperLifecyclePending: (arg: { operation: string }) => LocalizedString
 		/**
 		 * Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.
 		 */

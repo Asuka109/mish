@@ -26,8 +26,11 @@ use mish_runtime::{
     CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
     MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
     RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
-    StatusSnapshot, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
-    TrafficMatchedRule,
+    StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
+    TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -411,6 +414,41 @@ impl WindowSurfacePlatform for MemoryWindowSurfacePlatform {
 
 struct MemoryNetworkDnsPlatform;
 
+struct HealthyTunHelperPlatform;
+
+impl TunHelperPlatform for HealthyTunHelperPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot {
+            availability: TunHelperAvailability::Available,
+            expected_version: TUN_HELPER_EXPECTED_VERSION.into(),
+            health: TunHelperHealth::Healthy,
+            installation_id: Some("healthy-test-installation".into()),
+            installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        }
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)) })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+    }
+
+    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
 impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
     fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
         Box::pin(ready(Ok(NetworkDnsObservation {
@@ -433,6 +471,10 @@ impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
 }
 
 fn settings_service() -> Arc<SettingsService> {
+    settings_service_with_tun(None)
+}
+
+fn settings_service_with_tun(tun_helper: Option<Arc<TunHelperController>>) -> Arc<SettingsService> {
     let preferences = SettingsPreferences {
         onboarding: OnboardingPreferences {
             welcome_invitation: Some(OnboardingWelcomeInvitation {
@@ -452,7 +494,7 @@ fn settings_service() -> Arc<SettingsService> {
             Some(Arc::new(MemoryStartupPlatform::default())),
             Some(Arc::new(MemoryWindowSurfacePlatform::default())),
             SettingsCapabilities::macos(true),
-            None,
+            tun_helper,
             Some(Arc::new(MemoryNetworkDnsPlatform)),
         )
         .unwrap(),
@@ -661,10 +703,17 @@ fn no_core() -> DesktopMihomoProcessConfig {
 async fn socket(
     address: SocketAddr,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    socket_with_origin(address, ORIGIN).await
+}
+
+async fn socket_with_origin(
+    address: SocketAddr,
+    origin: &str,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let mut request = format!("ws://{address}/rpc").into_client_request().unwrap();
     request
         .headers_mut()
-        .insert("Origin", ORIGIN.parse().unwrap());
+        .insert("Origin", origin.parse().unwrap());
     tokio_tungstenite::connect_async(request).await.unwrap().0
 }
 
@@ -1613,6 +1662,23 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     )
     .await;
     assert_eq!(unavailable_helper["error"]["code"], -32020);
+    let helper_notification = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":27, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["presentation"]["kind"],
+        "tun-helper.lifecycle"
+    );
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["presentation"]["data"]["outcome"],
+        "recovery-required"
+    );
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["pinned"],
+        false
+    );
 
     let appearance = request(
         &mut ws,
@@ -1818,6 +1884,50 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         notifications["result"]["notifications"][0]["presentation"]["kind"],
         "settings.operation-failed"
     );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle() {
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
+        TunHelperController::new(Arc::new(HealthyTunHelperPlatform)),
+    ))));
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let native_snapshot = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":1, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        native_snapshot["result"]["capabilities"]["tun"],
+        "supported"
+    );
+
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut browser).await;
+    let browser_snapshot = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        browser_snapshot["result"]["capabilities"]["tun"],
+        "unavailable"
+    );
+    let lifecycle = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(lifecycle["error"]["code"], -32020);
 
     bridge.shutdown().await;
 }
@@ -2874,16 +2984,27 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":5, "method":"status.setCapture",
-            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
         }),
     )
     .await;
     assert_eq!(tun["error"]["code"], -32050);
     assert_eq!(tun["error"]["data"]["kind"], "capability-unavailable");
     assert!(tun.get("result").is_none());
+    let ambiguous = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert_eq!(ambiguous["error"]["code"], -32050);
+    assert_eq!(ambiguous["error"]["data"]["kind"], "unsupported-selection");
+    assert!(ambiguous.get("result").is_none());
     let after_rejected_tun = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":6, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(

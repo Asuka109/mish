@@ -397,6 +397,15 @@ pub struct TrafficOperationFailedApplicationNotificationData {
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TunHelperLifecycleApplicationNotificationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    pub operation: String,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TunDriftApplicationNotificationData {}
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -484,6 +493,8 @@ pub enum ApplicationNotificationContent {
     TrafficConnectionsClosed(TrafficConnectionsClosedApplicationNotificationData),
     #[serde(rename = "traffic.operation-failed")]
     TrafficOperationFailed(TrafficOperationFailedApplicationNotificationData),
+    #[serde(rename = "tun-helper.lifecycle")]
+    TunHelperLifecycle(TunHelperLifecycleApplicationNotificationData),
     #[serde(rename = "tun.drift")]
     TunDrift(TunDriftApplicationNotificationData),
     #[serde(rename = "tun.failed")]
@@ -531,6 +542,7 @@ impl ApplicationNotificationContent {
             Self::TrafficConnectionClosed(_) => "traffic.connection-closed",
             Self::TrafficConnectionsClosed(_) => "traffic.connections-closed",
             Self::TrafficOperationFailed(_) => "traffic.operation-failed",
+            Self::TunHelperLifecycle(_) => "tun-helper.lifecycle",
             Self::TunDrift(_) => "tun.drift",
             Self::TunFailed(_) => "tun.failed",
         }
@@ -583,6 +595,7 @@ impl ApplicationNotificationContent {
             Self::TrafficConnectionClosed(_) => &[],
             Self::TrafficConnectionsClosed(_) => &[],
             Self::TrafficOperationFailed(_) => &[],
+            Self::TunHelperLifecycle(_) => &[],
             Self::TunDrift(_) => &[],
             Self::TunFailed(_) => &[],
         }

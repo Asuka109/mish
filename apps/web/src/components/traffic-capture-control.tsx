@@ -54,6 +54,7 @@ interface TrafficCaptureControlProps {
   commandSupported: boolean;
   disabled?: boolean;
   onSystemProxyChange(value: boolean): void;
+  onTunChange(value: boolean): void;
   pending?: boolean;
   pendingMode?: "systemProxy" | "tun" | null;
   systemProxyEnabled: boolean;
@@ -76,6 +77,7 @@ export function TrafficCaptureControl({
   commandSupported,
   disabled = false,
   onSystemProxyChange,
+  onTunChange,
   pending = false,
   pendingMode = null,
   systemProxyEnabled,
@@ -88,9 +90,8 @@ export function TrafficCaptureControl({
   const [helpOpen, setHelpOpen] = useState(false);
   const { LL } = useI18nContext();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
-  // Virtual Interface setup remains outside the Web client's supported boundary.
-  // Keep its state visible, but never expose it as an actionable capture mode.
-  const tunDisabled = true;
+  const tunAvailable =
+    adapterKind === "rpc" && isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
   const tunDescriptionId = statusDescriptionIds.tunUnavailable;
 
   function getHelpDescription(mode: "systemProxy" | "tun", availability: CapabilityAvailability) {
@@ -145,38 +146,67 @@ export function TrafficCaptureControl({
             )}
             <span>{LL.capture.systemProxy()}</span>
           </Toggle>
-          <Tooltip>
-            <TooltipTrigger
-              aria-describedby={tunDescriptionId}
-              aria-label={LL.capture.tun()}
-              aria-disabled="true"
-              className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-focus-accent focus-visible:outline-offset-2"
-              data-capture-unavailable-trigger="true"
-              render={<span tabIndex={0} />}
+          {tunAvailable ? (
+            <Toggle
+              aria-busy={pendingMode === "tun"}
+              aria-describedby={getCaptureModeDescriptionId(
+                adapterKind,
+                capabilities.tun,
+                commandSupported,
+                "tun",
+              )}
+              aria-label={LL.capture.modeAria({
+                mode: LL.capture.tun(),
+                runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
+                selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
+              })}
+              data-capture-state={getCaptureState(tunSelected, tunEnabled)}
+              disabled={disabled || !commandSupported}
+              onPressedChange={onTunChange}
+              pressed={tunSelected}
+              variant="capture"
             >
-              <Toggle
-                aria-busy={pendingMode === "tun"}
+              {pendingMode === "tun" ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
+              )}
+              <span>{LL.capture.tun()}</span>
+            </Toggle>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
                 aria-describedby={tunDescriptionId}
-                aria-label={LL.capture.modeAria({
-                  mode: LL.capture.tun(),
-                  runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
-                  selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
-                })}
-                data-capture-state={getCaptureState(tunSelected, tunEnabled)}
-                disabled={tunDisabled}
-                pressed={tunSelected}
-                variant="capture"
+                aria-label={LL.capture.tun()}
+                aria-disabled="true"
+                className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-focus-accent focus-visible:outline-offset-2"
+                data-capture-unavailable-trigger="true"
+                render={<span tabIndex={0} />}
               >
-                {pendingMode === "tun" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
-                )}
-                <span>{LL.capture.tun()}</span>
-              </Toggle>
-            </TooltipTrigger>
-            <TooltipContent>{LL.capabilities.tunUnavailable()}</TooltipContent>
-          </Tooltip>
+                <Toggle
+                  aria-busy={pendingMode === "tun"}
+                  aria-describedby={tunDescriptionId}
+                  aria-label={LL.capture.modeAria({
+                    mode: LL.capture.tun(),
+                    runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
+                    selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
+                  })}
+                  data-capture-state={getCaptureState(tunSelected, tunEnabled)}
+                  disabled
+                  pressed={tunSelected}
+                  variant="capture"
+                >
+                  {pendingMode === "tun" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
+                  )}
+                  <span>{LL.capture.tun()}</span>
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>{LL.capabilities.tunUnavailable()}</TooltipContent>
+            </Tooltip>
+          )}
           <Button
             aria-label={LL.capture.helpAria()}
             className="[&_svg]:text-muted-soft"

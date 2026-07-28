@@ -135,6 +135,13 @@
     "traffic.operation-failed": {
       "data": { "failure": "string" }
     },
+    "tun-helper.lifecycle": {
+      "data": {
+        "failure": { "type": "string", "optional": true },
+        "operation": "string",
+        "outcome": "string"
+      }
+    },
     "tun.drift": { "data": {} },
     "tun.failed": { "data": {} }
   },

@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 const PROFILE: &str = "internal-tun-alpha";
 const MANIFEST_NAME: &str = "internal-tun-alpha-manifest.json";
-const MANIFEST_MAX_BYTES: u64 = 64 * 1024;
+const MANIFEST_MAX_BYTES: u64 = 1024 * 1024;
 const INSTALLER_FILE_MAX_BYTES: u64 = 64 * 1024;
 const PACKAGE_FILE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const SEALED_CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
@@ -384,8 +384,8 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
         || manifest.architecture != "arm64"
         || manifest.minimum_macos_version != 13
         || manifest.developer_id_required
-        || manifest.allow_tun
-        || manifest.network_mutation_enabled
+        || !manifest.allow_tun
+        || !manifest.network_mutation_enabled
         || manifest.protocol_version != PROTOCOL_VERSION
         || manifest.installation_identity_scheme != IDENTITY_SCHEME
         || manifest.package_version.is_empty()
@@ -407,7 +407,28 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
         .iter()
         .map(|file| (file.path.clone(), file.mode, file.role.clone()))
         .collect::<BTreeSet<_>>();
-    if manifest.files.len() != expected.len() || declared != expected {
+    let application_files = manifest
+        .files
+        .iter()
+        .filter(|file| file.role == "application")
+        .collect::<Vec<_>>();
+    if declared.len() != manifest.files.len()
+        || !expected.is_subset(&declared)
+        || manifest.files.len() != expected.len() + application_files.len()
+        || application_files.is_empty()
+        || application_files
+            .iter()
+            .any(|file| !file.path.starts_with("Mish.app/"))
+        || !application_files
+            .iter()
+            .any(|file| file.path == "Mish.app/Contents/Info.plist")
+        || !application_files
+            .iter()
+            .any(|file| file.path == "Mish.app/Contents/MacOS/mish-desktop")
+        || !application_files
+            .iter()
+            .any(|file| file.path == "Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin")
+    {
         return Err("package-file-contract-invalid".into());
     }
 
@@ -418,6 +439,7 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
                 .split('/')
                 .any(|component| component.is_empty() || component == "." || component == "..")
             || !valid_digest(&file.sha256)
+            || !matches!(file.mode, 0o644 | 0o755)
             || file.size == 0
             || file.size > PACKAGE_FILE_MAX_BYTES
         {
@@ -431,11 +453,31 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
     }
 
     let discovered = walk_package(root)?;
-    let expected_paths = expected
-        .iter()
-        .map(|(path, _, _)| path.clone())
-        .chain([MANIFEST_NAME.to_string(), "Resources".to_string()])
-        .collect::<BTreeSet<_>>();
+    for relative in &discovered {
+        let path = root.join(relative);
+        if fs::symlink_metadata(&path)
+            .map_err(|_| "package-entry-unavailable")?
+            .is_dir()
+        {
+            validate_directory(&path, owner_uid, false)?;
+        }
+    }
+    let mut expected_paths = BTreeSet::from([MANIFEST_NAME.to_string()]);
+    for file in &manifest.files {
+        expected_paths.insert(file.path.clone());
+        let mut parent = Path::new(&file.path).parent();
+        while let Some(parent_path) = parent {
+            if parent_path.as_os_str().is_empty() {
+                break;
+            }
+            let path = parent_path
+                .to_str()
+                .ok_or_else(|| "package-path-invalid".to_string())?
+                .replace('\\', "/");
+            expected_paths.insert(path);
+            parent = parent_path.parent();
+        }
+    }
     if discovered != expected_paths {
         return Err("package-contains-unexpected-or-missing-files".into());
     }
@@ -650,8 +692,7 @@ fn render_plist_inputs(
 ) -> Result<(String, String), String> {
     let template = fs::read_to_string(package.root.join(PLIST_TEMPLATE_RELATIVE_PATH))
         .map_err(|_| "launch-daemon-template-unavailable")?;
-    if !template.contains("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>0</string>")
-        || template.contains("<string>1</string>")
+    if !template.contains("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>")
         || !template.contains(DEV_TUN_SERVICE_CORE_PATH)
         || !template.contains(DEV_TUN_SERVICE_HELPER_PATH)
         || !template.contains(DEV_TUN_SERVICE_ENROLLMENT_PATH)
@@ -1822,6 +1863,7 @@ async fn health(
         "installationId": installation_id,
         "keyId": discovery.key_id,
         "ok": true,
+        "packageVersion": package.manifest.package_version,
         "profile": PROFILE,
         "protocolVersion": discovery.protocol_version,
         "state": "healthy-disabled",
@@ -1850,9 +1892,12 @@ fn status(package: &VerifiedPackage, uid: u32) -> Result<serde_json::Value, Stri
         "repair-required"
     };
     Ok(json!({
+        "helperVersion": package.manifest.helper_version,
         "manifestSha256": package.manifest_digest,
         "ok": true,
+        "packageVersion": package.manifest.package_version,
         "profile": PROFILE,
+        "protocolVersion": package.manifest.protocol_version,
         "service": service,
         "uid": uid,
     }))
@@ -2118,7 +2163,7 @@ mod tests {
         fs::set_permissions(&controller, fs::Permissions::from_mode(0o755)).unwrap();
         VerifiedPackage {
             manifest: PackageManifest {
-                allow_tun: false,
+                allow_tun: true,
                 architecture: "arm64".into(),
                 core_version: "v1.19.29".into(),
                 developer_id_required: false,
@@ -2132,7 +2177,7 @@ mod tests {
                 helper_version: "3".into(),
                 installation_identity_scheme: IDENTITY_SCHEME.into(),
                 minimum_macos_version: 13,
-                network_mutation_enabled: false,
+                network_mutation_enabled: true,
                 package_version: "fixture".into(),
                 profile: PROFILE.into(),
                 protocol_version: PROTOCOL_VERSION,

@@ -99,6 +99,9 @@ const zh = {
     fixtureDescription: "演示模式只能预览外观和语言，不能执行或确认任何 macOS 原生操作。",
     hideToStatusBar: "隐藏到状态栏",
     installTunHelper: "安装系统组件",
+    tunHelperLifecycleApplied: "{operation}已完成并确认。",
+    tunHelperLifecycleFailed: "{operation}需要恢复：{failure}。",
+    tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
     launchAtLogin: "设备启动时",
     launchAtLoginDescription:

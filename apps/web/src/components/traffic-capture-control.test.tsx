@@ -35,6 +35,7 @@ function renderControl(onSystemProxyChange = vi.fn()) {
             capabilities={{ systemProxy: "fixture-only", tun: "fixture-only" }}
             commandSupported
             onSystemProxyChange={onSystemProxyChange}
+            onTunChange={vi.fn()}
             systemProxyEnabled={false}
             systemProxySelected={false}
             systemProxyStatus={systemProxyStatus}
@@ -79,5 +80,35 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
 
     expect(onSystemProxyChange).toHaveBeenCalledOnce();
     expect(onSystemProxyChange.mock.calls[0]?.[0]).toBe(true);
+  });
+
+  it("makes Virtual Interface actionable only for a supported native RPC projection", async () => {
+    const user = userEvent.setup();
+    const onTunChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <TypesafeI18n locale="en">
+          <TooltipProvider>
+            <TrafficCaptureControl
+              adapterKind="rpc"
+              capabilities={{ systemProxy: "supported", tun: "supported" }}
+              commandSupported
+              onSystemProxyChange={vi.fn()}
+              onTunChange={onTunChange}
+              systemProxyEnabled={false}
+              systemProxySelected={false}
+              systemProxyStatus={systemProxyStatus}
+              tunEnabled={false}
+              tunSelected={false}
+              tunStatus={tunStatus}
+            />
+          </TooltipProvider>
+        </TypesafeI18n>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
+    expect(onTunChange).toHaveBeenCalledOnce();
+    expect(onTunChange.mock.calls[0]?.[0]).toBe(true);
   });
 });
