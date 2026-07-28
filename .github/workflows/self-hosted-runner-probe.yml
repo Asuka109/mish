@@ -141,6 +141,6 @@ jobs:
           /usr/bin/hdiutil create -quiet -size 4m -fs APFS -volname MishHookTest "$image"
           /usr/bin/hdiutil attach -quiet -readonly -nobrowse -noautoopen "$image"
           echo "post_hook_fixture=armed" >>"$GITHUB_STEP_SUMMARY"
-      - name: Deliberately fail after arming cleanup fixtures
+      - name: Wait for deliberate cancellation
         shell: bash
-        run: exit 23
+        run: /bin/sleep 300
