@@ -269,7 +269,10 @@ function ProxyControlButton() {
   const systemProxyAvailable = snapshot
     ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.systemProxy)
     : false;
-  const captureAvailable = systemProxyAvailable;
+  const tunAvailable = snapshot
+    ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.tun)
+    : false;
+  const captureAvailable = systemProxyAvailable || tunAvailable;
   const needsAttention =
     runtime?.systemProxy.phase === "drift" ||
     (runtime?.systemProxy.phase === "failed" && runtime.systemProxy.failure !== "core-unhealthy");
@@ -284,12 +287,12 @@ function ProxyControlButton() {
         : "inactive";
   const selectedCapture = {
     systemProxy: Boolean(runtime?.captureSelection.systemProxy && systemProxyAvailable),
-    tun: false,
+    tun: Boolean(runtime?.captureSelection.tun && tunAvailable),
   };
   const resumeSelection =
     selectedCapture.systemProxy || selectedCapture.tun
       ? selectedCapture
-      : { systemProxy: systemProxyAvailable, tun: false };
+      : { systemProxy: systemProxyAvailable, tun: !systemProxyAvailable && tunAvailable };
   const resumeModes = [
     resumeSelection.systemProxy ? LL.capture.systemProxy() : null,
     resumeSelection.tun ? LL.capture.tun() : null,

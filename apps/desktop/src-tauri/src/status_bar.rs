@@ -472,7 +472,7 @@ async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: 
             .activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                system_proxy_only_capture_selection(),
+                retained_or_default_capture_selection(&selection),
                 StatusAdapterKind::Native,
             )
             .await
@@ -486,6 +486,14 @@ fn system_proxy_only_capture_selection() -> CaptureSelection {
     CaptureSelection {
         system_proxy: true,
         tun: false,
+    }
+}
+
+fn retained_or_default_capture_selection(selection: &CaptureSelection) -> CaptureSelection {
+    if selection.system_proxy || selection.tun {
+        selection.clone()
+    } else {
+        system_proxy_only_capture_selection()
     }
 }
 
@@ -893,8 +901,8 @@ mod tests {
         AUTO_START_PROXY_LABEL, Locale, MENU_SECTIONS, NativeMessage, NativeTrafficObservations,
         STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusLabels, StatusMenuModel,
         TOGGLE_PROXY_ID, format_bytes, is_newer_language_revision, is_quit_menu_command,
-        is_status_destination, rate_title, status_bar_icon, status_bar_update,
-        system_proxy_only_capture_selection, translate,
+        is_status_destination, rate_title, retained_or_default_capture_selection, status_bar_icon,
+        status_bar_update, translate,
     };
     use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
@@ -903,10 +911,10 @@ mod tests {
         ProfileActivationOperation, ProfileActivationPhase, ProfileActivationSnapshot,
     };
     use mish_runtime::{
-        CaptureOperationPhase, CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime,
-        ProxyNode, StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase,
-        TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
-        TrafficMatchedRule,
+        CaptureOperationPhase, CaptureSelection, CoreError, CorePhase, CoreRuntime, CoreStatus,
+        MishRuntime, ProxyNode, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+        SystemProxyPhase, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
+        TrafficDataSource, TrafficMatchedRule,
     };
     use std::sync::{
         Arc,
@@ -1345,10 +1353,20 @@ mod tests {
     }
 
     #[test]
-    fn native_proxy_launch_is_system_proxy_only() {
-        let selection = system_proxy_only_capture_selection();
-        assert!(selection.system_proxy);
-        assert!(!selection.tun);
+    fn native_proxy_launch_retains_tun_and_defaults_an_empty_selection_to_system_proxy() {
+        let retained = retained_or_default_capture_selection(&CaptureSelection {
+            system_proxy: false,
+            tun: true,
+        });
+        assert!(!retained.system_proxy);
+        assert!(retained.tun);
+
+        let fallback = retained_or_default_capture_selection(&CaptureSelection {
+            system_proxy: false,
+            tun: false,
+        });
+        assert!(fallback.system_proxy);
+        assert!(!fallback.tun);
     }
 
     #[test]

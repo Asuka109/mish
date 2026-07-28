@@ -2646,6 +2646,45 @@ describe("Status fixture experience", () => {
     });
   });
 
+  it("relaunches the retained Virtual Interface selection from the master control", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: true };
+    snapshot.runtime.phase = "inactive";
+    snapshot.runtime.systemProxyEnabled = false;
+    snapshot.runtime.systemProxy = {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    };
+    snapshot.runtime.tunEnabled = false;
+    snapshot.runtime.tun = {
+      desired: false,
+      failure: null,
+      observation: null,
+      observed: "disabled",
+      phase: "off",
+    };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    renderRoute("/status", "en", statusClient);
+
+    const launch = await screen.findByRole("button", { name: "Launch Proxy" });
+    expect(launch).toHaveAttribute("title", "Launch Proxy with Virtual Interface");
+    await user.click(launch);
+
+    await waitFor(() =>
+      expect(statusClient.setCapture).toHaveBeenCalledWith(
+        { systemProxy: false, tun: true },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
   it("keeps Virtual Interface disabled when System Proxy is stopped", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
