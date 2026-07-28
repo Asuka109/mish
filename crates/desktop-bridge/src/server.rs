@@ -151,6 +151,7 @@ struct BrowserHttpState {
 struct HttpState {
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
+    native_origins: HashSet<String>,
     browser: Option<BrowserHttpState>,
     protocol: ProtocolState,
     max_message_bytes: usize,
@@ -386,6 +387,11 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if matches!(address.ip(), IpAddr::V6(_)) {
         allowed_hosts.insert(format!("[::1]:{}", address.port()));
     }
+    let native_origins = config
+        .allowed_origins
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
     let mut allowed_origins = HashSet::from([
         format!("http://{authority}"),
         format!("http://localhost:{}", address.port()),
@@ -441,7 +447,9 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             settings_service: config.settings_service,
             socket_shutdown: socket_shutdown.clone(),
             updater: updater_service.clone(),
+            client_surface: crate::protocol::RpcClientSurface::Native,
         },
+        native_origins,
         max_message_bytes: config.max_message_bytes,
     });
     let app = Router::new()
@@ -710,6 +718,7 @@ fn browser_bootstrap_response(browser: &BrowserHttpState, session: Option<&str>)
     let mut settings_snapshot = browser.settings_service.snapshot(SettingsAdapterKind::Rpc);
     settings_snapshot.capabilities.backup_restore = SettingsAvailability::Unavailable;
     settings_snapshot.capabilities.native_sidebar_material = SettingsAvailability::Unavailable;
+    settings_snapshot.capabilities.tun = SettingsAvailability::Unavailable;
     settings_snapshot.capabilities.window_lifecycle = SettingsAvailability::Unavailable;
     secure_json_response(
         json!({
@@ -988,9 +997,20 @@ async fn rpc(
     {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .expect("origin was validated");
+    let client_surface = if state.native_origins.contains(origin) {
+        crate::protocol::RpcClientSurface::Native
+    } else {
+        crate::protocol::RpcClientSurface::Browser
+    };
+    let mut protocol = state.protocol.clone();
+    protocol.client_surface = client_surface;
     ws.max_message_size(state.max_message_bytes)
         .max_frame_size(state.max_message_bytes)
-        .on_upgrade(move |socket| serve_socket(socket, state.protocol.clone()))
+        .on_upgrade(move |socket| serve_socket(socket, protocol))
 }
 
 fn valid_host(state: &HttpState, headers: &HeaderMap) -> bool {

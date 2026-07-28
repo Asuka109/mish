@@ -97,7 +97,7 @@ function fixture() {
       plistTemplateSha256: "7".repeat(64),
       profile: "internal-tun-alpha",
       protocolVersion: 3,
-      version: "0.1.0-internal-tun-alpha.3",
+      version: "0.1.0-internal-tun-alpha.4",
     },
     schemaVersion: 1,
     status: "verified",

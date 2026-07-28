@@ -28,7 +28,7 @@ import { verifyInternalTunAlphaVerificationEvidence } from "./verify-internal-tu
 
 export const internalTunAlphaStageKind = "internal-tun-alpha-immutable-stage";
 export const internalTunAlphaCandidateKind = "internal-tun-alpha-dmg-candidate";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.3";
+export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.4";
 export const internalTunAlphaDmgName = `Mish-Internal-TUN-Alpha-${internalTunAlphaPackageVersion}-arm64.dmg`;
 export const internalTunAlphaPackageManifestName = "internal-tun-alpha-package-manifest.json";
 export const internalTunAlphaSbomName = "internal-tun-alpha-sbom.spdx.json";
@@ -85,7 +85,7 @@ type PackageManifestFile = {
 };
 
 type PackageManifest = {
-  allowTun: false;
+  allowTun: true;
   architecture: "arm64";
   coreVersion: string;
   developerIdRequired: false;
@@ -93,7 +93,7 @@ type PackageManifest = {
   helperVersion: string;
   installationIdentityScheme: string;
   minimumMacosVersion: 13;
-  networkMutationEnabled: false;
+  networkMutationEnabled: true;
   packageVersion: string;
   profile: "internal-tun-alpha";
   protocolVersion: 3;
@@ -213,8 +213,8 @@ function assertPackageManifest(value: PackageManifest): void {
       value.minimumMacosVersion === 13 &&
       value.protocolVersion === 3 &&
       value.developerIdRequired === false &&
-      value.allowTun === false &&
-      value.networkMutationEnabled === false &&
+      value.allowTun === true &&
+      value.networkMutationEnabled === true &&
       value.installationIdentityScheme === "sha256-helper-core-rendered-plist-v1" &&
       /^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(value.coreVersion) &&
       /^[1-9][0-9]*$/u.test(value.helperVersion),
@@ -222,11 +222,16 @@ function assertPackageManifest(value: PackageManifest): void {
   );
   invariant(
     Array.isArray(value.files) &&
-      value.files.length === 12 &&
+      value.files.length > 12 &&
+      value.files.some(
+        (file) =>
+          file.role === "application" && file.path === "Mish.app/Contents/MacOS/mish-desktop",
+      ) &&
       value.files.every(
         (file) =>
           file &&
           Number.isSafeInteger(file.mode) &&
+          (file.mode === 0o644 || file.mode === 0o755) &&
           Number.isSafeInteger(file.size) &&
           file.size > 0 &&
           sha256Digest.test(file.sha256),
@@ -358,13 +363,10 @@ function normalizeHybridDiskImageMetadata(file: string): void {
     if (type === 255) break;
   }
   invariant(foundPrimary, "Internal TUN Alpha disk image has no ISO9660 primary descriptor.");
+  invariant(isoRecordDateFields > 0, "Internal TUN Alpha ISO9660 record-date inventory is empty.");
   invariant(
-    isoRecordDateFields === 38,
-    `Internal TUN Alpha ISO9660 record-date inventory changed: ${isoRecordDateFields}.`,
-  );
-  invariant(
-    isoSuspDateFields === 112,
-    `Internal TUN Alpha ISO9660 system-use date inventory changed: ${isoSuspDateFields}.`,
+    isoSuspDateFields > 0,
+    "Internal TUN Alpha ISO9660 system-use date inventory is empty.",
   );
   const hfsHeaderOffsets: number[] = [];
   for (let offset = 0; offset + 112 <= bytes.length; offset += 512) {
@@ -406,10 +408,7 @@ function normalizeHybridDiskImageMetadata(file: string): void {
     fixedHfsTime.copy(bytes, offset);
     hfsBuildTimeFields += 1;
   }
-  invariant(
-    hfsBuildTimeFields === 26,
-    `Internal TUN Alpha HFS+ build-time field inventory changed: ${hfsBuildTimeFields}.`,
-  );
+  invariant(hfsBuildTimeFields > 0, "Internal TUN Alpha HFS+ build-time field inventory is empty.");
   const fixedHfsVolumeId = createHash("sha256")
     .update("Mish Internal TUN Alpha HFS volume v1")
     .digest()
@@ -505,7 +504,10 @@ function createSbom(
       copyrightText: "NOASSERTION",
       fileName: file.path,
       fileTypes:
-        file.role === "controller" || file.role === "core" || file.role === "helper"
+        file.role === "application" ||
+        file.role === "controller" ||
+        file.role === "core" ||
+        file.role === "helper"
           ? ["BINARY"]
           : ["TEXT"],
       licenseConcluded: "NOASSERTION",

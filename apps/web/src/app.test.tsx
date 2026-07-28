@@ -468,6 +468,14 @@ class RecordingCaptureClient extends SnapshotStatusClient {
         phase: active && selection.systemProxy ? "applied" : "off",
         recoveryActions: [],
       };
+      snapshot.runtime.tunEnabled = active && selection.tun;
+      snapshot.runtime.tun = {
+        desired: active && selection.tun,
+        failure: null,
+        observation: null,
+        observed: active && selection.tun ? "enabled" : "disabled",
+        phase: active && selection.tun ? "applied" : "off",
+      };
       return snapshot;
     },
   );
@@ -2295,7 +2303,7 @@ describe("desktop RPC experience", () => {
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(tun).toBeDisabled();
     expect(tun).toHaveAccessibleDescription(
-      /Virtual Interface is not available in this version of Mish/i,
+      /Install, approve, or repair the Internal TUN service in Settings/i,
     );
 
     const globalMode = screen.getByRole("button", { name: "Global" });
@@ -2644,6 +2652,117 @@ describe("Status fixture experience", () => {
     await waitFor(() => {
       expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
     });
+  });
+
+  it("relaunches the retained Virtual Interface selection from the master control", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: true };
+    snapshot.runtime.phase = "inactive";
+    snapshot.runtime.systemProxyEnabled = false;
+    snapshot.runtime.systemProxy = {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    };
+    snapshot.runtime.tunEnabled = false;
+    snapshot.runtime.tun = {
+      desired: false,
+      failure: null,
+      observation: null,
+      observed: "disabled",
+      phase: "off",
+    };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    renderRoute("/status", "en", statusClient);
+
+    const launch = await screen.findByRole("button", { name: "Launch Proxy" });
+    expect(launch).toHaveAttribute("title", "Launch Proxy with Virtual Interface");
+    await user.click(launch);
+
+    await waitFor(() =>
+      expect(statusClient.setCapture).toHaveBeenCalledWith(
+        { systemProxy: false, tun: true },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
+  it("adds System Proxy without clearing an applied Virtual Interface selection", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: true };
+    snapshot.runtime.phase = "healthy";
+    snapshot.runtime.systemProxyEnabled = false;
+    snapshot.runtime.tunEnabled = true;
+    snapshot.runtime.tun = {
+      desired: true,
+      failure: null,
+      observation: null,
+      observed: "enabled",
+      phase: "applied",
+    };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    renderRoute("/status", "en", statusClient);
+
+    await user.click(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    );
+
+    await waitFor(() =>
+      expect(statusClient.setCapture).toHaveBeenCalledWith(
+        { systemProxy: true, tun: true },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
+  it("preserves System Proxy when Settings adds Virtual Interface", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.phase = "healthy";
+    snapshot.runtime.systemProxyEnabled = true;
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "mish",
+      phase: "applied",
+      recoveryActions: [],
+    };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    renderRoute(
+      "/settings",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Virtual Interface, not selected, not running" }),
+    );
+
+    await waitFor(() =>
+      expect(statusClient.setCapture).toHaveBeenCalledWith(
+        { systemProxy: true, tun: true },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
   });
 
   it("keeps Virtual Interface disabled when System Proxy is stopped", async () => {

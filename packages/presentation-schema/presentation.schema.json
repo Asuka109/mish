@@ -55,6 +55,7 @@
   "notifications": {
     "capture.failure": {
       "data": {
+        "captureMode": { "type": "string", "optional": true },
         "failure": "string",
         "observationStage": { "type": "string", "optional": true },
         "takeoverReason": { "type": "string", "optional": true }
@@ -134,6 +135,13 @@
     "traffic.connections-closed": { "data": { "count": "number" } },
     "traffic.operation-failed": {
       "data": { "failure": "string" }
+    },
+    "tun-helper.lifecycle": {
+      "data": {
+        "failure": { "type": "string", "optional": true },
+        "operation": "string",
+        "outcome": "string"
+      }
     },
     "tun.drift": { "data": {} },
     "tun.failed": { "data": {} }

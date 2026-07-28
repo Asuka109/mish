@@ -868,8 +868,9 @@ fn route_contains(network: IpAddr, prefix_length: u8, address: IpAddr) -> bool {
 
 #[derive(Clone, Debug)]
 pub struct MacOsTunServiceClient {
+    authenticated_request: Arc<Mutex<()>>,
     client_keys: Option<InstallationClientKeyStore>,
-    lifecycle: Option<DevelopmentTunLifecycle>,
+    lifecycle: Option<TunServiceLifecycle>,
     socket_path: PathBuf,
 }
 
@@ -903,6 +904,19 @@ struct DevelopmentTunLifecycle {
     tart_tun_acceptance: bool,
 }
 
+#[derive(Clone, Debug)]
+struct InternalTunAlphaLifecycle {
+    controller_path: PathBuf,
+    expected_package_version: String,
+    package_root: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+enum TunServiceLifecycle {
+    Development(DevelopmentTunLifecycle),
+    InternalTunAlpha(InternalTunAlphaLifecycle),
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DevelopmentInstallerResult {
@@ -910,9 +924,45 @@ struct DevelopmentInstallerResult {
     ok: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InternalTunPackageStatus {
+    helper_version: String,
+    manifest_sha256: String,
+    ok: bool,
+    package_version: String,
+    profile: String,
+    protocol_version: u16,
+    service: String,
+    uid: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InternalTunPackageHealth {
+    generation: u64,
+    helper_version: String,
+    installation_id: String,
+    key_id: String,
+    ok: bool,
+    package_version: String,
+    profile: String,
+    protocol_version: u16,
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InternalTunPackageResult {
+    code: Option<String>,
+    ok: bool,
+    profile: String,
+}
+
 impl MacOsTunServiceClient {
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
             lifecycle: None,
             socket_path,
@@ -924,6 +974,7 @@ impl MacOsTunServiceClient {
         client_keys: InstallationClientKeyStore,
     ) -> Self {
         Self {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: Some(client_keys),
             lifecycle: None,
             socket_path,
@@ -959,15 +1010,51 @@ impl MacOsTunServiceClient {
         tart_tun_acceptance: bool,
     ) -> Self {
         let mut client = Self::development();
-        client.lifecycle = Some(DevelopmentTunLifecycle {
+        client.lifecycle = Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
             script_path: repository_root.join("scripts/manage-macos-tun-service.ts"),
             repository_root,
             tart_tun_acceptance,
-        });
+        }));
         client
     }
 
+    pub fn internal_tun_alpha(
+        package_root: PathBuf,
+        expected_package_version: impl Into<String>,
+    ) -> Self {
+        let mut client = Self::development();
+        client.lifecycle = Some(TunServiceLifecycle::InternalTunAlpha(
+            InternalTunAlphaLifecycle {
+                controller_path: package_root
+                    .join("Resources")
+                    .join("mish-internal-tun-alpha-ctl"),
+                expected_package_version: expected_package_version.into(),
+                package_root,
+            },
+        ));
+        client
+    }
+
+    fn internal_tun_alpha_lifecycle(&self) -> Option<&InternalTunAlphaLifecycle> {
+        match self.lifecycle.as_ref() {
+            Some(TunServiceLifecycle::InternalTunAlpha(lifecycle)) => Some(lifecycle),
+            Some(TunServiceLifecycle::Development(_)) | None => None,
+        }
+    }
+
+    fn privileged_core_launch_binary(&self, requested: &Path) -> PathBuf {
+        if self.internal_tun_alpha_lifecycle().is_some() {
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        } else {
+            requested.to_path_buf()
+        }
+    }
+
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
+        // One packaged application owns one authenticated Helper command stream. Core readiness,
+        // watchdog observation, and Capture reconciliation may poll concurrently, but the Helper
+        // lifecycle machine intentionally admits only one privileged operation at a time.
+        let _authenticated_request = self.authenticated_request.lock().await;
         let request_timeout = service_request_timeout(&command);
         let request_id = uuid::Uuid::new_v4().to_string();
         let mut client_nonce = [0_u8; 32];
@@ -1299,15 +1386,193 @@ fn map_host_error(error: ServiceClientError) -> PrivilegedCoreHostError {
     }
 }
 
+impl InternalTunAlphaLifecycle {
+    fn validated_paths(&self) -> Result<(PathBuf, PathBuf), TunHelperError> {
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let current_uid = unsafe { libc::getuid() };
+        let root_metadata = fs::symlink_metadata(&self.package_root).map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::Unpackaged,
+                "The Internal TUN Alpha package root is unavailable",
+            )
+        })?;
+        let package_root = self.package_root.canonicalize().map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package root identity was rejected",
+            )
+        })?;
+        if root_metadata.file_type().is_symlink()
+            || !root_metadata.is_dir()
+            || root_metadata.uid() != current_uid
+            || root_metadata.permissions().mode() & 0o022 != 0
+            || package_root != self.package_root
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package root metadata was rejected",
+            ));
+        }
+
+        let controller_metadata = fs::symlink_metadata(&self.controller_path).map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::Unpackaged,
+                "The Internal TUN Alpha package controller is unavailable",
+            )
+        })?;
+        let controller = self.controller_path.canonicalize().map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package controller identity was rejected",
+            )
+        })?;
+        if controller_metadata.file_type().is_symlink()
+            || !controller_metadata.is_file()
+            || controller_metadata.uid() != current_uid
+            || controller_metadata.nlink() != 1
+            || controller_metadata.permissions().mode() & 0o777 != 0o755
+            || !controller.starts_with(&package_root)
+            || controller.file_name().and_then(|name| name.to_str())
+                != Some("mish-internal-tun-alpha-ctl")
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package controller metadata was rejected",
+            ));
+        }
+        Ok((package_root, controller))
+    }
+
+    async fn command(&self, action: &str) -> Result<serde_json::Value, TunHelperError> {
+        let (package_root, controller) = self.validated_paths()?;
+        let output = Command::new(controller)
+            .arg(action)
+            .arg(package_root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .await
+            .map_err(|_| {
+                TunHelperError::new(
+                    TunHelperFailureKind::InstallerUnavailable,
+                    "The Internal TUN Alpha package controller could not start",
+                )
+            })?;
+        let value = serde_json::from_slice::<serde_json::Value>(&output.stdout).map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::InstallerUnavailable,
+                "The Internal TUN Alpha package controller returned an invalid result",
+            )
+        })?;
+        if output.status.success() {
+            return Ok(value);
+        }
+        let failure = serde_json::from_value::<InternalTunPackageResult>(value).map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::InstallerUnavailable,
+                "The Internal TUN Alpha package controller returned an invalid failure",
+            )
+        })?;
+        let code = failure.code.as_deref().unwrap_or_default();
+        let kind = if code.contains("authorization-cancelled") {
+            TunHelperFailureKind::AuthorizationCancelled
+        } else if code.contains("authorization") {
+            TunHelperFailureKind::PermissionDenied
+        } else if code.contains("protocol") {
+            TunHelperFailureKind::ProtocolMismatch
+        } else if code.contains("version") {
+            TunHelperFailureKind::VersionMismatch
+        } else if code.contains("identity")
+            || code.contains("owner")
+            || code.contains("enrollment")
+            || code.contains("receipt")
+        {
+            TunHelperFailureKind::IdentityRejected
+        } else {
+            TunHelperFailureKind::OperationFailed
+        };
+        if failure.ok || failure.profile != "internal-tun-alpha" {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package controller failure identity was rejected",
+            ));
+        }
+        Err(TunHelperError::new(
+            kind,
+            "The Internal TUN Alpha package controller reported a bounded failure",
+        ))
+    }
+
+    async fn status(&self) -> Result<InternalTunPackageStatus, TunHelperError> {
+        let status =
+            serde_json::from_value::<InternalTunPackageStatus>(self.command("status").await?)
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::IdentityRejected,
+                        "The Internal TUN Alpha package status contract was rejected",
+                    )
+                })?;
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let current_uid = unsafe { libc::getuid() };
+        if !status.ok
+            || status.profile != "internal-tun-alpha"
+            || status.package_version != self.expected_package_version
+            || status.helper_version != TUN_HELPER_EXPECTED_VERSION
+            || status.protocol_version != TUN_HELPER_PROTOCOL_VERSION
+            || status.uid != current_uid
+            || !valid_installation_id(&status.manifest_sha256)
+            || !matches!(
+                status.service.as_str(),
+                "installed" | "not-installed" | "repair-required"
+            )
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package status did not match this application",
+            ));
+        }
+        Ok(status)
+    }
+
+    async fn health(&self) -> Result<InternalTunPackageHealth, TunHelperError> {
+        let health =
+            serde_json::from_value::<InternalTunPackageHealth>(self.command("health").await?)
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::IdentityRejected,
+                        "The Internal TUN Alpha package health contract was rejected",
+                    )
+                })?;
+        if !health.ok
+            || health.profile != "internal-tun-alpha"
+            || health.package_version != self.expected_package_version
+            || health.helper_version != TUN_HELPER_EXPECTED_VERSION
+            || health.protocol_version != TUN_HELPER_PROTOCOL_VERSION
+            || health.state != "healthy-disabled"
+            || health.generation == 0
+            || !valid_installation_id(&health.installation_id)
+            || !valid_installation_id(&health.key_id)
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The Internal TUN Alpha package health did not match this application",
+            ));
+        }
+        Ok(health)
+    }
+}
+
 impl PrivilegedCoreHost for MacOsTunServiceClient {
     fn start(
         &self,
         request: PrivilegedCoreLaunchRequest,
     ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
         Box::pin(async move {
+            let binary = self.privileged_core_launch_binary(request.binary());
             let status = self
                 .request(ServiceCommand::Start {
-                    binary: request.binary().to_path_buf(),
+                    binary,
                     config_directory: request.config_directory().to_path_buf(),
                     config_file: request.config_file().to_path_buf(),
                     expected_version: request.expected_version().to_owned(),
@@ -1381,6 +1646,27 @@ impl TunHelperPlatform for MacOsTunServiceClient {
 
     fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
         Box::pin(async move {
+            if let Some(lifecycle) = self.internal_tun_alpha_lifecycle() {
+                let status = lifecycle.status().await?;
+                return match status.service.as_str() {
+                    "not-installed" => Ok(TunHelperObservation::not_installed()),
+                    "repair-required" => Ok(TunHelperObservation {
+                        availability: TunHelperAvailability::RepairRequired,
+                        health: TunHelperHealth::Unknown,
+                        installation_id: None,
+                        installed_version: None,
+                        last_failure: Some(TunHelperFailureKind::ConfirmationFailed),
+                    }),
+                    "installed" => {
+                        let health = lifecycle.health().await?;
+                        Ok(TunHelperObservation::healthy_installation(
+                            health.helper_version,
+                            health.installation_id,
+                        ))
+                    }
+                    _ => unreachable!("validated Internal TUN Alpha service state"),
+                };
+            }
             match self.health().await {
                 Ok(status) => Ok(TunHelperObservation::healthy_installation(
                     status.helper_version,
@@ -1406,6 +1692,18 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     "The development helper installer requires explicit application wiring",
                 )
             })?;
+            if let TunServiceLifecycle::InternalTunAlpha(lifecycle) = lifecycle {
+                let action = match operation {
+                    TunHelperLifecycleOperation::Install => "install",
+                    TunHelperLifecycleOperation::Repair => "repair",
+                    TunHelperLifecycleOperation::Remove => "uninstall",
+                };
+                lifecycle.command(action).await?;
+                return Ok(());
+            }
+            let TunServiceLifecycle::Development(lifecycle) = lifecycle else {
+                unreachable!("Internal TUN Alpha lifecycle returned above");
+            };
             let repository_root = lifecycle.repository_root.canonicalize().map_err(|_| {
                 TunHelperError::new(
                     TunHelperFailureKind::OperationFailed,
@@ -4084,6 +4382,26 @@ mod tests {
         snapshots: StdMutex<VecDeque<TunSystemSnapshot>>,
     }
 
+    struct DelayedObserver {
+        delay: Duration,
+        snapshot: TunSystemSnapshot,
+    }
+
+    impl TunSystemObserver for DelayedObserver {
+        fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>> {
+            let delay = self.delay;
+            let snapshot = self.snapshot.clone();
+            Box::pin(async move {
+                tokio::time::sleep(delay).await;
+                Ok(snapshot)
+            })
+        }
+
+        fn owned_utun_sockets(&self, _pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+            Ok(Vec::new())
+        }
+    }
+
     impl SequenceObserver {
         fn new(
             snapshots: Vec<TunSystemSnapshot>,
@@ -4297,6 +4615,26 @@ mod tests {
                 Err("invalid development TUN boundary")
             );
         }
+    }
+
+    #[test]
+    fn internal_tun_alpha_launches_only_the_installed_fixed_core() {
+        let requested =
+            Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
+        let internal = MacOsTunServiceClient::internal_tun_alpha(
+            PathBuf::from("/Volumes/Mish TUN Alpha"),
+            "0.1.0-internal-tun-alpha.4",
+        );
+        let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
+
+        assert_eq!(
+            internal.privileged_core_launch_binary(requested),
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        );
+        assert_eq!(
+            development.privileged_core_launch_binary(requested),
+            requested
+        );
     }
 
     #[test]
@@ -4875,6 +5213,19 @@ mod tests {
         PathBuf,
         tokio::task::JoinHandle<Result<(), &'static str>>,
     ) {
+        fixture_with_observer(Arc::new(SequenceObserver::new(snapshots, owned_interfaces))).await
+    }
+
+    async fn fixture_with_observer(
+        observer: Arc<dyn TunSystemObserver>,
+    ) -> (
+        tempfile::TempDir,
+        MacOsTunServiceClient,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        tokio::task::JoinHandle<Result<(), &'static str>>,
+    ) {
         let temporary = tempfile::tempdir().unwrap();
         let binary = write_fixture_binary(temporary.path());
         let runtime_root = temporary.path().join("runtime");
@@ -4909,7 +5260,7 @@ mod tests {
             socket_path: socket_path.clone(),
             spawn_watchdog: false,
             network_controller: Arc::new(MacOsTunNetworkController::new()),
-            observer: Arc::new(SequenceObserver::new(snapshots, owned_interfaces)),
+            observer,
         }));
         for _ in 0..100 {
             if socket_path.exists() {
@@ -5377,6 +5728,36 @@ mod tests {
                 .unwrap()
                 .confirms_disabled_at(tun_observation_now())
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn one_client_serializes_concurrent_authenticated_observations() {
+        let (_temporary, client, _binary, _home, _config_file, server) =
+            fixture_with_observer(Arc::new(DelayedObserver {
+                delay: Duration::from_millis(100),
+                snapshot: baseline_snapshot(),
+            }))
+            .await;
+        let barrier = Arc::new(tokio::sync::Barrier::new(3));
+        let first_client = client.clone();
+        let first_barrier = barrier.clone();
+        let first = tokio::spawn(async move {
+            first_barrier.wait().await;
+            first_client.request(ServiceCommand::Status).await
+        });
+        let second_client = client.clone();
+        let second_barrier = barrier.clone();
+        let second = tokio::spawn(async move {
+            second_barrier.wait().await;
+            second_client.request(ServiceCommand::Status).await
+        });
+
+        barrier.wait().await;
+        let (first, second) = tokio::join!(first, second);
+
+        assert!(first.unwrap().is_ok());
+        assert!(second.unwrap().is_ok());
         server.abort();
     }
 
@@ -5879,12 +6260,13 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
-            lifecycle: Some(DevelopmentTunLifecycle {
+            lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
                 tart_tun_acceptance: false,
-            }),
+            })),
             socket_path: repository.path().join("unused.sock"),
         };
 
@@ -5914,12 +6296,13 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
-            lifecycle: Some(DevelopmentTunLifecycle {
+            lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
                 tart_tun_acceptance: true,
-            }),
+            })),
             socket_path: repository.path().join("unused.sock"),
         };
 
@@ -5947,12 +6330,13 @@ mod tests {
         .unwrap();
         fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
         let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
             client_keys: None,
-            lifecycle: Some(DevelopmentTunLifecycle {
+            lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
                 tart_tun_acceptance: false,
-            }),
+            })),
             socket_path: repository.path().join("unused.sock"),
         };
 

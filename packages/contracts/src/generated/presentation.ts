@@ -101,6 +101,7 @@ export type NativeMessage =
 
 const applicationNotificationCaptureFailureDataSchema = z
   .object({
+    captureMode: z.string().optional(),
     failure: z.string(),
     observationStage: z.string().optional(),
     takeoverReason: z.string().optional(),
@@ -270,6 +271,14 @@ const applicationNotificationTrafficOperationFailedDataSchema = z
   })
   .strict();
 
+const applicationNotificationTunHelperLifecycleDataSchema = z
+  .object({
+    failure: z.string().optional(),
+    operation: z.string(),
+    outcome: z.string(),
+  })
+  .strict();
+
 const applicationNotificationTunDriftDataSchema = z.object({}).strict();
 
 const applicationNotificationTunFailedDataSchema = z.object({}).strict();
@@ -314,6 +323,7 @@ export const applicationNotificationKindSchema = z.enum([
   "traffic.connection-closed",
   "traffic.connections-closed",
   "traffic.operation-failed",
+  "tun-helper.lifecycle",
   "tun.drift",
   "tun.failed",
 ]);
@@ -722,6 +732,16 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
         .array(z.never())
         .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
+      data: applicationNotificationTunHelperLifecycleDataSchema,
+      kind: z.literal("tun-helper.lifecycle"),
+    })
+    .strict(),
+  z
+    .object({
+      actionIds: z
+        .array(z.never())
+        .max(0)
+        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationTunDriftDataSchema,
       kind: z.literal("tun.drift"),
     })
@@ -816,6 +836,7 @@ export interface ApplicationNotificationDataByKind {
   "traffic.operation-failed": z.infer<
     typeof applicationNotificationTrafficOperationFailedDataSchema
   >;
+  "tun-helper.lifecycle": z.infer<typeof applicationNotificationTunHelperLifecycleDataSchema>;
   "tun.drift": z.infer<typeof applicationNotificationTunDriftDataSchema>;
   "tun.failed": z.infer<typeof applicationNotificationTunFailedDataSchema>;
 }

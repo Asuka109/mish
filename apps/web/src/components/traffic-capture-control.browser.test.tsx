@@ -41,6 +41,7 @@ function renderHost(host: "Settings" | "Status") {
               capabilities={{ systemProxy: "supported", tun: "unavailable" }}
               commandSupported
               onSystemProxyChange={vi.fn()}
+              onTunChange={vi.fn()}
               systemProxyEnabled={false}
               systemProxySelected={false}
               systemProxyStatus={systemProxyStatus}

@@ -31,7 +31,6 @@ import { useAppearance } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
-import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useI18nContext } from "../i18n/i18n-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
@@ -699,8 +698,13 @@ export function SettingsPage() {
                     : "unavailable",
               }}
               commandSupported={captureSupported}
-              disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
+              disabled={
+                capturePending ||
+                captureRuntime.captureOperation.phase === "recovery-required" ||
+                captureRuntime.systemProxy.recoveryActions.length > 0
+              }
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+              onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               pendingMode={pendingCaptureMode}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}
@@ -795,7 +799,8 @@ export function SettingsPage() {
                           ? LL.settingsPage.tunHelperUnpackaged()
                           : LL.common.unavailable()}
               </Badge>
-              {helper.availability === "permission-required" ? (
+              {snapshot.capabilities.tun === "supported" &&
+              helper.availability === "permission-required" ? (
                 <Button
                   disabled={settings.pending}
                   loading={loadingPromise("install-helper")}
@@ -809,7 +814,8 @@ export function SettingsPage() {
                   {LL.settingsPage.installTunHelper()}
                 </Button>
               ) : null}
-              {helper.availability === "repair-required" ? (
+              {snapshot.capabilities.tun === "supported" &&
+              helper.availability === "repair-required" ? (
                 <Button
                   disabled={settings.pending}
                   loading={loadingPromise("repair-helper")}
@@ -822,7 +828,7 @@ export function SettingsPage() {
                   {LL.settingsPage.repairTunHelper()}
                 </Button>
               ) : null}
-              {helperAvailable ? (
+              {snapshot.capabilities.tun === "supported" && helperAvailable ? (
                 <Button
                   disabled={settings.pending || product?.runtime.phase !== "inactive"}
                   loading={loadingPromise("reinstall-helper")}
@@ -842,7 +848,7 @@ export function SettingsPage() {
                   {LL.settingsPage.reinstallTunHelper()}
                 </Button>
               ) : null}
-              {helperAvailable ? (
+              {snapshot.capabilities.tun === "supported" && helperAvailable ? (
                 <Button
                   disabled={settings.pending || product?.runtime.phase !== "inactive"}
                   loading={loadingPromise("remove-helper")}
@@ -856,11 +862,6 @@ export function SettingsPage() {
                 </Button>
               ) : null}
             </div>
-            {settings.tunHelperFailure || helper.lastFailure ? (
-              <p className="dialog-error" role="alert">
-                {tunHelperFailureMessage(LL, settings.tunHelperFailure ?? helper.lastFailure)}
-              </p>
-            ) : null}
           </div>
         </SettingsRow>
         <SettingsRow

@@ -157,6 +157,7 @@ struct FakeTunHelper {
     fail_enable: Mutex<bool>,
     enabled: Mutex<bool>,
     observation: Mutex<Option<TunNetworkObservation>>,
+    set_count: Mutex<usize>,
 }
 
 impl FakeTunHelper {
@@ -165,6 +166,7 @@ impl FakeTunHelper {
             fail_enable: Mutex::new(false),
             enabled: Mutex::new(false),
             observation: Mutex::new(None),
+            set_count: Mutex::new(0),
         }
     }
 
@@ -174,6 +176,10 @@ impl FakeTunHelper {
 
     fn set_observation(&self, observation: TunNetworkObservation) {
         *self.observation.lock().unwrap() = Some(observation);
+    }
+
+    fn set_count(&self) -> usize {
+        *self.set_count.lock().unwrap()
     }
 }
 
@@ -216,6 +222,7 @@ impl TunHelperPlatform for FakeTunHelper {
     }
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        *self.set_count.lock().unwrap() += 1;
         if enabled && std::mem::take(&mut *self.fail_enable.lock().unwrap()) {
             return Box::pin(async {
                 Err(TunHelperError::new(
@@ -2635,6 +2642,150 @@ async fn system_proxy_and_tun_conversion_rolls_back_then_confirms_each_observed_
     assert!(restored.system_proxy_enabled);
     assert!(!restored.tun_enabled);
     assert_eq!(restored.tun.phase, TunPhase::Off);
+}
+
+#[tokio::test]
+async fn combined_system_proxy_and_tun_preserve_independent_selection_and_observation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let helper_platform = Arc::new(FakeTunHelper::new());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let reconciler = CaptureReconciler::new_with_tun(
+        platform,
+        journal,
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    );
+
+    let tun_only = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(!tun_only.system_proxy_enabled);
+    assert!(tun_only.tun_enabled);
+    assert_eq!(helper_platform.set_count(), 1);
+
+    let combined_selection = CaptureSelection {
+        system_proxy: true,
+        tun: true,
+    };
+    let combined = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: combined_selection.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(combined.capture_selection, combined_selection);
+    assert!(combined.system_proxy_enabled);
+    assert_eq!(combined.system_proxy.phase, SystemProxyPhase::Applied);
+    assert_eq!(
+        combined.system_proxy.observed,
+        SystemProxyObservedState::Mish
+    );
+    assert!(combined.tun_enabled);
+    assert_eq!(combined.tun.phase, TunPhase::Applied);
+    assert_eq!(combined.tun.observed, TunObservedState::Enabled);
+    assert_eq!(
+        helper_platform.set_count(),
+        1,
+        "preserving an already-applied TUN must not issue another privileged mutation"
+    );
+
+    let tun_after_system_proxy_stop = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(!tun_after_system_proxy_stop.system_proxy_enabled);
+    assert!(tun_after_system_proxy_stop.tun_enabled);
+    assert_eq!(helper_platform.set_count(), 1);
+
+    let stopped = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection: tun_after_system_proxy_stop.capture_selection,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(!stopped.system_proxy_enabled);
+    assert!(!stopped.tun_enabled);
+    assert_eq!(stopped.tun.phase, TunPhase::Off);
+    assert_eq!(helper_platform.set_count(), 2);
+}
+
+#[tokio::test]
+async fn failed_tun_addition_to_system_proxy_does_not_create_implicit_fallback_state() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let helper_platform = Arc::new(FakeTunHelper::new());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let reconciler = CaptureReconciler::new_with_tun(
+        platform,
+        journal,
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    );
+    let system_proxy_selection = CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    };
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: system_proxy_selection.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    helper_platform.fail_next_enable();
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    let retained = reconciler.status();
+    assert_eq!(retained.capture_selection, system_proxy_selection);
+    assert!(retained.system_proxy_enabled);
+    assert_eq!(retained.system_proxy.phase, SystemProxyPhase::Applied);
+    assert!(!retained.tun_enabled);
+    assert_eq!(helper_platform.set_count(), 2);
 }
 
 #[tokio::test]

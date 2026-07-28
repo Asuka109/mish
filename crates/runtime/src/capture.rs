@@ -1760,6 +1760,13 @@ impl TunReconciler {
         if !desired && previous.phase == TunPhase::Off && !previous.desired {
             return Ok(previous);
         }
+        if desired
+            && previous.desired
+            && previous.phase == TunPhase::Applied
+            && previous.observed == TunObservedState::Enabled
+        {
+            return Ok(previous);
+        }
         if desired && self.availability() != CapabilityAvailability::Supported {
             let failure = helper_snapshot_failure(&self.helper.snapshot());
             self.record_failure(true, failure, previous.observed, previous.observation);

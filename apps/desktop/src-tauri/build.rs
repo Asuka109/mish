@@ -1,5 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=MISH_EXPECTED_APPLE_TEAM_IDENTIFIER");
+    println!("cargo:rerun-if-env-changed=MISH_INTERNAL_TUN_PACKAGE_VERSION");
+    println!("cargo:rerun-if-env-changed=MISH_MACOS_RELEASE_PROFILE");
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "runtime_bootstrap",

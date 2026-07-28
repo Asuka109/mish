@@ -58,6 +58,7 @@ const sampleData = {
   "traffic.connection-closed": {},
   "traffic.connections-closed": { count: 3 },
   "traffic.operation-failed": { failure: "timeout" },
+  "tun-helper.lifecycle": { operation: "install", outcome: "applied" },
   "tun.drift": {},
   "tun.failed": {},
 } satisfies ApplicationNotificationDataByKind;
@@ -128,6 +129,16 @@ describe("notification presentation registry", () => {
       "show-system-proxy-settings-steps",
     ]);
     expect(JSON.stringify(presentation)).not.toContain("protected-pac");
+  });
+
+  it("presents TUN drift without System Proxy recovery copy or actions", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { captureMode: "tun", failure: "external-drift" }),
+      i18nObject("zh"),
+    );
+
+    expect(presentation.message).toBe("虚拟网卡的实际状态与 Mish 中的选择不一致。");
+    expect(presentation.actions).toEqual([]);
   });
 
   it("derives lifecycle without storing localized copy", () => {

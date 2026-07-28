@@ -99,6 +99,9 @@ const zh = {
     fixtureDescription: "演示模式只能预览外观和语言，不能执行或确认任何 macOS 原生操作。",
     hideToStatusBar: "隐藏到状态栏",
     installTunHelper: "安装系统组件",
+    tunHelperLifecycleApplied: "{operation}已完成并确认。",
+    tunHelperLifecycleFailed: "{operation}需要恢复：{failure}。",
+    tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
     launchAtLogin: "设备启动时",
     launchAtLoginDescription:
@@ -507,7 +510,7 @@ const zh = {
     localActionUnavailable: "当前本地服务尚不支持此操作。",
     systemProxyPermission: "需要授权后才能更改系统代理。",
     systemProxyUnavailable: "当前平台不支持系统代理。",
-    tunPermission: "需要授权后才能更改虚拟网卡。",
+    tunPermission: "请先到“设置”安装、批准或修复 Internal TUN 服务，再使用虚拟网卡。",
     tunUnavailable: "此版本的 Mish 暂不支持虚拟网卡。",
   },
   proxyPicker: {
@@ -688,7 +691,7 @@ const zh = {
       missingBinary: "开发输入或安装包中缺少经过验证的固定版本 Mihomo Core。",
       priorStop: "Mish 无法确认之前的托管 Core 已安全停止。",
       staging: "Mish 无法把经过验证的 Core 与配置暂存到私有运行目录。",
-      start: "macOS 无法启动经过验证的 Mihomo Core。",
+      start: "Mish 无法启动安装包内的 Mihomo Core。请检查所选配置后重试。",
       stateCommit: "Mish 无法安全提交权威启用状态。",
       timeout: "Mihomo 未能在启动截止时间前就绪。",
       unsafeRuntime: "Mish 拒绝了不安全的托管 Core 路径或私有运行边界。",

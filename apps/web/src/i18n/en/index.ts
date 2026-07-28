@@ -108,6 +108,9 @@ const en = {
       "Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.",
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install Helper",
+    tunHelperLifecycleApplied: "{operation:string} completed and was confirmed.",
+    tunHelperLifecycleFailed: "{operation:string} needs recovery: {failure:string}.",
+    tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
     launchAtLogin: "When device starts",
@@ -551,7 +554,8 @@ const en = {
     localActionUnavailable: "This action is not supported by the current local service.",
     systemProxyPermission: "System Proxy requires permission before it can change.",
     systemProxyUnavailable: "System Proxy is unavailable on this platform.",
-    tunPermission: "Virtual Interface requires permission before it can change.",
+    tunPermission:
+      "Install, approve, or repair the Internal TUN service in Settings before using Virtual Interface.",
     tunUnavailable: "Virtual Interface is not available in this version of Mish.",
   },
   proxyPicker: {
@@ -747,7 +751,7 @@ const en = {
         "The pinned Mihomo Core is missing from the verified development or package input.",
       priorStop: "Mish could not confirm that the previous managed Core stopped safely.",
       staging: "Mish could not stage the verified Core and profile in its private runtime.",
-      start: "macOS could not start the verified Mihomo Core.",
+      start: "Mish could not start its packaged Mihomo Core. Check the selected profile and retry.",
       stateCommit: "Mish could not commit the authoritative activation state safely.",
       timeout: "Mihomo did not become ready before the bounded launch deadline.",
       unsafeRuntime: "Mish rejected the managed Core path or private runtime boundary.",

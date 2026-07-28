@@ -395,7 +395,14 @@ impl DesktopMihomoProcess {
         if let (Some(host), Some(process)) = (&self.privileged_host, privileged_process) {
             match host.observe(process.clone()).await {
                 Ok(Some(observed)) if observed == process => return status,
-                Ok(Some(_)) | Ok(None) | Err(_) => {
+                Err(_) => {
+                    // A transport or admission failure is not authoritative evidence that the
+                    // root Core exited. Retain the launch handle so readiness can retry and any
+                    // failed candidate can still be stopped through the same bounded Helper
+                    // command.
+                    return status;
+                }
+                Ok(Some(_)) | Ok(None) => {
                     let mut inner = self.inner.lock().await;
                     if inner.privileged_process.as_ref() == Some(&process) {
                         inner.privileged_process = None;
@@ -759,9 +766,14 @@ impl DesktopMihomoProcess {
                     };
                     process
                 };
-                if matches!(host.observe(process.clone()).await, Ok(Some(observed)) if observed == process)
-                {
-                    continue;
+                match host.observe(process.clone()).await {
+                    Ok(Some(observed)) if observed == process => continue,
+                    Err(_) => {
+                        // The synchronous status path retains the same handle. A transient
+                        // authenticated request conflict must not orphan a live privileged Core.
+                        continue;
+                    }
+                    Ok(Some(_)) | Ok(None) => {}
                 }
                 let update = {
                     let mut inner = inner.lock().await;
@@ -992,7 +1004,46 @@ impl CoreRuntime for DesktopMihomoProcess {
 #[cfg(test)]
 mod validation_output_tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
+    use std::sync::{
+        Mutex as StdMutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct TransientlyUnavailablePrivilegedHost {
+        stops: AtomicUsize,
+    }
+
+    impl PrivilegedCoreHost for TransientlyUnavailablePrivilegedHost {
+        fn start(
+            &self,
+            _request: PrivilegedCoreLaunchRequest,
+        ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
+            Box::pin(async { unreachable!("the fixture injects an already-started process") })
+        }
+
+        fn observe(
+            &self,
+            _process: PrivilegedCoreProcess,
+        ) -> BoxFuture<'_, Result<Option<PrivilegedCoreProcess>, PrivilegedCoreHostError>> {
+            Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+        }
+
+        fn stop(
+            &self,
+            _process: PrivilegedCoreProcess,
+        ) -> BoxFuture<'_, Result<(), PrivilegedCoreHostError>> {
+            self.stops.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async { Ok(()) })
+        }
+
+        fn owns_listener(
+            &self,
+            _process: PrivilegedCoreProcess,
+            _endpoint: mish_runtime::LoopbackProxyEndpoint,
+        ) -> BoxFuture<'_, Result<bool, PrivilegedCoreHostError>> {
+            Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+        }
+    }
 
     #[test]
     fn maps_only_allowlisted_pinned_geodata_lines() {
@@ -1025,6 +1076,40 @@ mod validation_output_tests {
             event,
             GeodataValidationEvent::Preparing(_) | GeodataValidationEvent::Failed(_)
         )));
+    }
+
+    #[tokio::test]
+    async fn transient_privileged_observation_retains_the_handle_for_bounded_stop() {
+        let host = Arc::new(TransientlyUnavailablePrivilegedHost {
+            stops: AtomicUsize::new(0),
+        });
+        let process = DesktopMihomoProcess::new_pinned_privileged(
+            DesktopMihomoProcessConfig {
+                binary: Some(PathBuf::from("/fixture/mihomo")),
+                config_directory: Some(PathBuf::from("/fixture/home")),
+                config_file: Some(PathBuf::from("/fixture/config.yaml")),
+            },
+            "v1.19.29",
+            host.clone(),
+        );
+        {
+            let mut inner = process.inner.lock().await;
+            inner.privileged_process = Some(PrivilegedCoreProcess::new(42, "fixture-launch-token"));
+            inner.status = CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(42),
+                version: Some("v1.19.29".into()),
+            };
+        }
+
+        let observed = process.status().await;
+        assert!(matches!(observed.phase, CorePhase::Running));
+        assert_eq!(observed.pid, Some(42));
+
+        let stopped = process.stop().await.unwrap();
+        assert!(matches!(stopped.phase, CorePhase::Stopped));
+        assert_eq!(host.stops.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]

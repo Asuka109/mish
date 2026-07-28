@@ -107,10 +107,12 @@ receipt ownership before stopping launchd or removing a global path; partial
 or foreign state fails closed. Identical reinstall preserves the same key and
 generation.
 
-The package has no enable, disable, Core-run, arbitrary-command, arbitrary-path,
-or network-mutation action. `MISH_TUN_SERVICE_ALLOW_TUN` is fixed to `0`; a
-successful install is healthy and disabled. Real TUN testing remains the
-separate disposable-Tart source-development boundary.
+The package controller has no enable, disable, Core-run, arbitrary-command, or
+arbitrary-path action. `MISH_TUN_SERVICE_ALLOW_TUN` is fixed to `1` in the
+`.4` package, but a successful install is still healthy and disabled. The
+packaged `Mish.app` is the only UI that receives a supported TUN projection; it
+uses the shared Rust Capture transaction and the existing authenticated typed
+Helper commands. Browser Client remains observation-only for this capability.
 
 `alpha-ad-hoc`, `signed-direct`, the embedded Browser Client, legacy
 credential-free production fixtures, and future production application
@@ -122,7 +124,7 @@ selects this package profile.
 
 The manual **Validate macOS Release Candidate** workflow accepts the explicit
 `internal-tun-alpha` profile only at version
-`0.1.0-internal-tun-alpha.3`. Unlike the other credential-free validation
+`0.1.0-internal-tun-alpha.4`. Unlike the other credential-free validation
 profiles, this path requires the selected source to equal the frozen reviewed
 `main` workflow SHA exactly; an older ancestor, pull-request or merge ref, fork,
 arbitrary workflow revision, or mismatched tooling tree fails before packaging.
@@ -138,7 +140,7 @@ Staging uses four fail-closed phases:
    SHA-256 values, and uploads the candidate once.
 2. A separate Apple Silicon job downloads only that immutable candidate artifact
    ID. The independent verifier mounts the DMG read-only and checks its complete
-   layout, owner/mode/link policy, Helper/Core/plist digests and versions,
+   layout, owner/mode/link policy, Mish.app/Helper/Core/plist digests and versions,
    controller command set, protocol and enrollment boundaries, profile
    isolation, legal resources, lockfiles, SBOM, provenance, and SHA-256 set.
 3. A secretless Ubuntu job downloads the candidate and verification evidence by
@@ -150,7 +152,7 @@ Staging uses four fail-closed phases:
 
 The final private artifact contains one exact `candidate/` directory with:
 
-- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.3-arm64.dmg`;
+- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.4-arm64.dmg`;
 - the exact copied package manifest;
 - `internal-tun-alpha-sbom.spdx.json`;
 - `internal-tun-alpha-provenance.intoto.json`;

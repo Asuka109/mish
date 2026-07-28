@@ -75,6 +75,7 @@ beforeAll(async () => {
           commandSupported
           disabled
           onSystemProxyChange={vi.fn()}
+          onTunChange={vi.fn()}
           pending
           pendingMode="systemProxy"
           systemProxyEnabled={false}

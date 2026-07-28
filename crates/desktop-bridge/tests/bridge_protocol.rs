@@ -26,8 +26,11 @@ use mish_runtime::{
     CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
     MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
     RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
-    StatusSnapshot, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
-    TrafficMatchedRule,
+    StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
+    TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -411,6 +414,60 @@ impl WindowSurfacePlatform for MemoryWindowSurfacePlatform {
 
 struct MemoryNetworkDnsPlatform;
 
+#[derive(Default)]
+struct HealthyTunHelperPlatform {
+    enabled: Mutex<bool>,
+    set_count: AtomicUsize,
+}
+
+impl HealthyTunHelperPlatform {
+    fn set_count(&self) -> usize {
+        self.set_count.load(Ordering::SeqCst)
+    }
+}
+
+impl TunHelperPlatform for HealthyTunHelperPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot {
+            availability: TunHelperAvailability::Available,
+            expected_version: TUN_HELPER_EXPECTED_VERSION.into(),
+            health: TunHelperHealth::Healthy,
+            installation_id: Some("healthy-test-installation".into()),
+            installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        }
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)) })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        let enabled = *self.enabled.lock().unwrap();
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
+    }
+
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        self.set_count.fetch_add(1, Ordering::SeqCst);
+        *self.enabled.lock().unwrap() = enabled;
+        Box::pin(async { Ok(()) })
+    }
+}
+
 impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
     fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
         Box::pin(ready(Ok(NetworkDnsObservation {
@@ -433,6 +490,10 @@ impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
 }
 
 fn settings_service() -> Arc<SettingsService> {
+    settings_service_with_tun(None)
+}
+
+fn settings_service_with_tun(tun_helper: Option<Arc<TunHelperController>>) -> Arc<SettingsService> {
     let preferences = SettingsPreferences {
         onboarding: OnboardingPreferences {
             welcome_invitation: Some(OnboardingWelcomeInvitation {
@@ -452,7 +513,7 @@ fn settings_service() -> Arc<SettingsService> {
             Some(Arc::new(MemoryStartupPlatform::default())),
             Some(Arc::new(MemoryWindowSurfacePlatform::default())),
             SettingsCapabilities::macos(true),
-            None,
+            tun_helper,
             Some(Arc::new(MemoryNetworkDnsPlatform)),
         )
         .unwrap(),
@@ -484,6 +545,33 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
     (
         MishRuntime::with_capture(Arc::new(RunningCore), capture),
         platform,
+    )
+}
+
+fn capture_runtime_with_tun() -> (MishRuntime, Arc<HealthyTunHelperPlatform>) {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "rpc-tun-fixture-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let helper_platform = Arc::new(HealthyTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    ));
+    (
+        MishRuntime::with_capture(Arc::new(RunningCore), capture),
+        helper_platform,
     )
 }
 
@@ -661,10 +749,17 @@ fn no_core() -> DesktopMihomoProcessConfig {
 async fn socket(
     address: SocketAddr,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    socket_with_origin(address, ORIGIN).await
+}
+
+async fn socket_with_origin(
+    address: SocketAddr,
+    origin: &str,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let mut request = format!("ws://{address}/rpc").into_client_request().unwrap();
     request
         .headers_mut()
-        .insert("Origin", ORIGIN.parse().unwrap());
+        .insert("Origin", origin.parse().unwrap());
     tokio_tungstenite::connect_async(request).await.unwrap().0
 }
 
@@ -1613,6 +1708,23 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     )
     .await;
     assert_eq!(unavailable_helper["error"]["code"], -32020);
+    let helper_notification = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":27, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["presentation"]["kind"],
+        "tun-helper.lifecycle"
+    );
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["presentation"]["data"]["outcome"],
+        "recovery-required"
+    );
+    assert_eq!(
+        helper_notification["result"]["notifications"][0]["pinned"],
+        false
+    );
 
     let appearance = request(
         &mut ws,
@@ -1818,6 +1930,50 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         notifications["result"]["notifications"][0]["presentation"]["kind"],
         "settings.operation-failed"
     );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle() {
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
+        TunHelperController::new(Arc::new(HealthyTunHelperPlatform::default())),
+    ))));
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let native_snapshot = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":1, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        native_snapshot["result"]["capabilities"]["tun"],
+        "supported"
+    );
+
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut browser).await;
+    let browser_snapshot = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        browser_snapshot["result"]["capabilities"]["tun"],
+        "unavailable"
+    );
+    let lifecycle = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(lifecycle["error"]["code"], -32020);
 
     bridge.shutdown().await;
 }
@@ -2874,16 +3030,30 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":5, "method":"status.setCapture",
-            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
         }),
     )
     .await;
     assert_eq!(tun["error"]["code"], -32050);
     assert_eq!(tun["error"]["data"]["kind"], "capability-unavailable");
     assert!(tun.get("result").is_none());
+    let unavailable_combination = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert_eq!(unavailable_combination["error"]["code"], -32050);
+    assert_eq!(
+        unavailable_combination["error"]["data"]["kind"],
+        "capability-unavailable"
+    );
+    assert!(unavailable_combination.get("result").is_none());
     let after_rejected_tun = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":6, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
@@ -2894,6 +3064,109 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         after_rejected_tun["result"]["runtime"]["captureSelection"]["tun"],
         false
     );
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn native_capture_rpc_supports_combined_capture_without_reissuing_applied_tun() {
+    let (runtime, helper) = capture_runtime_with_tun();
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+
+    let tun = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(tun.get("error").is_none());
+    assert_eq!(tun["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(tun["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let combined = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(combined.get("error").is_none());
+    assert_eq!(combined["result"]["runtime"]["systemProxyEnabled"], true);
+    assert_eq!(combined["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(
+        combined["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":true,"tun":true})
+    );
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut browser).await;
+    let browser_tun_only = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(browser_tun_only.get("error").is_none());
+    assert_eq!(
+        browser_tun_only["result"]["runtime"]["systemProxyEnabled"],
+        false
+    );
+    assert_eq!(browser_tun_only["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_combined = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(browser_combined.get("error").is_none());
+    assert_eq!(
+        browser_combined["result"]["runtime"]["systemProxyEnabled"],
+        true
+    );
+    assert_eq!(browser_combined["result"]["runtime"]["tunEnabled"], true);
+    assert_eq!(helper.set_count(), 1);
+
+    let browser_stop = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert_eq!(browser_stop["error"]["code"], -32050);
+    assert_eq!(
+        browser_stop["error"]["data"]["kind"],
+        "capability-unavailable"
+    );
+    assert_eq!(helper.set_count(), 1);
+
+    let stopped = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":7, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(stopped.get("error").is_none());
+    assert_eq!(stopped["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(stopped["result"]["runtime"]["tunEnabled"], false);
+    assert_eq!(helper.set_count(), 2);
+
     bridge.shutdown().await;
 }
 

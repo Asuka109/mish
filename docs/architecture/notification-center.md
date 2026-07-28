@@ -37,6 +37,12 @@ Managed listener collisions use the separate
 `profile.activation-listener-conflict` type and an activation-failure key; they
 never replace or reuse a GeoData notification.
 
+Internal TUN lifecycle operations publish `tun-helper.lifecycle` with a fresh
+operation ID and reuse that dedupe key from pinned `pending` to `applied` or
+`recovery-required`. The record carries only the closed operation, outcome, and
+typed failure category. It replaces the generic Settings failure publication,
+so install, repair, and remove cannot create duplicate frontend-only errors.
+
 Every profile launch/preflight/runtime failure publishes one specific
 `profile.activation-failed` semantic record. Retryable Rust failure categories
 allowlist only `retry-profile-activation`; terminal categories expose no inert
