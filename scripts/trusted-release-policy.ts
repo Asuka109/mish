@@ -15,9 +15,12 @@ const fullSha = /^[0-9a-f]{40}$/u;
 const sha256Digest = /^[0-9a-f]{64}$/u;
 const numericId = /^[1-9][0-9]*$/u;
 const safeRelativePath = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._+/-]+$/u;
+const safeRole = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const maximumCandidateEntries = 256;
 const maximumCandidateDepth = 8;
+const maximumCandidateFileBytes = 512 * 1024 * 1024;
+const maximumCandidateTotalBytes = 1024 * 1024 * 1024;
 const maximumManifestBytes = 1024 * 1024;
 
 export interface TrustedReleasePolicy {
@@ -87,6 +90,18 @@ export interface TrustedReleasePolicy {
     rejectSymlinks: boolean;
     rejectUnexpectedFiles: boolean;
     requireImmutableArtifactId: boolean;
+  };
+  internalTunAlpha: {
+    profile: "internal-tun-alpha";
+    sourceMustEqualFrozenMain: boolean;
+    candidateRetentionDays: number;
+    stagedRetentionDays: number;
+    requireIndependentReadOnlyVerification: boolean;
+    allowOverwrite: boolean;
+    allowDeveloperId: boolean;
+    allowNotarization: boolean;
+    allowPublicRelease: boolean;
+    allowDeployment: boolean;
   };
   codeowners: {
     owner: string;
@@ -192,10 +207,21 @@ function collectCandidateFiles(
   manifestName: string,
   roles: Record<string, string> = {},
 ): CandidateFile[] {
+  let totalBytes = 0;
   const files = filesUnder(directory)
     .map((absolute): CandidateFile | null => {
       const relative = normalizeRelativePath(directory, absolute);
       if (relative === manifestName) return null;
+      const metadata = lstatSync(absolute);
+      invariant(
+        metadata.size > 0 && metadata.size <= maximumCandidateFileBytes,
+        `Candidate file size is invalid or unbounded: ${relative}`,
+      );
+      totalBytes += metadata.size;
+      invariant(
+        totalBytes <= maximumCandidateTotalBytes,
+        "Candidate total payload exceeds its size limit.",
+      );
       const content = readFileSync(absolute);
       return {
         path: relative,
@@ -390,9 +416,45 @@ export function verifyCandidateManifest(options: {
   );
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as CandidateManifest;
   invariant(
+    manifest &&
+      typeof manifest === "object" &&
+      JSON.stringify(Object.keys(manifest).sort()) ===
+        JSON.stringify([
+          "artifactName",
+          "bundleSha256",
+          "files",
+          "identity",
+          "kind",
+          "schemaVersion",
+        ]),
+    "Candidate manifest contains missing or unexpected fields.",
+  );
+  invariant(
     manifest.schemaVersion === policy.artifact.schemaVersion,
     "Candidate manifest schema is unsupported.",
   );
+  invariant(
+    typeof manifest.kind === "string" &&
+      safeRole.test(manifest.kind) &&
+      Array.isArray(manifest.files) &&
+      manifest.files.length > 0 &&
+      manifest.files.length <= maximumCandidateEntries,
+    "Candidate manifest kind or file inventory is invalid.",
+  );
+  for (const file of manifest.files) {
+    invariant(
+      file &&
+        typeof file === "object" &&
+        JSON.stringify(Object.keys(file).sort()) ===
+          JSON.stringify(["path", "role", "sha256", "size"]) &&
+        safeRelativePath.test(file.path) &&
+        safeRole.test(file.role) &&
+        Number.isSafeInteger(file.size) &&
+        file.size > 0 &&
+        sha256Digest.test(file.sha256),
+      "Candidate manifest contains an invalid or unbounded file record.",
+    );
+  }
   invariant(
     manifest.artifactName === options.expectedArtifactName,
     "Candidate artifact name changed.",
