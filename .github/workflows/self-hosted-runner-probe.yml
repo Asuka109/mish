@@ -1,0 +1,82 @@
+name: Self-hosted runner probe
+
+on:
+  push:
+    branches:
+      - codex/self-hosted-macos-runner
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mish-self-hosted-ci
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: >-
+      github.repository == 'Asuka109/mish' &&
+      github.repository_owner == 'Asuka109' &&
+      github.actor == 'Asuka109' &&
+      github.ref == 'refs/heads/codex/self-hosted-macos-runner'
+    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect the existing runner without exposing local identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "${RUNNER_NAME:-}" == "asuk-mini" ]]
+          [[ "${RUNNER_OS:-}" == "macOS" ]]
+          [[ "${RUNNER_ARCH:-}" == "ARM64" ]]
+          [[ "$(id -u)" -ne 0 ]]
+
+          runner_root="${RUNNER_TEMP%/_work/_temp}"
+          [[ "$runner_root" == "$HOME/actions-runner/mish" ]]
+          [[ -d "$runner_root/_work" ]]
+          [[ -f "$runner_root/.runner" ]]
+
+          console_relation=different
+          if [[ "$(/usr/bin/stat -f '%Su' /dev/console)" == "$(id -un)" ]]; then
+            console_relation=same
+          fi
+
+          service_process=absent
+          if /usr/bin/pgrep -f "$runner_root/bin/Runner.Listener" >/dev/null; then
+            service_process=present
+          fi
+
+          hook_started=absent
+          hook_completed=absent
+          if /usr/bin/grep -q '^ACTIONS_RUNNER_HOOK_JOB_STARTED=' "$runner_root/.env" 2>/dev/null; then
+            hook_started=present
+          fi
+          if /usr/bin/grep -q '^ACTIONS_RUNNER_HOOK_JOB_COMPLETED=' "$runner_root/.env" 2>/dev/null; then
+            hook_completed=present
+          fi
+
+          available_tools=()
+          for tool in node pnpm rustup cargo java xcodebuild; do
+            if command -v "$tool" >/dev/null; then
+              available_tools+=("$tool")
+            fi
+          done
+          android_sdk=absent
+          if [[ -d "${ANDROID_HOME:-$HOME/Library/Android/sdk}" ]]; then
+            android_sdk=present
+          fi
+
+          {
+            echo "runner_name=asuk-mini"
+            echo "runner_root=~/actions-runner/mish"
+            echo "architecture=$(uname -m)"
+            echo "console_user_relation=$console_relation"
+            echo "service_process=$service_process"
+            echo "hook_started=$hook_started"
+            echo "hook_completed=$hook_completed"
+            echo "android_sdk=$android_sdk"
+            printf 'available_tools='
+            printf '%s ' "${available_tools[@]}"
+            printf '\n'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
