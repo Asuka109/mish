@@ -1227,22 +1227,23 @@ impl UpdaterService {
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
         self.require_configured()?;
         validate_operation_id(operation_id)?;
-        if self.snapshot().phase == UpdatePhase::Checking {
-            return self
-                .check
-                .as_ref()
-                .expect("configured updater has a Check runtime")
-                .cancel(operation_id.to_owned())
-                .await;
+        {
+            let state = self.state.lock().expect("updater state poisoned");
+            if state.snapshot.phase != UpdatePhase::Checking {
+                if state.snapshot.operation_id.as_deref() != Some(operation_id) {
+                    return Err(UpdateOperationError::OperationMismatch);
+                }
+                if let Some(cancel) = &state.active_cancel {
+                    cancel.cancel();
+                }
+                return Ok(state.snapshot.clone());
+            }
         }
-        let state = self.state.lock().expect("updater state poisoned");
-        if state.snapshot.operation_id.as_deref() != Some(operation_id) {
-            return Err(UpdateOperationError::OperationMismatch);
-        }
-        if let Some(cancel) = &state.active_cancel {
-            cancel.cancel();
-        }
-        Ok(state.snapshot.clone())
+        self.check
+            .as_ref()
+            .expect("configured updater has a Check runtime")
+            .cancel(operation_id.to_owned())
+            .await
     }
 
     pub async fn shutdown(&self) {
@@ -3353,6 +3354,43 @@ mod tests {
         )
     }
 
+    async fn configured_service_with_fake_check(
+        server: &FixtureServer,
+        root: &Path,
+        discovery: FakeDiscovery,
+    ) -> Arc<UpdaterService> {
+        let mut service = UpdaterService::configured_inner(
+            "test-authority".into(),
+            PUBLIC_KEY.trim(),
+            policy(),
+            server.base.clone(),
+            root.to_path_buf(),
+            limits(),
+            Some(server.base.clone()),
+        )
+        .await
+        .unwrap();
+        service
+            .check
+            .as_ref()
+            .expect("configured service has a Check runtime")
+            .shutdown()
+            .await;
+        let check = CheckRuntime::spawn(
+            service.snapshot().authority_id,
+            service.state.clone(),
+            service.updates.clone(),
+            service.check_evidence.clone(),
+            Arc::new(FakeCheckEffectExecutor {
+                candidate: fake_candidate(),
+                discovery,
+                commit: FakeCommit::Immediate,
+            }),
+        );
+        service.check = Some(check);
+        Arc::new(service)
+    }
+
     async fn wait_phase(service: &UpdaterService, phase: UpdatePhase) -> UpdaterSnapshot {
         timeout(Duration::from_secs(8), async {
             loop {
@@ -3506,6 +3544,65 @@ mod tests {
             assert_eq!(check, Err(UpdateOperationError::Busy));
             service.cancel("operation-a").await.unwrap();
             wait_phase(&service, UpdatePhase::Cancelled).await;
+        }
+        service.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_check_start_and_cancel_never_report_an_unrouted_success() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let service = configured_service_with_fake_check(
+            &server,
+            &temporary.path().join("updates"),
+            FakeDiscovery::Barrier {
+                release: release.clone(),
+                started: started.clone(),
+            },
+        )
+        .await;
+
+        for index in 0..64 {
+            let operation_id = format!("operation-{index}");
+            let barrier = Arc::new(Barrier::new(3));
+            let start = {
+                let barrier = barrier.clone();
+                let operation_id = operation_id.clone();
+                let service = service.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    service
+                        .start_check(&operation_id, UpdateChannel::Alpha)
+                        .await
+                })
+            };
+            let cancel = {
+                let barrier = barrier.clone();
+                let operation_id = operation_id.clone();
+                let service = service.clone();
+                tokio::spawn(async move {
+                    barrier.wait().await;
+                    service.cancel(&operation_id).await
+                })
+            };
+            barrier.wait().await;
+            assert_eq!(start.await.unwrap().unwrap().phase, UpdatePhase::Checking);
+            let cancel = cancel.await.unwrap();
+            started.notified().await;
+            release.notify_one();
+
+            match cancel {
+                Ok(snapshot) => {
+                    assert_eq!(snapshot.phase, UpdatePhase::Checking);
+                    wait_phase(&service, UpdatePhase::Cancelled).await;
+                }
+                Err(UpdateOperationError::OperationMismatch) => {
+                    wait_phase(&service, UpdatePhase::Available).await;
+                }
+                result => panic!("unexpected cancellation result: {result:?}"),
+            }
         }
         service.shutdown().await;
     }
