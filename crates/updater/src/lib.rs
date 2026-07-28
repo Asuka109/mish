@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 pub use service::{
-    UpdateCandidateIdentity, UpdateOperationError, UpdatePhase, UpdateProgress, UpdaterLimits,
-    UpdaterService, UpdaterSnapshot,
+    UpdateCandidateIdentity, UpdateOperationError, UpdatePhase, UpdateProgress,
+    UpdaterCheckTransitionEvidence, UpdaterLimits, UpdaterService, UpdaterSnapshot,
 };
 
 pub const DARWIN_AARCH64_TARGET: &str = "darwin-aarch64";
