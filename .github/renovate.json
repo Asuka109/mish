@@ -33,6 +33,7 @@
     {
       "description": "Group GitHub Actions updates",
       "matchManagers": ["github-actions"],
+      "pinDigests": true,
       "groupName": "GitHub Actions"
     }
   ]

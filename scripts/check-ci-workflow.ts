@@ -52,6 +52,12 @@ const inspectionOnly =
   "github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))";
 const packageTrigger =
   "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))";
+const pnpmAction = "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271";
+const setupNodeAction = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+const rustCacheAction = "Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32";
+const uploadArtifactAction = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
+const setupJavaAction = "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95";
+const setupAndroidAction = "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699";
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -71,12 +77,12 @@ function step(jobValue: Job, name: string): Step {
 
 function assertNodeCache(jobValue: Job, label: string): void {
   const pnpm = step(jobValue, "Set up pnpm");
-  invariant(pnpm.uses === "pnpm/action-setup@v6", `${label} must use pnpm/action-setup v6.`);
+  invariant(pnpm.uses === pnpmAction, `${label} must pin the reviewed pnpm setup action.`);
   invariant(pnpm.with?.version === "11.13.1", `${label} must pin the workspace pnpm version.`);
   invariant(pnpm.with?.run_install === false, `${label} must keep dependency install explicit.`);
 
   const node = step(jobValue, "Set up Node.js");
-  invariant(node.uses === "actions/setup-node@v7", `${label} must use setup-node v7.`);
+  invariant(node.uses === setupNodeAction, `${label} must pin the reviewed Node setup action.`);
   invariant(node.with?.cache === "pnpm", `${label} must restore the pnpm store cache.`);
   invariant(
     node.with?.["cache-dependency-path"] === "pnpm-lock.yaml",
@@ -86,7 +92,7 @@ function assertNodeCache(jobValue: Job, label: string): void {
 
 function assertRustCache(jobValue: Job, stepName: string, sharedKey: string): void {
   const cache = step(jobValue, stepName);
-  invariant(cache.uses === "Swatinem/rust-cache@v2", `${stepName} must use rust-cache v2.`);
+  invariant(cache.uses === rustCacheAction, `${stepName} must pin the reviewed Rust cache action.`);
   invariant(
     cache.with?.["shared-key"] === sharedKey,
     `${stepName} has the wrong shared cache key.`,
@@ -129,8 +135,8 @@ invariant(
 const prGate = job("pr-gate");
 invariant(prGate.if === pullRequestOnly, "The fast gate must run only for pull requests.");
 invariant(
-  JSON.stringify(prGate["runs-on"]) === JSON.stringify(["self-hosted", "macOS", "ARM64", "mish"]),
-  "The fast gate must use the dedicated Mish macOS ARM64 runner.",
+  prGate["runs-on"] === "ubuntu-24.04",
+  "The untrusted fast gate must use an isolated GitHub-hosted runner.",
 );
 invariant(prGate["timeout-minutes"] === 10, "The fast gate must retain its ten-minute ceiling.");
 assertNodeCache(prGate, "The fast gate");
@@ -190,7 +196,10 @@ assertRustCache(packageMacos, "Cache Rust dependencies and build outputs", "maco
 
 const upload = step(packageMacos, "Upload Apple Silicon test package");
 invariant(upload.id === "package-upload", "The upload step must expose traceable outputs.");
-invariant(upload.uses === "actions/upload-artifact@v7", "Packaging must use upload-artifact v7.");
+invariant(
+  upload.uses === uploadArtifactAction,
+  "Packaging must pin the reviewed upload-artifact action.",
+);
 invariant(upload.if === packageTrigger, "Artifact upload must follow the bounded package trigger.");
 invariant(upload.with?.["retention-days"] === 14, "The package must be retained for 14 days.");
 invariant(
@@ -294,7 +303,10 @@ assertRustCache(
 );
 
 const javaSetup = step(packageAndroid, "Set up Java");
-invariant(javaSetup.with?.cache === "gradle", "Android packaging must cache Gradle dependencies.");
+invariant(
+  javaSetup.uses === setupJavaAction && javaSetup.with?.cache === "gradle",
+  "Android packaging must pin Java setup and cache Gradle dependencies.",
+);
 invariant(
   String(javaSetup.with?.["cache-dependency-path"]).includes("gradle-wrapper.properties"),
   "The Gradle cache key must include the wrapper and build scripts.",
@@ -302,8 +314,8 @@ invariant(
 
 const androidTools = step(packageAndroid, "Set up Android SDK tools");
 invariant(
-  androidTools.uses === "android-actions/setup-android@v4",
-  "Android packaging must install sdkmanager with setup-android v4.",
+  androidTools.uses === setupAndroidAction,
+  "Android packaging must pin the reviewed Android setup action.",
 );
 invariant(
   androidTools.with?.["cmdline-tools-version"] === 14742923,
@@ -358,8 +370,8 @@ invariant(
   "Android upload must expose traceable outputs.",
 );
 invariant(
-  androidUpload.uses === "actions/upload-artifact@v7",
-  "Android packaging must use upload-artifact v7.",
+  androidUpload.uses === uploadArtifactAction,
+  "Android packaging must pin the reviewed upload-artifact action.",
 );
 invariant(
   androidUpload.if === packageTrigger,
