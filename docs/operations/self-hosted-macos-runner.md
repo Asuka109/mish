@@ -229,6 +229,33 @@ Evidence is complete only after all of these are observed on the real Mac mini:
 - logs and artifacts contain no token, secret, or personal account path;
 - stop/unregister and re-register recover without a stranded required check.
 
+## Recorded validation evidence
+
+The migration branch exercised the existing runner before removing its
+branch-only probe workflow:
+
+| Evidence                                                | GitHub Actions run(s)        | Result                                                                 |
+| ------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------- |
+| Historical direct routing to `asuk-mini`                | `29719595322`                | Fast PR gate passed on the existing runner                             |
+| Exact identity, labels, architecture, root, and tooling | `30376512454`, `30376584783` | Passed without reading credentials                                     |
+| Hook repair and workspace-scoped cleanup                | `30380072393`, `30380137147` | Pre/post hooks, checkout, leaked-process kill, and DMG detach passed   |
+| Deliberate job failure                                  | `30380194662`                | Job failed with the test exit code; checkout post and runner post pass |
+| Deliberate cancellation                                 | `30380243023`                | Cancellation completed; checkout post and runner post pass             |
+| Serialized concurrent scheduling                        | `30380361967`, `30380400762` | First run was active while the second remained pending                 |
+| Final-shape PR gate and headless macOS bundle           | `30380564386`                | All steps passed in 4 minutes 8 seconds                                |
+
+The LaunchAgent was stopped while loading hooks, remained offline instead of
+silently falling back to a hosted runner, then recovered through the existing
+`svc.sh start` path and immediately accepted the queued trusted job. An actual
+macOS reboot remains a hands-on acceptance item.
+
+GitHub's own runner/action logs print the absolute runner working directory,
+which includes the local account name. For this private repository and reused
+console-account registration, that automatically emitted runner path is the
+accepted local-path disclosure boundary. Mish scripts must not print any
+additional personal path, credential path, token, secret, Keychain content, or
+mounted-share path. Artifacts must contain none of them.
+
 GitHub documents that self-hosted runners are persistent, repository-level
 runners are dedicated to one repository, job hooks execute before/after each
 job, and jobs with unavailable labels can remain queued. See
