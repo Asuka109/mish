@@ -872,6 +872,15 @@ pub struct DevelopmentCoreHostStatus {
     pub observation: TunNetworkObservation,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DevelopmentInstallationDiscovery {
+    pub algorithm: String,
+    pub generation: u64,
+    pub installation_id: String,
+    pub key_id: String,
+    pub protocol_version: u16,
+}
+
 #[derive(Clone, Debug)]
 struct DevelopmentTunLifecycle {
     repository_root: PathBuf,
@@ -1099,6 +1108,26 @@ impl MacOsTunServiceClient {
                 helper_version: status.helper_version,
                 installation_id: status.installation_id,
                 observation: status.observation,
+            })
+            .map_err(|error| match error {
+                ServiceClientError::Unavailable => "core-host-unavailable",
+                ServiceClientError::Protocol => "core-host-protocol-mismatch",
+                ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::OperationFailed => "core-host-operation-failed",
+            })
+    }
+
+    pub async fn installation_discovery(
+        &self,
+    ) -> Result<DevelopmentInstallationDiscovery, &'static str> {
+        self.health()
+            .await
+            .map(|discovery| DevelopmentInstallationDiscovery {
+                algorithm: discovery.algorithm,
+                generation: discovery.generation,
+                installation_id: discovery.installation_id,
+                key_id: discovery.key_id,
+                protocol_version: discovery.protocol_version,
             })
             .map_err(|error| match error {
                 ServiceClientError::Unavailable => "core-host-unavailable",

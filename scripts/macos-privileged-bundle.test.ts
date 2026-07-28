@@ -178,6 +178,26 @@ test("rejects internal installation-key material from every release profile", as
   }
 });
 
+test("rejects Internal TUN Alpha package artifacts from every application layout", async () => {
+  for (const mode of ["ad-hoc", "production"] as const) {
+    for (const name of [
+      "mish-internal-tun-alpha-ctl",
+      "internal-tun-alpha-manifest.json",
+      "Install Internal TUN Alpha.command",
+    ]) {
+      const bundle = fixture(mode === "production");
+      using temporary = bundle.temporary;
+      const artifact = path.join(bundle.application, "Contents/Resources", name);
+      writeFileSync(artifact, "internal-package-only");
+      chmodSync(artifact, name.endsWith(".json") ? 0o444 : 0o555);
+      await assert.rejects(
+        verifyMacOsPrivilegedBundle(bundle.application, mode),
+        /privileged artifacts|unexpected privileged artifacts/u,
+      );
+    }
+  }
+});
+
 test("requires an explicit development feature to build Core-host executables", () => {
   const metadata = spawnSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
     encoding: "utf8",
@@ -193,7 +213,7 @@ test("requires an explicit development feature to build Core-host executables", 
     (candidate) => candidate.name === "mish-platform-macos",
   );
   assert.ok(packageMetadata);
-  for (const name of ["mish-tun-helper", "mish-core-host-ctl"]) {
+  for (const name of ["mish-tun-helper", "mish-core-host-ctl", "mish-internal-tun-alpha-ctl"]) {
     const target = packageMetadata.targets.find((candidate) => candidate.name === name);
     assert.deepEqual(target?.["required-features"], ["development-core-host"]);
   }

@@ -142,6 +142,107 @@ focused installer tests after the discovery-frame regression was added, all 64
 repository-wide pull-request gate was rerun on the final source state outside
 the clone.
 
+## Internal TUN Alpha package acceptance (Issue #296)
+
+The final 2026-07-28 post-review run used the unique disposable clone
+`mish-296-review-fix-20260728` of
+`ghcr.io/cirruslabs/macos-tahoe-base:latest` at OCI digest
+`sha256:a8e1c8305758643f513fdccdd829c2243687c60791083dea42f73f0b7aeb435c`.
+The guest was macOS 26.5 on ARM64. Only the deterministic package output was
+mounted read-only and copied to a local user-owned directory; the guest
+received no repository checkout, Node.js, Rust, Homebrew, or runtime
+Helper/Core download. Lifecycle commands ran with
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin`. Direct privileged use of the VirtioFS
+projection was rejected because its root-view ownership differed from the
+invoking UID, with no installed state left behind.
+
+The final `0.1.0-internal-tun-alpha.3` archive SHA-256 was
+`4222c2b4c245e0fc5dc16fd796751e8b7925c4121662fbdcd0b61d2e3ac4e958`;
+its manifest SHA-256 was
+`0c529b3cc3cb309ebeb87e511ed9ea784b90922264a2978f2121adff29518417`.
+Two consecutive builds produced both exact digests. Live package verification
+confirmed three thin ARM64 Mach-O executables, ad-hoc-only Mish controller and
+Helper signatures with no Team Identifier, Helper contract version 3, and the
+unchanged pinned Mihomo v1.19.29 digest.
+
+The explicit Tart terminal-authorization boundary installed the package and
+returned `healthy-disabled`. The Cirrus base image configures passwordless
+`sudo`, so this run confirms the fixed root transaction but does not claim a
+visible password prompt; the ordinary package command still uses the native
+administrator dialog, which was later verified on the maintainer Mac.
+
+The controller was copied first to the private mode-`0500` user staging path
+and then to a root-owned mode-`0700` temporary directory. The root copy was
+mode `0500`, single-link, exact-size and exact-digest verified before
+execution, and no root staging directory remained afterward. A concurrent
+same-UID process atomically replaced the user staging controller with a
+same-size tampered copy; repair failed with
+`privileged-controller-stage-digest-mismatch`, never entered the root
+transaction, and the existing service remained authenticated and
+`healthy-disabled`.
+
+The installed LaunchDaemon was `root:wheel` mode `0644`; Helper and Core were
+`root:wheel` mode `0555`; enrollment was `root:wheel` mode `0600`; the public
+root receipt was mode `0444`; the private socket was `admin:daemon` mode
+`0600`; and the sealed state directory was `root:daemon` mode `0700`. The
+active P-256 client key and user receipt were `admin:staff` mode `0600`.
+Authenticated health matched protocol 3, Helper version 3, installation
+identity, key identifier, and enrollment generation 1.
+
+An identical reinstall preserved the same installation identity, key
+identifier, and generation. A cold guest restart remained healthy and
+disabled. Changing the root receipt installing UID from 501 to 502 made
+uninstall reject `existing-installation-owner-rejected`; the running Helper
+PID remained 327 before and after the attempt. Restoring the receipt and then
+temporarily removing only enrollment made uninstall reject
+`uninstall-authorization-rejected`; the same Helper PID and all global
+artifacts remained. Both records were restored before Health succeeded again.
+
+Changing only the installed Helper mode to `0500` made health reject the exact
+fixed artifact. Repair restored the package, retained the same
+identity/key/generation, and returned to authenticated `healthy-disabled`.
+After a clean uninstall, a root watcher repeated that exact mode drift between
+the next install transaction and post-install Health. Install returned
+`post-install-health-failed`, automatically removed every fixed root artifact,
+and also removed the user receipt plus active and pending private keys. Status
+then returned `not-installed`. A final clean Install, authenticated Health, and
+Uninstall all succeeded.
+
+No Mihomo Core ran during the package journey. The guest retained its four
+baseline `utun` interfaces. System Proxy and DNS SHA-256 snapshots were
+byte-for-byte unchanged before install, after repair, and after uninstall.
+The guest's general IPv4 route table changed independently across cold boots,
+so its whole-table digest is not used as acceptance evidence; fresh Helper
+observation confirmed that no Mish-owned interface, routes, or DNS effects
+were present.
+
+Uninstall returned `not-installed`. The launchd job, LaunchDaemon, Helper,
+Core, enrollment, socket/state, root and user receipts, installer staging, and
+active/pending client keys were absent. No Mish Helper or Core process
+remained. The host Mac received no Helper installation or network mutation,
+and the disposable post-review clone was stopped and deleted after retaining
+this redacted evidence. Only the two stopped official OCI base caches remained.
+
+Later maintainer hands-on testing reproduced a real-host cold-start race on
+the `.2` controller. Root artifacts appeared at 12:50:13, launchd reported the
+Helper process at 12:50:14, and the private socket became ready at 12:50:15.
+The one-shot post-install Health probe ran before that socket existed, reported
+`core-host-unavailable`, and correctly rolled the installation back. The `.3`
+controller retries only that unavailable state for a bounded 15-second
+readiness window. Its new regression test first failed against the one-shot
+implementation and then passed with the bounded retry; protocol and trust
+errors remain non-retryable.
+
+The exact `.3` package then installed successfully through the visible native
+administrator dialog on the maintainer Mac. Health reported protocol 3,
+Helper version 3, generation 1, and `healthy-disabled`; Status reported
+`installed`; launchd kept only the Helper running and no Mihomo Core process
+existed. DNS SHA-256
+`fb0adf456747ca84c2c407b20d20eedc79f993e5c3b8850a850b2d71b834b968`,
+System Proxy SHA-256
+`a85bb673159212cb8d463b52c72baee4bf40693c2d5805b7a2a1ca6588984a18`,
+and the `utun0` through `utun7` baseline were unchanged.
+
 ## Dynamic real-host network ownership (Issue #295)
 
 The 2026-07-27 run used the unique disposable clone

@@ -10,6 +10,15 @@ macOS System Proxy, install `SMAppService`, or add anything to a release bundle.
 All product UIs remain System Proxy-only. The service is installed only by the
 explicit commands below.
 
+For a trusted Mac that must not install a checkout or development toolchain,
+use the structurally separate
+[`internal-tun-alpha` package profile](macos-packaging.md#internal-tun-alpha-service-package).
+That package reuses this Helper, pinned Core, P-256 enrollment, and authenticated
+disabled-state health contract, but exposes only package, install, status,
+health, repair, and uninstall. It cannot enable TUN or mutate network state. Do
+not copy its artifacts into `Mish.app` or use it as evidence for production
+signing.
+
 Issue acceptance may additionally exercise the complete development TUN path
 inside a uniquely named disposable Tart clone. That path is documented in
 [the helper contract](../architecture/macos-tun-helper.md#disposable-tart-tun-acceptance).

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.asuka109.mish.tun-helper.dev</string>
+  <key>ProgramArguments</key>
+  <array><string>/Library/PrivilegedHelperTools/com.asuka109.mish.tun-helper.dev</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MISH_TUN_SERVICE_ALLOWED_UID</key><string>__MISH_ALLOWED_UID__</string>
+    <key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>0</string>
+    <key>MISH_TUN_SERVICE_CORE_BINARY</key><string>/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev</string>
+    <key>MISH_TUN_SERVICE_ENROLLMENT_RECORD</key><string>/Library/Application Support/com.asuka109.mish/tun-helper-dev/enrollment.json</string>
+    <key>MISH_TUN_SERVICE_INSTALLATION_ID</key><string>__MISH_INSTALLATION_ID__</string>
+    <key>MISH_TUN_SERVICE_RUNTIME_ROOT</key><string>__MISH_RUNTIME_ROOT_XML__</string>
+    <key>MISH_TUN_SERVICE_SOCKET</key><string>__MISH_SOCKET__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>

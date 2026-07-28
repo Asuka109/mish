@@ -9,8 +9,10 @@ pub use installation_key::{
     DEV_TUN_CLIENT_KEY_FILE_NAME, DEV_TUN_INSTALLATION_KEY_ALGORITHM,
     DEV_TUN_INSTALLATION_KEY_RECORD_VERSION, DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
     DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME, DEV_TUN_SERVICE_ENROLLMENT_PATH,
-    InstallationEnrollmentOperation, InstallationEnrollmentReceipt,
-    apply_installation_enrollment_operation, remove_installation_enrollment,
+    InstallationClientKeyStore, InstallationEnrollmentOperation, InstallationEnrollmentReceipt,
+    InstallationEnrollmentRecord, InstallationPublicKeyCandidate,
+    apply_installation_enrollment_operation, load_installation_enrollment_for_user,
+    remove_installation_enrollment,
 };
 pub use process_icon::*;
 pub use production_tun::*;
@@ -18,9 +20,9 @@ pub use production_tun::*;
 pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
     DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
-    DevelopmentTunStartup, MacOsTunServiceClient, ManagedDnsState, TunServiceConfig,
-    development_pinned_core_version, development_socket_path, parse_watchdog_dns,
-    recover_managed_network_record, run_core_watchdog, run_tun_service,
+    DevelopmentInstallationDiscovery, DevelopmentTunStartup, MacOsTunServiceClient,
+    ManagedDnsState, TunServiceConfig, development_pinned_core_version, development_socket_path,
+    parse_watchdog_dns, recover_managed_network_record, run_core_watchdog, run_tun_service,
     verify_development_core_file, verify_development_pinned_core,
 };
 

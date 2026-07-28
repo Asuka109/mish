@@ -70,7 +70,8 @@ function isPrivilegedPath(relative: string) {
     components.includes("XPCServices") ||
     components.includes("LoginItems") ||
     /(?:^|[-_.])(?:tun|helper|smappservice|launchdaemon)(?:$|[-_.])/iu.test(basename) ||
-    /(?:enrollment|installation[-_.]?key|rotation|tun-client-key)/iu.test(basename)
+    /(?:enrollment|installation[-_.]?key|rotation|tun-client-key)/iu.test(basename) ||
+    /internal[-_. ]?tun[-_. ]?alpha/iu.test(basename)
   );
 }
 

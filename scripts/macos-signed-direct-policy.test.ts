@@ -337,6 +337,9 @@ test("rejects privileged, mutable, linked, duplicate, and unexpected payloads", 
     "Contents/Resources/enrollment.json",
     "Contents/Resources/tun-client-key.json",
     "Contents/Resources/installation-key-rotation.json",
+    "Contents/Resources/mish-internal-tun-alpha-ctl",
+    "Contents/Resources/internal-tun-alpha-manifest.json",
+    "Contents/Resources/Install Internal TUN Alpha.command",
   ]) {
     const privileged = fixture();
     privileged.entries.push({

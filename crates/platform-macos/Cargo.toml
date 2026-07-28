@@ -22,6 +22,11 @@ name = "mish-core-host-ctl"
 path = "src/bin/mish-core-host-ctl.rs"
 required-features = ["development-core-host"]
 
+[[bin]]
+name = "mish-internal-tun-alpha-ctl"
+path = "src/bin/mish-internal-tun-alpha-ctl.rs"
+required-features = ["development-core-host"]
+
 [features]
 default = []
 development-core-host = []
