@@ -1137,7 +1137,12 @@ where
         match health_probe().await {
             Ok(value) => return Ok(value),
             Err(error)
-                if error == "core-host-unavailable" && attempt.saturating_add(1) < attempts =>
+                if matches!(
+                    error.as_str(),
+                    "core-host-unavailable"
+                        | "launch-daemon-not-running"
+                        | "maintenance-recovery-required"
+                ) && attempt.saturating_add(1) < attempts =>
             {
                 tokio::time::sleep(retry_delay).await;
             }
@@ -1156,7 +1161,9 @@ async fn install_or_repair(
     tart_terminal_authorization: bool,
     failure_injection: Option<TartMaintenanceFailure>,
 ) -> Result<serde_json::Value, String> {
-    if let Some(result) = identical_reinstall_or_downgrade(package, uid, home).await? {
+    if action == UserAction::Install
+        && let Some(result) = identical_reinstall_or_downgrade(package, uid, home).await?
+    {
         return Ok(result);
     }
     run_package_lifecycle(
@@ -1632,6 +1639,7 @@ fn launch_candidate_application(package: &VerifiedPackage) -> Result<(), String>
 async fn maintenance_capture_evidence(
     observed: ObservedPackageState,
     operation_id: &str,
+    uid: u32,
 ) -> Result<MaintenanceCaptureEvidence, String> {
     if observed == ObservedPackageState::Absent {
         let disabled = TunNetworkObservation::disabled(tun_observation_now());
@@ -1644,10 +1652,15 @@ async fn maintenance_capture_evidence(
             restore_capture_on_app_start: false,
         });
     }
-    match MacOsTunServiceClient::development()
-        .reconcile_for_maintenance(operation_id)
+    let client = MacOsTunServiceClient::development();
+    let admission = client
+        .admit_maintenance_reconciliation(operation_id)
         .await
-    {
+        .map_err(str::to_string)?;
+    if admission.core_was_running() {
+        terminate_running_mish_app(uid)?;
+    }
+    match client.complete_maintenance_reconciliation(admission).await {
         Ok(evidence) => Ok(MaintenanceCaptureEvidence {
             accepted_operation_id: evidence.accepted_operation_id,
             after: evidence.after,
@@ -1658,17 +1671,6 @@ async fn maintenance_capture_evidence(
             core_was_running: evidence.core_was_running,
             network_ownership_record_sha256: network_ownership_record_digest()?,
         }),
-        Err(_error) if observed == ObservedPackageState::RepairRequired => {
-            let unknown = TunNetworkObservation::unknown(tun_observation_now());
-            Ok(MaintenanceCaptureEvidence {
-                accepted_operation_id: format!("{operation_id}:recovery-required"),
-                after: unknown.clone(),
-                before: unknown,
-                core_was_running: false,
-                network_ownership_record_sha256: network_ownership_record_digest()?,
-                restore_capture_on_app_start: false,
-            })
-        }
         Err(error) => Err(error.into()),
     }
 }
@@ -1697,6 +1699,42 @@ fn network_ownership_record_digest() -> Result<Option<String>, String> {
     Ok(None)
 }
 
+fn recover_interrupted_maintenance_before_capture(
+    package: &VerifiedPackage,
+    uid: u32,
+    gid: u32,
+    home: &Path,
+    tart_terminal_authorization: bool,
+) -> Result<(), String> {
+    ensure_private_runtime(home, uid)?;
+    let installer = installer_root(home);
+    ensure_private_directory(&installer, uid)?;
+    let controller = stage_privileged_controller(package, &installer, uid)?;
+    run_authorized(
+        "__privileged-rollback",
+        package,
+        &controller,
+        uid,
+        gid,
+        home,
+        tart_terminal_authorization,
+    )
+}
+
+fn privileged_uninstall_capture_evidence(
+    operation_id: &str,
+) -> Result<MaintenanceCaptureEvidence, String> {
+    let unknown = TunNetworkObservation::unknown(tun_observation_now());
+    Ok(MaintenanceCaptureEvidence {
+        accepted_operation_id: format!("{operation_id}:privileged-uninstall-recovery"),
+        after: unknown.clone(),
+        before: unknown,
+        core_was_running: false,
+        network_ownership_record_sha256: network_ownership_record_digest()?,
+        restore_capture_on_app_start: false,
+    })
+}
+
 async fn run_package_lifecycle(
     action: UserAction,
     package: &VerifiedPackage,
@@ -1706,7 +1744,7 @@ async fn run_package_lifecycle(
     tart_terminal_authorization: bool,
     failure_injection: Option<TartMaintenanceFailure>,
 ) -> Result<serde_json::Value, String> {
-    let observed = observed_package_state(package, uid)?;
+    let mut observed = observed_package_state(package, uid)?;
     let kind = match action {
         UserAction::Install => PackageOperationKind::Install,
         UserAction::Repair => PackageOperationKind::Repair,
@@ -1722,10 +1760,34 @@ async fn run_package_lifecycle(
     };
     let operation_id = Uuid::new_v4().to_string();
     let _maintenance_lock = MaintenanceProcessLock::acquire(home, uid, &operation_id)?;
-    let capture = maintenance_capture_evidence(observed, &operation_id).await?;
-    if capture.restore_capture_on_app_start {
-        terminate_running_mish_app(uid)?;
-    }
+    let capture = match maintenance_capture_evidence(observed, &operation_id, uid).await {
+        Ok(capture) => capture,
+        Err(_)
+            if observed == ObservedPackageState::RepairRequired
+                && action == UserAction::Uninstall =>
+        {
+            privileged_uninstall_capture_evidence(&operation_id)?
+        }
+        Err(initial_error) if observed == ObservedPackageState::RepairRequired => {
+            recover_interrupted_maintenance_before_capture(
+                package,
+                uid,
+                gid,
+                home,
+                tart_terminal_authorization,
+            )
+            .map_err(|recovery_error| {
+                format!("maintenance-recovery-required:{initial_error}:{recovery_error}")
+            })?;
+            observed = observed_package_state(package, uid)?;
+            maintenance_capture_evidence(observed, &operation_id, uid)
+                .await
+                .map_err(|reobserved_error| {
+                    format!("maintenance-recovery-required:{initial_error}:{reobserved_error}")
+                })?
+        }
+        Err(error) => return Err(error),
+    };
     let runner = spawn_runner(
         Arc::new(PackageMachine),
         PackageState::initial(observed),
@@ -1814,9 +1876,62 @@ fn observed_package_state(
     match value["service"].as_str() {
         Some("not-installed") => Ok(ObservedPackageState::Absent),
         Some("installed") => Ok(ObservedPackageState::HealthyDisabled),
+        Some("repair-required" | "recovery-required")
+            if admitted_existing_installation_is_intact(uid)? =>
+        {
+            Ok(ObservedPackageState::HealthyDisabled)
+        }
         Some("repair-required" | "recovery-required") => Ok(ObservedPackageState::RepairRequired),
         _ => Err("package-observation-invalid".into()),
     }
+}
+
+fn admitted_existing_installation_is_intact(uid: u32) -> Result<bool, String> {
+    let Some(receipt) = read_optional_root_receipt()? else {
+        return Ok(false);
+    };
+    if !matches!(receipt.schema_version, 1 | 2)
+        || receipt.profile != PROFILE
+        || receipt.installing_uid != uid
+        || receipt.protocol_version != PROTOCOL_VERSION
+        || receipt.generation == 0
+        || !valid_digest(&receipt.installation_id)
+        || !valid_digest(&receipt.key_id)
+        || !valid_digest(&receipt.helper_sha256)
+        || !valid_digest(&receipt.core_sha256)
+        || !valid_digest(&receipt.plist_sha256)
+        || !valid_digest(&receipt.manifest_sha256)
+    {
+        return Ok(false);
+    }
+    for (path, mode, digest) in [
+        (
+            DEV_TUN_SERVICE_HELPER_PATH,
+            0o555,
+            receipt.helper_sha256.as_str(),
+        ),
+        (
+            DEV_TUN_SERVICE_CORE_PATH,
+            0o555,
+            receipt.core_sha256.as_str(),
+        ),
+        (
+            DEV_TUN_SERVICE_PLIST_PATH,
+            0o644,
+            receipt.plist_sha256.as_str(),
+        ),
+    ] {
+        if validate_regular_file(Path::new(path), 0, mode, None).is_err()
+            || sha256_file(Path::new(path)).ok().as_deref() != Some(digest)
+        {
+            return Ok(false);
+        }
+    }
+    let launchd = command_output(
+        "/bin/launchctl",
+        &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+    )?;
+    Ok(launchd.status.success())
 }
 
 fn run_authorized(
@@ -2477,10 +2592,17 @@ async fn privileged_install(
                 old_receipt.as_ref().map(|receipt| receipt.generation),
             )?,
             installing_uid: uid,
-            kind: if old_receipt.is_some() {
-                MaintenanceKind::Repair
-            } else {
-                MaintenanceKind::Install
+            kind: match old_receipt.as_ref() {
+                None => MaintenanceKind::Install,
+                Some(old)
+                    if compare_internal_tun_package_versions(
+                        &package.manifest.package_version,
+                        &old.package_version,
+                    )? == Ordering::Greater =>
+                {
+                    MaintenanceKind::Upgrade
+                }
+                Some(_) => MaintenanceKind::Repair,
             },
             operation_id: staged_maintenance.operation_id,
             requested_manifest_sha256: package.manifest_digest.clone(),
@@ -3418,26 +3540,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_install_health_retries_only_startup_unavailable() {
+    async fn post_install_health_retries_only_bounded_startup_convergence() {
         let mut startup_calls = 0;
+        let startup_errors = [
+            "launch-daemon-not-running",
+            "maintenance-recovery-required",
+            "core-host-unavailable",
+        ];
         let health = retry_post_install_health(
             || {
                 startup_calls += 1;
-                let attempt = startup_calls;
+                let startup_error = startup_errors.get(startup_calls - 1).copied();
                 async move {
-                    if attempt < 3 {
-                        Err("core-host-unavailable".into())
-                    } else {
-                        Ok(json!({ "state": "healthy-disabled" }))
+                    match startup_error {
+                        Some(error) => Err(error.into()),
+                        None => Ok(json!({ "state": "healthy-disabled" })),
                     }
                 }
             },
-            3,
+            4,
             std::time::Duration::ZERO,
         )
         .await
         .unwrap();
-        assert_eq!(startup_calls, 3);
+        assert_eq!(startup_calls, 4);
         assert_eq!(health["state"], "healthy-disabled");
 
         let mut fatal_calls = 0;

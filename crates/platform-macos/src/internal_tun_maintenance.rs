@@ -30,6 +30,7 @@ pub const INTERNAL_TUN_MAINTENANCE_BACKUP_DIRECTORY: &str =
 pub enum MaintenanceKind {
     Install,
     Repair,
+    Upgrade,
     Uninstall,
 }
 

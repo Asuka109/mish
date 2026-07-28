@@ -243,6 +243,64 @@ System Proxy SHA-256
 `a85bb673159212cb8d463b52c72baee4bf40693c2d5805b7a2a1ca6588984a18`,
 and the `utun0` through `utun7` baseline were unchanged.
 
+## Transactional Internal TUN Alpha maintenance (Issue #298)
+
+The 2026-07-28 acceptance used the uniquely named disposable clone
+`mish-298-transactional-20260728` on macOS 26.5 ARM64. The accepted `.4`
+baseline manifest SHA-256 was
+`4955c694bbc983c8591328f9736d13c150ded70532a3874fdd1c392e33001be2`.
+The final `.5` archive SHA-256 was
+`731f75bbef949a83ff20002721d9cc0e8cafa8dc91cbea1d6a32d9a956e8ac9d`
+and its manifest SHA-256 was
+`342fa33c72749042bbe64b51847cbd689651a1005a8233fb516e4854e750c573`.
+
+The `.4` package installed with generation 1 and key identifier
+`ca8c7074257678dbec08983553bc61c8ab985da56ebaa47d12cf6e324471f392`.
+The packaged app started a real root-owned Mihomo TUN Core, the UI confirmed
+Virtual Interface capture, the guest had the Mish-owned MTU-9000 interface and
+managed DNS, and `curl https://example.com` returned HTTP/2 200. Powering off
+the VM while Capture was active left the next cold boot on the exact original
+Ethernet DNS, proxy, default route, and four non-Mish `utun` interfaces.
+
+An injected `.5` failure immediately after `core-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:CoreReplaced`.
+The durable journal retained admitted package, service, enrollment, artifact,
+Capture, commit-point, and compensation evidence without Profile, generated
+configuration, private-key, or raw unrelated network data. It confirmed all
+four prior Capture components before reconciliation, all four absent
+afterwards, and restored the verified `.4` Helper, Core, plist, enrollment,
+receipt, and exact prior network state. The key identifier and generation did
+not change. The candidate app exposed the bounded Repair Required semantic
+notification instead of claiming success or restoring Capture.
+
+A normal active `.4` to `.5` upgrade committed a new installation identity,
+preserved the same key and generation, launched the verified service, and
+restored real TUN Capture through the app marker. An identical active `.5`
+reinstall returned `active-unchanged`. A separately built lower `.4`
+acceptance candidate using the current controller returned
+`maintenance-downgrade-rejected` before mutation.
+
+Explicit repair was then aborted at the exact `enrollment-committed` boundary.
+The journal remained nonterminal with the accepted operation UUID and
+confirmed-disabled Capture evidence. After a full VM restart, Status returned
+`recovery-required`; Helper, Core, watchdog, and Mish network effects were
+absent. Repair first compensated the interrupted journal, retried the bounded
+Helper startup observation, and then completed a fresh verified transaction as
+`healthy-disabled`. A separate installed-Helper mode fault produced the same
+closed Recovery Required state and did not advertise Helper availability until
+the administrator restored the expected fixed-artifact mode and repair
+confirmed recovery.
+
+For final cleanup, the recovered `.5` app again started real TUN Capture and
+`curl https://example.com` returned HTTP/2 200. Active uninstall reconciled
+Capture through the authenticated operation and returned `not-installed`.
+The LaunchDaemon, Helper, Core, enrollment, receipt, maintenance journal and
+backup, socket and state directory, user receipt, and client key were absent.
+No Mish app, Helper, Core, or watchdog process remained. Ethernet DNS had no
+explicit server, System Proxy matched the original disabled dictionary, the
+default route was again `192.168.64.1` on `en0`, and the exact original
+`utun0` through `utun3` list and MTUs were restored.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the

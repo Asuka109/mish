@@ -897,6 +897,19 @@ pub struct MaintenanceCaptureReconciliation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaintenanceCaptureAdmission {
+    before: TunNetworkObservation,
+    core_was_running: bool,
+    operation_id: String,
+}
+
+impl MaintenanceCaptureAdmission {
+    pub fn core_was_running(&self) -> bool {
+        self.core_was_running
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DevelopmentInstallationDiscovery {
     pub algorithm: String,
     pub generation: u64,
@@ -1275,20 +1288,17 @@ impl MacOsTunServiceClient {
             })
     }
 
-    /// Stops active TUN through two signed requests tied to one caller-owned maintenance
-    /// operation identity. The returned observation is evidence, not desired state: callers must
-    /// refuse artifact replacement unless the Helper confirmed exact disabled network ownership.
-    pub async fn reconcile_for_maintenance(
+    /// Admits maintenance through a signed observation tied to one caller-owned operation.
+    /// When Core is active, the caller must terminate the exact owning Mish process before
+    /// completing reconciliation; the closed Helper protocol intentionally rejects cross-process
+    /// Disable while that owner is still alive.
+    pub async fn admit_maintenance_reconciliation(
         &self,
         operation_id: &str,
-    ) -> Result<MaintenanceCaptureReconciliation, &'static str> {
+    ) -> Result<MaintenanceCaptureAdmission, &'static str> {
         let before = self
-            .request_with_id(
-                ServiceCommand::Status,
-                format!("{operation_id}:observe-before"),
-            )
-            .await
-            .map_err(maintenance_client_error)?;
+            .maintenance_request_with_retry(ServiceCommand::Status, operation_id, "observe-before")
+            .await?;
         let now = tun_observation_now();
         if !before.observation.is_fresh_at(now)
             || [
@@ -1302,31 +1312,66 @@ impl MacOsTunServiceClient {
             return Err("maintenance-capture-authority-unknown");
         }
         let core_was_running = before.core.is_some();
-        let needed_disable = core_was_running || !before.observation.confirms_disabled_at(now);
-        let after = if needed_disable {
-            self.request_with_id(ServiceCommand::Disable, format!("{operation_id}:disable"))
-                .await
-                .map_err(maintenance_client_error)?
+        Ok(MaintenanceCaptureAdmission {
+            before: before.observation,
+            core_was_running,
+            operation_id: operation_id.to_owned(),
+        })
+    }
+
+    /// Completes one admitted maintenance operation only after the prior app owner has exited.
+    /// The returned observation is evidence, not desired state: callers must refuse artifact
+    /// replacement unless the Helper confirmed exact disabled network ownership.
+    pub async fn complete_maintenance_reconciliation(
+        &self,
+        admission: MaintenanceCaptureAdmission,
+    ) -> Result<MaintenanceCaptureReconciliation, &'static str> {
+        let now = tun_observation_now();
+        let needed_disable =
+            admission.core_was_running || !admission.before.confirms_disabled_at(now);
+        let (after_core_running, after) = if needed_disable {
+            let status = self
+                .maintenance_request_with_retry(
+                    ServiceCommand::Disable,
+                    &admission.operation_id,
+                    "disable",
+                )
+                .await?;
+            (status.core.is_some(), status.observation)
         } else {
-            before.clone()
+            (false, admission.before.clone())
         };
-        if after.core.is_some()
-            || !after
-                .observation
-                .confirms_disabled_at(tun_observation_now())
-        {
+        if after_core_running || !after.confirms_disabled_at(tun_observation_now()) {
             return Err("maintenance-capture-reconciliation-unconfirmed");
         }
         Ok(MaintenanceCaptureReconciliation {
-            accepted_operation_id: if needed_disable {
-                format!("{operation_id}:disable")
-            } else {
-                format!("{operation_id}:observe-before")
-            },
-            after: after.observation,
-            before: before.observation,
-            core_was_running,
+            accepted_operation_id: admission.operation_id,
+            after,
+            before: admission.before,
+            core_was_running: admission.core_was_running,
         })
+    }
+
+    async fn maintenance_request_with_retry(
+        &self,
+        command: ServiceCommand,
+        operation_id: &str,
+        phase: &str,
+    ) -> Result<ServiceStatus, &'static str> {
+        const ATTEMPTS: u8 = 40;
+        for attempt in 0..ATTEMPTS {
+            let request_id = maintenance_request_id(operation_id, phase, attempt)?;
+            match self.request_with_id(command.clone(), request_id).await {
+                Ok(status) => return Ok(status),
+                Err(ServiceClientError::Rejected | ServiceClientError::Unavailable)
+                    if attempt + 1 < ATTEMPTS =>
+                {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(maintenance_client_error(error)),
+            }
+        }
+        unreachable!("bounded maintenance request loop always returns")
     }
 
     pub async fn prepare_development_startup(&self) -> DevelopmentTunStartup {
@@ -1376,6 +1421,29 @@ fn maintenance_client_error(error: ServiceClientError) -> &'static str {
         ServiceClientError::Rejected => "maintenance-helper-request-rejected",
         ServiceClientError::OperationFailed => "maintenance-helper-operation-failed",
     }
+}
+
+fn maintenance_request_id(
+    operation_id: &str,
+    phase: &str,
+    attempt: u8,
+) -> Result<String, &'static str> {
+    let operation =
+        uuid::Uuid::parse_str(operation_id).map_err(|_| "maintenance-operation-id-invalid")?;
+    if !matches!(phase, "observe-before" | "disable") {
+        return Err("maintenance-operation-phase-invalid");
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"mish-internal-tun-maintenance-request-v1");
+    digest.update(operation.as_bytes());
+    digest.update(phase.as_bytes());
+    digest.update([attempt]);
+    let digest = digest.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Ok(uuid::Uuid::from_bytes(bytes).to_string())
 }
 
 fn service_request_timeout(command: &ServiceCommand) -> Duration {
@@ -4825,6 +4893,30 @@ mod tests {
                 routes: None,
             }),
         }
+    }
+
+    #[test]
+    fn maintenance_request_ids_are_valid_stable_and_phase_scoped() {
+        let operation_id = "82fe7bd2-6946-4458-8cd8-e4216061cf37";
+        let observe = maintenance_request_id(operation_id, "observe-before", 0).unwrap();
+        let observe_retry = maintenance_request_id(operation_id, "observe-before", 1).unwrap();
+        let disable = maintenance_request_id(operation_id, "disable", 0).unwrap();
+
+        assert!(valid_token(&observe));
+        assert!(valid_token(&observe_retry));
+        assert!(valid_token(&disable));
+        assert_ne!(observe, disable);
+        assert_ne!(observe, observe_retry);
+        assert_eq!(
+            maintenance_request_id(operation_id, "observe-before", 0).unwrap(),
+            observe
+        );
+        assert_eq!(
+            maintenance_request_id(operation_id, "disable", 0).unwrap(),
+            disable
+        );
+        assert!(maintenance_request_id("not-a-uuid", "disable", 0).is_err());
+        assert!(maintenance_request_id(operation_id, "unknown", 0).is_err());
     }
 
     #[test]
