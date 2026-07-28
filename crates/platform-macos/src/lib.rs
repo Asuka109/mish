@@ -1,6 +1,7 @@
 //! Narrow macOS System Proxy adapter.
 
 mod installation_key;
+pub mod internal_tun_maintenance;
 pub mod internal_tun_package_machine;
 mod process_icon;
 mod production_tun;
@@ -22,8 +23,9 @@ pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
     DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
     DevelopmentInstallationDiscovery, DevelopmentTunStartup, MacOsTunServiceClient,
-    ManagedDnsState, TunServiceConfig, development_pinned_core_version, development_socket_path,
-    parse_watchdog_dns, recover_managed_network_record, run_core_watchdog, run_tun_service,
+    MaintenanceCaptureReconciliation, ManagedDnsState, TunServiceConfig,
+    development_pinned_core_version, development_socket_path, parse_watchdog_dns,
+    recover_managed_network_record, run_core_watchdog, run_tun_service,
     verify_development_core_file, verify_development_pinned_core,
 };
 

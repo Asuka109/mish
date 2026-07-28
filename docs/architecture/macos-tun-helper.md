@@ -123,6 +123,35 @@ template with the installation-identity placeholder). The fixed socket, kernel
 UID/PID checks, canonical path/ownership/freshness gates, closed typed commands,
 single-owner lifecycle, and canonical challenge-response are unchanged.
 
+Install, repair, reinstall, upgrade, rollback, and recovery share one
+root-owned, versioned maintenance journal. The journal separates the admitted
+intent, package/service/enrollment identities, old and new artifact digests,
+the accepted Capture operation and closed network observations, commit point,
+compensation progress, and terminal outcome. It stores only the digest of the
+root network recovery record, never its raw DNS or route contents, and never a
+Profile, generated Core configuration, or private installation key. A separate
+mode-`0700` root backup contains only the last verified bounded
+Helper/Core/plist/enrollment/receipt set.
+
+Before any artifact replacement, the controller uses the existing installation
+key and one accepted operation identity to authenticate Status and, when
+needed, Disable. It confirms the exact disabled network observation and
+consumes the Mish-owned recovery record before detaching the service. An
+identical verified reinstall is a no-op; a downgrade is rejected before Capture
+or privileged state changes. An installation-identity change requires the
+explicitly administrator-authorized enrollment rebind path, while optional key
+rotation still requires both proofs and lost-key reset remains a separate
+administrator action.
+
+The replacement Helper reobserves the exact installed artifacts, enrollment,
+receipt, and journal before opening its socket. Only a post-enrollment commit
+with complete new proof may finish automatically; earlier, mixed, corrupt, or
+unknown authority stays unavailable as Recovery Required. Repair compensates
+from the verified backup or leaves a bounded disabled installation. When an
+active TUN upgrade commits, a private version-bound marker asks the packaged
+app to restore Capture through the shared Capture authority. Failed maintenance
+never replays Capture from guessed state.
+
 Before requesting administrator authorization, the running controller copies
 its already verified executable to a private mode-`0500` staging file and
 binds its exact manifest size and SHA-256 digest into the authorization

@@ -1,7 +1,9 @@
 use mish_platform_macos::{
     DEV_TUN_SERVICE_ENROLLMENT_PATH, InstallationEnrollmentOperation, TunServiceConfig,
-    apply_installation_enrollment_operation, parse_watchdog_dns, recover_managed_network_record,
-    remove_installation_enrollment, run_core_watchdog, run_tun_service,
+    apply_installation_enrollment_operation,
+    internal_tun_maintenance::complete_internal_tun_maintenance_on_helper_startup,
+    parse_watchdog_dns, recover_managed_network_record, remove_installation_enrollment,
+    run_core_watchdog, run_tun_service,
 };
 use std::path::{Path, PathBuf};
 
@@ -117,6 +119,10 @@ async fn main() {
             std::process::exit(2);
         }
         None => {}
+    }
+    if let Err(message) = complete_internal_tun_maintenance_on_helper_startup() {
+        eprintln!("Mish Internal TUN maintenance recovery required: {message}");
+        std::process::exit(3);
     }
     let config = match TunServiceConfig::from_environment() {
         Ok(config) => config,

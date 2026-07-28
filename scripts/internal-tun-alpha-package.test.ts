@@ -126,6 +126,7 @@ test("package build removes checkout paths and preserves the complete internal-o
     path.resolve(import.meta.dirname, "internal-tun-alpha-package.ts"),
     "utf8",
   );
+  const normalizedSource = source.replace(/\s+/g, " ");
   for (const requirement of [
     "CARGO_INCREMENTAL",
     "--remap-path-prefix=${repositoryRoot}=.",
@@ -135,12 +136,17 @@ test("package build removes checkout paths and preserves the complete internal-o
     "macOS 13 or newer",
     "Open Anyway",
     "administrator prompt",
+    "journaled transaction",
+    "active Virtual Interface",
+    "identical reinstall",
+    "older package is rejected",
+    "Recovery Required",
     "same-user key limitation",
     "not a public release",
     "Repair Internal TUN Alpha.command",
     "Uninstall Internal TUN Alpha.command",
   ]) {
-    assert.ok(source.includes(requirement), `Missing package boundary: ${requirement}`);
+    assert.ok(normalizedSource.includes(requirement), `Missing package boundary: ${requirement}`);
   }
   const downloadSource = await readFile(
     path.resolve(import.meta.dirname, "development-mihomo.ts"),

@@ -44,6 +44,8 @@ use mish_settings::{
     WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use mish_state_authority::StateMutationAuthority;
+#[cfg(unix)]
+use serde::Deserialize;
 use serde::Serialize;
 use tauri::{
     Manager,
@@ -69,11 +71,22 @@ const DEVTOOLS_ARGUMENT: &str = "--devtools";
 const RELEASE_PROFILE_EVIDENCE_ARGUMENT: &str = "--release-profile-evidence";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
+const INTERNAL_TUN_CAPTURE_RESTORE_NAME: &str = "internal-tun-capture-restore.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct StartupOptions {
     devtools: DevtoolsStartup,
     tart_tun_acceptance: bool,
+}
+
+#[cfg(unix)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InternalTunCaptureRestoreMarker {
+    operation_id: String,
+    package_version: String,
+    schema_version: u16,
+    tun: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -887,6 +900,8 @@ fn initialize(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
+    let maintenance_capture_restore =
+        internal_tun_capture_restore_marker(&profile_root).map_err(io::Error::other)?;
     let runtime_root = profile_root.join("runtime");
     let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
         .map_err(|error| io::Error::other(error.to_string()))?;
@@ -1225,7 +1240,7 @@ fn initialize(
         pending_export: Arc::new(Mutex::new(None)),
         pending_restore: Arc::new(Mutex::new(None)),
         service: LocalBackupService::new(
-            profile_root,
+            profile_root.clone(),
             settings_service.clone(),
             env!("CARGO_PKG_VERSION"),
         ),
@@ -1243,8 +1258,16 @@ fn initialize(
         .preferences
         .startup
         .launch_behavior;
-    if application_launch_behavior != ApplicationLaunchBehavior::Off {
-        launch_on_application_start(activation, application_launch_behavior);
+    let maintenance_capture_restore =
+        maintenance_capture_restore.filter(|_| tun_helper.snapshot().is_healthy());
+    if maintenance_capture_restore.is_some()
+        || application_launch_behavior != ApplicationLaunchBehavior::Off
+    {
+        launch_on_application_start(
+            activation,
+            application_launch_behavior,
+            maintenance_capture_restore,
+        );
     }
     open_main_webview_inspector(app, open_devtools)?;
     Ok(())
@@ -1312,8 +1335,27 @@ fn open_main_webview_inspector(
 fn launch_on_application_start(
     activation: Arc<ProfileActivationCoordinator>,
     behavior: ApplicationLaunchBehavior,
+    maintenance_capture_restore: Option<PathBuf>,
 ) {
     tauri::async_runtime::spawn(async move {
+        if let Some(marker) = maintenance_capture_restore {
+            // Consume the exact marker before the one restoration attempt. A crash or rejected
+            // activation stays safely disabled and must not become an automatic replay loop.
+            if fs::remove_file(marker).is_err() {
+                return;
+            }
+            let _ = activation
+                .launch_proxy(
+                    &Uuid::new_v4().to_string(),
+                    CaptureSelection {
+                        system_proxy: false,
+                        tun: true,
+                    },
+                    RuntimeStatusAdapterKind::Rpc,
+                )
+                .await;
+            return;
+        }
         match behavior {
             ApplicationLaunchBehavior::Core => {
                 let _ = activation
@@ -1332,6 +1374,78 @@ fn launch_on_application_start(
             ApplicationLaunchBehavior::Off => {}
         }
     });
+}
+
+fn internal_tun_capture_restore_marker(profile_root: &Path) -> Result<Option<PathBuf>, String> {
+    #[cfg(not(unix))]
+    {
+        let _ = profile_root;
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    internal_tun_capture_restore_marker_for_profile(
+        profile_root,
+        internal_tun_alpha_package_version(),
+        unsafe { libc::getuid() },
+    )
+}
+
+#[cfg(unix)]
+fn internal_tun_capture_restore_marker_for_profile(
+    profile_root: &Path,
+    expected_version: Option<&str>,
+    uid: u32,
+) -> Result<Option<PathBuf>, String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let Some(expected_version) = expected_version else {
+        return Ok(None);
+    };
+    let path = profile_root
+        .join("runtime")
+        .join(INTERNAL_TUN_CAPTURE_RESTORE_NAME);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("Internal TUN maintenance restore evidence is unavailable".into()),
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.uid() != uid
+        || metadata.nlink() != 1
+        || metadata.permissions().mode() & 0o777 != 0o600
+        || metadata.len() == 0
+        || metadata.len() > 4 * 1024
+    {
+        return Err("Internal TUN maintenance restore evidence was rejected".into());
+    }
+    let mut bytes = Vec::new();
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+        .and_then(|file| file.take(4 * 1024 + 1).read_to_end(&mut bytes))
+        .map_err(|_| "Internal TUN maintenance restore evidence is unavailable")?;
+    let marker: InternalTunCaptureRestoreMarker = serde_json::from_slice(&bytes)
+        .map_err(|_| "Internal TUN maintenance restore evidence was rejected")?;
+    if bytes.len() > 4 * 1024
+        || marker.schema_version != 1
+        || !marker.tun
+        || marker.package_version != expected_version
+        || Uuid::parse_str(&marker.operation_id).is_err()
+    {
+        return Err("Internal TUN maintenance restore evidence was rejected".into());
+    }
+    Ok(Some(path))
+}
+
+#[cfg(not(unix))]
+fn internal_tun_capture_restore_marker_for_profile(
+    _profile_root: &Path,
+    _expected_version: Option<&str>,
+    _uid: u32,
+) -> Result<Option<PathBuf>, String> {
+    Ok(None)
 }
 
 fn system_proxy_only_capture_selection() -> CaptureSelection {
@@ -1939,7 +2053,8 @@ mod tests {
         SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus, allowed_origins,
         atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
         generate_auth_token, internal_tun_alpha_package_root_from_executable,
-        internal_tun_alpha_package_version_for_profile, invalidate_pending,
+        internal_tun_alpha_package_version_for_profile,
+        internal_tun_capture_restore_marker_for_profile, invalidate_pending,
         main_window_close_action, managed_mihomo_resolver, production_team_identifier_for_profile,
         read_local_backup, release_profile_evidence, resolve_devtools_behavior,
         save_support_bundle_selection, should_intercept_exit_request, should_show_main_window,
@@ -1947,6 +2062,50 @@ mod tests {
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
+
+    #[cfg(unix)]
+    #[test]
+    fn internal_tun_capture_restore_requires_exact_private_versioned_evidence() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = temporary.path().join("runtime");
+        fs::create_dir(&runtime).unwrap();
+        let marker = runtime.join("internal-tun-capture-restore.json");
+        fs::write(
+            &marker,
+            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.5","schemaVersion":1,"tun":true}"#,
+        )
+        .unwrap();
+        fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
+        let uid = unsafe { libc::getuid() };
+        assert_eq!(
+            internal_tun_capture_restore_marker_for_profile(
+                temporary.path(),
+                Some("0.1.0-internal-tun-alpha.5"),
+                uid,
+            )
+            .unwrap(),
+            Some(marker.clone())
+        );
+        assert!(
+            internal_tun_capture_restore_marker_for_profile(
+                temporary.path(),
+                Some("0.1.0-internal-tun-alpha.4"),
+                uid,
+            )
+            .is_err()
+        );
+        fs::set_permissions(&marker, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            internal_tun_capture_restore_marker_for_profile(
+                temporary.path(),
+                Some("0.1.0-internal-tun-alpha.5"),
+                uid,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn authentication_tokens_are_fresh_256_bit_hex_values() {

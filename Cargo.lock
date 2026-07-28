@@ -2725,6 +2725,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
+ "libc",
  "mish-bridge",
  "mish-native-i18n",
  "mish-platform-macos",
@@ -2743,6 +2744,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-os",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "uuid",
 ]
