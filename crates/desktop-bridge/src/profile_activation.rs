@@ -1267,7 +1267,11 @@ impl ProfileActivationCoordinator {
         };
         let requires_tun_reactivation =
             before.runtime.tun_enabled != (request.active && request.selection.tun);
-        let capture_operation = self.host.current().publish_capture_pending(&request)?;
+        let capture_operation = self
+            .host
+            .current()
+            .publish_capture_pending(&request)
+            .await?;
         let activation_started = Instant::now();
         let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;
@@ -1299,7 +1303,8 @@ impl ProfileActivationCoordinator {
                 );
                 self.host
                     .current()
-                    .finish_capture_operation_failure(&capture_operation, &error);
+                    .finish_capture_operation_failure(&capture_operation, &error)
+                    .await;
                 return Err(error);
             }
         };
@@ -1314,14 +1319,19 @@ impl ProfileActivationCoordinator {
         };
         let preflight_request = request.clone();
         let preflight_started = Instant::now();
+        let preflight_cancellation = preparation_cancellation.token.clone();
         let preflight = async {
-            let result = self.host.preflight_capture(&preflight_request).await;
+            let result = self
+                .host
+                .preflight_capture_cancellable(&preflight_request, preflight_cancellation)
+                .await;
             (result, preflight_started.elapsed())
         };
         tokio::pin!(activation);
         tokio::pin!(preflight);
         let prepared = tokio::select! {
             _ = preparation_cancellation.token.cancelled() => {
+                let _ = preflight.await;
                 if activation_pending {
                     let _ = self.cancel(command_id).await;
                     let _ = activation.await;
@@ -1343,6 +1353,7 @@ impl ProfileActivationCoordinator {
                                 ))
                             }
                             _ = preparation_cancellation.token.cancelled() => {
+                                let _ = preflight.await;
                                 Err(CaptureTransitionError::new(
                                     CaptureFailureKind::RuntimeTransition,
                                     "Aggregate proxy launch preparation was cancelled",
@@ -1478,7 +1489,8 @@ impl ProfileActivationCoordinator {
         if let Err(error) = &result {
             self.host
                 .current()
-                .finish_capture_operation_failure(&capture_operation, error);
+                .finish_capture_operation_failure(&capture_operation, error)
+                .await;
         }
         self.record_launch_timing(
             launch_started,

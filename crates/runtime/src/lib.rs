@@ -8,6 +8,7 @@ use futures_util::future::BoxFuture;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 mod application_order;
 mod capture;
@@ -748,13 +749,22 @@ impl MishRuntime {
         &self,
         request: &CaptureRequest,
     ) -> Result<CapturePreflight, CaptureTransitionError> {
+        self.preflight_capture_cancellable(request, CancellationToken::new())
+            .await
+    }
+
+    pub async fn preflight_capture_cancellable(
+        &self,
+        request: &CaptureRequest,
+        cancellation: CancellationToken,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
         let Some(capture) = &self.capture else {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::CapabilityUnavailable,
                 "System Proxy is unavailable in this runtime",
             ));
         };
-        let result = capture.preflight(request).await;
+        let result = capture.preflight_cancellable(request, cancellation).await;
         if let Err(error) = &result {
             self.record_capture_failure(error);
         }
@@ -1289,7 +1299,7 @@ impl MishRuntime {
         })
     }
 
-    pub fn publish_capture_pending(
+    pub async fn publish_capture_pending(
         &self,
         request: &CaptureRequest,
     ) -> Result<CaptureOperation, CaptureTransitionError> {
@@ -1302,15 +1312,16 @@ impl MishRuntime {
                 )
             })?
             .admit_operation(request)
+            .await
     }
 
-    pub fn finish_capture_operation_failure(
+    pub async fn finish_capture_operation_failure(
         &self,
         operation: &CaptureOperation,
         error: &CaptureTransitionError,
     ) -> Option<CaptureRuntimeStatus> {
         if let Some(capture) = &self.capture {
-            return Some(capture.finish_operation_failure(operation, error));
+            return Some(capture.finish_operation_failure(operation, error).await);
         }
         None
     }

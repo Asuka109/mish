@@ -12,6 +12,7 @@ use mish_runtime::{
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -135,6 +136,16 @@ impl DesktopRuntimeHost {
         request: &CaptureRequest,
     ) -> Result<CapturePreflight, CaptureTransitionError> {
         self.current().preflight_capture(request).await
+    }
+
+    pub async fn preflight_capture_cancellable(
+        &self,
+        request: &CaptureRequest,
+        cancellation: CancellationToken,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        self.current()
+            .preflight_capture_cancellable(request, cancellation)
+            .await
     }
 
     pub async fn set_capture_with_preflight(

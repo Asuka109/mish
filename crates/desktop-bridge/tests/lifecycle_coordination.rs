@@ -589,6 +589,7 @@ async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() 
                 tun: false,
             },
         })
+        .await
         .unwrap();
 
     let error = fixture
@@ -629,6 +630,7 @@ async fn self_induced_network_change_does_not_interrupt_a_pending_capture_operat
                 tun: true,
             },
         })
+        .await
         .unwrap();
 
     assert_eq!(

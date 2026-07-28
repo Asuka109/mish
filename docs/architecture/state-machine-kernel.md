@@ -63,6 +63,14 @@ verification. The Helper/Core/network machine reaches enabled or disabled only
 after its existing private-socket, P-256, Core ownership, utun, route, DNS, and
 network journal contracts agree.
 
+Capture's outer machine preserves the existing System Proxy and TUN
+reconcilers as effect adapters. A request, a successful platform command, or a
+desired selection can publish only `Pending`. `Applied` is committed only after
+a separate authoritative Core/platform observation returns through the
+reducer. Observation failure, cancellation, panic, abort, runtime replacement,
+or shutdown runs an owned finalizer and ends in a typed failed,
+recovery-required, or retired terminal state.
+
 ## Durable recovery
 
 Durable recovery is optional. When a Unix machine needs it, the kernel offers
@@ -84,13 +92,15 @@ installation enrollment remain package-domain records.
 
 ## Adoption
 
-The first conforming machines are Updater Check, Internal TUN Alpha package
-install/repair/uninstall, and TUN Helper/Core/network lifecycle. Future work
-such as #288 and #289 must consume this convention when it introduces a
-high-risk lifecycle, while retaining its own vocabulary and recovery boundary.
-Migration-required registry entries are independent vertical slices; this
-change does not rewrite them or imply that every enum named `State` belongs in
-the kernel.
+The conforming machines are Updater Check, Internal TUN Alpha package
+install/repair/uninstall, TUN Helper/Core/network lifecycle, and the Capture
+outer lifecycle. Capture owns its `State`, `Input`, `Effect`, projection, and
+error vocabulary; the kernel supplies only bounded admission, task ownership,
+correlation, finalization, and evidence. Future work such as #288 and #289 must
+consume this convention when it introduces a high-risk lifecycle, while
+retaining its own vocabulary and recovery boundary. Migration-required
+registry entries are independent vertical slices; this change does not rewrite
+them or imply that every enum named `State` belongs in the kernel.
 
 Internal TUN Alpha remains `healthy-disabled` by default. The kernel adds no
 package enable command, production signing, public release, or new route, DNS,

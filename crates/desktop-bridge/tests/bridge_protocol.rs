@@ -3125,22 +3125,32 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         .as_str()
         .unwrap()
         .to_owned();
-    let enabled = request(
-        &mut ws,
+    ws.send(Message::Text(
         json!({
             "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
-        }),
-    )
-    .await;
+        })
+        .to_string()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let mut enabled = None;
+    let mut initial_notifications = Vec::new();
+    while enabled.is_none() || initial_notifications.len() < 2 {
+        let value = next_json(&mut ws).await;
+        if value["id"] == 3 {
+            enabled = Some(value);
+        } else if value["method"] == "status.snapshot" {
+            initial_notifications.push(value);
+        }
+    }
+    let enabled = enabled.unwrap();
     assert_eq!(
         enabled["result"]["runtime"]["systemProxy"]["phase"],
         "applied"
     );
-    let Message::Text(pending_notification) = ws.next().await.unwrap().unwrap() else {
-        panic!("expected pending status notification")
-    };
-    let pending_notification: Value = serde_json::from_str(&pending_notification).unwrap();
+    let pending_notification = &initial_notifications[0];
     assert_eq!(
         pending_notification["params"]["subscriptionId"],
         subscription_id
@@ -3149,10 +3159,7 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         pending_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
         "pending"
     );
-    let Message::Text(applied_notification) = ws.next().await.unwrap().unwrap() else {
-        panic!("expected applied status notification")
-    };
-    let applied_notification: Value = serde_json::from_str(&applied_notification).unwrap();
+    let applied_notification = &initial_notifications[1];
     assert_eq!(
         applied_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
         "applied"
