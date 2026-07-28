@@ -71,6 +71,33 @@ policy, updater, and adversarial fixtures. There is no job with an Environment,
 secret reference, write permission, OIDC permission, signing command,
 attestation command, tag/Release mutation, or deployment command.
 
+The `internal-tun-alpha` branch is a credential-free private artifact staging
+lane, not protected signing or release publication. It requires source, frozen
+`main`, workflow, and tooling to be the same full SHA. One isolated
+GitHub-hosted Apple Silicon job builds the ad-hoc package, deterministic DMG,
+SPDX SBOM, in-toto/SLSA provenance, and complete candidate manifest. A separate
+Apple Silicon job downloads only that immutable artifact ID and mounts the DMG
+read-only for independent verification. A secretless Ubuntu job binds the
+candidate and verification artifact IDs into a final non-overwriting 14-day
+stage, and a fresh Apple Silicon job reverifies the final artifact ID before
+writing any successful summary.
+
+The final manifest binds repository/actor/event/ref/run identity, source and
+workflow/tooling SHA, profile/version, Helper/Core/plist digests and versions,
+installation-identity inputs, protocol, `Cargo.lock`, `pnpm-lock.yaml`,
+`skills-lock.json`, relevant source/tooling inputs, SBOM, provenance,
+verification evidence, and DMG SHA-256. Partial, duplicate-role, stale,
+substituted, unexpected, missing, or mismatched input fails closed.
+`overwrite: false` and a run-bound artifact name prevent a later dispatch from
+replacing an existing immutable stage.
+
+This lane retains only `contents: read` repository permission. It receives no
+secret, OIDC token, protected Environment, self-hosted runner, Apple credential,
+tag/Release mutation, or deployment permission. Its ad-hoc DMG remains private
+Internal TUN Alpha material and cannot become project-trusted or public release
+evidence. Billing or runner allocation failure produces no final artifact and
+must not be reported as successful staging.
+
 ## Future activation prerequisites
 
 Live protected jobs may be added only in one reviewed change after every item
@@ -130,8 +157,10 @@ signer workflow identity, recheck all local digests and expected file names,
 and create only the immutable tag and Draft Pre-release selected by policy.
 Publication must never rebuild or modify the candidate.
 
-Updater signing and any Internal TUN artifact follow the same flow but require
-their own exact roles and identities. Neither is activated or staged here.
+Updater signing and any future Developer-ID-bearing TUN artifact follow the
+protected flow but require their own exact roles and identities. Neither is
+activated or staged here. The credential-free Internal TUN Alpha lane above
+does not cross that production boundary.
 
 ## Deterministic verification
 
@@ -154,6 +183,11 @@ It also rejects hard links, excessive directory depth or file count, and an
 oversized manifest. The live settings audit is read-only. While controls are
 unavailable it returns `disabled-fail-closed`; enabling protected execution
 with any blocker changes that result to `unsafe` and fails.
+
+The Internal TUN staging fixtures additionally reject an ancestor that is not
+the frozen `main` SHA, version/profile drift, duplicate roles, missing
+verification, changed DMG bytes, stale candidate identity, unexpected files,
+and attempts to replace an existing final stage.
 
 ## GitHub platform references
 

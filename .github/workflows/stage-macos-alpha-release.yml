@@ -12,6 +12,7 @@ on:
         type: choice
         options:
           - alpha-ad-hoc
+          - internal-tun-alpha
           - signed-direct
       version:
         description: Prerelease SemVer matching the desktop base version
@@ -54,6 +55,9 @@ jobs:
       artifact_name: ${{ steps.source.outputs.artifact_name }}
       base_version: ${{ steps.source.outputs.base_version }}
       candidate_artifact_name: mish-untrusted-alpha-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      internal_candidate_artifact_name: mish-internal-tun-alpha-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      internal_stage_artifact_name: mish-internal-tun-alpha-stage-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.workflow_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      internal_verification_artifact_name: mish-internal-tun-alpha-verification-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       main_sha: ${{ steps.source.outputs.main_sha }}
       profile: ${{ inputs.profile }}
       source_sha: ${{ steps.source.outputs.source_sha }}
@@ -127,6 +131,17 @@ jobs:
             --source-sha "$SOURCE_SHA" \
             --run-id "$RUN_ID" \
             --run-attempt "$RUN_ATTEMPT"
+      - name: Require exact frozen main for Internal TUN Alpha
+        if: ${{ inputs.profile == 'internal-tun-alpha' }}
+        env:
+          MAIN_SHA: ${{ steps.source.outputs.main_sha }}
+          RELEASE_VERSION: ${{ steps.source.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          node scripts/internal-tun-alpha-staging.ts assert-request \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --main-sha "$MAIN_SHA"
       - name: Read-only Alpha conflict preflight
         if: ${{ inputs.profile == 'alpha-ad-hoc' }}
         env:
@@ -344,6 +359,347 @@ jobs:
             echo "| Read-only decision | \`$DECISION\` |"
             echo "| Project-trusted release | \`no\` |"
             echo "| Staged or published | \`no\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-internal-tun-candidate:
+    name: Build source-bound Internal TUN Alpha DMG candidate
+    if: ${{ inputs.profile == 'internal-tun-alpha' }}
+    needs: freeze-source
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run complete repository validation
+        run: pnpm check:all
+      - name: Build accepted Internal TUN Alpha package
+        run: pnpm macos:internal-tun-alpha:package
+      - name: Build deterministic DMG, SBOM, provenance, and immutable candidate manifest
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_candidate_artifact_name }}
+          MAIN_SHA: ${{ needs.freeze-source.outputs.main_sha }}
+          PACKAGE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+          TOOLING_SHA: ${{ needs.freeze-source.outputs.tooling_sha }}
+        run: |
+          node .release-tooling/scripts/internal-tun-alpha-staging.ts prepare \
+            --package-root "$GITHUB_WORKSPACE/target/internal-tun-alpha/Mish-Internal-TUN-Alpha-$PACKAGE_VERSION-arm64" \
+            --output-directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-candidate" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --artifact-name "$ARTIFACT_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --repository-owner-id "$GITHUB_REPOSITORY_OWNER_ID" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --actor-id "$ACTOR_ID" \
+            --triggering-actor-id "$ACTOR_ID" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --tooling-sha "$TOOLING_SHA" \
+            --source-sha "$SOURCE_SHA" \
+            --main-sha "$MAIN_SHA" \
+            --source-is-ancestor true \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Upload immutable-ID-addressed Internal TUN candidate
+        id: candidate-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.freeze-source.outputs.internal_candidate_artifact_name }}
+          path: target/internal-tun-alpha-candidate/
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 1
+
+  verify-internal-tun-candidate:
+    name: Independently verify Internal TUN Alpha candidate read-only
+    if: ${{ inputs.profile == 'internal-tun-alpha' }}
+    needs:
+      - freeze-source
+      - build-internal-tun-candidate
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.verification-upload.outputs.artifact-id }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download exact immutable Internal TUN candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.build-internal-tun-candidate.outputs.artifact_id }}
+          merge-multiple: true
+          path: target/internal-tun-alpha-candidate
+      - name: Verify archive, layout, identity, protocol, SBOM, and provenance read-only
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ARTIFACT_ID: ${{ needs.build-internal-tun-candidate.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_candidate_artifact_name }}
+          MAIN_SHA: ${{ needs.freeze-source.outputs.main_sha }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+          TOOLING_SHA: ${{ needs.freeze-source.outputs.tooling_sha }}
+        run: |
+          mkdir -m 700 "$GITHUB_WORKSPACE/target/internal-tun-alpha-verification"
+          node .release-tooling/scripts/verify-internal-tun-alpha-stage.ts verify \
+            --directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-candidate" \
+            --evidence-output "$GITHUB_WORKSPACE/target/internal-tun-alpha-verification/internal-tun-alpha-verification.json" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --artifact-id "$ARTIFACT_ID" \
+            --artifact-name "$ARTIFACT_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --repository-owner-id "$GITHUB_REPOSITORY_OWNER_ID" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --actor-id "$ACTOR_ID" \
+            --triggering-actor-id "$ACTOR_ID" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --tooling-sha "$TOOLING_SHA" \
+            --source-sha "$SOURCE_SHA" \
+            --main-sha "$MAIN_SHA" \
+            --source-is-ancestor true \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Upload immutable verification evidence
+        id: verification-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.freeze-source.outputs.internal_verification_artifact_name }}
+          path: target/internal-tun-alpha-verification/
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 1
+
+  stage-internal-tun-alpha:
+    name: Stage verified immutable Internal TUN Alpha artifact
+    if: ${{ inputs.profile == 'internal-tun-alpha' }}
+    needs:
+      - freeze-source
+      - build-internal-tun-candidate
+      - verify-internal-tun-candidate
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      artifact_id: ${{ steps.stage-upload.outputs.artifact-id }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download exact candidate by immutable ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.build-internal-tun-candidate.outputs.artifact_id }}
+          merge-multiple: true
+          path: target/internal-tun-alpha-candidate
+      - name: Download exact verification by immutable ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.verify-internal-tun-candidate.outputs.artifact_id }}
+          merge-multiple: true
+          path: target/internal-tun-alpha-verification
+      - name: Bind candidate and verification into one final immutable stage
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          CANDIDATE_ARTIFACT_ID: ${{ needs.build-internal-tun-candidate.outputs.artifact_id }}
+          CANDIDATE_ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_candidate_artifact_name }}
+          FINAL_ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_stage_artifact_name }}
+          MAIN_SHA: ${{ needs.freeze-source.outputs.main_sha }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+          TOOLING_SHA: ${{ needs.freeze-source.outputs.tooling_sha }}
+          VERIFICATION_ARTIFACT_ID: ${{ needs.verify-internal-tun-candidate.outputs.artifact_id }}
+          VERIFICATION_ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_verification_artifact_name }}
+        run: |
+          node .release-tooling/scripts/internal-tun-alpha-staging.ts finalize \
+            --candidate-directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-candidate" \
+            --verification-directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-verification" \
+            --output-directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-stage" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" \
+            --candidate-artifact-name "$CANDIDATE_ARTIFACT_NAME" \
+            --verification-artifact-id "$VERIFICATION_ARTIFACT_ID" \
+            --verification-artifact-name "$VERIFICATION_ARTIFACT_NAME" \
+            --final-artifact-name "$FINAL_ARTIFACT_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --repository-owner-id "$GITHUB_REPOSITORY_OWNER_ID" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --actor-id "$ACTOR_ID" \
+            --triggering-actor-id "$ACTOR_ID" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --tooling-sha "$TOOLING_SHA" \
+            --source-sha "$SOURCE_SHA" \
+            --main-sha "$MAIN_SHA" \
+            --source-is-ancestor true \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Upload final immutable Internal TUN Alpha stage
+        id: stage-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.freeze-source.outputs.internal_stage_artifact_name }}
+          path: target/internal-tun-alpha-stage/
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 14
+
+  confirm-internal-tun-stage:
+    name: Confirm final Internal TUN Alpha stage read-only
+    if: ${{ inputs.profile == 'internal-tun-alpha' }}
+    needs:
+      - freeze-source
+      - stage-internal-tun-alpha
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - name: Download final stage by immutable ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.stage-internal-tun-alpha.outputs.artifact_id }}
+          merge-multiple: true
+          path: target/internal-tun-alpha-stage
+      - name: Reverify final stage and DMG read-only
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ARTIFACT_ID: ${{ needs.stage-internal-tun-alpha.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_stage_artifact_name }}
+          MAIN_SHA: ${{ needs.freeze-source.outputs.main_sha }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+          TOOLING_SHA: ${{ needs.freeze-source.outputs.tooling_sha }}
+        run: |
+          node .release-tooling/scripts/verify-internal-tun-alpha-stage.ts confirm \
+            --directory "$GITHUB_WORKSPACE/target/internal-tun-alpha-stage" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --artifact-id "$ARTIFACT_ID" \
+            --artifact-name "$ARTIFACT_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --repository-owner-id "$GITHUB_REPOSITORY_OWNER_ID" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --actor-id "$ACTOR_ID" \
+            --triggering-actor-id "$ACTOR_ID" \
+            --workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --tooling-sha "$TOOLING_SHA" \
+            --source-sha "$SOURCE_SHA" \
+            --main-sha "$MAIN_SHA" \
+            --source-is-ancestor true \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Write successful Internal TUN Alpha staging summary
+        env:
+          ARTIFACT_ID: ${{ needs.stage-internal-tun-alpha.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.freeze-source.outputs.internal_stage_artifact_name }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+          TOOLING_SHA: ${{ needs.freeze-source.outputs.tooling_sha }}
+        run: |
+          {
+            echo "## Immutable Internal TUN Alpha stage"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Workflow/tooling SHA | \`$TOOLING_SHA\` |"
+            echo "| Immutable artifact name | \`$ARTIFACT_NAME\` |"
+            echo "| Immutable artifact ID | \`$ARTIFACT_ID\` |"
+            echo "| Independent read-only verification | \`passed\` |"
+            echo "| Signing / notarization | \`ad-hoc / none\` |"
+            echo "| Distribution | \`private Internal TUN Alpha only\` |"
+            echo "| Public release or deployment | \`no\` |"
+            echo "| Retention | \`14 days\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   verify-signed-plan:

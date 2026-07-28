@@ -111,6 +111,45 @@ test("accepts only the closed disabled Internal TUN Alpha package", async () => 
   });
 });
 
+test("package build removes checkout paths and preserves the complete internal-only README", async () => {
+  const source = await readFile(
+    path.resolve(import.meta.dirname, "internal-tun-alpha-package.ts"),
+    "utf8",
+  );
+  for (const requirement of [
+    "CARGO_INCREMENTAL",
+    "--remap-path-prefix=${repositoryRoot}=.",
+    "--remap-path-prefix=${process.env.HOME}=~",
+    "SOURCE_DATE_EPOCH",
+    "Apple Silicon (arm64)",
+    "macOS 13 or newer",
+    "Open Anyway",
+    "administrator prompt",
+    "same-user key limitation",
+    "not a public release",
+    "Repair Internal TUN Alpha.command",
+    "Uninstall Internal TUN Alpha.command",
+  ]) {
+    assert.ok(source.includes(requirement), `Missing package boundary: ${requirement}`);
+  }
+  const downloadSource = await readFile(
+    path.resolve(import.meta.dirname, "development-mihomo.ts"),
+    "utf8",
+  );
+  for (const requirement of [
+    "downloadPinnedReleaseArchive",
+    "https://github.com/${release.repository}/releases/download/",
+    "release.archiveSha256",
+    "maximumArchiveBytes",
+  ]) {
+    assert.ok(
+      downloadSource.includes(requirement),
+      `Missing credential-free pinned Core boundary: ${requirement}`,
+    );
+  }
+  assert.equal(downloadSource.includes('execFileSync("gh"'), false);
+});
+
 test("rejects profile drift, unknown fields, mutable policy, and stale hashes", async () => {
   for (const mutate of [
     (manifest: Record<string, unknown>) => {

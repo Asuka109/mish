@@ -196,6 +196,22 @@ invariant(
     policy.actions.allowedReusableWorkflows.length === 0,
   "Protected runner, artifact retention, action pin, or reusable workflow policy drifted.",
 );
+invariant(
+  JSON.stringify(policy.internalTunAlpha) ===
+    JSON.stringify({
+      profile: "internal-tun-alpha",
+      sourceMustEqualFrozenMain: true,
+      candidateRetentionDays: 1,
+      stagedRetentionDays: 14,
+      requireIndependentReadOnlyVerification: true,
+      allowOverwrite: false,
+      allowDeveloperId: false,
+      allowNotarization: false,
+      allowPublicRelease: false,
+      allowDeployment: false,
+    }),
+  "Internal TUN Alpha immutable-staging and internal-only policy drifted.",
+);
 for (const [name, environment] of Object.entries(policy.protected.environments)) {
   invariant(
     JSON.stringify(environment.requiredReviewerIds) === JSON.stringify(["18379948"]) &&
@@ -251,8 +267,17 @@ invariant(
 );
 invariant(
   JSON.stringify(Object.keys(release.workflow.jobs ?? {})) ===
-    JSON.stringify(["freeze-source", "verify-candidate", "staging-decision", "verify-signed-plan"]),
-  "Protected execution is disabled; the release workflow may contain only read-only validation jobs.",
+    JSON.stringify([
+      "freeze-source",
+      "verify-candidate",
+      "staging-decision",
+      "build-internal-tun-candidate",
+      "verify-internal-tun-candidate",
+      "stage-internal-tun-alpha",
+      "confirm-internal-tun-stage",
+      "verify-signed-plan",
+    ]),
+  "Protected execution is disabled; the workflow may contain only credential-free validation and Internal TUN artifact staging jobs.",
 );
 invariant(
   !release.source.includes("dry_run") &&
@@ -272,10 +297,18 @@ invariant(
 );
 const verify = release.workflow.jobs?.["verify-candidate"];
 const decision = release.workflow.jobs?.["staging-decision"];
+const internalBuild = release.workflow.jobs?.["build-internal-tun-candidate"];
+const internalVerify = release.workflow.jobs?.["verify-internal-tun-candidate"];
+const internalStage = release.workflow.jobs?.["stage-internal-tun-alpha"];
+const internalConfirm = release.workflow.jobs?.["confirm-internal-tun-stage"];
 invariant(
   JSON.stringify(verify?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(decision?.permissions) === JSON.stringify({ contents: "read" }),
-  "Candidate build and decision must remain read-only.",
+    JSON.stringify(decision?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalBuild?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalVerify?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalStage?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalConfirm?.permissions) === JSON.stringify({ contents: "read" }),
+  "Candidate validation and Internal TUN staging must retain read-only repository permissions.",
 );
 invariant(
   JSON.stringify(verify?.["runs-on"]) === JSON.stringify("macos-15") &&
@@ -289,6 +322,32 @@ invariant(
     release.source.includes("merge-multiple: true") &&
     release.source.includes("retention-days: 1"),
   "Candidate manifest, immutable artifact ID, and bounded retention are incomplete.",
+);
+for (const requirement of [
+  "internal-tun-alpha-staging.ts assert-request",
+  "internal-tun-alpha-staging.ts prepare",
+  "verify-internal-tun-alpha-stage.ts verify",
+  "internal-tun-alpha-staging.ts finalize",
+  "--verification-artifact-name",
+  "verify-internal-tun-alpha-stage.ts confirm",
+  "overwrite: false",
+  "retention-days: 14",
+  "Public release or deployment",
+]) {
+  invariant(
+    release.source.includes(requirement),
+    `Internal TUN immutable staging boundary is missing ${requirement}.`,
+  );
+}
+invariant(
+  internalBuild?.["runs-on"] === "macos-15" &&
+    internalVerify?.["runs-on"] === "macos-15" &&
+    internalStage?.["runs-on"] === "ubuntu-24.04" &&
+    internalConfirm?.["runs-on"] === "macos-15" &&
+    !JSON.stringify([internalBuild, internalVerify, internalStage, internalConfirm]).includes(
+      "self-hosted",
+    ),
+  "Internal TUN staging must use only isolated GitHub-hosted runners.",
 );
 
 const codeowners = read(".github/CODEOWNERS");
@@ -309,6 +368,10 @@ invariant(
 invariant(
   packageJson.scripts?.["test:scripts"]?.includes("trusted-release-policy.test.ts"),
   "The Fast PR gate must run trusted release adversarial fixtures.",
+);
+invariant(
+  packageJson.scripts?.["test:scripts"]?.includes("internal-tun-alpha-staging.test.ts"),
+  "The Fast PR gate must run Internal TUN immutable-staging adversarial fixtures.",
 );
 invariant(
   packageJson.scripts?.["test:scripts"]?.includes("audit-github-trust-settings.test.ts"),
@@ -332,5 +395,5 @@ invariant(
 );
 
 console.log(
-  "Trusted CI policy valid: untrusted jobs are secretless and GitHub-hosted; live protected identity is disabled; workflow/tooling, immutable artifact, action pin, CODEOWNERS, Environment, OIDC, and runner contracts are deterministic.",
+  "Trusted CI policy valid: untrusted jobs are secretless and GitHub-hosted; live protected identity is disabled; Internal TUN staging binds frozen workflow/tooling to immutable artifact IDs without signing or publication; action pin, CODEOWNERS, Environment, OIDC, and runner contracts are deterministic.",
 );

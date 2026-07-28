@@ -103,6 +103,18 @@
     "rejectUnexpectedFiles": true,
     "requireImmutableArtifactId": true
   },
+  "internalTunAlpha": {
+    "profile": "internal-tun-alpha",
+    "sourceMustEqualFrozenMain": true,
+    "candidateRetentionDays": 1,
+    "stagedRetentionDays": 14,
+    "requireIndependentReadOnlyVerification": true,
+    "allowOverwrite": false,
+    "allowDeveloperId": false,
+    "allowNotarization": false,
+    "allowPublicRelease": false,
+    "allowDeployment": false
+  },
   "codeowners": {
     "owner": "@Asuka109",
     "requiredPaths": [
@@ -110,6 +122,11 @@
       "/scripts/audit-github-trust-settings.ts",
       "/scripts/audit-github-trust-settings.test.ts",
       "/scripts/trusted-release-policy.ts",
+      "/scripts/development-mihomo.ts",
+      "/scripts/prepare-mihomo.ts",
+      "/scripts/internal-tun-alpha-package.ts",
+      "/scripts/internal-tun-alpha-staging.ts",
+      "/scripts/verify-internal-tun-alpha-stage.ts",
       "/scripts/macos-signed-release.ts",
       "/scripts/macos-updater-contract.ts",
       "/docs/operations/trusted-release-boundary.md",

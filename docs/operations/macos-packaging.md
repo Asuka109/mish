@@ -118,6 +118,79 @@ layouts reject Internal TUN Alpha manifests, controllers, command resources,
 installation keys, and development Helper artifacts. Signing input never
 selects this package profile.
 
+### Immutable Internal TUN Alpha staging
+
+The manual **Validate macOS Release Candidate** workflow accepts the explicit
+`internal-tun-alpha` profile only at version
+`0.1.0-internal-tun-alpha.3`. Unlike the other credential-free validation
+profiles, this path requires the selected source to equal the frozen reviewed
+`main` workflow SHA exactly; an older ancestor, pull-request or merge ref, fork,
+arbitrary workflow revision, or mismatched tooling tree fails before packaging.
+The candidate build receives no secret, OIDC token, protected Environment,
+self-hosted runner, Developer ID identity, or publication permission.
+
+Staging uses four fail-closed phases:
+
+1. An isolated GitHub-hosted Apple Silicon runner builds the accepted package,
+   copies it into a link-rejecting fixed-time snapshot, creates a deterministic
+   read-only HFS+/ISO9660 hybrid disk image with a `.dmg` name,
+   generates SPDX 2.3 SBOM and SLSA v1/in-toto provenance, records exact
+   SHA-256 values, and uploads the candidate once.
+2. A separate Apple Silicon job downloads only that immutable candidate artifact
+   ID. The independent verifier mounts the DMG read-only and checks its complete
+   layout, owner/mode/link policy, Helper/Core/plist digests and versions,
+   controller command set, protocol and enrollment boundaries, profile
+   isolation, legal resources, lockfiles, SBOM, provenance, and SHA-256 set.
+3. A secretless Ubuntu job downloads the candidate and verification evidence by
+   their immutable IDs, binds them into one final manifest, and uploads the
+   final non-overwriting stage for 14 days.
+4. A fresh Apple Silicon job downloads the final stage by its immutable ID,
+   repeats the complete read-only DMG verification, and writes the success
+   summary only after that confirmation.
+
+The final private artifact contains one exact `candidate/` directory with:
+
+- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.3-arm64.dmg`;
+- the exact copied package manifest;
+- `internal-tun-alpha-sbom.spdx.json`;
+- `internal-tun-alpha-provenance.intoto.json`;
+- `SHA256SUMS.txt`;
+- the source/workflow/tooling/run-bound candidate manifest.
+
+It also contains exactly
+`verification/internal-tun-alpha-verification.json` and the root
+`internal-tun-alpha-stage-inputs.json` plus
+`internal-tun-alpha-stage-manifest.json`. The input record binds both immutable
+artifact IDs and names, the candidate bundle digest, verification-evidence
+digest, and run identity; the final manifest binds every candidate,
+verification, and input-record file.
+
+The provenance binds the frozen source, workflow/tooling SHA, repository and
+actor identity, run ID/attempt, package profile/version, Helper, Core,
+LaunchDaemon template, installation-identity scheme, protocol, supported
+architecture/macOS, `Cargo.lock`, `pnpm-lock.yaml`, `skills-lock.json`, relevant
+build sources, SBOM, package manifest, and final DMG digest. Uploads use
+`overwrite: false`; missing, partial, duplicate-role, stale-SHA, substituted,
+unexpected, or mismatched inputs fail before the final artifact exists. A later
+dispatch has a different run-bound artifact name and immutable artifact ID and
+cannot replace an earlier stage.
+
+This is private artifact staging, not a Git tag, GitHub Release, deployment,
+notarization request, Apple-trusted build, or public distribution. The workflow
+never installs the package or changes TUN, routes, DNS, or System Proxy. A
+billing/spending-limit condition or unavailable hosted macOS runner that
+allocates zero steps produces no final artifact and no successful staging
+summary; local reproduction remains evidence of implementation only, not a
+substitute hosted stage.
+
+For a local, credential-free reproduction on Apple Silicon, first build the
+package, then run the staging tool twice with the same explicit fixture
+identity and compare the DMG, SBOM, provenance, checksums, and candidate
+manifest byte-for-byte. Independently run
+`scripts/verify-internal-tun-alpha-stage.ts verify` against each candidate.
+These commands require only synthetic numeric artifact/run IDs; they must not
+use a real Developer ID identity, notary input, secret, or publication token.
+
 ### Packaged WebView Inspector
 
 Packaged macOS builds retain an explicit, process-local WebView Inspector
@@ -330,12 +403,13 @@ pnpm desktop:build:macos
 ```
 
 The command is an explicit alias for `alpha-ad-hoc`; it does not inspect Apple
-credentials to choose a layout. It downloads only the pinned Mihomo v1.19.29
-Darwin ARM64 release with `gh`, checks the published archive SHA-256 before
-extraction, signs the Core and application ad hoc, then enables the
-packaging-only Tauri resource configuration and builds `Mish.app`. Keeping
-generated resources out of the base Tauri configuration lets clean validation
-builds remain offline.
+credentials to choose a layout. It downloads only the exact Mihomo v1.19.29
+Darwin ARM64 asset from its versioned public release URL without authentication,
+checks the pinned archive SHA-256 before writing the cache or extracting it,
+checks the pinned binary SHA-256 after extraction, signs the Core and
+application ad hoc, then enables the packaging-only Tauri resource configuration
+and builds `Mish.app`. Keeping generated resources out of the base Tauri
+configuration lets clean validation builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
 byte-for-byte offline Web resource mirror, the repository's `LICENSE`,

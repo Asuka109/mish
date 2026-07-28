@@ -243,6 +243,76 @@ System Proxy SHA-256
 `a85bb673159212cb8d463b52c72baee4bf40693c2d5805b7a2a1ca6588984a18`,
 and the `utun0` through `utun7` baseline were unchanged.
 
+## Immutable Internal TUN Alpha staging evidence (Issue #299)
+
+The local delivery-boundary reproduction used Apple Silicon macOS and the
+accepted `0.1.0-internal-tun-alpha.3` package. It did not install the package,
+request administrator authorization, run Mihomo Core, change network state,
+read a secret, use a Developer ID identity, contact Apple, create a tag or
+Release, or publish an artifact.
+
+The package rebuild used fixed source-date and Rust path-remapping inputs. The
+result contained no absolute user or GitHub-runner checkout path. Its archive
+SHA-256 was
+`af044faaea9a80917e778c3a54720871553a7b026d051ce33f04ca18d8291667`;
+the package manifest SHA-256 was
+`87d1c3db28ff1288d96db4d245937cc9424c4900e1a62fecf58c12d3e9687470`.
+The manifest bound these exact privileged inputs:
+
+| Input                 | SHA-256                                                            |
+| --------------------- | ------------------------------------------------------------------ |
+| Lifecycle controller  | `1cbb658d4c827eb9292c82c14caec50636ec9ae6ce10ef1f033f085e971ae5e3` |
+| Helper                | `391c33ed01114e012cd69a6efd0ebae80efe386d796af4fd00a7b51560bd6703` |
+| Mihomo v1.19.29 Core  | `ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936` |
+| LaunchDaemon template | `9a66195d4e52ed6dc7493372b810b48a4c1aa8df7b5e885be16ba8a8354adee1` |
+
+Two candidate generations were separated across different wall-clock seconds
+and by an intervening complete package verification that changed source access
+times. Both used the same fixed synthetic workflow/run identity. The HFS+
+volume dates and volume identifier plus ISO9660 descriptor, directory-record,
+and system-use dates were normalized by reviewed tooling. The complete DMG,
+copied package manifest, SPDX SBOM, in-toto/SLSA provenance, checksum file, and
+candidate manifest were byte-identical. The DMG SHA-256 was
+`82f1da30f21950fdccca5b261d2fba38655db616609f015fbc646300542c201d`;
+the candidate bundle SHA-256 was
+`88fa6fbad3b862d5c74b1b2aa96bebd7d67bae7fa72f6177b1d403e9cba69690`.
+
+The independent verifier mounted both DMGs as read-only HFS filesystems and
+accepted only the closed 12-file package plus its manifest. It checked exact
+owner/mode/link state, thin ARM64 code, ad-hoc-only Mish signatures, Helper
+version 3, protocol version 3, the pinned Core version/digest, closed lifecycle
+actions, disabled `MISH_TUN_SERVICE_ALLOW_TUN=0`, enrollment/profile isolation,
+source-equal legal resources, README boundaries, SBOM, provenance, and
+SHA-256. Both verification evidence files were byte-identical at
+`9e10c56def40f6faec8447ed1ea9304dfcd14e1a39693332cca0ecec8194b16d`.
+
+The provenance separately bound the exact lockfiles:
+
+| Lockfile           | SHA-256                                                            |
+| ------------------ | ------------------------------------------------------------------ |
+| `Cargo.lock`       | `6a3ca60c868d0fa8d287965464c34562a2eb4d21f85936ba4f20508027e947fe` |
+| `pnpm-lock.yaml`   | `6e10fa592a1428a78489b92d6df7f8a33a254f7bbf08870160a1300727451e57` |
+| `skills-lock.json` | `37b2aef28fbcf70bd11b08b8e42323a481fb9b53d623c26de531f32f88391794` |
+
+The finalizer then bound candidate artifact fixture ID `456` and independent
+verification fixture ID `789` into one non-overwriting stage. A second
+read-only confirmation addressed the final fixture by immutable ID `999`,
+remounted the DMG, repeated all checks, and confirmed final bundle SHA-256
+`84ff13fbbf02d2ec02bf94a666f9d7540c2141570775ea307ca192044be82c6a`.
+The immutable input-binding record SHA-256 was
+`6467ee03e0c41f984a7ca5672db68c276e93942f5d887a98f77eda9014f03e73`;
+it records both source artifact IDs and names plus the candidate bundle,
+verification evidence, and run identity.
+These numeric IDs are deliberately synthetic local reproduction inputs; they
+are not represented as GitHub staging evidence.
+
+The read-only live GitHub trust audit observed latest `main` run
+`30331812868` with both package jobs at zero executed steps and status
+`disabled-fail-closed`. Consequently no hosted Internal TUN Alpha artifact is
+claimed here. A billing/spending-limit or unavailable hosted runner remains
+external infrastructure state until a post-merge manual `internal-tun-alpha`
+workflow run reaches the final confirmation job.
+
 ## Dynamic real-host network ownership (Issue #295)
 
 The 2026-07-27 run used the unique disposable clone

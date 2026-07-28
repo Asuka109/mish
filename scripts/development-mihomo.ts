@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
@@ -16,6 +16,7 @@ export interface MacOsMihomoRelease {
 
 export type DevelopmentMihomoFailure =
   | "archive-digest"
+  | "archive-download"
   | "binary-absent"
   | "binary-digest"
   | "binary-mode"
@@ -60,6 +61,63 @@ interface VerifyLocalDevelopmentMihomoOptions {
 
 function sha256(contents: Uint8Array): string {
   return createHash("sha256").update(contents).digest("hex");
+}
+
+const maximumArchiveBytes = 128 * 1024 * 1024;
+
+async function downloadPinnedReleaseArchive(release: MacOsMihomoRelease): Promise<Buffer> {
+  const url =
+    `https://github.com/${release.repository}/releases/download/` +
+    `${encodeURIComponent(release.version)}/${encodeURIComponent(release.asset)}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { accept: "application/octet-stream" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch {
+    throw new DevelopmentMihomoError(
+      "archive-download",
+      "The exact pinned development Core archive could not be downloaded.",
+    );
+  }
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength =
+    contentLengthHeader === null ? undefined : Number.parseInt(contentLengthHeader, 10);
+  if (
+    !response.ok ||
+    !response.url.startsWith("https://") ||
+    (contentLength !== undefined &&
+      (!Number.isSafeInteger(contentLength) ||
+        contentLength <= 0 ||
+        contentLength > maximumArchiveBytes)) ||
+    response.body === null
+  ) {
+    throw new DevelopmentMihomoError(
+      "archive-download",
+      "The exact pinned development Core archive response was rejected.",
+    );
+  }
+  const chunks: Buffer[] = [];
+  let receivedBytes = 0;
+  for await (const chunk of response.body) {
+    receivedBytes += chunk.byteLength;
+    if (receivedBytes > maximumArchiveBytes) {
+      throw new DevelopmentMihomoError(
+        "archive-download",
+        "The exact pinned development Core archive size was rejected.",
+      );
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  if (receivedBytes === 0) {
+    throw new DevelopmentMihomoError(
+      "archive-download",
+      "The exact pinned development Core archive was empty.",
+    );
+  }
+  return Buffer.concat(chunks, receivedBytes);
 }
 
 export async function readMacOsMihomoRelease(repositoryRoot: string): Promise<MacOsMihomoRelease> {
@@ -257,6 +315,7 @@ export async function preparePinnedDevelopmentMihomo(
   const release = await readMacOsMihomoRelease(repositoryRoot);
   const directory = path.join(repositoryRoot, ".scratch/mihomo", release.version);
   const archive = path.join(directory, release.asset);
+  const archiveTemporary = `${archive}.tmp-${process.pid}`;
   const binary = preparedDevelopmentMihomoPath(repositoryRoot, release);
   const temporary = `${binary}.tmp-${process.pid}`;
   await mkdir(directory, { recursive: true });
@@ -272,33 +331,28 @@ export async function preparePinnedDevelopmentMihomo(
   }
 
   let compressed = await readFile(archive).catch(() => null);
+  let downloaded = false;
   if (compressed && sha256(compressed) !== release.archiveSha256) {
     await unlink(archive);
     compressed = null;
   }
   if (!compressed) {
-    execFileSync(
-      "gh",
-      [
-        "release",
-        "download",
-        release.version,
-        "--repo",
-        release.repository,
-        "--pattern",
-        release.asset,
-        "--dir",
-        directory,
-      ],
-      { stdio: "inherit" },
-    );
-    compressed = await readFile(archive);
+    compressed = await downloadPinnedReleaseArchive(release);
+    downloaded = true;
   }
   if (sha256(compressed) !== release.archiveSha256) {
     throw new DevelopmentMihomoError(
       "archive-digest",
       "The downloaded development Core archive does not match the pinned SHA-256.",
     );
+  }
+  if (downloaded) {
+    try {
+      await writeFile(archiveTemporary, compressed, { mode: 0o644 });
+      await rename(archiveTemporary, archive);
+    } finally {
+      await unlink(archiveTemporary).catch(() => undefined);
+    }
   }
   const uncompressed = gunzipSync(compressed);
   if (sha256(uncompressed) !== release.binarySha256) {

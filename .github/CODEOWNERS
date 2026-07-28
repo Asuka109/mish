@@ -8,6 +8,13 @@
 /scripts/audit-github-trust-settings.test.ts @Asuka109
 /scripts/trusted-release-policy.ts @Asuka109
 /scripts/trusted-release-policy.test.ts @Asuka109
+/scripts/development-mihomo.ts @Asuka109
+/scripts/prepare-mihomo.ts @Asuka109
+/scripts/internal-tun-alpha-package.ts @Asuka109
+/scripts/internal-tun-alpha-package.test.ts @Asuka109
+/scripts/internal-tun-alpha-staging.ts @Asuka109
+/scripts/internal-tun-alpha-staging.test.ts @Asuka109
+/scripts/verify-internal-tun-alpha-stage.ts @Asuka109
 /scripts/macos-alpha-release.ts @Asuka109
 /scripts/macos-signed-direct-policy.ts @Asuka109
 /scripts/macos-signed-release.ts @Asuka109
