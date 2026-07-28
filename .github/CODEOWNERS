@@ -5,6 +5,7 @@
 /scripts/check-macos-alpha-release-workflow.ts @Asuka109
 /scripts/check-trusted-ci-policy.ts @Asuka109
 /scripts/audit-github-trust-settings.ts @Asuka109
+/scripts/audit-github-trust-settings.test.ts @Asuka109
 /scripts/trusted-release-policy.ts @Asuka109
 /scripts/trusted-release-policy.test.ts @Asuka109
 /scripts/macos-alpha-release.ts @Asuka109

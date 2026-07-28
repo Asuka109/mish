@@ -281,6 +281,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           artifact-ids: ${{ needs.verify-candidate.outputs.artifact_id }}
+          merge-multiple: true
           path: target/release-candidate
       - name: Verify candidate identity and complete digest set
         env:

@@ -108,6 +108,7 @@
     "requiredPaths": [
       "/.github/",
       "/scripts/audit-github-trust-settings.ts",
+      "/scripts/audit-github-trust-settings.test.ts",
       "/scripts/trusted-release-policy.ts",
       "/scripts/macos-signed-release.ts",
       "/scripts/macos-updater-contract.ts",

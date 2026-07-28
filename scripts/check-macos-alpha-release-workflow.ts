@@ -287,8 +287,9 @@ const download = step(decision, "Download exact immutable candidate");
 invariant(
   download.uses === pinnedActions.download &&
     download.with?.["artifact-ids"] === "${{ needs.verify-candidate.outputs.artifact_id }}" &&
+    download.with?.["merge-multiple"] === true &&
     download.with?.name === undefined,
-  "Alpha decision must download by immutable artifact ID, never mutable name.",
+  "Alpha decision must download by immutable artifact ID into the exact verified directory, never mutable name.",
 );
 invariant(
   step(decision, "Verify candidate identity and complete digest set").run?.includes(

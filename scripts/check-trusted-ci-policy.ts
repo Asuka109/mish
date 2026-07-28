@@ -286,6 +286,7 @@ invariant(
   release.source.includes("trusted-release-policy.ts create-manifest") &&
     release.source.includes("trusted-release-policy.ts verify-manifest") &&
     release.source.includes("artifact-ids: ${{ needs.verify-candidate.outputs.artifact_id }}") &&
+    release.source.includes("merge-multiple: true") &&
     release.source.includes("retention-days: 1"),
   "Candidate manifest, immutable artifact ID, and bounded retention are incomplete.",
 );
@@ -308,6 +309,10 @@ invariant(
 invariant(
   packageJson.scripts?.["test:scripts"]?.includes("trusted-release-policy.test.ts"),
   "The Fast PR gate must run trusted release adversarial fixtures.",
+);
+invariant(
+  packageJson.scripts?.["test:scripts"]?.includes("audit-github-trust-settings.test.ts"),
+  "The Fast PR gate must verify live GitHub trust-settings parsing.",
 );
 invariant(
   packageJson.scripts?.["audit:ci:trust-settings"] ===
