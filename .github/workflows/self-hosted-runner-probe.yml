@@ -149,7 +149,10 @@ jobs:
           restart_log="$HOME/.local/state/mish-runner/restart.log"
           [[ "$runner_root" == "$HOME/actions-runner/mish" ]]
           [[ -x "$runner_root/svc.sh" ]]
-          "$runner_root/svc.sh" status >/dev/null
+          (
+            cd "$runner_root"
+            ./svc.sh status >/dev/null
+          )
 
           /bin/mkdir -p "$HOME/.local/state/mish-runner"
           (
@@ -158,7 +161,7 @@ jobs:
               HOME="$HOME" \
               PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
               /bin/bash -c \
-              '/bin/sleep 10; "$1/svc.sh" stop; "$1/svc.sh" start' \
+              '/bin/sleep 10; cd "$1"; ./svc.sh stop; ./svc.sh start' \
               _ "$runner_root" \
               >"$restart_log" 2>&1 </dev/null &
           )
