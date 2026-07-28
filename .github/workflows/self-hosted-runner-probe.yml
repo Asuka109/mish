@@ -1,5 +1,4 @@
 name: Self-hosted runner probe
-# Concurrency probe B
 
 on:
   push:
@@ -21,7 +20,7 @@ jobs:
       github.actor == 'Asuka109' &&
       github.ref == 'refs/heads/codex/self-hosted-macos-runner'
     runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
-    timeout-minutes: 5
+    timeout-minutes: 90
     steps:
       - name: Check out the corrected hook revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -39,6 +38,25 @@ jobs:
             scripts/self-hosted-runner-job-started.sh \
             scripts/self-hosted-runner-job-completed.sh \
             "$hook_root/"
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.10.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run the final-shape pull-request gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/find .github/workflows/self-hosted-runner-probe.yml -delete
+          pnpm check:pr
+      - name: Build and verify the headless macOS package
+        run: pnpm desktop:build:macos
       - name: Inspect the existing runner without exposing local identity
         shell: bash
         run: |
@@ -142,6 +160,3 @@ jobs:
           /usr/bin/hdiutil create -quiet -size 4m -fs APFS -volname MishHookTest "$image"
           /usr/bin/hdiutil attach -quiet -readonly -nobrowse -noautoopen "$image"
           echo "post_hook_fixture=armed" >>"$GITHUB_STEP_SUMMARY"
-      - name: Wait for deliberate cancellation
-        shell: bash
-        run: /bin/sleep 300

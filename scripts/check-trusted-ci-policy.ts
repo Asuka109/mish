@@ -126,9 +126,7 @@ function assertTrustedSelfHostedJob(
       boundary.run?.includes(`"$RUNNER_NAME" = "${policy.trustedSelfHostedCi.runnerName}"`) &&
       boundary.run.includes('"$(id -u)" -ne 0') &&
       boundary.run.includes('"$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"') &&
-      boundary.run.includes(
-        '"$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"',
-      ) &&
+      boundary.run.includes('"$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"') &&
       boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
       boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED"),
     `${relative} ${jobName} does not fail closed on runner identity, non-root ownership, and hooks.`,
