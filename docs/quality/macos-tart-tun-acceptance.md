@@ -249,7 +249,7 @@ The 2026-07-28 acceptance used the uniquely named disposable clone
 `mish-298-transactional-20260728` on macOS 26.5 ARM64. The accepted `.4`
 baseline manifest SHA-256 was
 `4955c694bbc983c8591328f9736d13c150ded70532a3874fdd1c392e33001be2`.
-The final `.5` archive SHA-256 was
+The full transactional walkthrough used a pre-review `.5` archive SHA-256 of
 `731f75bbef949a83ff20002721d9cc0e8cafa8dc91cbea1d6a32d9a956e8ac9d`
 and its manifest SHA-256 was
 `342fa33c72749042bbe64b51847cbd689651a1005a8233fb516e4854e750c573`.
@@ -300,6 +300,23 @@ No Mish app, Helper, Core, or watchdog process remained. Ethernet DNS had no
 explicit server, System Proxy matched the original disabled dictionary, the
 default route was again `192.168.64.1` on `en0`, and the exact original
 `utun0` through `utun3` list and MTUs were restored.
+
+After review tightened administrator-cancellation Capture restoration and
+terminal-journal uninstall authorization, the final `.5` candidate was rebuilt
+with archive SHA-256
+`446e03d95397b168973ec4e847610a244417646cf68c01ef38aed7eeeb033eb9`
+and manifest SHA-256
+`6c8650b88a2b65bb3b94b52170af52538010a7fafdaed7e2a72b6a9578fcf5b5`.
+A focused rerun on the same disposable clone installed a clean `.4` service
+with generation 1, observed the expected `recovery-required` stale-version
+status from the final `.5` controller, and then uninstalled that healthy
+terminal-journal installation through the final controller. Status returned
+`not-installed`; all fixed root and user-owned TUN artifacts were absent; and
+Ethernet DNS, System Proxy, the `en0` default route, and `utun0` through
+`utun3` exactly matched the pre-install baseline. The final candidate's active
+Capture upgrade and native administrator-cancellation path remain part of the
+explicit human acceptance gate rather than being inferred from the focused
+rerun.
 
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 

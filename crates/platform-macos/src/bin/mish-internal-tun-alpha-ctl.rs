@@ -1,7 +1,9 @@
 use std::{
     cmp::Ordering,
     collections::BTreeSet,
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
     fs::{File, OpenOptions},
     future::Future,
     io::{Read, Write},
@@ -136,6 +138,19 @@ struct VerifiedPackage {
     manifest: PackageManifest,
     manifest_digest: String,
     root: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct PriorCaptureApplication {
+    manifest_digest: String,
+    package_root: PathBuf,
+    package_version: String,
+}
+
+#[derive(Clone, Debug)]
+struct MaintenanceCaptureContext {
+    evidence: MaintenanceCaptureEvidence,
+    prior_application: Option<PriorCaptureApplication>,
 }
 
 #[derive(Clone, Debug)]
@@ -1562,15 +1577,18 @@ fn package_failure(error: String) -> PackageFailure {
     }
 }
 
-fn terminate_running_mish_app(uid: u32) -> Result<(), String> {
+fn terminate_running_mish_app(
+    uid: u32,
+    receipt: &InstallationReceipt,
+) -> Result<PriorCaptureApplication, String> {
     let output = command_output(
         "/usr/bin/pgrep",
         &["-u", &uid.to_string(), "-x", "mish-desktop"],
     )?;
     if !output.status.success() {
-        return Ok(());
+        return Err("maintenance-app-process-identity-missing".into());
     }
-    let mut pids = Vec::new();
+    let mut processes = Vec::new();
     for value in String::from_utf8_lossy(&output.stdout).split_whitespace() {
         let pid = value
             .parse::<u32>()
@@ -1584,20 +1602,112 @@ fn terminate_running_mish_app(uid: u32) -> Result<(), String> {
         {
             return Err("maintenance-app-process-identity-rejected".into());
         }
-        pids.push(pid);
-    }
-    for pid in &pids {
-        if unsafe { libc::kill(*pid as i32, libc::SIGTERM) } != 0 {
-            return Err("maintenance-app-termination-failed".into());
+        let executable = PathBuf::from(executable);
+        let application = executable
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .filter(|path| path.file_name() == Some(OsStr::new("Mish.app")))
+            .ok_or_else(|| "maintenance-app-process-identity-rejected".to_string())?;
+        let package_root = application
+            .parent()
+            .ok_or_else(|| "maintenance-app-package-identity-rejected".to_string())?;
+        let verified = verify_package(package_root, uid)
+            .map_err(|_| "maintenance-app-package-identity-rejected".to_string())?;
+        if verified.root.join("Mish.app/Contents/MacOS/mish-desktop") != executable
+            || verified.manifest_digest != receipt.manifest_sha256
+            || verified.manifest.package_version != receipt.package_version
+        {
+            return Err("maintenance-app-package-identity-rejected".into());
         }
+        processes.push((
+            pid,
+            PriorCaptureApplication {
+                manifest_digest: verified.manifest_digest,
+                package_root: verified.root,
+                package_version: verified.manifest.package_version,
+            },
+        ));
+    }
+    if processes.len() != 1 {
+        return Err("maintenance-app-process-identity-ambiguous".into());
+    }
+    let (pid, prior_application) = processes
+        .pop()
+        .ok_or_else(|| "maintenance-app-process-identity-missing".to_string())?;
+    if unsafe { libc::kill(pid as i32, libc::SIGTERM) } != 0 {
+        return Err("maintenance-app-termination-failed".into());
     }
     for _ in 0..100 {
-        if pids.iter().all(|pid| !process_is_running(*pid)) {
-            return Ok(());
+        if !process_is_running(pid) {
+            return Ok(prior_application);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     Err("maintenance-app-termination-unconfirmed".into())
+}
+
+fn launch_prior_capture_application(
+    prior: &PriorCaptureApplication,
+    uid: u32,
+) -> Result<(), String> {
+    let reverified = verify_package(&prior.package_root, uid)
+        .map_err(|_| "maintenance-prior-app-package-identity-rejected".to_string())?;
+    if reverified.manifest_digest != prior.manifest_digest
+        || reverified.manifest.package_version != prior.package_version
+    {
+        return Err("maintenance-prior-app-package-identity-mismatch".into());
+    }
+    let application = reverified.root.join("Mish.app");
+    validate_directory(&application, uid, false)?;
+    Command::new("/usr/bin/open")
+        .arg("-n")
+        .arg(&application)
+        .status()
+        .map_err(|_| "maintenance-prior-app-relaunch-unavailable")?
+        .success()
+        .then_some(())
+        .ok_or_else(|| "maintenance-prior-app-relaunch-failed".into())
+}
+
+fn restore_capture_after_authorization_cancellation(
+    capture: &MaintenanceCaptureContext,
+    home: &Path,
+    uid: u32,
+    operation_id: &str,
+) -> Result<(), String> {
+    restore_capture_after_authorization_cancellation_with(
+        capture,
+        home,
+        uid,
+        operation_id,
+        launch_prior_capture_application,
+    )
+}
+
+fn restore_capture_after_authorization_cancellation_with<F>(
+    capture: &MaintenanceCaptureContext,
+    home: &Path,
+    uid: u32,
+    operation_id: &str,
+    launch: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&PriorCaptureApplication, u32) -> Result<(), String>,
+{
+    if !capture.evidence.restore_capture_on_app_start {
+        return Ok(());
+    }
+    let prior = capture
+        .prior_application
+        .as_ref()
+        .ok_or_else(|| "maintenance-prior-app-identity-missing".to_string())?;
+    write_capture_restore_marker(home, uid, operation_id, prior.package_version.as_str())?;
+    if let Err(error) = launch(prior, uid) {
+        let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn write_capture_restore_marker(
@@ -1640,16 +1750,19 @@ async fn maintenance_capture_evidence(
     observed: ObservedPackageState,
     operation_id: &str,
     uid: u32,
-) -> Result<MaintenanceCaptureEvidence, String> {
+) -> Result<MaintenanceCaptureContext, String> {
     if observed == ObservedPackageState::Absent {
         let disabled = TunNetworkObservation::disabled(tun_observation_now());
-        return Ok(MaintenanceCaptureEvidence {
-            accepted_operation_id: format!("{operation_id}:absent"),
-            after: disabled.clone(),
-            before: disabled,
-            core_was_running: false,
-            network_ownership_record_sha256: None,
-            restore_capture_on_app_start: false,
+        return Ok(MaintenanceCaptureContext {
+            evidence: MaintenanceCaptureEvidence {
+                accepted_operation_id: format!("{operation_id}:absent"),
+                after: disabled.clone(),
+                before: disabled,
+                core_was_running: false,
+                network_ownership_record_sha256: None,
+                restore_capture_on_app_start: false,
+            },
+            prior_application: None,
         });
     }
     let client = MacOsTunServiceClient::development();
@@ -1657,19 +1770,26 @@ async fn maintenance_capture_evidence(
         .admit_maintenance_reconciliation(operation_id)
         .await
         .map_err(str::to_string)?;
-    if admission.core_was_running() {
-        terminate_running_mish_app(uid)?;
-    }
+    let prior_application = if admission.core_was_running() {
+        let receipt = read_optional_root_receipt()?
+            .ok_or_else(|| "maintenance-prior-receipt-missing".to_string())?;
+        Some(terminate_running_mish_app(uid, &receipt)?)
+    } else {
+        None
+    };
     match client.complete_maintenance_reconciliation(admission).await {
-        Ok(evidence) => Ok(MaintenanceCaptureEvidence {
-            accepted_operation_id: evidence.accepted_operation_id,
-            after: evidence.after,
-            restore_capture_on_app_start: evidence
-                .before
-                .confirms_enabled_at(evidence.before.observed_at),
-            before: evidence.before,
-            core_was_running: evidence.core_was_running,
-            network_ownership_record_sha256: network_ownership_record_digest()?,
+        Ok(evidence) => Ok(MaintenanceCaptureContext {
+            evidence: MaintenanceCaptureEvidence {
+                accepted_operation_id: evidence.accepted_operation_id,
+                after: evidence.after,
+                restore_capture_on_app_start: evidence
+                    .before
+                    .confirms_enabled_at(evidence.before.observed_at),
+                before: evidence.before,
+                core_was_running: evidence.core_was_running,
+                network_ownership_record_sha256: network_ownership_record_digest()?,
+            },
+            prior_application,
         }),
         Err(error) => Err(error.into()),
     }
@@ -1766,7 +1886,10 @@ async fn run_package_lifecycle(
             if observed == ObservedPackageState::RepairRequired
                 && action == UserAction::Uninstall =>
         {
-            privileged_uninstall_capture_evidence(&operation_id)?
+            MaintenanceCaptureContext {
+                evidence: privileged_uninstall_capture_evidence(&operation_id)?,
+                prior_application: None,
+            }
         }
         Err(initial_error) if observed == ObservedPackageState::RepairRequired => {
             recover_interrupted_maintenance_before_capture(
@@ -1793,7 +1916,7 @@ async fn run_package_lifecycle(
         PackageState::initial(observed),
         Arc::new(PackageLifecycleExecutor {
             action,
-            capture: capture.clone(),
+            capture: capture.evidence.clone(),
             failure_injection,
             gid,
             home: home.to_path_buf(),
@@ -1827,9 +1950,9 @@ async fn run_package_lifecycle(
             projection => break projection,
         }
     };
-    let result = match projection {
+    let mut result = match projection {
         PackageProjection::HealthyDisabled(success) => {
-            if capture.restore_capture_on_app_start {
+            if capture.evidence.restore_capture_on_app_start {
                 write_capture_restore_marker(
                     home,
                     uid,
@@ -1839,7 +1962,7 @@ async fn run_package_lifecycle(
                 launch_candidate_application(package)?;
             }
             Ok(json!({
-                "captureRestore": capture.restore_capture_on_app_start,
+                "captureRestore": capture.evidence.restore_capture_on_app_start,
                 "generation": success.generation,
                 "installationId": success.installation_id,
                 "keyId": success.key_id,
@@ -1859,7 +1982,13 @@ async fn run_package_lifecycle(
         PackageProjection::InFlight { .. } => unreachable!("loop exits only for terminal states"),
     };
     let _ = runner.shutdown().await;
-    if result.is_err() && capture.restore_capture_on_app_start {
+    if result.as_ref().err().map(String::as_str) == Some("administrator-authorization-cancelled") {
+        if restore_capture_after_authorization_cancellation(&capture, home, uid, &operation_id)
+            .is_err()
+        {
+            result = Err("administrator-cancellation-capture-restore-failed".into());
+        }
+    } else if result.is_err() && capture.evidence.restore_capture_on_app_start {
         // The prior app was stopped before privileged replacement. A failed transaction remains
         // network-disabled; opening the candidate exposes the journal-backed Repair Required
         // notification without guessing or replaying Capture.
@@ -3206,8 +3335,11 @@ async fn privileged_uninstall(
     _home: &Path,
 ) -> Result<serde_json::Value, String> {
     match read_root_maintenance_journal() {
-        Ok(Some(journal)) if journal.intent.installing_uid == uid => {}
-        Ok(Some(_)) => return Err("maintenance-uninstall-owner-rejected".into()),
+        Ok(Some(journal)) if journal.intent.installing_uid != uid => {
+            return Err("maintenance-uninstall-owner-rejected".into());
+        }
+        Ok(Some(journal)) if !journal.is_terminal() => {}
+        Ok(Some(_)) => validate_uninstall_authorization(uid)?,
         Ok(None) | Err(_) => validate_uninstall_authorization(uid)?,
     }
     recover_managed_network_record(Path::new(DEV_TUN_SERVICE_ENROLLMENT_PATH), 0)
@@ -3649,6 +3781,87 @@ mod tests {
             privileged_failure_code(r#"{"code":"ignored","ok":true}"#),
             None
         );
+    }
+
+    #[test]
+    fn administrator_cancellation_never_guesses_missing_capture_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let home = fs::canonicalize(temporary.path()).unwrap();
+        let uid = unsafe { libc::getuid() };
+        let disabled = TunNetworkObservation::disabled(1);
+        let mut capture = MaintenanceCaptureContext {
+            evidence: MaintenanceCaptureEvidence {
+                accepted_operation_id: Uuid::nil().to_string(),
+                after: disabled.clone(),
+                before: disabled,
+                core_was_running: true,
+                network_ownership_record_sha256: None,
+                restore_capture_on_app_start: true,
+            },
+            prior_application: None,
+        };
+        assert_eq!(
+            restore_capture_after_authorization_cancellation(
+                &capture,
+                &home,
+                uid,
+                &Uuid::nil().to_string(),
+            )
+            .unwrap_err(),
+            "maintenance-prior-app-identity-missing"
+        );
+        assert!(!capture_restore_path(&home).exists());
+
+        capture.evidence.restore_capture_on_app_start = false;
+        restore_capture_after_authorization_cancellation(
+            &capture,
+            &home,
+            uid,
+            &Uuid::nil().to_string(),
+        )
+        .unwrap();
+        assert!(!capture_restore_path(&home).exists());
+
+        ensure_private_runtime(&home, uid).unwrap();
+        capture.evidence.restore_capture_on_app_start = true;
+        capture.prior_application = Some(PriorCaptureApplication {
+            manifest_digest: "a".repeat(64),
+            package_root: home.join("prior-package"),
+            package_version: "0.1.0-internal-tun-alpha.4".into(),
+        });
+        let launched = std::cell::Cell::new(false);
+        restore_capture_after_authorization_cancellation_with(
+            &capture,
+            &home,
+            uid,
+            &Uuid::nil().to_string(),
+            |prior, launched_uid| {
+                assert_eq!(launched_uid, uid);
+                assert_eq!(prior.package_version, "0.1.0-internal-tun-alpha.4");
+                launched.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(launched.get());
+        let marker: CaptureRestoreMarker =
+            serde_json::from_slice(&fs::read(capture_restore_path(&home)).unwrap()).unwrap();
+        assert_eq!(marker.package_version, "0.1.0-internal-tun-alpha.4");
+        assert_eq!(marker.operation_id, Uuid::nil().to_string());
+
+        assert_eq!(
+            restore_capture_after_authorization_cancellation_with(
+                &capture,
+                &home,
+                uid,
+                &Uuid::nil().to_string(),
+                |_, _| Err("maintenance-prior-app-relaunch-failed".into()),
+            )
+            .unwrap_err(),
+            "maintenance-prior-app-relaunch-failed"
+        );
+        assert!(!capture_restore_path(&home).exists());
     }
 
     #[test]
