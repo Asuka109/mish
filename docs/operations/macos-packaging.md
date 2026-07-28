@@ -66,7 +66,8 @@ cannot resist malware or another process already running as the same user.
 After extracting the archive on the target Mac, use only its visible resources:
 
 1. Double-click **Install Internal TUN Alpha.command** and approve the native
-   administrator dialog.
+   administrator dialog. A cold first launch may take up to 15 seconds while
+   launchd and Gatekeeper make the private Helper socket ready.
 2. Run **Health Internal TUN Alpha.command**. It must report
    `"state":"healthy-disabled"` with protocol version `3`, the exact package
    installation identity, and matching P-256 key identifier and generation.

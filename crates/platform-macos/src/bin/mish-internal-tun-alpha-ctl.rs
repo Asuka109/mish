@@ -2,6 +2,7 @@ use std::{
     collections::BTreeSet,
     env, fs,
     fs::{File, OpenOptions},
+    future::Future,
     io::{Read, Write},
     os::unix::{
         ffi::OsStrExt,
@@ -9,6 +10,7 @@ use std::{
     },
     path::{Path, PathBuf},
     process::{Command, Output},
+    time::Duration,
 };
 
 use mish_platform_macos::{
@@ -51,6 +53,8 @@ const UID_PLACEHOLDER: &str = "__MISH_ALLOWED_UID__";
 const RUNTIME_ROOT_PLACEHOLDER: &str = "__MISH_RUNTIME_ROOT_XML__";
 const SOCKET_PLACEHOLDER: &str = "__MISH_SOCKET__";
 const TART_TERMINAL_AUTHORIZATION: &str = "--tart-terminal-authorization";
+const POST_INSTALL_HEALTH_ATTEMPTS: usize = 151;
+const POST_INSTALL_HEALTH_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 const EXPECTED_PACKAGE_FILES: &[(&str, u32, &str)] = &[
     ("Health Internal TUN Alpha.command", 0o755, "health"),
@@ -809,6 +813,32 @@ fn validate_staged_privileged_controller(
     Ok(())
 }
 
+async fn retry_post_install_health<F, Fut>(
+    mut health_probe: F,
+    attempts: usize,
+    retry_delay: Duration,
+) -> Result<serde_json::Value, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<serde_json::Value, String>>,
+{
+    if attempts == 0 {
+        return Err("post-install-health-attempts-invalid".into());
+    }
+    for attempt in 0..attempts {
+        match health_probe().await {
+            Ok(value) => return Ok(value),
+            Err(error)
+                if error == "core-host-unavailable" && attempt.saturating_add(1) < attempts =>
+            {
+                tokio::time::sleep(retry_delay).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("the bounded post-install health loop always returns")
+}
+
 async fn install_or_repair(
     action: UserAction,
     package: &VerifiedPackage,
@@ -877,7 +907,13 @@ async fn install_or_repair(
         ));
     }
 
-    let health = match health(package, uid, home).await {
+    let health = match retry_post_install_health(
+        || health(package, uid, home),
+        POST_INSTALL_HEALTH_ATTEMPTS,
+        POST_INSTALL_HEALTH_RETRY_DELAY,
+    )
+    .await
+    {
         Ok(value) => value,
         Err(error) => {
             let authorized_cleanup = run_authorized(
@@ -1873,6 +1909,44 @@ mod tests {
                 installing_uid: uid,
             },
         )
+    }
+
+    #[tokio::test]
+    async fn post_install_health_retries_only_startup_unavailable() {
+        let mut startup_calls = 0;
+        let health = retry_post_install_health(
+            || {
+                startup_calls += 1;
+                let attempt = startup_calls;
+                async move {
+                    if attempt < 3 {
+                        Err("core-host-unavailable".into())
+                    } else {
+                        Ok(json!({ "state": "healthy-disabled" }))
+                    }
+                }
+            },
+            3,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(startup_calls, 3);
+        assert_eq!(health["state"], "healthy-disabled");
+
+        let mut fatal_calls = 0;
+        let error = retry_post_install_health(
+            || {
+                fatal_calls += 1;
+                async { Err::<serde_json::Value, String>("core-host-protocol-mismatch".into()) }
+            },
+            3,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(fatal_calls, 1);
+        assert_eq!(error, "core-host-protocol-mismatch");
     }
 
     #[test]

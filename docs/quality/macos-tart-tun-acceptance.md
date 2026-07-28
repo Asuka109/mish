@@ -156,10 +156,10 @@ Helper/Core download. Lifecycle commands ran with
 projection was rejected because its root-view ownership differed from the
 invoking UID, with no installed state left behind.
 
-The final `0.1.0-internal-tun-alpha.2` archive SHA-256 was
-`0b189b156468b386ecb0a6ab67ef3cfeb9d2c34978d10c40fa6f1ef8d066752a`;
+The final `0.1.0-internal-tun-alpha.3` archive SHA-256 was
+`4222c2b4c245e0fc5dc16fd796751e8b7925c4121662fbdcd0b61d2e3ac4e958`;
 its manifest SHA-256 was
-`4d064e60219c937f7c549ed2b0a9d77f4c3410072327024821f7f94c50b8f009`.
+`0c529b3cc3cb309ebeb87e511ed9ea784b90922264a2978f2121adff29518417`.
 Two consecutive builds produced both exact digests. Live package verification
 confirmed three thin ARM64 Mach-O executables, ad-hoc-only Mish controller and
 Helper signatures with no Team Identifier, Helper contract version 3, and the
@@ -169,7 +169,7 @@ The explicit Tart terminal-authorization boundary installed the package and
 returned `healthy-disabled`. The Cirrus base image configures passwordless
 `sudo`, so this run confirms the fixed root transaction but does not claim a
 visible password prompt; the ordinary package command still uses the native
-administrator dialog and remains pending maintainer hands-on acceptance.
+administrator dialog, which was later verified on the maintainer Mac.
 
 The controller was copied first to the private mode-`0500` user staging path
 and then to a root-owned mode-`0700` temporary directory. The root copy was
@@ -222,6 +222,26 @@ active/pending client keys were absent. No Mish Helper or Core process
 remained. The host Mac received no Helper installation or network mutation,
 and the disposable post-review clone was stopped and deleted after retaining
 this redacted evidence. Only the two stopped official OCI base caches remained.
+
+Later maintainer hands-on testing reproduced a real-host cold-start race on
+the `.2` controller. Root artifacts appeared at 12:50:13, launchd reported the
+Helper process at 12:50:14, and the private socket became ready at 12:50:15.
+The one-shot post-install Health probe ran before that socket existed, reported
+`core-host-unavailable`, and correctly rolled the installation back. The `.3`
+controller retries only that unavailable state for a bounded 15-second
+readiness window. Its new regression test first failed against the one-shot
+implementation and then passed with the bounded retry; protocol and trust
+errors remain non-retryable.
+
+The exact `.3` package then installed successfully through the visible native
+administrator dialog on the maintainer Mac. Health reported protocol 3,
+Helper version 3, generation 1, and `healthy-disabled`; Status reported
+`installed`; launchd kept only the Helper running and no Mihomo Core process
+existed. DNS SHA-256
+`fb0adf456747ca84c2c407b20d20eedc79f993e5c3b8850a850b2d71b834b968`,
+System Proxy SHA-256
+`a85bb673159212cb8d463b52c72baee4bf40693c2d5805b7a2a1ca6588984a18`,
+and the `utun0` through `utun7` baseline were unchanged.
 
 ## Dynamic real-host network ownership (Issue #295)
 

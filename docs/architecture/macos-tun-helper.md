@@ -141,6 +141,13 @@ requires those receipts and fixed installed artifacts to match, then requires
 an authenticated protocol-v3 status with no Core and a fresh disabled network
 observation.
 
+After the privileged transaction returns, install and repair allow a bounded
+15-second readiness window for a cold launchd/Gatekeeper start. Only
+`core-host-unavailable` is retried; artifact, receipt, enrollment, protocol,
+identity, or disabled-observation failures still fail immediately and trigger
+the same confirmed rollback. This prevents a healthy delayed socket from being
+misclassified without weakening any trust check.
+
 Uninstall reads and validates the root enrollment and receipt before any
 `launchctl` stop or global filesystem mutation. Both records must authorize
 the requesting UID and agree on installation identity, key identifier, and
