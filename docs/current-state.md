@@ -1,7 +1,7 @@
 # Current Repository State
 
-Refreshed 2026-07-27 against `main` at
-`014480e9d2ec896781ea4443c6cc44303f16bdfe`.
+Refreshed 2026-07-28 against `main` at
+`fed0edc1be1ac1dddc0b07fef692221b20dc12ca`.
 
 This page is the short integration checkpoint for maintainers. It summarizes
 verified implementation, intentionally unavailable capabilities, current
@@ -103,6 +103,17 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
 ### macOS Packaging and Updates
 
 - `alpha-ad-hoc` builds a credential-free Apple Silicon System Proxy-only DMG.
+- `internal-tun-alpha` builds the accepted Apple Silicon, macOS 13+,
+  Developer-ID-free Helper/Core service package for explicitly trusted internal
+  Macs. It installs only through visible administrator authorization, remains
+  healthy-disabled, exposes no network-mutation command, and retains the
+  file-backed same-user-key limitation.
+- The manual reviewed-main workflow has a separate credential-free Internal TUN
+  staging lane. It binds the exact frozen source/workflow/tooling revision,
+  package inputs, lockfiles, SBOM, provenance, DMG digest, and run identity,
+  independently verifies the downloaded DMG read-only, and uploads a
+  non-overwriting private 14-day artifact only after complete evidence exists.
+  This lane is neither Developer ID signing nor public release publication.
 - `signed-direct` has a credential-free policy, bundle-shape, identity, and
   deterministic fixture foundation. The repository-wide trust policy now pins
   workflow dependencies, moves untrusted PR code off the self-hosted runner,
@@ -144,6 +155,10 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
 - Intel macOS support or production Android, iOS, Windows, or Linux releases.
 - Evidence that the current `main` packaging workflow can execute under the
   repository's present hosted Actions account state.
+- A successful hosted immutable Internal TUN Alpha stage while the repository
+  billing/spending-limit or macOS-runner allocation condition remains
+  unresolved. Local deterministic reproduction is not substituted for that
+  external artifact state.
 
 ## Review Concerns
 

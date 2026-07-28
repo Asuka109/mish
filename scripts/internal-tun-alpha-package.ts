@@ -400,7 +400,13 @@ const readme = `Mish Internal TUN Alpha
 
 This Developer-ID-free package is for explicitly trusted internal distribution.
 It is ad-hoc signed, not Apple-trusted, not notarized, and not a public release.
-Gatekeeper may require one package-scoped Open Anyway confirmation.
+It supports Apple Silicon (arm64) on macOS 13 or newer. It is not for Intel Macs
+or public redistribution.
+
+Gatekeeper may require one package-scoped Open Anyway confirmation. After
+verifying the published SHA-256 and immutable run identity, Control-click the
+command, choose Open, or use System Settings > Privacy & Security > Open Anyway
+for this package only. Never disable Gatekeeper globally.
 
 Double-click Install Internal TUN Alpha.command and approve the visible macOS
 administrator prompt. Installation starts healthy and disabled. It does not
@@ -408,13 +414,17 @@ enable TUN, change routes, DNS, System Proxy, or other network state.
 
 Use Health Internal TUN Alpha.command to verify the exact package manifest,
 installed Helper/Core/LaunchDaemon/receipts, P-256 enrollment, protocol, and a
-fresh disabled observation. Repair replaces only fixed Mish-owned artifacts.
-Uninstall removes the service, Core, socket, receipts, enrollment, and client
-key while preserving unrelated system and user state.
+fresh disabled observation. If health fails, Repair Internal TUN Alpha.command
+is the bounded recovery path and replaces only fixed Mish-owned artifacts.
+Uninstall Internal TUN Alpha.command removes the service, Core, socket,
+receipts, enrollment, and client key while preserving unrelated system and user
+state. A partial or foreign installation fails closed; restore the matching
+package evidence before retrying repair or uninstall.
 
 The private P-256 key is a user-owned mode-0600 file. This blocks clients that
 cannot read it, but it cannot resist malware or another process already running
-as the same user. Do not treat this package as production trust.
+as the same user. This same-user key limitation is not application identity.
+Do not treat this package as production trust.
 `;
 
 async function copyWithMode(source: string, destination: string, mode: number): Promise<void> {
@@ -510,7 +520,18 @@ export async function buildInternalTunAlphaPackage(): Promise<{
       "--bin",
       "mish-internal-tun-alpha-ctl",
     ],
-    { stdio: "inherit" },
+    {
+      env: {
+        ...process.env,
+        CARGO_INCREMENTAL: "0",
+        RUSTFLAGS: [
+          `--remap-path-prefix=${repositoryRoot}=.`,
+          ...(process.env.HOME ? [`--remap-path-prefix=${process.env.HOME}=~`] : []),
+        ].join(" "),
+        SOURCE_DATE_EPOCH: String(Math.floor(fixedTimestamp.getTime() / 1000)),
+      },
+      stdio: "inherit",
+    },
   );
 
   const outputParent = path.join(repositoryRoot, "target/internal-tun-alpha");

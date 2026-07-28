@@ -127,7 +127,8 @@ invariant(
   inputs.profile?.required === true &&
     inputs.profile.type === "choice" &&
     inputs.profile.default === "alpha-ad-hoc" &&
-    JSON.stringify(inputs.profile.options) === JSON.stringify(["alpha-ad-hoc", "signed-direct"]),
+    JSON.stringify(inputs.profile.options) ===
+      JSON.stringify(["alpha-ad-hoc", "internal-tun-alpha", "signed-direct"]),
   "Release validation must require one explicit credential-free profile.",
 );
 invariant(
@@ -149,7 +150,16 @@ invariant(
 );
 invariant(
   JSON.stringify(Object.keys(workflow.jobs ?? {})) ===
-    JSON.stringify(["freeze-source", "verify-candidate", "staging-decision", "verify-signed-plan"]),
+    JSON.stringify([
+      "freeze-source",
+      "verify-candidate",
+      "staging-decision",
+      "build-internal-tun-candidate",
+      "verify-internal-tun-candidate",
+      "stage-internal-tun-alpha",
+      "confirm-internal-tun-stage",
+      "verify-signed-plan",
+    ]),
   "The disabled release workflow may contain only credential-free validation jobs.",
 );
 
@@ -242,6 +252,12 @@ for (const binding of [
     `Trusted dispatch verification is missing ${binding}.`,
   );
 }
+invariant(
+  step(freeze, "Require exact frozen main for Internal TUN Alpha").run?.includes(
+    "internal-tun-alpha-staging.ts assert-request",
+  ),
+  "Internal TUN Alpha must reject stale or non-main source revisions before building.",
+);
 
 const verify = job("verify-candidate");
 invariant(
@@ -302,6 +318,127 @@ invariant(
       "Project-trusted release",
     ),
   "Alpha decision must rebind the complete candidate and state that it is untrusted.",
+);
+
+const internalBuild = job("build-internal-tun-candidate");
+const internalBuildSource = JSON.stringify(internalBuild);
+invariant(
+  internalBuild.if === "${{ inputs.profile == 'internal-tun-alpha' }}" &&
+    internalBuild.needs === "freeze-source" &&
+    internalBuild["runs-on"] === "macos-15" &&
+    !internalBuildSource.includes("GH_TOKEN") &&
+    !internalBuildSource.includes("github.token") &&
+    !internalBuildSource.includes("${{ secrets."),
+  "Internal TUN candidate build must be explicit, frozen, credential-free, and GitHub-hosted.",
+);
+assertOrdered(
+  internalBuild,
+  [
+    "Run complete repository validation",
+    "Build accepted Internal TUN Alpha package",
+    "Build deterministic DMG, SBOM, provenance, and immutable candidate manifest",
+    "Upload immutable-ID-addressed Internal TUN candidate",
+  ],
+  "Internal TUN validation, package, evidence, and upload order changed.",
+);
+const internalCandidateUpload = step(
+  internalBuild,
+  "Upload immutable-ID-addressed Internal TUN candidate",
+);
+invariant(
+  internalCandidateUpload.id === "candidate-upload" &&
+    internalCandidateUpload.uses === pinnedActions.upload &&
+    internalCandidateUpload.with?.overwrite === false &&
+    internalCandidateUpload.with?.["if-no-files-found"] === "error" &&
+    internalCandidateUpload.with?.["retention-days"] === 1 &&
+    internalBuild.outputs?.artifact_id === "${{ steps.candidate-upload.outputs.artifact-id }}",
+  "Internal TUN candidate upload must be fail-closed, non-overwriting, and ID-addressed.",
+);
+
+const internalVerify = job("verify-internal-tun-candidate");
+invariant(
+  JSON.stringify(internalVerify.needs) ===
+    JSON.stringify(["freeze-source", "build-internal-tun-candidate"]) &&
+    internalVerify["runs-on"] === "macos-15",
+  "Independent Internal TUN verification must use the exact candidate on macOS.",
+);
+invariant(
+  step(internalVerify, "Download exact immutable Internal TUN candidate").with?.["artifact-ids"] ===
+    "${{ needs.build-internal-tun-candidate.outputs.artifact_id }}" &&
+    step(
+      internalVerify,
+      "Verify archive, layout, identity, protocol, SBOM, and provenance read-only",
+    ).run?.includes("verify-internal-tun-alpha-stage.ts verify"),
+  "Internal TUN verification must download by immutable ID and use the independent verifier.",
+);
+const verificationUpload = step(internalVerify, "Upload immutable verification evidence");
+invariant(
+  verificationUpload.id === "verification-upload" &&
+    verificationUpload.uses === pinnedActions.upload &&
+    verificationUpload.with?.overwrite === false &&
+    verificationUpload.with?.["retention-days"] === 1,
+  "Internal TUN verification evidence must be immutable and one-day retained.",
+);
+
+const internalStage = job("stage-internal-tun-alpha");
+invariant(
+  JSON.stringify(internalStage.needs) ===
+    JSON.stringify([
+      "freeze-source",
+      "build-internal-tun-candidate",
+      "verify-internal-tun-candidate",
+    ]) && internalStage["runs-on"] === "ubuntu-24.04",
+  "Internal TUN staging must depend on both immutable candidate and verification artifacts.",
+);
+assertOrdered(
+  internalStage,
+  [
+    "Download exact candidate by immutable ID",
+    "Download exact verification by immutable ID",
+    "Bind candidate and verification into one final immutable stage",
+    "Upload final immutable Internal TUN Alpha stage",
+  ],
+  "Internal TUN final staging order changed.",
+);
+const stageUpload = step(internalStage, "Upload final immutable Internal TUN Alpha stage");
+invariant(
+  step(
+    internalStage,
+    "Bind candidate and verification into one final immutable stage",
+  ).run?.includes("--verification-artifact-name") &&
+    stageUpload.id === "stage-upload" &&
+    stageUpload.uses === pinnedActions.upload &&
+    stageUpload.with?.overwrite === false &&
+    stageUpload.with?.["if-no-files-found"] === "error" &&
+    stageUpload.with?.["retention-days"] === 14 &&
+    internalStage.outputs?.artifact_id === "${{ steps.stage-upload.outputs.artifact-id }}",
+  "Internal TUN final stage must be non-overwriting, ID-addressed, and 14-day retained.",
+);
+
+const internalConfirmation = job("confirm-internal-tun-stage");
+invariant(
+  JSON.stringify(internalConfirmation.needs) ===
+    JSON.stringify(["freeze-source", "stage-internal-tun-alpha"]) &&
+    internalConfirmation["runs-on"] === "macos-15",
+  "Internal TUN success must require a final read-only macOS confirmation.",
+);
+assertOrdered(
+  internalConfirmation,
+  [
+    "Download final stage by immutable ID",
+    "Reverify final stage and DMG read-only",
+    "Write successful Internal TUN Alpha staging summary",
+  ],
+  "Internal TUN final confirmation and success-summary order changed.",
+);
+invariant(
+  step(internalConfirmation, "Reverify final stage and DMG read-only").run?.includes(
+    "verify-internal-tun-alpha-stage.ts confirm",
+  ) &&
+    JSON.stringify(
+      step(internalConfirmation, "Write successful Internal TUN Alpha staging summary"),
+    ).includes("Public release or deployment"),
+  "Internal TUN success must follow immutable-ID reverification and preserve internal-only copy.",
 );
 
 const signedPlan = job("verify-signed-plan");
@@ -392,10 +529,13 @@ invariant(
     packageJson.scripts?.["release:macos:updater:fixture"] ===
       "node scripts/macos-updater-contract.ts fixture" &&
     packageJson.scripts?.["release:trusted-boundary:fixture"] ===
-      "node scripts/trusted-release-policy.ts fixture",
+      "node scripts/trusted-release-policy.ts fixture" &&
+    packageJson.scripts?.["test:macos:internal-tun-alpha"]?.includes(
+      "internal-tun-alpha-staging.test.ts",
+    ),
   "Credential-free release and trusted-boundary fixture commands are incomplete.",
 );
 
 console.log(
-  "macOS release workflow valid: frozen reviewed main, exact source/tooling identity, immutable candidate ID and manifest, credential-free fixtures, and no live signing, attestation, publication, or deployment path.",
+  "macOS release workflow valid: frozen reviewed main, exact source/tooling identity, immutable Internal TUN Alpha candidate/verification/stage IDs, credential-free fixtures, and no live signing, notarization, public release, or deployment path.",
 );
