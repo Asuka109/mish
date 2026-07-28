@@ -144,19 +144,22 @@ the clone.
 
 ## Internal TUN Alpha package acceptance (Issue #296)
 
-The 2026-07-27 run used the unique disposable clone
-`mish-296-internal-tun-alpha-20260727` of
+The final 2026-07-28 post-review run used the unique disposable clone
+`mish-296-review-fix-20260728` of
 `ghcr.io/cirruslabs/macos-tahoe-base:latest` at OCI digest
 `sha256:a8e1c8305758643f513fdccdd829c2243687c60791083dea42f73f0b7aeb435c`.
-The final guest was macOS 26.5 on ARM64. Only the deterministic package output
-was mounted read-only; the guest received no repository checkout, Node.js,
-Rust, Homebrew, or runtime Helper/Core download. Lifecycle commands ran with
-`PATH=/usr/bin:/bin:/usr/sbin:/sbin`.
+The guest was macOS 26.5 on ARM64. Only the deterministic package output was
+mounted read-only and copied to a local user-owned directory; the guest
+received no repository checkout, Node.js, Rust, Homebrew, or runtime
+Helper/Core download. Lifecycle commands ran with
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin`. Direct privileged use of the VirtioFS
+projection was rejected because its root-view ownership differed from the
+invoking UID, with no installed state left behind.
 
-The final package archive SHA-256 was
-`b8397da2ecbf695ac93b09a4d91cd6038217330f9d0dfb4cbc1c88dd4302c241`;
+The final `0.1.0-internal-tun-alpha.2` archive SHA-256 was
+`0b189b156468b386ecb0a6ab67ef3cfeb9d2c34978d10c40fa6f1ef8d066752a`;
 its manifest SHA-256 was
-`dd44a48b62a5f279d77b4cb0e263dceb8dece6960ddaf633eee2e0ff7c59a94d`.
+`4d064e60219c937f7c549ed2b0a9d77f4c3410072327024821f7f94c50b8f009`.
 Two consecutive builds produced both exact digests. Live package verification
 confirmed three thin ARM64 Mach-O executables, ad-hoc-only Mish controller and
 Helper signatures with no Team Identifier, Helper contract version 3, and the
@@ -168,6 +171,16 @@ returned `healthy-disabled`. The Cirrus base image configures passwordless
 visible password prompt; the ordinary package command still uses the native
 administrator dialog and remains pending maintainer hands-on acceptance.
 
+The controller was copied first to the private mode-`0500` user staging path
+and then to a root-owned mode-`0700` temporary directory. The root copy was
+mode `0500`, single-link, exact-size and exact-digest verified before
+execution, and no root staging directory remained afterward. A concurrent
+same-UID process atomically replaced the user staging controller with a
+same-size tampered copy; repair failed with
+`privileged-controller-stage-digest-mismatch`, never entered the root
+transaction, and the existing service remained authenticated and
+`healthy-disabled`.
+
 The installed LaunchDaemon was `root:wheel` mode `0644`; Helper and Core were
 `root:wheel` mode `0555`; enrollment was `root:wheel` mode `0600`; the public
 root receipt was mode `0444`; the private socket was `admin:daemon` mode
@@ -178,9 +191,22 @@ identity, key identifier, and enrollment generation 1.
 
 An identical reinstall preserved the same installation identity, key
 identifier, and generation. A cold guest restart remained healthy and
-disabled. Changing only the installed Helper mode to `0500` made health reject
-the exact fixed artifact. Repair restored the package, retained the same
+disabled. Changing the root receipt installing UID from 501 to 502 made
+uninstall reject `existing-installation-owner-rejected`; the running Helper
+PID remained 327 before and after the attempt. Restoring the receipt and then
+temporarily removing only enrollment made uninstall reject
+`uninstall-authorization-rejected`; the same Helper PID and all global
+artifacts remained. Both records were restored before Health succeeded again.
+
+Changing only the installed Helper mode to `0500` made health reject the exact
+fixed artifact. Repair restored the package, retained the same
 identity/key/generation, and returned to authenticated `healthy-disabled`.
+After a clean uninstall, a root watcher repeated that exact mode drift between
+the next install transaction and post-install Health. Install returned
+`post-install-health-failed`, automatically removed every fixed root artifact,
+and also removed the user receipt plus active and pending private keys. Status
+then returned `not-installed`. A final clean Install, authenticated Health, and
+Uninstall all succeeded.
 
 No Mihomo Core ran during the package journey. The guest retained its four
 baseline `utun` interfaces. System Proxy and DNS SHA-256 snapshots were
@@ -194,8 +220,8 @@ Uninstall returned `not-installed`. The launchd job, LaunchDaemon, Helper,
 Core, enrollment, socket/state, root and user receipts, installer staging, and
 active/pending client keys were absent. No Mish Helper or Core process
 remained. The host Mac received no Helper installation or network mutation,
-and the disposable Issue #296 clone was stopped and deleted after retaining
-this redacted evidence.
+and the disposable post-review clone was stopped and deleted after retaining
+this redacted evidence. Only the two stopped official OCI base caches remained.
 
 ## Dynamic real-host network ownership (Issue #295)
 
