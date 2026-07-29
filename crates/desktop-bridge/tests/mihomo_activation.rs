@@ -461,6 +461,80 @@ async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_a
 }
 
 #[tokio::test]
+async fn cold_aggregate_tun_launch_generates_the_first_core_with_admitted_tun_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let controller = FakeController::start("v1.19.29").await;
+    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
+        InstallableTunPlatform::default(),
+    )));
+    tun_helper.install().await.unwrap();
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        Arc::new(MemoryCapturePlatform::default()),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(tun_helper.clone()),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture.clone(),
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let policy_capture = capture.clone();
+    let policy_helper = tun_helper.clone();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            ManagedRuntimePolicy::new(address, "cold-tun-launch-secret")?.with_tun_enabled(
+                &policy_helper.snapshot(),
+                policy_capture.status().capture_selection.tun,
+            )
+        },
+    ));
+
+    let launched = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(launched["runtime"]["tun"]["phase"], "applied");
+    assert_eq!(launched["runtime"]["captureSelection"]["tun"], true);
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");

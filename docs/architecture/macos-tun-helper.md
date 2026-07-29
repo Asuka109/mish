@@ -149,8 +149,16 @@ with complete new proof may finish automatically; earlier, mixed, corrupt, or
 unknown authority stays unavailable as Recovery Required. Repair compensates
 from the verified backup or leaves a bounded disabled installation. When an
 active TUN upgrade commits, a private version-bound marker asks the packaged
-app to restore Capture through the shared Capture authority. Failed maintenance
-never replays Capture from guessed state.
+app to restore Capture through the shared Capture authority. The app waits for
+the maintenance process lock to retire, generates a cold Core from the admitted
+TUN selection rather than the prior confirmed projection, and removes the
+marker only after 101 consecutive authenticated observations over ten seconds.
+An unstable attempt is stopped through the same Capture authority before a
+bounded retry. Failed maintenance returns with the verified Helper/Core and
+enrollment disabled, retains the private marker, and does not relaunch the app
+inside the failing command. The next ordinary app startup either completes the
+same stable-observation gate or retains Recovery Required evidence; failed
+maintenance never replays Capture from guessed state.
 
 Before requesting administrator authorization, the running controller copies
 its already verified executable to a private mode-`0500` staging file and
@@ -175,7 +183,10 @@ After the privileged transaction returns, install and repair allow a bounded
 `core-host-unavailable` is retried; artifact, receipt, enrollment, protocol,
 identity, or disabled-observation failures still fail immediately and trigger
 the same confirmed rollback. This prevents a healthy delayed socket from being
-misclassified without weakening any trust check.
+misclassified without weakening any trust check. Rollback writes its terminal
+journal before launchd starts, then requires three consecutive authenticated
+disabled observations with the restored receipt, installation identity, key,
+and generation before exposing durable Capture recovery evidence.
 
 Uninstall reads and validates the root enrollment and receipt before any
 `launchctl` stop or global filesystem mutation. Both records must authorize

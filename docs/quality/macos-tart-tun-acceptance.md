@@ -318,6 +318,41 @@ Capture upgrade and native administrator-cancellation path remain part of the
 explicit human acceptance gate rather than being inferred from the focused
 rerun.
 
+The final 2026-07-29 follow-up on the same disposable clone used archive
+SHA-256
+`e61d09a20cdc75d25416df41219a916300cf299f7b13a89a0df528632aa93b7e`
+and package-manifest SHA-256
+`f5e65285e602be53ee4f3b524287676cc5ff421984026a9f48d9e0293f9e1d38`.
+The app preference was returned to `launchBehavior: off` before this run.
+A real active root Core produced `utun4` at MTU 9000, managed DNS
+`198.18.0.1`, disabled Ethernet HTTP/HTTPS/SOCKS proxies, and public HTTP 200.
+Installation generation 1, installation identity
+`a2ac27e277591cca0c37d8fb81ae96cccae7c0f49b870c8c3f444124935d0de7`,
+key identifier
+`510f85c23cdb7b5151ac0319cb982962b3ac5b9623d7e2f4bd24a764188b29af`,
+and the client-key file SHA-256
+`6c583dd5e8a6200e92bf7f9611c7215aa43e970491db807eb3e4833b236dd297`
+remained continuous through repair and replacement.
+
+Failure injection at `helper-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`.
+Five seconds later the final implementation had no app or Core, no Mish TUN or
+managed DNS, one healthy launchd Helper with no prior exit, and a regular
+user-owned mode-`0600` version-bound Capture marker. The journal was terminal
+`rolled-back`, commit point `verified`, with artifact, enrollment, network, and
+cleanup compensation all `restored`. An ordinary app start retained that
+marker and stayed disabled for the two-minute observation window rather than
+guessing or reporting restored Capture; this is the accepted bounded Recovery
+Required outcome, not evidence of automatic Capture restoration.
+
+Uninstall was then exercised from that bounded recovery state and returned
+`service: not-installed`. Launchd registration, Helper, pinned Core, socket,
+enrollment, root and user receipts, maintenance journal and backup, client key,
+restore marker, and maintenance lock were absent. No Mish TUN or managed DNS
+remained; Ethernet HTTP, HTTPS, and SOCKS proxy settings were all disabled and
+public HTTP returned 200. The package directory itself remained only as the
+user-owned acceptance input.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the

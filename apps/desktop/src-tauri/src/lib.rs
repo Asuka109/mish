@@ -7,7 +7,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use mish_bridge::{
@@ -33,9 +33,10 @@ use mish_platform_macos::{
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
-    CaptureAuditReason, CaptureReconciler, CaptureSelection, LoopbackProxyEndpoint,
-    PlatformLifecycleEventSource, StatusAdapterKind as RuntimeStatusAdapterKind,
-    TunHelperController, TunHelperPlatform,
+    CaptureAuditReason, CaptureFailureKind, CaptureReconciler, CaptureSelection,
+    LoopbackProxyEndpoint, PlatformLifecycleEventSource,
+    StatusAdapterKind as RuntimeStatusAdapterKind, TunHelperController, TunHelperFailureKind,
+    TunHelperPlatform, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     ApplicationLaunchBehavior, FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences,
@@ -67,11 +68,15 @@ const DEVELOPMENT_CORE_SOURCE_ENV: &str = "MISH_DEVELOPMENT_CORE_SOURCE";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
 const TART_TUN_ACCEPTANCE_ENV: &str = "MISH_TART_TUN_ACCEPTANCE";
 const INTERNAL_TUN_ALPHA_PROFILE: &str = "internal-tun-alpha";
+const INTERNAL_TUN_MAINTENANCE_LOCK_NAME: &str = "internal-tun-maintenance.lock";
 const DEVTOOLS_ARGUMENT: &str = "--devtools";
 const RELEASE_PROFILE_EVIDENCE_ARGUMENT: &str = "--release-profile-evidence";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 const INTERNAL_TUN_CAPTURE_RESTORE_NAME: &str = "internal-tun-capture-restore.json";
+const INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS: usize = 101;
+const INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY: Duration = Duration::from_millis(100);
+const INTERNAL_TUN_CAPTURE_RESTORE_STABLE_OBSERVATIONS: usize = 101;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct StartupOptions {
@@ -86,7 +91,14 @@ struct InternalTunCaptureRestoreMarker {
     operation_id: String,
     package_version: String,
     schema_version: u16,
+    system_proxy: bool,
     tun: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InternalTunCaptureRestore {
+    path: PathBuf,
+    selection: CaptureSelection,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -900,8 +912,11 @@ fn initialize(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
-    let maintenance_capture_restore =
-        internal_tun_capture_restore_marker(&profile_root).map_err(io::Error::other)?;
+    let (maintenance_capture_restore, maintenance_capture_recovery_required) =
+        match internal_tun_capture_restore_marker(&profile_root) {
+            Ok(restore) => (restore, false),
+            Err(_) => (None, true),
+        };
     let runtime_root = profile_root.join("runtime");
     let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
         .map_err(|error| io::Error::other(error.to_string()))?;
@@ -991,6 +1006,10 @@ fn initialize(
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
         tun_helper.refresh().await;
+        if maintenance_capture_recovery_required {
+            tun_helper.mark_runtime_unavailable(TunHelperFailureKind::IdentityRejected);
+            eprintln!("Internal TUN maintenance Recovery Required: restore evidence was rejected");
+        }
         let development_service_ready = match development_tun_service.as_ref() {
             Some(service) => match service.prepare_development_startup().await {
                 DevelopmentTunStartup::Ready => true,
@@ -1258,8 +1277,6 @@ fn initialize(
         .preferences
         .startup
         .launch_behavior;
-    let maintenance_capture_restore =
-        maintenance_capture_restore.filter(|_| tun_helper.snapshot().is_healthy());
     if maintenance_capture_restore.is_some()
         || application_launch_behavior != ApplicationLaunchBehavior::Off
     {
@@ -1267,6 +1284,7 @@ fn initialize(
             activation,
             application_launch_behavior,
             maintenance_capture_restore,
+            tun_helper,
         );
     }
     open_main_webview_inspector(app, open_devtools)?;
@@ -1335,25 +1353,105 @@ fn open_main_webview_inspector(
 fn launch_on_application_start(
     activation: Arc<ProfileActivationCoordinator>,
     behavior: ApplicationLaunchBehavior,
-    maintenance_capture_restore: Option<PathBuf>,
+    maintenance_capture_restore: Option<InternalTunCaptureRestore>,
+    tun_helper: Arc<TunHelperController>,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Some(marker) = maintenance_capture_restore {
-            // Consume the exact marker before the one restoration attempt. A crash or rejected
-            // activation stays safely disabled and must not become an automatic replay loop.
-            if fs::remove_file(marker).is_err() {
-                return;
+        if let Some(restore) = maintenance_capture_restore {
+            // This is one bounded restoration session backed by exact package and Capture
+            // evidence. Helper availability and the bridge capability projection converge on
+            // separate snapshot streams during launch, so retry only errors that cannot have
+            // admitted an unsafe Capture mutation. Unknown authority never reaches this path.
+            for attempt in 0..INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS {
+                let maintenance_lock = restore
+                    .path
+                    .parent()
+                    .map(|runtime| runtime.join(INTERNAL_TUN_MAINTENANCE_LOCK_NAME));
+                if maintenance_lock.as_ref().is_some_and(|path| path.exists()) {
+                    tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                    continue;
+                }
+                let helper = tun_helper.refresh().await;
+                if !helper.is_healthy() {
+                    if attempt + 1 == INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS {
+                        eprintln!(
+                            "Internal TUN Capture restoration deferred: helper availability={:?} health={:?} failure={:?}",
+                            helper.availability, helper.health, helper.last_failure
+                        );
+                        return;
+                    }
+                    tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                    continue;
+                }
+                match activation
+                    .launch_proxy(
+                        &Uuid::new_v4().to_string(),
+                        restore.selection.clone(),
+                        RuntimeStatusAdapterKind::Rpc,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        tun_helper.refresh().await;
+                        match maintenance_capture_stably_restored(&tun_helper).await {
+                            Ok(true) => {
+                                let _ = fs::remove_file(&restore.path);
+                                return;
+                            }
+                            Ok(false) if attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS => {
+                                if activation
+                                    .set_capture(
+                                        mish_runtime::CaptureRequest {
+                                            active: false,
+                                            selection: restore.selection.clone(),
+                                        },
+                                        RuntimeStatusAdapterKind::Rpc,
+                                    )
+                                    .await
+                                    .is_err()
+                                {
+                                    eprintln!(
+                                        "Internal TUN Capture restoration retrying after the unstable Capture stopped"
+                                    );
+                                }
+                                tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                            }
+                            Err(kind)
+                                if maintenance_capture_observation_retryable(kind)
+                                    && attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS =>
+                            {
+                                tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                            }
+                            Ok(false) => {
+                                eprintln!(
+                                    "Internal TUN Capture restoration deferred: Capture was not stably observed"
+                                );
+                                return;
+                            }
+                            Err(kind) => {
+                                eprintln!(
+                                    "Internal TUN Capture restoration deferred: observation failure={:?}",
+                                    kind
+                                );
+                                return;
+                            }
+                        }
+                    }
+                    Err(error)
+                        if maintenance_capture_restore_retryable(error.kind)
+                            && attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS =>
+                    {
+                        tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "Internal TUN Capture restoration deferred: Capture failure={:?}",
+                            error.kind
+                        );
+                        return;
+                    }
+                }
             }
-            let _ = activation
-                .launch_proxy(
-                    &Uuid::new_v4().to_string(),
-                    CaptureSelection {
-                        system_proxy: false,
-                        tun: true,
-                    },
-                    RuntimeStatusAdapterKind::Rpc,
-                )
-                .await;
             return;
         }
         match behavior {
@@ -1376,7 +1474,46 @@ fn launch_on_application_start(
     });
 }
 
-fn internal_tun_capture_restore_marker(profile_root: &Path) -> Result<Option<PathBuf>, String> {
+fn maintenance_capture_restore_retryable(kind: CaptureFailureKind) -> bool {
+    matches!(
+        kind,
+        CaptureFailureKind::CapabilityUnavailable
+            | CaptureFailureKind::CoreUnhealthy
+            | CaptureFailureKind::ListenerUnavailable
+            | CaptureFailureKind::RuntimeTransition
+            | CaptureFailureKind::UnsupportedSelection
+    )
+}
+
+fn maintenance_capture_observation_retryable(kind: TunHelperFailureKind) -> bool {
+    matches!(
+        kind,
+        TunHelperFailureKind::ConnectionFailed | TunHelperFailureKind::ObservationStale
+    )
+}
+
+fn maintenance_capture_observation_restored(observation: &TunNetworkObservation) -> bool {
+    observation.confirms_enabled_at(tun_observation_now())
+}
+
+async fn maintenance_capture_stably_restored(
+    tun_helper: &TunHelperController,
+) -> Result<bool, TunHelperFailureKind> {
+    for observation_index in 0..INTERNAL_TUN_CAPTURE_RESTORE_STABLE_OBSERVATIONS {
+        if observation_index > 0 {
+            tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+        }
+        let observation = tun_helper.observe_tun().await.map_err(|error| error.kind)?;
+        if !maintenance_capture_observation_restored(&observation) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn internal_tun_capture_restore_marker(
+    profile_root: &Path,
+) -> Result<Option<InternalTunCaptureRestore>, String> {
     #[cfg(not(unix))]
     {
         let _ = profile_root;
@@ -1395,7 +1532,7 @@ fn internal_tun_capture_restore_marker_for_profile(
     profile_root: &Path,
     expected_version: Option<&str>,
     uid: u32,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Option<InternalTunCaptureRestore>, String> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let Some(expected_version) = expected_version else {
@@ -1429,14 +1566,20 @@ fn internal_tun_capture_restore_marker_for_profile(
     let marker: InternalTunCaptureRestoreMarker = serde_json::from_slice(&bytes)
         .map_err(|_| "Internal TUN maintenance restore evidence was rejected")?;
     if bytes.len() > 4 * 1024
-        || marker.schema_version != 1
+        || marker.schema_version != 2
         || !marker.tun
         || marker.package_version != expected_version
         || Uuid::parse_str(&marker.operation_id).is_err()
     {
         return Err("Internal TUN maintenance restore evidence was rejected".into());
     }
-    Ok(Some(path))
+    Ok(Some(InternalTunCaptureRestore {
+        path,
+        selection: CaptureSelection {
+            system_proxy: marker.system_proxy,
+            tun: marker.tun,
+        },
+    }))
 }
 
 #[cfg(not(unix))]
@@ -1444,7 +1587,7 @@ fn internal_tun_capture_restore_marker_for_profile(
     _profile_root: &Path,
     _expected_version: Option<&str>,
     _uid: u32,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Option<InternalTunCaptureRestore>, String> {
     Ok(None)
 }
 
@@ -2049,18 +2192,25 @@ mod tests {
 
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
-        DevtoolsStartupSource, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction, PRODUCTION_ORIGINS,
-        SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus, allowed_origins,
-        atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
-        generate_auth_token, internal_tun_alpha_package_root_from_executable,
+        DevtoolsStartupSource, InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES,
+        MainWindowCloseAction, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
+        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        atomic_write_support_bundle_with_failure, desktop_demo_requested, generate_auth_token,
+        internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
-        main_window_close_action, managed_mihomo_resolver, production_team_identifier_for_profile,
-        read_local_backup, release_profile_evidence, resolve_devtools_behavior,
-        save_support_bundle_selection, should_intercept_exit_request, should_show_main_window,
+        main_window_close_action, maintenance_capture_observation_restored,
+        maintenance_capture_observation_retryable, maintenance_capture_restore_retryable,
+        managed_mihomo_resolver, production_team_identifier_for_profile, read_local_backup,
+        release_profile_evidence, resolve_devtools_behavior, save_support_bundle_selection,
+        should_intercept_exit_request, should_show_main_window,
         system_proxy_only_capture_selection, validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
+    use mish_runtime::{
+        CaptureFailureKind, CaptureSelection, TunHelperFailureKind, TunNetworkObservation,
+        tun_observation_now,
+    };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
 
     #[cfg(unix)]
@@ -2074,7 +2224,7 @@ mod tests {
         let marker = runtime.join("internal-tun-capture-restore.json");
         fs::write(
             &marker,
-            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.5","schemaVersion":1,"tun":true}"#,
+            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.5","schemaVersion":2,"systemProxy":true,"tun":true}"#,
         )
         .unwrap();
         fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
@@ -2086,7 +2236,13 @@ mod tests {
                 uid,
             )
             .unwrap(),
-            Some(marker.clone())
+            Some(InternalTunCaptureRestore {
+                path: marker.clone(),
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: true,
+                },
+            })
         );
         assert!(
             internal_tun_capture_restore_marker_for_profile(
@@ -2105,6 +2261,57 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn internal_tun_capture_restore_retries_only_startup_convergence() {
+        for kind in [
+            CaptureFailureKind::CapabilityUnavailable,
+            CaptureFailureKind::CoreUnhealthy,
+            CaptureFailureKind::ListenerUnavailable,
+            CaptureFailureKind::RuntimeTransition,
+            CaptureFailureKind::UnsupportedSelection,
+        ] {
+            assert!(maintenance_capture_restore_retryable(kind));
+        }
+        for kind in [
+            CaptureFailureKind::ApplyFailed,
+            CaptureFailureKind::ConfirmationFailed,
+            CaptureFailureKind::ExternalDrift,
+            CaptureFailureKind::InvalidRecovery,
+            CaptureFailureKind::ObservationFailed,
+            CaptureFailureKind::PermissionDenied,
+            CaptureFailureKind::PersistenceFailed,
+            CaptureFailureKind::RollbackFailed,
+            CaptureFailureKind::TakeoverRejected,
+            CaptureFailureKind::UnsafeExistingConfiguration,
+        ] {
+            assert!(!maintenance_capture_restore_retryable(kind));
+        }
+        for kind in [
+            TunHelperFailureKind::ConnectionFailed,
+            TunHelperFailureKind::ObservationStale,
+        ] {
+            assert!(maintenance_capture_observation_retryable(kind));
+        }
+        for kind in [
+            TunHelperFailureKind::IdentityRejected,
+            TunHelperFailureKind::ObservationForeign,
+            TunHelperFailureKind::ObservationPartial,
+            TunHelperFailureKind::PermissionDenied,
+            TunHelperFailureKind::ProtocolMismatch,
+        ] {
+            assert!(!maintenance_capture_observation_retryable(kind));
+        }
+        assert!(maintenance_capture_observation_restored(
+            &TunNetworkObservation::enabled(tun_observation_now())
+        ));
+        assert!(!maintenance_capture_observation_restored(
+            &TunNetworkObservation::disabled(tun_observation_now())
+        ));
+        assert!(!maintenance_capture_observation_restored(
+            &TunNetworkObservation::unknown(tun_observation_now())
+        ));
     }
 
     #[test]

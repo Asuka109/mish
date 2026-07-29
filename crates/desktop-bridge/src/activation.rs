@@ -2125,6 +2125,16 @@ impl ManagedRuntimePolicy {
         Ok(self)
     }
 
+    /// Applies the TUN selection that was already admitted by the aggregate Capture authority.
+    ///
+    /// The caller must first validate the requested selection against current capabilities. This
+    /// avoids regenerating a cold-launch Core from the still-confirmed pre-operation Capture
+    /// projection while the admitted target is pending.
+    pub(crate) fn with_admitted_tun_selection(mut self, enabled: bool) -> Self {
+        self.tun_enabled = enabled;
+        self
+    }
+
     pub fn with_tart_tun_dns(mut self, enabled: bool) -> Self {
         self.tart_tun_dns = enabled;
         self

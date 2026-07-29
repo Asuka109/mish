@@ -13,16 +13,17 @@ use std::{
     },
     path::{Path, PathBuf},
     pin::Pin,
-    process::{Command, Output},
+    process::{Child, Command, Output, Stdio},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use mish_platform_macos::{
     DEV_TUN_INSTALLATION_KEY_ALGORITHM, DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_ENROLLMENT_PATH,
     DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL, DEV_TUN_SERVICE_PLIST_PATH,
-    InstallationClientKeyStore, InstallationEnrollmentOperation, InstallationEnrollmentRecord,
-    InstallationPublicKeyCandidate, MacOsTunServiceClient, apply_installation_enrollment_operation,
+    FileCaptureJournalStore, InstallationClientKeyStore, InstallationEnrollmentOperation,
+    InstallationEnrollmentRecord, InstallationPublicKeyCandidate, MacOsSystemProxyPlatform,
+    MacOsTunServiceClient, apply_installation_enrollment_operation,
     internal_tun_maintenance::{
         ArtifactDigestSet, CompensationState, EnrollmentTransition,
         INTERNAL_TUN_MAINTENANCE_BACKUP_DIRECTORY, INTERNAL_TUN_MAINTENANCE_JOURNAL_MAX_BYTES,
@@ -40,7 +41,10 @@ use mish_platform_macos::{
     load_installation_enrollment_for_user, recover_managed_network_record,
     remove_installation_enrollment,
 };
-use mish_runtime::{TunNetworkObservation, tun_observation_now};
+use mish_runtime::{
+    CaptureJournal, CaptureJournalStore, CapturePlatform, LoopbackProxyEndpoint,
+    NetworkServiceProxyState, TunNetworkObservation, tun_observation_now,
+};
 use mish_state_machine::{Correlation, EffectExecutor, NoopObserver, RunnerConfig, spawn_runner};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -66,8 +70,14 @@ const ROOT_RECEIPT_PATH: &str =
     "/Library/Application Support/com.asuka109.mish/internal-tun-alpha/receipt.json";
 const INSTALLER_DIRECTORY_NAME: &str = "internal-tun-alpha-installer";
 const MAINTENANCE_INTENT_NAME: &str = "maintenance-intent.json";
+const AUTHORIZATION_GATE_DIRECTORY_NAME: &str = "authorization-gate";
+const AUTHORIZATION_GATE_READY_NAME: &str = "ready";
+const AUTHORIZATION_GATE_READY_TEMP_NAME: &str = "ready.tmp";
+const AUTHORIZATION_GATE_GO_NAME: &str = "go";
+const AUTHORIZATION_GATE_CANCEL_NAME: &str = "cancel";
 const MAINTENANCE_LOCK_NAME: &str = "internal-tun-maintenance.lock";
 const CAPTURE_RESTORE_NAME: &str = "internal-tun-capture-restore.json";
+const SYSTEM_PROXY_JOURNAL_NAME: &str = "system-proxy-journal.json";
 const USER_RECEIPT_BACKUP_NAME: &str = "user-receipt.backup.json";
 const BACKUP_HELPER_NAME: &str = "helper";
 const BACKUP_CORE_NAME: &str = "core";
@@ -85,6 +95,8 @@ const SOCKET_PLACEHOLDER: &str = "__MISH_SOCKET__";
 const TART_TERMINAL_AUTHORIZATION: &str = "--tart-terminal-authorization";
 const POST_INSTALL_HEALTH_ATTEMPTS: usize = 151;
 const POST_INSTALL_HEALTH_RETRY_DELAY: Duration = Duration::from_millis(100);
+const AUTHORIZATION_READY_TIMEOUT: Duration = Duration::from_secs(300);
+const AUTHORIZATION_POLL_DELAY: Duration = Duration::from_millis(50);
 
 const EXPECTED_PACKAGE_FILES: &[(&str, u32, &str)] = &[
     ("Health Internal TUN Alpha.command", 0o755, "health"),
@@ -141,16 +153,10 @@ struct VerifiedPackage {
 }
 
 #[derive(Clone, Debug)]
-struct PriorCaptureApplication {
-    manifest_digest: String,
-    package_root: PathBuf,
-    package_version: String,
-}
-
-#[derive(Clone, Debug)]
 struct MaintenanceCaptureContext {
     evidence: MaintenanceCaptureEvidence,
-    prior_application: Option<PriorCaptureApplication>,
+    prior_package: Option<VerifiedPackage>,
+    restore_system_proxy_on_app_start: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -158,6 +164,22 @@ struct StagedPrivilegedController {
     path: PathBuf,
     sha256: String,
     size: u64,
+}
+
+#[derive(Debug)]
+struct AuthorizationGate {
+    cancel: PathBuf,
+    directory: PathBuf,
+    go: PathBuf,
+    operation_id: String,
+    ready: PathBuf,
+    uid: u32,
+}
+
+#[derive(Debug)]
+struct PreparedAuthorizedCommand {
+    child: Option<Child>,
+    gate: AuthorizationGate,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -212,6 +234,7 @@ struct CaptureRestoreMarker {
     operation_id: String,
     package_version: String,
     schema_version: u16,
+    system_proxy: bool,
     tun: bool,
 }
 
@@ -1136,6 +1159,220 @@ fn validate_staged_privileged_controller(
     Ok(())
 }
 
+fn authorization_gate(installer: &Path, operation_id: &str, uid: u32) -> AuthorizationGate {
+    let directory = installer.join(AUTHORIZATION_GATE_DIRECTORY_NAME);
+    AuthorizationGate {
+        cancel: directory.join(AUTHORIZATION_GATE_CANCEL_NAME),
+        go: directory.join(AUTHORIZATION_GATE_GO_NAME),
+        ready: directory.join(AUTHORIZATION_GATE_READY_NAME),
+        directory,
+        operation_id: operation_id.to_owned(),
+        uid,
+    }
+}
+
+fn remove_authorization_gate(gate: &AuthorizationGate) -> Result<(), String> {
+    match fs::symlink_metadata(&gate.directory) {
+        Ok(_) => validate_directory(&gate.directory, gate.uid, true)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("authorization-gate-unavailable".into()),
+    }
+    for entry in
+        fs::read_dir(&gate.directory).map_err(|_| "authorization-gate-unavailable".to_string())?
+    {
+        let entry = entry.map_err(|_| "authorization-gate-unavailable".to_string())?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let (owner, mode) = if name == OsStr::new(AUTHORIZATION_GATE_READY_NAME) {
+            (0, 0o444)
+        } else if name == OsStr::new(AUTHORIZATION_GATE_READY_TEMP_NAME) {
+            let metadata =
+                fs::symlink_metadata(&path).map_err(|_| "authorization-gate-unavailable")?;
+            let mode = metadata.permissions().mode() & 0o777;
+            if !matches!(mode, 0o600 | 0o444) {
+                return Err("authorization-gate-ready-temp-rejected".into());
+            }
+            (0, mode)
+        } else if name == OsStr::new(AUTHORIZATION_GATE_GO_NAME)
+            || name == OsStr::new(AUTHORIZATION_GATE_CANCEL_NAME)
+        {
+            (gate.uid, 0o600)
+        } else {
+            return Err("authorization-gate-contains-unexpected-files".into());
+        };
+        validate_regular_file(&path, owner, mode, None)?;
+        fs::remove_file(path).map_err(|_| "authorization-gate-cleanup-failed".to_string())?;
+    }
+    fs::remove_dir(&gate.directory).map_err(|_| "authorization-gate-cleanup-failed".to_string())
+}
+
+fn create_authorization_gate(
+    installer: &Path,
+    operation_id: &str,
+    uid: u32,
+) -> Result<AuthorizationGate, String> {
+    let gate = authorization_gate(installer, operation_id, uid);
+    if gate.directory.exists() {
+        let _ = write_private_file(&gate.cancel, operation_id.as_bytes(), uid);
+        std::thread::sleep(Duration::from_millis(150));
+        remove_authorization_gate(&gate)?;
+    }
+    ensure_private_directory(&gate.directory, uid)?;
+    Ok(gate)
+}
+
+impl PreparedAuthorizedCommand {
+    fn abort(&mut self) {
+        if self.child.is_none() {
+            let _ = remove_authorization_gate(&self.gate);
+            return;
+        }
+        let _ = write_private_file(
+            &self.gate.cancel,
+            self.gate.operation_id.as_bytes(),
+            self.gate.uid,
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let exited = self
+                .child
+                .as_mut()
+                .and_then(|child| child.try_wait().ok())
+                .flatten()
+                .is_some();
+            if exited {
+                break;
+            }
+            std::thread::sleep(AUTHORIZATION_POLL_DELAY);
+        }
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.child = None;
+        let _ = remove_authorization_gate(&self.gate);
+    }
+
+    fn commit(mut self) -> Result<(), String> {
+        write_private_file(
+            &self.gate.go,
+            self.gate.operation_id.as_bytes(),
+            self.gate.uid,
+        )?;
+        let child = self
+            .child
+            .take()
+            .ok_or_else(|| "administrator-authorization-process-missing".to_string())?;
+        let output = child
+            .wait_with_output()
+            .map_err(|_| "administrator-authorization-failed".to_string())?;
+        let cleanup = remove_authorization_gate(&self.gate);
+        let result = native_authorization_result(output);
+        cleanup?;
+        result
+    }
+}
+
+impl Drop for PreparedAuthorizedCommand {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+fn prepare_native_authorization(
+    privileged_action: &str,
+    package: &VerifiedPackage,
+    controller: &StagedPrivilegedController,
+    uid: u32,
+    gid: u32,
+    home: &Path,
+    operation_id: &str,
+) -> Result<PreparedAuthorizedCommand, String> {
+    validate_staged_privileged_controller(controller, uid)?;
+    validate_package_controller_binding(package, &controller.sha256, controller.size)?;
+    let gate = create_authorization_gate(&installer_root(home), operation_id, uid)?;
+    let script = privileged_controller_script(
+        privileged_action,
+        package,
+        controller,
+        uid,
+        gid,
+        home,
+        Some(&gate),
+    )?;
+    let child = Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "try",
+            "-e",
+            "set commandOutput to do shell script (item 1 of argv) with administrator privileges",
+            "-e",
+            "return \"ok:\" & commandOutput",
+            "-e",
+            "on error errorMessage number errorNumber",
+            "-e",
+            "return \"error:\" & (errorNumber as string) & \":\" & errorMessage",
+            "-e",
+            "end try",
+            "-e",
+            "end run",
+            "--",
+            &script,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "administrator-authorization-unavailable".to_string())?;
+    let mut prepared = PreparedAuthorizedCommand {
+        child: Some(child),
+        gate,
+    };
+    let deadline = Instant::now() + AUTHORIZATION_READY_TIMEOUT;
+    loop {
+        match fs::symlink_metadata(&prepared.gate.ready) {
+            Ok(_) => {
+                validate_regular_file(&prepared.gate.ready, 0, 0o444, None)?;
+                let ready = read_bounded_file(
+                    &prepared.gate.ready,
+                    INSTALLER_FILE_MAX_BYTES,
+                    "administrator-authorization-ready-invalid",
+                )?;
+                if ready != prepared.gate.operation_id.as_bytes() {
+                    return Err("administrator-authorization-ready-invalid".into());
+                }
+                return Ok(prepared);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("administrator-authorization-ready-unavailable".into()),
+        }
+        if prepared
+            .child
+            .as_mut()
+            .and_then(|child| child.try_wait().ok())
+            .flatten()
+            .is_some()
+        {
+            let child = prepared
+                .child
+                .take()
+                .ok_or_else(|| "administrator-authorization-process-missing".to_string())?;
+            let output = child
+                .wait_with_output()
+                .map_err(|_| "administrator-authorization-failed".to_string())?;
+            let result = native_authorization_result(output)
+                .and(Err("administrator-authorization-ready-missing".into()));
+            remove_authorization_gate(&prepared.gate)?;
+            return result;
+        }
+        if Instant::now() >= deadline {
+            return Err("administrator-authorization-timed-out".into());
+        }
+        std::thread::sleep(AUTHORIZATION_POLL_DELAY);
+    }
+}
+
 async fn retry_post_install_health<F, Fut>(
     mut health_probe: F,
     attempts: usize,
@@ -1271,6 +1508,7 @@ struct PackageLifecycleExecutor {
     home: PathBuf,
     package: VerifiedPackage,
     operation_id: String,
+    preauthorized: Arc<Mutex<Option<PreparedAuthorizedCommand>>>,
     prepared: Arc<Mutex<Option<PreparedPackageLifecycle>>>,
     tart_terminal_authorization: bool,
     uid: u32,
@@ -1289,6 +1527,7 @@ impl EffectExecutor<PackageMachine> for PackageLifecycleExecutor {
         let home = self.home.clone();
         let package = self.package.clone();
         let operation_id = self.operation_id.clone();
+        let preauthorized = self.preauthorized.clone();
         let prepared = self.prepared.clone();
         let tart_terminal_authorization = self.tart_terminal_authorization;
         let uid = self.uid;
@@ -1325,15 +1564,27 @@ impl EffectExecutor<PackageMachine> for PackageLifecycleExecutor {
                             } else {
                                 "__privileged-install"
                             };
-                            match run_authorized(
-                                privileged_action,
-                                &package,
-                                &prepared.privileged_controller,
-                                uid,
-                                gid,
-                                &home,
-                                tart_terminal_authorization,
-                            ) {
+                            let authorization = if tart_terminal_authorization {
+                                run_authorized(
+                                    privileged_action,
+                                    &package,
+                                    &prepared.privileged_controller,
+                                    uid,
+                                    gid,
+                                    &home,
+                                    true,
+                                )
+                            } else {
+                                preauthorized
+                                    .lock()
+                                    .expect("package authorization lock poisoned")
+                                    .take()
+                                    .ok_or_else(|| {
+                                        "administrator-preauthorization-missing".to_string()
+                                    })
+                                    .and_then(PreparedAuthorizedCommand::commit)
+                            };
+                            match authorization {
                                 Ok(()) => PackageEffectOutcome::Authorized,
                                 Err(error) => {
                                     let _ = cleanup_installer_files(&installer_root(&home), uid);
@@ -1580,7 +1831,7 @@ fn package_failure(error: String) -> PackageFailure {
 fn terminate_running_mish_app(
     uid: u32,
     receipt: &InstallationReceipt,
-) -> Result<PriorCaptureApplication, String> {
+) -> Result<VerifiedPackage, String> {
     let output = command_output(
         "/usr/bin/pgrep",
         &["-u", &uid.to_string(), "-x", "mish-desktop"],
@@ -1620,19 +1871,12 @@ fn terminate_running_mish_app(
         {
             return Err("maintenance-app-package-identity-rejected".into());
         }
-        processes.push((
-            pid,
-            PriorCaptureApplication {
-                manifest_digest: verified.manifest_digest,
-                package_root: verified.root,
-                package_version: verified.manifest.package_version,
-            },
-        ));
+        processes.push((pid, verified));
     }
     if processes.len() != 1 {
         return Err("maintenance-app-process-identity-ambiguous".into());
     }
-    let (pid, prior_application) = processes
+    let (pid, package) = processes
         .pop()
         .ok_or_else(|| "maintenance-app-process-identity-missing".to_string())?;
     if unsafe { libc::kill(pid as i32, libc::SIGTERM) } != 0 {
@@ -1640,74 +1884,11 @@ fn terminate_running_mish_app(
     }
     for _ in 0..100 {
         if !process_is_running(pid) {
-            return Ok(prior_application);
+            return Ok(package);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     Err("maintenance-app-termination-unconfirmed".into())
-}
-
-fn launch_prior_capture_application(
-    prior: &PriorCaptureApplication,
-    uid: u32,
-) -> Result<(), String> {
-    let reverified = verify_package(&prior.package_root, uid)
-        .map_err(|_| "maintenance-prior-app-package-identity-rejected".to_string())?;
-    if reverified.manifest_digest != prior.manifest_digest
-        || reverified.manifest.package_version != prior.package_version
-    {
-        return Err("maintenance-prior-app-package-identity-mismatch".into());
-    }
-    let application = reverified.root.join("Mish.app");
-    validate_directory(&application, uid, false)?;
-    Command::new("/usr/bin/open")
-        .arg("-n")
-        .arg(&application)
-        .status()
-        .map_err(|_| "maintenance-prior-app-relaunch-unavailable")?
-        .success()
-        .then_some(())
-        .ok_or_else(|| "maintenance-prior-app-relaunch-failed".into())
-}
-
-fn restore_capture_after_authorization_cancellation(
-    capture: &MaintenanceCaptureContext,
-    home: &Path,
-    uid: u32,
-    operation_id: &str,
-) -> Result<(), String> {
-    restore_capture_after_authorization_cancellation_with(
-        capture,
-        home,
-        uid,
-        operation_id,
-        launch_prior_capture_application,
-    )
-}
-
-fn restore_capture_after_authorization_cancellation_with<F>(
-    capture: &MaintenanceCaptureContext,
-    home: &Path,
-    uid: u32,
-    operation_id: &str,
-    launch: F,
-) -> Result<(), String>
-where
-    F: FnOnce(&PriorCaptureApplication, u32) -> Result<(), String>,
-{
-    if !capture.evidence.restore_capture_on_app_start {
-        return Ok(());
-    }
-    let prior = capture
-        .prior_application
-        .as_ref()
-        .ok_or_else(|| "maintenance-prior-app-identity-missing".to_string())?;
-    write_capture_restore_marker(home, uid, operation_id, prior.package_version.as_str())?;
-    if let Err(error) = launch(prior, uid) {
-        let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
-        return Err(error);
-    }
-    Ok(())
 }
 
 fn write_capture_restore_marker(
@@ -1715,11 +1896,13 @@ fn write_capture_restore_marker(
     uid: u32,
     operation_id: &str,
     package_version: &str,
+    system_proxy: bool,
 ) -> Result<(), String> {
     let marker = CaptureRestoreMarker {
         operation_id: operation_id.to_owned(),
         package_version: package_version.to_owned(),
-        schema_version: 1,
+        schema_version: 2,
+        system_proxy,
         tun: true,
     };
     write_private_file(
@@ -1727,6 +1910,39 @@ fn write_capture_restore_marker(
         &serde_json::to_vec(&marker).map_err(|_| "capture-restore-marker-invalid")?,
         uid,
     )
+}
+
+async fn system_proxy_restore_evidence(home: &Path, uid: u32) -> Result<bool, String> {
+    let journal_path = home
+        .join("Library/Application Support/com.asuka109.mish")
+        .join(SYSTEM_PROXY_JOURNAL_NAME);
+    match fs::symlink_metadata(&journal_path) {
+        Ok(_) => validate_regular_file(&journal_path, uid, 0o600, None)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("maintenance-system-proxy-journal-unavailable".into()),
+    }
+    let journal = FileCaptureJournalStore::new(journal_path)
+        .load()
+        .map_err(|_| "maintenance-system-proxy-journal-rejected")?
+        .ok_or_else(|| "maintenance-system-proxy-journal-missing".to_string())?;
+    let observed = MacOsSystemProxyPlatform::new()
+        .observe_active()
+        .await
+        .map_err(|_| "maintenance-system-proxy-observation-failed")?;
+    if !confirms_system_proxy_restore_authority(&journal, &observed) {
+        return Err("maintenance-system-proxy-authority-unknown".into());
+    }
+    Ok(true)
+}
+
+fn confirms_system_proxy_restore_authority(
+    journal: &CaptureJournal,
+    observed: &NetworkServiceProxyState,
+) -> bool {
+    observed.service_id == journal.prior.service_id
+        && observed.is_mish_endpoint(&LoopbackProxyEndpoint::managed())
+        && !observed.auto_discovery_enabled
+        && !observed.pac_enabled
 }
 
 fn launch_candidate_application(package: &VerifiedPackage) -> Result<(), String> {
@@ -1746,10 +1962,46 @@ fn launch_candidate_application(package: &VerifiedPackage) -> Result<(), String>
         .ok_or_else(|| "maintenance-app-relaunch-failed".into())
 }
 
+async fn wait_for_restored_helper_disabled(
+    capture: &MaintenanceCaptureEvidence,
+) -> Result<(), String> {
+    let receipt = read_optional_root_receipt()?
+        .ok_or_else(|| "maintenance-prior-receipt-missing".to_string())?;
+    let client = MacOsTunServiceClient::development();
+    let mut consecutive = 0_u8;
+    for _ in 0..100 {
+        let discovery = client.installation_discovery().await;
+        let status = client.core_host_status().await;
+        if let (Ok(discovery), Ok(status)) = (discovery, status)
+            && discovery.installation_id == receipt.installation_id
+            && discovery.key_id == receipt.key_id
+            && discovery.generation == receipt.generation
+            && status.installation_id == receipt.installation_id
+            && status.core.is_none()
+            && status.observation.observed_at >= capture.after.observed_at
+            && status
+                .observation
+                .confirms_disabled_at(tun_observation_now())
+        {
+            consecutive = consecutive.saturating_add(1);
+            if consecutive == 3 {
+                return Ok(());
+            }
+        } else {
+            consecutive = 0;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err("maintenance-rollback-helper-not-ready".into())
+}
+
 async fn maintenance_capture_evidence(
     observed: ObservedPackageState,
     operation_id: &str,
     uid: u32,
+    home: &Path,
+    package_version: &str,
+    persist_restore_marker: bool,
 ) -> Result<MaintenanceCaptureContext, String> {
     if observed == ObservedPackageState::Absent {
         let disabled = TunNetworkObservation::disabled(tun_observation_now());
@@ -1762,7 +2014,8 @@ async fn maintenance_capture_evidence(
                 network_ownership_record_sha256: None,
                 restore_capture_on_app_start: false,
             },
-            prior_application: None,
+            prior_package: None,
+            restore_system_proxy_on_app_start: false,
         });
     }
     let client = MacOsTunServiceClient::development();
@@ -1770,10 +2023,47 @@ async fn maintenance_capture_evidence(
         .admit_maintenance_reconciliation(operation_id)
         .await
         .map_err(str::to_string)?;
-    let prior_application = if admission.core_was_running() {
-        let receipt = read_optional_root_receipt()?
-            .ok_or_else(|| "maintenance-prior-receipt-missing".to_string())?;
-        Some(terminate_running_mish_app(uid, &receipt)?)
+    let restore_system_proxy_on_app_start = if admission.core_was_running() {
+        system_proxy_restore_evidence(home, uid).await?
+    } else {
+        false
+    };
+    let restore_capture_on_app_start = admission.restore_capture_on_app_start();
+    let restore_marker_written = persist_restore_marker && restore_capture_on_app_start;
+    if restore_marker_written {
+        write_capture_restore_marker(
+            home,
+            uid,
+            operation_id,
+            package_version,
+            restore_system_proxy_on_app_start,
+        )?;
+    }
+    let prior_package = if admission.core_was_running() {
+        let receipt = match read_optional_root_receipt() {
+            Ok(Some(receipt)) => receipt,
+            Ok(None) => {
+                if restore_marker_written {
+                    let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
+                }
+                return Err("maintenance-prior-receipt-missing".into());
+            }
+            Err(error) => {
+                if restore_marker_written {
+                    let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
+                }
+                return Err(error);
+            }
+        };
+        match terminate_running_mish_app(uid, &receipt) {
+            Ok(package) => Some(package),
+            Err(error) => {
+                if restore_marker_written {
+                    let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
+                }
+                return Err(error);
+            }
+        }
     } else {
         None
     };
@@ -1782,16 +2072,20 @@ async fn maintenance_capture_evidence(
             evidence: MaintenanceCaptureEvidence {
                 accepted_operation_id: evidence.accepted_operation_id,
                 after: evidence.after,
-                restore_capture_on_app_start: evidence
-                    .before
-                    .confirms_enabled_at(evidence.before.observed_at),
+                restore_capture_on_app_start,
                 before: evidence.before,
                 core_was_running: evidence.core_was_running,
                 network_ownership_record_sha256: network_ownership_record_digest()?,
             },
-            prior_application,
+            prior_package,
+            restore_system_proxy_on_app_start,
         }),
-        Err(error) => Err(error.into()),
+        Err(error) => {
+            if restore_marker_written {
+                let _ = remove_private_file(&capture_restore_path(home), uid, 0o600);
+            }
+            Err(error.into())
+        }
     }
 }
 
@@ -1880,7 +2174,46 @@ async fn run_package_lifecycle(
     };
     let operation_id = Uuid::new_v4().to_string();
     let _maintenance_lock = MaintenanceProcessLock::acquire(home, uid, &operation_id)?;
-    let capture = match maintenance_capture_evidence(observed, &operation_id, uid).await {
+    let preauthorized = if tart_terminal_authorization {
+        None
+    } else {
+        let installer = installer_root(home);
+        ensure_private_directory(&installer, uid)?;
+        let controller = stage_privileged_controller(package, &installer, uid)?;
+        let privileged_action = if action == UserAction::Uninstall {
+            "__privileged-uninstall"
+        } else {
+            "__privileged-install"
+        };
+        match prepare_native_authorization(
+            privileged_action,
+            package,
+            &controller,
+            uid,
+            gid,
+            home,
+            &operation_id,
+        ) {
+            Ok(prepared) => Some(prepared),
+            Err(error) => {
+                cleanup_installer_files(&installer, uid).map_err(|cleanup| {
+                    format!("administrator-authorization-cleanup-failed:{error}:{cleanup}")
+                })?;
+                return Err(error);
+            }
+        }
+    };
+    let persist_restore_marker = action != UserAction::Uninstall;
+    let capture = match maintenance_capture_evidence(
+        observed,
+        &operation_id,
+        uid,
+        home,
+        &package.manifest.package_version,
+        persist_restore_marker,
+    )
+    .await
+    {
         Ok(capture) => capture,
         Err(_)
             if observed == ObservedPackageState::RepairRequired
@@ -1888,7 +2221,8 @@ async fn run_package_lifecycle(
         {
             MaintenanceCaptureContext {
                 evidence: privileged_uninstall_capture_evidence(&operation_id)?,
-                prior_application: None,
+                prior_package: None,
+                restore_system_proxy_on_app_start: false,
             }
         }
         Err(initial_error) if observed == ObservedPackageState::RepairRequired => {
@@ -1903,11 +2237,18 @@ async fn run_package_lifecycle(
                 format!("maintenance-recovery-required:{initial_error}:{recovery_error}")
             })?;
             observed = observed_package_state(package, uid)?;
-            maintenance_capture_evidence(observed, &operation_id, uid)
-                .await
-                .map_err(|reobserved_error| {
-                    format!("maintenance-recovery-required:{initial_error}:{reobserved_error}")
-                })?
+            maintenance_capture_evidence(
+                observed,
+                &operation_id,
+                uid,
+                home,
+                &package.manifest.package_version,
+                persist_restore_marker,
+            )
+            .await
+            .map_err(|reobserved_error| {
+                format!("maintenance-recovery-required:{initial_error}:{reobserved_error}")
+            })?
         }
         Err(error) => return Err(error),
     };
@@ -1922,6 +2263,7 @@ async fn run_package_lifecycle(
             home: home.to_path_buf(),
             package: package.clone(),
             operation_id: operation_id.clone(),
+            preauthorized: Arc::new(Mutex::new(preauthorized)),
             prepared: Arc::new(Mutex::new(None)),
             tart_terminal_authorization,
             uid,
@@ -1953,16 +2295,11 @@ async fn run_package_lifecycle(
     let mut result = match projection {
         PackageProjection::HealthyDisabled(success) => {
             if capture.evidence.restore_capture_on_app_start {
-                write_capture_restore_marker(
-                    home,
-                    uid,
-                    &operation_id,
-                    &package.manifest.package_version,
-                )?;
                 launch_candidate_application(package)?;
             }
             Ok(json!({
                 "captureRestore": capture.evidence.restore_capture_on_app_start,
+                "systemProxyRestore": capture.restore_system_proxy_on_app_start,
                 "generation": success.generation,
                 "installationId": success.installation_id,
                 "keyId": success.key_id,
@@ -1982,17 +2319,40 @@ async fn run_package_lifecycle(
         PackageProjection::InFlight { .. } => unreachable!("loop exits only for terminal states"),
     };
     let _ = runner.shutdown().await;
-    if result.as_ref().err().map(String::as_str) == Some("administrator-authorization-cancelled") {
-        if restore_capture_after_authorization_cancellation(&capture, home, uid, &operation_id)
-            .is_err()
-        {
-            result = Err("administrator-cancellation-capture-restore-failed".into());
+    if result.is_err() && capture.evidence.restore_capture_on_app_start {
+        if let Some(prior_package) = capture.prior_package.as_ref() {
+            let marker = wait_for_restored_helper_disabled(&capture.evidence)
+                .await
+                .and_then(|_| {
+                    write_capture_restore_marker(
+                        home,
+                        uid,
+                        &operation_id,
+                        &prior_package.manifest.package_version,
+                        capture.restore_system_proxy_on_app_start,
+                    )
+                });
+            // A failed maintenance command returns with a verified disabled installation and
+            // durable Capture intent. Relaunching the App before the invoking command and its
+            // process lock have fully retired can let a transient Core observation consume the
+            // marker. The next ordinary App startup owns recovery and deletes the marker only
+            // after its stable authenticated observation gate passes.
+            match marker {
+                Ok(()) => {}
+                Err(recovery_error) => {
+                    let original = result
+                        .as_ref()
+                        .err()
+                        .map(String::as_str)
+                        .unwrap_or("maintenance-failed");
+                    result = Err(format!(
+                        "maintenance-recovery-required:{original}:{recovery_error}"
+                    ));
+                }
+            }
+        } else {
+            result = Err("maintenance-recovery-required:prior-application-missing".into());
         }
-    } else if result.is_err() && capture.evidence.restore_capture_on_app_start {
-        // The prior app was stopped before privileged replacement. A failed transaction remains
-        // network-disabled; opening the candidate exposes the journal-backed Repair Required
-        // notification without guessing or replaying Capture.
-        let _ = launch_candidate_application(package);
     }
     result
 }
@@ -2075,7 +2435,7 @@ fn run_authorized(
     validate_staged_privileged_controller(controller, uid)?;
     validate_package_controller_binding(package, &controller.sha256, controller.size)?;
     let script =
-        privileged_controller_script(privileged_action, package, controller, uid, gid, home)?;
+        privileged_controller_script(privileged_action, package, controller, uid, gid, home, None)?;
     if tart_terminal_authorization {
         let output = Command::new("/usr/bin/sudo")
             .args(["/bin/sh", "-c", &script])
@@ -2113,8 +2473,16 @@ fn run_authorized(
         ])
         .output()
         .map_err(|_| "administrator-authorization-unavailable")?;
+    native_authorization_result(output)
+}
+
+fn native_authorization_result(output: Output) -> Result<(), String> {
     let response = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if !output.status.success() {
+    native_authorization_response(output.status.success(), &response)
+}
+
+fn native_authorization_response(status_success: bool, response: &str) -> Result<(), String> {
+    if !status_success {
         return Err("administrator-authorization-failed".into());
     }
     if response.starts_with("error:-128:") {
@@ -2123,7 +2491,7 @@ fn run_authorized(
     if response.starts_with("ok:") {
         return Ok(());
     }
-    Err(privileged_failure_code(&response).unwrap_or_else(|| "privileged-lifecycle-failed".into()))
+    Err(privileged_failure_code(response).unwrap_or_else(|| "privileged-lifecycle-failed".into()))
 }
 
 fn privileged_failure_code(output: &str) -> Option<String> {
@@ -2146,6 +2514,7 @@ fn privileged_controller_script(
     uid: u32,
     gid: u32,
     home: &Path,
+    authorization_gate: Option<&AuthorizationGate>,
 ) -> Result<String, String> {
     if !matches!(
         privileged_action,
@@ -2181,6 +2550,45 @@ fn privileged_controller_script(
         quote_shell(&controller.size.to_string()),
     ]
     .join(" ");
+    let authorization_gate = authorization_gate
+        .map(|gate| -> Result<String, String> {
+            let ready = gate
+                .ready
+                .to_str()
+                .ok_or_else(|| "authorization-gate-path-invalid".to_string())?;
+            let go = gate
+                .go
+                .to_str()
+                .ok_or_else(|| "authorization-gate-path-invalid".to_string())?;
+            let cancel = gate
+                .cancel
+                .to_str()
+                .ok_or_else(|| "authorization-gate-path-invalid".to_string())?;
+            Ok(format!(
+                "AUTHORIZATION_READY={}\n\
+AUTHORIZATION_GO={}\n\
+AUTHORIZATION_CANCEL={}\n\
+AUTHORIZATION_OPERATION_ID={}\n\
+AUTHORIZATION_READY_TEMP=\"$AUTHORIZATION_READY.tmp\"\n\
+/usr/bin/install -o 0 -g 0 -m 0600 /dev/null \"$AUTHORIZATION_READY_TEMP\"\n\
+/usr/bin/printf '%s' \"$AUTHORIZATION_OPERATION_ID\" > \"$AUTHORIZATION_READY_TEMP\"\n\
+/bin/chmod 0444 \"$AUTHORIZATION_READY_TEMP\"\n\
+/bin/mv -f \"$AUTHORIZATION_READY_TEMP\" \"$AUTHORIZATION_READY\"\n\
+while [ ! -e \"$AUTHORIZATION_GO\" ]; do\n\
+  [ ! -e \"$AUTHORIZATION_CANCEL\" ] || exit 75\n\
+  /bin/sleep 0.05\n\
+done\n\
+AUTHORIZATION_GO_METADATA=$(/usr/bin/stat -f '%u:%g:%Lp:%l:%z' \"$AUTHORIZATION_GO\")\n\
+[ \"$AUTHORIZATION_GO_METADATA\" = \"$EXPECTED_UID:$EXPECTED_GID:600:1:36\" ] || exit 76\n\
+[ \"$(/bin/cat \"$AUTHORIZATION_GO\")\" = \"$AUTHORIZATION_OPERATION_ID\" ] || exit 77\n",
+                quote_shell(ready),
+                quote_shell(go),
+                quote_shell(cancel),
+                quote_shell(&gate.operation_id),
+            ))
+        })
+        .transpose()?
+        .unwrap_or_default();
     Ok(format!(
         "set -eu\n\
 umask 077\n\
@@ -2206,6 +2614,7 @@ PIN_METADATA=$(/usr/bin/stat -f '%u:%g:%Lp:%l:%z' \"$ROOT_CONTROLLER\")\n\
 [ \"$PIN_METADATA\" = \"0:0:500:1:$EXPECTED_SIZE\" ] || exit 71\n\
 PIN_DIGEST=$(/usr/bin/shasum -a 256 \"$ROOT_CONTROLLER\" | /usr/bin/awk '{{print $1}}')\n\
 [ \"$PIN_DIGEST\" = \"$EXPECTED_SHA256\" ] || exit 72\n\
+{}\
 {}\n",
         quote_shell(staged_path),
         quote_shell(&controller.sha256),
@@ -2213,6 +2622,7 @@ PIN_DIGEST=$(/usr/bin/shasum -a 256 \"$ROOT_CONTROLLER\" | /usr/bin/awk '{{print
         quote_shell(&uid.to_string()),
         quote_shell(&gid.to_string()),
         PRIVILEGED_CONTROLLER_ROOT_PREFIX,
+        authorization_gate,
         invocation
     ))
 }
@@ -2546,22 +2956,42 @@ async fn compensate_maintenance(
         }
         journal.compensation.artifacts = CompensationState::Restored;
         journal.compensation.enrollment = CompensationState::Restored;
-        require_command_success(
-            "/bin/launchctl",
-            &["bootstrap", "system", DEV_TUN_SERVICE_PLIST_PATH],
-            "maintenance-rollback-bootstrap-failed",
-        )?;
-        require_command_success(
-            "/bin/launchctl",
-            &["kickstart", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
-            "maintenance-rollback-start-failed",
-        )?;
         journal.compensation.cleanup = CompensationState::Restored;
         journal.commit_point = MaintenanceCommitPoint::Verified;
         journal.terminal = Some(MaintenanceTerminal {
             code: reason.to_owned(),
             outcome: MaintenanceTerminalOutcome::RolledBack,
         });
+        // The replacement Helper must observe an already durable terminal rollback. Starting
+        // launchd first lets the new process race the final journal write, reject the
+        // non-terminal compensation state, and leave Capture restoration talking to a retiring
+        // Helper instance.
+        write_root_maintenance_journal(journal)?;
+        let service_start = require_command_success(
+            "/bin/launchctl",
+            &["bootstrap", "system", DEV_TUN_SERVICE_PLIST_PATH],
+            "maintenance-rollback-bootstrap-failed",
+        )
+        .and_then(|_| {
+            require_command_success(
+                "/bin/launchctl",
+                &["kickstart", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+                "maintenance-rollback-start-failed",
+            )
+        });
+        if let Err(error) = service_start {
+            let _ = command_output(
+                "/bin/launchctl",
+                &["bootout", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+            );
+            journal.compensation.cleanup = CompensationState::Failed;
+            journal.terminal = Some(MaintenanceTerminal {
+                code: error.clone(),
+                outcome: MaintenanceTerminalOutcome::BoundedDisabled,
+            });
+            write_root_maintenance_journal(journal)?;
+            return Err(error);
+        }
     } else {
         remove_installation_enrollment(
             Path::new(DEV_TUN_SERVICE_ENROLLMENT_PATH),
@@ -3558,6 +3988,12 @@ fn cleanup_installer_files(installer: &Path, uid: u32) -> Result<(), String> {
     match fs::symlink_metadata(installer) {
         Ok(_) => {
             validate_directory(installer, uid, true)?;
+            let gate = authorization_gate(installer, "cleanup", uid);
+            if gate.directory.exists() {
+                let _ = write_private_file(&gate.cancel, b"cleanup", uid);
+                std::thread::sleep(Duration::from_millis(150));
+                remove_authorization_gate(&gate)?;
+            }
             for (name, mode) in [
                 ("enrollment.json", 0o600),
                 ("launch-daemon.plist", 0o600),
@@ -3781,87 +4217,77 @@ mod tests {
             privileged_failure_code(r#"{"code":"ignored","ok":true}"#),
             None
         );
+        assert_eq!(
+            native_authorization_response(true, "error:-128:User canceled.").unwrap_err(),
+            "administrator-authorization-cancelled"
+        );
+        assert!(native_authorization_response(true, "ok:").is_ok());
+        assert_eq!(
+            native_authorization_response(false, "").unwrap_err(),
+            "administrator-authorization-failed"
+        );
     }
 
     #[test]
-    fn administrator_cancellation_never_guesses_missing_capture_identity() {
-        let temporary = tempfile::tempdir().unwrap();
-        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        let home = fs::canonicalize(temporary.path()).unwrap();
-        let uid = unsafe { libc::getuid() };
-        let disabled = TunNetworkObservation::disabled(1);
-        let mut capture = MaintenanceCaptureContext {
-            evidence: MaintenanceCaptureEvidence {
-                accepted_operation_id: Uuid::nil().to_string(),
-                after: disabled.clone(),
-                before: disabled,
-                core_was_running: true,
-                network_ownership_record_sha256: None,
-                restore_capture_on_app_start: true,
+    fn system_proxy_restore_requires_current_exact_mish_ownership() {
+        fn manual(enabled: bool, host: &str, port: u16) -> mish_runtime::ManualProxyState {
+            mish_runtime::ManualProxyState {
+                authenticated: false,
+                enabled,
+                host: host.into(),
+                port,
+            }
+        }
+
+        let journal = CaptureJournal {
+            prior: NetworkServiceProxyState {
+                auto_discovery_enabled: false,
+                bypass_domains: vec!["*.local".into()],
+                http: manual(false, "", 0),
+                https: manual(false, "", 0),
+                pac_enabled: false,
+                pac_url: String::new(),
+                service_id: "service-a".into(),
+                socks: manual(false, "", 0),
             },
-            prior_application: None,
         };
-        assert_eq!(
-            restore_capture_after_authorization_cancellation(
-                &capture,
-                &home,
-                uid,
-                &Uuid::nil().to_string(),
-            )
-            .unwrap_err(),
-            "maintenance-prior-app-identity-missing"
-        );
-        assert!(!capture_restore_path(&home).exists());
+        let mut observed = NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: [
+                "localhost",
+                "*.localhost",
+                "*.local",
+                "*.local.",
+                "*.home.arpa",
+                "*.home.arpa.",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            http: manual(true, "127.0.0.1", 7890),
+            https: manual(true, "127.0.0.1", 7890),
+            pac_enabled: false,
+            pac_url: String::new(),
+            service_id: "service-a".into(),
+            socks: manual(true, "127.0.0.1", 7890),
+        };
+        assert!(confirms_system_proxy_restore_authority(&journal, &observed));
 
-        capture.evidence.restore_capture_on_app_start = false;
-        restore_capture_after_authorization_cancellation(
-            &capture,
-            &home,
-            uid,
-            &Uuid::nil().to_string(),
-        )
-        .unwrap();
-        assert!(!capture_restore_path(&home).exists());
-
-        ensure_private_runtime(&home, uid).unwrap();
-        capture.evidence.restore_capture_on_app_start = true;
-        capture.prior_application = Some(PriorCaptureApplication {
-            manifest_digest: "a".repeat(64),
-            package_root: home.join("prior-package"),
-            package_version: "0.1.0-internal-tun-alpha.4".into(),
-        });
-        let launched = std::cell::Cell::new(false);
-        restore_capture_after_authorization_cancellation_with(
-            &capture,
-            &home,
-            uid,
-            &Uuid::nil().to_string(),
-            |prior, launched_uid| {
-                assert_eq!(launched_uid, uid);
-                assert_eq!(prior.package_version, "0.1.0-internal-tun-alpha.4");
-                launched.set(true);
-                Ok(())
-            },
-        )
-        .unwrap();
-        assert!(launched.get());
-        let marker: CaptureRestoreMarker =
-            serde_json::from_slice(&fs::read(capture_restore_path(&home)).unwrap()).unwrap();
-        assert_eq!(marker.package_version, "0.1.0-internal-tun-alpha.4");
-        assert_eq!(marker.operation_id, Uuid::nil().to_string());
-
-        assert_eq!(
-            restore_capture_after_authorization_cancellation_with(
-                &capture,
-                &home,
-                uid,
-                &Uuid::nil().to_string(),
-                |_, _| Err("maintenance-prior-app-relaunch-failed".into()),
-            )
-            .unwrap_err(),
-            "maintenance-prior-app-relaunch-failed"
-        );
-        assert!(!capture_restore_path(&home).exists());
+        observed.service_id = "service-b".into();
+        assert!(!confirms_system_proxy_restore_authority(
+            &journal, &observed
+        ));
+        observed.service_id = "service-a".into();
+        observed.http.host = "127.0.0.2".into();
+        assert!(!confirms_system_proxy_restore_authority(
+            &journal, &observed
+        ));
+        observed.http.host = "127.0.0.1".into();
+        observed.pac_enabled = true;
+        observed.pac_url = "https://example.invalid/proxy.pac".into();
+        assert!(!confirms_system_proxy_restore_authority(
+            &journal, &observed
+        ));
     }
 
     #[test]
@@ -3926,6 +4352,7 @@ mod tests {
             uid,
             20,
             Path::new("/Users/fixture"),
+            None,
         )
         .unwrap();
         let copy = script.find("/bin/cp -X").unwrap();
@@ -3935,6 +4362,25 @@ mod tests {
         assert!(script.contains("0:0:500:1:$EXPECTED_SIZE"));
         assert!(script.contains("exit 72"));
         assert!(!script.contains(CONTROLLER_RELATIVE_PATH));
+        let gate = authorization_gate(&installer, "00000000-0000-0000-0000-000000000000", uid);
+        let gated_script = privileged_controller_script(
+            "__privileged-install",
+            &package,
+            &staged,
+            uid,
+            20,
+            Path::new("/Users/fixture"),
+            Some(&gate),
+        )
+        .unwrap();
+        let ready = gated_script.find("AUTHORIZATION_READY=").unwrap();
+        let wait = gated_script
+            .find("while [ ! -e \"$AUTHORIZATION_GO\" ]")
+            .unwrap();
+        let execution = gated_script.rfind("\"$ROOT_CONTROLLER\"").unwrap();
+        assert!(digest < ready && ready < wait && wait < execution);
+        assert!(gated_script.contains("$EXPECTED_UID:$EXPECTED_GID:600:1:36"));
+        assert!(gated_script.contains("exit 75"));
         assert!(
             privileged_controller_script(
                 "__privileged-arbitrary",
@@ -3943,6 +4389,7 @@ mod tests {
                 uid,
                 20,
                 Path::new("/Users/fixture"),
+                None,
             )
             .is_err()
         );

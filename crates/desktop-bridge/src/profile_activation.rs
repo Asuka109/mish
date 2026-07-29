@@ -916,7 +916,7 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(&permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        self.activate_inner(command_id, profile_id, Some(permit))
+        self.activate_inner(command_id, profile_id, Some(permit), None)
             .await
     }
 
@@ -925,6 +925,7 @@ impl ProfileActivationCoordinator {
         command_id: &str,
         profile_id: &str,
         permit: Option<StateMutationPermit>,
+        admitted_tun_selection: Option<bool>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let availability = self.availability;
@@ -997,7 +998,10 @@ impl ProfileActivationCoordinator {
         let policy = (self.policy_factory)()
             .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
         let policy = match policy {
-            Ok(policy) => policy,
+            Ok(policy) => match admitted_tun_selection {
+                Some(enabled) => policy.with_admitted_tun_selection(enabled),
+                None => policy,
+            },
             Err(error) => {
                 self.finish_preflight_activation(
                     &command,
@@ -1126,6 +1130,7 @@ impl ProfileActivationCoordinator {
     async fn reactivate_active_authorized(
         self: &Arc<Self>,
         permit: &StateMutationPermit,
+        admitted_tun_selection: Option<bool>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         self.authority
             .validate(permit)
@@ -1137,7 +1142,9 @@ impl ProfileActivationCoordinator {
             .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
         let command_id = Uuid::new_v4().to_string();
         let mut updates = self.subscribe();
-        let pending = self.activate_inner(&command_id, &profile_id, None).await?;
+        let pending = self
+            .activate_inner(&command_id, &profile_id, None, admitted_tun_selection)
+            .await?;
         if pending.phase != ProfileActivationPhase::Pending {
             return Ok(pending);
         }
@@ -1281,7 +1288,12 @@ impl ProfileActivationCoordinator {
             Ok(current)
         } else {
             let activation = self
-                .activate_inner(command_id, &profile_id, None)
+                .activate_inner(
+                    command_id,
+                    &profile_id,
+                    None,
+                    Some(request.active && request.selection.tun),
+                )
                 .await
                 .map_err(profile_launch_error);
             if let Ok(activation) = &activation {
@@ -1425,7 +1437,13 @@ impl ProfileActivationCoordinator {
                 Ok((preflight, activation_elapsed, preflight_elapsed)) => {
                     let capture_started = Instant::now();
                     let result = if requires_tun_reactivation && !activation_started_for_launch {
-                        match self.reactivate_active_authorized(&permit).await {
+                        match self
+                            .reactivate_active_authorized(
+                                &permit,
+                                Some(request.active && request.selection.tun),
+                            )
+                            .await
+                        {
                             Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => {
                                 self.host
                                     .set_capture_with_admitted_preflight(
@@ -1707,7 +1725,10 @@ impl ProfileActivationCoordinator {
             )
             .await?;
         let activation_result = match permit {
-            Some(permit) => self.reactivate_active_authorized(permit).await,
+            Some(permit) => {
+                self.reactivate_active_authorized(permit, Some(desired_tun))
+                    .await
+            }
             None => self.reactivate_active().await,
         };
         let reactivated = matches!(
@@ -2384,6 +2405,7 @@ fn usable_capture_selection(
     capabilities: &mish_runtime::PlatformCapabilities,
     mut selection: CaptureSelection,
 ) -> Result<CaptureSelection, CaptureTransitionError> {
+    let explicit_selection = selection.system_proxy || selection.tun;
     let available = |availability| {
         matches!(
             (adapter_kind, availability),
@@ -2395,7 +2417,7 @@ fn usable_capture_selection(
     };
     selection.system_proxy &= available(capabilities.system_proxy);
     selection.tun &= available(capabilities.tun);
-    if !selection.system_proxy && !selection.tun {
+    if !explicit_selection && !selection.system_proxy && !selection.tun {
         selection.system_proxy = available(capabilities.system_proxy);
         selection.tun = !selection.system_proxy && available(capabilities.tun);
     }
@@ -2444,7 +2466,7 @@ mod capture_selection_tests {
     }
 
     #[test]
-    fn native_launch_selection_preserves_remembered_modes_and_falls_back_deterministically() {
+    fn native_launch_selection_preserves_explicit_modes_and_defaults_only_empty_selection() {
         let supported = capabilities(
             CapabilityAvailability::Supported,
             CapabilityAvailability::Supported,
@@ -2479,7 +2501,7 @@ mod capture_selection_tests {
                 tun: false
             }
         );
-        assert_eq!(
+        assert!(
             usable_capture_selection(
                 StatusAdapterKind::Native,
                 &capabilities(
@@ -2491,11 +2513,7 @@ mod capture_selection_tests {
                     tun: false
                 },
             )
-            .unwrap(),
-            CaptureSelection {
-                system_proxy: false,
-                tun: true
-            }
+            .is_err()
         );
         assert!(
             usable_capture_selection(

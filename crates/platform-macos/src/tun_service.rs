@@ -907,6 +907,10 @@ impl MaintenanceCaptureAdmission {
     pub fn core_was_running(&self) -> bool {
         self.core_was_running
     }
+
+    pub fn restore_capture_on_app_start(&self) -> bool {
+        self.before.confirms_enabled_at(self.before.observed_at)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
