@@ -131,8 +131,7 @@
       "/scripts/macos-updater-contract.ts",
       "/docs/operations/trusted-release-boundary.md",
       "/package.json",
-      "/pnpm-lock.yaml",
-      "/rust-toolchain.toml"
+      "/pnpm-lock.yaml"
     ]
   }
 }

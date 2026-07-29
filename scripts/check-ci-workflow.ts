@@ -247,6 +247,11 @@ invariant(
   archive.run?.includes("archive_sha256") && archive.run.includes("shasum -a 256"),
   "The app archive must publish its SHA-256 for the package summary.",
 );
+invariant(
+  archive.run?.includes("hdiutil attach -readonly -nobrowse -noautoopen") &&
+    archive.run.includes("trap cleanup EXIT"),
+  "The app archive must mount the verified DMG headlessly and always detach it.",
+);
 
 const summary = step(packageMacos, "Write package summary");
 const summaryIndex = packageMacos.steps?.indexOf(summary) ?? -1;
