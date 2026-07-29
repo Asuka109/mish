@@ -88,6 +88,16 @@ func TestCoreLoadsBytesAndPublishesBoundedEvents(t *testing.T) {
 		t.Fatalf("missing configuration event: %s", events.payload)
 	}
 	decodeEnvelope(t, events)
+
+	previousLoaded := core.loaded
+	previousDigest := core.configDigest
+	rejected := core.loadConfig([]byte("external-controller: 127.0.0.1:9090\nproxies: []\nrules: []\n"))
+	if rejected.status != statusConfigRejected {
+		t.Fatalf("replacement rejection status = %d", rejected.status)
+	}
+	if core.loaded != previousLoaded || core.configDigest != previousDigest {
+		t.Fatal("failed replacement did not preserve the prior loaded configuration")
+	}
 }
 
 func TestInvalidLimitsReturnTypedErrors(t *testing.T) {

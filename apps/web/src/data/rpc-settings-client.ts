@@ -139,6 +139,12 @@ export class RpcSettingsClient implements SettingsClient {
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
+  setCloseOldConnectionsAfterGroupSwitch(enabled: boolean, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.setCloseOldConnectionsAfterGroupSwitch", { enabled }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void) {
     this.snapshotListeners.add(listener);
     void this.ensureRemoteSubscription();

@@ -51,6 +51,7 @@ interface SettingsContextValue {
   setApplicationLaunchBehavior(launchBehavior: ApplicationLaunchBehavior): Promise<boolean>;
   setManagedPorts(managedPorts: ManagedPortPreferencesDto): Promise<boolean>;
   setProcessDiscoveryMode(mode: ProcessDiscoveryMode): Promise<boolean>;
+  setCloseOldConnectionsAfterGroupSwitch(enabled: boolean): Promise<boolean>;
   setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy): Promise<boolean>;
   findManagedPorts(): Promise<boolean>;
   findManagedPort(kind: ManagedPortKind): Promise<boolean>;
@@ -176,6 +177,8 @@ export function SettingsProvider({
         (await run(() => client.setManagedPorts(managedPorts))).ok,
       setProcessDiscoveryMode: async (mode) =>
         (await run(() => client.setProcessDiscoveryMode(mode))).ok,
+      setCloseOldConnectionsAfterGroupSwitch: async (enabled) =>
+        (await run(() => client.setCloseOldConnectionsAfterGroupSwitch(enabled))).ok,
       findManagedPorts: async () => (await run(() => client.findManagedPorts())).ok,
       findManagedPort: async (kind) => (await run(() => client.findManagedPort(kind))).ok,
       setSystemProxyTakeoverPolicy: async (policy) =>

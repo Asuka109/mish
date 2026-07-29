@@ -208,6 +208,33 @@ export function PolicyGroupBrowser({
     const result = await selectGroupChild(group.id, childId);
     setPendingSelectionId(null);
     if (result.ok) {
+      const cleanup = result.snapshot?.groupSelectionOperation;
+      if (cleanup && cleanup.cleanupPhase !== "idle") {
+        publish(
+          notificationPublication("route.old-child-cleanup", {
+            data: {
+              catalogRevision: cleanup.catalogRevision,
+              closedCount: cleanup.closedCount,
+              controllerSessionRevision: cleanup.controllerSessionRevision,
+              failedCount: cleanup.failedCount,
+              failure: cleanup.cleanupFailure ?? undefined,
+              membershipRevision: cleanup.membershipRevision,
+              mode: cleanup.cleanupMode,
+              phase: cleanup.cleanupPhase,
+              targetCount: cleanup.targetCount,
+            },
+            dedupeKey: "route.old-child-cleanup",
+            severity:
+              cleanup.cleanupPhase === "completed"
+                ? "success"
+                : cleanup.cleanupPhase === "skipped"
+                  ? "info"
+                  : cleanup.cleanupPhase === "partial"
+                    ? "warning"
+                    : "error",
+          }),
+        );
+      }
       onSelectionConfirmed?.();
       return;
     }

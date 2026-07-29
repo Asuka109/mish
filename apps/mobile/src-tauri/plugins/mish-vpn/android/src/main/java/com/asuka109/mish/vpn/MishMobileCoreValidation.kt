@@ -2,6 +2,7 @@ package com.asuka109.mish.vpn
 
 import app.tauri.annotation.InvokeArg
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal const val MOBILE_CORE_MAX_CONFIG_BYTES_V1 = 1_048_576
@@ -22,6 +23,7 @@ internal enum class NativeValidationCode(val nativeCode: Int) {
     MALFORMED_RESPONSE(5),
     RESPONSE_TOO_LARGE(6),
     NATIVE_FAILED(7),
+    JNI_EXCEPTION(8),
 }
 
 internal data class NativeConfigValidationResult(
@@ -30,7 +32,10 @@ internal data class NativeConfigValidationResult(
 )
 
 internal interface MobileCoreConfigValidator {
-    fun validate(configBytes: ByteArray): NativeConfigValidationResult
+    fun validate(
+        configBytes: ByteArray,
+        expectedDigest: String,
+    ): NativeConfigValidationResult
 }
 
 internal data class MobileConfigValidationResult(
@@ -124,7 +129,7 @@ internal class MobileConfigValidationCoordinator(
 
             val bytes = ByteArray(args.configBytes.size) { args.configBytes[it].toByte() }
             val nativeResult = try {
-                validator.validate(bytes)
+                validator.validate(bytes, sha256Hex(bytes))
             } finally {
                 bytes.fill(0)
             }
@@ -177,6 +182,11 @@ internal class MobileConfigValidationCoordinator(
             "native-validation-failed",
             "Mobile Core validation failed safely.",
         )
+        NativeValidationCode.JNI_EXCEPTION -> MobileConfigValidationResult.failure(
+            snapshot,
+            "native-validation-failed",
+            "The Mobile Core JNI validation boundary failed safely.",
+        )
     }
 
     private fun staleAuthority(snapshot: MobileVpnSnapshot): MobileConfigValidationResult =
@@ -186,6 +196,11 @@ internal class MobileConfigValidationCoordinator(
             "The mobile runtime authority is stale.",
         )
 }
+
+internal fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
 internal fun validateConfigSafely(
     coordinator: MobileConfigValidationCoordinator,

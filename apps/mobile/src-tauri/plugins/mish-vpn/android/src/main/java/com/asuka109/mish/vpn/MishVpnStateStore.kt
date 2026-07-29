@@ -64,6 +64,25 @@ internal class MishVpnStateStore(context: Context) : SnapshotRepository {
         }
     }
 
+    fun reconcileLoadedConfig(inspection: NativeConfigInspectionResult): MobileVpnSnapshot {
+        val current = current()
+        val reconciled = reconcileCoreConfigSnapshot(current, inspection)
+        if (
+            current.coreConfigState == reconciled.coreConfigState &&
+            current.loadedConfigDigest == reconciled.loadedConfigDigest &&
+            current.loadedConfigRevision == reconciled.loadedConfigRevision
+        ) {
+            return current
+        }
+        return update { reconciled }
+    }
+
+    fun reconcileFailureInjection(available: Boolean): MobileVpnSnapshot {
+        val current = current()
+        if (current.configFailureInjectionAvailable == available) return current
+        return update { it.copy(configFailureInjectionAvailable = available) }
+    }
+
     fun recoverAfterProcessStart(): MobileVpnSnapshot {
         val snapshot = current()
         if (!snapshot.foreground && snapshot.phase !in ACTIVE_OR_TRANSITIONAL_PHASES) return snapshot
@@ -108,4 +127,29 @@ internal class MishVpnStateStore(context: Context) : SnapshotRepository {
             VpnPhase.STOPPING.wireName,
         )
     }
+}
+
+internal fun reconcileCoreConfigSnapshot(
+    current: MobileVpnSnapshot,
+    inspection: NativeConfigInspectionResult,
+): MobileVpnSnapshot {
+    val nextState = when (inspection.code) {
+        NativeInspectionCode.LOADED_EXPECTED -> "loaded"
+        NativeInspectionCode.UNLOADED -> "unloaded"
+        NativeInspectionCode.LOADED_OTHER,
+        NativeInspectionCode.MALFORMED_RESPONSE,
+        NativeInspectionCode.RESPONSE_TOO_LARGE,
+        NativeInspectionCode.NATIVE_FAILED,
+        -> "unknown"
+    }
+    return current.copy(
+        coreConfigState = nextState,
+        loadedConfigDigest = if (nextState == "loaded") current.loadedConfigDigest else null,
+        loadedConfigRevision = if (nextState == "loaded") current.loadedConfigRevision else null,
+        message = when (nextState) {
+            "loaded" -> "Loaded Core configuration was confirmed after activity recreation."
+            "unloaded" -> "Mobile Core is unloaded. VPN and TUN remain unavailable."
+            else -> "Loaded Core state is unknown and requires explicit recovery."
+        },
+    )
 }

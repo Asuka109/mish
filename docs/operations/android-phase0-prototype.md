@@ -15,8 +15,10 @@ capability as unavailable. An explicitly staged, checksum-matched native Core
 may report its ABI and version identity through a bounded JNI probe. The typed
 mobile adapter may also carry caller-owned fictional configuration bytes through
 Tauri, Kotlin, and JNI to initialize the Core and invoke
-`mish_core_validate_config_v1`. Validation never loads that configuration,
-starts Core, or changes the fixture snapshot. The prototype never calls
+`mish_core_validate_config_v1`, then load the exact admitted revision through
+`mish_core_load_config_v1`. The snapshot distinguishes packaged, validated,
+loaded, unloaded, and unknown Core state. Loading never starts Core or changes
+VPN state. The prototype never calls
 `VpnService.Builder.establish`, creates a TUN, or captures traffic. No
 subscription, token, node, or private configuration is included. This work
 proves the **compiled shell** evidence
@@ -80,8 +82,9 @@ official sources:
   always returns `unavailable`; the honest fixture notification remains
   foreground only until explicit stop, revoke, or destruction. `vpnActive`
   remains false throughout. Core availability describes only verified package
-  identity and does not imply loaded configuration, TUN ownership, or traffic
-  capture. Validation-only initialization is not lifecycle activation.
+  identity; loaded configuration is reported separately and does not imply TUN
+  ownership or traffic capture. Configuration loading is not lifecycle
+  activation.
 
 ## Retained local toolchain
 
@@ -190,8 +193,8 @@ record the Meizu checklist below. A report can support the **installable app**
 or **native fixture** evidence levels only when its observations satisfy those
 levels. It can never turn this fixture into **device VPN** evidence. A packaged
 checksum-matched Mobile Core identity remains package-content evidence only:
-the Phase 0 backend does not load configuration, initialize the Core, establish
-a TUN, or route traffic.
+the Phase 0 backend may validate and load only the bounded fictional fixtures,
+but it does not start Core, establish a TUN, or route traffic.
 
 ## 2026-07-20 artifact evidence
 

@@ -20,7 +20,9 @@ use mish_runtime::{
     CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT, EventEvidence, EventLevel, EventRecord,
     EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource,
     EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure,
-    GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary, ProviderAuthority,
+    GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, GroupSelectionCleanupFailure,
+    GroupSelectionCleanupMode, GroupSelectionCleanupPhase, GroupSelectionOperation,
+    PolicyGroupConnectionCleanupPreference, ProfileSummary, ProviderAuthority,
     ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
     ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateFailure,
     ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure, ProxyDiagnosticObservation,
@@ -49,6 +51,7 @@ use crate::{
 const STARTING_MESSAGE: &str = "Connecting to the configured Mihomo Controller";
 static NEXT_EVENT_SOURCE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_GROUP_DELAY_TEST_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_GROUP_SELECTION_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct ControllerObservationConfig {
     pub base_url: Url,
@@ -60,6 +63,10 @@ pub struct ControllerObservationConfig {
     pub refresh_interval: Duration,
     pub reconnect_delay: Duration,
     pub confirmation_timeout: Duration,
+    pub connection_cleanup_preference: PolicyGroupConnectionCleanupPreference,
+    pub cleanup_interval: Duration,
+    pub cleanup_timeout: Duration,
+    pub cleanup_quiet_scans: u8,
 }
 
 impl ControllerObservationConfig {
@@ -74,6 +81,10 @@ impl ControllerObservationConfig {
             refresh_interval: Duration::from_secs(2),
             reconnect_delay: Duration::from_secs(1),
             confirmation_timeout: Duration::from_secs(5),
+            connection_cleanup_preference: PolicyGroupConnectionCleanupPreference::default(),
+            cleanup_interval: Duration::from_millis(100),
+            cleanup_timeout: Duration::from_millis(900),
+            cleanup_quiet_scans: 2,
         }
     }
 }
@@ -119,6 +130,7 @@ struct SourceState {
     event_session_number: u64,
     events: VecDeque<EventRecord>,
     group_delay_test: GroupDelayTest,
+    group_selection_operation: GroupSelectionOperation,
     traffic_reconnect_count: u64,
     recent_traffic_sequence: u64,
     traffic_sequence: u64,
@@ -140,6 +152,7 @@ impl SourceState {
             event_session_number: 0,
             events: VecDeque::with_capacity(EVENTS_BUFFER_LIMIT),
             group_delay_test: GroupDelayTest::idle(),
+            group_selection_operation: GroupSelectionOperation::idle(),
             traffic_reconnect_count: 0,
             recent_traffic_sequence: 0,
             traffic_sequence: 0,
@@ -202,12 +215,19 @@ struct SourceInner {
     client: ControllerClient,
     command: AsyncMutex<()>,
     confirmation_timeout: Duration,
+    connection_cleanup_preference: PolicyGroupConnectionCleanupPreference,
+    cleanup_control: Mutex<Option<(u64, CancellationToken)>>,
+    cleanup_execution: AsyncMutex<()>,
+    cleanup_interval: Duration,
+    cleanup_quiet_scans: u8,
+    cleanup_timeout: Duration,
     lifecycle: Arc<dyn CoreRuntime>,
     observation_generation: AtomicU64,
     observations_active: AtomicBool,
     event_source_id: u64,
     event_updates: broadcast::Sender<()>,
     group_delay_control: Mutex<Option<(String, CancellationToken)>>,
+    latest_group_selection_operation: AtomicU64,
     profile: ProfileMappingContext,
     reconnect_delay: Duration,
     refresh_interval: Duration,
@@ -227,6 +247,18 @@ struct ObservationTask {
     join: JoinHandle<()>,
 }
 
+#[derive(Clone, Debug)]
+struct GroupSelectionCleanupContext {
+    catalog_revision: String,
+    controller_session_revision: u64,
+    group_id: String,
+    group_label: String,
+    membership_revision: String,
+    new_child: String,
+    old_child: String,
+    operation_id: u64,
+}
+
 impl ControllerStatusSource {
     pub fn new(
         config: ControllerObservationConfig,
@@ -237,6 +269,9 @@ impl ControllerStatusSource {
             || config.refresh_interval.is_zero()
             || config.reconnect_delay.is_zero()
             || config.confirmation_timeout.is_zero()
+            || config.cleanup_interval.is_zero()
+            || config.cleanup_timeout.is_zero()
+            || config.cleanup_quiet_scans == 0
         {
             return Err(ControllerStatusSourceError::InvalidTiming);
         }
@@ -258,12 +293,19 @@ impl ControllerStatusSource {
                 client,
                 command: AsyncMutex::new(()),
                 confirmation_timeout: config.confirmation_timeout,
+                connection_cleanup_preference: config.connection_cleanup_preference,
+                cleanup_control: Mutex::new(None),
+                cleanup_execution: AsyncMutex::new(()),
+                cleanup_interval: config.cleanup_interval,
+                cleanup_quiet_scans: config.cleanup_quiet_scans,
+                cleanup_timeout: config.cleanup_timeout,
                 lifecycle,
                 observation_generation: AtomicU64::new(0),
                 observations_active: AtomicBool::new(false),
                 event_source_id: NEXT_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
                 event_updates,
                 group_delay_control: Mutex::new(None),
+                latest_group_selection_operation: AtomicU64::new(0),
                 profile: config.profile,
                 reconnect_delay: config.reconnect_delay,
                 refresh_interval: config.refresh_interval,
@@ -290,6 +332,15 @@ impl ControllerStatusSource {
             .group_delay_control
             .lock()
             .expect("group delay control poisoned")
+            .as_ref()
+        {
+            cancellation.cancel();
+        }
+        if let Some((_, cancellation)) = self
+            .inner
+            .cleanup_control
+            .lock()
+            .expect("group-selection cleanup control poisoned")
             .as_ref()
         {
             cancellation.cancel();
@@ -378,6 +429,15 @@ impl ControllerStatusSource {
         {
             cancellation.cancel();
         }
+        if let Some((_, cancellation)) = self
+            .inner
+            .cleanup_control
+            .lock()
+            .expect("group-selection cleanup control poisoned")
+            .as_ref()
+        {
+            cancellation.cancel();
+        }
         self.stop_observation_task().await;
         {
             let _authority = self.inner.authority.lock().await;
@@ -434,6 +494,7 @@ impl StatusDataSource for ControllerStatusSource {
             url: Some(mish_mihomo_controller::ROUTE_DELAY_TEST_URL.into()),
         };
         snapshot.group_delay_test = state.group_delay_test.clone();
+        snapshot.group_selection_operation = state.group_selection_operation.clone();
         snapshot
     }
 
@@ -488,6 +549,12 @@ impl StatusDataSource for ControllerStatusSource {
                 command,
                 StatusCommand::Routing | StatusCommand::Group | StatusCommand::GroupDelay
             )
+    }
+
+    fn set_policy_group_connection_cleanup_enabled(&self, enabled: bool) {
+        self.inner
+            .connection_cleanup_preference
+            .set_enabled(enabled);
     }
 
     fn run_proxy_diagnostic(
@@ -974,7 +1041,16 @@ impl ControllerStatusSource {
         group_id: &str,
         child_id: &str,
     ) -> Result<(), StatusCommandError> {
-        let result = self.confirm_group_command(group_id, child_id).await;
+        let operation_id = NEXT_GROUP_SELECTION_OPERATION_ID.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .latest_group_selection_operation
+            .store(operation_id, Ordering::Release);
+        self.cancel_group_selection_cleanup();
+        let cleanup_boundary = self.inner.cleanup_execution.lock().await;
+        drop(cleanup_boundary);
+        let result = self
+            .confirm_group_command(group_id, child_id, operation_id)
+            .await;
         if let Err(error) = &result {
             record_error(
                 &self.inner,
@@ -986,7 +1062,21 @@ impl ControllerStatusSource {
         } else {
             clear_diagnostic(&self.inner, ObservationChannel::Command).await;
         }
-        result
+        let Some(context) = result? else {
+            return Ok(());
+        };
+        let operation = if self.inner.connection_cleanup_preference.enabled() {
+            self.run_group_selection_cleanup(context).await
+        } else {
+            cleanup_operation(
+                &context,
+                GroupSelectionCleanupMode::Off,
+                GroupSelectionCleanupPhase::Skipped,
+                None,
+            )
+        };
+        self.publish_group_selection_operation(operation).await;
+        Ok(())
     }
 
     async fn refresh_after_command_failure(&self) {
@@ -1016,7 +1106,8 @@ impl ControllerStatusSource {
         &self,
         group_id: &str,
         child_id: &str,
-    ) -> Result<(), StatusCommandError> {
+        operation_id: u64,
+    ) -> Result<Option<GroupSelectionCleanupContext>, StatusCommandError> {
         self.require_command_ready()?;
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
@@ -1050,13 +1141,51 @@ impl ControllerStatusSource {
         let (group, child) = mapper
             .selection_target(&initial, group_id, child_id)
             .map_err(map_selection_error)?;
+        let old_child = initial
+            .proxies
+            .get(&group)
+            .and_then(|proxy| proxy.now.clone())
+            .ok_or_else(|| {
+                StatusCommandError::new(
+                    StatusCommandErrorKind::InconsistentObservation,
+                    "The policy group did not expose a selected child",
+                )
+            })?;
+        let context = GroupSelectionCleanupContext {
+            catalog_revision: catalog_revision(&initial),
+            controller_session_revision: self.inner.observation_generation.load(Ordering::Acquire),
+            group_id: group_id.to_owned(),
+            group_label: group.clone(),
+            membership_revision: membership_revision(&initial, &group, group_id).ok_or_else(
+                || {
+                    StatusCommandError::new(
+                        StatusCommandErrorKind::StaleMembership,
+                        "The policy-group membership could not be proven",
+                    )
+                },
+            )?,
+            new_child: child.clone(),
+            old_child,
+            operation_id,
+        };
         if initial
             .proxies
             .get(&group)
             .and_then(|proxy| proxy.now.as_deref())
             == Some(&child)
         {
-            return Ok(());
+            let operation = cleanup_operation(
+                &context,
+                if self.inner.connection_cleanup_preference.enabled() {
+                    GroupSelectionCleanupMode::OldDirectChild
+                } else {
+                    GroupSelectionCleanupMode::Off
+                },
+                GroupSelectionCleanupPhase::Skipped,
+                None,
+            );
+            self.publish_group_selection_operation(operation).await;
+            return Ok(None);
         }
         self.inner
             .client
@@ -1101,7 +1230,7 @@ impl ControllerStatusSource {
                 == Some(observed_child.as_str());
             if confirmed {
                 clear_diagnostic(&self.inner, ObservationChannel::Command).await;
-                return Ok(());
+                return Ok(Some(context));
             }
             if tokio::time::Instant::now() >= deadline {
                 return Err(StatusCommandError::new(
@@ -1111,6 +1240,78 @@ impl ControllerStatusSource {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    fn cancel_group_selection_cleanup(&self) {
+        if let Some((_, cancellation)) = self
+            .inner
+            .cleanup_control
+            .lock()
+            .expect("group-selection cleanup control poisoned")
+            .as_ref()
+        {
+            cancellation.cancel();
+        }
+    }
+
+    async fn run_group_selection_cleanup(
+        &self,
+        context: GroupSelectionCleanupContext,
+    ) -> GroupSelectionOperation {
+        let cancellation = CancellationToken::new();
+        {
+            let mut control = self
+                .inner
+                .cleanup_control
+                .lock()
+                .expect("group-selection cleanup control poisoned");
+            if let Some((_, previous)) =
+                control.replace((context.operation_id, cancellation.clone()))
+            {
+                previous.cancel();
+            }
+        }
+        let _execution = self.inner.cleanup_execution.lock().await;
+        let operation = cleanup_old_child_connections(&self.inner, &context, &cancellation).await;
+        {
+            let mut control = self
+                .inner
+                .cleanup_control
+                .lock()
+                .expect("group-selection cleanup control poisoned");
+            if control
+                .as_ref()
+                .is_some_and(|(operation_id, _)| *operation_id == context.operation_id)
+            {
+                *control = None;
+            }
+        }
+        operation
+    }
+
+    async fn publish_group_selection_operation(&self, operation: GroupSelectionOperation) {
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            if operation_sequence(&state.group_selection_operation) > operation_sequence(&operation)
+            {
+                return;
+            }
+            let event = ApplicationDiagnosticEvent::route_old_child_cleanup(&operation);
+            state.group_selection_operation = operation;
+            push_event(
+                &mut state,
+                event.level(),
+                EventSource::Application,
+                Some(event.presentation().clone()),
+                None,
+            );
+        }
+        publish_change(&self.inner).await;
+        publish_event_change(&self.inner);
     }
 
     async fn begin_group_delay_test(&self, group_id: String) -> Result<(), StatusCommandError> {
@@ -1538,6 +1739,354 @@ fn map_delay_error(error: &ControllerError) -> GroupDelayFailure {
         | ControllerError::MessageTooLarge { .. }
         | ControllerError::Decode { .. }
         | ControllerError::Validation { .. } => GroupDelayFailure::InconsistentObservation,
+    }
+}
+
+fn cleanup_operation(
+    context: &GroupSelectionCleanupContext,
+    cleanup_mode: GroupSelectionCleanupMode,
+    cleanup_phase: GroupSelectionCleanupPhase,
+    cleanup_failure: Option<GroupSelectionCleanupFailure>,
+) -> GroupSelectionOperation {
+    GroupSelectionOperation {
+        catalog_revision: context.catalog_revision.clone(),
+        cleanup_failure,
+        cleanup_mode,
+        cleanup_phase,
+        closed_count: 0,
+        controller_session_revision: context.controller_session_revision,
+        failed_count: 0,
+        membership_revision: context.membership_revision.clone(),
+        operation_id: Some(format!("group-selection-{}", context.operation_id)),
+        scan_count: 0,
+        selection_confirmed: true,
+        target_count: 0,
+    }
+}
+
+async fn cleanup_old_child_connections(
+    inner: &Arc<SourceInner>,
+    context: &GroupSelectionCleanupContext,
+    cancellation: &CancellationToken,
+) -> GroupSelectionOperation {
+    let mut operation = cleanup_operation(
+        context,
+        GroupSelectionCleanupMode::OldDirectChild,
+        GroupSelectionCleanupPhase::Completed,
+        None,
+    );
+    let deadline = tokio::time::Instant::now() + inner.cleanup_timeout;
+    let mut seen_targets = BTreeSet::new();
+    let mut quiet_scans = 0_u8;
+
+    loop {
+        if let Some(failure) = cleanup_guard_failure(inner, context, cancellation) {
+            finish_interrupted_cleanup(&mut operation, failure);
+            return operation;
+        }
+        let catalog = match fetch_valid_cleanup_catalog(inner, context).await {
+            Ok(catalog) => catalog,
+            Err(failure) => {
+                finish_interrupted_cleanup(&mut operation, failure);
+                return operation;
+            }
+        };
+        let connections = match inner.client.connections().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                finish_interrupted_cleanup(&mut operation, map_cleanup_error(&error));
+                return operation;
+            }
+        };
+        if let Some(failure) = cleanup_guard_failure(inner, context, cancellation) {
+            finish_interrupted_cleanup(&mut operation, failure);
+            return operation;
+        }
+        if validate_cleanup_catalog(&catalog, context).is_err() {
+            finish_interrupted_cleanup(&mut operation, GroupSelectionCleanupFailure::StaleRevision);
+            return operation;
+        }
+        let confirmation = match fetch_valid_cleanup_catalog(inner, context).await {
+            Ok(catalog) => catalog,
+            Err(failure) => {
+                finish_interrupted_cleanup(&mut operation, failure);
+                return operation;
+            }
+        };
+        if validate_cleanup_catalog(&confirmation, context).is_err() {
+            finish_interrupted_cleanup(&mut operation, GroupSelectionCleanupFailure::StaleRevision);
+            return operation;
+        }
+
+        operation.scan_count = operation.scan_count.saturating_add(1);
+        let known_chain_labels = confirmation.proxies.keys().collect::<BTreeSet<_>>();
+        let targets = connections
+            .connections
+            .iter()
+            .filter(|connection| {
+                connection_uses_old_direct_child(
+                    &connection.chains,
+                    &known_chain_labels,
+                    &context.group_label,
+                    &context.old_child,
+                    &context.new_child,
+                )
+            })
+            .map(|connection| connection.id.clone())
+            .filter(|connection_id| seen_targets.insert(connection_id.clone()))
+            .collect::<Vec<_>>();
+        operation.target_count = operation
+            .target_count
+            .saturating_add(u32::try_from(targets.len()).unwrap_or(u32::MAX));
+        if targets.is_empty() {
+            quiet_scans = quiet_scans.saturating_add(1);
+        } else {
+            quiet_scans = 0;
+        }
+
+        for connection_id in targets {
+            if let Some(failure) = cleanup_guard_failure(inner, context, cancellation) {
+                finish_interrupted_cleanup(&mut operation, failure);
+                return operation;
+            }
+            match inner.client.close_connection(&connection_id).await {
+                Ok(()) => operation.closed_count = operation.closed_count.saturating_add(1),
+                Err(ControllerError::HttpStatus { status: 404, .. }) => {
+                    operation.closed_count = operation.closed_count.saturating_add(1);
+                }
+                Err(error) => {
+                    operation.failed_count = operation.failed_count.saturating_add(1);
+                    operation
+                        .cleanup_failure
+                        .get_or_insert_with(|| map_cleanup_error(&error));
+                }
+            }
+        }
+
+        if quiet_scans >= inner.cleanup_quiet_scans {
+            operation.cleanup_phase = if operation.failed_count == 0 {
+                GroupSelectionCleanupPhase::Completed
+            } else {
+                GroupSelectionCleanupPhase::Partial
+            };
+            return operation;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            operation.cleanup_phase = GroupSelectionCleanupPhase::Partial;
+            operation
+                .cleanup_failure
+                .get_or_insert(GroupSelectionCleanupFailure::Timeout);
+            return operation;
+        }
+        tokio::select! {
+            biased;
+            _ = inner.cancellation.cancelled() => {
+                finish_interrupted_cleanup(
+                    &mut operation,
+                    cleanup_guard_failure(inner, context, cancellation)
+                        .unwrap_or(GroupSelectionCleanupFailure::RuntimeReplaced),
+                );
+                return operation;
+            }
+            _ = cancellation.cancelled() => {
+                finish_interrupted_cleanup(
+                    &mut operation,
+                    cleanup_guard_failure(inner, context, cancellation)
+                        .unwrap_or(GroupSelectionCleanupFailure::Cancelled),
+                );
+                return operation;
+            }
+            _ = tokio::time::sleep(inner.cleanup_interval) => {}
+        }
+    }
+}
+
+fn operation_sequence(operation: &GroupSelectionOperation) -> u64 {
+    operation
+        .operation_id
+        .as_deref()
+        .and_then(|operation_id| operation_id.strip_prefix("group-selection-"))
+        .and_then(|sequence| sequence.parse().ok())
+        .unwrap_or_default()
+}
+
+fn cleanup_guard_failure(
+    inner: &SourceInner,
+    context: &GroupSelectionCleanupContext,
+    cancellation: &CancellationToken,
+) -> Option<GroupSelectionCleanupFailure> {
+    if inner.cancellation.is_cancelled()
+        || !inner.observations_active.load(Ordering::Acquire)
+        || inner.observation_generation.load(Ordering::Acquire)
+            != context.controller_session_revision
+    {
+        return Some(GroupSelectionCleanupFailure::RuntimeReplaced);
+    }
+    if inner
+        .latest_group_selection_operation
+        .load(Ordering::Acquire)
+        != context.operation_id
+    {
+        return Some(GroupSelectionCleanupFailure::Cancelled);
+    }
+    cancellation
+        .is_cancelled()
+        .then_some(GroupSelectionCleanupFailure::Cancelled)
+}
+
+async fn fetch_valid_cleanup_catalog(
+    inner: &SourceInner,
+    context: &GroupSelectionCleanupContext,
+) -> Result<ProxyCatalog, GroupSelectionCleanupFailure> {
+    inner
+        .client
+        .verify_version()
+        .await
+        .map_err(|error| map_cleanup_error(&error))?;
+    let catalog = inner
+        .client
+        .proxies()
+        .await
+        .map_err(|error| map_cleanup_error(&error))?;
+    validate_cleanup_catalog(&catalog, context)?;
+    Ok(catalog)
+}
+
+fn validate_cleanup_catalog(
+    catalog: &ProxyCatalog,
+    context: &GroupSelectionCleanupContext,
+) -> Result<(), GroupSelectionCleanupFailure> {
+    if catalog_revision(catalog) != context.catalog_revision
+        || membership_revision(catalog, &context.group_label, &context.group_id).as_deref()
+            != Some(context.membership_revision.as_str())
+    {
+        return Err(GroupSelectionCleanupFailure::StaleRevision);
+    }
+    let group = catalog
+        .proxies
+        .get(&context.group_label)
+        .filter(|group| group.kind.eq_ignore_ascii_case("selector"))
+        .ok_or(GroupSelectionCleanupFailure::StaleRevision)?;
+    let children = group
+        .all
+        .as_ref()
+        .ok_or(GroupSelectionCleanupFailure::StaleRevision)?;
+    if !children.iter().any(|child| child == &context.old_child)
+        || !children.iter().any(|child| child == &context.new_child)
+        || group.now.as_deref() != Some(context.new_child.as_str())
+    {
+        return Err(GroupSelectionCleanupFailure::StaleRevision);
+    }
+    Ok(())
+}
+
+fn finish_interrupted_cleanup(
+    operation: &mut GroupSelectionOperation,
+    failure: GroupSelectionCleanupFailure,
+) {
+    operation.cleanup_failure.get_or_insert(failure);
+    operation.cleanup_phase = if operation.target_count == 0 {
+        GroupSelectionCleanupPhase::Skipped
+    } else if operation.closed_count > 0 || operation.failed_count > 0 {
+        GroupSelectionCleanupPhase::Partial
+    } else {
+        GroupSelectionCleanupPhase::Failed
+    };
+}
+
+fn connection_uses_old_direct_child(
+    chains: &[String],
+    known_chain_labels: &BTreeSet<&String>,
+    group: &str,
+    old_child: &str,
+    new_child: &str,
+) -> bool {
+    if chains.len() < 2
+        || group.is_empty()
+        || old_child.is_empty()
+        || new_child.is_empty()
+        || old_child == new_child
+        || chains.iter().any(|label| {
+            label.is_empty() || label.trim() != label || !known_chain_labels.contains(label)
+        })
+    {
+        return false;
+    }
+    let unique = chains.iter().collect::<BTreeSet<_>>();
+    if unique.len() != chains.len() {
+        return false;
+    }
+    let Some(group_index) = chains.iter().position(|label| label == group) else {
+        return false;
+    };
+    let Some(direct_child) = group_index
+        .checked_sub(1)
+        .and_then(|index| chains.get(index))
+    else {
+        return false;
+    };
+    direct_child == old_child && direct_child != new_child
+}
+
+fn catalog_revision(catalog: &ProxyCatalog) -> String {
+    let mut digest = Sha256::new();
+    for (label, proxy) in &catalog.proxies {
+        update_revision_component(&mut digest, label);
+        update_revision_component(&mut digest, &proxy.kind);
+        if let Some(children) = &proxy.all {
+            digest.update([1]);
+            for child in children {
+                update_revision_component(&mut digest, child);
+            }
+        } else {
+            digest.update([0]);
+        }
+    }
+    encode_revision(digest.finalize())
+}
+
+fn membership_revision(
+    catalog: &ProxyCatalog,
+    group_label: &str,
+    group_id: &str,
+) -> Option<String> {
+    let group = catalog.proxies.get(group_label)?;
+    let children = group.all.as_ref()?;
+    let mut digest = Sha256::new();
+    update_revision_component(&mut digest, group_id);
+    update_revision_component(&mut digest, group_label);
+    update_revision_component(&mut digest, &group.kind);
+    for child in children {
+        update_revision_component(&mut digest, child);
+    }
+    Some(encode_revision(digest.finalize()))
+}
+
+fn update_revision_component(digest: &mut Sha256, value: &str) {
+    digest.update(value.len().to_be_bytes());
+    digest.update(value.as_bytes());
+}
+
+fn encode_revision(bytes: impl AsRef<[u8]>) -> String {
+    let mut encoded = String::with_capacity(bytes.as_ref().len() * 2);
+    for byte in bytes.as_ref() {
+        use std::fmt::Write;
+        write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
+}
+
+fn map_cleanup_error(error: &ControllerError) -> GroupSelectionCleanupFailure {
+    use mish_mihomo_controller::ControllerErrorKind;
+    match error.kind() {
+        ControllerErrorKind::UnsupportedVersion => GroupSelectionCleanupFailure::VersionDrift,
+        ControllerErrorKind::Timeout => GroupSelectionCleanupFailure::Timeout,
+        ControllerErrorKind::Shutdown => GroupSelectionCleanupFailure::RuntimeReplaced,
+        ControllerErrorKind::HttpStatus => GroupSelectionCleanupFailure::ControllerRejected,
+        ControllerErrorKind::Transport | ControllerErrorKind::StreamEnded => {
+            GroupSelectionCleanupFailure::Disconnected
+        }
+        _ => GroupSelectionCleanupFailure::InconsistentObservation,
     }
 }
 
@@ -3002,4 +3551,61 @@ fn pending_snapshot(
         tun: false,
     };
     snapshot
+}
+
+#[cfg(test)]
+mod group_selection_cleanup_tests {
+    use std::collections::BTreeSet;
+
+    use super::connection_uses_old_direct_child;
+
+    #[test]
+    fn matches_only_the_changed_groups_old_direct_child_edge() {
+        let labels = [
+            "group",
+            "old",
+            "new",
+            "leaf",
+            "shared-leaf",
+            "other-group",
+            "inner",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+        let known = labels.iter().collect::<BTreeSet<_>>();
+        for chain in [
+            vec!["old", "group"],
+            vec!["leaf", "old", "group"],
+            vec!["shared-leaf", "old", "group"],
+        ] {
+            assert!(connection_uses_old_direct_child(
+                &chain.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                &known,
+                "group",
+                "old",
+                "new",
+            ));
+        }
+        for chain in [
+            vec!["new", "group"],
+            vec!["old", "other-group"],
+            vec!["old", "inner", "group"],
+            vec!["group", "old"],
+            vec!["old"],
+            vec!["old", "group", "group"],
+            vec!["old", "old", "group"],
+            vec![" old", "group"],
+            vec!["", "group"],
+            vec!["unmapped", "old", "group"],
+        ] {
+            assert!(!connection_uses_old_direct_child(
+                &chain.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                &known,
+                "group",
+                "old",
+                "new",
+            ));
+        }
+    }
 }

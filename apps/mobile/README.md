@@ -8,6 +8,9 @@ snapshots. Its replaceable fixture backend never creates a TUN interface,
 captures traffic, or starts Mihomo. A separately verified Mobile Core build may
 be staged into generated `jniLibs`; the native probe then reports its bounded
 ABI and version identity without claiming that VPN traffic capture is connected.
+The bounded configuration slice validates and loads only repository-owned
+fictional bytes, publishes revision/digest state with rollback or explicit
+unknown recovery, and still cannot start Core, create a TUN, or capture traffic.
 
 The generated Android project contains tracked inputs. Configure and test the
 existing project with:

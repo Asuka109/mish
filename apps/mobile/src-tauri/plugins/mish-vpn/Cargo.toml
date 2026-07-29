@@ -11,6 +11,7 @@ name = "tauri_plugin_mish_vpn"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
+sha2 = "0.10.9"
 tauri = { version = "2.11.5", features = [] }
 thiserror = "2.0.17"
 

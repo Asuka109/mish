@@ -14,7 +14,7 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
-    CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
+    CoreRuntime, LoopbackProxyEndpoint, MishRuntime, PolicyGroupConnectionCleanupPreference,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -438,6 +438,7 @@ struct ActivationState {
 
 pub struct MihomoActivationManager {
     capture: Option<Arc<CaptureReconciler>>,
+    connection_cleanup_preference: PolicyGroupConnectionCleanupPreference,
     ownership: Option<Arc<ManagedCoreOwnership>>,
     privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     recovery_outcome: Mutex<Option<ManagedCoreRecoveryOutcome>>,
@@ -494,6 +495,7 @@ impl MihomoActivationManager {
         let managed = load_managed_state(&resolver.runtime_root);
         Self {
             capture,
+            connection_cleanup_preference: PolicyGroupConnectionCleanupPreference::default(),
             ownership,
             privileged_host,
             recovery_outcome: Mutex::new(None),
@@ -504,6 +506,14 @@ impl MihomoActivationManager {
             }),
             timing,
         }
+    }
+
+    pub fn with_connection_cleanup_preference(
+        mut self,
+        preference: PolicyGroupConnectionCleanupPreference,
+    ) -> Self {
+        self.connection_cleanup_preference = preference;
+        self
     }
 
     pub async fn recover_startup(
@@ -934,6 +944,7 @@ impl MihomoActivationManager {
         let base_url = Url::parse(&format!("http://{}", policy.controller_address()))
             .map_err(|_| MihomoActivationError::ControllerFailure)?;
         let mut observation = ControllerObservationConfig::new(base_url, profile);
+        observation.connection_cleanup_preference = self.connection_cleanup_preference.clone();
         observation.secret = Some(policy.controller_secret().to_owned());
         observation.connect_timeout = self.timing.controller_connect_timeout;
         observation.request_timeout = self.timing.controller_request_timeout;

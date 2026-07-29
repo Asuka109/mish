@@ -1,6 +1,6 @@
 import type { Translation } from "../i18n-types.js";
 
-const zh = {
+const zh: Translation = {
   common: {
     cancel: "取消",
     close: "关闭",
@@ -196,6 +196,9 @@ const zh = {
       "选择 Mihomo 如何识别每条连接所属的进程。修改将在下次启动代理或激活配置时生效。",
     processDiscoveryOff: "不识别",
     processDiscoveryStrict: "按需",
+    policyGroupConnectionCleanup: "切换后重启连接",
+    policyGroupConnectionCleanupDescription:
+      "关闭时保留现有连接；开启后，仅重启受此次策略组切换影响的 Mihomo 逻辑连接：Mish 会关闭它们的旧路径，让应用可通过新路径重连；无关连接和切换后新建的连接保持不变。不保证应用重连或断开复用的物理载体。",
     registration: "登录时启动状态",
     registrationDescription: "这里显示 macOS 当前的实际设置。设置未生效时会明确提示。",
     registrationPhase: {
@@ -261,23 +264,35 @@ const zh = {
   },
   mobileHome: {
     authorityLabel: "VPN / 内核",
+    configActionsLabel: "虚构 Mobile Core 配置操作",
+    configLabel: "内核配置",
+    configLoadedDescription: "完全一致的已校验修订已载入内核；这不代表代理或 VPN 已启动。",
+    configLoadedValue: "已载入 · {revision}",
+    configUnknownDescription: "无法证明原生操作结果；再次声明状态前必须显式恢复。",
+    configUnknownValue: "需要恢复",
+    configUnloadedDescription: "当前内核进程没有已载入的配置。",
+    configUnloadedValue: "未载入",
+    configValidatedDescription: "此修订已通过有界原生校验，但当前并未载入。",
+    configValidatedValue: "已校验 · {revision}",
     coreLabel: "内置内核",
-    corePackagedDescription: "已验证安装包身份；此测试边界不会初始化或启动内核。",
+    corePackagedDescription: "已验证安装包身份；载入配置不会建立 VPN/TUN，也不会开始处理流量。",
     coreUnavailableDescription: "当前构建没有可验证的内置内核包。",
     coreVersion: "Mihomo {version}",
     currentSection: "当前设置",
     failedDescription: "Android 未能完成原生生命周期检查。",
     failedState: "生命周期检查失败",
-    fixtureDescription:
-      "此处仅用于验证 Android 权限与生命周期处理，无法创建虚拟网卡或转发设备流量。",
+    fixtureDescription: "此处只载入仓库内置的虚构配置，无法启动代理、创建虚拟网卡或转发设备流量。",
     fixtureLabel: "开发边界",
     permissionRequiredDescription: "请先确认 Android VPN 权限，再检查原生生命周期。",
     permissionRequiredState: "需要 VPN 权限",
+    loadConfigAction: "载入虚构配置 A",
     profileLabel: "配置",
     profileUnavailableDescription: "尚未接入原生配置权威，因此不会声称已有当前配置。",
     readinessSection: "运行准备情况",
     recoveryDescription: "再次检查前，需要先安全重置原生生命周期。",
     recoveryState: "需要恢复",
+    rejectReplacementAction: "注入替换失败",
+    replaceConfigAction: "替换为虚构配置 B",
     retryAction: "重试生命周期检查",
     routingLabel: "路由模式",
     routingUnavailableDescription: "原生内核合约能够确认前，不显示路由模式。",
@@ -426,6 +441,8 @@ const zh = {
   },
   capture: {
     acknowledge: "知道了",
+    configurationRequired: "启动代理前，请先选择或导入一个 Profile 配置。",
+    configurationRequiredTitle: "需要 Profile 配置",
     desktopDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     deviceDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     fixtureDescription:
@@ -434,6 +451,7 @@ const zh = {
     modeAria: "{mode}，{selection}，{runtime}",
     notRunning: "未运行",
     notSelected: "未选择",
+    openProfiles: "打开配置",
     running: "运行中",
     selected: "已选择",
     leaveAsIs: "保持系统当前设置",
@@ -529,6 +547,13 @@ const zh = {
     cancelDelay: "取消 {group} 的延迟测试",
     cancelDelayButton: "取消",
     collapseGroup: "折叠 {group}",
+    cleanupCompleted:
+      "选择已确认。已关闭 {target} 条经证实旧路径逻辑连接中的 {closed} 条；新路径与无关连接均被保留。",
+    cleanupFailed: "选择已确认，但旧路径连接清理安全失败（{failure}），没有退化为关闭全部连接。",
+    cleanupOff: "选择已确认。自动旧路径清理处于关闭状态，现有连接均被保留。",
+    cleanupPartial:
+      "选择已确认。已关闭 {target} 条经证实旧路径逻辑连接中的 {closed} 条；清理因 {failure} 结束。",
+    cleanupSkipped: "选择已确认，但运行时或目录权威发生变化，范围清理已安全停止。",
     configurationOrder: "配置顺序",
     currentGroupDescription: "浏览、排序、测试并选择 {group} 的直接子项。",
     currentPath: "当前策略组路径",
@@ -1073,6 +1098,11 @@ const zh = {
         "配置启用已停止，安全失败分类为 {failure}。重试前请打开引导式诊断。",
       proxyLaunchTiming: "启动代理耗时",
       proxyLaunchTimingDetail: "结果 {outcome}；总耗时 {total} 毫秒。",
+      routeOldChildCleanup: "策略组旧路径清理",
+      routeOldChildCleanupDetail:
+        "模式 {mode}；阶段 {phase}；目标 {target}；已关闭 {closed}；失败 {failed}；失败类型 {failure}。",
+      routeOldChildCleanupRevisionDetail:
+        "Controller 会话 {session}；目录修订 {catalog}；成员修订 {membership}。",
       settingsOperationFailedDetail: "请先查看当前设置状态，再重试刚才的更改。",
       trafficOperationFailedDetail: "请刷新流量页面确认剩余连接后再重试。",
     },
@@ -1291,6 +1321,6 @@ const zh = {
     commandVersionDrift: "当前 Mihomo 版本不受支持。请更新 Mish 或切换到兼容版本。",
     loadStatus: "无法加载状态数据。",
   },
-} satisfies Translation;
+};
 
 export default zh;

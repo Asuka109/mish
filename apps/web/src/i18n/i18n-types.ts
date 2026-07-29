@@ -683,6 +683,14 @@ type RootTranslation = {
 		 */
 		processDiscoveryStrict: string
 		/**
+		 * R​e​s​t​a​r​t​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​t​e​r​ ​s​w​i​t​c​h​i​n​g
+		 */
+		policyGroupConnectionCleanup: string
+		/**
+		 * O​f​f​ ​k​e​e​p​s​ ​e​x​i​s​t​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​.​ ​O​n​ ​r​e​s​t​a​r​t​s​ ​o​n​l​y​ ​M​i​h​o​m​o​-​t​r​a​c​k​e​d​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​f​e​c​t​e​d​ ​b​y​ ​t​h​i​s​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​w​i​t​c​h​:​ ​M​i​s​h​ ​c​l​o​s​e​s​ ​t​h​e​i​r​ ​o​l​d​ ​p​a​t​h​ ​s​o​ ​a​p​p​s​ ​c​a​n​ ​r​e​c​o​n​n​e​c​t​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​n​e​w​ ​o​n​e​.​ ​U​n​r​e​l​a​t​e​d​ ​a​n​d​ ​n​e​w​l​y​ ​e​s​t​a​b​l​i​s​h​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​s​t​a​y​ ​o​p​e​n​.​ ​A​p​p​ ​r​e​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​t​e​a​r​d​o​w​n​ ​o​f​ ​s​h​a​r​e​d​ ​p​h​y​s​i​c​a​l​ ​c​a​r​r​i​e​r​s​ ​a​r​e​ ​n​o​t​ ​g​u​a​r​a​n​t​e​e​d​.
+		 */
+		policyGroupConnectionCleanupDescription: string
+		/**
 		 * O​b​s​e​r​v​e​d​ ​l​o​g​i​n​ ​r​e​g​i​s​t​r​a​t​i​o​n
 		 */
 		registration: string
@@ -908,11 +916,53 @@ type RootTranslation = {
 		 */
 		authorityLabel: string
 		/**
+		 * F​i​c​t​i​o​n​a​l​ ​M​o​b​i​l​e​ ​C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​a​c​t​i​o​n​s
+		 */
+		configActionsLabel: string
+		/**
+		 * C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
+		 */
+		configLabel: string
+		/**
+		 * T​h​e​ ​e​x​a​c​t​ ​v​a​l​i​d​a​t​e​d​ ​r​e​v​i​s​i​o​n​ ​i​s​ ​l​o​a​d​e​d​ ​i​n​ ​C​o​r​e​.​ ​T​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​s​t​a​r​t​ ​a​ ​p​r​o​x​y​ ​o​r​ ​V​P​N​.
+		 */
+		configLoadedDescription: string
+		/**
+		 * L​o​a​d​e​d​ ​·​ ​{​r​e​v​i​s​i​o​n​}
+		 * @param {string} revision
+		 */
+		configLoadedValue: RequiredParams<'revision'>
+		/**
+		 * T​h​e​ ​n​a​t​i​v​e​ ​o​u​t​c​o​m​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​p​r​o​v​e​n​.​ ​E​x​p​l​i​c​i​t​ ​r​e​c​o​v​e​r​y​ ​i​s​ ​r​e​q​u​i​r​e​d​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​c​l​a​i​m​.
+		 */
+		configUnknownDescription: string
+		/**
+		 * R​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
+		 */
+		configUnknownValue: string
+		/**
+		 * N​o​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​i​s​ ​l​o​a​d​e​d​ ​i​n​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​C​o​r​e​ ​p​r​o​c​e​s​s​.
+		 */
+		configUnloadedDescription: string
+		/**
+		 * U​n​l​o​a​d​e​d
+		 */
+		configUnloadedValue: string
+		/**
+		 * T​h​i​s​ ​r​e​v​i​s​i​o​n​ ​p​a​s​s​e​d​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​n​a​t​i​v​e​ ​c​o​n​t​r​a​c​t​ ​b​u​t​ ​i​s​ ​n​o​t​ ​c​u​r​r​e​n​t​l​y​ ​l​o​a​d​e​d​.
+		 */
+		configValidatedDescription: string
+		/**
+		 * V​a​l​i​d​a​t​e​d​ ​·​ ​{​r​e​v​i​s​i​o​n​}
+		 * @param {string} revision
+		 */
+		configValidatedValue: RequiredParams<'revision'>
+		/**
 		 * E​m​b​e​d​d​e​d​ ​C​o​r​e
 		 */
 		coreLabel: string
 		/**
-		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​T​h​i​s​ ​f​i​x​t​u​r​e​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​o​r​ ​s​t​a​r​t​ ​t​h​e​ ​C​o​r​e​.
+		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​L​o​a​d​i​n​g​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​V​P​N​/​T​U​N​ ​o​r​ ​s​t​a​r​t​ ​t​r​a​f​f​i​c​ ​h​a​n​d​l​i​n​g​.
 		 */
 		corePackagedDescription: string
 		/**
@@ -937,7 +987,7 @@ type RootTranslation = {
 		 */
 		failedState: string
 		/**
-		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​e​x​e​r​c​i​s​e​s​ ​A​n​d​r​o​i​d​ ​p​e​r​m​i​s​s​i​o​n​ ​a​n​d​ ​l​i​f​e​c​y​c​l​e​ ​h​a​n​d​l​i​n​g​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
+		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​l​o​a​d​s​ ​o​n​l​y​ ​r​e​p​o​s​i​t​o​r​y​-​o​w​n​e​d​ ​f​i​c​t​i​o​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.​ ​I​t​ ​c​a​n​n​o​t​ ​s​t​a​r​t​ ​a​ ​p​r​o​x​y​,​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​,​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
 		 */
 		fixtureDescription: string
 		/**
@@ -952,6 +1002,10 @@ type RootTranslation = {
 		 * V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​r​e​q​u​i​r​e​d
 		 */
 		permissionRequiredState: string
+		/**
+		 * L​o​a​d​ ​F​i​x​t​u​r​e​ ​A
+		 */
+		loadConfigAction: string
 		/**
 		 * P​r​o​f​i​l​e
 		 */
@@ -972,6 +1026,14 @@ type RootTranslation = {
 		 * R​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
 		 */
 		recoveryState: string
+		/**
+		 * I​n​j​e​c​t​ ​F​a​i​l​e​d​ ​R​e​p​l​a​c​e
+		 */
+		rejectReplacementAction: string
+		/**
+		 * R​e​p​l​a​c​e​ ​w​i​t​h​ ​F​i​x​t​u​r​e​ ​B
+		 */
+		replaceConfigAction: string
 		/**
 		 * R​e​t​r​y​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
 		 */
@@ -1487,6 +1549,14 @@ type RootTranslation = {
 		 */
 		acknowledge: string
 		/**
+		 * C​h​o​o​s​e​ ​o​r​ ​i​m​p​o​r​t​ ​a​ ​P​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​b​e​f​o​r​e​ ​l​a​u​n​c​h​i​n​g​ ​t​h​e​ ​p​r​o​x​y​.
+		 */
+		configurationRequired: string
+		/**
+		 * P​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​r​e​q​u​i​r​e​d
+		 */
+		configurationRequiredTitle: string
+		/**
 		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		desktopDescription: string
@@ -1517,6 +1587,10 @@ type RootTranslation = {
 		 * n​o​t​ ​s​e​l​e​c​t​e​d
 		 */
 		notSelected: string
+		/**
+		 * O​p​e​n​ ​P​r​o​f​i​l​e​s
+		 */
+		openProfiles: string
 		/**
 		 * r​u​n​n​i​n​g
 		 */
@@ -1827,6 +1901,32 @@ type RootTranslation = {
 		 * @param {string} group
 		 */
 		collapseGroup: RequiredParams<'group'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​C​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​ ​o​f​ ​{​t​a​r​g​e​t​}​ ​p​r​o​v​e​n​ ​o​l​d​-​p​a​t​h​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​;​ ​n​e​w​l​y​ ​a​d​m​i​t​t​e​d​ ​a​n​d​ ​u​n​r​e​l​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​w​e​r​e​ ​p​r​e​s​e​r​v​e​d​.
+		 * @param {number} closed
+		 * @param {number} target
+		 */
+		cleanupCompleted: RequiredParams<'closed' | 'target'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​,​ ​b​u​t​ ​o​l​d​-​p​a​t​h​ ​c​o​n​n​e​c​t​i​o​n​ ​c​l​e​a​n​u​p​ ​f​a​i​l​e​d​ ​s​a​f​e​l​y​ ​(​{​f​a​i​l​u​r​e​}​)​.​ ​N​o​ ​c​l​o​s​e​-​a​l​l​ ​f​a​l​l​b​a​c​k​ ​w​a​s​ ​u​s​e​d​.
+		 * @param {string} failure
+		 */
+		cleanupFailed: RequiredParams<'failure'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​E​x​i​s​t​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​ ​w​e​r​e​ ​p​r​e​s​e​r​v​e​d​ ​b​e​c​a​u​s​e​ ​a​u​t​o​m​a​t​i​c​ ​o​l​d​-​p​a​t​h​ ​c​l​e​a​n​u​p​ ​i​s​ ​O​f​f​.
+		 */
+		cleanupOff: string
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​C​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​ ​o​f​ ​{​t​a​r​g​e​t​}​ ​p​r​o​v​e​n​ ​o​l​d​-​p​a​t​h​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​;​ ​c​l​e​a​n​u​p​ ​e​n​d​e​d​ ​w​i​t​h​ ​{​f​a​i​l​u​r​e​}​.
+		 * @param {number} closed
+		 * @param {string} failure
+		 * @param {number} target
+		 */
+		cleanupPartial: RequiredParams<'closed' | 'failure' | 'target'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​,​ ​b​u​t​ ​s​c​o​p​e​d​ ​c​l​e​a​n​u​p​ ​s​t​o​p​p​e​d​ ​s​a​f​e​l​y​ ​b​e​c​a​u​s​e​ ​i​t​s​ ​r​u​n​t​i​m​e​ ​o​r​ ​c​a​t​a​l​o​g​ ​a​u​t​h​o​r​i​t​y​ ​c​h​a​n​g​e​d​.
+		 */
+		cleanupSkipped: string
 		/**
 		 * C​o​n​f​i​g​u​r​a​t​i​o​n
 		 */
@@ -3974,6 +4074,27 @@ type RootTranslation = {
 			 */
 			proxyLaunchTimingDetail: RequiredParams<'outcome' | 'total'>
 			/**
+			 * P​o​l​i​c​y​-​g​r​o​u​p​ ​o​l​d​-​p​a​t​h​ ​c​l​e​a​n​u​p
+			 */
+			routeOldChildCleanup: string
+			/**
+			 * M​o​d​e​ ​{​m​o​d​e​}​;​ ​p​h​a​s​e​ ​{​p​h​a​s​e​}​;​ ​t​a​r​g​e​t​s​ ​{​t​a​r​g​e​t​}​;​ ​c​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​;​ ​f​a​i​l​e​d​ ​{​f​a​i​l​e​d​}​;​ ​f​a​i​l​u​r​e​ ​{​f​a​i​l​u​r​e​}​.
+			 * @param {number} closed
+			 * @param {number} failed
+			 * @param {string} failure
+			 * @param {string} mode
+			 * @param {string} phase
+			 * @param {number} target
+			 */
+			routeOldChildCleanupDetail: RequiredParams<'closed' | 'failed' | 'failure' | 'mode' | 'phase' | 'target'>
+			/**
+			 * C​o​n​t​r​o​l​l​e​r​ ​s​e​s​s​i​o​n​ ​{​s​e​s​s​i​o​n​}​;​ ​c​a​t​a​l​o​g​ ​{​c​a​t​a​l​o​g​}​;​ ​m​e​m​b​e​r​s​h​i​p​ ​{​m​e​m​b​e​r​s​h​i​p​}​.
+			 * @param {string} catalog
+			 * @param {string} membership
+			 * @param {number} session
+			 */
+			routeOldChildCleanupRevisionDetail: RequiredParams<'catalog' | 'membership' | 'session'>
+			/**
 			 * R​e​v​i​e​w​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​S​e​t​t​i​n​g​s​ ​s​n​a​p​s​h​o​t​,​ ​t​h​e​n​ ​r​e​t​r​y​ ​t​h​e​ ​r​e​q​u​e​s​t​e​d​ ​c​h​a​n​g​e​.
 			 */
 			settingsOperationFailedDetail: string
@@ -5382,6 +5503,14 @@ export type TranslationFunctions = {
 		 */
 		processDiscoveryStrict: () => LocalizedString
 		/**
+		 * Restart connections after switching
+		 */
+		policyGroupConnectionCleanup: () => LocalizedString
+		/**
+		 * Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.
+		 */
+		policyGroupConnectionCleanupDescription: () => LocalizedString
+		/**
 		 * Observed login registration
 		 */
 		registration: () => LocalizedString
@@ -5606,11 +5735,51 @@ export type TranslationFunctions = {
 		 */
 		authorityLabel: () => LocalizedString
 		/**
+		 * Fictional Mobile Core configuration actions
+		 */
+		configActionsLabel: () => LocalizedString
+		/**
+		 * Core configuration
+		 */
+		configLabel: () => LocalizedString
+		/**
+		 * The exact validated revision is loaded in Core. This does not start a proxy or VPN.
+		 */
+		configLoadedDescription: () => LocalizedString
+		/**
+		 * Loaded · {revision}
+		 */
+		configLoadedValue: (arg: { revision: string }) => LocalizedString
+		/**
+		 * The native outcome could not be proven. Explicit recovery is required before another claim.
+		 */
+		configUnknownDescription: () => LocalizedString
+		/**
+		 * Recovery required
+		 */
+		configUnknownValue: () => LocalizedString
+		/**
+		 * No configuration is loaded in the current Core process.
+		 */
+		configUnloadedDescription: () => LocalizedString
+		/**
+		 * Unloaded
+		 */
+		configUnloadedValue: () => LocalizedString
+		/**
+		 * This revision passed the bounded native contract but is not currently loaded.
+		 */
+		configValidatedDescription: () => LocalizedString
+		/**
+		 * Validated · {revision}
+		 */
+		configValidatedValue: (arg: { revision: string }) => LocalizedString
+		/**
 		 * Embedded Core
 		 */
 		coreLabel: () => LocalizedString
 		/**
-		 * Package identity is verified. This fixture does not initialize or start the Core.
+		 * Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.
 		 */
 		corePackagedDescription: () => LocalizedString
 		/**
@@ -5634,7 +5803,7 @@ export type TranslationFunctions = {
 		 */
 		failedState: () => LocalizedString
 		/**
-		 * This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.
+		 * This bounded fixture loads only repository-owned fictional configuration. It cannot start a proxy, create a TUN, or route traffic.
 		 */
 		fixtureDescription: () => LocalizedString
 		/**
@@ -5649,6 +5818,10 @@ export type TranslationFunctions = {
 		 * VPN permission required
 		 */
 		permissionRequiredState: () => LocalizedString
+		/**
+		 * Load Fixture A
+		 */
+		loadConfigAction: () => LocalizedString
 		/**
 		 * Profile
 		 */
@@ -5669,6 +5842,14 @@ export type TranslationFunctions = {
 		 * Recovery required
 		 */
 		recoveryState: () => LocalizedString
+		/**
+		 * Inject Failed Replace
+		 */
+		rejectReplacementAction: () => LocalizedString
+		/**
+		 * Replace with Fixture B
+		 */
+		replaceConfigAction: () => LocalizedString
 		/**
 		 * Retry Lifecycle Check
 		 */
@@ -6176,6 +6357,14 @@ export type TranslationFunctions = {
 		 */
 		acknowledge: () => LocalizedString
 		/**
+		 * Choose or import a Profile configuration before launching the proxy.
+		 */
+		configurationRequired: () => LocalizedString
+		/**
+		 * Profile configuration required
+		 */
+		configurationRequiredTitle: () => LocalizedString
+		/**
 		 * These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.
 		 */
 		desktopDescription: () => LocalizedString
@@ -6203,6 +6392,10 @@ export type TranslationFunctions = {
 		 * not selected
 		 */
 		notSelected: () => LocalizedString
+		/**
+		 * Open Profiles
+		 */
+		openProfiles: () => LocalizedString
 		/**
 		 * running
 		 */
@@ -6507,6 +6700,26 @@ export type TranslationFunctions = {
 		 * Collapse {group}
 		 */
 		collapseGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Selection confirmed. Closed {closed} of {target} proven old-path logical connections; newly admitted and unrelated connections were preserved.
+		 */
+		cleanupCompleted: (arg: { closed: number, target: number }) => LocalizedString
+		/**
+		 * Selection confirmed, but old-path connection cleanup failed safely ({failure}). No close-all fallback was used.
+		 */
+		cleanupFailed: (arg: { failure: string }) => LocalizedString
+		/**
+		 * Selection confirmed. Existing connections were preserved because automatic old-path cleanup is Off.
+		 */
+		cleanupOff: () => LocalizedString
+		/**
+		 * Selection confirmed. Closed {closed} of {target} proven old-path logical connections; cleanup ended with {failure}.
+		 */
+		cleanupPartial: (arg: { closed: number, failure: string, target: number }) => LocalizedString
+		/**
+		 * Selection confirmed, but scoped cleanup stopped safely because its runtime or catalog authority changed.
+		 */
+		cleanupSkipped: () => LocalizedString
 		/**
 		 * Configuration
 		 */
@@ -8578,6 +8791,18 @@ export type TranslationFunctions = {
 			 * Outcome {outcome}; total {total} ms.
 			 */
 			proxyLaunchTimingDetail: (arg: { outcome: string, total: number }) => LocalizedString
+			/**
+			 * Policy-group old-path cleanup
+			 */
+			routeOldChildCleanup: () => LocalizedString
+			/**
+			 * Mode {mode}; phase {phase}; targets {target}; closed {closed}; failed {failed}; failure {failure}.
+			 */
+			routeOldChildCleanupDetail: (arg: { closed: number, failed: number, failure: string, mode: string, phase: string, target: number }) => LocalizedString
+			/**
+			 * Controller session {session}; catalog {catalog}; membership {membership}.
+			 */
+			routeOldChildCleanupRevisionDetail: (arg: { catalog: string, membership: string, session: number }) => LocalizedString
 			/**
 			 * Review the authoritative Settings snapshot, then retry the requested change.
 			 */

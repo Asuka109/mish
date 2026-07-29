@@ -5107,6 +5107,7 @@ name = "tauri-plugin-mish-vpn"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "sha2",
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.18",

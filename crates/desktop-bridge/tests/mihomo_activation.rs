@@ -2121,6 +2121,7 @@ struct LaunchPreflightPlatform {
     observations: AtomicUsize,
     observed: Notify,
     preflight_polled: Notify,
+    state: std::sync::Mutex<NetworkServiceProxyState>,
 }
 
 impl LaunchPreflightPlatform {
@@ -2132,6 +2133,7 @@ impl LaunchPreflightPlatform {
             observations: AtomicUsize::new(0),
             observed: Notify::new(),
             preflight_polled: Notify::new(),
+            state: std::sync::Mutex::new(disabled_capture_service()),
         }
     }
 
@@ -2165,7 +2167,7 @@ impl CapturePlatform for LaunchPreflightPlatform {
                     "Synthetic launch preflight observation failure",
                 ));
             }
-            Ok(disabled_capture_service())
+            Ok(self.state.lock().unwrap().clone())
         })
     }
 
@@ -2180,23 +2182,148 @@ impl CapturePlatform for LaunchPreflightPlatform {
                 "Synthetic launch preflight observation failure",
             ))));
         }
-        Box::pin(ready(Ok(disabled_capture_service())))
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
     }
 
     fn observe_service(
         &self,
         _service_id: &str,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
-        Box::pin(ready(Ok(disabled_capture_service())))
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
     }
 
     fn apply_service(
         &self,
-        _target: NetworkServiceProxyState,
+        target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         self.applies.fetch_add(1, Ordering::Relaxed);
+        *self.state.lock().unwrap() = target;
         Box::pin(ready(Ok(())))
     }
+}
+
+#[tokio::test]
+async fn aggregate_launch_without_a_profile_is_operation_keyed_and_side_effect_free_then_retries() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-missing-profile-{}", Uuid::new_v4()));
+    let profile_root = root.join("profiles");
+    let profiles =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root.clone()).unwrap());
+    let platform = Arc::new(LaunchPreflightPlatform::new());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(5)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles.clone(),
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "missing-profile-test-secret"),
+    ));
+
+    let error = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::ConfigurationRequired);
+
+    let failed = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    let failed_operation_id = failed["runtime"]["captureOperation"]["operationId"]
+        .as_str()
+        .expect("missing Profile launch did not retain an operation identity")
+        .to_owned();
+    assert_eq!(failed["runtime"]["captureOperation"]["phase"], "failed");
+    assert_eq!(failed["runtime"]["phase"], "inactive");
+    assert_eq!(failed["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(failed["runtime"]["tun"]["phase"], "off");
+    assert_eq!(failed["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(failed["runtime"]["tunEnabled"], false);
+    assert_eq!(platform.observations.load(Ordering::Relaxed), 0);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+    assert!(journal.journal.lock().unwrap().is_none());
+    assert!(host.current().core_status().await.pid.is_none());
+
+    let notifications = host.notification_snapshot();
+    assert_eq!(notifications.notifications.len(), 1);
+    let notification = &notifications.notifications[0];
+    assert_eq!(notification.dedupe_key, "capture.failure");
+    assert_eq!(notification.presentation.kind(), "capture.failure");
+    assert_eq!(
+        notification.presentation.action_ids,
+        vec![mish_runtime::ApplicationActionId::OpenProfiles]
+    );
+    assert_eq!(
+        serde_json::to_value(&notification.presentation).unwrap()["data"]["failure"],
+        json!("configuration-required")
+    );
+    let capture_events = host.events_snapshot(StatusAdapterKind::Rpc)["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["application"]["kind"] == "capture.failure")
+        .count();
+    assert_eq!(capture_events, 1);
+
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    profiles
+        .select_profile(record.metadata.id.as_str())
+        .await
+        .unwrap();
+    let retried = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert_eq!(retried["runtime"]["captureOperation"]["phase"], "applied");
+    assert_ne!(
+        retried["runtime"]["captureOperation"]["operationId"],
+        failed_operation_id
+    );
+    assert_eq!(retried["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 1);
+    let notifications = host.notification_snapshot();
+    assert_eq!(notifications.notifications.len(), 1);
+    assert!(notifications.notifications[0].resolved);
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
 }
 
 #[tokio::test]

@@ -158,6 +158,8 @@ pub enum ApplicationActionId {
     FindPortsAndRetry,
     #[serde(rename = "leave-as-is")]
     LeaveAsIs,
+    #[serde(rename = "open-profiles")]
+    OpenProfiles,
     #[serde(rename = "open-system-proxy-settings")]
     OpenSystemProxySettings,
     #[serde(rename = "open-welcome")]
@@ -174,6 +176,7 @@ impl ApplicationActionId {
         match self {
             Self::FindPortsAndRetry => "find-ports-and-retry",
             Self::LeaveAsIs => "leave-as-is",
+            Self::OpenProfiles => "open-profiles",
             Self::OpenSystemProxySettings => "open-system-proxy-settings",
             Self::OpenWelcome => "open-welcome",
             Self::Repair => "repair",
@@ -339,6 +342,21 @@ pub struct RouteSelectionFailedApplicationNotificationData {
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteOldChildCleanupApplicationNotificationData {
+    pub catalog_revision: String,
+    pub closed_count: u64,
+    pub controller_session_revision: u64,
+    pub failed_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    pub membership_revision: String,
+    pub mode: String,
+    pub phase: String,
+    pub target_count: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServiceDefaultsRestoredApplicationNotificationData {}
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -475,6 +493,8 @@ pub enum ApplicationNotificationContent {
     ProfileSwitchFailed(ProfileSwitchFailedApplicationNotificationData),
     #[serde(rename = "route.selection-failed")]
     RouteSelectionFailed(RouteSelectionFailedApplicationNotificationData),
+    #[serde(rename = "route.old-child-cleanup")]
+    RouteOldChildCleanup(RouteOldChildCleanupApplicationNotificationData),
     #[serde(rename = "service.defaults-restored")]
     ServiceDefaultsRestored(ServiceDefaultsRestoredApplicationNotificationData),
     #[serde(rename = "service.removed")]
@@ -534,6 +554,7 @@ impl ApplicationNotificationContent {
             Self::ProfileSubscriptionUpdated(_) => "profile.subscription-updated",
             Self::ProfileSwitchFailed(_) => "profile.switch-failed",
             Self::RouteSelectionFailed(_) => "route.selection-failed",
+            Self::RouteOldChildCleanup(_) => "route.old-child-cleanup",
             Self::ServiceDefaultsRestored(_) => "service.defaults-restored",
             Self::ServiceRemoved(_) => "service.removed",
             Self::ServiceSaved(_) => "service.saved",
@@ -553,6 +574,7 @@ impl ApplicationNotificationContent {
         match self {
             Self::CaptureFailure(_) => &[
                 ApplicationActionId::LeaveAsIs,
+                ApplicationActionId::OpenProfiles,
                 ApplicationActionId::OpenSystemProxySettings,
                 ApplicationActionId::Repair,
                 ApplicationActionId::ShowSystemProxySettingsSteps,
@@ -585,6 +607,7 @@ impl ApplicationNotificationContent {
             Self::ProfileSubscriptionUpdated(_) => &[],
             Self::ProfileSwitchFailed(_) => &[],
             Self::RouteSelectionFailed(_) => &[],
+            Self::RouteOldChildCleanup(_) => &[],
             Self::ServiceDefaultsRestored(_) => &[],
             Self::ServiceRemoved(_) => &[],
             Self::ServiceSaved(_) => &[],
@@ -679,6 +702,21 @@ pub struct ProxyLaunchTimingApplicationEventData {
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteOldChildCleanupApplicationEventData {
+    pub catalog_revision: String,
+    pub closed_count: u64,
+    pub controller_session_revision: u64,
+    pub failed_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    pub membership_revision: String,
+    pub mode: String,
+    pub phase: String,
+    pub target_count: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsOperationFailedApplicationEventData {
     pub failure: String,
 }
@@ -704,6 +742,8 @@ pub enum ApplicationEventContent {
     ProfileActivationFailed(ProfileActivationFailedApplicationEventData),
     #[serde(rename = "proxy.launch-timing")]
     ProxyLaunchTiming(ProxyLaunchTimingApplicationEventData),
+    #[serde(rename = "route.old-child-cleanup")]
+    RouteOldChildCleanup(RouteOldChildCleanupApplicationEventData),
     #[serde(rename = "settings.operation-failed")]
     SettingsOperationFailed(SettingsOperationFailedApplicationEventData),
     #[serde(rename = "traffic.operation-failed")]
@@ -718,6 +758,7 @@ impl ApplicationEventContent {
             Self::ControllerStreamUnavailable(_) => "controller.stream-unavailable",
             Self::ProfileActivationFailed(_) => "profile.activation-failed",
             Self::ProxyLaunchTiming(_) => "proxy.launch-timing",
+            Self::RouteOldChildCleanup(_) => "route.old-child-cleanup",
             Self::SettingsOperationFailed(_) => "settings.operation-failed",
             Self::TrafficOperationFailed(_) => "traffic.operation-failed",
         }
@@ -730,6 +771,7 @@ impl ApplicationEventContent {
             Self::ControllerStreamUnavailable(_) => &[],
             Self::ProfileActivationFailed(_) => &[],
             Self::ProxyLaunchTiming(_) => &[],
+            Self::RouteOldChildCleanup(_) => &[],
             Self::SettingsOperationFailed(_) => &[],
             Self::TrafficOperationFailed(_) => &[],
         }

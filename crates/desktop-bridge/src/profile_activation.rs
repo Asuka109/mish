@@ -1261,13 +1261,6 @@ impl ProfileActivationCoordinator {
             .acquire_mutation_queued()
             .await
             .map_err(profile_launch_error)?;
-        let selected = self
-            .profiles
-            .confirmed_selection_authorized(&permit)
-            .map_err(|_| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
-        let profile_id = selected
-            .profile_id
-            .ok_or_else(|| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
         let request = CaptureRequest {
             active: true,
             selection,
@@ -1279,6 +1272,30 @@ impl ProfileActivationCoordinator {
             .current()
             .publish_capture_pending(&request)
             .await?;
+        let profile_id = self
+            .profiles
+            .confirmed_selection_authorized(&permit)
+            .ok()
+            .and_then(|selected| selected.profile_id);
+        let Some(profile_id) = profile_id else {
+            let error = CaptureTransitionError::new(
+                CaptureFailureKind::ConfigurationRequired,
+                "A selected Profile configuration is required to launch Capture",
+            );
+            self.host
+                .current()
+                .reject_capture_operation(&capture_operation, &error)
+                .await;
+            self.record_launch_timing(
+                launch_started,
+                Duration::ZERO,
+                Duration::ZERO,
+                launch_started.elapsed(),
+                Duration::ZERO,
+                "configuration-required",
+            );
+            return Err(error);
+        };
         let activation_started = Instant::now();
         let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;

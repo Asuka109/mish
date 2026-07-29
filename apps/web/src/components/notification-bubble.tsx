@@ -23,7 +23,7 @@ import {
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
 import {
@@ -98,6 +98,7 @@ export function NotificationBubble({
   systemProxySettingsOpener?: SystemProxySettingsOpener;
 }) {
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  const navigate = useNavigate();
   const settings = useOptionalSettings();
   const profiles = useOptionalProfiles();
   const { recoverSystemProxy, snapshot } = useProduct();
@@ -131,7 +132,11 @@ export function NotificationBubble({
       try {
         if (actionId === "repair") await recoverSystemProxy("repair");
         else if (actionId === "leave-as-is") await recoverSystemProxy("leave-as-is");
-        else if (actionId === "find-ports-and-retry" && settings && snapshot) {
+        else if (actionId === "open-profiles") {
+          dismissNotificationToast(notificationId);
+          setOpen(false);
+          navigate("/profiles");
+        } else if (actionId === "find-ports-and-retry" && settings && snapshot) {
           if (!(await settings.findManagedPorts())) return;
           const selection =
             snapshot.runtime.captureSelection.systemProxy || snapshot.runtime.captureSelection.tun
@@ -176,6 +181,7 @@ export function NotificationBubble({
     },
     [
       entryById,
+      navigate,
       profiles,
       recoverSystemProxy,
       setCapture,

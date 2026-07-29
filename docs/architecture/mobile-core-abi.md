@@ -82,6 +82,14 @@ endpoints, remote or path-backed providers, automatic geodata updates, iptables,
 and system clock mutation. The platform resolves and supplies all repository-
 owned configuration bytes before the call.
 
+Configuration replacement is atomic in ABI v1. A successful load replaces the
+previous parsed configuration and reports its SHA-256 identity. Any non-`OK`
+load status leaves the previous loaded configuration unchanged. Callers may
+therefore preserve a previously confirmed healthy loaded identity only after a
+well-formed error envelope and status pair. If the response is malformed,
+oversized, interrupted, or otherwise cannot prove that v1 outcome, the caller
+must publish loaded state as unknown and require recovery.
+
 Start accepts one bounded DTO:
 
 ```json

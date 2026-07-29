@@ -63,6 +63,20 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
       startedAt: null,
       testId: null,
     },
+    groupSelectionOperation: {
+      catalogRevision: "",
+      cleanupFailure: null,
+      cleanupMode: "off",
+      cleanupPhase: "idle",
+      closedCount: 0,
+      controllerSessionRevision: 0,
+      failedCount: 0,
+      membershipRevision: "",
+      operationId: null,
+      scanCount: 0,
+      selectionConfirmed: false,
+      targetCount: 0,
+    },
     groupUsage: [{ groupId: "proxy", observedConnectionCount: 4 }],
     metrics: {
       activeConnections: 4,
@@ -283,7 +297,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 29,
+              protocolVersion: 30,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,

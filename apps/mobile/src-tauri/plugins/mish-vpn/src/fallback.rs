@@ -1,8 +1,9 @@
 use tauri::{AppHandle, Runtime, plugin::PluginApi};
 
 use crate::{
-    MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
-    MobileVpnSnapshot, Result,
+    MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadFailure,
+    MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
+    MobileConfigValidationRequest, MobileConfigValidationResult, MobileVpnSnapshot, Result,
 };
 
 #[derive(Clone)]
@@ -55,5 +56,26 @@ impl<R: Runtime> MishVpn<R> {
             snapshot.sequence,
             &snapshot.session_id,
         )
+    }
+
+    pub fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
+        if let Some(result) = MobileConfigLoadResult::preflight(&request) {
+            return result;
+        }
+        MobileConfigLoadResult::plugin_failure(&request, self.get_snapshot().ok()).with_failure(
+            MobileConfigLoadFailure::CoreUnavailable,
+            "Mobile Core configuration loading is unavailable on this platform.",
+        )
+    }
+
+    pub fn cancel_config_load(
+        &self,
+        request: MobileConfigCancelRequest,
+    ) -> MobileConfigCancelResult {
+        MobileConfigCancelResult {
+            accepted: false,
+            contract_version: 1,
+            operation_id: request.operation_id,
+        }
     }
 }

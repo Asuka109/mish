@@ -214,6 +214,9 @@ const en = {
       "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
     processDiscoveryOff: "Disabled",
     processDiscoveryStrict: "When needed",
+    policyGroupConnectionCleanup: "Restart connections after switching",
+    policyGroupConnectionCleanupDescription:
+      "Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",
@@ -284,26 +287,42 @@ const en = {
   },
   mobileHome: {
     authorityLabel: "VPN / Core",
+    configActionsLabel: "Fictional Mobile Core configuration actions",
+    configLabel: "Core configuration",
+    configLoadedDescription:
+      "The exact validated revision is loaded in Core. This does not start a proxy or VPN.",
+    configLoadedValue: "Loaded · {revision:string}",
+    configUnknownDescription:
+      "The native outcome could not be proven. Explicit recovery is required before another claim.",
+    configUnknownValue: "Recovery required",
+    configUnloadedDescription: "No configuration is loaded in the current Core process.",
+    configUnloadedValue: "Unloaded",
+    configValidatedDescription:
+      "This revision passed the bounded native contract but is not currently loaded.",
+    configValidatedValue: "Validated · {revision:string}",
     coreLabel: "Embedded Core",
     corePackagedDescription:
-      "Package identity is verified. This fixture does not initialize or start the Core.",
+      "Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.",
     coreUnavailableDescription: "No verified embedded Core package is available to this build.",
     coreVersion: "Mihomo {version:string}",
     currentSection: "Current setup",
     failedDescription: "Android could not complete the native lifecycle check.",
     failedState: "Lifecycle check failed",
     fixtureDescription:
-      "This bounded fixture exercises Android permission and lifecycle handling only. It cannot create a TUN or route traffic.",
+      "This bounded fixture loads only repository-owned fictional configuration. It cannot start a proxy, create a TUN, or route traffic.",
     fixtureLabel: "Development boundary",
     permissionRequiredDescription:
       "Review Android VPN permission before checking the native lifecycle.",
     permissionRequiredState: "VPN permission required",
+    loadConfigAction: "Load Fixture A",
     profileLabel: "Profile",
     profileUnavailableDescription:
       "No native Profile authority is connected, so no current Profile is claimed.",
     readinessSection: "Runtime readiness",
     recoveryDescription: "The native lifecycle must be reset safely before another check.",
     recoveryState: "Recovery required",
+    rejectReplacementAction: "Inject Failed Replace",
+    replaceConfigAction: "Replace with Fixture B",
     retryAction: "Retry Lifecycle Check",
     routingLabel: "Routing mode",
     routingUnavailableDescription:
@@ -459,6 +478,8 @@ const en = {
   },
   capture: {
     acknowledge: "Got It",
+    configurationRequired: "Choose or import a Profile configuration before launching the proxy.",
+    configurationRequiredTitle: "Profile configuration required",
     desktopDescription:
       "These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.",
     deviceDescription:
@@ -469,6 +490,7 @@ const en = {
     modeAria: "{mode:string}, {selection:string}, {runtime:string}",
     notRunning: "not running",
     notSelected: "not selected",
+    openProfiles: "Open Profiles",
     running: "running",
     selected: "selected",
     leaveAsIs: "Leave OS Settings as Is",
@@ -574,6 +596,16 @@ const en = {
     cancelDelay: "Cancel Delay Test for {group:string}",
     cancelDelayButton: "Cancel",
     collapseGroup: "Collapse {group:string}",
+    cleanupCompleted:
+      "Selection confirmed. Closed {closed:number} of {target:number} proven old-path logical connections; newly admitted and unrelated connections were preserved.",
+    cleanupFailed:
+      "Selection confirmed, but old-path connection cleanup failed safely ({failure:string}). No close-all fallback was used.",
+    cleanupOff:
+      "Selection confirmed. Existing connections were preserved because automatic old-path cleanup is Off.",
+    cleanupPartial:
+      "Selection confirmed. Closed {closed:number} of {target:number} proven old-path logical connections; cleanup ended with {failure:string}.",
+    cleanupSkipped:
+      "Selection confirmed, but scoped cleanup stopped safely because its runtime or catalog authority changed.",
     configurationOrder: "Configuration",
     currentGroupDescription:
       "Browse, sort, test, and select the direct children of {group:string}.",
@@ -1179,6 +1211,11 @@ const en = {
         "Activation stopped with safe failure category {failure:string}. The notification center retains the available recovery action.",
       proxyLaunchTiming: "Launch Proxy timing",
       proxyLaunchTimingDetail: "Outcome {outcome:string}; total {total:number} ms.",
+      routeOldChildCleanup: "Policy-group old-path cleanup",
+      routeOldChildCleanupDetail:
+        "Mode {mode:string}; phase {phase:string}; targets {target:number}; closed {closed:number}; failed {failed:number}; failure {failure:string}.",
+      routeOldChildCleanupRevisionDetail:
+        "Controller session {session:number}; catalog {catalog:string}; membership {membership:string}.",
       settingsOperationFailedDetail:
         "Review the authoritative Settings snapshot, then retry the requested change.",
       trafficOperationFailedDetail:

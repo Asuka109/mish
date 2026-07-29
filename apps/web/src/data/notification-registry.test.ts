@@ -44,6 +44,16 @@ const sampleData = {
   "profile.subscription-updated": {},
   "profile.switch-failed": {},
   "route.selection-failed": { child: "Direct" },
+  "route.old-child-cleanup": {
+    catalogRevision: "a".repeat(64),
+    closedCount: 2,
+    controllerSessionRevision: 7,
+    failedCount: 0,
+    membershipRevision: "b".repeat(64),
+    mode: "old-direct-child",
+    phase: "completed",
+    targetCount: 2,
+  },
   "service.defaults-restored": {},
   "service.removed": {},
   "service.saved": { operation: "updated" },
@@ -129,6 +139,19 @@ describe("notification presentation registry", () => {
       "show-system-proxy-settings-steps",
     ]);
     expect(JSON.stringify(presentation)).not.toContain("protected-pac");
+  });
+
+  it("presents the Rust-owned missing configuration failure with one Profiles action", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { failure: "configuration-required" }, ["open-profiles"]),
+      i18nObject("en"),
+    );
+
+    expect(presentation.title).toBe("Profile configuration required");
+    expect(presentation.message).toBe(
+      "Choose or import a Profile configuration before launching the proxy.",
+    );
+    expect(presentation.actions).toEqual([{ id: "open-profiles", label: "Open Profiles" }]);
   });
 
   it("presents TUN drift without System Proxy recovery copy or actions", () => {

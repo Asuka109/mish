@@ -39,6 +39,7 @@ pub enum CaptureFailureKind {
     ApplyFailed,
     CapabilityUnavailable,
     ConfirmationFailed,
+    ConfigurationRequired,
     CoreUnhealthy,
     ExternalDrift,
     InvalidRecovery,

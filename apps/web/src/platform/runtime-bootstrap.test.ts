@@ -16,6 +16,7 @@ const settingsSnapshot = {
     launchAtLogin: "supported" as const,
     nativeSidebarMaterial: "supported" as const,
     networkDns: "supported" as const,
+    policyGroupConnectionCleanup: "supported" as const,
     statusBar: "supported" as const,
     tun: "unavailable" as const,
     updates: "coming-later" as const,
@@ -31,6 +32,7 @@ const settingsSnapshot = {
   },
   preferences: {
     appearance: "system" as const,
+    closeOldConnectionsAfterGroupSwitch: false,
     language: "en" as const,
     managedPorts: { controller: 9090, proxy: 7890 },
     onboarding: { welcomeInvitation: null },

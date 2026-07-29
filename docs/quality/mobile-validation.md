@@ -80,16 +80,20 @@ For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
 boundary: consent, foreground notification, serialization, reconstruction, and
 recovery may be exercised, but every start must finish `unavailable` with
 `vpnActive=false`. A separately staged Core may report verified package identity
-as available. The bounded configuration-validation slice may initialize that
-Core and call `mish_core_validate_config_v1`, but it never loads configuration,
-starts Core, supplies a TUN descriptor, or changes VPN state. No fixture result
-satisfies any item in the VPN behavior subsection below.
+as available. The bounded configuration-load slice may initialize that Core,
+validate exact fictional bytes, and call `mish_core_load_config_v1`. It
+publishes validated, loaded, unloaded, or unknown Core configuration state
+without starting Core, supplying a TUN descriptor, or changing VPN state. No
+fixture result satisfies any item in the VPN behavior subsection below.
 
-Configuration validation carries only caller-owned fictional bytes and current
-mobile session/sequence authority. Input over the ABI limit, cancellation,
-duplicate commands, stale authority, plugin/JNI failure, every ABI status, and
-malformed or oversized native envelopes resolve to closed bounded product
-results. Native envelope contents, raw configuration, URLs, credentials, nodes,
+Configuration loading carries only caller-owned fictional bytes plus bounded
+operation, revision, digest, and current mobile session/sequence authority.
+Input over the ABI limit, invalid digest, cancellation before or after the
+native barrier, duplicate commands, stale or replaced authority, timeout,
+Kotlin/JNI failure, every ABI status, and malformed or oversized native
+envelopes resolve to closed bounded product results. A proven v1 rejection
+preserves the prior healthy loaded identity; an unprovable outcome becomes
+unknown. Native envelope contents, raw configuration, URLs, credentials, nodes,
 tokens, and paths never enter results, logs, persistence, or fixture snapshots.
 
 ### VPN behavior

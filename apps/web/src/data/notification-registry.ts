@@ -158,6 +158,25 @@ function knownPresentation(
         message: LL.routes.selectionFailed({ child: string("child") ?? "—" }),
         title: LL.routes.selectionFailedTitle(),
       };
+    case "route.old-child-cleanup": {
+      const phase = string("phase");
+      const failure = string("failure") ?? "unknown";
+      const closed = number("closedCount") ?? 0;
+      const target = number("targetCount") ?? 0;
+      if (string("mode") === "off") {
+        return { message: LL.routes.cleanupOff() };
+      }
+      if (phase === "completed") {
+        return { message: LL.routes.cleanupCompleted({ closed, target }) };
+      }
+      if (phase === "partial") {
+        return { message: LL.routes.cleanupPartial({ closed, failure, target }) };
+      }
+      if (phase === "failed") {
+        return { message: LL.routes.cleanupFailed({ failure }) };
+      }
+      return { message: LL.routes.cleanupSkipped() };
+    }
     case "service.defaults-restored":
       return { message: LL.services.defaultRestoredToast() };
     case "service.removed":
@@ -229,6 +248,12 @@ function captureFailurePresentation(
   LL: TranslationFunctions,
 ): PresentationCopy {
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
+  if (failure === "configuration-required") {
+    return {
+      message: LL.capture.configurationRequired(),
+      title: LL.capture.configurationRequiredTitle(),
+    };
+  }
   if (isTakeoverRejection(takeoverReason)) {
     return {
       message: LL.settingsPage.systemProxyTakeoverRejected(),
@@ -272,6 +297,8 @@ function actionDescriptor(
       return { id, label: LL.capture.leaveAsIs(), tone: "secondary" };
     case "open-system-proxy-settings":
       return openSystemProxySettingsAction(LL);
+    case "open-profiles":
+      return { id, label: LL.capture.openProfiles() };
     case "open-welcome":
       return { id, label: LL.onboarding.notificationAction() };
     case "repair":
