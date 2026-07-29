@@ -29,6 +29,7 @@ import {
 } from "./macos-signed-direct-policy.ts";
 
 const identity = "Developer ID Application: Mish Fixture (ABCDE12345)";
+const macOsOnly = { skip: process.platform !== "darwin" };
 
 function signedDirectEnvironment(): NodeJS.ProcessEnv {
   return {
@@ -191,7 +192,7 @@ test("accepts the complete credential-free signed-direct contract fixture", () =
   assert.doesNotThrow(() => verifySignedDirectEvidence(fixture()));
 });
 
-test("scans a real credential-free Mach-O package fixture", async () => {
+test("scans a real credential-free Mach-O package fixture", macOsOnly, async () => {
   using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-signed-direct-package-"));
   const application = path.join(temporary.path, "Mish.app");
   const tauriRoot = path.resolve(import.meta.dirname, "../apps/desktop/src-tauri");
