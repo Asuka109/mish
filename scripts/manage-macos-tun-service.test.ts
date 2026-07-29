@@ -180,19 +180,28 @@ test("uninstall deletes the public enrollment and moves only non-key targets to 
   assert.doesNotMatch(script, /'\/bin\/rm'|\/usr\/bin\/trash/u);
 });
 
-test("accepts the TUN service capability only behind the exact Tart acceptance option", () => {
+test("accepts TUN only behind exact development or Tart boundaries", () => {
   assert.deepEqual(parseDevelopmentServiceArguments(["install"]), {
     action: "install",
+    developmentTun: false,
+    tartTerminalAuthorization: false,
+    tartTunAcceptance: false,
+  });
+  assert.deepEqual(parseDevelopmentServiceArguments(["install", "--development-tun"]), {
+    action: "install",
+    developmentTun: true,
     tartTerminalAuthorization: false,
     tartTunAcceptance: false,
   });
   assert.deepEqual(parseDevelopmentServiceArguments(["install", "--tart-tun-acceptance"]), {
     action: "install",
+    developmentTun: false,
     tartTerminalAuthorization: false,
     tartTunAcceptance: true,
   });
   assert.deepEqual(parseDevelopmentServiceArguments(["rotate-key"]), {
     action: "rotate-key",
+    developmentTun: false,
     tartTerminalAuthorization: false,
     tartTunAcceptance: false,
   });
@@ -204,6 +213,7 @@ test("accepts the TUN service capability only behind the exact Tart acceptance o
     ]),
     {
       action: "reset-key",
+      developmentTun: false,
       tartTerminalAuthorization: true,
       tartTunAcceptance: true,
     },
@@ -216,6 +226,7 @@ test("accepts the TUN service capability only behind the exact Tart acceptance o
     ]),
     {
       action: "install",
+      developmentTun: false,
       tartTerminalAuthorization: true,
       tartTunAcceptance: true,
     },
@@ -224,6 +235,7 @@ test("accepts the TUN service capability only behind the exact Tart acceptance o
     ["install", "--tun"],
     ["install", "--tart-tun-acceptance=true"],
     ["install", "--tart-tun-acceptance", "--tart-tun-acceptance"],
+    ["install", "--development-tun", "--tart-tun-acceptance"],
     ["install", "--tart-terminal-authorization"],
     ["prepare", "--tart-tun-acceptance", "--tart-terminal-authorization"],
   ]) {
@@ -294,7 +306,7 @@ test("rotation transcript matches Rust and both signatures cover the replacement
 });
 
 test(
-  "prepares with injected executables without authorization, installation, Core download, or network mutation",
+  "prepares development TUN without authorization, installation, Core download, or network mutation",
   { skip: process.platform !== "darwin" },
   () => {
     using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish tun toolchain "));
@@ -318,7 +330,7 @@ test(
 
     const result = spawnSync(
       process.execPath,
-      [path.resolve("scripts/manage-macos-tun-service.ts"), "prepare"],
+      [path.resolve("scripts/manage-macos-tun-service.ts"), "prepare", "--development-tun"],
       {
         cwd: workspace,
         encoding: "utf8",
@@ -338,7 +350,7 @@ test(
       ),
       "utf8",
     );
-    assert.match(preparedPlist, /<key>MISH_TUN_SERVICE_ALLOW_TUN<\/key><string>0<\/string>/u);
+    assert.match(preparedPlist, /<key>MISH_TUN_SERVICE_ALLOW_TUN<\/key><string>1<\/string>/u);
     assert.match(
       preparedPlist,
       /<key>MISH_TUN_SERVICE_ENROLLMENT_RECORD<\/key><string>\/Library\/Application Support\/com\.asuka109\.mish\/tun-helper-dev\/enrollment\.json<\/string>/u,

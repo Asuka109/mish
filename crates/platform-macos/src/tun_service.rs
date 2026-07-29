@@ -926,7 +926,7 @@ pub struct DevelopmentInstallationDiscovery {
 struct DevelopmentTunLifecycle {
     repository_root: PathBuf,
     script_path: PathBuf,
-    tart_tun_acceptance: bool,
+    tun_argument: Option<&'static str>,
 }
 
 #[derive(Clone, Debug)]
@@ -1023,22 +1023,26 @@ impl MacOsTunServiceClient {
     }
 
     pub fn development_with_lifecycle(repository_root: PathBuf) -> Self {
-        Self::development_with_lifecycle_boundary(repository_root, false)
+        Self::development_with_lifecycle_boundary(repository_root, None)
+    }
+
+    pub fn development_with_tun_lifecycle(repository_root: PathBuf) -> Self {
+        Self::development_with_lifecycle_boundary(repository_root, Some("--development-tun"))
     }
 
     pub fn development_with_tart_tun_acceptance(repository_root: PathBuf) -> Self {
-        Self::development_with_lifecycle_boundary(repository_root, true)
+        Self::development_with_lifecycle_boundary(repository_root, Some("--tart-tun-acceptance"))
     }
 
     fn development_with_lifecycle_boundary(
         repository_root: PathBuf,
-        tart_tun_acceptance: bool,
+        tun_argument: Option<&'static str>,
     ) -> Self {
         let mut client = Self::development();
         client.lifecycle = Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
             script_path: repository_root.join("scripts/manage-macos-tun-service.ts"),
             repository_root,
-            tart_tun_acceptance,
+            tun_argument,
         }));
         client
     }
@@ -1915,8 +1919,8 @@ impl TunHelperPlatform for MacOsTunServiceClient {
             })?;
             let mut command = Command::new(node);
             command.arg(script_path).arg(action);
-            if lifecycle.tart_tun_acceptance {
-                command.arg("--tart-tun-acceptance");
+            if let Some(tun_argument) = lifecycle.tun_argument {
+                command.arg(tun_argument);
             }
             let output = command
                 .current_dir(repository_root)
@@ -6448,7 +6452,7 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: false,
+                tun_argument: None,
             })),
             socket_path: repository.path().join("unused.sock"),
         };
@@ -6467,7 +6471,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tart_lifecycle_preserves_the_explicit_installer_boundary() {
+    async fn development_tun_lifecycle_preserves_the_explicit_installer_boundary() {
         let repository = tempfile::tempdir().unwrap();
         let scripts = repository.path().join("scripts");
         fs::create_dir(&scripts).unwrap();
@@ -6484,7 +6488,41 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: true,
+                tun_argument: Some("--development-tun"),
+            })),
+            socket_path: repository.path().join("unused.sock"),
+        };
+
+        client
+            .run_lifecycle(TunHelperLifecycleOperation::Repair)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(repository.path().join("observed-action.txt")).unwrap(),
+            "repair,--development-tun"
+        );
+    }
+
+    #[tokio::test]
+    async fn tart_lifecycle_keeps_its_acceptance_only_installer_boundary() {
+        let repository = tempfile::tempdir().unwrap();
+        let scripts = repository.path().join("scripts");
+        fs::create_dir(&scripts).unwrap();
+        let installer = scripts.join("manage-macos-tun-service.ts");
+        fs::write(
+            &installer,
+            "import { writeFileSync } from 'node:fs';\nwriteFileSync('observed-action.txt', process.argv.slice(2).join(','));\nprocess.stdout.write(JSON.stringify({ ok: true }));\n",
+        )
+        .unwrap();
+        fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
+        let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
+            client_keys: None,
+            lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
+                repository_root: repository.path().to_path_buf(),
+                script_path: installer,
+                tun_argument: Some("--tart-tun-acceptance"),
             })),
             socket_path: repository.path().join("unused.sock"),
         };
@@ -6518,7 +6556,7 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: false,
+                tun_argument: None,
             })),
             socket_path: repository.path().join("unused.sock"),
         };

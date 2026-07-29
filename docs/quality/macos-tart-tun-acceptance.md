@@ -360,14 +360,15 @@ the Helper observation alone and displayed a stopped session even though the
 root Core, `utun4`, and managed DNS were active. This hybrid state was rejected
 as acceptance evidence.
 
-The corrected final candidate was rebuilt with archive SHA-256
-`02dd9b23705fd9835a2eccd0e7681541eb1b585abf499d8ffe824fe7c2bca7ff`
+After the source-development TUN boundary was added, the corrected final
+candidate was rebuilt from the final source state with archive SHA-256
+`150c5c486c8de981a4feeac2c840466d628b1ff125542e840bed41d35dd5bca3`
 and package-manifest SHA-256
-`6070c1ae8f93f162ec6c888cc5efa907c8ef29f1865f1aa9553a7db6982d1dd2`.
+`d96f31b79cb366fd00ce7b67dcc38e0cd27c2ac041995c1984aa1eb1ce87ee54`.
 It installed as `healthy-disabled` with generation 1, installation identity
-`cca595afa7eee6a1402f2c9f75709a4dc0f784429e37f4268da85ffd061737d8`,
+`00601c93a4d72bbaf8eec4880e82caa7e6067a6570cd610db02e0d7b6192e9ae`,
 and key identifier
-`35e566011939b0facf0f6439b80d6b45dd2b1c08dd170bf6d1064fe164af6147`.
+`5a30a5976fc27e64445f4814d17bc3491208b1fa88906cc4d1c3743b49f0a9c2`.
 The packaged app then started the real root Core, produced `utun4` at MTU 9000
 with managed DNS `198.18.0.1`, kept Ethernet HTTP, HTTPS, and SOCKS proxies
 disabled, and returned public HTTP 200. Its accessibility projection reported

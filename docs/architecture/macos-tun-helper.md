@@ -300,10 +300,32 @@ Enclave. After the new generation commits, Mish deletes the plaintext key.
 Production still independently requires `SMAppService`, Developer ID
 same-Team audit-token validation, signing, notarization, and signed XPC.
 
+### Source development TUN
+
+The tracked `pnpm desktop:dev` launcher may use Virtual Interface through the
+development Helper after one explicit administrator-authorized installation:
+
+```sh
+pnpm macos:tun:install:dev
+pnpm desktop:dev
+```
+
+The `--development-tun` installer boundary admits the same closed Helper
+protocol, pinned Core, installation-key proof, exact network ownership, shared
+Capture transaction, and bounded cleanup used by acceptance. The launcher does
+not install or repair the service implicitly. A service installed from the
+running Settings page becomes the observed authority immediately, but the dev
+process must restart once before its activation manager can bind the privileged
+Core host.
+
+This source-only path does not add failure injection, terminal authorization,
+Tart DNS fixtures, a packaged capability, or a production privilege. Demo,
+alpha-ad-hoc, signed-direct, and production layouts remain fail-closed.
+
 ### Disposable Tart TUN acceptance
 
-The complete development TUN path requires a second, exact boundary on both
-sides of the service:
+Disposable acceptance adds a second, exact Tart boundary on both sides of the
+same development service:
 
 ```sh
 pnpm macos:tun:install:tart
@@ -313,9 +335,10 @@ pnpm desktop:dev:tart-tun
 These commands are for a disposable Tart guest only and must never be run on
 the host Mac. The installer records the Tart opt-in in the installation
 identity, and the desktop launcher accepts it only in a Tauri development
-build. Omitting either side keeps Virtual Interface unavailable. Demo,
-ordinary source development, alpha-ad-hoc, signed-direct, and production
-layouts are unchanged and fail-closed.
+build. Omitting either side keeps Tart-only DNS and failure-injection acceptance
+unavailable. Ordinary source development cannot select those controls. Demo,
+alpha-ad-hoc, signed-direct, and production layouts are unchanged and
+fail-closed.
 
 Inside this boundary, the service accepts only Mish's fixed private managed
 runtime layout and the existing pinned Core. The generated policy fixes

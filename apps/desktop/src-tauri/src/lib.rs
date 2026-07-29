@@ -35,8 +35,9 @@ use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
     CaptureAuditReason, CaptureFailureKind, CaptureReconciler, CaptureSelection,
     LoopbackProxyEndpoint, PlatformLifecycleEventSource, PolicyGroupConnectionCleanupPreference,
-    StatusAdapterKind as RuntimeStatusAdapterKind, TunHelperController, TunHelperFailureKind,
-    TunHelperPlatform, TunNetworkObservation, tun_observation_now,
+    StatusAdapterKind as RuntimeStatusAdapterKind, TunHelperAvailability, TunHelperController,
+    TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperPlatform,
+    TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     ApplicationLaunchBehavior, FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences,
@@ -937,7 +938,7 @@ fn initialize(
         Arc::new(if tart_tun_acceptance {
             MacOsTunServiceClient::development_with_tart_tun_acceptance(repository_root)
         } else {
-            MacOsTunServiceClient::development_with_lifecycle(repository_root)
+            MacOsTunServiceClient::development_with_tun_lifecycle(repository_root)
         })
     });
     #[cfg(not(feature = "development-core-host"))]
@@ -961,7 +962,7 @@ fn initialize(
             .cloned()
             .map(|service| service as Arc<dyn TunHelperPlatform>)
             .expect("internal TUN service checked before selection"),
-        _ if tart_tun_acceptance => development_tun_service
+        _ if development_tun_service.is_some() => development_tun_service
             .as_ref()
             .cloned()
             .map(|service| service as Arc<dyn TunHelperPlatform>)
@@ -1014,7 +1015,10 @@ fn initialize(
             Some(service) => match service.prepare_development_startup().await {
                 DevelopmentTunStartup::Ready => true,
                 DevelopmentTunStartup::ReadOnly(failure) => {
-                    tun_helper.mark_runtime_unavailable(failure);
+                    let helper = tun_helper.snapshot();
+                    if !development_tun_service_not_installed(&helper) {
+                        tun_helper.mark_runtime_unavailable(failure);
+                    }
                     false
                 }
             },
@@ -1529,6 +1533,13 @@ fn launch_on_application_start(
             ApplicationLaunchBehavior::Off => {}
         }
     });
+}
+
+fn development_tun_service_not_installed(snapshot: &TunHelperSnapshot) -> bool {
+    snapshot.availability == TunHelperAvailability::PermissionRequired
+        && snapshot.health == TunHelperHealth::NotInstalled
+        && snapshot.phase == TunHelperLifecyclePhase::Idle
+        && snapshot.last_failure.is_none()
 }
 
 fn maintenance_capture_restore_retryable(kind: CaptureFailureKind) -> bool {
@@ -2294,7 +2305,8 @@ mod tests {
         DevtoolsStartupSource, InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES,
         MainWindowCloseAction, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
         SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, desktop_demo_requested, generate_auth_token,
+        atomic_write_support_bundle_with_failure, desktop_demo_requested,
+        development_tun_service_not_installed, generate_auth_token,
         internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
@@ -2307,10 +2319,31 @@ mod tests {
     };
     use mish_bridge::MihomoResolveError;
     use mish_runtime::{
-        CaptureFailureKind, CaptureSelection, TunHelperFailureKind, TunNetworkObservation,
+        CaptureFailureKind, CaptureSelection, TunHelperAvailability, TunHelperFailureKind,
+        TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot, TunNetworkObservation,
         tun_observation_now,
     };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
+
+    #[test]
+    fn development_tun_keeps_exact_not_installed_state_actionable() {
+        let mut snapshot = TunHelperSnapshot {
+            availability: TunHelperAvailability::PermissionRequired,
+            expected_version: "3".to_owned(),
+            health: TunHelperHealth::NotInstalled,
+            installation_id: None,
+            installed_version: None,
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        };
+        assert!(development_tun_service_not_installed(&snapshot));
+
+        snapshot.last_failure = Some(TunHelperFailureKind::ProtocolMismatch);
+        assert!(!development_tun_service_not_installed(&snapshot));
+        snapshot.last_failure = None;
+        snapshot.availability = TunHelperAvailability::RepairRequired;
+        assert!(!development_tun_service_not_installed(&snapshot));
+    }
 
     #[cfg(unix)]
     #[test]
