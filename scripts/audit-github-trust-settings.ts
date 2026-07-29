@@ -29,10 +29,6 @@ export interface TrustPolicy {
   protected: {
     environments: Record<string, EnvironmentPolicy>;
   };
-  trustedSelfHostedCi: {
-    runnerLabels: string[];
-    runnerName: string;
-  };
 }
 
 export interface TrustSettingsAudit {
@@ -86,6 +82,17 @@ function safeObservation(name: string, result: ApiResult): unknown {
         allowed_actions: body.allowed_actions,
         enabled: body.enabled,
         sha_pinning_required: body.sha_pinning_required,
+      },
+      status: result.status,
+    };
+  }
+  if (name === "selectedActions") {
+    const body = result.body as Record<string, unknown>;
+    return {
+      body: {
+        github_owned_allowed: body.github_owned_allowed,
+        patterns_allowed: body.patterns_allowed,
+        verified_allowed: body.verified_allowed,
       },
       status: result.status,
     };
@@ -224,7 +231,6 @@ function safeObservation(name: string, result: ApiResult): unknown {
     const body = result.body as {
       runners?: Array<{
         labels?: Array<{ name?: string }>;
-        busy?: boolean;
         name?: string;
         os?: string;
         status?: string;
@@ -234,7 +240,6 @@ function safeObservation(name: string, result: ApiResult): unknown {
     return {
       body: {
         runners: (body.runners ?? []).map((runner) => ({
-          busy: runner.busy,
           labels: (runner.labels ?? []).map((label) => label.name),
           name: runner.name,
           os: runner.os,
@@ -306,7 +311,6 @@ export function collectGitHubTrustEndpoints(
     oidc: api(`repos/${repository}/actions/oidc/customization/sub`),
     repository: api(`repos/${repository}`),
     rulesets: api(`repos/${repository}/rulesets?includes_parents=true&per_page=100`),
-    runners: api(`repos/${repository}/actions/runners?per_page=100`),
     selectedActions: api(`repos/${repository}/actions/permissions/selected-actions`),
     workflowToken: api(`repos/${repository}/actions/permissions/workflow`),
   };
@@ -527,32 +531,6 @@ export function evaluateGitHubTrustSettings(
     workflowToken.can_approve_pull_request_reviews !== false
   ) {
     blockers.push("Default workflow token permissions are not read-only and review-disabled.");
-  }
-  const runners = endpoints.runners.body as
-    | {
-        runners?: Array<{
-          labels?: Array<{ name?: string }>;
-          name?: string;
-          os?: string;
-          status?: string;
-        }>;
-      }
-    | undefined;
-  const exactRunner = (runners?.runners ?? []).find(
-    (runner) => runner.name === trustPolicy.trustedSelfHostedCi.runnerName,
-  );
-  const observedLabels = (exactRunner?.labels ?? []).flatMap((label) =>
-    label.name === undefined ? [] : [label.name],
-  );
-  if (
-    endpoints.runners.status !== 0 ||
-    exactRunner?.os !== "macOS" ||
-    exactRunner.status !== "online" ||
-    !sameStrings(observedLabels, trustPolicy.trustedSelfHostedCi.runnerLabels)
-  ) {
-    blockers.push(
-      "The dedicated self-hosted macOS runner is absent, offline, or missing an exact required label.",
-    );
   }
   const latestJobs = endpoints.latestMainJobs.body as
     | {

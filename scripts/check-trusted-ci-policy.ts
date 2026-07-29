@@ -26,10 +26,6 @@ interface WorkflowJob {
 }
 
 interface Workflow {
-  concurrency?: {
-    "cancel-in-progress"?: boolean;
-    group?: string;
-  };
   jobs?: Record<string, WorkflowJob>;
   on?: Record<string, unknown>;
   permissions?: Record<string, string>;
@@ -84,6 +80,30 @@ export function validateActionReferences(
   return errors;
 }
 
+export function validateUntrustedWorkflowJob(
+  policy: TrustedReleasePolicy,
+  job: WorkflowJob,
+): string[] {
+  const errors: string[] = [];
+  const runner = job["runs-on"];
+  if (JSON.stringify(runner) !== JSON.stringify(policy.untrusted.runnerLabels[0])) {
+    errors.push("untrusted job runner is not the isolated GitHub-hosted runner");
+  }
+  if (
+    JSON.stringify(job.permissions ?? policy.untrusted.permissions) !==
+    JSON.stringify(policy.untrusted.permissions)
+  ) {
+    errors.push("untrusted job permissions exceed contents: read");
+  }
+  const source = JSON.stringify(job);
+  if (source.includes("self-hosted")) errors.push("untrusted job reaches a self-hosted runner");
+  if (source.includes("${{ secrets.")) errors.push("untrusted job reads a secret");
+  if (source.includes("id-token")) errors.push("untrusted job can mint OIDC tokens");
+  if (source.includes("upload-artifact")) errors.push("untrusted job uploads an artifact");
+  if (job.uses) errors.push("untrusted job calls a reusable workflow");
+  return errors;
+}
+
 function assertActionPins(
   policy: TrustedReleasePolicy,
   relative: string,
@@ -103,55 +123,6 @@ function assertCheckoutIsolation(relative: string, workflow: Workflow): void {
       );
     }
   }
-}
-
-function assertTrustedSelfHostedJob(
-  policy: TrustedReleasePolicy,
-  relative: string,
-  jobName: string,
-  job: WorkflowJob,
-): void {
-  invariant(
-    JSON.stringify(job["runs-on"]) === JSON.stringify(policy.trustedSelfHostedCi.runnerLabels),
-    `${relative} ${jobName} does not use the exact dedicated runner labels.`,
-  );
-  invariant(!job.uses, `${relative} ${jobName} must not call a reusable workflow.`);
-  const source = JSON.stringify(job);
-  invariant(!source.includes("${{ secrets."), `${relative} ${jobName} reads a secret.`);
-  invariant(!source.includes("id-token"), `${relative} ${jobName} can mint OIDC tokens.`);
-  const boundary = job.steps?.[0];
-  invariant(
-    boundary?.name === "Verify dedicated runner boundary" &&
-      boundary.run?.includes(`"$RUNNER_NAME" = "${policy.trustedSelfHostedCi.runnerName}"`) &&
-      boundary.run.includes('"$RUNNER_OS" = "macOS"') &&
-      boundary.run.includes('"$RUNNER_ARCH" = "ARM64"') &&
-      boundary.run.includes('"$(id -u)" -ne 0') &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED") &&
-      boundary.run.includes(
-        "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh",
-      ) &&
-      boundary.run.includes(
-        "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh",
-      ),
-    `${relative} ${jobName} does not fail closed on runner identity, non-root ownership, and hooks.`,
-  );
-}
-
-function assertWorkflowDefaults(
-  policy: TrustedReleasePolicy,
-  relative: string,
-  workflow: Workflow,
-): void {
-  invariant(
-    JSON.stringify(workflow.permissions) === JSON.stringify({ contents: "read" }),
-    `${relative} must default every job to contents: read.`,
-  );
-  invariant(
-    workflow.concurrency?.group === policy.trustedSelfHostedCi.concurrencyGroup &&
-      workflow.concurrency["cancel-in-progress"] === false,
-    `${relative} must use the repository-wide non-cancelling runner lock.`,
-  );
 }
 
 function assertNoProtectedExecution(relative: string, source: string, workflow: Workflow): void {
@@ -211,41 +182,12 @@ invariant(
   "Trusted workflow and tooling identity changed.",
 );
 invariant(
-  policy.untrusted.allowedEvents.length === 0 &&
-    policy.untrusted.runnerLabels.length === 0 &&
-    policy.untrusted.allowSecrets === false &&
+  policy.untrusted.allowSecrets === false &&
     policy.untrusted.allowOidc === false &&
     policy.untrusted.allowArtifactUpload === false &&
     policy.untrusted.allowSelfHosted === false &&
     policy.untrusted.allowReusableWorkflowCalls === false,
   "Untrusted CI capabilities must all remain disabled.",
-);
-invariant(
-  policy.trustedSelfHostedCi.enabled === true &&
-    policy.trustedSelfHostedCi.repositoryOnly === true &&
-    policy.trustedSelfHostedCi.runnerName === "asuk-mini" &&
-    policy.trustedSelfHostedCi.runnerAccountMode === "shared-console-trusted-owner-only" &&
-    policy.trustedSelfHostedCi.runnerRoot === "~/actions-runner/mish" &&
-    JSON.stringify(policy.trustedSelfHostedCi.runnerLabels) ===
-      JSON.stringify(["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"]) &&
-    JSON.stringify(policy.trustedSelfHostedCi.allowedEvents) ===
-      JSON.stringify(["pull_request_target", "push", "schedule", "workflow_dispatch"]) &&
-    JSON.stringify(policy.trustedSelfHostedCi.actorIds) === JSON.stringify(["18379948"]) &&
-    policy.trustedSelfHostedCi.trustedRef === "refs/heads/main" &&
-    policy.trustedSelfHostedCi.concurrencyGroup === "mish-self-hosted-ci" &&
-    policy.trustedSelfHostedCi.pullRequest.event === "pull_request_target" &&
-    policy.trustedSelfHostedCi.pullRequest.baseBranch === "main" &&
-    policy.trustedSelfHostedCi.pullRequest.requireSameRepository === true &&
-    policy.trustedSelfHostedCi.pullRequest.checkoutHeadSha === true &&
-    policy.trustedSelfHostedCi.pullRequest.allowForks === false &&
-    policy.trustedSelfHostedCi.pullRequest.allowMergeRefs === false &&
-    policy.trustedSelfHostedCi.hooks.requireInactiveConsoleUser === false &&
-    policy.trustedSelfHostedCi.hooks.workspaceScopedProcessCleanup === true &&
-    policy.trustedSelfHostedCi.allowSecrets === false &&
-    policy.trustedSelfHostedCi.allowOidc === false &&
-    policy.trustedSelfHostedCi.allowReusableWorkflowCalls === false &&
-    policy.trustedSelfHostedCi.offlinePolicy === "queue-without-hosted-fallback",
-  "Trusted self-hosted CI identity, routing, hook, or offline policy drifted.",
 );
 invariant(
   policy.protected.allowSelfHosted === false &&
@@ -291,8 +233,6 @@ const ci = parseWorkflow(".github/workflows/ci.yml");
 const release = parseWorkflow(".github/workflows/stage-macos-alpha-release.yml");
 assertActionPins(policy, ".github/workflows/ci.yml", ci.workflow);
 assertActionPins(policy, ".github/workflows/stage-macos-alpha-release.yml", release.workflow);
-assertWorkflowDefaults(policy, ".github/workflows/ci.yml", ci.workflow);
-assertWorkflowDefaults(policy, ".github/workflows/stage-macos-alpha-release.yml", release.workflow);
 assertCheckoutIsolation(".github/workflows/ci.yml", ci.workflow);
 assertCheckoutIsolation(".github/workflows/stage-macos-alpha-release.yml", release.workflow);
 assertNoProtectedExecution(
@@ -300,43 +240,25 @@ assertNoProtectedExecution(
   release.source,
   release.workflow,
 );
-for (const [jobName, job] of Object.entries(ci.workflow.jobs ?? {})) {
-  assertTrustedSelfHostedJob(policy, ".github/workflows/ci.yml", jobName, job);
-}
-for (const [jobName, job] of Object.entries(release.workflow.jobs ?? {})) {
-  assertTrustedSelfHostedJob(
-    policy,
-    ".github/workflows/stage-macos-alpha-release.yml",
-    jobName,
-    job,
-  );
-}
 
 invariant(
-  Object.hasOwn(ci.workflow.on ?? {}, "pull_request_target") &&
-    !Object.hasOwn(ci.workflow.on ?? {}, "pull_request"),
-  "CI must use the default-branch pull_request_target definition, never an unreviewed merge-ref workflow.",
+  Object.hasOwn(ci.workflow.on ?? {}, "pull_request"),
+  "CI must retain pull_request validation.",
 );
 const prGate = ci.workflow.jobs?.["pr-gate"];
 invariant(prGate, "CI is missing the Fast PR gate.");
-const prCheckout = prGate.steps?.find((step) => step.uses?.startsWith("actions/checkout@"));
+const untrustedErrors = validateUntrustedWorkflowJob(policy, prGate);
+invariant(untrustedErrors.length === 0, untrustedErrors.join("; "));
 invariant(
-  prGate.if?.includes("github.event_name == 'pull_request_target'") &&
-    prGate.if.includes("github.actor_id == '18379948'") &&
-    prGate.if.includes("github.event.pull_request.head.repo.id == 1304960811") &&
-    prGate.if.includes("github.event.pull_request.head.repo.full_name == 'Asuka109/mish'") &&
-    prGate.if.includes("github.workflow_ref ==") &&
-    prGate.if.includes("github.workflow_sha == github.sha") &&
-    prCheckout?.with?.ref === "${{ github.event.pull_request.head.sha }}" &&
+  prGate.if === "github.event_name == 'pull_request'" &&
     prGate.steps?.some((step) => step.run === "pnpm check:pr"),
-  "The trusted Fast PR gate must bind owner, same-repository head SHA, default workflow, and check:pr.",
+  "The untrusted Fast PR gate must remain pull-request-only and run check:pr.",
 );
 invariant(
   !ci.source.includes("${{ secrets.") &&
-    !ci.source.includes("\n  pull_request:\n") &&
-    !ci.source.includes("refs/pull/") &&
+    !ci.source.includes("pull_request_target") &&
     !ci.source.includes("workflow_run"),
-  "Routine CI contains a secret, merge-ref trigger, or indirect trigger.",
+  "Routine CI contains a secret or privileged trigger.",
 );
 
 invariant(
@@ -369,8 +291,29 @@ invariant(
 );
 const freeze = release.workflow.jobs?.["freeze-source"];
 invariant(
-  freeze?.if?.includes("refs/heads/main"),
+  freeze?.if?.includes("refs/heads/main") &&
+    JSON.stringify(freeze.permissions) === JSON.stringify({ contents: "read" }),
   "Source freeze must fail closed on reviewed main with read-only contents.",
+);
+const verify = release.workflow.jobs?.["verify-candidate"];
+const decision = release.workflow.jobs?.["staging-decision"];
+const internalBuild = release.workflow.jobs?.["build-internal-tun-candidate"];
+const internalVerify = release.workflow.jobs?.["verify-internal-tun-candidate"];
+const internalStage = release.workflow.jobs?.["stage-internal-tun-alpha"];
+const internalConfirm = release.workflow.jobs?.["confirm-internal-tun-stage"];
+invariant(
+  JSON.stringify(verify?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(decision?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalBuild?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalVerify?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalStage?.permissions) === JSON.stringify({ contents: "read" }) &&
+    JSON.stringify(internalConfirm?.permissions) === JSON.stringify({ contents: "read" }),
+  "Candidate validation and Internal TUN staging must retain read-only repository permissions.",
+);
+invariant(
+  JSON.stringify(verify?.["runs-on"]) === JSON.stringify("macos-15") &&
+    !JSON.stringify(verify).includes("self-hosted"),
+  "Candidate code must run only on an unprivileged GitHub-hosted runner.",
 );
 invariant(
   release.source.includes("trusted-release-policy.ts create-manifest") &&
@@ -396,6 +339,17 @@ for (const requirement of [
     `Internal TUN immutable staging boundary is missing ${requirement}.`,
   );
 }
+invariant(
+  internalBuild?.["runs-on"] === "macos-15" &&
+    internalVerify?.["runs-on"] === "macos-15" &&
+    internalStage?.["runs-on"] === "ubuntu-24.04" &&
+    internalConfirm?.["runs-on"] === "macos-15" &&
+    !JSON.stringify([internalBuild, internalVerify, internalStage, internalConfirm]).includes(
+      "self-hosted",
+    ),
+  "Internal TUN staging must use only isolated GitHub-hosted runners.",
+);
+
 const codeowners = read(".github/CODEOWNERS");
 for (const required of policy.codeowners.requiredPaths) {
   invariant(
@@ -424,10 +378,6 @@ invariant(
   "The Fast PR gate must verify live GitHub trust-settings parsing.",
 );
 invariant(
-  packageJson.scripts?.["test:scripts"]?.includes("self-hosted-runner-policy.test.ts"),
-  "The Fast PR gate must verify self-hosted runner hygiene and no-GUI policy.",
-);
-invariant(
   packageJson.scripts?.["audit:ci:trust-settings"] ===
     "node scripts/audit-github-trust-settings.ts",
   "The live GitHub trust-settings audit command is missing.",
@@ -445,5 +395,5 @@ invariant(
 );
 
 console.log(
-  "Trusted CI policy valid: every job uses the dedicated serialized owner-only macOS runner with read-only defaults; PRs use the default workflow and exact same-repository head SHA; external/untrusted execution and protected signing remain disabled; action, hook, cleanup, CODEOWNERS, Environment, OIDC, and immutable-artifact contracts are deterministic.",
+  "Trusted CI policy valid: untrusted jobs are secretless and GitHub-hosted; live protected identity is disabled; Internal TUN staging binds frozen workflow/tooling to immutable artifact IDs without signing or publication; action pin, CODEOWNERS, Environment, OIDC, and runner contracts are deterministic.",
 );

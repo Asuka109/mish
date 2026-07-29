@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "activation": {
     "enabled": false,
-    "reason": "The private repository's current GitHub plan cannot enforce protected branches or reviewer-protected Environments. Protected signing, attestation, publication, deployment, and release identity remain disabled."
+    "reason": "Protected signing, attestation, publication, deployment, and release identity remain disabled until the required branch, Environment, OIDC, and workflow controls are observed."
   },
   "repository": {
     "name": "Asuka109/mish",
@@ -21,8 +21,8 @@
     "sourceRevision": "full-sha-reachable-from-frozen-main"
   },
   "untrusted": {
-    "allowedEvents": [],
-    "runnerLabels": [],
+    "allowedEvents": ["pull_request"],
+    "runnerLabels": ["ubuntu-24.04"],
     "permissions": {
       "contents": "read"
     },
@@ -31,36 +31,6 @@
     "allowArtifactUpload": false,
     "allowSelfHosted": false,
     "allowReusableWorkflowCalls": false
-  },
-  "trustedSelfHostedCi": {
-    "enabled": true,
-    "repositoryOnly": true,
-    "runnerName": "asuk-mini",
-    "runnerAccountMode": "shared-console-trusted-owner-only",
-    "runnerRoot": "~/actions-runner/mish",
-    "runnerLabels": ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"],
-    "allowedEvents": ["pull_request_target", "push", "schedule", "workflow_dispatch"],
-    "actorIds": ["18379948"],
-    "trustedRef": "refs/heads/main",
-    "concurrencyGroup": "mish-self-hosted-ci",
-    "pullRequest": {
-      "event": "pull_request_target",
-      "baseBranch": "main",
-      "requireSameRepository": true,
-      "checkoutHeadSha": true,
-      "allowForks": false,
-      "allowMergeRefs": false
-    },
-    "hooks": {
-      "started": "~/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh",
-      "completed": "~/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh",
-      "requireInactiveConsoleUser": false,
-      "workspaceScopedProcessCleanup": true
-    },
-    "allowSecrets": false,
-    "allowOidc": false,
-    "allowReusableWorkflowCalls": false,
-    "offlinePolicy": "queue-without-hosted-fallback"
   },
   "protected": {
     "jobKinds": ["sign", "notarize", "attest", "publish", "deploy"],
@@ -151,9 +121,6 @@
       "/.github/",
       "/scripts/audit-github-trust-settings.ts",
       "/scripts/audit-github-trust-settings.test.ts",
-      "/scripts/self-hosted-runner-hygiene.sh",
-      "/scripts/self-hosted-runner-job-started.sh",
-      "/scripts/self-hosted-runner-job-completed.sh",
       "/scripts/trusted-release-policy.ts",
       "/scripts/development-mihomo.ts",
       "/scripts/prepare-mihomo.ts",
@@ -163,7 +130,6 @@
       "/scripts/macos-signed-release.ts",
       "/scripts/macos-updater-contract.ts",
       "/docs/operations/trusted-release-boundary.md",
-      "/docs/operations/self-hosted-macos-runner.md",
       "/package.json",
       "/pnpm-lock.yaml",
       "/rust-toolchain.toml"

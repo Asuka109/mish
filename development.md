@@ -75,23 +75,21 @@ git status --short
 
 Add the smallest relevant risk gate:
 
-| Change                   | Additional validation                                    |
-| ------------------------ | -------------------------------------------------------- |
-| Web layout or navigation | `pnpm test:browser`                                      |
-| Rust runtime behavior    | focused tests, `pnpm test:rust`, and Clippy              |
-| macOS daily journey      | `pnpm test:macos:p0`                                     |
-| macOS resources/package  | `pnpm desktop:bundle:macos`                              |
-| Android Kotlin/JNI       | `pnpm mobile:android:test` and debug APK build           |
-| Mobile Core              | contract, dual build, evidence verification, and staging |
-| Documentation            | `pnpm check:docs`                                        |
-| CI                       | `pnpm check:ci`                                          |
+| Change | Additional validation |
+| --- | --- |
+| Web layout or navigation | `pnpm test:browser` |
+| Rust runtime behavior | focused tests, `pnpm test:rust`, and Clippy |
+| macOS daily journey | `pnpm test:macos:p0` |
+| macOS resources/package | `pnpm desktop:bundle:macos` |
+| Android Kotlin/JNI | `pnpm mobile:android:test` and debug APK build |
+| Mobile Core | contract, dual build, evidence verification, and staging |
+| Documentation | `pnpm check:docs` |
+| CI | `pnpm check:ci` |
 
-CI truth lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): owner
-pull-request heads run `check:pr` through the reviewed default-branch workflow;
-daily or manual inspection runs `check:all` plus browser tests; and `main`
-pushes publish 14-day macOS and Android test artifacts. Every job uses the
-dedicated serialized Apple Silicon runner described in
-[`docs/operations/self-hosted-macos-runner.md`](docs/operations/self-hosted-macos-runner.md).
+CI truth lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): pull
+requests run `check:pr` on the dedicated self-hosted Apple Silicon runner; daily
+or manual inspection runs `check:all` plus browser tests on `macos-15`; `main`
+pushes publish 14-day macOS and Android test artifacts.
 
 ## Safety invariants
 

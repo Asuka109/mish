@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mish-self-hosted-ci
+  group: macos-candidate-${{ inputs.profile }}-${{ inputs.version }}
   cancel-in-progress: false
 
 env:
@@ -47,7 +47,9 @@ jobs:
       github.triggering_actor == github.actor &&
       github.workflow_ref == 'Asuka109/mish/.github/workflows/stage-macos-alpha-release.yml@refs/heads/main' &&
       github.workflow_sha == github.sha
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       artifact_name: ${{ steps.source.outputs.artifact_name }}
@@ -63,15 +65,6 @@ jobs:
       tooling_sha: ${{ github.workflow_sha }}
       version: ${{ steps.source.outputs.version }}
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -177,20 +170,13 @@ jobs:
     name: Build untrusted credential-free Alpha candidate
     if: ${{ inputs.profile == 'alpha-ad-hoc' }}
     needs: freeze-source
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: macos-15
     timeout-minutes: 60
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -284,18 +270,11 @@ jobs:
     needs:
       - freeze-source
       - verify-candidate
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -386,20 +365,13 @@ jobs:
     name: Build source-bound Internal TUN Alpha DMG candidate
     if: ${{ inputs.profile == 'internal-tun-alpha' }}
     needs: freeze-source
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: macos-15
     timeout-minutes: 90
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -477,20 +449,13 @@ jobs:
     needs:
       - freeze-source
       - build-internal-tun-candidate
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: macos-15
     timeout-minutes: 20
     outputs:
       artifact_id: ${{ steps.verification-upload.outputs.artifact-id }}
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -564,20 +529,13 @@ jobs:
       - freeze-source
       - build-internal-tun-candidate
       - verify-internal-tun-candidate
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       artifact_id: ${{ steps.stage-upload.outputs.artifact-id }}
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -662,18 +620,11 @@ jobs:
     needs:
       - freeze-source
       - stage-internal-tun-alpha
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -755,18 +706,11 @@ jobs:
     name: Verify disabled signed-direct contract
     if: ${{ inputs.profile == 'signed-direct' }}
     needs: freeze-source
-    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
+    permissions:
+      contents: read
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
-      - name: Verify dedicated runner boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$RUNNER_NAME" = "asuk-mini"
-          test "$RUNNER_OS" = "macOS"
-          test "$RUNNER_ARCH" = "ARM64"
-          test "$(id -u)" -ne 0
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out frozen source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

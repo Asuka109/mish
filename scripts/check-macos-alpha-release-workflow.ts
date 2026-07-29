@@ -17,6 +17,8 @@ interface Job {
   if?: string;
   needs?: string | string[];
   outputs?: Record<string, unknown>;
+  permissions?: Record<string, string>;
+  "runs-on"?: string | string[];
   steps?: Step[];
 }
 
@@ -141,9 +143,10 @@ invariant(
   "Release workflow default permission must remain contents: read.",
 );
 invariant(
-  workflow.concurrency?.group === "mish-self-hosted-ci" &&
+  workflow.concurrency?.group?.includes("inputs.profile") &&
+    workflow.concurrency.group.includes("inputs.version") &&
     workflow.concurrency["cancel-in-progress"] === false,
-  "Release candidate jobs must share the repository-wide non-cancelling runner lock.",
+  "Release candidate concurrency must be profile/version scoped and non-cancelling.",
 );
 invariant(
   JSON.stringify(Object.keys(workflow.jobs ?? {})) ===
@@ -162,8 +165,28 @@ invariant(
 
 for (const [name, candidate] of Object.entries(workflow.jobs ?? {})) {
   invariant(candidate.environment === undefined, `${name} must not enter a protected Environment.`);
+  invariant(
+    JSON.stringify(candidate.permissions) === JSON.stringify({ contents: "read" }),
+    `${name} must independently retain contents: read.`,
+  );
+  invariant(
+    candidate["runs-on"] === "ubuntu-24.04" || candidate["runs-on"] === "macos-15",
+    `${name} must run on a GitHub-hosted immutable image.`,
+  );
   const candidateSource = JSON.stringify(candidate);
+  invariant(
+    !candidateSource.includes("self-hosted"),
+    `${name} must not reach a self-hosted runner.`,
+  );
   invariant(!candidateSource.includes("${{ secrets."), `${name} must not read secrets.`);
+  for (const node of candidate.steps?.filter((candidateStep) =>
+    candidateStep.uses?.startsWith("actions/setup-node@"),
+  ) ?? []) {
+    invariant(
+      node.uses === pinnedActions.node && node.with?.["node-version"] === "24.10.0",
+      `${name} must pin the reviewed Node action and runtime version.`,
+    );
+  }
   for (const checkout of candidate.steps?.filter((candidateStep) =>
     candidateStep.uses?.startsWith("actions/checkout@"),
   ) ?? []) {
@@ -246,8 +269,10 @@ invariant(
 
 const verify = job("verify-candidate");
 invariant(
-  verify.if === "${{ inputs.profile == 'alpha-ad-hoc' }}" && verify.needs === "freeze-source",
-  "Alpha candidate build must be explicit and frozen.",
+  verify.if === "${{ inputs.profile == 'alpha-ad-hoc' }}" &&
+    verify.needs === "freeze-source" &&
+    verify["runs-on"] === "macos-15",
+  "Alpha candidate build must be explicit, frozen, and GitHub-hosted.",
 );
 invariant(
   step(verify, "Set up pnpm").uses === pinnedActions.pnpm &&
@@ -278,7 +303,8 @@ invariant(
 
 const decision = job("staging-decision");
 invariant(
-  JSON.stringify(decision.needs) === JSON.stringify(["freeze-source", "verify-candidate"]),
+  JSON.stringify(decision.needs) === JSON.stringify(["freeze-source", "verify-candidate"]) &&
+    decision["runs-on"] === "ubuntu-24.04",
   "Alpha decision must depend on the exact built candidate.",
 );
 const download = step(decision, "Download exact immutable candidate");
@@ -307,10 +333,11 @@ const internalBuildSource = JSON.stringify(internalBuild);
 invariant(
   internalBuild.if === "${{ inputs.profile == 'internal-tun-alpha' }}" &&
     internalBuild.needs === "freeze-source" &&
+    internalBuild["runs-on"] === "macos-15" &&
     !internalBuildSource.includes("GH_TOKEN") &&
     !internalBuildSource.includes("github.token") &&
     !internalBuildSource.includes("${{ secrets."),
-  "Internal TUN candidate build must be explicit, frozen, credential-free, and dedicated.",
+  "Internal TUN candidate build must be explicit, frozen, credential-free, and GitHub-hosted.",
 );
 assertOrdered(
   internalBuild,
@@ -339,8 +366,9 @@ invariant(
 const internalVerify = job("verify-internal-tun-candidate");
 invariant(
   JSON.stringify(internalVerify.needs) ===
-    JSON.stringify(["freeze-source", "build-internal-tun-candidate"]),
-  "Independent Internal TUN verification must use the exact candidate.",
+    JSON.stringify(["freeze-source", "build-internal-tun-candidate"]) &&
+    internalVerify["runs-on"] === "macos-15",
+  "Independent Internal TUN verification must use the exact candidate on macOS.",
 );
 invariant(
   step(internalVerify, "Download exact immutable Internal TUN candidate").with?.["artifact-ids"] ===
@@ -367,7 +395,7 @@ invariant(
       "freeze-source",
       "build-internal-tun-candidate",
       "verify-internal-tun-candidate",
-    ]),
+    ]) && internalStage["runs-on"] === "ubuntu-24.04",
   "Internal TUN staging must depend on both immutable candidate and verification artifacts.",
 );
 assertOrdered(
@@ -398,8 +426,9 @@ invariant(
 const internalConfirmation = job("confirm-internal-tun-stage");
 invariant(
   JSON.stringify(internalConfirmation.needs) ===
-    JSON.stringify(["freeze-source", "stage-internal-tun-alpha"]),
-  "Internal TUN success must require a final read-only confirmation.",
+    JSON.stringify(["freeze-source", "stage-internal-tun-alpha"]) &&
+    internalConfirmation["runs-on"] === "macos-15",
+  "Internal TUN success must require a final read-only macOS confirmation.",
 );
 assertOrdered(
   internalConfirmation,
@@ -423,7 +452,8 @@ invariant(
 const signedPlan = job("verify-signed-plan");
 invariant(
   signedPlan.if === "${{ inputs.profile == 'signed-direct' }}" &&
-    signedPlan.needs === "freeze-source",
+    signedPlan.needs === "freeze-source" &&
+    signedPlan["runs-on"] === "macos-15",
   "Signed-direct validation must remain explicit and credential-free.",
 );
 assertOrdered(

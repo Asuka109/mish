@@ -39,10 +39,6 @@ const policy: TrustPolicy = {
     name: "Asuka109/mish",
     trustedRef: "refs/heads/main",
   },
-  trustedSelfHostedCi: {
-    runnerLabels: ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"],
-    runnerName: "asuk-mini",
-  },
 };
 
 function result(body: unknown, status = 0): ApiResult {
@@ -103,23 +99,6 @@ function readyEndpoints(): TrustEndpointResults {
       use_immutable_subject: true,
     }),
     rulesets: result([]),
-    runners: result({
-      runners: [
-        {
-          labels: [
-            { name: "self-hosted" },
-            { name: "macOS" },
-            { name: "ARM64" },
-            { name: "mish" },
-            { name: "trusted-ci" },
-          ],
-          name: "asuk-mini",
-          os: "macOS",
-          status: "online",
-        },
-      ],
-      total_count: 1,
-    }),
     selectedActions: result({
       github_owned_allowed: true,
       patterns_allowed: [
@@ -204,51 +183,16 @@ test("wrong reviewers or additional deployment refs fail closed", () => {
   );
 });
 
-test("missing, offline, or broadly labeled routine runner fails closed", () => {
-  const offline = readyEndpoints();
-  offline.runners = result({
-    runners: [
-      {
-        labels: [
-          { name: "self-hosted" },
-          { name: "macOS" },
-          { name: "ARM64" },
-          { name: "mish" },
-          { name: "trusted-ci" },
-        ],
-        name: "asuk-mini",
-        os: "macOS",
-        status: "offline",
-      },
-    ],
+test("selected third-party Actions must match the reviewed SHA allowlist", () => {
+  const endpoints = readyEndpoints();
+  endpoints.selectedActions = result({
+    github_owned_allowed: true,
+    patterns_allowed: ["pnpm/action-setup@main"],
+    verified_allowed: false,
   });
   assert.ok(
-    evaluateGitHubTrustSettings(policy, offline).blockers.some((blocker) =>
-      blocker.includes("dedicated self-hosted macOS runner"),
-    ),
-  );
-
-  const extraLabel = readyEndpoints();
-  extraLabel.runners = result({
-    runners: [
-      {
-        labels: [
-          { name: "self-hosted" },
-          { name: "macOS" },
-          { name: "ARM64" },
-          { name: "mish" },
-          { name: "trusted-ci" },
-          { name: "general-purpose" },
-        ],
-        name: "asuk-mini",
-        os: "macOS",
-        status: "online",
-      },
-    ],
-  });
-  assert.ok(
-    evaluateGitHubTrustSettings(policy, extraLabel).blockers.some((blocker) =>
-      blocker.includes("exact required label"),
+    evaluateGitHubTrustSettings(policy, endpoints).blockers.some((blocker) =>
+      blocker.includes("selected-action settings"),
     ),
   );
 });

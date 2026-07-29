@@ -96,22 +96,20 @@ layout engine.
 Mish separates merge latency from broad regression detection during rapid
 preview development:
 
-- owner-created pull requests use the reviewed default-branch workflow to
-  check out the exact same-repository head SHA and run `pnpm check:pr` on the
-  dedicated macOS runner with a ten-minute job ceiling; forks, other actors,
-  merge refs, packages, caches, and uploads are rejected;
+- pull requests run `pnpm check:pr` on the dedicated macOS runner with a
+  ten-minute job ceiling
+  and never build or upload application packages;
 - every push to `main` independently builds the macOS ARM64 and Android test
   packages but does not repeat the complete validation suite;
 - a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out
   the latest `main` and runs `pnpm check:all` plus the real-browser suite on
-  the dedicated Apple Silicon runner; and
+  macOS; and
 - manual dispatch can select `packages` or `all` to recover package production
   against the latest `main` when an automated merge credential does not emit a
   follow-up push workflow.
 
-The PR gate does not restore a main-scoped dependency cache. Trusted `main`
-jobs key the pnpm store by `pnpm-lock.yaml`. Rust inspection and package jobs
-use job-specific dependency/build caches instead of uploading the entire Cargo
+The pnpm store is keyed by `pnpm-lock.yaml`. Rust inspection and package jobs use
+job-specific dependency/build caches instead of uploading the entire Cargo
 target directory through a generic immutable cache. Android packaging also
 caches Gradle dependencies from the wrapper and build-script inputs. Scheduled
 inspection failures are regression signals on `main`; they do not retroactively

@@ -55,36 +55,6 @@ export interface TrustedReleasePolicy {
     allowSelfHosted: boolean;
     allowReusableWorkflowCalls: boolean;
   };
-  trustedSelfHostedCi: {
-    enabled: boolean;
-    repositoryOnly: boolean;
-    runnerName: string;
-    runnerAccountMode: string;
-    runnerRoot: string;
-    runnerLabels: string[];
-    allowedEvents: string[];
-    actorIds: string[];
-    trustedRef: string;
-    concurrencyGroup: string;
-    pullRequest: {
-      event: string;
-      baseBranch: string;
-      requireSameRepository: boolean;
-      checkoutHeadSha: boolean;
-      allowForks: boolean;
-      allowMergeRefs: boolean;
-    };
-    hooks: {
-      started: string;
-      completed: string;
-      requireInactiveConsoleUser: boolean;
-      workspaceScopedProcessCleanup: boolean;
-    };
-    allowSecrets: boolean;
-    allowOidc: boolean;
-    allowReusableWorkflowCalls: boolean;
-    offlinePolicy: string;
-  };
   protected: {
     jobKinds: string[];
     runnerLabels: string[];
