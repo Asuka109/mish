@@ -152,12 +152,14 @@ active TUN upgrade commits, a private version-bound marker asks the packaged
 app to restore Capture through the shared Capture authority. The app waits for
 the maintenance process lock to retire, generates a cold Core from the admitted
 TUN selection rather than the prior confirmed projection, and removes the
-marker only after 101 consecutive authenticated observations over ten seconds.
-An unstable attempt is stopped through the same Capture authority before a
-bounded retry. Failed maintenance returns with the verified Helper/Core and
-enrollment disabled, retains the private marker, and does not relaunch the app
-inside the failing command. The next ordinary app startup either completes the
-same stable-observation gate or retains Recovery Required evidence; failed
+marker only after 101 consecutive authenticated Helper observations over ten
+seconds and a matching Applied projection from the shared Capture authority.
+An unstable or projection-mismatched attempt is stopped through that authority
+and the authenticated Helper before a bounded retry. Failed maintenance
+returns with the verified Helper/Core and enrollment disabled, retains the
+private marker, and does not relaunch the app inside the failing command. The
+next ordinary app startup either completes the same dual-evidence gate or
+retains Recovery Required evidence in a bounded disabled installation; failed
 maintenance never replays Capture from guessed state.
 
 Before requesting administrator authorization, the running controller copies

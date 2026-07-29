@@ -513,6 +513,22 @@ async fn cold_aggregate_tun_launch_generates_the_first_core_with_admitted_tun_po
         },
     ));
 
+    tun_helper.set_tun_enabled(true).await.unwrap();
+    assert!(
+        !coordinator
+            .capture_projection_matches(
+                true,
+                &CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await,
+        "Helper effects without the shared Capture projection are not a restored transaction"
+    );
+    tun_helper.set_tun_enabled(false).await.unwrap();
+
     let launched = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
@@ -527,6 +543,30 @@ async fn cold_aggregate_tun_launch_generates_the_first_core_with_admitted_tun_po
 
     assert_eq!(launched["runtime"]["tun"]["phase"], "applied");
     assert_eq!(launched["runtime"]["captureSelection"]["tun"], true);
+    assert!(
+        coordinator
+            .capture_projection_matches(
+                true,
+                &CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    );
+    assert!(
+        !coordinator
+            .capture_projection_matches(
+                true,
+                &CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    );
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
 

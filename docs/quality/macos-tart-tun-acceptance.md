@@ -353,6 +353,48 @@ remained; Ethernet HTTP, HTTPS, and SOCKS proxy settings were all disabled and
 public HTTP returned 200. The package directory itself remained only as the
 user-owned acceptance input.
 
+That candidate also exposed and therefore did not pass one restoration edge:
+after rollback, the Helper could confirm a real restored TUN while the shared
+Capture projection remained Recovery Required. The app deleted the marker from
+the Helper observation alone and displayed a stopped session even though the
+root Core, `utun4`, and managed DNS were active. This hybrid state was rejected
+as acceptance evidence.
+
+The corrected final candidate was rebuilt with archive SHA-256
+`02dd9b23705fd9835a2eccd0e7681541eb1b585abf499d8ffe824fe7c2bca7ff`
+and package-manifest SHA-256
+`6070c1ae8f93f162ec6c888cc5efa907c8ef29f1865f1aa9553a7db6982d1dd2`.
+It installed as `healthy-disabled` with generation 1, installation identity
+`cca595afa7eee6a1402f2c9f75709a4dc0f784429e37f4268da85ffd061737d8`,
+and key identifier
+`35e566011939b0facf0f6439b80d6b45dd2b1c08dd170bf6d1064fe164af6147`.
+The packaged app then started the real root Core, produced `utun4` at MTU 9000
+with managed DNS `198.18.0.1`, kept Ethernet HTTP, HTTPS, and SOCKS proxies
+disabled, and returned public HTTP 200. Its accessibility projection reported
+`Virtual Interface, selected, running`.
+
+Failure injection at `helper-replaced` again returned the exact typed
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`
+outcome. The controller stopped the app and Core, restored the verified
+service, removed `utun4` and managed DNS, and retained the version-bound marker.
+On ordinary startup, the corrected dual-evidence gate did not accept Helper
+effects without a matching Applied shared Capture projection. It safely
+disabled the unconfirmed attempt and retained the marker: no root Core, Mish
+interface, or Mish DNS remained; System Proxy stayed off; and the UI reported
+`Virtual Interface, selected, not running`, that the prior capture state had
+been restored, and that the Internal TUN service could be installed or repaired
+in Settings. It never reproduced the rejected active-but-unprojected hybrid
+state.
+
+Uninstall from that bounded recovery state returned `service: not-installed`.
+The LaunchDaemon, Helper, Core, socket, enrollment, root and user receipts,
+client key, restore marker, and Mish-owned network effects were absent.
+The exact original `utun0` through `utun3` list was restored. DNS SHA-256
+`107b83e6c47cffe00657651f789e351801b60fe144f117e6a57fc5dde6f89dca`
+and System Proxy SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the pre-install baselines byte for byte.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the

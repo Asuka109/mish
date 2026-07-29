@@ -1409,42 +1409,65 @@ fn launch_on_application_start(
                 {
                     Ok(_) => {
                         tun_helper.refresh().await;
-                        match maintenance_capture_stably_restored(&tun_helper).await {
+                        match maintenance_capture_stably_restored(
+                            &activation,
+                            &tun_helper,
+                            &restore.selection,
+                        )
+                        .await
+                        {
                             Ok(true) => {
                                 let _ = fs::remove_file(&restore.path);
                                 return;
                             }
-                            Ok(false) if attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS => {
-                                if activation
-                                    .set_capture(
-                                        mish_runtime::CaptureRequest {
-                                            active: false,
-                                            selection: restore.selection.clone(),
-                                        },
-                                        RuntimeStatusAdapterKind::Rpc,
-                                    )
-                                    .await
-                                    .is_err()
-                                {
+                            Ok(false) => {
+                                let disabled = maintenance_capture_disable_unconfirmed(
+                                    &activation,
+                                    &tun_helper,
+                                    &restore.selection,
+                                )
+                                .await;
+                                if !disabled {
                                     eprintln!(
-                                        "Internal TUN Capture restoration retrying after the unstable Capture stopped"
+                                        "Internal TUN Capture restoration deferred: unconfirmed Capture could not be safely disabled"
                                     );
+                                    return;
                                 }
-                                tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
+                                if attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS {
+                                    tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY)
+                                        .await;
+                                    continue;
+                                }
+                                eprintln!(
+                                    "Internal TUN Capture restoration deferred: Capture was not stably projected"
+                                );
+                                return;
                             }
                             Err(kind)
                                 if maintenance_capture_observation_retryable(kind)
                                     && attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS =>
                             {
+                                if !maintenance_capture_disable_unconfirmed(
+                                    &activation,
+                                    &tun_helper,
+                                    &restore.selection,
+                                )
+                                .await
+                                {
+                                    eprintln!(
+                                        "Internal TUN Capture restoration deferred: observation failed and Capture could not be safely disabled"
+                                    );
+                                    return;
+                                }
                                 tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
                             }
-                            Ok(false) => {
-                                eprintln!(
-                                    "Internal TUN Capture restoration deferred: Capture was not stably observed"
-                                );
-                                return;
-                            }
                             Err(kind) => {
+                                let _ = maintenance_capture_disable_unconfirmed(
+                                    &activation,
+                                    &tun_helper,
+                                    &restore.selection,
+                                )
+                                .await;
                                 eprintln!(
                                     "Internal TUN Capture restoration deferred: observation failure={:?}",
                                     kind
@@ -1457,9 +1480,27 @@ fn launch_on_application_start(
                         if maintenance_capture_restore_retryable(error.kind)
                             && attempt + 1 < INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS =>
                     {
+                        if !maintenance_capture_disable_unconfirmed(
+                            &activation,
+                            &tun_helper,
+                            &restore.selection,
+                        )
+                        .await
+                        {
+                            eprintln!(
+                                "Internal TUN Capture restoration deferred: launch failed and Capture could not be safely disabled"
+                            );
+                            return;
+                        }
                         tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
                     }
                     Err(error) => {
+                        let _ = maintenance_capture_disable_unconfirmed(
+                            &activation,
+                            &tun_helper,
+                            &restore.selection,
+                        )
+                        .await;
                         eprintln!(
                             "Internal TUN Capture restoration deferred: Capture failure={:?}",
                             error.kind
@@ -1513,18 +1554,59 @@ fn maintenance_capture_observation_restored(observation: &TunNetworkObservation)
 }
 
 async fn maintenance_capture_stably_restored(
+    activation: &Arc<ProfileActivationCoordinator>,
     tun_helper: &TunHelperController,
+    selection: &CaptureSelection,
 ) -> Result<bool, TunHelperFailureKind> {
     for observation_index in 0..INTERNAL_TUN_CAPTURE_RESTORE_STABLE_OBSERVATIONS {
         if observation_index > 0 {
             tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
         }
         let observation = tun_helper.observe_tun().await.map_err(|error| error.kind)?;
-        if !maintenance_capture_observation_restored(&observation) {
+        if !maintenance_capture_observation_restored(&observation)
+            || !activation
+                .capture_projection_matches(true, selection, RuntimeStatusAdapterKind::Rpc)
+                .await
+        {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+async fn maintenance_capture_disable_unconfirmed(
+    activation: &Arc<ProfileActivationCoordinator>,
+    tun_helper: &TunHelperController,
+    selection: &CaptureSelection,
+) -> bool {
+    let request = mish_runtime::CaptureRequest {
+        active: false,
+        selection: selection.clone(),
+    };
+    let _ = activation
+        .set_capture(request.clone(), RuntimeStatusAdapterKind::Rpc)
+        .await;
+    if selection.tun {
+        tun_helper.refresh().await;
+        if tun_helper.set_tun_enabled(false).await.is_err() {
+            return false;
+        }
+    }
+    let _ = activation
+        .set_capture(request, RuntimeStatusAdapterKind::Rpc)
+        .await;
+    let helper_disabled = if selection.tun {
+        tun_helper
+            .observe_tun()
+            .await
+            .is_ok_and(|observation| observation.confirms_disabled_at(tun_observation_now()))
+    } else {
+        true
+    };
+    helper_disabled
+        && activation
+            .capture_projection_matches(false, selection, RuntimeStatusAdapterKind::Rpc)
+            .await
 }
 
 fn internal_tun_capture_restore_marker(

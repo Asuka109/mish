@@ -14,15 +14,16 @@ use mish_profile::{
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
-    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, MishRuntime, NotificationPublication,
-    NotificationSeverity, ProfileActivationAsnFailedApplicationNotificationData,
+    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind,
+    CaptureOperationPhase, CaptureRequest, CaptureSelection, CaptureTransitionError, MishRuntime,
+    NotificationPublication, NotificationSeverity,
+    ProfileActivationAsnFailedApplicationNotificationData,
     ProfileActivationFailedApplicationNotificationData,
     ProfileActivationGeoipFailedApplicationNotificationData,
     ProfileActivationGeositeFailedApplicationNotificationData,
     ProfileActivationListenerConflictApplicationNotificationData,
     ProfileActivationMmdbFailedApplicationNotificationData, ProviderSnapshot,
-    ProxyLaunchTimingApplicationEventData, StatusAdapterKind,
+    ProxyLaunchTimingApplicationEventData, StatusAdapterKind, SystemProxyPhase, TunPhase,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
@@ -1536,6 +1537,42 @@ impl ProfileActivationCoordinator {
             outcome,
         );
         result
+    }
+
+    /// Confirms that the shared Capture projection, not only the platform effects, reached the
+    /// requested terminal state.
+    ///
+    /// Maintenance recovery uses this after independently observing Helper-owned network state.
+    /// A Helper/Core that is really active while the application projection says
+    /// Recovery Required must remain recoverable evidence, never a completed replay.
+    pub async fn capture_projection_matches(
+        &self,
+        active: bool,
+        selection: &CaptureSelection,
+        adapter_kind: StatusAdapterKind,
+    ) -> bool {
+        let snapshot = self
+            .host
+            .current()
+            .status_snapshot_typed(adapter_kind)
+            .await;
+        let runtime = snapshot.runtime;
+        runtime.capture_operation.phase == CaptureOperationPhase::Applied
+            && runtime.capture_selection == *selection
+            && runtime.system_proxy_enabled == (active && selection.system_proxy)
+            && runtime.tun_enabled == (active && selection.tun)
+            && runtime.system_proxy.phase
+                == if active && selection.system_proxy {
+                    SystemProxyPhase::Applied
+                } else {
+                    SystemProxyPhase::Off
+                }
+            && runtime.tun.phase
+                == if active && selection.tun {
+                    TunPhase::Applied
+                } else {
+                    TunPhase::Off
+                }
     }
 
     fn begin_proxy_preparation(&self) -> ProxyPreparationCancellation {
