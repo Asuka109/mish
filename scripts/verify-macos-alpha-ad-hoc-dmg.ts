@@ -37,9 +37,13 @@ export async function verifyMacOsAlphaAdHocDmg(): Promise<void> {
   let mountpoint = "";
   let attached = false;
   try {
-    const attachment = execFileSync("hdiutil", ["attach", "-readonly", "-nobrowse", dmg], {
-      encoding: "utf8",
-    });
+    const attachment = execFileSync(
+      "hdiutil",
+      ["attach", "-readonly", "-nobrowse", "-noautoopen", dmg],
+      {
+        encoding: "utf8",
+      },
+    );
     mountpoint = attachment.trim().split("\n").at(-1)?.split("\t").at(-1)?.trim() ?? "";
     if (!mountpoint.startsWith("/")) {
       throw new Error(`Alpha DMG did not expose a mount point: ${attachment}`);
