@@ -24,18 +24,17 @@ development-TUN service is explicitly installed:
 
 ```sh
 pnpm prepare:mihomo
-pnpm macos:tun:install:dev
 pnpm desktop:dev
 ```
 
-The install command is the first privileged step and shows the native
-administrator dialog. `desktop:dev` never installs or repairs the service
-implicitly. If installation is initiated from the running Settings page,
-restart `desktop:dev` once so startup can bind the verified privileged Core
-host. The tracked development command uses a separate `--development-tun`
-installer boundary; it does not gain Tart failure injection or terminal
-authorization, and production, demo, ad-hoc, and signed-direct builds remain
-unchanged.
+In Settings, choose **Install virtual interface** and approve the native
+administrator dialog. This explicit GUI action is the primary development
+installation path; `pnpm macos:tun:install:dev` is its CLI equivalent. Restart
+`desktop:dev` once so startup can bind the verified privileged Core host.
+Starting the app alone never installs or repairs the service. The tracked
+development command uses a separate `--development-tun` installer boundary; it
+does not gain Tart failure injection or terminal authorization, and production,
+demo, ad-hoc, and signed-direct builds remain unchanged.
 
 Issue acceptance may additionally exercise the same network path with
 Tart-only controls inside a uniquely named disposable clone. That path is documented in

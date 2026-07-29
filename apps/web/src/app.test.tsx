@@ -1487,6 +1487,35 @@ describe("production routes", () => {
     expect(settingsClient.repairTunHelper).toHaveBeenCalledOnce();
   });
 
+  it("installs the development TUN helper from native Settings", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "permission-required",
+      expectedVersion: "3",
+      health: "not-installed",
+      installationId: null,
+      installedVersion: null,
+      lastFailure: null,
+      phase: "idle",
+    };
+    renderRoute(
+      "/settings",
+      "en",
+      new InactiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const install = await screen.findByRole("button", { name: "Install Helper" });
+    expect(install).toBeEnabled();
+    await user.click(install);
+
+    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
+  });
+
   it("keeps Settings operable by keyboard at the minimum desktop window breakpoint", async () => {
     const user = userEvent.setup();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });

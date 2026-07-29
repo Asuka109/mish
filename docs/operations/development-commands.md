@@ -92,11 +92,12 @@ and release builds. Follow
 [`macos-development-core-host.md`](macos-development-core-host.md) for the
 administrator-operated acceptance procedure.
 
-Ordinary source development may opt into Virtual Interface with
-`macos:tun:prepare:dev`, `macos:tun:install:dev`, `desktop:dev`, and the shared
-`macos:tun:uninstall`. Installation is explicit and administrator-authorized;
-the launcher never installs privileged state. If Settings performs the first
-install, restart the dev process once before activation.
+Ordinary source development may opt into Virtual Interface by starting
+`desktop:dev`, opening Settings, choosing **Install virtual interface**, and
+approving the native administrator prompt. Restart the dev process once before
+activation. `macos:tun:prepare:dev`, `macos:tun:install:dev`, and the shared
+`macos:tun:uninstall` remain equivalent CLI preparation and recovery paths.
+Startup never installs privileged state without the explicit Settings action.
 
 Only inside a disposable Tart clone, use `macos:tun:prepare:tart`,
 `macos:tun:install:tart`, `desktop:dev:tart-tun`, and

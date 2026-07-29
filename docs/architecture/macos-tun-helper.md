@@ -303,20 +303,26 @@ same-Team audit-token validation, signing, notarization, and signed XPC.
 ### Source development TUN
 
 The tracked `pnpm desktop:dev` launcher may use Virtual Interface through the
-development Helper after one explicit administrator-authorized installation:
+development Helper. Start the app, open Settings, choose **Install virtual
+interface**, and approve the native administrator prompt. The CLI is an
+equivalent recovery path:
 
 ```sh
-pnpm macos:tun:install:dev
 pnpm desktop:dev
+# Settings → Install virtual interface
+
+# Optional CLI equivalent:
+pnpm macos:tun:install:dev
 ```
 
 The `--development-tun` installer boundary admits the same closed Helper
 protocol, pinned Core, installation-key proof, exact network ownership, shared
 Capture transaction, and bounded cleanup used by acceptance. The launcher does
-not install or repair the service implicitly. A service installed from the
-running Settings page becomes the observed authority immediately, but the dev
-process must restart once before its activation manager can bind the privileged
-Core host.
+not install or repair the service at startup. Settings invokes that boundary
+only after the user explicitly chooses install, repair, reinstall, or remove. A
+service installed from the running Settings page becomes the observed authority
+immediately, but the dev process must restart once before its activation
+manager can bind the privileged Core host.
 
 This source-only path does not add failure injection, terminal authorization,
 Tart DNS fixtures, a packaged capability, or a production privilege. Demo,
