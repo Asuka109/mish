@@ -10,6 +10,14 @@ import {
 
 const policy: TrustPolicy = {
   activation: { enabled: false },
+  actions: {
+    allowed: {
+      "Swatinem/rust-cache": "e18b497796c12c097a38f9edb9d0641fb99eee32",
+      "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
+      "android-actions/setup-android": "40fd30fb8d7440372e1316f5d1809ec01dcd3699",
+      "pnpm/action-setup": "0ebf47130e4866e96fce0953f49152a61190b271",
+    },
+  },
   protected: {
     environments: {
       "macos-developer-id": {
@@ -91,6 +99,15 @@ function readyEndpoints(): TrustEndpointResults {
       use_immutable_subject: true,
     }),
     rulesets: result([]),
+    selectedActions: result({
+      github_owned_allowed: true,
+      patterns_allowed: [
+        "Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32",
+        "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699",
+        "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271",
+      ],
+      verified_allowed: false,
+    }),
     workflowToken: result({
       can_approve_pull_request_reviews: false,
       default_workflow_permissions: "read",
@@ -162,6 +179,20 @@ test("wrong reviewers or additional deployment refs fail closed", () => {
   assert.ok(
     evaluateGitHubTrustSettings(policy, additionalBranch).blockers.some((blocker) =>
       blocker.includes("release-publication"),
+    ),
+  );
+});
+
+test("selected third-party Actions must match the reviewed SHA allowlist", () => {
+  const endpoints = readyEndpoints();
+  endpoints.selectedActions = result({
+    github_owned_allowed: true,
+    patterns_allowed: ["pnpm/action-setup@main"],
+    verified_allowed: false,
+  });
+  assert.ok(
+    evaluateGitHubTrustSettings(policy, endpoints).blockers.some((blocker) =>
+      blocker.includes("selected-action settings"),
     ),
   );
 });

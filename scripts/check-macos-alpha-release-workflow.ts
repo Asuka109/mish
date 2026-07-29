@@ -179,6 +179,14 @@ for (const [name, candidate] of Object.entries(workflow.jobs ?? {})) {
     `${name} must not reach a self-hosted runner.`,
   );
   invariant(!candidateSource.includes("${{ secrets."), `${name} must not read secrets.`);
+  for (const node of candidate.steps?.filter((candidateStep) =>
+    candidateStep.uses?.startsWith("actions/setup-node@"),
+  ) ?? []) {
+    invariant(
+      node.uses === pinnedActions.node && node.with?.["node-version"] === "24.10.0",
+      `${name} must pin the reviewed Node action and runtime version.`,
+    );
+  }
   for (const checkout of candidate.steps?.filter((candidateStep) =>
     candidateStep.uses?.startsWith("actions/checkout@"),
   ) ?? []) {

@@ -281,6 +281,7 @@ test("rotation transcript matches Rust and both signatures cover the replacement
   const vector = {
     ...request,
     currentKeyId: "b".repeat(64),
+    installingUid: 501,
     newSignature: "",
     oldSignature: "",
     replacementKeyId: "c".repeat(64),
