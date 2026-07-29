@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "activation": {
     "enabled": false,
-    "reason": "The private repository's current GitHub plan cannot enforce protected branches or reviewer-protected Environments. Protected signing, attestation, publication, deployment, and release identity remain disabled."
+    "reason": "Protected signing, attestation, publication, deployment, and release identity remain disabled until the required branch, Environment, OIDC, and workflow controls are observed."
   },
   "repository": {
     "name": "Asuka109/mish",
