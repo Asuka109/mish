@@ -1,7 +1,7 @@
 # Mish Mobile Core
 
 This directory contains the platform-neutral Mobile Core ABI, a deterministic C
-fixture, the Android validation bridge fake-native contract, the GPL-licensed Go
+fixture, the Android validation/load bridge fake-native contract, the GPL-licensed Go
 reference wrapper, the pinned source manifest, and text-only Android build
 evidence. It does not contain Android `VpnService`, application shell, or native
 library binaries.

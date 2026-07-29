@@ -1,4 +1,5 @@
 import type {
+  MobileConfigLoadResultDto,
   MobileFixtureBootstrapDto,
   MobileVpnPhase,
   MobileVpnSnapshotDto,
@@ -37,6 +38,12 @@ const mobileHomeStyles = tv({
       "mobile-home-primary-action h-12 w-full rounded-compact border-brand bg-brand px-4",
       "text-body font-medium text-brand-foreground active:brightness-95",
       "disabled:border-hairline disabled:bg-surface-soft disabled:text-muted-foreground",
+    ),
+    configActions: "flex flex-wrap gap-2",
+    configAction: cx(
+      "h-11 min-w-36 flex-1 rounded-compact border border-hairline bg-canvas px-3",
+      "text-metadata font-medium text-fg active:bg-surface-soft",
+      "disabled:text-muted-foreground",
     ),
     commandFailure: cx(
       "rounded-md border border-feedback-error-border bg-badge-error-background px-3 py-2.5",
@@ -86,6 +93,21 @@ const mobileHomeStyles = tv({
 });
 
 type HomeTone = "error" | "neutral" | "pending" | "success" | "warning";
+
+const fictionalConfigA = new TextEncoder().encode(
+  "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n",
+);
+const fictionalConfigB = new TextEncoder().encode(
+  "mode: direct\nproxies: []\nproxy-groups: []\nrules: []\n",
+);
+const fictionalConfigAIdentity = {
+  digest: "68f2de0232c31d5790035632a9b745bc2e3dfb926d55cd36c4e0fdfa8d54ddc5",
+  revision: "fictional-a-v1",
+};
+const fictionalConfigBIdentity = {
+  digest: "b9692e9a47cdab4379c8125bcd83407a89d5290cbfa4c6218bb58e1d50bae686",
+  revision: "fictional-b-v1",
+};
 
 interface MobileHomePageProps {
   fixture: MobileFixtureBootstrapDto;
@@ -229,13 +251,43 @@ function coreEvidence(LL: TranslationFunctions, snapshot: MobileVpnSnapshotDto) 
   };
 }
 
+function configEvidence(LL: TranslationFunctions, snapshot: MobileVpnSnapshotDto) {
+  if (snapshot.coreConfigState === "loaded" && snapshot.loadedConfigRevision) {
+    return {
+      description: LL.mobileHome.configLoadedDescription(),
+      value: LL.mobileHome.configLoadedValue({ revision: snapshot.loadedConfigRevision }),
+    };
+  }
+  if (snapshot.coreConfigState === "unknown") {
+    return {
+      description: LL.mobileHome.configUnknownDescription(),
+      value: LL.mobileHome.configUnknownValue(),
+    };
+  }
+  if (snapshot.validatedConfigRevision) {
+    return {
+      description: LL.mobileHome.configValidatedDescription(),
+      value: LL.mobileHome.configValidatedValue({
+        revision: snapshot.validatedConfigRevision,
+      }),
+    };
+  }
+  return {
+    description: LL.mobileHome.configUnloadedDescription(),
+    value: LL.mobileHome.configUnloadedValue(),
+  };
+}
+
 export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHomePageProps) {
   const { LL } = useI18nContext();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [commandFailed, setCommandFailed] = useState(false);
+  const [loadFeedback, setLoadFeedback] = useState<MobileConfigLoadResultDto>();
+  const [loadInFlight, setLoadInFlight] = useState(false);
   const commandInFlight = useRef(false);
   const projection = projectMobileHome(LL, snapshot);
   const core = coreEvidence(LL, snapshot);
+  const config = configEvidence(LL, snapshot);
 
   useEffect(
     () =>
@@ -264,6 +316,27 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
       setCommandFailed(true);
     } finally {
       commandInFlight.current = false;
+    }
+  }
+
+  async function runConfigAction(action: "first" | "replace" | "reject") {
+    if (loadInFlight) return;
+    setLoadInFlight(true);
+    setLoadFeedback(undefined);
+    const useSecond =
+      action === "replace" ||
+      (action === "reject" && snapshot.loadedConfigRevision !== fictionalConfigBIdentity.revision);
+    const bytes = useSecond ? fictionalConfigB : fictionalConfigA;
+    const identity = useSecond ? fictionalConfigBIdentity : fictionalConfigAIdentity;
+    try {
+      setLoadFeedback(
+        await vpnClient.loadConfig(bytes, identity, {
+          injectFailure: action === "reject",
+          timeoutMillis: 10_000,
+        }),
+      );
+    } finally {
+      setLoadInFlight(false);
     }
   }
 
@@ -350,6 +423,13 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
             </SectionGridItem>
             <SectionGridItem className={styles.factRow()}>
               <div className={styles.factCopy()}>
+                <strong className={styles.factLabel()}>{LL.mobileHome.configLabel()}</strong>
+                <span className={styles.factDescription()}>{config.description}</span>
+              </div>
+              <span className={styles.factValue()}>{config.value}</span>
+            </SectionGridItem>
+            <SectionGridItem className={styles.factRow()}>
+              <div className={styles.factCopy()}>
                 <strong className={styles.factLabel()}>{LL.mobileHome.throughputLabel()}</strong>
                 <span className={styles.factDescription()}>
                   {LL.mobileHome.throughputUnavailableDescription()}
@@ -358,6 +438,45 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
               <span className={styles.factValue()}>{LL.mobileHome.unavailableValue()}</span>
             </SectionGridItem>
           </SectionGrid>
+          {snapshot.coreAvailability === "available" ? (
+            <div aria-label={LL.mobileHome.configActionsLabel()} className={styles.configActions()}>
+              <Button
+                className={styles.configAction()}
+                disabled={loadInFlight}
+                onClick={() => void runConfigAction("first")}
+              >
+                {LL.mobileHome.loadConfigAction()}
+              </Button>
+              <Button
+                className={styles.configAction()}
+                disabled={loadInFlight}
+                onClick={() => void runConfigAction("replace")}
+              >
+                {LL.mobileHome.replaceConfigAction()}
+              </Button>
+              {snapshot.configFailureInjectionAvailable ? (
+                <Button
+                  className={styles.configAction()}
+                  disabled={loadInFlight || snapshot.coreConfigState !== "loaded"}
+                  onClick={() => void runConfigAction("reject")}
+                >
+                  {LL.mobileHome.rejectReplacementAction()}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {loadFeedback ? (
+            <p
+              className={
+                loadFeedback.failure && loadFeedback.failure !== "timeout"
+                  ? styles.commandFailure()
+                  : styles.fixtureNotice()
+              }
+              role={loadFeedback.failure ? "alert" : "status"}
+            >
+              {loadFeedback.message}
+            </p>
+          ) : null}
         </section>
 
         <aside className={styles.fixtureNotice()}>

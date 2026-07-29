@@ -13,7 +13,11 @@ internal interface MobileCoreProbe {
     fun inspect(): MobileCoreIdentity?
 }
 
-internal class MishMobileCoreProbe : MobileCoreProbe, MobileCoreConfigValidator {
+internal class MishMobileCoreProbe :
+    MobileCoreProbe,
+    MobileCoreConfigValidator,
+    MobileCoreConfigLoader,
+    MobileCoreConfigInspector {
     override fun inspect(): MobileCoreIdentity? {
         if (!shimLoaded) return null
         val abiVersion = runCatching { nativeAbiVersion() }.getOrDefault(0)
@@ -26,14 +30,61 @@ internal class MishMobileCoreProbe : MobileCoreProbe, MobileCoreConfigValidator 
 
     private external fun nativeVersionEnvelope(): String?
 
-    override fun validate(configBytes: ByteArray): NativeConfigValidationResult {
+    override fun validate(
+        configBytes: ByteArray,
+        expectedDigest: String,
+    ): NativeConfigValidationResult {
         if (!shimLoaded) return NativeConfigValidationResult(NativeValidationCode.CORE_UNAVAILABLE)
-        val encoded = runCatching { nativeValidateConfig(configBytes) }.getOrNull()
-            ?: return NativeConfigValidationResult(NativeValidationCode.NATIVE_FAILED)
+        val encoded = try {
+            nativeValidateConfig(configBytes, expectedDigest)
+        } catch (_: Throwable) {
+            return NativeConfigValidationResult(NativeValidationCode.JNI_EXCEPTION)
+        } ?: return NativeConfigValidationResult(NativeValidationCode.NATIVE_FAILED)
         return parseValidation(encoded)
     }
 
-    private external fun nativeValidateConfig(configBytes: ByteArray): IntArray?
+    override fun load(
+        configBytes: ByteArray,
+        expectedDigest: String,
+        injectFailure: Boolean,
+    ): NativeConfigLoadResult {
+        if (!shimLoaded) return NativeConfigLoadResult(NativeLoadCode.CORE_UNAVAILABLE)
+        if (injectFailure) {
+            return NativeConfigLoadResult(
+                code = NativeLoadCode.NATIVE_FAILED,
+                abiStatus = 8,
+                rollbackGuaranteed = true,
+            )
+        }
+        val encoded = try {
+            nativeLoadConfig(configBytes, expectedDigest)
+        } catch (_: Throwable) {
+            return NativeConfigLoadResult(NativeLoadCode.JNI_EXCEPTION)
+        } ?: return NativeConfigLoadResult(NativeLoadCode.NATIVE_FAILED)
+        return parseLoad(encoded)
+    }
+
+    override fun inspectLoaded(expectedDigest: String?): NativeConfigInspectionResult {
+        if (!shimLoaded) return NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED)
+        val encoded = try {
+            nativeInspectLoadedConfig(expectedDigest)
+        } catch (_: Throwable) {
+            return NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED)
+        } ?: return NativeConfigInspectionResult(NativeInspectionCode.MALFORMED_RESPONSE)
+        return parseInspection(encoded)
+    }
+
+    private external fun nativeValidateConfig(
+        configBytes: ByteArray,
+        expectedDigest: String,
+    ): IntArray?
+
+    private external fun nativeLoadConfig(
+        configBytes: ByteArray,
+        expectedDigest: String,
+    ): IntArray?
+
+    private external fun nativeInspectLoadedConfig(expectedDigest: String?): IntArray?
 
     companion object {
         private val shimLoaded = runCatching { System.loadLibrary("mish_vpn_jni") }.isSuccess
@@ -67,6 +118,24 @@ internal class MishMobileCoreProbe : MobileCoreProbe, MobileCoreConfigValidator 
             val code = NativeValidationCode.entries.firstOrNull { it.nativeCode == encoded[0] }
                 ?: NativeValidationCode.NATIVE_FAILED
             return NativeConfigValidationResult(code, encoded[1])
+        }
+
+        internal fun parseLoad(encoded: IntArray): NativeConfigLoadResult {
+            if (encoded.size != 3) {
+                return NativeConfigLoadResult(NativeLoadCode.MALFORMED_RESPONSE)
+            }
+            val code = NativeLoadCode.entries.firstOrNull { it.nativeCode == encoded[0] }
+                ?: NativeLoadCode.NATIVE_FAILED
+            return NativeConfigLoadResult(code, encoded[1], encoded[2] == 1)
+        }
+
+        internal fun parseInspection(encoded: IntArray): NativeConfigInspectionResult {
+            if (encoded.size != 2) {
+                return NativeConfigInspectionResult(NativeInspectionCode.MALFORMED_RESPONSE)
+            }
+            val code = NativeInspectionCode.entries.firstOrNull { it.nativeCode == encoded[0] }
+                ?: NativeInspectionCode.NATIVE_FAILED
+            return NativeConfigInspectionResult(code, encoded[1])
         }
     }
 }

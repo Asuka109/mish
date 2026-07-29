@@ -22,9 +22,13 @@ internal data class MobileVpnSnapshot(
     val coreAbiVersion: Int? = null,
     val coreAvailability: String = "unavailable",
     val coreCommit: String? = null,
+    val configFailureInjectionAvailable: Boolean = false,
+    val coreConfigState: String = "unloaded",
     val coreVersion: String? = null,
     val coreWrapperRevision: String? = null,
     val foreground: Boolean = false,
+    val loadedConfigDigest: String? = null,
+    val loadedConfigRevision: String? = null,
     val message: String = "Android VPN lifecycle fixture ready. No TUN or Core is available.",
     val notificationPermission: String = "not-required",
     val permission: String = "unknown",
@@ -32,7 +36,11 @@ internal data class MobileVpnSnapshot(
     val sequence: Long = 0,
     val sessionId: String = UUID.randomUUID().toString(),
     val updatedAtMillis: Long = System.currentTimeMillis(),
+    val validatedConfigDigest: String? = null,
+    val validatedConfigRevision: String? = null,
     val vpnActive: Boolean = false,
+    val vpnAvailability: String = "unavailable",
+    val tunAvailability: String = "unavailable",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("backendKind", backendKind)
@@ -40,9 +48,13 @@ internal data class MobileVpnSnapshot(
         .put("coreAbiVersion", coreAbiVersion)
         .put("coreAvailability", coreAvailability)
         .put("coreCommit", coreCommit)
+        .put("configFailureInjectionAvailable", configFailureInjectionAvailable)
+        .put("coreConfigState", coreConfigState)
         .put("coreVersion", coreVersion)
         .put("coreWrapperRevision", coreWrapperRevision)
         .put("foreground", foreground)
+        .put("loadedConfigDigest", loadedConfigDigest)
+        .put("loadedConfigRevision", loadedConfigRevision)
         .put("message", message)
         .put("notificationPermission", notificationPermission)
         .put("permission", permission)
@@ -50,7 +62,11 @@ internal data class MobileVpnSnapshot(
         .put("sequence", sequence)
         .put("sessionId", sessionId)
         .put("updatedAtMillis", updatedAtMillis)
+        .put("validatedConfigDigest", validatedConfigDigest)
+        .put("validatedConfigRevision", validatedConfigRevision)
         .put("vpnActive", vpnActive)
+        .put("vpnAvailability", vpnAvailability)
+        .put("tunAvailability", tunAvailability)
 
     companion object {
         fun fromJson(value: JSONObject): MobileVpnSnapshot = MobileVpnSnapshot(
@@ -59,9 +75,14 @@ internal data class MobileVpnSnapshot(
             coreAbiVersion = value.optIntOrNull("coreAbiVersion"),
             coreAvailability = value.optString("coreAvailability", "unavailable"),
             coreCommit = value.optStringOrNull("coreCommit"),
+            configFailureInjectionAvailable =
+                value.optBoolean("configFailureInjectionAvailable", false),
+            coreConfigState = value.optString("coreConfigState", "unloaded"),
             coreVersion = value.optStringOrNull("coreVersion"),
             coreWrapperRevision = value.optStringOrNull("coreWrapperRevision"),
             foreground = value.optBoolean("foreground", false),
+            loadedConfigDigest = value.optStringOrNull("loadedConfigDigest"),
+            loadedConfigRevision = value.optStringOrNull("loadedConfigRevision"),
             message = value.optString(
                 "message",
                 "Android VPN lifecycle fixture ready. No TUN or Core is available.",
@@ -72,7 +93,11 @@ internal data class MobileVpnSnapshot(
             sequence = value.optLong("sequence", 0),
             sessionId = value.optString("sessionId").ifBlank { UUID.randomUUID().toString() },
             updatedAtMillis = value.optLong("updatedAtMillis", System.currentTimeMillis()),
+            validatedConfigDigest = value.optStringOrNull("validatedConfigDigest"),
+            validatedConfigRevision = value.optStringOrNull("validatedConfigRevision"),
             vpnActive = value.optBoolean("vpnActive", false),
+            vpnAvailability = "unavailable",
+            tunAvailability = "unavailable",
         )
     }
 }

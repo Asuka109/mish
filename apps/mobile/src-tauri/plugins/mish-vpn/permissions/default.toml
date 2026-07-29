@@ -13,4 +13,6 @@ permissions = [
   "allow-start-fixture-lifecycle",
   "allow-stop",
   "allow-validate-config",
+  "allow-load-config",
+  "allow-cancel-config-load",
 ]

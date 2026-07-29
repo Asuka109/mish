@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ApplicationInfo
 import android.net.VpnService
 import android.os.Build
 import android.webkit.WebView
@@ -22,8 +23,6 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 @TauriPlugin(
     permissions = [
@@ -34,12 +33,17 @@ import java.util.concurrent.TimeUnit
     ],
 )
 class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
-    private val coreProbe = MishMobileCoreProbe()
-    private val store = MishVpnStateStore(activity)
-    private val validationCoordinator = MobileConfigValidationCoordinator(store, coreProbe)
-    private val validationExecutor: ExecutorService = Executors.newFixedThreadPool(2) { runnable ->
-        Thread(runnable, "mish-config-validation").apply { isDaemon = true }
-    }
+    private val failureInjectionAvailable =
+        activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private val coreRuntime = MobileCoreProcessRuntimeRegistry.acquire(
+        activity,
+        allowFailureInjection = failureInjectionAvailable,
+    )
+    private val coreProbe = coreRuntime.coreProbe
+    private val store = coreRuntime.store
+    private val validationCoordinator = coreRuntime.validationCoordinator
+    private val loadCoordinator = coreRuntime.loadCoordinator
+    private val configExecutor: ExecutorService = coreRuntime.configExecutor
     private var receiverRegistered = false
     private val snapshotReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -60,12 +64,6 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         if (receiverRegistered) {
             this.activity.unregisterReceiver(snapshotReceiver)
             receiverRegistered = false
-        }
-        validationExecutor.shutdown()
-        runCatching {
-            if (!validationExecutor.awaitTermination(750, TimeUnit.MILLISECONDS)) {
-                validationExecutor.shutdownNow()
-            }
         }
     }
 
@@ -174,7 +172,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 return
             }
         runCatching {
-            validationExecutor.execute {
+            configExecutor.execute {
                 invoke.resolveObject(
                     validateConfigSafely(validationCoordinator, args, store::current),
                 )
@@ -190,9 +188,55 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    @Command
+    fun loadConfig(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(LoadConfigArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(
+                    MobileConfigLoadResult(
+                        cancellation = "not-requested",
+                        digest = "",
+                        failure = "invalid-input",
+                        message = "The Android configuration load plugin rejected malformed input.",
+                        operationId = "",
+                        outcome = "failed",
+                        revision = "",
+                        rollback = when (store.current().coreConfigState) {
+                            "loaded" -> "preserved"
+                            "unloaded" -> "unloaded"
+                            else -> "unknown"
+                        },
+                        snapshot = store.current(),
+                        timing = "on-time",
+                    ),
+                )
+                return
+            }
+        runCatching {
+            configExecutor.execute {
+                invoke.resolveObject(loadConfigSafely(loadCoordinator, args, store::current))
+            }
+        }.onFailure {
+            invoke.resolveObject(loadConfigFailure(args, store.current()))
+        }
+    }
+
+    @Command
+    fun cancelConfigLoad(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(CancelConfigLoadArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(MobileConfigCancelResult(false, operationId = ""))
+                return
+            }
+        invoke.resolveObject(loadCoordinator.cancel(args.operationId))
+    }
+
     private fun reconcileSnapshot(): MobileVpnSnapshot {
         reconcilePermissions()
-        return store.reconcileCore(coreProbe.inspect())
+        store.reconcileCore(coreProbe.inspect())
+        store.reconcileFailureInjection(failureInjectionAvailable)
+        val expectedDigest = store.current().loadedConfigDigest
+        return store.reconcileLoadedConfig(coreProbe.inspectLoaded(expectedDigest))
     }
 
     private fun reconcilePermissions(): MobileVpnSnapshot {

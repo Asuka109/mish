@@ -163,7 +163,10 @@ for (const requirement of [
   'System.loadLibrary("mish_vpn_jni")',
   "class MishMobileCoreProbe",
   "class MobileConfigValidationCoordinator",
+  "class MobileConfigLoadCoordinator",
   "nativeValidateConfig",
+  "nativeLoadConfig",
+  "nativeInspectLoadedConfig",
   "MOBILE_CORE_MAX_CONFIG_BYTES_V1",
   "recoverAfterProcessStart",
   'trigger("snapshot"',
@@ -194,9 +197,13 @@ for (const requirement of [
   "mish_core_abi_version_v1",
   "mish_core_initialize_v1",
   "mish_core_validate_config_v1",
+  "mish_core_load_config_v1",
+  "mish_core_snapshot_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
+  "mish_vpn_load_config",
+  "mish_vpn_inspect_loaded_config",
   "MISH_CORE_MAX_RESPONSE_BYTES_V1",
 ]) {
   invariant(
@@ -204,12 +211,7 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
-for (const forbidden of [
-  "mish_core_load_config_v1",
-  "mish_core_start_v1",
-  "mish_core_stop_v1",
-  "mish_core_command_v1",
-]) {
+for (const forbidden of ["mish_core_start_v1", "mish_core_stop_v1", "mish_core_command_v1"]) {
   invariant(
     !pluginNativeBridge.includes(forbidden),
     `The validation-only JNI bridge must not resolve lifecycle symbol: ${forbidden}`,
@@ -235,6 +237,8 @@ for (const command of [
   "start_fixture_lifecycle",
   "stop",
   "validate_config",
+  "load_config",
+  "cancel_config_load",
 ]) {
   invariant(pluginBuild.includes(`"${command}"`), `Typed VPN command is missing: ${command}`);
 }
@@ -242,6 +246,8 @@ invariant(
   pluginPermission.includes('"allow-request-vpn-consent"') &&
     pluginPermission.includes('"allow-start-fixture-lifecycle"') &&
     pluginPermission.includes('"allow-validate-config"') &&
+    pluginPermission.includes('"allow-load-config"') &&
+    pluginPermission.includes('"allow-cancel-config-load"') &&
     mobileRust.includes("tauri_plugin_mish_vpn::init()"),
   "The bounded Mish VPN plugin and permissions must remain registered.",
 );
@@ -260,5 +266,5 @@ invariant(
 );
 
 console.log(
-  "Android project valid: API 36, protected fixture VpnService, bounded validation-only Mobile Core bridge, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, protected fixture VpnService, bounded Mobile Core validation/load bridge with truthful unavailable VPN/TUN, predictive back, and no generated TV/FileProvider residue.",
 );

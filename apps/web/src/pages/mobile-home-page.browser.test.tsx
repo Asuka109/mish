@@ -1,4 +1,8 @@
-import type { MobileConfigValidationResultDto, MobileVpnSnapshotDto } from "@mish/contracts";
+import type {
+  MobileConfigLoadResultDto,
+  MobileConfigValidationResultDto,
+  MobileVpnSnapshotDto,
+} from "@mish/contracts";
 import { cdp, page } from "vitest/browser";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,9 +45,13 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   coreAbiVersion: null,
   coreAvailability: "unavailable",
   coreCommit: null,
+  configFailureInjectionAvailable: false,
+  coreConfigState: "unloaded",
   coreVersion: null,
   coreWrapperRevision: null,
   foreground: false,
+  loadedConfigDigest: null,
+  loadedConfigRevision: null,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required",
   permission: "required",
@@ -51,7 +59,11 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   sequence: 1,
   sessionId: "browser-session",
   updatedAtMillis: 1,
+  validatedConfigDigest: null,
+  validatedConfigRevision: null,
   vpnActive: false,
+  vpnAvailability: "unavailable",
+  tunAvailability: "unavailable",
 };
 
 const viewports: Viewport[] = [
@@ -75,6 +87,25 @@ class BrowserMobileVpnClient implements MobileVpnClient {
 
   async initialize() {
     return this.snapshot;
+  }
+
+  async loadConfig(
+    _bytes: Uint8Array,
+    identity: { digest: string; revision: string },
+  ): Promise<MobileConfigLoadResultDto> {
+    return {
+      cancellation: "not-requested",
+      contractVersion: 1,
+      digest: identity.digest,
+      failure: "core-unavailable",
+      message: "The packaged Mobile Core is unavailable.",
+      operationId: "browser-load",
+      outcome: "failed",
+      revision: identity.revision,
+      rollback: "unloaded",
+      snapshot: this.snapshot,
+      timing: "on-time",
+    };
   }
 
   async requestNotificationPermission() {

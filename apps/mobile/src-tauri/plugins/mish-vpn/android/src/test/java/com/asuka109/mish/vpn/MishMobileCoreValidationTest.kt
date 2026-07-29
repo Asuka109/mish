@@ -64,7 +64,10 @@ class MishMobileCoreValidationTest {
         val coordinator = MobileConfigValidationCoordinator(
             repository,
             object : MobileCoreConfigValidator {
-                override fun validate(configBytes: ByteArray): NativeConfigValidationResult {
+                override fun validate(
+                    configBytes: ByteArray,
+                    expectedDigest: String,
+                ): NativeConfigValidationResult {
                     calls.incrementAndGet()
                     return NativeConfigValidationResult(NativeValidationCode.VALID)
                 }
@@ -91,7 +94,10 @@ class MishMobileCoreValidationTest {
         val coordinator = MobileConfigValidationCoordinator(
             repository,
             object : MobileCoreConfigValidator {
-                override fun validate(configBytes: ByteArray): NativeConfigValidationResult {
+                override fun validate(
+                    configBytes: ByteArray,
+                    expectedDigest: String,
+                ): NativeConfigValidationResult {
                     calls.incrementAndGet()
                     return NativeConfigValidationResult(NativeValidationCode.VALID)
                 }
@@ -119,7 +125,10 @@ class MishMobileCoreValidationTest {
         val coordinator = MobileConfigValidationCoordinator(
             repository,
             object : MobileCoreConfigValidator {
-                override fun validate(configBytes: ByteArray): NativeConfigValidationResult {
+                override fun validate(
+                    configBytes: ByteArray,
+                    expectedDigest: String,
+                ): NativeConfigValidationResult {
                     entered.countDown()
                     assertTrue(release.await(5, TimeUnit.SECONDS))
                     return NativeConfigValidationResult(NativeValidationCode.VALID)
@@ -224,6 +233,9 @@ private class SequencedValidator(
 ) : MobileCoreConfigValidator {
     private val remaining = ArrayDeque(results.toList())
 
-    override fun validate(configBytes: ByteArray): NativeConfigValidationResult =
+    override fun validate(
+        configBytes: ByteArray,
+        expectedDigest: String,
+    ): NativeConfigValidationResult =
         remaining.removeFirst()
 }
