@@ -196,9 +196,9 @@ const zh: Translation = {
       "选择 Mihomo 如何识别每条连接所属的进程。修改将在下次启动代理或激活配置时生效。",
     processDiscoveryOff: "不识别",
     processDiscoveryStrict: "按需",
-    policyGroupConnectionCleanup: "切换后关闭旧路径连接",
+    policyGroupConnectionCleanup: "切换后重启连接",
     policyGroupConnectionCleanupDescription:
-      "关闭时保留现有连接；开启后，只关闭已确认仍由该策略组直接使用旧子项的 Mihomo 逻辑连接，并等待应用自行重连。不会迁移连接，也不保证断开复用的物理载体。",
+      "关闭时保留现有连接；开启后，仅重启受此次策略组切换影响的 Mihomo 逻辑连接：Mish 会关闭它们的旧路径，让应用可通过新路径重连；无关连接和切换后新建的连接保持不变。不保证应用重连或断开复用的物理载体。",
     registration: "登录时启动状态",
     registrationDescription: "这里显示 macOS 当前的实际设置。设置未生效时会明确提示。",
     registrationPhase: {

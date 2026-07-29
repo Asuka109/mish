@@ -214,9 +214,9 @@ const en = {
       "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
     processDiscoveryOff: "Disabled",
     processDiscoveryStrict: "When needed",
-    policyGroupConnectionCleanup: "Close old-path connections after switching",
+    policyGroupConnectionCleanup: "Restart connections after switching",
     policyGroupConnectionCleanupDescription:
-      "Off keeps existing flows. On closes only Mihomo-tracked logical connections whose confirmed route still shows this group directly using its old child, then waits for applications to reconnect. It does not migrate connections or promise to tear down shared physical carriers.",
+      "Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",

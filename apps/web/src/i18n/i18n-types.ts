@@ -683,11 +683,11 @@ type RootTranslation = {
 		 */
 		processDiscoveryStrict: string
 		/**
-		 * C​l​o​s​e​ ​o​l​d​-​p​a​t​h​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​t​e​r​ ​s​w​i​t​c​h​i​n​g
+		 * R​e​s​t​a​r​t​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​t​e​r​ ​s​w​i​t​c​h​i​n​g
 		 */
 		policyGroupConnectionCleanup: string
 		/**
-		 * O​f​f​ ​k​e​e​p​s​ ​e​x​i​s​t​i​n​g​ ​f​l​o​w​s​.​ ​O​n​ ​c​l​o​s​e​s​ ​o​n​l​y​ ​M​i​h​o​m​o​-​t​r​a​c​k​e​d​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​ ​w​h​o​s​e​ ​c​o​n​f​i​r​m​e​d​ ​r​o​u​t​e​ ​s​t​i​l​l​ ​s​h​o​w​s​ ​t​h​i​s​ ​g​r​o​u​p​ ​d​i​r​e​c​t​l​y​ ​u​s​i​n​g​ ​i​t​s​ ​o​l​d​ ​c​h​i​l​d​,​ ​t​h​e​n​ ​w​a​i​t​s​ ​f​o​r​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​o​ ​r​e​c​o​n​n​e​c​t​.​ ​I​t​ ​d​o​e​s​ ​n​o​t​ ​m​i​g​r​a​t​e​ ​c​o​n​n​e​c​t​i​o​n​s​ ​o​r​ ​p​r​o​m​i​s​e​ ​t​o​ ​t​e​a​r​ ​d​o​w​n​ ​s​h​a​r​e​d​ ​p​h​y​s​i​c​a​l​ ​c​a​r​r​i​e​r​s​.
+		 * O​f​f​ ​k​e​e​p​s​ ​e​x​i​s​t​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​.​ ​O​n​ ​r​e​s​t​a​r​t​s​ ​o​n​l​y​ ​M​i​h​o​m​o​-​t​r​a​c​k​e​d​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​f​e​c​t​e​d​ ​b​y​ ​t​h​i​s​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​w​i​t​c​h​:​ ​M​i​s​h​ ​c​l​o​s​e​s​ ​t​h​e​i​r​ ​o​l​d​ ​p​a​t​h​ ​s​o​ ​a​p​p​s​ ​c​a​n​ ​r​e​c​o​n​n​e​c​t​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​n​e​w​ ​o​n​e​.​ ​U​n​r​e​l​a​t​e​d​ ​a​n​d​ ​n​e​w​l​y​ ​e​s​t​a​b​l​i​s​h​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​s​t​a​y​ ​o​p​e​n​.​ ​A​p​p​ ​r​e​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​t​e​a​r​d​o​w​n​ ​o​f​ ​s​h​a​r​e​d​ ​p​h​y​s​i​c​a​l​ ​c​a​r​r​i​e​r​s​ ​a​r​e​ ​n​o​t​ ​g​u​a​r​a​n​t​e​e​d​.
 		 */
 		policyGroupConnectionCleanupDescription: string
 		/**
@@ -5437,11 +5437,11 @@ export type TranslationFunctions = {
 		 */
 		processDiscoveryStrict: () => LocalizedString
 		/**
-		 * Close old-path connections after switching
+		 * Restart connections after switching
 		 */
 		policyGroupConnectionCleanup: () => LocalizedString
 		/**
-		 * Off keeps existing flows. On closes only Mihomo-tracked logical connections whose confirmed route still shows this group directly using its old child, then waits for applications to reconnect. It does not migrate connections or promise to tear down shared physical carriers.
+		 * Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.
 		 */
 		policyGroupConnectionCleanupDescription: () => LocalizedString
 		/**

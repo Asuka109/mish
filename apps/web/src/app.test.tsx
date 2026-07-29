@@ -1319,7 +1319,7 @@ describe("production routes", () => {
     expect(settingsClient.snapshot.preferences.processDiscoveryMode).toBe("strict");
   });
 
-  it("persists the accessible default-Off old-path cleanup setting", async () => {
+  it("persists the accessible default-Off affected-connection restart setting", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
     renderRoute(
@@ -1332,13 +1332,15 @@ describe("production routes", () => {
     );
 
     const cleanupGroup = await screen.findByRole("group", {
-      name: "Close old-path connections after switching",
+      name: "Restart connections after switching",
     });
     expect(within(cleanupGroup).getByRole("button", { name: "Off" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(screen.getByText(/closes only Mihomo-tracked logical connections/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/restarts only Mihomo-tracked logical connections affected/i),
+    ).toBeInTheDocument();
     await user.click(within(cleanupGroup).getByRole("button", { name: "On" }));
 
     await waitFor(() =>
