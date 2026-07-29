@@ -191,23 +191,26 @@ test("accepts the complete credential-free signed-direct contract fixture", () =
   assert.doesNotThrow(() => verifySignedDirectEvidence(fixture()));
 });
 
-test("scans a real credential-free Mach-O package fixture", async () => {
-  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-signed-direct-package-"));
-  const application = path.join(temporary.path, "Mish.app");
-  const tauriRoot = path.resolve(import.meta.dirname, "../apps/desktop/src-tauri");
-  const main = path.join(application, signedDirectMainExecutable);
-  const mihomo = path.join(application, signedDirectMihomoExecutable);
-  const webEntry = path.join(application, "Contents/Resources/web-dist/index.html");
-  const info = path.join(application, "Contents/Info.plist");
-  mkdirSync(path.dirname(main), { recursive: true });
-  mkdirSync(path.dirname(mihomo), { recursive: true });
-  mkdirSync(path.dirname(webEntry), { recursive: true });
-  copyFileSync("/usr/bin/true", main);
-  copyFileSync("/usr/bin/true", mihomo);
-  writeFileSync(webEntry, "<!doctype html><title>Mish fixture</title>\n");
-  writeFileSync(
-    info,
-    `<?xml version="1.0" encoding="UTF-8"?>
+test(
+  "scans a real credential-free Mach-O package fixture",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-signed-direct-package-"));
+    const application = path.join(temporary.path, "Mish.app");
+    const tauriRoot = path.resolve(import.meta.dirname, "../apps/desktop/src-tauri");
+    const main = path.join(application, signedDirectMainExecutable);
+    const mihomo = path.join(application, signedDirectMihomoExecutable);
+    const webEntry = path.join(application, "Contents/Resources/web-dist/index.html");
+    const info = path.join(application, "Contents/Info.plist");
+    mkdirSync(path.dirname(main), { recursive: true });
+    mkdirSync(path.dirname(mihomo), { recursive: true });
+    mkdirSync(path.dirname(webEntry), { recursive: true });
+    copyFileSync("/usr/bin/true", main);
+    copyFileSync("/usr/bin/true", mihomo);
+    writeFileSync(webEntry, "<!doctype html><title>Mish fixture</title>\n");
+    writeFileSync(
+      info,
+      `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -218,49 +221,50 @@ test("scans a real credential-free Mach-O package fixture", async () => {
 </dict>
 </plist>
 `,
-  );
-  chmodSync(main, 0o555);
-  chmodSync(mihomo, 0o555);
-  chmodSync(webEntry, 0o444);
-  chmodSync(info, 0o444);
-  execFileSync("codesign", [
-    "--force",
-    "--identifier",
-    signedDirectMihomoIdentifier,
-    "--options",
-    "runtime",
-    "--timestamp=none",
-    "--sign",
-    "-",
-    mihomo,
-  ]);
-  execFileSync("codesign", [
-    "--force",
-    "--identifier",
-    signedDirectApplicationIdentifier,
-    "--options",
-    "runtime",
-    "--timestamp=none",
-    "--entitlements",
-    path.join(tauriRoot, "Entitlements.signed-direct.plist"),
-    "--sign",
-    "-",
-    application,
-  ]);
-  execFileSync("codesign", ["--verify", "--deep", "--strict", application]);
+    );
+    chmodSync(main, 0o555);
+    chmodSync(mihomo, 0o555);
+    chmodSync(webEntry, 0o444);
+    chmodSync(info, 0o444);
+    execFileSync("codesign", [
+      "--force",
+      "--identifier",
+      signedDirectMihomoIdentifier,
+      "--options",
+      "runtime",
+      "--timestamp=none",
+      "--sign",
+      "-",
+      mihomo,
+    ]);
+    execFileSync("codesign", [
+      "--force",
+      "--identifier",
+      signedDirectApplicationIdentifier,
+      "--options",
+      "runtime",
+      "--timestamp=none",
+      "--entitlements",
+      path.join(tauriRoot, "Entitlements.signed-direct.plist"),
+      "--sign",
+      "-",
+      application,
+    ]);
+    execFileSync("codesign", ["--verify", "--deep", "--strict", application]);
 
-  const evidence = fixture();
-  evidence.entries = await collectSignedDirectBundleEntries(application);
-  evidence.signatures = [
-    collectSignedDirectSignature(mihomo, signedDirectMihomoExecutable),
-    collectSignedDirectSignature(application, "Mish.app"),
-  ];
-  for (const signature of evidence.signatures) {
-    signature.identity = identity;
-    signature.teamIdentifier = "ABCDE12345";
-  }
-  assert.doesNotThrow(() => verifySignedDirectEvidence(evidence));
-});
+    const evidence = fixture();
+    evidence.entries = await collectSignedDirectBundleEntries(application);
+    evidence.signatures = [
+      collectSignedDirectSignature(mihomo, signedDirectMihomoExecutable),
+      collectSignedDirectSignature(application, "Mish.app"),
+    ];
+    for (const signature of evidence.signatures) {
+      signature.identity = identity;
+      signature.teamIdentifier = "ABCDE12345";
+    }
+    assert.doesNotThrow(() => verifySignedDirectEvidence(evidence));
+  },
+);
 
 test("signed-direct Tauri configuration pins hardened runtime and empty entitlements", () => {
   const root = path.resolve(import.meta.dirname, "../apps/desktop/src-tauri");
