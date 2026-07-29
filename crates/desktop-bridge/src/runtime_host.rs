@@ -74,6 +74,11 @@ impl DesktopRuntimeHost {
         self.current().set_system_proxy_takeover_policy(policy);
     }
 
+    pub fn set_policy_group_connection_cleanup_enabled(&self, enabled: bool) {
+        self.current()
+            .set_policy_group_connection_cleanup_enabled(enabled);
+    }
+
     pub fn replace(&self, runtime: MishRuntime) {
         let current = self.current();
         let notifications = current.notification_center();

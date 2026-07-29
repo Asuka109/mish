@@ -1170,6 +1170,54 @@ export const GroupDelayTestSchema = z
   });
 export interface GroupDelayTestDto extends z.infer<typeof GroupDelayTestSchema> {}
 
+export const GroupSelectionCleanupModeSchema = z.enum(["off", "old-direct-child"]);
+export const GroupSelectionCleanupPhaseSchema = z.enum([
+  "idle",
+  "completed",
+  "skipped",
+  "partial",
+  "failed",
+]);
+export const GroupSelectionCleanupFailureSchema = z.enum([
+  "cancelled",
+  "controller-rejected",
+  "disconnected",
+  "inconsistent-observation",
+  "runtime-replaced",
+  "stale-revision",
+  "timeout",
+  "version-drift",
+]);
+export const GroupSelectionOperationSchema = z
+  .object({
+    catalogRevision: z.string().regex(/^(?:|[a-f0-9]{64})$/u),
+    cleanupFailure: GroupSelectionCleanupFailureSchema.nullable(),
+    cleanupMode: GroupSelectionCleanupModeSchema,
+    cleanupPhase: GroupSelectionCleanupPhaseSchema,
+    closedCount: NonNegativeIntegerSchema,
+    controllerSessionRevision: NonNegativeIntegerSchema,
+    failedCount: NonNegativeIntegerSchema,
+    membershipRevision: z.string().regex(/^(?:|[a-f0-9]{64})$/u),
+    operationId: IdentifierSchema.nullable(),
+    scanCount: NonNegativeIntegerSchema.max(128),
+    selectionConfirmed: z.boolean(),
+    targetCount: NonNegativeIntegerSchema,
+  })
+  .strict()
+  .superRefine((operation, context) => {
+    const idle = operation.cleanupPhase === "idle";
+    if (
+      idle !== (operation.operationId === null) ||
+      idle !== (operation.catalogRevision === "") ||
+      idle !== (operation.membershipRevision === "") ||
+      idle === operation.selectionConfirmed ||
+      operation.closedCount + operation.failedCount > operation.targetCount
+    ) {
+      context.addIssue({ code: "custom", message: "Group-selection operation is inconsistent" });
+    }
+  });
+export interface GroupSelectionOperationDto extends z.infer<typeof GroupSelectionOperationSchema> {}
+
 export const PolicyGroupTypeSchema = z.enum([
   "selector",
   "url-test",
@@ -1478,6 +1526,7 @@ export const SettingsPreferencesSchema = z
   .object({
     appearance: AppearancePreferenceSchema,
     captureSelection: CaptureSelectionSchema.default({ systemProxy: false, tun: false }),
+    closeOldConnectionsAfterGroupSwitch: z.boolean().default(false),
     language: LanguagePreferenceSchema,
     managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
@@ -1504,6 +1553,7 @@ export const SettingsCapabilitiesSchema = z
     launchAtLogin: SettingsAvailabilitySchema,
     nativeSidebarMaterial: SettingsAvailabilitySchema,
     networkDns: SettingsAvailabilitySchema,
+    policyGroupConnectionCleanup: SettingsAvailabilitySchema,
     statusBar: SettingsAvailabilitySchema,
     tun: SettingsAvailabilitySchema,
     updates: SettingsAvailabilitySchema,
@@ -1845,6 +1895,7 @@ export const StatusSnapshotSchema = z
     groups: z.array(PolicyGroupSchema),
     groupDelayPolicy: GroupDelayPolicySchema,
     groupDelayTest: GroupDelayTestSchema,
+    groupSelectionOperation: GroupSelectionOperationSchema,
     groupUsage: z.array(GroupUsageSchema),
     metrics: RuntimeMetricsSchema,
     nodes: z.array(ProxyNodeSchema),
@@ -1987,7 +2038,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(29),
+    protocolVersion: z.literal(30),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3134,6 +3185,9 @@ export const SetSystemProxyTakeoverPolicyCommandSchema = z
 export const SetProcessDiscoveryModeCommandSchema = z
   .object({ mode: ProcessDiscoveryModeSchema })
   .strict();
+export const SetCloseOldConnectionsAfterGroupSwitchCommandSchema = z
+  .object({ enabled: z.boolean() })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -3188,6 +3242,10 @@ export const settingsRpcMethods = {
   },
   "settings.setProcessDiscoveryMode": {
     params: SetProcessDiscoveryModeCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setCloseOldConnectionsAfterGroupSwitch": {
+    params: SetCloseOldConnectionsAfterGroupSwitchCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
@@ -3444,6 +3502,10 @@ export interface SettingsClient {
   ): Promise<SettingsSnapshotDto>;
   setProcessDiscoveryMode(
     mode: ProcessDiscoveryMode,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setCloseOldConnectionsAfterGroupSwitch(
+    enabled: boolean,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;

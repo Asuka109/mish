@@ -112,6 +112,19 @@
     "profile.subscription-updated": { "data": {} },
     "profile.switch-failed": { "data": {} },
     "route.selection-failed": { "data": { "child": "string" } },
+    "route.old-child-cleanup": {
+      "data": {
+        "catalogRevision": "string",
+        "closedCount": "number",
+        "controllerSessionRevision": "number",
+        "failedCount": "number",
+        "failure": { "type": "string", "optional": true },
+        "membershipRevision": "string",
+        "mode": "string",
+        "phase": "string",
+        "targetCount": "number"
+      }
+    },
     "service.defaults-restored": { "data": {} },
     "service.removed": { "data": {} },
     "service.saved": { "data": { "operation": "string" } },
@@ -169,6 +182,19 @@
         "schemaVersion": "number",
         "systemProxyPreflightMs": "number",
         "totalMs": "number"
+      }
+    },
+    "route.old-child-cleanup": {
+      "data": {
+        "catalogRevision": "string",
+        "closedCount": "number",
+        "controllerSessionRevision": "number",
+        "failedCount": "number",
+        "failure": { "type": "string", "optional": true },
+        "membershipRevision": "string",
+        "mode": "string",
+        "phase": "string",
+        "targetCount": "number"
       }
     },
     "settings.operation-failed": { "data": { "failure": "string" } },

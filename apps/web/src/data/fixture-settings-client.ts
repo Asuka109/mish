@@ -53,6 +53,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       launchAtLogin: "unavailable",
       nativeSidebarMaterial: "unavailable",
       networkDns: "unavailable",
+      policyGroupConnectionCleanup: "unavailable",
       statusBar: "unavailable",
       tun: "unavailable",
       updates: "coming-later",
@@ -69,6 +70,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     preferences: {
       appearance: storedAppearance(),
       captureSelection: { systemProxy: false, tun: false },
+      closeOldConnectionsAfterGroupSwitch: false,
       language: storedLanguage(),
       managedPorts: { controller: 9090, proxy: 7890 },
       onboarding: { welcomeInvitation: null },
@@ -171,6 +173,10 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setProcessDiscoveryMode(_mode: ProcessDiscoveryMode): Promise<SettingsSnapshotDto> {
     throw new Error("Native process discovery settings are unavailable in demo mode");
+  }
+
+  async setCloseOldConnectionsAfterGroupSwitch(_enabled: boolean): Promise<SettingsSnapshotDto> {
+    throw new Error("Policy-group connection cleanup is unavailable in demo mode");
   }
 
   subscribeSnapshots(_listener: (snapshot: SettingsSnapshotDto) => void) {

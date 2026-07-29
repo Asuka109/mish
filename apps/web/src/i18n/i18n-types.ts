@@ -683,6 +683,14 @@ type RootTranslation = {
 		 */
 		processDiscoveryStrict: string
 		/**
+		 * R​e​s​t​a​r​t​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​t​e​r​ ​s​w​i​t​c​h​i​n​g
+		 */
+		policyGroupConnectionCleanup: string
+		/**
+		 * O​f​f​ ​k​e​e​p​s​ ​e​x​i​s​t​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​.​ ​O​n​ ​r​e​s​t​a​r​t​s​ ​o​n​l​y​ ​M​i​h​o​m​o​-​t​r​a​c​k​e​d​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​f​f​e​c​t​e​d​ ​b​y​ ​t​h​i​s​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​w​i​t​c​h​:​ ​M​i​s​h​ ​c​l​o​s​e​s​ ​t​h​e​i​r​ ​o​l​d​ ​p​a​t​h​ ​s​o​ ​a​p​p​s​ ​c​a​n​ ​r​e​c​o​n​n​e​c​t​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​n​e​w​ ​o​n​e​.​ ​U​n​r​e​l​a​t​e​d​ ​a​n​d​ ​n​e​w​l​y​ ​e​s​t​a​b​l​i​s​h​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​s​t​a​y​ ​o​p​e​n​.​ ​A​p​p​ ​r​e​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​t​e​a​r​d​o​w​n​ ​o​f​ ​s​h​a​r​e​d​ ​p​h​y​s​i​c​a​l​ ​c​a​r​r​i​e​r​s​ ​a​r​e​ ​n​o​t​ ​g​u​a​r​a​n​t​e​e​d​.
+		 */
+		policyGroupConnectionCleanupDescription: string
+		/**
 		 * O​b​s​e​r​v​e​d​ ​l​o​g​i​n​ ​r​e​g​i​s​t​r​a​t​i​o​n
 		 */
 		registration: string
@@ -1827,6 +1835,32 @@ type RootTranslation = {
 		 * @param {string} group
 		 */
 		collapseGroup: RequiredParams<'group'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​C​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​ ​o​f​ ​{​t​a​r​g​e​t​}​ ​p​r​o​v​e​n​ ​o​l​d​-​p​a​t​h​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​;​ ​n​e​w​l​y​ ​a​d​m​i​t​t​e​d​ ​a​n​d​ ​u​n​r​e​l​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​w​e​r​e​ ​p​r​e​s​e​r​v​e​d​.
+		 * @param {number} closed
+		 * @param {number} target
+		 */
+		cleanupCompleted: RequiredParams<'closed' | 'target'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​,​ ​b​u​t​ ​o​l​d​-​p​a​t​h​ ​c​o​n​n​e​c​t​i​o​n​ ​c​l​e​a​n​u​p​ ​f​a​i​l​e​d​ ​s​a​f​e​l​y​ ​(​{​f​a​i​l​u​r​e​}​)​.​ ​N​o​ ​c​l​o​s​e​-​a​l​l​ ​f​a​l​l​b​a​c​k​ ​w​a​s​ ​u​s​e​d​.
+		 * @param {string} failure
+		 */
+		cleanupFailed: RequiredParams<'failure'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​E​x​i​s​t​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​ ​w​e​r​e​ ​p​r​e​s​e​r​v​e​d​ ​b​e​c​a​u​s​e​ ​a​u​t​o​m​a​t​i​c​ ​o​l​d​-​p​a​t​h​ ​c​l​e​a​n​u​p​ ​i​s​ ​O​f​f​.
+		 */
+		cleanupOff: string
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​.​ ​C​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​ ​o​f​ ​{​t​a​r​g​e​t​}​ ​p​r​o​v​e​n​ ​o​l​d​-​p​a​t​h​ ​l​o​g​i​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​s​;​ ​c​l​e​a​n​u​p​ ​e​n​d​e​d​ ​w​i​t​h​ ​{​f​a​i​l​u​r​e​}​.
+		 * @param {number} closed
+		 * @param {string} failure
+		 * @param {number} target
+		 */
+		cleanupPartial: RequiredParams<'closed' | 'failure' | 'target'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​c​o​n​f​i​r​m​e​d​,​ ​b​u​t​ ​s​c​o​p​e​d​ ​c​l​e​a​n​u​p​ ​s​t​o​p​p​e​d​ ​s​a​f​e​l​y​ ​b​e​c​a​u​s​e​ ​i​t​s​ ​r​u​n​t​i​m​e​ ​o​r​ ​c​a​t​a​l​o​g​ ​a​u​t​h​o​r​i​t​y​ ​c​h​a​n​g​e​d​.
+		 */
+		cleanupSkipped: string
 		/**
 		 * C​o​n​f​i​g​u​r​a​t​i​o​n
 		 */
@@ -3974,6 +4008,27 @@ type RootTranslation = {
 			 */
 			proxyLaunchTimingDetail: RequiredParams<'outcome' | 'total'>
 			/**
+			 * P​o​l​i​c​y​-​g​r​o​u​p​ ​o​l​d​-​p​a​t​h​ ​c​l​e​a​n​u​p
+			 */
+			routeOldChildCleanup: string
+			/**
+			 * M​o​d​e​ ​{​m​o​d​e​}​;​ ​p​h​a​s​e​ ​{​p​h​a​s​e​}​;​ ​t​a​r​g​e​t​s​ ​{​t​a​r​g​e​t​}​;​ ​c​l​o​s​e​d​ ​{​c​l​o​s​e​d​}​;​ ​f​a​i​l​e​d​ ​{​f​a​i​l​e​d​}​;​ ​f​a​i​l​u​r​e​ ​{​f​a​i​l​u​r​e​}​.
+			 * @param {number} closed
+			 * @param {number} failed
+			 * @param {string} failure
+			 * @param {string} mode
+			 * @param {string} phase
+			 * @param {number} target
+			 */
+			routeOldChildCleanupDetail: RequiredParams<'closed' | 'failed' | 'failure' | 'mode' | 'phase' | 'target'>
+			/**
+			 * C​o​n​t​r​o​l​l​e​r​ ​s​e​s​s​i​o​n​ ​{​s​e​s​s​i​o​n​}​;​ ​c​a​t​a​l​o​g​ ​{​c​a​t​a​l​o​g​}​;​ ​m​e​m​b​e​r​s​h​i​p​ ​{​m​e​m​b​e​r​s​h​i​p​}​.
+			 * @param {string} catalog
+			 * @param {string} membership
+			 * @param {number} session
+			 */
+			routeOldChildCleanupRevisionDetail: RequiredParams<'catalog' | 'membership' | 'session'>
+			/**
 			 * R​e​v​i​e​w​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​S​e​t​t​i​n​g​s​ ​s​n​a​p​s​h​o​t​,​ ​t​h​e​n​ ​r​e​t​r​y​ ​t​h​e​ ​r​e​q​u​e​s​t​e​d​ ​c​h​a​n​g​e​.
 			 */
 			settingsOperationFailedDetail: string
@@ -5382,6 +5437,14 @@ export type TranslationFunctions = {
 		 */
 		processDiscoveryStrict: () => LocalizedString
 		/**
+		 * Restart connections after switching
+		 */
+		policyGroupConnectionCleanup: () => LocalizedString
+		/**
+		 * Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.
+		 */
+		policyGroupConnectionCleanupDescription: () => LocalizedString
+		/**
 		 * Observed login registration
 		 */
 		registration: () => LocalizedString
@@ -6507,6 +6570,26 @@ export type TranslationFunctions = {
 		 * Collapse {group}
 		 */
 		collapseGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Selection confirmed. Closed {closed} of {target} proven old-path logical connections; newly admitted and unrelated connections were preserved.
+		 */
+		cleanupCompleted: (arg: { closed: number, target: number }) => LocalizedString
+		/**
+		 * Selection confirmed, but old-path connection cleanup failed safely ({failure}). No close-all fallback was used.
+		 */
+		cleanupFailed: (arg: { failure: string }) => LocalizedString
+		/**
+		 * Selection confirmed. Existing connections were preserved because automatic old-path cleanup is Off.
+		 */
+		cleanupOff: () => LocalizedString
+		/**
+		 * Selection confirmed. Closed {closed} of {target} proven old-path logical connections; cleanup ended with {failure}.
+		 */
+		cleanupPartial: (arg: { closed: number, failure: string, target: number }) => LocalizedString
+		/**
+		 * Selection confirmed, but scoped cleanup stopped safely because its runtime or catalog authority changed.
+		 */
+		cleanupSkipped: () => LocalizedString
 		/**
 		 * Configuration
 		 */
@@ -8578,6 +8661,18 @@ export type TranslationFunctions = {
 			 * Outcome {outcome}; total {total} ms.
 			 */
 			proxyLaunchTimingDetail: (arg: { outcome: string, total: number }) => LocalizedString
+			/**
+			 * Policy-group old-path cleanup
+			 */
+			routeOldChildCleanup: () => LocalizedString
+			/**
+			 * Mode {mode}; phase {phase}; targets {target}; closed {closed}; failed {failed}; failure {failure}.
+			 */
+			routeOldChildCleanupDetail: (arg: { closed: number, failed: number, failure: string, mode: string, phase: string, target: number }) => LocalizedString
+			/**
+			 * Controller session {session}; catalog {catalog}; membership {membership}.
+			 */
+			routeOldChildCleanupRevisionDetail: (arg: { catalog: string, membership: string, session: number }) => LocalizedString
 			/**
 			 * Review the authoritative Settings snapshot, then retry the requested change.
 			 */

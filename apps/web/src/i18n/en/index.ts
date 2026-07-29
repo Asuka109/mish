@@ -214,6 +214,9 @@ const en = {
       "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
     processDiscoveryOff: "Disabled",
     processDiscoveryStrict: "When needed",
+    policyGroupConnectionCleanup: "Restart connections after switching",
+    policyGroupConnectionCleanupDescription:
+      "Off keeps existing connections. On restarts only Mihomo-tracked logical connections affected by this policy-group switch: Mish closes their old path so apps can reconnect through the new one. Unrelated and newly established connections stay open. App reconnection and teardown of shared physical carriers are not guaranteed.",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",
@@ -574,6 +577,16 @@ const en = {
     cancelDelay: "Cancel Delay Test for {group:string}",
     cancelDelayButton: "Cancel",
     collapseGroup: "Collapse {group:string}",
+    cleanupCompleted:
+      "Selection confirmed. Closed {closed:number} of {target:number} proven old-path logical connections; newly admitted and unrelated connections were preserved.",
+    cleanupFailed:
+      "Selection confirmed, but old-path connection cleanup failed safely ({failure:string}). No close-all fallback was used.",
+    cleanupOff:
+      "Selection confirmed. Existing connections were preserved because automatic old-path cleanup is Off.",
+    cleanupPartial:
+      "Selection confirmed. Closed {closed:number} of {target:number} proven old-path logical connections; cleanup ended with {failure:string}.",
+    cleanupSkipped:
+      "Selection confirmed, but scoped cleanup stopped safely because its runtime or catalog authority changed.",
     configurationOrder: "Configuration",
     currentGroupDescription:
       "Browse, sort, test, and select the direct children of {group:string}.",
@@ -1179,6 +1192,11 @@ const en = {
         "Activation stopped with safe failure category {failure:string}. The notification center retains the available recovery action.",
       proxyLaunchTiming: "Launch Proxy timing",
       proxyLaunchTimingDetail: "Outcome {outcome:string}; total {total:number} ms.",
+      routeOldChildCleanup: "Policy-group old-path cleanup",
+      routeOldChildCleanupDetail:
+        "Mode {mode:string}; phase {phase:string}; targets {target:number}; closed {closed:number}; failed {failed:number}; failure {failure:string}.",
+      routeOldChildCleanupRevisionDetail:
+        "Controller session {session:number}; catalog {catalog:string}; membership {membership:string}.",
       settingsOperationFailedDetail:
         "Review the authoritative Settings snapshot, then retry the requested change.",
       trafficOperationFailedDetail:

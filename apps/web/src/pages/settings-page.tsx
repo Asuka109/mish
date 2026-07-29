@@ -40,6 +40,7 @@ type PendingButtonAction =
   | "language"
   | "managed-controller-port"
   | "managed-proxy-port"
+  | "policy-group-connection-cleanup"
   | "process-discovery"
   | "application-launch"
   | "takeover-policy"
@@ -315,6 +316,9 @@ export function SettingsPage() {
     useState<ApplicationLaunchBehavior | null>(null);
   const [optimisticTakeoverPolicy, setOptimisticTakeoverPolicy] =
     useState<SystemProxyTakeoverPolicy | null>(null);
+  const [optimisticConnectionCleanup, setOptimisticConnectionCleanup] = useState<boolean | null>(
+    null,
+  );
   const [optimisticWindowClose, setOptimisticWindowClose] = useState<WindowCloseBehavior | null>(
     null,
   );
@@ -355,6 +359,8 @@ export function SettingsPage() {
     controllerPort === snapshot.preferences.managedPorts.proxy;
   const displayedTakeoverPolicy =
     optimisticTakeoverPolicy ?? snapshot.preferences.systemProxyTakeoverPolicy;
+  const displayedConnectionCleanup =
+    optimisticConnectionCleanup ?? snapshot.preferences.closeOldConnectionsAfterGroupSwitch;
   const helper = snapshot.tunHelper;
   const helperAvailable =
     helper.availability === "available" &&
@@ -462,6 +468,17 @@ export function SettingsPage() {
       await settings.setProcessDiscoveryMode(mode);
     } finally {
       setPendingButtonAction(null);
+    }
+  }
+
+  async function changeConnectionCleanup(enabled: boolean) {
+    setPendingButtonAction("policy-group-connection-cleanup");
+    setOptimisticConnectionCleanup(enabled);
+    try {
+      await settings.setCloseOldConnectionsAfterGroupSwitch(enabled);
+    } finally {
+      setPendingButtonAction(null);
+      setOptimisticConnectionCleanup(null);
     }
   }
 
@@ -909,6 +926,54 @@ export function SettingsPage() {
               {LL.settingsPage.processDiscoveryOff()}
             </ToggleGroupItem>
           </ToggleGroup>
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.policyGroupConnectionCleanupDescription()}
+          title={LL.settingsPage.policyGroupConnectionCleanup()}
+        >
+          <div className={settingsStyles().inline()}>
+            <ToggleGroup
+              aria-label={LL.settingsPage.policyGroupConnectionCleanup()}
+              disabled={
+                snapshot.adapterKind !== "rpc" ||
+                snapshot.capabilities.policyGroupConnectionCleanup !== "supported" ||
+                settings.pending
+              }
+              onValueChange={(values) => {
+                const value = values[0];
+                if (value === "off" || value === "on") {
+                  void changeConnectionCleanup(value === "on");
+                }
+              }}
+              spacing={0}
+              value={[displayedConnectionCleanup ? "on" : "off"]}
+              variant="segmented"
+            >
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "policy-group-connection-cleanup" &&
+                  !displayedConnectionCleanup
+                }
+                value="off"
+              >
+                {LL.settingsPage.off()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "policy-group-connection-cleanup" &&
+                  displayedConnectionCleanup
+                }
+                value="on"
+              >
+                {LL.settingsPage.on()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {snapshot.capabilities.policyGroupConnectionCleanup !== "supported" ? (
+              <AvailabilityBadge
+                availability={snapshot.capabilities.policyGroupConnectionCleanup}
+              />
+            ) : null}
+          </div>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.managedProxyPortDescription()}

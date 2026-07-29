@@ -1585,6 +1585,7 @@ rules:
                     launch_at_login: mish_settings::SettingsAvailability::Unavailable,
                     native_sidebar_material: mish_settings::SettingsAvailability::Unavailable,
                     network_dns: mish_settings::SettingsAvailability::Unavailable,
+                    policy_group_connection_cleanup: mish_settings::SettingsAvailability::Supported,
                     status_bar: mish_settings::SettingsAvailability::Unavailable,
                     tun: mish_settings::SettingsAvailability::Unavailable,
                     updates: mish_settings::SettingsAvailability::Unavailable,

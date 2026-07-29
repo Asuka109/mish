@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -81,6 +86,87 @@ pub enum GroupDelayFailure {
     VersionDrift,
     InconsistentObservation,
     Cancelled,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PolicyGroupConnectionCleanupPreference {
+    enabled: Arc<AtomicBool>,
+}
+
+impl PolicyGroupConnectionCleanupPreference {
+    pub fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupSelectionCleanupMode {
+    Off,
+    OldDirectChild,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupSelectionCleanupPhase {
+    Idle,
+    Completed,
+    Skipped,
+    Partial,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupSelectionCleanupFailure {
+    Cancelled,
+    ControllerRejected,
+    Disconnected,
+    InconsistentObservation,
+    RuntimeReplaced,
+    StaleRevision,
+    Timeout,
+    VersionDrift,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSelectionOperation {
+    pub catalog_revision: String,
+    pub cleanup_failure: Option<GroupSelectionCleanupFailure>,
+    pub cleanup_mode: GroupSelectionCleanupMode,
+    pub cleanup_phase: GroupSelectionCleanupPhase,
+    pub closed_count: u32,
+    pub controller_session_revision: u64,
+    pub failed_count: u32,
+    pub membership_revision: String,
+    pub operation_id: Option<String>,
+    pub scan_count: u16,
+    pub selection_confirmed: bool,
+    pub target_count: u32,
+}
+
+impl GroupSelectionOperation {
+    pub fn idle() -> Self {
+        Self {
+            catalog_revision: String::new(),
+            cleanup_failure: None,
+            cleanup_mode: GroupSelectionCleanupMode::Off,
+            cleanup_phase: GroupSelectionCleanupPhase::Idle,
+            closed_count: 0,
+            controller_session_revision: 0,
+            failed_count: 0,
+            membership_revision: String::new(),
+            operation_id: None,
+            scan_count: 0,
+            selection_confirmed: false,
+            target_count: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -304,6 +390,7 @@ pub struct StatusSnapshot {
     pub group_usage: Vec<GroupUsage>,
     pub group_delay_policy: GroupDelayPolicy,
     pub group_delay_test: GroupDelayTest,
+    pub group_selection_operation: GroupSelectionOperation,
     pub metrics: RuntimeMetrics,
     pub nodes: Vec<ProxyNode>,
     pub probe_results: Vec<ServiceProbeResult>,
@@ -331,6 +418,7 @@ impl StatusSnapshot {
                 url: None,
             },
             group_delay_test: GroupDelayTest::idle(),
+            group_selection_operation: GroupSelectionOperation::idle(),
             metrics: RuntimeMetrics::default(),
             nodes: Vec::new(),
             probe_results: Vec::new(),

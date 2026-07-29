@@ -29,6 +29,16 @@ const sampleData = {
     systemProxyPreflightMs: 5,
     totalMs: 15,
   },
+  "route.old-child-cleanup": {
+    catalogRevision: "a".repeat(64),
+    closedCount: 2,
+    controllerSessionRevision: 7,
+    failedCount: 0,
+    membershipRevision: "b".repeat(64),
+    mode: "old-direct-child",
+    phase: "completed",
+    targetCount: 2,
+  },
   "settings.operation-failed": { failure: "persistence" },
   "traffic.operation-failed": { failure: "timeout" },
 } satisfies ApplicationEventDataByKind;

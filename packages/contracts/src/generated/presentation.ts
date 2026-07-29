@@ -220,6 +220,20 @@ const applicationNotificationRouteSelectionFailedDataSchema = z
   })
   .strict();
 
+const applicationNotificationRouteOldChildCleanupDataSchema = z
+  .object({
+    catalogRevision: z.string(),
+    closedCount: z.number(),
+    controllerSessionRevision: z.number(),
+    failedCount: z.number(),
+    failure: z.string().optional(),
+    membershipRevision: z.string(),
+    mode: z.string(),
+    phase: z.string(),
+    targetCount: z.number(),
+  })
+  .strict();
+
 const applicationNotificationServiceDefaultsRestoredDataSchema = z.object({}).strict();
 
 const applicationNotificationServiceRemovedDataSchema = z.object({}).strict();
@@ -313,6 +327,7 @@ export const applicationNotificationKindSchema = z.enum([
   "profile.subscription-updated",
   "profile.switch-failed",
   "route.selection-failed",
+  "route.old-child-cleanup",
   "service.defaults-restored",
   "service.removed",
   "service.saved",
@@ -632,6 +647,16 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
         .array(z.never())
         .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
+      data: applicationNotificationRouteOldChildCleanupDataSchema,
+      kind: z.literal("route.old-child-cleanup"),
+    })
+    .strict(),
+  z
+    .object({
+      actionIds: z
+        .array(z.never())
+        .max(0)
+        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationServiceDefaultsRestoredDataSchema,
       kind: z.literal("service.defaults-restored"),
     })
@@ -816,6 +841,7 @@ export interface ApplicationNotificationDataByKind {
   >;
   "profile.switch-failed": z.infer<typeof applicationNotificationProfileSwitchFailedDataSchema>;
   "route.selection-failed": z.infer<typeof applicationNotificationRouteSelectionFailedDataSchema>;
+  "route.old-child-cleanup": z.infer<typeof applicationNotificationRouteOldChildCleanupDataSchema>;
   "service.defaults-restored": z.infer<
     typeof applicationNotificationServiceDefaultsRestoredDataSchema
   >;
@@ -877,6 +903,20 @@ const applicationEventProxyLaunchTimingDataSchema = z
   })
   .strict();
 
+const applicationEventRouteOldChildCleanupDataSchema = z
+  .object({
+    catalogRevision: z.string(),
+    closedCount: z.number(),
+    controllerSessionRevision: z.number(),
+    failedCount: z.number(),
+    failure: z.string().optional(),
+    membershipRevision: z.string(),
+    mode: z.string(),
+    phase: z.string(),
+    targetCount: z.number(),
+  })
+  .strict();
+
 const applicationEventSettingsOperationFailedDataSchema = z
   .object({
     failure: z.string(),
@@ -896,6 +936,7 @@ export const applicationEventKindSchema = z.enum([
   "controller.stream-unavailable",
   "profile.activation-failed",
   "proxy.launch-timing",
+  "route.old-child-cleanup",
   "settings.operation-failed",
   "traffic.operation-failed",
 ]);
@@ -967,6 +1008,16 @@ export const applicationEventSchema = z.discriminatedUnion("kind", [
         .array(z.never())
         .max(0)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
+      data: applicationEventRouteOldChildCleanupDataSchema,
+      kind: z.literal("route.old-child-cleanup"),
+    })
+    .strict(),
+  z
+    .object({
+      actionIds: z
+        .array(z.never())
+        .max(0)
+        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationEventSettingsOperationFailedDataSchema,
       kind: z.literal("settings.operation-failed"),
     })
@@ -992,6 +1043,7 @@ export interface ApplicationEventDataByKind {
   >;
   "profile.activation-failed": z.infer<typeof applicationEventProfileActivationFailedDataSchema>;
   "proxy.launch-timing": z.infer<typeof applicationEventProxyLaunchTimingDataSchema>;
+  "route.old-child-cleanup": z.infer<typeof applicationEventRouteOldChildCleanupDataSchema>;
   "settings.operation-failed": z.infer<typeof applicationEventSettingsOperationFailedDataSchema>;
   "traffic.operation-failed": z.infer<typeof applicationEventTrafficOperationFailedDataSchema>;
 }

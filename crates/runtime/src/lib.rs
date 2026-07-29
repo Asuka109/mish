@@ -245,6 +245,7 @@ pub trait StatusDataSource: Send + Sync {
     fn supports_command(&self, _command: StatusCommand) -> bool {
         false
     }
+    fn set_policy_group_connection_cleanup_enabled(&self, _enabled: bool) {}
     fn run_proxy_diagnostic(
         &self,
     ) -> BoxFuture<'_, Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure>> {
@@ -856,6 +857,11 @@ impl MishRuntime {
         if let Some(capture) = &self.capture {
             capture.set_system_proxy_takeover_policy(policy);
         }
+    }
+
+    pub fn set_policy_group_connection_cleanup_enabled(&self, enabled: bool) {
+        self.status_source
+            .set_policy_group_connection_cleanup_enabled(enabled);
     }
 
     pub async fn test_local_proxy(&self) -> Result<LocalProxyTestResult, CaptureTransitionError> {

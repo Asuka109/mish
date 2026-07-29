@@ -24,7 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 11;
+const CURRENT_SCHEMA_VERSION: u8 = 12;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -181,6 +181,8 @@ pub struct SettingsPreferences {
     pub appearance: AppearancePreference,
     #[serde(default)]
     pub capture_selection: CaptureSelectionPreferences,
+    #[serde(default)]
+    pub close_old_connections_after_group_switch: bool,
     pub language: LanguagePreference,
     #[serde(default)]
     pub managed_ports: ManagedPortPreferences,
@@ -229,6 +231,7 @@ pub struct SettingsCapabilities {
     pub launch_at_login: SettingsAvailability,
     pub network_dns: SettingsAvailability,
     pub native_sidebar_material: SettingsAvailability,
+    pub policy_group_connection_cleanup: SettingsAvailability,
     pub status_bar: SettingsAvailability,
     pub tun: SettingsAvailability,
     pub updates: SettingsAvailability,
@@ -249,6 +252,7 @@ impl SettingsCapabilities {
                 SettingsAvailability::Unavailable
             },
             status_bar: SettingsAvailability::Supported,
+            policy_group_connection_cleanup: SettingsAvailability::Supported,
             tun: SettingsAvailability::Unavailable,
             updates: SettingsAvailability::ComingLater,
             window_lifecycle: SettingsAvailability::Supported,
@@ -1024,6 +1028,23 @@ impl SettingsService {
         self.update(|preferences| preferences.process_discovery_mode = mode)
     }
 
+    pub fn set_close_old_connections_after_group_switch(
+        &self,
+        enabled: bool,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        if self.capabilities.policy_group_connection_cleanup != SettingsAvailability::Supported {
+            return Err(SettingsServiceError::CapabilityUnavailable);
+        }
+        self.update(|preferences| {
+            preferences.close_old_connections_after_group_switch = enabled;
+        })
+    }
+
     pub fn find_and_set_managed_ports(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         for _ in 0..8 {
             let proxy = available_loopback_port().ok_or(SettingsServiceError::Persistence)?;
@@ -1395,10 +1416,11 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: stored.preferences,
                 })
             }
-            Some(9) | Some(8) | Some(7) => {
+            Some(11) | Some(9) | Some(8) | Some(7) => {
                 let stored: StoredSettingsV7 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
-                if !(stored.schema_version == 9
+                if !(stored.schema_version == 11
+                    || stored.schema_version == 9
                     || stored.schema_version == 8
                     || stored.schema_version == 7)
                     || !valid_onboarding_preferences(stored.preferences.onboarding)
@@ -1424,6 +1446,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: stored.preferences.onboarding,
                         process_discovery_mode: ProcessDiscoveryMode::default(),
@@ -1450,6 +1473,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1477,6 +1501,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1503,6 +1528,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1529,6 +1555,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1555,6 +1582,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1581,6 +1609,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.theme,
                         language: stored.locale,
                         capture_selection: CaptureSelectionPreferences::default(),
+                        close_old_connections_after_group_switch: false,
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -2333,6 +2362,7 @@ mod tests {
         let preferences = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             capture_selection: CaptureSelectionPreferences::default(),
+            close_old_connections_after_group_switch: true,
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
@@ -2396,6 +2426,53 @@ mod tests {
                 .preferences
                 .system_proxy_takeover_policy,
             SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery
+        );
+    }
+
+    #[test]
+    fn old_child_connection_cleanup_defaults_off_migrates_and_persists() {
+        let (_root, repository) = repository();
+        repository
+            .save(&SettingsPreferences::default())
+            .expect("save default settings");
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&fs::read(&repository.path).expect("read settings"))
+                .expect("parse settings");
+        stored["schemaVersion"] = serde_json::json!(11);
+        stored["preferences"]
+            .as_object_mut()
+            .expect("preferences object")
+            .remove("closeOldConnectionsAfterGroupSwitch");
+        fs::write(
+            &repository.path,
+            serde_json::to_vec(&stored).expect("serialize legacy settings"),
+        )
+        .expect("write legacy settings");
+
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("settings service");
+        assert!(
+            !service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .close_old_connections_after_group_switch
+        );
+        service
+            .set_close_old_connections_after_group_switch(true)
+            .expect("persist cleanup preference");
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .close_old_connections_after_group_switch
         );
     }
 
@@ -2756,6 +2833,7 @@ mod tests {
         let restored = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             capture_selection: CaptureSelectionPreferences::default(),
+            close_old_connections_after_group_switch: true,
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),

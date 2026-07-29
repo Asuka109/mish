@@ -1832,6 +1832,20 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         "strict"
     );
 
+    let connection_cleanup = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":33,
+            "method":"settings.setCloseOldConnectionsAfterGroupSwitch",
+            "params":{"enabled":true}
+        }),
+    )
+    .await;
+    assert_eq!(
+        connection_cleanup["result"]["preferences"]["closeOldConnectionsAfterGroupSwitch"],
+        true
+    );
+
     let close_behavior = request(
         &mut ws,
         json!({
@@ -1889,6 +1903,11 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
             32,
             "settings.setProcessDiscoveryMode",
             json!({"mode":"aggressive"}),
+        ),
+        (
+            34,
+            "settings.setCloseOldConnectionsAfterGroupSwitch",
+            json!({"enabled":true,"scope":"all-connections"}),
         ),
     ] {
         let rejected = request(
@@ -1991,7 +2010,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 29);
+    assert_eq!(info["result"]["protocolVersion"], 30);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],
