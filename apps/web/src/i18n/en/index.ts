@@ -462,6 +462,8 @@ const en = {
   },
   capture: {
     acknowledge: "Got It",
+    configurationRequired: "Choose or import a Profile configuration before launching the proxy.",
+    configurationRequiredTitle: "Profile configuration required",
     desktopDescription:
       "These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.",
     deviceDescription:
@@ -472,6 +474,7 @@ const en = {
     modeAria: "{mode:string}, {selection:string}, {runtime:string}",
     notRunning: "not running",
     notSelected: "not selected",
+    openProfiles: "Open Profiles",
     running: "running",
     selected: "selected",
     leaveAsIs: "Leave OS Settings as Is",

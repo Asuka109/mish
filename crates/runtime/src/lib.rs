@@ -40,6 +40,7 @@ fn capture_failure_presentation_id(failure: CaptureFailureKind) -> &'static str 
         CaptureFailureKind::ApplyFailed => "apply-failed",
         CaptureFailureKind::CapabilityUnavailable => "capability-unavailable",
         CaptureFailureKind::ConfirmationFailed => "confirmation-failed",
+        CaptureFailureKind::ConfigurationRequired => "configuration-required",
         CaptureFailureKind::CoreUnhealthy => "core-unhealthy",
         CaptureFailureKind::ExternalDrift => "external-drift",
         CaptureFailureKind::InvalidRecovery => "invalid-recovery",
@@ -88,6 +89,8 @@ fn capture_failure_action_ids(
             ApplicationActionId::OpenSystemProxySettings,
             ApplicationActionId::ShowSystemProxySettingsSteps,
         ]
+    } else if error.kind == CaptureFailureKind::ConfigurationRequired {
+        vec![ApplicationActionId::OpenProfiles]
     } else if error.kind == CaptureFailureKind::ExternalDrift
         && system_proxy_phase == Some(SystemProxyPhase::Drift)
     {
@@ -1356,6 +1359,18 @@ impl MishRuntime {
         None
     }
 
+    pub async fn reject_capture_operation(
+        &self,
+        operation: &CaptureOperation,
+        error: &CaptureTransitionError,
+    ) -> Option<CaptureRuntimeStatus> {
+        let status = self
+            .finish_capture_operation_failure(operation, error)
+            .await;
+        self.record_capture_failure(error);
+        status
+    }
+
     pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
         if let Some(capture) = &self.capture {
             capture
@@ -1550,5 +1565,18 @@ mod capture_failure_notification_tests {
             actions,
             vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
         );
+    }
+
+    #[test]
+    fn missing_configuration_offers_only_safe_profiles_navigation() {
+        let actions = capture_failure_action_ids(
+            &CaptureTransitionError::new(
+                CaptureFailureKind::ConfigurationRequired,
+                "A Profile configuration is required",
+            ),
+            Some(SystemProxyPhase::Off),
+        );
+
+        assert_eq!(actions, vec![ApplicationActionId::OpenProfiles]);
     }
 }

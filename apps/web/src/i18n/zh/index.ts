@@ -429,6 +429,8 @@ const zh: Translation = {
   },
   capture: {
     acknowledge: "知道了",
+    configurationRequired: "启动代理前，请先选择或导入一个 Profile 配置。",
+    configurationRequiredTitle: "需要 Profile 配置",
     desktopDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     deviceDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     fixtureDescription:
@@ -437,6 +439,7 @@ const zh: Translation = {
     modeAria: "{mode}，{selection}，{runtime}",
     notRunning: "未运行",
     notSelected: "未选择",
+    openProfiles: "打开配置",
     running: "运行中",
     selected: "已选择",
     leaveAsIs: "保持系统当前设置",

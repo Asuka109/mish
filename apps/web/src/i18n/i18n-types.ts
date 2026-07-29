@@ -1495,6 +1495,14 @@ type RootTranslation = {
 		 */
 		acknowledge: string
 		/**
+		 * C​h​o​o​s​e​ ​o​r​ ​i​m​p​o​r​t​ ​a​ ​P​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​b​e​f​o​r​e​ ​l​a​u​n​c​h​i​n​g​ ​t​h​e​ ​p​r​o​x​y​.
+		 */
+		configurationRequired: string
+		/**
+		 * P​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​r​e​q​u​i​r​e​d
+		 */
+		configurationRequiredTitle: string
+		/**
 		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		desktopDescription: string
@@ -1525,6 +1533,10 @@ type RootTranslation = {
 		 * n​o​t​ ​s​e​l​e​c​t​e​d
 		 */
 		notSelected: string
+		/**
+		 * O​p​e​n​ ​P​r​o​f​i​l​e​s
+		 */
+		openProfiles: string
 		/**
 		 * r​u​n​n​i​n​g
 		 */
@@ -6239,6 +6251,14 @@ export type TranslationFunctions = {
 		 */
 		acknowledge: () => LocalizedString
 		/**
+		 * Choose or import a Profile configuration before launching the proxy.
+		 */
+		configurationRequired: () => LocalizedString
+		/**
+		 * Profile configuration required
+		 */
+		configurationRequiredTitle: () => LocalizedString
+		/**
 		 * These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.
 		 */
 		desktopDescription: () => LocalizedString
@@ -6266,6 +6286,10 @@ export type TranslationFunctions = {
 		 * not selected
 		 */
 		notSelected: () => LocalizedString
+		/**
+		 * Open Profiles
+		 */
+		openProfiles: () => LocalizedString
 		/**
 		 * running
 		 */

@@ -141,6 +141,19 @@ describe("notification presentation registry", () => {
     expect(JSON.stringify(presentation)).not.toContain("protected-pac");
   });
 
+  it("presents the Rust-owned missing configuration failure with one Profiles action", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { failure: "configuration-required" }, ["open-profiles"]),
+      i18nObject("en"),
+    );
+
+    expect(presentation.title).toBe("Profile configuration required");
+    expect(presentation.message).toBe(
+      "Choose or import a Profile configuration before launching the proxy.",
+    );
+    expect(presentation.actions).toEqual([{ id: "open-profiles", label: "Open Profiles" }]);
+  });
+
   it("presents TUN drift without System Proxy recovery copy or actions", () => {
     const presentation = presentNotification(
       record("capture.failure", { captureMode: "tun", failure: "external-drift" }),

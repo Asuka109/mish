@@ -45,6 +45,7 @@ export type NativeActionId = (typeof nativeActionIds)[number];
 export const applicationActionIds = [
   "find-ports-and-retry",
   "leave-as-is",
+  "open-profiles",
   "open-system-proxy-settings",
   "open-welcome",
   "repair",
@@ -350,12 +351,13 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
         .array(
           z.enum([
             "leave-as-is",
+            "open-profiles",
             "open-system-proxy-settings",
             "repair",
             "show-system-proxy-settings-steps",
           ]),
         )
-        .max(4)
+        .max(5)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationCaptureFailureDataSchema,
       kind: z.literal("capture.failure"),
