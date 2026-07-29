@@ -2442,7 +2442,7 @@ describe("Status fixture experience", () => {
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot), profileClient);
 
     const groups = await screen.findByRole("region", { name: "Frequently used policy groups" });
-    expect(within(groups).getByText("Configured order.")).toBeVisible();
+    expect(await within(groups).findByText("Configured order.")).toBeVisible();
     expect(within(groups).getByText("Configured group 1")).toBeVisible();
     expect(within(groups).getByText("Configured node 1")).toBeVisible();
     expect(within(groups).getByText("Configured group 5")).toBeVisible();
