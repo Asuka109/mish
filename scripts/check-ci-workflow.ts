@@ -83,6 +83,7 @@ function assertNodeCache(jobValue: Job, label: string): void {
 
   const node = step(jobValue, "Set up Node.js");
   invariant(node.uses === setupNodeAction, `${label} must pin the reviewed Node setup action.`);
+  invariant(node.with?.["node-version"] === "24.10.0", `${label} must pin Node.js 24.10.0.`);
   invariant(node.with?.cache === "pnpm", `${label} must restore the pnpm store cache.`);
   invariant(
     node.with?.["cache-dependency-path"] === "pnpm-lock.yaml",
@@ -245,6 +246,11 @@ const archive = step(packageMacos, "Create app archive");
 invariant(
   archive.run?.includes("archive_sha256") && archive.run.includes("shasum -a 256"),
   "The app archive must publish its SHA-256 for the package summary.",
+);
+invariant(
+  archive.run?.includes("hdiutil attach -readonly -nobrowse -noautoopen") &&
+    archive.run.includes("trap cleanup EXIT"),
+  "The app archive must mount the verified DMG headlessly and always detach it.",
 );
 
 const summary = step(packageMacos, "Write package summary");

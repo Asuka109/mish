@@ -51,7 +51,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
@@ -78,7 +78,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Cache Rust dependencies and build outputs
@@ -116,7 +116,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Cache Rust dependencies and build outputs
@@ -134,9 +134,18 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA:0:7}"
+          mountpoint="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
+            rmdir "$mountpoint" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach -readonly -nobrowse -noautoopen \
+            -mountpoint "$mountpoint" \
+            target/release/bundle/dmg/Mish_0.1.0_aarch64.dmg
           mkdir -p .scratch/artifacts
           ditto -c -k --sequesterRsrc --keepParent \
-            target/release/bundle/macos/Mish.app \
+            "$mountpoint/Mish.app" \
             ".scratch/artifacts/Mish-${short_sha}.app.zip"
           unzip -t ".scratch/artifacts/Mish-${short_sha}.app.zip"
           archive_sha256="$(shasum -a 256 ".scratch/artifacts/Mish-${short_sha}.app.zip" | awk '{print $1}')"
@@ -201,7 +210,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Set up Java

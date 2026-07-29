@@ -18,6 +18,9 @@ interface EnvironmentPolicy {
 
 export interface TrustPolicy {
   activation: { enabled: boolean };
+  actions: {
+    allowed: Record<string, string>;
+  };
   repository: {
     name: string;
     defaultBranch: string;
@@ -79,6 +82,17 @@ function safeObservation(name: string, result: ApiResult): unknown {
         allowed_actions: body.allowed_actions,
         enabled: body.enabled,
         sha_pinning_required: body.sha_pinning_required,
+      },
+      status: result.status,
+    };
+  }
+  if (name === "selectedActions") {
+    const body = result.body as Record<string, unknown>;
+    return {
+      body: {
+        github_owned_allowed: body.github_owned_allowed,
+        patterns_allowed: body.patterns_allowed,
+        verified_allowed: body.verified_allowed,
       },
       status: result.status,
     };
@@ -297,7 +311,7 @@ export function collectGitHubTrustEndpoints(
     oidc: api(`repos/${repository}/actions/oidc/customization/sub`),
     repository: api(`repos/${repository}`),
     rulesets: api(`repos/${repository}/rulesets?includes_parents=true&per_page=100`),
-    runners: api(`repos/${repository}/actions/runners?per_page=100`),
+    selectedActions: api(`repos/${repository}/actions/permissions/selected-actions`),
     workflowToken: api(`repos/${repository}/actions/permissions/workflow`),
   };
 
@@ -453,6 +467,27 @@ export function evaluateGitHubTrustSettings(
   ) {
     blockers.push(
       "Repository Actions settings do not enforce a selected allowlist and full commit SHA pinning.",
+    );
+  }
+  const selectedActions = endpoints.selectedActions.body as
+    | {
+        github_owned_allowed?: boolean;
+        patterns_allowed?: string[];
+        verified_allowed?: boolean;
+      }
+    | undefined;
+  const expectedThirdPartyActions = Object.entries(trustPolicy.actions.allowed)
+    .filter(([name]) => !name.startsWith("actions/"))
+    .map(([name, sha]) => `${name}@${sha}`)
+    .sort();
+  if (
+    endpoints.selectedActions.status !== 0 ||
+    selectedActions?.github_owned_allowed !== true ||
+    selectedActions.verified_allowed !== false ||
+    !sameStrings(selectedActions.patterns_allowed ?? [], expectedThirdPartyActions)
+  ) {
+    blockers.push(
+      "Repository selected-action settings do not exactly allow GitHub-owned actions plus the reviewed third-party SHA pins.",
     );
   }
 

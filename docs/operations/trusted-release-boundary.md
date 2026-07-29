@@ -4,13 +4,10 @@ Mish currently has no executable trusted signing, notarization, attestation,
 publication, release, or deployment job. This is an intentional fail-closed
 state, not evidence that a protected gate ran successfully.
 
-The repository is private and its current GitHub plan does not expose protected
-branches, rulesets, or reviewer-protected Environments. Repository Actions
-settings also do not enforce a selected action allowlist or full-SHA pinning,
-and the repository OIDC subject uses GitHub's default template. Therefore
-`.github/trusted-release-policy.json` keeps protected execution and OIDC
-disabled. No production secret or signing identity may be configured while
-that flag is false.
+Protected execution remains disabled until branch/ruleset review,
+reviewer-protected Environments, the selected Action allowlist, full-SHA
+pinning, and the OIDC subject all match the checked-in policy. No production
+secret or signing identity may be configured while that flag is false.
 
 The latest reviewed hosted `main` run for `cecdf798`
 ([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
@@ -22,8 +19,7 @@ available evidence. They are not a runner-executed protected gate.
 
 The boundary treats pull-request code, fork code, merge refs, arbitrary refs,
 workflow inputs, cached state, uploaded artifacts, reusable-workflow callers,
-and self-hosted runner state as untrusted. A malicious contribution must not be
-able to:
+and runner state as untrusted. A malicious contribution must not be able to:
 
 - read a repository or Environment secret;
 - mint a trusted OIDC identity;
@@ -35,8 +31,7 @@ able to:
 
 Routine PR validation runs only on `ubuntu-24.04` with `contents: read`. It does
 not use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
-upload. The existing `asuk-mini` runner may remain registered for trusted local
-operations, but no untrusted workflow targets it.
+upload.
 
 ## Current executable workflow
 
@@ -103,8 +98,8 @@ must not be reported as successful staging.
 Live protected jobs may be added only in one reviewed change after every item
 below is observed through `pnpm audit:ci:trust-settings`:
 
-1. Upgrade the private repository plan or change visibility so GitHub exposes
-   protected branches/rulesets and reviewer-protected Environments.
+1. Confirm GitHub exposes protected branches/rulesets and
+   reviewer-protected Environments for the repository.
 2. Protect `main`; require the Fast PR gate, approving review, and CODEOWNERS
    review; dismiss stale approvals; require conversation resolution; prohibit
    force pushes and deletion; and prevent an administrator bypass.
@@ -112,17 +107,14 @@ below is observed through `pnpm audit:ci:trust-settings`:
    `main` only, required reviewer `18379948`, and no administrator bypass.
    Store signer inputs only in `macos-developer-id`; the publication
    Environment must not receive Apple credentials.
-4. Restrict repository Actions to the explicit allowlist and require every
-   action to use a full commit SHA. The checked-in workflows already pin and
-   deterministically verify those SHAs; repository settings must add the
-   server-side control.
+4. Preserve the explicit repository Action allowlist and full-commit-SHA
+   requirement. The checked-in workflows and live audit both verify the exact
+   reviewed third-party SHAs.
 5. Configure OIDC only if a protected service requires it. Its subject and
    provider trust policy must bind repository and owner IDs, event, main ref,
    exact workflow and reusable-workflow paths and SHAs, Environment, actor ID,
    run ID, and run attempt. A broad repository-only subject is insufficient.
-6. Keep untrusted and protected jobs on GitHub-hosted images. A future dedicated
-   signer may use an ephemeral isolated runner group only if GitHub can restrict
-   it to the exact protected workflow. A general self-hosted label is forbidden.
+6. Keep untrusted and protected jobs on GitHub-hosted images.
 7. Keep protected reusable workflows disabled unless a caller and callee are
    both pinned by full commit SHA and the callee independently validates every
    input. `secrets: inherit`, branch/tag references, arbitrary callers, and
@@ -194,8 +186,7 @@ and attempts to replace an existing final stage.
 - [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
   — full commit SHA action pinning and untrusted-code guidance.
 - [Deployments and Environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
-  — required reviewers, branch/tag restrictions, secret availability, and
-  self-hosted runner caveats.
+  — required reviewers, branch/tag restrictions, and secret availability.
 - [Contexts reference](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts)
   — `workflow_ref`, `workflow_sha`, actor, repository, run, and ref identities.
 - [OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)

@@ -120,7 +120,7 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
   This lane is neither Developer ID signing nor public release publication.
 - `signed-direct` has a credential-free policy, bundle-shape, identity, and
   deterministic fixture foundation. The repository-wide trust policy now pins
-  workflow dependencies, moves untrusted PR code off the self-hosted runner,
+  workflow dependencies, keeps untrusted PR code on GitHub-hosted runners,
   freezes repository/workflow/tooling/source identity, binds credential-free
   candidates to immutable artifact IDs and complete manifests, and rejects
   adversarial refs, actors, reusable callers, runners, and substitutions.
