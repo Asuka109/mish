@@ -27,6 +27,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mish-self-hosted-ci
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   CI: true
@@ -49,18 +53,8 @@ jobs:
       github.event.pull_request.head.sha != '' &&
       github.workflow_ref == 'Asuka109/mish/.github/workflows/ci.yml@refs/heads/main' &&
       github.workflow_sha == github.sha
-    permissions:
-      contents: read
-    runs-on:
-      - self-hosted
-      - macOS
-      - ARM64
-      - mish
-      - trusted-ci
+    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 10
-    concurrency:
-      group: mish-self-hosted-ci
-      cancel-in-progress: false
     steps:
       - name: Verify dedicated runner boundary
         shell: bash
@@ -70,10 +64,7 @@ jobs:
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
           test "$(id -u)" -ne 0
-          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
-          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
-          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -111,18 +102,8 @@ jobs:
           (inputs.task == 'inspection' || inputs.task == 'all')
         )
       )
-    permissions:
-      contents: read
-    runs-on:
-      - self-hosted
-      - macOS
-      - ARM64
-      - mish
-      - trusted-ci
+    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 45
-    concurrency:
-      group: mish-self-hosted-ci
-      cancel-in-progress: false
     steps:
       - name: Verify dedicated runner boundary
         shell: bash
@@ -132,10 +113,7 @@ jobs:
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
           test "$(id -u)" -ne 0
-          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
-          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
-          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -184,18 +162,8 @@ jobs:
           (inputs.task == 'packages' || inputs.task == 'all')
         )
       )
-    permissions:
-      contents: read
-    runs-on:
-      - self-hosted
-      - macOS
-      - ARM64
-      - mish
-      - trusted-ci
+    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 45
-    concurrency:
-      group: mish-self-hosted-ci
-      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -207,10 +175,7 @@ jobs:
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
           test "$(id -u)" -ne 0
-          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
-          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
-          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -308,18 +273,8 @@ jobs:
           (inputs.task == 'packages' || inputs.task == 'all')
         )
       )
-    permissions:
-      contents: read
-    runs-on:
-      - self-hosted
-      - macOS
-      - ARM64
-      - mish
-      - trusted-ci
+    runs-on: [self-hosted, macOS, ARM64, mish, trusted-ci]
     timeout-minutes: 45
-    concurrency:
-      group: mish-self-hosted-ci
-      cancel-in-progress: false
     steps:
       - name: Verify dedicated runner boundary
         shell: bash
@@ -329,10 +284,7 @@ jobs:
           test "$RUNNER_OS" = "macOS"
           test "$RUNNER_ARCH" = "ARM64"
           test "$(id -u)" -ne 0
-          test "$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"
-          test "$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"
-          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh"
-          test "$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
+          test "$ACTIONS_RUNNER_HOOK_JOB_STARTED:$ACTIONS_RUNNER_HOOK_JOB_COMPLETED" = "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh:$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

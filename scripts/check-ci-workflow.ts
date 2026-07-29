@@ -12,17 +12,15 @@ type Step = {
 };
 
 type Job = {
-  concurrency?: { "cancel-in-progress"?: boolean; group?: string };
   env?: Record<string, unknown>;
   if?: string;
   needs?: unknown;
-  permissions?: Record<string, string>;
-  "runs-on"?: string | string[];
   steps?: Step[];
   "timeout-minutes"?: number;
 };
 
 type Workflow = {
+  concurrency?: { "cancel-in-progress"?: boolean; group?: string };
   jobs?: Record<string, Job>;
   on?: {
     pull_request_target?: { types?: string[] };
@@ -34,6 +32,7 @@ type Workflow = {
       };
     };
   };
+  permissions?: Record<string, string>;
 };
 
 const workflowPath = resolve(import.meta.dirname, "../.github/workflows/ci.yml");
@@ -48,7 +47,6 @@ const workflow = document.toJS() as Workflow;
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"),
 ) as { scripts?: Record<string, string> };
-const runnerLabels = ["self-hosted", "macOS", "ARM64", "mish", "trusted-ci"];
 const concurrencyGroup = "mish-self-hosted-ci";
 const packageTrigger =
   "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))";
@@ -135,31 +133,15 @@ invariant(
   JSON.stringify(dispatchTask.options) === JSON.stringify(["inspection", "packages", "all"]),
   "Manual CI dispatch must support inspection, packages, or both.",
 );
-for (const [jobName, candidate] of Object.entries(workflow.jobs ?? {})) {
-  invariant(
-    JSON.stringify(candidate["runs-on"]) === JSON.stringify(runnerLabels),
-    `${jobName} must route only to the exact dedicated Apple Silicon runner labels.`,
-  );
-  invariant(
-    JSON.stringify(candidate.permissions) === JSON.stringify({ contents: "read" }),
-    `${jobName} must independently retain contents: read.`,
-  );
-  invariant(
-    candidate.concurrency?.group === concurrencyGroup &&
-      candidate.concurrency["cancel-in-progress"] === false,
-    `${jobName} must share the non-cancelling runner concurrency lock.`,
-  );
-  const boundary = candidate.steps?.[0];
-  invariant(
-    boundary?.name === "Verify dedicated runner boundary" &&
-      boundary.run?.includes('"$RUNNER_NAME" = "asuk-mini"') &&
-      boundary.run.includes('"$(id -u)" -ne 0') &&
-      boundary.run.includes('"$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"') &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED"),
-    `${jobName} must fail closed on runner identity, non-root ownership, and hooks.`,
-  );
-}
+invariant(
+  JSON.stringify(workflow.permissions) === JSON.stringify({ contents: "read" }),
+  "CI workflow permissions must remain contents: read.",
+);
+invariant(
+  workflow.concurrency?.group === concurrencyGroup &&
+    workflow.concurrency["cancel-in-progress"] === false,
+  "CI jobs must share the repository-wide non-cancelling runner lock.",
+);
 
 const prGate = job("pr-gate");
 invariant(

@@ -53,55 +53,34 @@ accepting it. Restore an untrusted GitHub-hosted Linux lane, an ephemeral
 single-job runner, or a dedicated standard macOS account; do not broaden the
 actor/repository guard while using the console account.
 
-## Complete job matrix
+## Job matrix
 
-| Workflow / job                               | Trigger and source                                            | Classification                                          | Token, cache, artifact, timeout                                                         |
-| -------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| CI / Fast PR gate                            | Owner-only same-repository PR head; reviewed default workflow | Redesigned, then trusted self-hosted                    | `contents: read`; no remote pnpm cache; no artifact; 10 min                             |
-| CI / Inspect main                            | Daily schedule or owner manual; exact `main`                  | Trusted self-hosted                                     | `contents: read`; lockfile pnpm and `main-inspection` Rust caches; no artifact; 45 min  |
-| CI / Package macOS ARM64                     | Owner push to `main` or owner manual packages/all             | Trusted self-hosted                                     | `contents: read`; lockfile pnpm and `macos-package` Rust caches; 14-day app ZIP; 45 min |
-| CI / Package Android test APKs               | Owner push to `main` or owner manual packages/all             | Trusted self-hosted                                     | `contents: read`; pnpm, Gradle, and `android-package` Rust caches; 14-day APKs; 45 min  |
-| Release / Freeze reviewed source and tooling | Owner manual dispatch on exact `main`                         | Trusted self-hosted                                     | `contents: read`; no cache/artifact; 10 min                                             |
-| Release / Build Alpha candidate              | Frozen reachable source and frozen tooling                    | Trusted self-hosted, credential-free candidate          | pnpm/Rust caches; one-day immutable artifact; 60 min                                    |
-| Release / Verify Alpha candidate             | Depends on exact candidate artifact ID                        | Trusted self-hosted                                     | no dependency cache; no new artifact; 10 min                                            |
-| Release / Build Internal TUN candidate       | Source must equal frozen `main`                               | Trusted self-hosted, credential-free internal candidate | pnpm cache; one-day immutable artifact; 90 min                                          |
-| Release / Verify Internal TUN candidate      | Exact candidate artifact ID, read-only DMG mount              | Trusted self-hosted                                     | no dependency cache; one-day verification evidence; 20 min                              |
-| Release / Stage Internal TUN Alpha           | Exact candidate and verification artifact IDs                 | Trusted self-hosted                                     | no dependency cache; non-overwriting 14-day stage; 10 min                               |
-| Release / Confirm Internal TUN stage         | Exact final artifact ID, read-only DMG mount                  | Trusted self-hosted                                     | no dependency cache/new artifact; 20 min                                                |
-| Release / Verify signed-direct plan          | Frozen source; protected execution disabled                   | Trusted self-hosted, fixture-only                       | pnpm/Rust caches; no artifact; 60 min                                                   |
+| Lane                       | Trusted source and use                                | Cache / output                                                |
+| -------------------------- | ----------------------------------------------------- | ------------------------------------------------------------- |
+| PR gate                    | Owner-only same-repository head via reviewed workflow | No restored dependency cache or artifact; 10-minute ceiling   |
+| Main inspection            | Daily or owner-manual exact `main`                    | Lockfile-keyed pnpm/Rust cache; no artifact; 45 minutes       |
+| macOS/Android test package | Owner push or manual exact `main`                     | Scoped caches and 14-day non-production artifacts             |
+| Release-candidate checks   | Owner-manual frozen `main`, source, and tooling       | Credential-free immutable artifacts only; protected paths off |
 
 Every third-party action is allowlisted in
 `.github/trusted-release-policy.json` and pinned to a full commit SHA.
 Repository Actions settings must use `allowed_actions: selected` and require
 full-SHA pins. No current workflow reads a repository or Environment secret.
 
-## Account and host prerequisites
+## Host prerequisites
 
-The installed `asuk-mini` runner predates this contract and uses the current
-non-root console account. Workflows must therefore execute only exact
-owner-authored repository code. They must not read personal Keychain items,
-shell profiles, SSH/GitHub credentials, mounted network shares, or files
-outside `~/actions-runner/mish/_work`. The cleanup hook is workspace-scoped:
-it never terminates all processes belonging to the account and never deletes
-outside the exact runner work, runner-created DMG, or runner-created temporary
-Keychain paths.
+The existing runner uses the current non-root console account. Until it moves
+to a dedicated Standard account, run only owner-authored code, avoid
+interactive development during CI, and keep personal credentials, mounted
+shares, and files outside the runner work tree out of workflows. Cleanup is
+workspace-scoped and never kills every process for the account or deletes
+unrelated files. Routine verification is headless: no Finder, AppleScript, or
+GUI application.
 
-Do not use the Mac mini interactively for development while a CI job is
-running. Routine verification is headless and must not invoke Finder,
-AppleScript, or GUI applications. A future runner should use a dedicated
-Standard account; the current shared-account exception must not be copied to a
-second machine.
-
-Install current macOS security updates and Xcode Command Line Tools. The
-workflow pins Node `24.10.0`, pnpm `11.13.1`, Temurin 17, Android command-line
-tools `14742923`, API 36, Build Tools `36.1.0`, NDK `29.0.14206865`, and the
-Rust `1.97.1` toolchain plus Clippy, rustfmt, and both Android targets.
-`rust-toolchain.toml`, setup actions, the Gradle wrapper, and lockfiles are the
-authority; undocumented global versions are not.
-
-The macOS runner service is a per-user LaunchAgent. The existing service must
-remain loaded after login and recover after reboot. The workflow is responsible
-for remaining headless even though the service account is also `/dev/console`.
+Keep macOS and Xcode Command Line Tools current. Workflow/setup files pin Node,
+pnpm, Temurin, Android tools/targets, Rust `1.97.1`, Clippy, and rustfmt; the
+Gradle wrapper and lockfiles are authoritative. The per-user LaunchAgent must
+recover after login/reboot.
 
 ## Reuse and configure the existing registration
 

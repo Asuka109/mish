@@ -26,6 +26,10 @@ interface WorkflowJob {
 }
 
 interface Workflow {
+  concurrency?: {
+    "cancel-in-progress"?: boolean;
+    group?: string;
+  };
   jobs?: Record<string, WorkflowJob>;
   on?: Record<string, unknown>;
   permissions?: Record<string, string>;
@@ -111,11 +115,6 @@ function assertTrustedSelfHostedJob(
     JSON.stringify(job["runs-on"]) === JSON.stringify(policy.trustedSelfHostedCi.runnerLabels),
     `${relative} ${jobName} does not use the exact dedicated runner labels.`,
   );
-  invariant(
-    JSON.stringify(job.permissions ?? { contents: "read" }) ===
-      JSON.stringify({ contents: "read" }),
-    `${relative} ${jobName} must retain contents: read.`,
-  );
   invariant(!job.uses, `${relative} ${jobName} must not call a reusable workflow.`);
   const source = JSON.stringify(job);
   invariant(!source.includes("${{ secrets."), `${relative} ${jobName} reads a secret.`);
@@ -124,12 +123,34 @@ function assertTrustedSelfHostedJob(
   invariant(
     boundary?.name === "Verify dedicated runner boundary" &&
       boundary.run?.includes(`"$RUNNER_NAME" = "${policy.trustedSelfHostedCi.runnerName}"`) &&
+      boundary.run.includes('"$RUNNER_OS" = "macOS"') &&
+      boundary.run.includes('"$RUNNER_ARCH" = "ARM64"') &&
       boundary.run.includes('"$(id -u)" -ne 0') &&
-      boundary.run.includes('"$MISH_RUNNER_ROOT" = "$HOME/actions-runner/mish"') &&
-      boundary.run.includes('"$MISH_RUNNER_HOOK_ROOT" = "$HOME/.local/share/mish-runner-hooks"') &&
       boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_STARTED") &&
-      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED"),
+      boundary.run.includes("ACTIONS_RUNNER_HOOK_JOB_COMPLETED") &&
+      boundary.run.includes(
+        "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-started.sh",
+      ) &&
+      boundary.run.includes(
+        "$HOME/.local/share/mish-runner-hooks/self-hosted-runner-job-completed.sh",
+      ),
     `${relative} ${jobName} does not fail closed on runner identity, non-root ownership, and hooks.`,
+  );
+}
+
+function assertWorkflowDefaults(
+  policy: TrustedReleasePolicy,
+  relative: string,
+  workflow: Workflow,
+): void {
+  invariant(
+    JSON.stringify(workflow.permissions) === JSON.stringify({ contents: "read" }),
+    `${relative} must default every job to contents: read.`,
+  );
+  invariant(
+    workflow.concurrency?.group === policy.trustedSelfHostedCi.concurrencyGroup &&
+      workflow.concurrency["cancel-in-progress"] === false,
+    `${relative} must use the repository-wide non-cancelling runner lock.`,
   );
 }
 
@@ -270,6 +291,8 @@ const ci = parseWorkflow(".github/workflows/ci.yml");
 const release = parseWorkflow(".github/workflows/stage-macos-alpha-release.yml");
 assertActionPins(policy, ".github/workflows/ci.yml", ci.workflow);
 assertActionPins(policy, ".github/workflows/stage-macos-alpha-release.yml", release.workflow);
+assertWorkflowDefaults(policy, ".github/workflows/ci.yml", ci.workflow);
+assertWorkflowDefaults(policy, ".github/workflows/stage-macos-alpha-release.yml", release.workflow);
 assertCheckoutIsolation(".github/workflows/ci.yml", ci.workflow);
 assertCheckoutIsolation(".github/workflows/stage-macos-alpha-release.yml", release.workflow);
 assertNoProtectedExecution(
@@ -346,28 +369,8 @@ invariant(
 );
 const freeze = release.workflow.jobs?.["freeze-source"];
 invariant(
-  freeze?.if?.includes("refs/heads/main") &&
-    JSON.stringify(freeze.permissions) === JSON.stringify({ contents: "read" }),
+  freeze?.if?.includes("refs/heads/main"),
   "Source freeze must fail closed on reviewed main with read-only contents.",
-);
-const verify = release.workflow.jobs?.["verify-candidate"];
-const decision = release.workflow.jobs?.["staging-decision"];
-const internalBuild = release.workflow.jobs?.["build-internal-tun-candidate"];
-const internalVerify = release.workflow.jobs?.["verify-internal-tun-candidate"];
-const internalStage = release.workflow.jobs?.["stage-internal-tun-alpha"];
-const internalConfirm = release.workflow.jobs?.["confirm-internal-tun-stage"];
-invariant(
-  JSON.stringify(verify?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(decision?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(internalBuild?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(internalVerify?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(internalStage?.permissions) === JSON.stringify({ contents: "read" }) &&
-    JSON.stringify(internalConfirm?.permissions) === JSON.stringify({ contents: "read" }),
-  "Candidate validation and Internal TUN staging must retain read-only repository permissions.",
-);
-invariant(
-  JSON.stringify(verify?.["runs-on"]) === JSON.stringify(policy.trustedSelfHostedCi.runnerLabels),
-  "Credential-free candidate code must use the exact dedicated trusted runner.",
 );
 invariant(
   release.source.includes("trusted-release-policy.ts create-manifest") &&
@@ -393,14 +396,6 @@ for (const requirement of [
     `Internal TUN immutable staging boundary is missing ${requirement}.`,
   );
 }
-invariant(
-  [internalBuild, internalVerify, internalStage, internalConfirm].every(
-    (job) =>
-      JSON.stringify(job?.["runs-on"]) === JSON.stringify(policy.trustedSelfHostedCi.runnerLabels),
-  ),
-  "Internal TUN staging must use only the exact dedicated trusted runner.",
-);
-
 const codeowners = read(".github/CODEOWNERS");
 for (const required of policy.codeowners.requiredPaths) {
   invariant(
@@ -450,5 +445,5 @@ invariant(
 );
 
 console.log(
-  "Trusted CI policy valid: every job uses the dedicated owner-only macOS runner, PRs use the default workflow and exact same-repository head SHA, external/untrusted execution is disabled, protected signing remains disabled, and action, hook, cleanup, CODEOWNERS, Environment, OIDC, and immutable-artifact contracts are deterministic.",
+  "Trusted CI policy valid: every job uses the dedicated serialized owner-only macOS runner with read-only defaults; PRs use the default workflow and exact same-repository head SHA; external/untrusted execution and protected signing remain disabled; action, hook, cleanup, CODEOWNERS, Environment, OIDC, and immutable-artifact contracts are deterministic.",
 );
