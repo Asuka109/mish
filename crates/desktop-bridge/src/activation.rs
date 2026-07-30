@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
-    ManagedCoreRecoveryOutcome, PrivilegedCoreHost, ProfileMappingContext,
+    ManagedCoreRecoveryOutcome, PrivilegedCoreHost, PrivilegedCoreHostError, ProfileMappingContext,
 };
 
 enum ManagedBinaryLocation {
@@ -244,6 +244,8 @@ pub enum MihomoActivationError {
     GeodataTimeout(crate::GeodataAsset),
     #[error("the candidate Mihomo core could not be started")]
     StartFailed,
+    #[error("the privileged TUN service is unavailable")]
+    TunHelperUnavailable,
     #[error("the candidate Mihomo core exited before activation committed")]
     EarlyExit,
     #[error("a Mish-managed loopback listener is already in use")]
@@ -981,6 +983,11 @@ impl MihomoActivationManager {
         cancellation: CancellationToken,
     ) -> Result<(), MihomoActivationError> {
         if candidate.runtime.start_core().await.is_err() {
+            if candidate.process.privileged_start_failure().await
+                == Some(PrivilegedCoreHostError::Unavailable)
+            {
+                return Err(MihomoActivationError::TunHelperUnavailable);
+            }
             let status = candidate.process.status().await;
             if status.error.as_deref()
                 == Some(
@@ -1984,7 +1991,7 @@ impl MihomoActivationError {
             Self::ValidationFailed => ActivationFailureKind::Validation,
             Self::GeodataFailed(_) => ActivationFailureKind::GeodataFailed,
             Self::GeodataTimeout(_) => ActivationFailureKind::GeodataTimeout,
-            Self::StartFailed => ActivationFailureKind::Start,
+            Self::StartFailed | Self::TunHelperUnavailable => ActivationFailureKind::Start,
             Self::EarlyExit => ActivationFailureKind::EarlyExit,
             Self::ManagedListenerConflict(_) => ActivationFailureKind::ManagedListenerConflict,
             Self::VersionMismatch => ActivationFailureKind::VersionMismatch,

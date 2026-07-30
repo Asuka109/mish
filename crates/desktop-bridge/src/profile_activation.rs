@@ -75,6 +75,7 @@ pub enum ProfileActivationFailure {
     GeodataFailed,
     GeodataTimeout,
     Start,
+    TunHelperUnavailable,
     EarlyExit,
     ManagedListenerConflict,
     VersionMismatch,
@@ -242,6 +243,7 @@ enum ProfileActivationFailureEvidence {
     GeodataFailed(crate::GeodataAsset),
     GeodataTimeout(crate::GeodataAsset),
     Start,
+    TunHelperUnavailable,
     EarlyExit,
     ManagedListenerConflict(String),
     VersionMismatch,
@@ -263,6 +265,7 @@ impl ProfileActivationFailureEvidence {
             Self::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
             Self::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
             Self::Start => ProfileActivationFailure::Start,
+            Self::TunHelperUnavailable => ProfileActivationFailure::TunHelperUnavailable,
             Self::EarlyExit => ProfileActivationFailure::EarlyExit,
             Self::ManagedListenerConflict(_) => ProfileActivationFailure::ManagedListenerConflict,
             Self::VersionMismatch => ProfileActivationFailure::VersionMismatch,
@@ -2504,9 +2507,10 @@ mod capture_selection_tests {
     use std::time::Duration;
 
     use super::{
-        ProfileActivationFailure, launch_duration_milliseconds,
-        profile_activation_failure_notification, usable_capture_selection,
+        ProfileActivationFailure, activation_failure_evidence, launch_duration_milliseconds,
+        map_failure, profile_activation_failure_notification, usable_capture_selection,
     };
+    use crate::MihomoActivationError;
     use mish_runtime::{
         ApplicationActionId, CapabilityAvailability, CaptureSelection, PlatformCapabilities,
         StatusAdapterKind,
@@ -2617,6 +2621,7 @@ mod capture_selection_tests {
             ProfileActivationFailure::Validation,
             ProfileActivationFailure::GeodataFailed,
             ProfileActivationFailure::GeodataTimeout,
+            ProfileActivationFailure::TunHelperUnavailable,
             ProfileActivationFailure::ManagedListenerConflict,
             ProfileActivationFailure::VersionMismatch,
             ProfileActivationFailure::Cancelled,
@@ -2627,6 +2632,27 @@ mod capture_selection_tests {
             assert!(notification.action_ids.is_empty());
             assert!(notification.actions_valid());
         }
+    }
+
+    #[test]
+    fn unavailable_privileged_service_produces_tun_setup_notification_evidence() {
+        let error = MihomoActivationError::TunHelperUnavailable;
+        assert_eq!(
+            activation_failure_evidence(error).failure(),
+            ProfileActivationFailure::TunHelperUnavailable
+        );
+        assert_eq!(
+            map_failure(error),
+            ProfileActivationFailure::TunHelperUnavailable
+        );
+
+        let notification =
+            profile_activation_failure_notification(ProfileActivationFailure::TunHelperUnavailable);
+        assert!(notification.action_ids.is_empty());
+        assert_eq!(
+            serde_json::to_value(notification.content).unwrap()["data"]["failure"],
+            "tun-helper-unavailable"
+        );
     }
 }
 
@@ -3343,6 +3369,9 @@ fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivatio
             ProfileActivationFailureEvidence::GeodataTimeout(asset)
         }
         MihomoActivationError::StartFailed => ProfileActivationFailureEvidence::Start,
+        MihomoActivationError::TunHelperUnavailable => {
+            ProfileActivationFailureEvidence::TunHelperUnavailable
+        }
         MihomoActivationError::EarlyExit => ProfileActivationFailureEvidence::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(endpoint) => {
             ProfileActivationFailureEvidence::ManagedListenerConflict(endpoint.to_string())
@@ -3374,6 +3403,9 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
         MihomoActivationError::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
         MihomoActivationError::StartFailed => ProfileActivationFailure::Start,
+        MihomoActivationError::TunHelperUnavailable => {
+            ProfileActivationFailure::TunHelperUnavailable
+        }
         MihomoActivationError::EarlyExit => ProfileActivationFailure::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(_) => {
             ProfileActivationFailure::ManagedListenerConflict
@@ -3417,6 +3449,7 @@ fn profile_activation_failure_id(failure: ProfileActivationFailure) -> &'static 
         ProfileActivationFailure::GeodataFailed => "geodata-failed",
         ProfileActivationFailure::GeodataTimeout => "geodata-timeout",
         ProfileActivationFailure::Start => "start",
+        ProfileActivationFailure::TunHelperUnavailable => "tun-helper-unavailable",
         ProfileActivationFailure::EarlyExit => "early-exit",
         ProfileActivationFailure::ManagedListenerConflict => "managed-listener-conflict",
         ProfileActivationFailure::VersionMismatch => "version-mismatch",

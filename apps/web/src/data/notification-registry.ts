@@ -365,6 +365,8 @@ function profileActivationFailure(failure: string | undefined, LL: TranslationFu
       return copy.geodataTimeout();
     case "start":
       return copy.start();
+    case "tun-helper-unavailable":
+      return copy.tunHelperUnavailable();
     case "early-exit":
       return copy.earlyExit();
     case "managed-listener-conflict":

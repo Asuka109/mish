@@ -2603,6 +2603,10 @@ type RootTranslation = {
 			 */
 			start: string
 			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​i​t​s​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​i​s​ ​n​o​t​ ​i​n​s​t​a​l​l​e​d​ ​o​r​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​I​n​s​t​a​l​l​ ​o​r​ ​r​e​p​a​i​r​ ​i​t​ ​i​n​ ​S​e​t​t​i​n​g​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			tunHelperUnavailable: string
+			/**
 			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​m​i​t​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​a​t​e​ ​s​a​f​e​l​y​.
 			 */
 			stateCommit: string
@@ -7357,6 +7361,10 @@ export type TranslationFunctions = {
 			 * Mish could not start its packaged Mihomo Core. Check the selected profile and retry.
 			 */
 			start: () => LocalizedString
+			/**
+			 * Virtual Interface could not start because its system component is not installed or unavailable. Install or repair it in Settings, then retry.
+			 */
+			tunHelperUnavailable: () => LocalizedString
 			/**
 			 * Mish could not commit the authoritative activation state safely.
 			 */
