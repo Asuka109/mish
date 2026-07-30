@@ -1260,6 +1260,9 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
     }
@@ -1280,6 +1283,9 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
     }
@@ -1292,6 +1298,9 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
     }
@@ -1427,6 +1436,7 @@ fn maintenance_client_error(error: ServiceClientError) -> &'static str {
         ServiceClientError::Unavailable => "maintenance-helper-unavailable",
         ServiceClientError::Protocol => "maintenance-helper-protocol-mismatch",
         ServiceClientError::Rejected => "maintenance-helper-request-rejected",
+        ServiceClientError::NetworkOwnershipConflict => "maintenance-network-ownership-conflict",
         ServiceClientError::OperationFailed => "maintenance-helper-operation-failed",
     }
 }
@@ -1506,6 +1516,16 @@ async fn read_service_message(
 }
 
 fn map_service_response_error(response: ServiceResponse) -> ServiceClientError {
+    if [
+        response.status.observation.core,
+        response.status.observation.dns,
+        response.status.observation.interface,
+        response.status.observation.routes,
+    ]
+    .contains(&TunObservationComponentState::Foreign)
+    {
+        return ServiceClientError::NetworkOwnershipConflict;
+    }
     match response.diagnostic {
         Some(
             ServiceDiagnosticCode::AlreadyOwned
@@ -1536,6 +1556,7 @@ enum ServiceClientError {
     Unavailable,
     Protocol,
     Rejected,
+    NetworkOwnershipConflict,
     OperationFailed,
 }
 
@@ -1545,6 +1566,9 @@ fn map_host_error(error: ServiceClientError) -> PrivilegedCoreHostError {
             PrivilegedCoreHostError::Unavailable
         }
         ServiceClientError::Rejected => PrivilegedCoreHostError::Rejected,
+        ServiceClientError::NetworkOwnershipConflict => {
+            PrivilegedCoreHostError::NetworkOwnershipConflict
+        }
         ServiceClientError::OperationFailed => PrivilegedCoreHostError::OperationFailed,
     }
 }
@@ -4765,6 +4789,36 @@ mod tests {
         assert_eq!(result, Err("allowed binary is unavailable"));
         assert!(restored.load(Ordering::SeqCst));
         assert_eq!(network_recovery.load(), Ok(None));
+    }
+
+    #[test]
+    fn foreign_network_evidence_is_not_collapsed_into_a_core_start_failure() {
+        let response = ServiceResponse {
+            diagnostic: Some(ServiceDiagnosticCode::SpawnFailed),
+            ok: false,
+            request_id: "foreign-network-start".to_owned(),
+            status: ServiceStatus {
+                core: None,
+                helper_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                installation_id: "a".repeat(64),
+                observation: TunNetworkObservation::new(
+                    TunObservationComponentState::Absent,
+                    TunObservationComponentState::Foreign,
+                    TunObservationComponentState::Foreign,
+                    TunObservationComponentState::Foreign,
+                    tun_observation_now(),
+                ),
+            },
+        };
+
+        assert_eq!(
+            map_service_response_error(response),
+            ServiceClientError::NetworkOwnershipConflict
+        );
+        assert_eq!(
+            map_host_error(ServiceClientError::NetworkOwnershipConflict),
+            PrivilegedCoreHostError::NetworkOwnershipConflict
+        );
     }
 
     #[test]

@@ -76,6 +76,7 @@ pub enum ProfileActivationFailure {
     GeodataTimeout,
     Start,
     TunHelperUnavailable,
+    TunNetworkOwnershipConflict,
     EarlyExit,
     ManagedListenerConflict,
     VersionMismatch,
@@ -244,6 +245,7 @@ enum ProfileActivationFailureEvidence {
     GeodataTimeout(crate::GeodataAsset),
     Start,
     TunHelperUnavailable,
+    TunNetworkOwnershipConflict,
     EarlyExit,
     ManagedListenerConflict(String),
     VersionMismatch,
@@ -266,6 +268,9 @@ impl ProfileActivationFailureEvidence {
             Self::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
             Self::Start => ProfileActivationFailure::Start,
             Self::TunHelperUnavailable => ProfileActivationFailure::TunHelperUnavailable,
+            Self::TunNetworkOwnershipConflict => {
+                ProfileActivationFailure::TunNetworkOwnershipConflict
+            }
             Self::EarlyExit => ProfileActivationFailure::EarlyExit,
             Self::ManagedListenerConflict(_) => ProfileActivationFailure::ManagedListenerConflict,
             Self::VersionMismatch => ProfileActivationFailure::VersionMismatch,
@@ -2601,6 +2606,7 @@ mod capture_selection_tests {
         for failure in [
             ProfileActivationFailure::Staging,
             ProfileActivationFailure::Start,
+            ProfileActivationFailure::TunNetworkOwnershipConflict,
             ProfileActivationFailure::EarlyExit,
             ProfileActivationFailure::Controller,
             ProfileActivationFailure::Timeout,
@@ -2652,6 +2658,31 @@ mod capture_selection_tests {
         assert_eq!(
             serde_json::to_value(notification.content).unwrap()["data"]["failure"],
             "tun-helper-unavailable"
+        );
+    }
+
+    #[test]
+    fn foreign_tun_network_state_produces_retryable_ownership_notification_evidence() {
+        let error = MihomoActivationError::TunNetworkOwnershipConflict;
+        assert_eq!(
+            activation_failure_evidence(error).failure(),
+            ProfileActivationFailure::TunNetworkOwnershipConflict
+        );
+        assert_eq!(
+            map_failure(error),
+            ProfileActivationFailure::TunNetworkOwnershipConflict
+        );
+
+        let notification = profile_activation_failure_notification(
+            ProfileActivationFailure::TunNetworkOwnershipConflict,
+        );
+        assert_eq!(
+            notification.action_ids,
+            vec![ApplicationActionId::RetryProfileActivation]
+        );
+        assert_eq!(
+            serde_json::to_value(notification.content).unwrap()["data"]["failure"],
+            "tun-network-ownership-conflict"
         );
     }
 }
@@ -3372,6 +3403,9 @@ fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivatio
         MihomoActivationError::TunHelperUnavailable => {
             ProfileActivationFailureEvidence::TunHelperUnavailable
         }
+        MihomoActivationError::TunNetworkOwnershipConflict => {
+            ProfileActivationFailureEvidence::TunNetworkOwnershipConflict
+        }
         MihomoActivationError::EarlyExit => ProfileActivationFailureEvidence::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(endpoint) => {
             ProfileActivationFailureEvidence::ManagedListenerConflict(endpoint.to_string())
@@ -3405,6 +3439,9 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::StartFailed => ProfileActivationFailure::Start,
         MihomoActivationError::TunHelperUnavailable => {
             ProfileActivationFailure::TunHelperUnavailable
+        }
+        MihomoActivationError::TunNetworkOwnershipConflict => {
+            ProfileActivationFailure::TunNetworkOwnershipConflict
         }
         MihomoActivationError::EarlyExit => ProfileActivationFailure::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(_) => {
@@ -3450,6 +3487,7 @@ fn profile_activation_failure_id(failure: ProfileActivationFailure) -> &'static 
         ProfileActivationFailure::GeodataTimeout => "geodata-timeout",
         ProfileActivationFailure::Start => "start",
         ProfileActivationFailure::TunHelperUnavailable => "tun-helper-unavailable",
+        ProfileActivationFailure::TunNetworkOwnershipConflict => "tun-network-ownership-conflict",
         ProfileActivationFailure::EarlyExit => "early-exit",
         ProfileActivationFailure::ManagedListenerConflict => "managed-listener-conflict",
         ProfileActivationFailure::VersionMismatch => "version-mismatch",
@@ -3485,6 +3523,7 @@ fn profile_activation_failure_is_retryable(failure: ProfileActivationFailure) ->
         failure,
         ProfileActivationFailure::Staging
             | ProfileActivationFailure::Start
+            | ProfileActivationFailure::TunNetworkOwnershipConflict
             | ProfileActivationFailure::EarlyExit
             | ProfileActivationFailure::Controller
             | ProfileActivationFailure::Timeout

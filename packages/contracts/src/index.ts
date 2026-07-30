@@ -2512,6 +2512,7 @@ export const ProfileActivationFailureSchema = z.enum([
   "geodata-timeout",
   "start",
   "tun-helper-unavailable",
+  "tun-network-ownership-conflict",
   "early-exit",
   "managed-listener-conflict",
   "version-mismatch",

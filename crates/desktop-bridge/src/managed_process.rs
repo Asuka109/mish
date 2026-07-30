@@ -144,6 +144,8 @@ impl PrivilegedCoreProcess {
 pub enum PrivilegedCoreHostError {
     #[error("the privileged Core host is unavailable")]
     Unavailable,
+    #[error("the privileged Core host found externally owned TUN network state")]
+    NetworkOwnershipConflict,
     #[error("the privileged Core host rejected the launch request")]
     Rejected,
     #[error("the privileged Core host operation failed")]

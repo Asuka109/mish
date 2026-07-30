@@ -719,6 +719,8 @@ const zh: Translation = {
       start: "Mish 无法启动安装包内的 Mihomo Core。请检查所选配置后重试。",
       tunHelperUnavailable:
         "虚拟网卡无法启动，因为所需的系统组件尚未安装或当前不可用。请先到“设置”中安装或修复系统组件，然后重试。",
+      tunNetworkOwnershipConflict:
+        "虚拟网卡无法启动，因为其他应用正在接管 TUN、DNS 或路由。Mish 未改动这些网络状态。请先停止其他应用的网络接管，然后重试。",
       stateCommit: "Mish 无法安全提交权威启用状态。",
       timeout: "Mihomo 未能在启动截止时间前就绪。",
       unsafeRuntime: "Mish 拒绝了不安全的托管 Core 路径或私有运行边界。",

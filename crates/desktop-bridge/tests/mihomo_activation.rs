@@ -102,6 +102,39 @@ impl PrivilegedCoreHost for UnavailablePrivilegedCoreHost {
     }
 }
 
+struct NetworkOwnershipConflictPrivilegedCoreHost;
+
+impl PrivilegedCoreHost for NetworkOwnershipConflictPrivilegedCoreHost {
+    fn start(
+        &self,
+        _request: PrivilegedCoreLaunchRequest,
+    ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::NetworkOwnershipConflict) })
+    }
+
+    fn observe(
+        &self,
+        _process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<Option<PrivilegedCoreProcess>, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+
+    fn stop(
+        &self,
+        _process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<(), PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+
+    fn owns_listener(
+        &self,
+        _process: PrivilegedCoreProcess,
+        _endpoint: LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+}
+
 #[test]
 fn default_geodata_preparation_deadline_is_separate_from_validation() {
     let timing = ActivationTiming::default();
@@ -153,6 +186,58 @@ async fn unavailable_privileged_service_is_not_reported_as_a_profile_start_failu
     let error = manager.activate(&profile, &policy).await.unwrap_err();
 
     assert_eq!(error, MihomoActivationError::TunHelperUnavailable);
+    assert_eq!(
+        manager
+            .managed_state()
+            .await
+            .last_attempt()
+            .unwrap()
+            .failure(),
+        Some(ActivationFailureKind::Start)
+    );
+}
+
+#[tokio::test]
+async fn foreign_tun_network_state_is_not_reported_as_a_profile_start_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = root.path().join("runtime");
+    let lease = ManagedRuntimeLease::acquire(&runtime_root).unwrap();
+    let ownership = Arc::new(
+        ManagedCoreOwnership::new(
+            runtime_root.clone(),
+            Arc::new(RealManagedProcessPlatform),
+            lease,
+        )
+        .unwrap(),
+    );
+    let manager = MihomoActivationManager::new_privileged(
+        ManagedMihomoResolver::development(fixture("fake-activation-mihomo.sh"), runtime_root),
+        activation_timing(Duration::from_secs(1)),
+        None,
+        ownership,
+        Arc::new(NetworkOwnershipConflictPrivilegedCoreHost),
+    );
+    let helper = TunHelperSnapshot {
+        availability: TunHelperAvailability::Available,
+        expected_version: TUN_HELPER_EXPECTED_VERSION.into(),
+        health: TunHelperHealth::Healthy,
+        installation_id: Some("foreign-network-helper-fixture".into()),
+        installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
+        last_failure: None,
+        phase: TunHelperLifecyclePhase::Idle,
+    };
+    let policy = ManagedRuntimePolicy::new(
+        unused_loopback_address(),
+        "foreign-network-controller-secret",
+    )
+    .unwrap()
+    .with_tun_enabled(&helper, true)
+    .unwrap();
+    let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+
+    let error = manager.activate(&profile, &policy).await.unwrap_err();
+
+    assert_eq!(error, MihomoActivationError::TunNetworkOwnershipConflict);
     assert_eq!(
         manager
             .managed_state()

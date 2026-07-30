@@ -1012,16 +1012,15 @@ fn initialize(
             eprintln!("Internal TUN maintenance Recovery Required: restore evidence was rejected");
         }
         let development_service_ready = match development_tun_service.as_ref() {
-            Some(service) => match service.prepare_development_startup().await {
-                DevelopmentTunStartup::Ready => true,
-                DevelopmentTunStartup::ReadOnly(failure) => {
-                    let helper = tun_helper.snapshot();
-                    if !development_tun_service_not_installed(&helper) {
-                        tun_helper.mark_runtime_unavailable(failure);
-                    }
-                    false
+            Some(service) => {
+                let startup = service.prepare_development_startup().await;
+                let (ready, failure) =
+                    development_tun_startup_admission(&tun_helper.snapshot(), startup);
+                if let Some(failure) = failure {
+                    tun_helper.mark_runtime_unavailable(failure);
                 }
-            },
+                ready
+            }
             _ => false,
         };
         let internal_tun_profile = internal_tun_service.is_some();
@@ -1540,6 +1539,26 @@ fn development_tun_service_not_installed(snapshot: &TunHelperSnapshot) -> bool {
         && snapshot.health == TunHelperHealth::NotInstalled
         && snapshot.phase == TunHelperLifecyclePhase::Idle
         && snapshot.last_failure.is_none()
+}
+
+fn development_tun_startup_admission(
+    snapshot: &TunHelperSnapshot,
+    startup: DevelopmentTunStartup,
+) -> (bool, Option<TunHelperFailureKind>) {
+    match startup {
+        DevelopmentTunStartup::Ready => (true, None),
+        DevelopmentTunStartup::ReadOnly(_failure)
+            if development_tun_service_not_installed(snapshot) =>
+        {
+            (false, None)
+        }
+        DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign)
+            if snapshot.is_healthy() =>
+        {
+            (true, None)
+        }
+        DevelopmentTunStartup::ReadOnly(failure) => (false, Some(failure)),
+    }
 }
 
 fn maintenance_capture_restore_retryable(kind: CaptureFailureKind) -> bool {
@@ -2306,8 +2325,8 @@ mod tests {
         MainWindowCloseAction, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
         SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
         atomic_write_support_bundle_with_failure, desktop_demo_requested,
-        development_tun_service_not_installed, generate_auth_token,
-        internal_tun_alpha_package_root_from_executable,
+        development_tun_service_not_installed, development_tun_startup_admission,
+        generate_auth_token, internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
         main_window_close_action, maintenance_capture_observation_restored,
@@ -2318,6 +2337,7 @@ mod tests {
         system_proxy_only_capture_selection, validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
+    use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
         CaptureFailureKind, CaptureSelection, TunHelperAvailability, TunHelperFailureKind,
         TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot, TunNetworkObservation,
@@ -2343,6 +2363,27 @@ mod tests {
         snapshot.last_failure = None;
         snapshot.availability = TunHelperAvailability::RepairRequired;
         assert!(!development_tun_service_not_installed(&snapshot));
+    }
+
+    #[test]
+    fn development_tun_keeps_healthy_helper_available_with_foreign_network_state() {
+        let snapshot = TunHelperSnapshot {
+            availability: TunHelperAvailability::Available,
+            expected_version: "3".to_owned(),
+            health: TunHelperHealth::Healthy,
+            installation_id: Some("development-installation".to_owned()),
+            installed_version: Some("3".to_owned()),
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        };
+
+        assert_eq!(
+            development_tun_startup_admission(
+                &snapshot,
+                DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign),
+            ),
+            (true, None)
+        );
     }
 
     #[cfg(unix)]

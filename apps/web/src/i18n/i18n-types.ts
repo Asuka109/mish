@@ -2607,6 +2607,10 @@ type RootTranslation = {
 			 */
 			tunHelperUnavailable: string
 			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​ ​o​w​n​s​ ​t​h​e​ ​a​c​t​i​v​e​ ​T​U​N​,​ ​D​N​S​,​ ​o​r​ ​r​o​u​t​e​s​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​a​t​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​ ​u​n​c​h​a​n​g​e​d​.​ ​S​t​o​p​ ​t​h​e​ ​o​t​h​e​r​ ​a​p​p​'​s​ ​n​e​t​w​o​r​k​ ​c​a​p​t​u​r​e​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			tunNetworkOwnershipConflict: string
+			/**
 			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​m​i​t​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​a​t​e​ ​s​a​f​e​l​y​.
 			 */
 			stateCommit: string
@@ -7365,6 +7369,10 @@ export type TranslationFunctions = {
 			 * Virtual Interface could not start because its system component is not installed or unavailable. Install or repair it in Settings, then retry.
 			 */
 			tunHelperUnavailable: () => LocalizedString
+			/**
+			 * Virtual Interface could not start because another app owns the active TUN, DNS, or routes. Mish left that network state unchanged. Stop the other app's network capture, then retry.
+			 */
+			tunNetworkOwnershipConflict: () => LocalizedString
 			/**
 			 * Mish could not commit the authoritative activation state safely.
 			 */
