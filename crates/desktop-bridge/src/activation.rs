@@ -688,6 +688,38 @@ impl MihomoActivationManager {
             return Err(error);
         }
 
+        // Repeat the cheap proxy-listener check immediately before starting the candidate Core.
+        let proxy_endpoint = SocketAddr::new(
+            candidate.proxy_endpoint.host(),
+            candidate.proxy_endpoint.port(),
+        );
+        if managed_proxy_listener_remains_occupied(proxy_endpoint).await {
+            rollback_candidate(candidate).await;
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
+            let error = MihomoActivationError::ManagedListenerConflict(proxy_endpoint);
+            record_failed_attempt(&mut state.managed, record, error);
+            if !restored {
+                if let Some(previous) = state.active.take() {
+                    previous.source.close().await;
+                    retire_candidate(resolved.runtime_root(), &previous);
+                }
+                state.managed.active_fingerprint = None;
+                state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
+                state.managed.active_runtime_id = None;
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                return Err(MihomoActivationError::RollbackFailedSafeStopped);
+            }
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(error);
+        }
+
         if let Err(error) = self.start_candidate(&candidate, cancellation.clone()).await {
             rollback_candidate(candidate).await;
             let restored = self
@@ -1145,12 +1177,6 @@ async fn wait_for_candidate(
     loop {
         match source.initial_observation() {
             ControllerInitialObservation::Ready => {
-                if let Some(endpoint) =
-                    unowned_managed_listener_conflict(process, proxy_endpoint, controller_address)
-                        .await
-                {
-                    return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
-                }
                 if process.owns_local_proxy(proxy_endpoint).await {
                     return Ok(());
                 }
@@ -1162,6 +1188,11 @@ async fn wait_for_candidate(
                 invalid_snapshot_observed = true;
             }
             ControllerInitialObservation::Pending => {}
+        }
+        if let Some(endpoint) =
+            unowned_managed_listener_conflict(process, proxy_endpoint, controller_address).await
+        {
+            return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
         }
         if !matches!(runtime.core_status().await.phase, CorePhase::Running) {
             if let Some(endpoint) = managed_listener_conflict(proxy_endpoint, controller_address) {
@@ -1223,7 +1254,7 @@ async fn preflight_managed_proxy_listener_conflict(
         policy.proxy_endpoint().host(),
         policy.proxy_endpoint().port(),
     );
-    if std::net::TcpListener::bind(endpoint).is_ok() {
+    if !managed_proxy_listener_remains_occupied(endpoint).await {
         return None;
     }
     let Some(active) = active else {
@@ -1242,6 +1273,16 @@ async fn preflight_managed_proxy_listener_conflict(
         return Some(endpoint);
     }
     None
+}
+
+async fn managed_proxy_listener_remains_occupied(endpoint: SocketAddr) -> bool {
+    for _ in 0..3 {
+        if std::net::TcpListener::bind(endpoint).is_ok() {
+            return false;
+        }
+        tokio::task::yield_now().await;
+    }
+    true
 }
 
 /// Detect only whether Mish's fixed loopback endpoint can be bound. This does not

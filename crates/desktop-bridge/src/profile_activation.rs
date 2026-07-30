@@ -1687,13 +1687,13 @@ impl ProfileActivationCoordinator {
         &self,
         command_id: &str,
     ) -> Result<ProfileActivationSnapshot, CaptureTransitionError> {
+        let mut updates = self.subscribe();
         let current = self.activation_snapshot().await;
         if current.command_id.as_deref() == Some(command_id)
             && current.phase != ProfileActivationPhase::Pending
         {
             return Ok(current);
         }
-        let mut updates = self.subscribe();
         loop {
             let snapshot = updates.recv().await.map_err(|_| {
                 CaptureTransitionError::new(
