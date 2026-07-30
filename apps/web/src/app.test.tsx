@@ -2414,6 +2414,66 @@ describe("desktop RPC experience", () => {
     expect(setRoutingMode).not.toHaveBeenCalled();
   });
 
+  it("starts desktop Helper installation before a permission-required TUN command", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const setCapture = statusClient.setCapture;
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "permission-required",
+      expectedVersion: "3",
+      health: "not-installed",
+      installationId: null,
+      installedVersion: null,
+      lastFailure: null,
+      phase: "idle",
+    };
+    settingsClient.installTunHelper.mockImplementation(async () => {
+      settingsClient.snapshot.tunHelper = {
+        availability: "available",
+        expectedVersion: "3",
+        health: "healthy",
+        installationId: "a".repeat(64),
+        installedVersion: "3",
+        lastFailure: null,
+        phase: "idle",
+      };
+      return settingsClient.getSnapshot();
+    });
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Before enabling Virtual Interface" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Install Helper" }));
+
+    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
+    expect(setCapture).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Enable Virtual Interface" }));
+    await waitFor(() =>
+      expect(setCapture).toHaveBeenCalledWith(
+        expect.objectContaining({ tun: true }),
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
   it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();

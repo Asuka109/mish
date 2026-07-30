@@ -578,6 +578,14 @@ impl MihomoActivationManager {
         validate_activation_record(record)?;
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
+        if let Some(endpoint) =
+            preflight_managed_proxy_listener_conflict(state.active.as_ref(), policy).await
+        {
+            let error = MihomoActivationError::ManagedListenerConflict(endpoint);
+            record_failed_attempt(&mut state.managed, record, error);
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(error);
+        }
         let candidate = match self.prepare_generation(&resolved, record, policy) {
             Ok(candidate) => candidate,
             Err(error) => {
@@ -1198,6 +1206,40 @@ async fn unowned_managed_listener_conflict(
         if !process.owns_local_proxy(&listener).await {
             return Some(endpoint);
         }
+    }
+    None
+}
+
+/// Reject a deterministic foreign managed-proxy conflict before staging,
+/// validating, or starting a candidate. An active Mish Core may retain that
+/// listener until the transactional handoff suspends it, so the exact endpoint
+/// is admitted only with live ownership proof. The Controller listener remains
+/// revalidated after Core start because readiness observes it concurrently.
+async fn preflight_managed_proxy_listener_conflict(
+    active: Option<&ActiveMihomo>,
+    policy: &ManagedRuntimePolicy,
+) -> Option<SocketAddr> {
+    let endpoint = SocketAddr::new(
+        policy.proxy_endpoint().host(),
+        policy.proxy_endpoint().port(),
+    );
+    if std::net::TcpListener::bind(endpoint).is_ok() {
+        return None;
+    }
+    let Some(active) = active else {
+        return Some(endpoint);
+    };
+    let active_endpoint =
+        SocketAddr::new(active.proxy_endpoint.host(), active.proxy_endpoint.port());
+    if active_endpoint != endpoint {
+        return Some(endpoint);
+    }
+    if !active
+        .process
+        .owns_local_proxy(policy.proxy_endpoint())
+        .await
+    {
+        return Some(endpoint);
     }
     None
 }
@@ -2108,6 +2150,7 @@ pub struct ManagedRuntimePolicy {
     proxy_endpoint: LoopbackProxyEndpoint,
     process_discovery_mode: mish_settings::ProcessDiscoveryMode,
     tart_tun_dns: bool,
+    tun_helper_healthy: Option<bool>,
     tun_enabled: bool,
 }
 
@@ -2135,6 +2178,7 @@ impl ManagedRuntimePolicy {
             proxy_endpoint: LoopbackProxyEndpoint::managed(),
             process_discovery_mode: mish_settings::ProcessDiscoveryMode::default(),
             tart_tun_dns: false,
+            tun_helper_healthy: None,
             tun_enabled: false,
         })
     }
@@ -2144,21 +2188,29 @@ impl ManagedRuntimePolicy {
         helper: &mish_runtime::TunHelperSnapshot,
         explicitly_selected: bool,
     ) -> Result<Self, RuntimeConfigGenerationError> {
-        if explicitly_selected && !helper.is_healthy() {
+        let helper_healthy = helper.is_healthy();
+        if explicitly_selected && !helper_healthy {
             return Err(RuntimeConfigGenerationError::TunHelperUnavailable);
         }
+        self.tun_helper_healthy = Some(helper_healthy);
         self.tun_enabled = explicitly_selected;
         Ok(self)
     }
 
-    /// Applies the TUN selection that was already admitted by the aggregate Capture authority.
+    /// Applies the TUN selection admitted by the aggregate Capture authority.
     ///
-    /// The caller must first validate the requested selection against current capabilities. This
-    /// avoids regenerating a cold-launch Core from the still-confirmed pre-operation Capture
-    /// projection while the admitted target is pending.
-    pub(crate) fn with_admitted_tun_selection(mut self, enabled: bool) -> Self {
+    /// The aggregate authority first validates the request against Capture capabilities. This
+    /// policy then requires the fresh Helper snapshot captured by `with_tun_enabled`, avoiding
+    /// both a stale confirmed selection during cold launch and a late privileged-start failure.
+    pub(crate) fn with_admitted_tun_selection(
+        mut self,
+        enabled: bool,
+    ) -> Result<Self, RuntimeConfigGenerationError> {
+        if enabled && self.tun_helper_healthy != Some(true) {
+            return Err(RuntimeConfigGenerationError::TunHelperUnavailable);
+        }
         self.tun_enabled = enabled;
-        self
+        Ok(self)
     }
 
     pub fn with_tart_tun_dns(mut self, enabled: bool) -> Self {
@@ -2250,6 +2302,49 @@ mod managed_execution_backend_tests {
         assert_eq!(
             tun.execution_backend(false),
             ManagedExecutionBackend::Managed
+        );
+    }
+
+    #[test]
+    fn admitted_cold_tun_selection_rechecks_the_helper_snapshot() {
+        let unavailable = mish_runtime::TunHelperSnapshot::browser_unavailable();
+        let unavailable_policy = ManagedRuntimePolicy::new(
+            "127.0.0.1:43125".parse().unwrap(),
+            "application-controller-secret",
+        )
+        .unwrap()
+        .with_tun_enabled(&unavailable, false)
+        .unwrap();
+
+        assert_eq!(
+            unavailable_policy
+                .with_admitted_tun_selection(true)
+                .unwrap_err(),
+            RuntimeConfigGenerationError::TunHelperUnavailable
+        );
+
+        let healthy = mish_runtime::TunHelperSnapshot {
+            availability: mish_runtime::TunHelperAvailability::Available,
+            expected_version: mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned(),
+            health: mish_runtime::TunHelperHealth::Healthy,
+            installation_id: Some("installation-beta".to_owned()),
+            installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
+            last_failure: None,
+            phase: mish_runtime::TunHelperLifecyclePhase::Idle,
+        };
+        let healthy_policy = ManagedRuntimePolicy::new(
+            "127.0.0.1:43126".parse().unwrap(),
+            "application-controller-secret",
+        )
+        .unwrap()
+        .with_tun_enabled(&healthy, false)
+        .unwrap()
+        .with_admitted_tun_selection(true)
+        .unwrap();
+
+        assert_eq!(
+            healthy_policy.execution_backend(true),
+            ManagedExecutionBackend::Privileged
         );
     }
 }

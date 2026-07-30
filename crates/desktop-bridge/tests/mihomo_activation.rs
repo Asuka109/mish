@@ -747,6 +747,103 @@ async fn cold_aggregate_tun_launch_generates_the_first_core_with_admitted_tun_po
 }
 
 #[tokio::test]
+async fn cold_tun_launch_reports_helper_setup_before_a_listener_conflict() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let controller = FakeController::start("v1.19.29").await;
+    let capture_helper = Arc::new(TunHelperController::new(Arc::new(
+        InstallableTunPlatform::default(),
+    )));
+    capture_helper.install().await.unwrap();
+    let policy_helper = Arc::new(TunHelperController::new(Arc::new(
+        InstallableTunPlatform::default(),
+    )));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        Arc::new(MemoryCapturePlatform::default()),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(capture_helper),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied_endpoint = listener.local_addr().unwrap();
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            ManagedRuntimePolicy::new(address, "cold-tun-helper-preflight-secret")?
+                .with_proxy_endpoint(
+                    LoopbackProxyEndpoint::new("127.0.0.1", occupied_endpoint.port()).unwrap(),
+                )
+                .with_tun_enabled(&policy_helper.snapshot(), false)
+        },
+    ));
+
+    let started_at = Instant::now();
+    let error = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
+    assert!(
+        started_at.elapsed() < Duration::from_millis(500),
+        "TUN Helper admission must fail before listener/Core preparation"
+    );
+    let activation = coordinator.activation_snapshot().await;
+    assert_eq!(activation.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        activation.failure,
+        Some(ProfileActivationFailure::TunHelperUnavailable)
+    );
+    let notification = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .find(|record| record.presentation.kind() == "profile.activation-failed")
+        .expect("TUN Helper setup notification");
+    assert_eq!(
+        serde_json::to_value(notification.presentation).unwrap()["data"]["failure"],
+        "tun-helper-unavailable"
+    );
+    assert!(!root.path().join("runtime/generations").exists());
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");
@@ -3638,11 +3735,16 @@ async fn managed_listener_collision_is_typed_and_redacted() {
         .unwrap()
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
 
+    let started_at = Instant::now();
     let error = manager.activate(&candidate, &policy).await.unwrap_err();
 
     assert_eq!(
         error,
         MihomoActivationError::ManagedListenerConflict(endpoint)
+    );
+    assert!(
+        started_at.elapsed() < Duration::from_millis(500),
+        "a known listener conflict must fail before starting the deliberately slow candidate"
     );
     assert_eq!(
         manager
@@ -3662,6 +3764,118 @@ async fn managed_listener_collision_is_typed_and_redacted() {
     assert!(manager.activate(&retry, &retry_policy).await.is_ok());
     manager.shutdown().await.unwrap();
     controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn managed_listener_notification_precedes_slow_candidate_work() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record =
+        profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(activation_manager(root.path(), Duration::from_secs(2)));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            Ok(
+                ManagedRuntimePolicy::new(unused_loopback_address(), "fixture-secret")?
+                    .with_proxy_endpoint(
+                        LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap(),
+                    ),
+            )
+        },
+    ));
+    let (mut notification_updates, _) = host.subscribe_notifications_with_snapshot();
+    let command_id = Uuid::new_v4().to_string();
+    let started_at = Instant::now();
+
+    coordinator
+        .activate(&command_id, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    let notification = timeout(Duration::from_millis(500), async {
+        loop {
+            let notifications = notification_updates.recv().await.unwrap();
+            if let Some(notification) =
+                notifications
+                    .notifications
+                    .into_iter()
+                    .find(|notification| {
+                        notification.dedupe_key
+                            == format!("profile.activation-failure:{command_id}")
+                    })
+            {
+                break notification;
+            }
+        }
+    })
+    .await
+    .expect("listener failure notification waited for the deliberately slow candidate");
+
+    assert!(
+        started_at.elapsed() < Duration::from_millis(500),
+        "known listener failure must be visible before slow Core work"
+    );
+    assert_eq!(
+        notification.presentation.kind(),
+        "profile.activation-listener-conflict"
+    );
+    assert_eq!(
+        coordinator.activation_snapshot().await.failure,
+        Some(ProfileActivationFailure::ManagedListenerConflict)
+    );
+    assert_eq!(candidate_count(root.path()), 0);
+    coordinator.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn listener_claimed_after_preflight_is_rejected_before_commit() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = Arc::new(activation_manager(root.path(), Duration::from_secs(2)));
+    let endpoint = unused_loopback_address();
+    let candidate =
+        profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let policy = ManagedRuntimePolicy::new(unused_loopback_address(), "fixture-secret")
+        .unwrap()
+        .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
+    let activation_manager = manager.clone();
+    let activation =
+        tokio::spawn(async move { activation_manager.activate(&candidate, &policy).await });
+
+    timeout(Duration::from_secs(1), async {
+        while candidate_count(root.path()) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("candidate staging did not prove that the early listener preflight passed");
+    let listener = std::net::TcpListener::bind(endpoint).unwrap();
+
+    let error = activation.await.unwrap().unwrap_err();
+
+    assert_eq!(
+        error,
+        MihomoActivationError::ManagedListenerConflict(endpoint)
+    );
+    assert_eq!(candidate_count(root.path()), 0);
+    drop(listener);
+    manager.shutdown().await.unwrap();
 }
 
 #[tokio::test]

@@ -22,6 +22,7 @@ import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useCaptureCommand } from "../data/capture-command";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
+import { useOptionalSettings } from "../data/settings-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { CaptureSelectionDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -167,6 +168,7 @@ export function StatusPage() {
     snapshot,
   } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
+  const settings = useOptionalSettings();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
   const pickerTriggerRef = useRef<HTMLElement | null>(null);
@@ -314,6 +316,7 @@ export function StatusPage() {
                 commandSupported={captureSupported}
                 disabled={capturePending}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+                onTunHelperInstall={settings?.installTunHelper}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}
                 pendingMode={pendingCaptureMode}
@@ -324,6 +327,14 @@ export function StatusPage() {
                 }
                 systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
+                tunHelperReady={
+                  settings?.snapshot.tunHelper.availability === "available" &&
+                  settings.snapshot.tunHelper.health === "healthy" &&
+                  settings.snapshot.tunHelper.installedVersion ===
+                    settings.snapshot.tunHelper.expectedVersion &&
+                  settings.snapshot.tunHelper.phase === "idle" &&
+                  settings.snapshot.tunHelper.lastFailure === null
+                }
                 tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
                 tunStatus={captureRuntime.tun}
               />

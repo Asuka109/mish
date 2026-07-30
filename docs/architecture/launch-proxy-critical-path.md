@@ -23,6 +23,8 @@ Launch command
   |
   +--> Profile/Core branch
   |      repository record + runtime policy
+  |      admitted TUN selection requires a fresh healthy Helper snapshot
+  |      managed proxy listener preflight
   |      candidate staging
   |      Mihomo `-t` validation and owned GeoData preparation
   |      prior Core/capture handoff when required
@@ -63,6 +65,18 @@ single-flight launch ownership still prevents another operation from crossing
 the cleanup boundary. The launch RPC returns the same typed error only after
 cleanup is complete.
 
+The Profile/Core branch follows the same fail-fast rule. A cold TUN selection
+must prove current Helper health before candidate preparation, so an install or
+repair requirement takes precedence over unrelated listener/Core failures. The
+desktop Status control opens the existing authenticated Helper installation
+flow before issuing a TUN Capture command when permission is required. A
+foreign owner of the fixed managed proxy endpoint is rejected before staging,
+Mihomo validation, owned GeoData preparation, or Core spawn. An already-active
+Mish Core may retain that exact endpoint only with live ownership proof during
+transactional handoff. Controller and proxy ownership are checked again after
+spawn/readiness; the early bind check is rejection evidence and never replaces
+commit-boundary confirmation.
+
 ## Deterministic before/after evidence
 
 The pre-change aggregate handoff test proved only that public Pending did not
@@ -75,6 +89,14 @@ platform seams without asserting that CI is unrealistically fast:
 - After the change, that observation reaches the fixture while Profile/Core is
   still blocked. Stop, preflight failure, and graceful quit cancel/join the
   activation; the fixture observes zero apply calls.
+- A deliberately one-second candidate combined with an occupied managed proxy
+  endpoint now publishes the typed conflict notification in under the
+  pre-start bound, proving that candidate startup is not on the error path. A
+  separate fixture claims the endpoint only after staging and proves the
+  existing use-time check rejects it and removes the candidate before commit.
+  A cold TUN fixture with both an unhealthy policy-time Helper and an occupied
+  port proves the Helper prerequisite wins before either listener or Core
+  preparation.
 - Before the change, one macOS active-state observation required seven serial
   command rounds: default route, network service order, then HTTP, HTTPS,
   SOCKS, PAC, and auto-discovery getters.

@@ -1004,20 +1004,21 @@ impl ProfileActivationCoordinator {
                 return Err(error.into());
             }
         };
-        let policy = (self.policy_factory)()
-            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
+        let policy = (self.policy_factory)().and_then(|policy| match admitted_tun_selection {
+            Some(enabled) => policy.with_admitted_tun_selection(enabled),
+            None => Ok(policy),
+        });
         let policy = match policy {
-            Ok(policy) => match admitted_tun_selection {
-                Some(enabled) => policy.with_admitted_tun_selection(enabled),
-                None => policy,
-            },
+            Ok(policy) => policy,
             Err(error) => {
-                self.finish_preflight_activation(
-                    &command,
-                    ProfileActivationFailureEvidence::StateCommit,
-                )
-                .await;
-                return Err(error);
+                let evidence = match error {
+                    crate::RuntimeConfigGenerationError::TunHelperUnavailable => {
+                        ProfileActivationFailureEvidence::TunHelperUnavailable
+                    }
+                    _ => ProfileActivationFailureEvidence::StateCommit,
+                };
+                self.finish_preflight_activation(&command, evidence).await;
+                return Err(ProfileActivationCoordinatorError::PolicyUnavailable);
             }
         };
         let coordinator = self.clone();

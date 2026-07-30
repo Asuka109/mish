@@ -2,6 +2,7 @@ import { Desktop } from "@phosphor-icons/react/Desktop";
 import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import {
   Button,
@@ -26,12 +27,14 @@ import type {
   SystemProxyRuntimeStatusDto,
   TunRuntimeStatusDto,
 } from "@mish/contracts";
+import type { TunHelperOperationResult } from "../data/settings-provider";
 import {
   getCaptureModeDescriptionId,
   isCaptureCapabilityAvailable,
   statusDescriptionIds,
 } from "../data/status-capabilities";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
+import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 
 const captureStyles = tv({
   slots: {
@@ -54,6 +57,7 @@ interface TrafficCaptureControlProps {
   commandSupported: boolean;
   disabled?: boolean;
   onSystemProxyChange(value: boolean): void;
+  onTunHelperInstall?(): Promise<TunHelperOperationResult>;
   onTunChange(value: boolean): void;
   pending?: boolean;
   pendingMode?: "systemProxy" | "tun" | null;
@@ -61,6 +65,7 @@ interface TrafficCaptureControlProps {
   systemProxySelected: boolean;
   systemProxyStatus: SystemProxyRuntimeStatusDto;
   tunEnabled: boolean;
+  tunHelperReady?: boolean;
   tunSelected: boolean;
   tunStatus: TunRuntimeStatusDto;
 }
@@ -77,6 +82,7 @@ export function TrafficCaptureControl({
   commandSupported,
   disabled = false,
   onSystemProxyChange,
+  onTunHelperInstall,
   onTunChange,
   pending = false,
   pendingMode = null,
@@ -84,16 +90,24 @@ export function TrafficCaptureControl({
   systemProxySelected,
   systemProxyStatus,
   tunEnabled,
+  tunHelperReady = false,
   tunSelected,
   tunStatus,
 }: TrafficCaptureControlProps) {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [tunGuideOpen, setTunGuideOpen] = useState(false);
+  const [tunInstallFailure, setTunInstallFailure] = useState<
+    Extract<TunHelperOperationResult, { ok: false }>["failure"] | undefined
+  >();
+  const [tunInstallPending, setTunInstallPending] = useState(false);
   const { LL } = useI18nContext();
+  const navigate = useNavigate();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable =
     adapterKind === "rpc" && isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
   const canRequestAuthoritativeCaptureCheck = adapterKind === "rpc";
   const tunRequiresPermission = capabilities.tun === "permission-required";
+  const tunSetupRequired = adapterKind === "rpc" && tunRequiresPermission && !tunHelperReady;
   const tunDescriptionId = tunRequiresPermission
     ? statusDescriptionIds.tunPermission
     : statusDescriptionIds.tunUnavailable;
@@ -118,6 +132,28 @@ export function TrafficCaptureControl({
     return mode === "systemProxy"
       ? LL.capture.systemProxyDescription()
       : LL.capture.tunDescription();
+  }
+
+  function requestTunChange(selected: boolean) {
+    if (selected && tunSetupRequired) {
+      setTunGuideOpen(true);
+      return;
+    }
+    onTunChange(selected);
+  }
+
+  function enableTunAfterGuide() {
+    setTunGuideOpen(false);
+    onTunChange(true);
+  }
+
+  async function installTunHelperFromGuide() {
+    if (!onTunHelperInstall || tunInstallPending) return;
+    setTunInstallFailure(undefined);
+    setTunInstallPending(true);
+    const result = await onTunHelperInstall();
+    setTunInstallPending(false);
+    setTunInstallFailure(result.ok ? undefined : result.failure);
   }
 
   return (
@@ -169,7 +205,7 @@ export function TrafficCaptureControl({
               })}
               data-capture-state={getCaptureState(tunSelected, tunEnabled)}
               disabled={disabled}
-              onPressedChange={onTunChange}
+              onPressedChange={requestTunChange}
               pressed={tunSelected}
               variant="capture"
             >
@@ -271,6 +307,72 @@ export function TrafficCaptureControl({
             <DialogClose render={<Button type="button" variant="outline" />}>
               {LL.capture.acknowledge()}
             </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={setTunGuideOpen} open={tunGuideOpen}>
+        <DialogContent closeLabel={LL.common.close()}>
+          <DialogHeader className={captureStyles().dialogHeader()}>
+            <DialogTitle className="dialog-title">{LL.capture.tunGuide.title()}</DialogTitle>
+            <DialogDescription className="dialog-description">
+              {LL.capture.tunGuide.description()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className={captureStyles().explanations()}>
+            <section className={captureStyles().explanation()}>
+              <ShieldCheck aria-hidden="true" />
+              <div>
+                <h2>
+                  {tunSetupRequired
+                    ? LL.capture.tunGuide.setupTitle()
+                    : LL.capture.tunGuide.helperTitle()}
+                </h2>
+                <p>
+                  {tunSetupRequired
+                    ? LL.capture.tunGuide.setupDescription()
+                    : LL.capture.tunGuide.helperDescription()}
+                </p>
+              </div>
+            </section>
+          </div>
+          <DialogFooter className={captureStyles().dialogFooter()}>
+            {tunInstallFailure !== undefined ? (
+              <p className="dialog-error" role="alert">
+                {tunHelperFailureMessage(LL, tunInstallFailure)}
+              </p>
+            ) : null}
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              {LL.capture.tunGuide.notNow()}
+            </DialogClose>
+            {tunSetupRequired ? (
+              onTunHelperInstall ? (
+                <Button
+                  aria-busy={tunInstallPending}
+                  disabled={tunInstallPending}
+                  onClick={() => void installTunHelperFromGuide()}
+                  type="button"
+                >
+                  {tunInstallPending
+                    ? LL.capture.tunGuide.installingHelper()
+                    : LL.capture.tunGuide.installHelper()}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    setTunGuideOpen(false);
+                    void navigate("/settings");
+                  }}
+                  type="button"
+                >
+                  {LL.capture.tunGuide.reviewSetup()}
+                </Button>
+              )
+            ) : (
+              <Button onClick={enableTunAfterGuide} type="button">
+                {LL.capture.tunGuide.enable()}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

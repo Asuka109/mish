@@ -87,6 +87,13 @@ The DOM element owns the fallback blue surface and text contrast.
   state without clearing the selected capture combination. The failure appears
   once with a specific explanation; the notification center does not add a
   second generic command failure for the same capture attempt.
+- Known blocking launch failures appear at the first authoritative observation,
+  not after unrelated GeoData/Core work. TUN Helper installation or repair is
+  admitted before candidate preparation, and a permission-required desktop
+  click opens the authenticated GUI installation flow before sending Capture.
+  An occupied managed proxy endpoint is reported before validation or Core
+  spawn. Required rollback and cleanup keep the operation single-flight until
+  safe completion without delaying the semantic notification.
 - Capture drift, typed confirmation failures, and their recovery actions appear
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when

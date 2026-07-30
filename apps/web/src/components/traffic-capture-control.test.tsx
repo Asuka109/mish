@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { TrafficCaptureControl } from "./traffic-capture-control";
+import type { TunHelperOperationResult } from "../data/settings-provider";
 
 loadAllLocales();
 
@@ -71,7 +72,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(tun).toBeDisabled();
   });
 
-  it("keeps permission-required Virtual Interface actionable and explains setup", async () => {
+  it("opens Helper setup before requesting a permission-required Virtual Interface", async () => {
     const user = userEvent.setup();
     const onTunChange = vi.fn();
     render(
@@ -101,8 +102,80 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(tun).toHaveAttribute("aria-describedby", "tun-permission-description");
 
     await user.click(tun);
-    expect(onTunChange).toHaveBeenCalledOnce();
-    expect(onTunChange.mock.calls[0]?.[0]).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Before enabling Virtual Interface" })).toBeVisible();
+    expect(screen.getByText("Helper setup required")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review Helper Setup" })).toBeVisible();
+    expect(onTunChange).not.toHaveBeenCalled();
+  });
+
+  it("starts the GUI Helper installation without entering Capture activation", async () => {
+    const user = userEvent.setup();
+    const onTunChange = vi.fn();
+    const install = vi.fn(
+      async (): Promise<TunHelperOperationResult> => ({
+        ok: true,
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <TypesafeI18n locale="en">
+          <TooltipProvider>
+            <TrafficCaptureControl
+              adapterKind="rpc"
+              capabilities={{ systemProxy: "supported", tun: "permission-required" }}
+              commandSupported
+              onSystemProxyChange={vi.fn()}
+              onTunHelperInstall={install}
+              onTunChange={onTunChange}
+              systemProxyEnabled={false}
+              systemProxySelected={false}
+              systemProxyStatus={systemProxyStatus}
+              tunEnabled={false}
+              tunSelected={false}
+              tunStatus={tunStatus}
+            />
+          </TooltipProvider>
+        </TypesafeI18n>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
+    await user.click(screen.getByRole("button", { name: "Install Helper" }));
+
+    expect(install).toHaveBeenCalledOnce();
+    expect(onTunChange).not.toHaveBeenCalled();
+  });
+
+  it("uses the authoritative Capture path when the Helper is already healthy", async () => {
+    const user = userEvent.setup();
+    const onTunChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <TypesafeI18n locale="en">
+          <TooltipProvider>
+            <TrafficCaptureControl
+              adapterKind="rpc"
+              capabilities={{ systemProxy: "supported", tun: "permission-required" }}
+              commandSupported
+              onSystemProxyChange={vi.fn()}
+              onTunChange={onTunChange}
+              systemProxyEnabled={false}
+              systemProxySelected={false}
+              systemProxyStatus={systemProxyStatus}
+              tunEnabled={false}
+              tunHelperReady
+              tunSelected={false}
+              tunStatus={tunStatus}
+            />
+          </TooltipProvider>
+        </TypesafeI18n>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
+
+    expect(screen.queryByRole("dialog", { name: "Before enabling Virtual Interface" })).toBeNull();
+    expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
   it("leaves System Proxy actionable", async () => {

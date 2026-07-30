@@ -721,6 +721,7 @@ export function SettingsPage() {
                 captureRuntime.systemProxy.recoveryActions.length > 0
               }
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+              onTunHelperInstall={settings.installTunHelper}
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               pendingMode={pendingCaptureMode}
@@ -731,6 +732,7 @@ export function SettingsPage() {
               }
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
+              tunHelperReady={helperAvailable}
               tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
               tunStatus={captureRuntime.tun}
             />

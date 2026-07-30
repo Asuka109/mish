@@ -110,6 +110,17 @@ does not by itself explain a disabled button.
   state machine to reobserve.
 - Early startup warnings are useful and should remain, but they complement
   control-local feedback instead of consuming or replacing it.
+- Build startup and transition checks from an explicit dependency graph.
+  Independent preflights should overlap, while cheap authoritative blockers
+  such as missing privileged prerequisites, permission failures, occupied
+  managed ports, and recovery-required state run before downloads, candidate
+  staging, validation processes, or Core readiness waits.
+- Publish the specific semantic failure as soon as its authority knows the
+  command cannot succeed. Rollback, process termination, network restoration,
+  and resource cleanup may keep the operation pending and single-flight, but
+  must not delay the nearby error. Repeat low-cost, side-effect-free checks
+  immediately before protected resource use or the commit point; an early
+  preflight authorizes rejection, not success.
 - Do not move transient errors into page flow. Keep the control stable and use
   the shared notification Interface for the result; reserve inline text for a
   durable limitation that otherwise makes the control's state ambiguous.
