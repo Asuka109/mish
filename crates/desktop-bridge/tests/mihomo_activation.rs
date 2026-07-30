@@ -2646,10 +2646,12 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
     let platform = Arc::new(LaunchPreflightPlatform::new());
+    let proxy_endpoint =
+        LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap();
     let capture = Arc::new(CaptureReconciler::new(
         platform.clone(),
         Arc::new(MemoryCaptureJournal::default()),
-        LoopbackProxyEndpoint::managed(),
+        proxy_endpoint.clone(),
     ));
     let manager = Arc::new(MihomoActivationManager::new_with_capture(
         ManagedMihomoResolver::development(
@@ -2674,7 +2676,10 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         manager,
         host.clone(),
         safe_runtime,
-        move || ManagedRuntimePolicy::new(address, "synthetic-preflight-secret"),
+        move || {
+            ManagedRuntimePolicy::new(address, "synthetic-preflight-secret")
+                .map(|policy| policy.with_proxy_endpoint(proxy_endpoint.clone()))
+        },
     ));
     let command_id = Uuid::new_v4().to_string();
     let launch_coordinator = coordinator.clone();
