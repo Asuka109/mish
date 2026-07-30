@@ -396,6 +396,46 @@ and System Proxy SHA-256
 `d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
 matched the pre-install baselines byte for byte.
 
+The 2026-07-30 residual acceptance reused the stopped, previously uninstalled
+disposable clone with delivery head
+`badac85f2993c3518a263e0f65b17444bf238ab2`. The final package archive
+SHA-256 was
+`eba6de56243149ad2579029a89a9e1d41edee4839f5ade1f4d7db2781eda2a28`
+and its manifest SHA-256 was
+`0769ea80b79934daecd41774c33d6328a6656d3aaef06c06947cc57fbbb0e080`.
+The clean baseline reported `not-installed`, `utun0` through `utun3`, default
+route `192.168.64.1` on `en0`, automatic Ethernet DNS, and the same System
+Proxy digest recorded above.
+
+The package installed as `healthy-disabled`, generation 1. The packaged app
+started a real root Core, created `utun4` at MTU 9000, installed the complete
+managed route partition and scoped `198.18.0.1` DNS, kept System Proxy
+byte-for-byte unchanged, returned public HTTP 200, and projected Virtual
+Interface selected and running. An identical install while Capture was active
+returned `active-unchanged`, retained generation 1, and kept packet flow
+confirmed.
+
+An explicit repair failure after `helper-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`.
+Rollback removed the active Core, `utun4`, and managed DNS and restored the
+verified Helper. On the following ordinary startup, the app briefly attempted
+Capture restoration but did not project Applied from Helper effects alone:
+at 15 seconds the real Core and `utun4` were present while the UI remained
+selected and not running. By the next bounded observation at approximately 35
+seconds, compensation had stopped the Core, removed `utun4`, restored
+automatic DNS, and retained the version-bound restore marker. The rejected
+active-but-unprojected hybrid state therefore never became a terminal success.
+
+Uninstall from that bounded Recovery Required state returned `not-installed`.
+The LaunchDaemon, Helper, Core, socket, enrollment, receipts, client key,
+maintenance evidence, restore marker, and Mish-owned network effects were
+absent. The exact `utun0` through `utun3` list, `en0` default route, automatic
+DNS SHA-256
+`dd527661f63e293ce0da027adb4c50e7e9ef3936f130853d8ae3f695b4177ddc`,
+and System Proxy SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the start of this residual run.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the
