@@ -91,6 +91,29 @@ Full-width dialog lists should use the borderless treatment.
 Pressed fills stay close to white. Selection should be clear through border,
 icon, and text changes without becoming a dark gray trough.
 
+## Abnormal state feedback
+
+An abnormal state must explain itself at the control where the user encounters
+it. A notification center entry, startup toast, diagnostic page, or prior error
+does not by itself explain a disabled button.
+
+- Prefer an enabled action that performs a fresh authoritative check when the
+  attempt is safe. Commit optimistic presentation only until the authority
+  confirms the new state; on rejection, restore the confirmed state and publish
+  the specific semantic notification again.
+- Disable only when the action cannot safely be attempted or an equivalent
+  command is already pending. A persistent disabled state needs nearby visible
+  text or a keyboard- and pointer-accessible tooltip naming the reason.
+- Capability snapshots are observations, not command authority. Stale,
+  unavailable, permission-required, drift, and recovery-required projections
+  must not prevent an authenticated desktop action from asking the owning Rust
+  state machine to reobserve.
+- Early startup warnings are useful and should remain, but they complement
+  control-local feedback instead of consuming or replacing it.
+- Do not move transient errors into page flow. Keep the control stable and use
+  the shared notification Interface for the result; reserve inline text for a
+  durable limitation that otherwise makes the control's state ambiguous.
+
 ## Notifications and recoverable failures
 
 Use the application-owned notification publication Interface for recoverable

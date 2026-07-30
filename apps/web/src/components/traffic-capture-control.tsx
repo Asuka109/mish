@@ -92,6 +92,7 @@ export function TrafficCaptureControl({
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable =
     adapterKind === "rpc" && isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
+  const canRequestAuthoritativeCaptureCheck = adapterKind === "rpc";
   const tunRequiresPermission = capabilities.tun === "permission-required";
   const tunDescriptionId = tunRequiresPermission
     ? statusDescriptionIds.tunPermission
@@ -137,7 +138,10 @@ export function TrafficCaptureControl({
               selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
             })}
             data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
-            disabled={disabled || !commandSupported || !systemProxyAvailable}
+            disabled={
+              disabled ||
+              (!canRequestAuthoritativeCaptureCheck && (!commandSupported || !systemProxyAvailable))
+            }
             onPressedChange={onSystemProxyChange}
             pressed={systemProxySelected}
             variant="capture"
@@ -149,7 +153,7 @@ export function TrafficCaptureControl({
             )}
             <span>{LL.capture.systemProxy()}</span>
           </Toggle>
-          {tunAvailable ? (
+          {tunAvailable || canRequestAuthoritativeCaptureCheck ? (
             <Toggle
               aria-busy={pendingMode === "tun"}
               aria-describedby={getCaptureModeDescriptionId(
@@ -164,7 +168,7 @@ export function TrafficCaptureControl({
                 selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
               })}
               data-capture-state={getCaptureState(tunSelected, tunEnabled)}
-              disabled={disabled || !commandSupported}
+              disabled={disabled}
               onPressedChange={onTunChange}
               pressed={tunSelected}
               variant="capture"

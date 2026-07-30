@@ -1557,7 +1557,7 @@ type RootTranslation = {
 		 */
 		configurationRequiredTitle: string
 		/**
-		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​S​e​l​e​c​t​i​n​g​ ​a​ ​m​o​d​e​ ​r​e​c​h​e​c​k​s​ ​i​t​s​ ​c​u​r​r​e​n​t​ ​a​v​a​i​l​a​b​i​l​i​t​y​ ​a​n​d​ ​e​x​p​l​a​i​n​s​ ​a​n​y​ ​r​e​j​e​c​t​i​o​n​.
 		 */
 		desktopDescription: string
 		/**
@@ -6373,7 +6373,7 @@ export type TranslationFunctions = {
 		 */
 		configurationRequiredTitle: () => LocalizedString
 		/**
-		 * These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.
+		 * These controls show capture state reported by the local desktop service. Selecting a mode rechecks its current availability and explains any rejection.
 		 */
 		desktopDescription: () => LocalizedString
 		/**

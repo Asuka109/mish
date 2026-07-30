@@ -481,7 +481,7 @@ const en = {
     configurationRequired: "Choose or import a Profile configuration before launching the proxy.",
     configurationRequiredTitle: "Profile configuration required",
     desktopDescription:
-      "These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.",
+      "These controls show capture state reported by the local desktop service. Selecting a mode rechecks its current availability and explains any rejection.",
     deviceDescription:
       "These controls show capture state reported by this device. A control stays disabled when its capability or action is unavailable.",
     fixtureDescription:

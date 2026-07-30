@@ -519,6 +519,15 @@ Traffic capture uses two standalone shadcn `Toggle` controls labeled “系统�
 and “虚拟网卡”, because the capabilities are not mutually exclusive. Explain
 the TUN implementation detail inside the adjacent help dialog rather than in
 the compact control label.
+On authenticated desktop surfaces, keep both capture toggles actionable unless
+an equivalent capture command is already pending. A stale capability projection,
+missing Helper, recovery-required state, or current ownership conflict is not
+permission to silently disable the control: activation rechecks the current Rust
+authority and either commits the confirmed state or publishes a specific
+notification. Startup warnings may explain the condition early, but they do not
+replace feedback from the control the user operates. A control that truly cannot
+attempt an action, such as an isolated fixture, must expose its reason beside the
+control or through a keyboard-accessible tooltip.
 Give each control its own complete outline and radius. Use the same muted
 pressed treatment as Routing mode whenever it is selected. A selected but
 stopped mode keeps muted label and icon colors; a selected and running mode uses

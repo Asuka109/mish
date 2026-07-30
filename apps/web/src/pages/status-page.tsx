@@ -231,6 +231,7 @@ export function StatusPage() {
 
   const pickerGroup = pickerGroupId ? routeGraph.groupById.get(pickerGroupId) : null;
   const captureRuntime = snapshot.runtime;
+  const captureAdapterKind = snapshot.adapterKind;
   const captureSupported = isCommandSupported("capture");
   const routingSupported = isCommandSupported("routing");
   const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
@@ -241,7 +242,7 @@ export function StatusPage() {
         ? LL.status.desktopActivity()
         : LL.status.deviceActivity();
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
-    if (!captureSupported) return;
+    if (!captureSupported && captureAdapterKind !== "rpc") return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
     setOptimisticCaptureSelection(selection);
@@ -311,11 +312,7 @@ export function StatusPage() {
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
                 commandSupported={captureSupported}
-                disabled={
-                  capturePending ||
-                  captureRuntime.captureOperation.phase === "recovery-required" ||
-                  captureRuntime.systemProxy.recoveryActions.length > 0
-                }
+                disabled={capturePending}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}

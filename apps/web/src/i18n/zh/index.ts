@@ -443,7 +443,8 @@ const zh: Translation = {
     acknowledge: "知道了",
     configurationRequired: "启动代理前，请先选择或导入一个 Profile 配置。",
     configurationRequiredTitle: "需要 Profile 配置",
-    desktopDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
+    desktopDescription:
+      "选择 Mish 接管流量的方式。点击选项会重新检查当前可用性，并说明无法开启的原因。",
     deviceDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     fixtureDescription:
       "按钮按下表示该方式已被选择并记住，绿色图标表示正在运行。左下角关闭只会暂停，再次启动会恢复已记住的组合。当前演示不会修改系统网络配置。",

@@ -2274,7 +2274,7 @@ describe("desktop RPC experience", () => {
     ).toEqual(["", ""]);
   });
 
-  it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
+  it("renders a sparse reconnecting snapshot without fixture claims and keeps capture retryable", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot(true);
     const client = new SnapshotStatusClient(snapshot, {
@@ -2306,11 +2306,11 @@ describe("desktop RPC experience", () => {
     expect(proxyControl).toHaveAccessibleDescription(/capture is unavailable/i);
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
-    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toBeEnabled();
     expect(systemProxy).toHaveAccessibleDescription(/System Proxy is unavailable/i);
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
     expect(tun).toHaveAccessibleDescription(
       /Virtual Interface is not available in this version of Mish/i,
     );
@@ -2360,12 +2360,12 @@ describe("desktop RPC experience", () => {
     await screen.findByText("Live desktop traffic");
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
-    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toBeEnabled();
     expect(systemProxy).toHaveAccessibleDescription(/not supported by the current local service/i);
     expect(systemProxy).not.toHaveAttribute("aria-describedby", "fixture-action-description");
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
     expect(tun).toHaveAccessibleDescription(
       /Install, approve, or repair the Internal TUN service in Settings/i,
     );
@@ -2412,6 +2412,36 @@ describe("desktop RPC experience", () => {
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
+  });
+
+  it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
+    snapshot.runtime.captureOperation.phase = "recovery-required";
+    snapshot.runtime.systemProxy.recoveryActions = ["repair"];
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: false };
+    const client = new RecordingCaptureClient(snapshot, {
+      attempt: 2,
+      phase: "reconnecting",
+      stale: true,
+    });
+    renderRoute("/status", "en", client);
+    await screen.findByText("Live desktop traffic");
+
+    const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
+    const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
+    expect(systemProxy).toBeEnabled();
+    expect(tun).toBeEnabled();
+
+    await user.click(systemProxy);
+    await waitFor(() =>
+      expect(client.setCapture).toHaveBeenCalledWith(
+        { systemProxy: true, tun: false },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
   });
 });
 

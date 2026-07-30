@@ -57,6 +57,17 @@ The DOM element owns the fallback blue surface and text contrast.
 - Selected capture controls use the same pressed treatment as Routing mode.
   A remembered-but-stopped selection remains muted, while a running selection
   uses a restrained green icon.
+- On authenticated desktop surfaces, both capture controls remain clickable
+  while their operation is idle, including when the latest projection is stale,
+  unavailable, permission-required, drifted, or recovery-required. Each click
+  asks the shared Rust Capture Reconciler to reobserve current capability and
+  ownership. Confirmed success updates the global state; rejection preserves
+  the last confirmed state and republishes the specific semantic notification.
+  Only an equivalent pending command disables them. Startup checks and
+  notifications remain an early warning, not a substitute for this retry path.
+- A surface that cannot issue an authoritative capture command, such as the
+  isolated fixture, may keep a mode disabled only with an adjacent or
+  keyboard-accessible explanation.
 - The profile control is a compact framed Select so it reads as persistent
   choice rather than an action menu; it stays quieter than primary controls.
 - The profile menu names the user's currently selected configuration, including
