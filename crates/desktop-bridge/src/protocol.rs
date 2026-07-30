@@ -771,7 +771,7 @@ async fn handle_aggregate_capture_request(text: &str, state: &ProtocolState) -> 
     };
     match set_aggregate_capture(state, params).await {
         Ok(_) => Some(json!({"jsonrpc": "2.0", "id": id, "result": state.status_snapshot().await})),
-        Err(error) => Some(capture_error_response(id, error)),
+        Err(error) => Some(capture_status_error_response(state, id, error).await),
     }
 }
 
@@ -1697,7 +1697,9 @@ async fn handle_message(
             };
             match set_aggregate_capture(state, params).await {
                 Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(capture_error_response(id, error)),
+                Err(error) => {
+                    return Some(capture_status_error_response(state, id, error).await);
+                }
             }
         }
         "status.recoverSystemProxy" => {
@@ -1711,7 +1713,9 @@ async fn handle_message(
                 .await
             {
                 Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(capture_error_response(id, error)),
+                Err(error) => {
+                    return Some(capture_status_error_response(state, id, error).await);
+                }
             }
         }
         "status.testLocalProxy" => match state.runtime.test_local_proxy().await {
@@ -2721,6 +2725,22 @@ fn capture_error_response(id: Value, error: CaptureTransitionError) -> Value {
         -32050,
         "System Proxy reconciliation failed",
         Some(json!({"kind": error.kind})),
+    )
+}
+
+async fn capture_status_error_response(
+    state: &ProtocolState,
+    id: Value,
+    error: CaptureTransitionError,
+) -> Value {
+    error_response(
+        id,
+        -32050,
+        "System Proxy reconciliation failed",
+        Some(json!({
+            "kind": error.kind,
+            "snapshot": state.status_snapshot().await,
+        })),
     )
 }
 

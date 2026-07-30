@@ -2932,6 +2932,18 @@ async fn missing_profile_capture_failure_is_shared_by_rpc_clients_and_reconnects
     )
     .await;
     assert_eq!(rejected["error"]["data"]["kind"], "configuration-required");
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["captureOperation"]["phase"],
+        "failed"
+    );
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["tun"]["phase"],
+        "off"
+    );
 
     let mut operation_id = None;
     for _ in 0..3 {

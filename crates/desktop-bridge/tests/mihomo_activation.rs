@@ -3943,6 +3943,14 @@ async fn aggregate_launch_finishes_after_early_listener_failure_notification() {
         "failed"
     );
     assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["tun"]["phase"],
+        "off"
+    );
+    assert_eq!(
         coordinator.activation_snapshot().await.failure,
         Some(ProfileActivationFailure::ManagedListenerConflict)
     );

@@ -746,6 +746,79 @@ class DeferredCaptureClient extends SnapshotStatusClient {
   }
 }
 
+class FailingAfterPendingCaptureClient extends SnapshotStatusClient {
+  private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+  private currentSnapshot: StatusSnapshotDto;
+  private rejectCapture: ((error: StatusClientError) => void) | null = null;
+  captureSignal: AbortSignal | null = null;
+
+  constructor(snapshot: StatusSnapshotDto) {
+    super(snapshot);
+    this.currentSnapshot = structuredClone(snapshot);
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.currentSnapshot);
+  }
+
+  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  override setCapture(
+    _selection: CaptureSelectionDto,
+    _active: boolean,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    this.captureSignal = options?.signal ?? null;
+    this.currentSnapshot.applicationOrder.order += 1;
+    this.currentSnapshot.runtime.captureOperation = {
+      operationId: "2",
+      phase: "pending",
+      scopeEpoch: this.currentSnapshot.runtime.captureOperation.scopeEpoch,
+    };
+    this.currentSnapshot.runtime.systemProxy.phase = "pending";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
+    return new Promise<StatusSnapshotDto>((_resolve, reject) => {
+      this.rejectCapture = reject;
+      options?.signal?.addEventListener(
+        "abort",
+        () => reject(new StatusClientError("cancelled", "Capture command was cancelled")),
+        { once: true },
+      );
+    });
+  }
+
+  failWithTerminalSnapshot() {
+    this.currentSnapshot.applicationOrder.order += 1;
+    this.currentSnapshot.runtime.captureOperation.phase = "failed";
+    this.currentSnapshot.runtime.phase = "inactive";
+    this.currentSnapshot.runtime.systemProxy = {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    };
+    this.currentSnapshot.runtime.systemProxyEnabled = false;
+    this.currentSnapshot.runtime.tun.phase = "off";
+    this.currentSnapshot.runtime.tunEnabled = false;
+    this.rejectCapture?.(
+      new StatusClientError(
+        "remote",
+        "System Proxy reconciliation failed",
+        true,
+        structuredClone(this.currentSnapshot),
+      ),
+    );
+  }
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -3130,6 +3203,29 @@ describe("Status fixture experience", () => {
     expect(proxyControl).toHaveAttribute("aria-busy", "true");
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveTextContent("Pending");
+  });
+
+  it("keeps the initiating Capture command alive through Pending and consumes its terminal failure", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new FailingAfterPendingCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "System Proxy, selected, not running",
+      }),
+    );
+    const proxyControl = screen.getByRole("button", { name: "Launch Proxy" });
+    await waitFor(() => expect(proxyControl).toHaveAttribute("aria-busy", "true"));
+    expect(client.captureSignal?.aborted).toBe(false);
+
+    act(() => client.failWithTerminalSnapshot());
+
+    await waitFor(() => expect(proxyControl).toHaveAttribute("aria-busy", "false"));
+    expect(proxyControl).toBeEnabled();
+    expect(proxyControl).toHaveTextContent("Launch");
   });
 
   it("describes a typed permission failure without claiming success", async () => {

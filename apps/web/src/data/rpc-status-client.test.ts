@@ -558,6 +558,38 @@ describe("RpcStatusClient", () => {
     );
   });
 
+  it("retains an authoritative terminal snapshot from a Capture command failure", async () => {
+    const terminal = await createRpcSnapshot();
+    terminal.runtime.captureOperation = {
+      operationId: "2",
+      phase: "failed",
+      scopeEpoch: "capture-scope-a",
+    };
+    terminal.runtime.systemProxy.phase = "off";
+    terminal.runtime.tun.phase = "off";
+
+    expect(
+      mapRpcError(
+        new RpcRemoteError(-32_050, "System Proxy reconciliation failed", {
+          kind: "runtime-transition",
+          snapshot: terminal,
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining<Partial<StatusClientError>>({
+        code: "remote",
+        retryable: true,
+        snapshot: expect.objectContaining({
+          runtime: expect.objectContaining({
+            captureOperation: expect.objectContaining({ phase: "failed" }),
+            systemProxy: expect.objectContaining({ phase: "off" }),
+            tun: expect.objectContaining({ phase: "off" }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("sends remembered capture selection separately from aggregate active state", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
