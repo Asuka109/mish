@@ -3959,6 +3959,97 @@ async fn aggregate_launch_finishes_after_early_listener_failure_notification() {
 }
 
 #[tokio::test]
+async fn aggregate_listener_failure_cancels_blocked_capture_preflight_before_finishing() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record =
+        profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    FileProfileRepository::new(root.path().join("profiles/profile-store"))
+        .save(&record)
+        .unwrap();
+    profiles
+        .select_profile(record.metadata.id.as_str())
+        .await
+        .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap();
+    let platform = Arc::new(LaunchPreflightPlatform::new());
+    platform.block_preflight();
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        proxy_endpoint.clone(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            Ok(
+                ManagedRuntimePolicy::new(unused_loopback_address(), "fixture-secret")?
+                    .with_proxy_endpoint(proxy_endpoint.clone()),
+            )
+        },
+    ));
+    let command_id = Uuid::new_v4().to_string();
+    let launch_coordinator = coordinator.clone();
+    let launch_command_id = command_id.clone();
+    let launch = tokio::spawn(async move {
+        launch_coordinator
+            .launch_proxy(
+                &launch_command_id,
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+
+    timeout(Duration::from_secs(1), platform.preflight_polled.notified())
+        .await
+        .expect("blocked Capture preflight was not running before listener failure");
+    let launch_error = timeout(Duration::from_millis(500), launch)
+        .await
+        .expect("listener failure left the aggregate launch Pending")
+        .unwrap()
+        .unwrap_err();
+
+    assert_eq!(launch_error.kind, CaptureFailureKind::RuntimeTransition);
+    let terminal = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(terminal["runtime"]["captureOperation"]["phase"], "failed");
+    assert_eq!(terminal["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(terminal["runtime"]["tun"]["phase"], "off");
+    assert_eq!(
+        coordinator.activation_snapshot().await.failure,
+        Some(ProfileActivationFailure::ManagedListenerConflict)
+    );
+    assert_eq!(candidate_count(root.path()), 0);
+    coordinator.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn listener_claimed_after_preflight_is_rejected_before_commit() {
     let root = tempfile::tempdir().unwrap();
     let manager = Arc::new(activation_manager(root.path(), Duration::from_secs(2)));

@@ -2453,6 +2453,7 @@ impl CaptureReconciler {
         operation: &CaptureOperation,
         error: &CaptureTransitionError,
     ) -> CaptureRuntimeStatus {
+        let mut machine_updates = self.machine_updates.clone();
         let _ = self
             .runner
             .admit(CaptureInput::FailReserved {
@@ -2460,7 +2461,18 @@ impl CaptureReconciler {
                 operation: operation.clone(),
             })
             .await;
-        self.status()
+        loop {
+            let state = self.runner.snapshot();
+            if !state
+                .active_operation()
+                .is_some_and(|active| operation.matches(active))
+            {
+                return state.projection().clone();
+            }
+            if machine_updates.changed().await.is_err() {
+                return self.status();
+            }
+        }
     }
 
     pub fn availability(&self) -> CapabilityAvailability {
