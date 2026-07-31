@@ -9,15 +9,17 @@ export default defineConfig({
   publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
   test: {
     browser: {
+      api: {
+        host: "127.0.0.1",
+        port: 63315,
+        strictPort: true,
+      },
       enabled: true,
       headless: true,
       instances: [{ browser: "chromium" }],
       provider: playwright(),
     },
-    exclude: [
-      "src/appearance-bootstrap.browser.test.ts",
-      "src/system-tests/**/*.browser.test.{ts,tsx}",
-    ],
-    include: ["src/**/*.browser.test.{ts,tsx}"],
+    globalSetup: "./src/system-tests/simulated-host-global-setup.ts",
+    include: ["src/system-tests/simulated-host.browser.test.tsx"],
   },
 });

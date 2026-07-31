@@ -395,6 +395,18 @@ pub struct ActivationCommit {
 }
 
 impl ActivationCommit {
+    pub fn new(
+        fingerprint: impl Into<String>,
+        profile_id: impl Into<String>,
+        revision: impl Into<String>,
+    ) -> Self {
+        Self {
+            fingerprint: fingerprint.into(),
+            profile_id: profile_id.into(),
+            revision: revision.into(),
+        }
+    }
+
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
@@ -561,15 +573,16 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable_inner(record, policy, cancellation)
+        self.activate_cancellable_observed(record, policy, cancellation, None)
             .await
     }
 
-    async fn activate_cancellable_inner(
+    pub(crate) async fn activate_cancellable_observed(
         &self,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
+        progress: Option<&crate::ProfileActivationProgressObserver>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
@@ -582,6 +595,11 @@ impl MihomoActivationManager {
             preflight_managed_proxy_listener_conflict(state.active.as_ref(), policy).await
         {
             let error = MihomoActivationError::ManagedListenerConflict(endpoint);
+            if let Some(progress) = progress {
+                progress(crate::ProfileActivationProgress::ManagedListenerConflict(
+                    endpoint,
+                ));
+            }
             record_failed_attempt(&mut state.managed, record, error);
             persist_managed_state(resolved.runtime_root(), &state.managed)?;
             return Err(error);
@@ -694,6 +712,11 @@ impl MihomoActivationManager {
             candidate.proxy_endpoint.port(),
         );
         if managed_proxy_listener_remains_occupied(proxy_endpoint).await {
+            if let Some(progress) = progress {
+                progress(crate::ProfileActivationProgress::ManagedListenerConflict(
+                    proxy_endpoint,
+                ));
+            }
             rollback_candidate(candidate).await;
             let restored = self
                 .restore_previous(

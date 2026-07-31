@@ -53,8 +53,9 @@ pub use managed_process::{
 };
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
-    ProfileActivationCoordinatorError, ProfileActivationEvidence, ProfileActivationEvidenceKind,
-    ProfileActivationFailure, ProfileActivationOperation, ProfileActivationPhase,
+    ProfileActivationCoordinatorError, ProfileActivationEffects, ProfileActivationEvidence,
+    ProfileActivationEvidenceKind, ProfileActivationFailure, ProfileActivationOperation,
+    ProfileActivationPhase, ProfileActivationProgress, ProfileActivationProgressObserver,
     ProfileActivationShutdownFailure, ProfileActivationSnapshot, ProfileStartupPolicy,
 };
 pub use profile_file_actions::{
