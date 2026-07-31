@@ -2397,7 +2397,7 @@ mod tests {
         let marker = runtime.join("internal-tun-capture-restore.json");
         fs::write(
             &marker,
-            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.5","schemaVersion":2,"systemProxy":true,"tun":true}"#,
+            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.6","schemaVersion":2,"systemProxy":true,"tun":true}"#,
         )
         .unwrap();
         fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
@@ -2405,7 +2405,7 @@ mod tests {
         assert_eq!(
             internal_tun_capture_restore_marker_for_profile(
                 temporary.path(),
-                Some("0.1.0-internal-tun-alpha.5"),
+                Some("0.1.0-internal-tun-alpha.6"),
                 uid,
             )
             .unwrap(),
@@ -2429,7 +2429,7 @@ mod tests {
         assert!(
             internal_tun_capture_restore_marker_for_profile(
                 temporary.path(),
-                Some("0.1.0-internal-tun-alpha.5"),
+                Some("0.1.0-internal-tun-alpha.6"),
                 uid,
             )
             .is_err()

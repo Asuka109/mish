@@ -633,8 +633,8 @@ mod tests {
     fn journal(commit_point: MaintenanceCommitPoint) -> InternalTunMaintenanceJournal {
         InternalTunMaintenanceJournal {
             artifacts: MaintenanceArtifactEvidence {
-                new: Some(artifacts('b', "0.1.0-internal-tun-alpha.5")),
-                old: Some(artifacts('a', "0.1.0-internal-tun-alpha.4")),
+                new: Some(artifacts('b', "0.1.0-internal-tun-alpha.6")),
+                old: Some(artifacts('a', "0.1.0-internal-tun-alpha.5")),
             },
             capture: MaintenanceCaptureEvidence {
                 accepted_operation_id: "maintenance:operation-a:disable".into(),
@@ -663,7 +663,7 @@ mod tests {
                 kind: MaintenanceKind::Repair,
                 operation_id: "operation-a".into(),
                 requested_manifest_sha256: digest('b'),
-                requested_package_version: "0.1.0-internal-tun-alpha.5".into(),
+                requested_package_version: "0.1.0-internal-tun-alpha.6".into(),
             },
             schema_version: INTERNAL_TUN_MAINTENANCE_JOURNAL_SCHEMA_VERSION,
             terminal: None,
@@ -698,8 +698,8 @@ mod tests {
         );
         assert_eq!(
             compare_internal_tun_package_versions(
-                "0.1.0-internal-tun-alpha.5",
-                "0.1.0-internal-tun-alpha.4"
+                "0.1.0-internal-tun-alpha.6",
+                "0.1.0-internal-tun-alpha.5"
             ),
             Ok(Ordering::Greater)
         );

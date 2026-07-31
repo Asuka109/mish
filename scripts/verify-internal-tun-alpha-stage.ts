@@ -22,7 +22,7 @@ import {
   type DispatchIdentity,
 } from "./trusted-release-policy.ts";
 
-const packageVersion = "0.1.0-internal-tun-alpha.5";
+const packageVersion = "0.1.0-internal-tun-alpha.6";
 const dmgName = `Mish-Internal-TUN-Alpha-${packageVersion}-arm64.dmg`;
 const packageManifestName = "internal-tun-alpha-package-manifest.json";
 const sbomName = "internal-tun-alpha-sbom.spdx.json";

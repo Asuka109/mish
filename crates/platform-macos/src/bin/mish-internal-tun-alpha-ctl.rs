@@ -3803,8 +3803,7 @@ async fn health(
     home: &Path,
 ) -> Result<serde_json::Value, String> {
     if let Some(journal) = read_root_maintenance_journal()?
-        && (!journal.permits_helper_startup()
-            || journal.identity.package_manifest_sha256 != package.manifest_digest)
+        && !maintenance_journal_permits_package_observation(&journal, &package.manifest_digest)
     {
         return Err("maintenance-recovery-required".into());
     }
@@ -3858,6 +3857,17 @@ async fn health(
     }))
 }
 
+fn maintenance_journal_permits_package_observation(
+    journal: &InternalTunMaintenanceJournal,
+    package_manifest_sha256: &str,
+) -> bool {
+    journal.permits_helper_startup()
+        && !journal.terminal.as_ref().is_some_and(|terminal| {
+            terminal.outcome == MaintenanceTerminalOutcome::Committed
+                && journal.identity.package_manifest_sha256 != package_manifest_sha256
+        })
+}
+
 fn status(package: &VerifiedPackage, uid: u32) -> Result<serde_json::Value, String> {
     let launchd = command_output(
         "/bin/launchctl",
@@ -3881,10 +3891,7 @@ fn status(package: &VerifiedPackage, uid: u32) -> Result<serde_json::Value, Stri
     let maintenance_recovery_required = match read_root_maintenance_journal() {
         Err(_) => true,
         Ok(Some(journal)) => {
-            !journal.permits_helper_startup()
-                || (journal.terminal.as_ref().is_some_and(|terminal| {
-                    terminal.outcome == MaintenanceTerminalOutcome::Committed
-                }) && journal.identity.package_manifest_sha256 != package.manifest_digest)
+            !maintenance_journal_permits_package_observation(&journal, &package.manifest_digest)
         }
         Ok(None) => false,
     };

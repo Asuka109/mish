@@ -20,7 +20,7 @@ import path from "node:path";
 
 export const internalTunAlphaProfile = "internal-tun-alpha" as const;
 export const internalTunAlphaManifestName = "internal-tun-alpha-manifest.json";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.5";
+export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.6";
 export const internalTunAlphaIdentityScheme = "sha256-helper-core-rendered-plist-v1" as const;
 
 const fixedTimestamp = new Date("2020-01-01T00:00:00.000Z");

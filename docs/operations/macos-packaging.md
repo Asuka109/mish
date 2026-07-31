@@ -136,7 +136,7 @@ selects this package profile.
 
 The manual **Validate macOS Release Candidate** workflow accepts the explicit
 `internal-tun-alpha` profile only at version
-`0.1.0-internal-tun-alpha.5`. Unlike the other credential-free validation
+`0.1.0-internal-tun-alpha.6`. Unlike the other credential-free validation
 profiles, this path requires the selected source to equal the frozen reviewed
 `main` workflow SHA exactly; an older ancestor, pull-request or merge ref, fork,
 arbitrary workflow revision, or mismatched tooling tree fails before packaging.
@@ -164,7 +164,7 @@ Staging uses four fail-closed phases:
 
 The final private artifact contains one exact `candidate/` directory with:
 
-- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.5-arm64.dmg`;
+- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.6-arm64.dmg`;
 - the exact copied package manifest;
 - `internal-tun-alpha-sbom.spdx.json`;
 - `internal-tun-alpha-provenance.intoto.json`;

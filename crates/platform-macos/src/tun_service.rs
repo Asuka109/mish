@@ -4840,7 +4840,7 @@ mod tests {
             Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
         let internal = MacOsTunServiceClient::internal_tun_alpha(
             PathBuf::from("/Volumes/Mish TUN Alpha"),
-            "0.1.0-internal-tun-alpha.5",
+            "0.1.0-internal-tun-alpha.6",
         );
         let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
 
