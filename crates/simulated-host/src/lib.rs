@@ -7,12 +7,10 @@ use std::{
 
 use futures_util::future::{BoxFuture, ready};
 use mish_bridge::{
-    ActivationCommit, DesktopRuntimeHost, ManagedActivationState, ManagedRuntimePolicy,
-    MihomoActivationError, MihomoResolveError, ProfileActivationCoordinator,
-    ProfileActivationEffects, ProfileActivationProgress, ProfileActivationProgressObserver,
-    ReqwestHttpsSourceReader,
+    ActivationTiming, DesktopRuntimeHost, ManagedListenerCheckPhase, ManagedListenerHost,
+    ManagedListenerOwnership, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationError,
+    MihomoActivationManager, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
 };
-use mish_profile::ProfileRecord;
 use mish_runtime::{
     CapabilityAvailability, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus,
@@ -34,12 +32,14 @@ pub const TEST_CONTROL_KEY: &str = "mish-simulated-host-control-key";
 #[serde(rename_all = "kebab-case")]
 pub enum SyntheticAuthorityId {
     CaptureOne,
+    CaptureTwo,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SyntheticRuntimeId {
     RuntimeOne,
+    RuntimeTwo,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -155,7 +155,7 @@ impl SimulatedHostScenario {
     pub fn initial_foreign_listener() -> Self {
         Self {
             cleanup_completes_at: 20,
-            declared_effects: complete_effect_contract(),
+            declared_effects: initial_conflict_effect_contract(),
             failures: Vec::new(),
             initial_endpoint_owner: ManagedEndpointOwner::Foreign,
             scheduled_changes: Vec::new(),
@@ -167,7 +167,7 @@ impl SimulatedHostScenario {
     pub fn ownership_changes_before_commit() -> Self {
         Self {
             cleanup_completes_at: 20,
-            declared_effects: complete_effect_contract(),
+            declared_effects: commit_conflict_effect_contract(),
             failures: Vec::new(),
             initial_endpoint_owner: ManagedEndpointOwner::Free,
             scheduled_changes: vec![ScheduledChange::ManagedEndpointOwner {
@@ -204,27 +204,26 @@ impl SimulatedHostScenario {
     }
 }
 
-fn complete_effect_contract() -> Vec<EffectKind> {
+fn initial_conflict_effect_contract() -> Vec<EffectKind> {
     vec![
-        EffectKind::CaptureApply,
-        EffectKind::CaptureConfirmListener,
         EffectKind::CaptureObserve,
         EffectKind::CleanupCandidate,
         EffectKind::CoreObserve,
-        EffectKind::CoreOwnsListener,
-        EffectKind::CoreStart,
         EffectKind::CoreStop,
         EffectKind::FinalizeOperation,
-        EffectKind::JournalClear,
         EffectKind::JournalLoad,
-        EffectKind::JournalSave,
-        EffectKind::ManagedEndpointOwnershipCheckCommit,
         EffectKind::ManagedEndpointOwnershipCheckEarly,
         EffectKind::ProfilePreparation,
         EffectKind::ReapOwnedChild,
         EffectKind::ReconcileAuthority,
         EffectKind::RequestCancellation,
     ]
+}
+
+fn commit_conflict_effect_contract() -> Vec<EffectKind> {
+    let mut effects = initial_conflict_effect_contract();
+    effects.push(EffectKind::ManagedEndpointOwnershipCheckCommit);
+    effects
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -304,6 +303,7 @@ pub enum SimulatedHostFailure {
 
 struct Model {
     active_runtime: Option<MishRuntime>,
+    authority_scopes: Vec<u64>,
     core_phase: SimulatedCorePhase,
     endpoint_owner: ManagedEndpointOwner,
     effect_occurrences: HashMap<EffectKind, u8>,
@@ -312,6 +312,7 @@ struct Model {
     preparation_phase: PreparationPhase,
     proxy_state: NetworkServiceProxyState,
     scheduled_cursor: usize,
+    runtime_id: SyntheticRuntimeId,
     transcript: VecDeque<TranscriptEvent>,
 }
 
@@ -321,6 +322,7 @@ pub struct SimulatedHost {
     declared_effects: HashSet<EffectKind>,
     failures: Vec<InjectedFailure>,
     model: Mutex<Model>,
+    preparation_task: Mutex<Option<(CancellationToken, tokio::task::JoinHandle<()>)>>,
     scenario: SimulatedHostScenario,
 }
 
@@ -334,6 +336,7 @@ impl SimulatedHost {
             failures: scenario.failures.clone(),
             model: Mutex::new(Model {
                 active_runtime: None,
+                authority_scopes: Vec::new(),
                 core_phase: SimulatedCorePhase::Stopped,
                 endpoint_owner: scenario.initial_endpoint_owner,
                 effect_occurrences: HashMap::new(),
@@ -342,8 +345,10 @@ impl SimulatedHost {
                 preparation_phase: PreparationPhase::Idle,
                 proxy_state: disabled_proxy_state(),
                 scheduled_cursor: 0,
+                runtime_id: SyntheticRuntimeId::RuntimeOne,
                 transcript: VecDeque::new(),
             }),
+            preparation_task: Mutex::new(None),
             scenario,
         })
     }
@@ -356,10 +361,15 @@ impl SimulatedHost {
     }
 
     pub fn attach_runtime(&self, runtime: MishRuntime) {
-        self.model
-            .lock()
-            .expect("simulated host lock poisoned")
-            .active_runtime = Some(runtime);
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        if model
+            .active_runtime
+            .as_ref()
+            .is_some_and(|active| !active.is_same_instance(&runtime))
+        {
+            model.runtime_id = SyntheticRuntimeId::RuntimeTwo;
+        }
+        model.active_runtime = Some(runtime);
     }
 
     pub fn advance_to(&self, logical_time: u64) -> Result<(), SimulatedHostFailure> {
@@ -423,19 +433,51 @@ impl SimulatedHost {
         }
     }
 
-    fn correlation(&self) -> (u64, Option<u64>, u64) {
+    fn correlation(
+        &self,
+        model: &mut Model,
+    ) -> (
+        SyntheticAuthorityId,
+        u64,
+        Option<u64>,
+        u64,
+        SyntheticRuntimeId,
+    ) {
         let capture = self
             .capture
             .lock()
             .expect("simulated capture lock poisoned")
             .as_ref()
             .and_then(Weak::upgrade);
-        let operation_id = capture
+        let correlation = capture.map(|capture| capture.correlation_snapshot());
+        let operation_id = correlation
             .as_ref()
-            .and_then(|capture| capture.status().capture_operation.operation_id)
+            .and_then(|correlation| correlation.operation_id.as_ref())
             .and_then(|operation| operation.parse::<u64>().ok());
-        let admitted_revision = operation_id.unwrap_or(0);
-        (1, operation_id, admitted_revision)
+        let machine_scope_epoch = correlation.as_ref().map_or(0, |value| value.scope_epoch);
+        let admitted_revision = correlation
+            .as_ref()
+            .map_or(0, |value| value.admitted_revision);
+        let authority_index = model
+            .authority_scopes
+            .iter()
+            .position(|scope| *scope == machine_scope_epoch)
+            .unwrap_or_else(|| {
+                model.authority_scopes.push(machine_scope_epoch);
+                model.authority_scopes.len() - 1
+            });
+        let authority_id = if authority_index == 0 {
+            SyntheticAuthorityId::CaptureOne
+        } else {
+            SyntheticAuthorityId::CaptureTwo
+        };
+        (
+            authority_id,
+            (authority_index + 1) as u64,
+            operation_id,
+            admitted_revision,
+            model.runtime_id,
+        )
     }
 
     fn emit(
@@ -443,8 +485,9 @@ impl SimulatedHost {
         effect_kind: EffectKind,
         result_kind: EffectResultKind,
     ) -> Result<(), SimulatedHostFailure> {
-        let (scope_epoch, operation_id, admitted_revision) = self.correlation();
         let mut model = self.model.lock().expect("simulated host lock poisoned");
+        let (authority_id, scope_epoch, operation_id, admitted_revision, runtime_id) =
+            self.correlation(&mut model);
         let occurrence = {
             let entry = model.effect_occurrences.entry(effect_kind).or_insert(0);
             *entry = entry.saturating_add(1);
@@ -468,7 +511,7 @@ impl SimulatedHost {
         let logical_time = model.logical_time;
         model.transcript.push_back(TranscriptEvent {
             admitted_revision,
-            authority_id: SyntheticAuthorityId::CaptureOne,
+            authority_id,
             effect_id,
             effect_kind,
             logical_time,
@@ -480,7 +523,7 @@ impl SimulatedHost {
                 }
                 _ => result_kind,
             },
-            runtime_id: SyntheticRuntimeId::RuntimeOne,
+            runtime_id,
             scope_epoch,
         });
         failure.map_or(Ok(()), Err)
@@ -508,11 +551,24 @@ impl SimulatedHost {
             .preparation_phase = phase;
     }
 
-    async fn finalize_failed_preparation(&self) -> Result<(), SimulatedHostFailure> {
+    async fn finalize_model_preparation(&self) -> Result<(), SimulatedHostFailure> {
         self.set_preparation_phase(PreparationPhase::Cancelling);
         let mut first_failure = self
             .emit(EffectKind::RequestCancellation, EffectResultKind::Cancelled)
             .err();
+        let preparation = self
+            .preparation_task
+            .lock()
+            .expect("simulated preparation task lock poisoned")
+            .take();
+        if let Some((cancellation, task)) = preparation {
+            cancellation.cancel();
+            if task.await.is_err() && first_failure.is_none() {
+                first_failure = Some(SimulatedHostFailure::InvalidScenario);
+            }
+        } else if first_failure.is_none() {
+            first_failure = Some(SimulatedHostFailure::InvalidScenario);
+        }
         self.set_preparation_phase(PreparationPhase::Finalizing);
         self.wait_until(self.scenario.cleanup_completes_at).await;
         for effect in [
@@ -551,124 +607,64 @@ impl SimulatedHost {
     }
 }
 
-impl ProfileActivationEffects for SimulatedHost {
-    fn availability(&self) -> Result<(), MihomoResolveError> {
+impl ManagedListenerHost for SimulatedHost {
+    fn begin_preparation(&self) -> Result<(), MihomoActivationError> {
+        self.emit(EffectKind::ProfilePreparation, EffectResultKind::Started)
+            .map_err(|_| MihomoActivationError::StateCommitFailed)?;
+        self.set_preparation_phase(PreparationPhase::Running);
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .core_phase = SimulatedCorePhase::Starting;
+        let cancellation = CancellationToken::new();
+        let child_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            child_cancellation.cancelled().await;
+        });
+        let mut slot = self
+            .preparation_task
+            .lock()
+            .expect("simulated preparation task lock poisoned");
+        if slot.is_some() {
+            cancellation.cancel();
+            task.abort();
+            return Err(MihomoActivationError::StateCommitFailed);
+        }
+        *slot = Some((cancellation, task));
         Ok(())
     }
 
-    fn activate_cancellable<'a>(
+    fn check<'a>(
         &'a self,
-        record: &'a ProfileRecord,
-        _policy: &'a ManagedRuntimePolicy,
-        cancellation: CancellationToken,
-        progress: ProfileActivationProgressObserver,
-    ) -> BoxFuture<'a, Result<ActivationCommit, MihomoActivationError>> {
+        phase: ManagedListenerCheckPhase,
+        _endpoint: SocketAddr,
+    ) -> BoxFuture<'a, Result<ManagedListenerOwnership, MihomoActivationError>> {
         Box::pin(async move {
-            self.set_preparation_phase(PreparationPhase::Running);
-            {
-                self.model
-                    .lock()
-                    .expect("simulated host lock poisoned")
-                    .core_phase = SimulatedCorePhase::Starting;
-            }
-            self.emit(EffectKind::ProfilePreparation, EffectResultKind::Started)
-                .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-
-            let owner = self.endpoint_owner();
-            self.emit(
-                EffectKind::ManagedEndpointOwnershipCheckEarly,
-                Self::endpoint_result(owner),
-            )
-            .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-            if owner == ManagedEndpointOwner::Foreign {
-                progress(ProfileActivationProgress::ManagedListenerConflict(
-                    SocketAddr::from((Ipv4Addr::LOCALHOST, 7890)),
-                ));
-                self.finalize_failed_preparation()
-                    .await
-                    .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-                return Err(MihomoActivationError::ManagedListenerConflict(
-                    SocketAddr::from((Ipv4Addr::LOCALHOST, 7890)),
-                ));
-            }
-
-            tokio::select! {
-                _ = cancellation.cancelled() => {
-                    self.finalize_failed_preparation()
-                        .await
-                        .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-                    return Err(MihomoActivationError::Cancelled);
+            let effect = match phase {
+                ManagedListenerCheckPhase::Early => EffectKind::ManagedEndpointOwnershipCheckEarly,
+                ManagedListenerCheckPhase::Commit => {
+                    self.wait_until(self.scenario.second_check_at).await;
+                    EffectKind::ManagedEndpointOwnershipCheckCommit
                 }
-                _ = self.wait_until(self.scenario.second_check_at) => {}
-            }
+            };
             let owner = self.endpoint_owner();
-            self.emit(
-                EffectKind::ManagedEndpointOwnershipCheckCommit,
-                Self::endpoint_result(owner),
-            )
-            .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-            if owner != ManagedEndpointOwner::Free {
-                progress(ProfileActivationProgress::ManagedListenerConflict(
-                    SocketAddr::from((Ipv4Addr::LOCALHOST, 7890)),
-                ));
-                self.finalize_failed_preparation()
-                    .await
-                    .map_err(|_| MihomoActivationError::StateCommitFailed)?;
-                return Err(MihomoActivationError::ManagedListenerConflict(
-                    SocketAddr::from((Ipv4Addr::LOCALHOST, 7890)),
-                ));
-            }
-
-            self.emit(EffectKind::CoreStart, EffectResultKind::Started)
-                .map_err(|_| MihomoActivationError::StartFailed)?;
-            {
-                let mut model = self.model.lock().expect("simulated host lock poisoned");
-                model.core_phase = SimulatedCorePhase::Running;
-                model.endpoint_owner = ManagedEndpointOwner::Mish;
-            }
-            Ok(ActivationCommit::new(
-                record.effective_fingerprint().as_str(),
-                record.metadata.id.as_str(),
-                record.metadata.revision.id.as_str(),
-            ))
+            self.emit(effect, Self::endpoint_result(owner))
+                .map_err(|_| MihomoActivationError::StateCommitFailed)?;
+            Ok(match owner {
+                ManagedEndpointOwner::Free => ManagedListenerOwnership::Free,
+                ManagedEndpointOwner::Foreign => ManagedListenerOwnership::Foreign,
+                ManagedEndpointOwner::Mish => ManagedListenerOwnership::Mish,
+            })
         })
     }
 
-    fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>> {
-        Box::pin(ready(
-            self.model
-                .lock()
-                .expect("simulated host lock poisoned")
-                .active_runtime
-                .clone(),
-        ))
-    }
-
-    fn managed_state(&self) -> BoxFuture<'_, ManagedActivationState> {
-        Box::pin(ready(ManagedActivationState::default()))
-    }
-
-    fn complete_runtime_handoff(&self) -> BoxFuture<'_, ()> {
-        Box::pin(ready(()))
-    }
-
-    fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
+    fn finalize_failed_preparation(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
         Box::pin(async move {
-            self.emit(EffectKind::CoreStop, EffectResultKind::Stopped)
-                .map_err(|_| MihomoActivationError::ShutdownFailed)?;
-            self.model
-                .lock()
-                .expect("simulated host lock poisoned")
-                .core_phase = SimulatedCorePhase::Stopped;
-            Ok(())
+            self.finalize_model_preparation()
+                .await
+                .map_err(|_| MihomoActivationError::StateCommitFailed)
         })
     }
-
-    fn route_selections(&self, _record: &ProfileRecord) -> HashMap<String, String> {
-        HashMap::new()
-    }
-
-    fn delete_route_selections(&self, _profile_id: &str) {}
 }
 
 impl CapturePlatform for SimulatedHost {
@@ -863,16 +859,28 @@ impl ScenarioRuntime {
         ));
         host.attach_capture(&capture);
         let core: Arc<dyn CoreRuntime> = host.clone();
-        let safe_runtime = MishRuntime::with_capture(core, capture);
+        let safe_runtime = MishRuntime::with_capture(core, capture.clone());
         host.attach_runtime(safe_runtime.clone());
         let runtime_host = DesktopRuntimeHost::with_mutation_authority(
             safe_runtime.clone(),
             profile_service.mutation_authority(),
         );
-        let effects: Arc<dyn ProfileActivationEffects> = host.clone();
+        let binary = root.path().join("managed-core-fixture");
+        fs::write(
+            &binary,
+            b"test fixture; execution is blocked by ownership checks",
+        )?;
+        let manager = Arc::new(
+            MihomoActivationManager::new_with_capture(
+                ManagedMihomoResolver::development(binary, root.path().join("runtime")),
+                ActivationTiming::default(),
+                Some(capture),
+            )
+            .with_test_listener_host(host.clone()),
+        );
         let activation = Arc::new(ProfileActivationCoordinator::new(
             profile_service.clone(),
-            effects,
+            manager,
             runtime_host.clone(),
             safe_runtime,
             || {
@@ -961,6 +969,19 @@ mod tests {
                 })
         })
         .await;
+        let early = scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .into_iter()
+            .find(|event| event.effect_kind == EffectKind::ManagedEndpointOwnershipCheckEarly)
+            .unwrap();
+        assert_eq!(early.authority_id, SyntheticAuthorityId::CaptureOne);
+        assert_eq!(early.runtime_id, SyntheticRuntimeId::RuntimeOne);
+        assert_eq!(early.scope_epoch, 1);
+        assert_eq!(early.operation_id, Some(1));
+        assert_eq!(early.admitted_revision, 1);
         settle_until(|| {
             serde_json::to_string(&scenario.runtime_host.notification_snapshot())
                 .unwrap()
@@ -1243,9 +1264,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unchanged_ownership_can_commit_through_real_capture_machine() {
-        let mut definition = SimulatedHostScenario::ownership_changes_before_commit();
-        definition.scheduled_changes.clear();
+    async fn injected_ownership_failure_fails_closed_and_still_finalizes() {
+        let mut definition = SimulatedHostScenario::initial_foreign_listener();
+        definition.failures.push(InjectedFailure {
+            effect: EffectKind::ManagedEndpointOwnershipCheckEarly,
+            kind: InjectedFailureKind::Observation,
+            occurrence: 1,
+        });
         let scenario = ScenarioRuntime::build(definition).await.unwrap();
         let activation = scenario.activation.clone();
         let launch = tokio::spawn(async move {
@@ -1258,36 +1283,21 @@ mod tests {
                 .await
         });
         settle_until(|| {
-            scenario
-                .host
-                .observation()
-                .transcript
-                .events
-                .iter()
-                .any(|event| event.effect_kind == EffectKind::ManagedEndpointOwnershipCheckEarly)
+            scenario.host.observation().preparation_phase == PreparationPhase::Finalizing
         })
         .await;
-        scenario.host.advance_to(10).unwrap();
-        assert!(launch.await.unwrap().is_ok());
-        let snapshot = scenario
-            .runtime_host
-            .current()
-            .status_snapshot_typed(StatusAdapterKind::Rpc)
-            .await;
-        assert_eq!(
-            snapshot.runtime.capture_operation.phase,
-            CaptureOperationPhase::Applied
-        );
-        assert!(snapshot.runtime.system_proxy_enabled);
-        let observation = scenario.host.observation();
-        assert_eq!(observation.endpoint_owner, ManagedEndpointOwner::Mish);
-        assert!(
-            observation
-                .transcript
-                .events
-                .iter()
-                .any(|event| event.effect_kind == EffectKind::CaptureApply)
-        );
+        assert!(!launch.is_finished());
+        scenario.host.advance_to(20).unwrap();
+        assert!(launch.await.unwrap().is_err());
+        let transcript = scenario.host.observation().transcript;
+        assert!(transcript.events.iter().any(|event| {
+            event.effect_kind == EffectKind::ManagedEndpointOwnershipCheckEarly
+                && event.result_kind == EffectResultKind::InjectedFailure
+        }));
+        assert!(transcript.events.iter().any(|event| {
+            event.effect_kind == EffectKind::FinalizeOperation
+                && event.result_kind == EffectResultKind::Completed
+        }));
     }
 
     #[test]
@@ -1420,6 +1430,60 @@ mod tests {
     }
 
     #[test]
+    fn built_in_scenarios_reject_unnecessary_mutating_effects() {
+        for effect in [
+            EffectKind::CaptureApply,
+            EffectKind::CaptureConfirmListener,
+            EffectKind::CoreStart,
+            EffectKind::JournalSave,
+        ] {
+            let host =
+                SimulatedHost::new(SimulatedHostScenario::initial_foreign_listener()).unwrap();
+            assert_eq!(
+                host.exercise_effect(effect),
+                Err(SimulatedHostFailure::UndeclaredEffect(effect))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn transcript_maps_real_authority_and_runtime_replacement_to_closed_identities() {
+        let host = Arc::new(
+            SimulatedHost::new(SimulatedHostScenario::initial_foreign_listener()).unwrap(),
+        );
+        let platform: Arc<dyn CapturePlatform> = host.clone();
+        let journal: Arc<dyn CaptureJournalStore> = host.clone();
+        let first_capture = Arc::new(CaptureReconciler::new(
+            platform.clone(),
+            journal.clone(),
+            LoopbackProxyEndpoint::managed(),
+        ));
+        host.attach_capture(&first_capture);
+        let core: Arc<dyn CoreRuntime> = host.clone();
+        let first_runtime = MishRuntime::with_capture(core.clone(), first_capture);
+        host.attach_runtime(first_runtime);
+        host.exercise_effect(EffectKind::CoreObserve).unwrap();
+
+        let second_capture = Arc::new(CaptureReconciler::new(
+            platform,
+            journal,
+            LoopbackProxyEndpoint::managed(),
+        ));
+        host.attach_capture(&second_capture);
+        let second_runtime = MishRuntime::with_capture(core, second_capture);
+        host.attach_runtime(second_runtime);
+        host.exercise_effect(EffectKind::CoreObserve).unwrap();
+
+        let events = host.observation().transcript.events;
+        assert_eq!(events[0].authority_id, SyntheticAuthorityId::CaptureOne);
+        assert_eq!(events[0].runtime_id, SyntheticRuntimeId::RuntimeOne);
+        assert_eq!(events[0].scope_epoch, 1);
+        assert_eq!(events[1].authority_id, SyntheticAuthorityId::CaptureTwo);
+        assert_eq!(events[1].runtime_id, SyntheticRuntimeId::RuntimeTwo);
+        assert_eq!(events[1].scope_epoch, 2);
+    }
+
+    #[test]
     fn bounded_failure_injection_is_typed_and_occurrence_scoped() {
         let mut definition = SimulatedHostScenario::initial_foreign_listener();
         definition.failures.push(InjectedFailure {
@@ -1456,7 +1520,9 @@ mod tests {
 
     #[tokio::test]
     async fn adapter_mutations_are_shared_state_not_canned_responses() {
-        let host = SimulatedHost::new(SimulatedHostScenario::initial_foreign_listener()).unwrap();
+        let mut definition = SimulatedHostScenario::initial_foreign_listener();
+        definition.declared_effects = vec![EffectKind::CaptureApply, EffectKind::CaptureObserve];
+        let host = SimulatedHost::new(definition).unwrap();
         let mut target = disabled_proxy_state();
         target.pac_enabled = true;
         CapturePlatform::apply_service(&host, target.clone())

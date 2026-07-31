@@ -14,6 +14,7 @@ interface CargoMetadata {
     manifest_path: string;
     name: string;
     publish: null | string[];
+    features: Record<string, string[]>;
     targets: Array<{
       kind: string[];
       name: string;
@@ -82,6 +83,26 @@ test("no product Rust package can reach SimulatedHost", () => {
     assert.ok(
       metadata.packages.some(({ name }) => name === packageName),
       `Production package root is missing from the exclusion proof: ${packageName}`,
+    );
+  }
+});
+
+test("product Rust feature graphs exclude the simulator-only seams", () => {
+  for (const packageName of [
+    "mish-desktop",
+    "mish-mobile",
+    "mish-bridge",
+    "mish-platform-macos",
+    "mish-updater",
+  ]) {
+    const tree = execFileSync("cargo", ["tree", "-p", packageName, "-e", "features"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+    assert.equal(
+      tree.includes("test-activation-host") || tree.includes("test-correlation"),
+      false,
+      `${packageName} enables a simulator-only Rust seam.`,
     );
   }
 });

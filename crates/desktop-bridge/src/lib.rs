@@ -22,6 +22,8 @@ pub use activation::{
     ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager, MihomoResolveError,
     ResolvedManagedMihomo, RuntimeConfigGenerationError, RuntimeConfigGenerator,
 };
+#[cfg(feature = "test-activation-host")]
+pub use activation::{ManagedListenerCheckPhase, ManagedListenerHost, ManagedListenerOwnership};
 pub use controller_source::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
     ControllerStatusSourceError,

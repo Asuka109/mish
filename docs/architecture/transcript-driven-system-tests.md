@@ -5,10 +5,14 @@
 `SimulatedHost` is the repository-owned, test-only host for deterministic
 system scenarios that must retain Mish's real application authorities. It
 replaces only effects behind existing Profile/Core, Capture platform, Capture
-journal, and Core Runtime adapter seams. The Rust Runtime, Profile activation
-coordinator, Capture reconciliation state machine, authenticated RPC server,
-semantic Notification Center, generated product contracts, RPC clients, and
-React command feedback remain in the execution path.
+journal, and Core Runtime adapter seams. Across the initial-conflict and TOCTOU
+scenarios the real `MihomoActivationManager` performs validation, both
+managed-listener checks, candidate preparation and rollback; a test-build-only
+listener host supplies the synthetic ownership observation and bounded
+finalizer effects. The Rust Runtime, Profile activation coordinator, Capture
+reconciliation state machine, authenticated RPC server, semantic Notification
+Center, generated product contracts, RPC clients, and React command feedback
+remain in the execution path.
 
 The first scenario is the vertical slice that justifies the host. A real Web
 System Proxy control launches while Capture is Off, a foreign owner holds
@@ -45,8 +49,11 @@ lifecycle.
 
 ## Semantic transcript
 
-The transcript has a schema version and a fixed event limit. Each event records
-only:
+The transcript has a schema version and a fixed event limit. Capture operation
+ID and admitted revision come directly from the real Capture machine. Its
+opaque authority/scope and the attached Runtime instance are mapped by first
+observation to closed synthetic identities, so replacement remains visible
+without admitting UUIDs or addresses. Each event records only:
 
 - synthetic authority and runtime identities;
 - scope epoch, operation ID, and admitted revision;
@@ -77,11 +84,13 @@ the transcript and from all production package graphs.
 ## Production exclusion
 
 The simulator package is `publish = false`, and its control-server binary
-requires the `scenario-harness` feature. No production Rust package depends on
-it. Web references are confined to the system-test source directory and a
-dedicated Vitest Browser configuration. A checked build-policy test walks Cargo
-metadata plus release, alpha, Internal TUN, signed, updater, desktop, mobile,
-and Web build inputs and fails if the test graph becomes reachable.
+requires the `scenario-harness` feature. Its listener-host and correlation
+inspection seams are separately feature-gated and disabled in product package
+graphs. No production Rust package depends on the simulator. Web references
+are confined to the system-test source directory and a dedicated Vitest
+Browser configuration. A checked build-policy test walks Cargo metadata plus
+release, alpha, Internal TUN, signed, updater, desktop, mobile, and Web build
+inputs and fails if the test graph becomes reachable.
 
 This keeps the scenario control API, synthetic identities, test
 authentication, transcript implementation, and simulated adapters absent from

@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+test-correlation = []
+
 [dependencies]
 futures-util = "0.3.33"
 mish-presentation-contract = { path = "../presentation-contract" }
