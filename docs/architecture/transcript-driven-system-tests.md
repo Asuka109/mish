@@ -101,6 +101,14 @@ may separately prove that a production adapter and its simulated counterpart
 classify the same product-level result. Scenario assertions must not depend on
 production shell-command ordering.
 
+The separate macOS platform transcript fixture described in
+[`../quality/macos-platform-transcript-fixtures.md`](../quality/macos-platform-transcript-fixtures.md)
+calibrates real `route`/`networksetup` output against the production
+`MacOsCommandRunner` parser and adapter. Its checked-in fixture is fully synthetic,
+and its runner matches closed request kinds rather than enforcing capture order.
+It does not replace this semantic model or make raw command order observable to
+Runtime/Capture tests.
+
 ## Structural privacy
 
 Privacy is an admission rule, not a redaction pass. Scenario and transcript

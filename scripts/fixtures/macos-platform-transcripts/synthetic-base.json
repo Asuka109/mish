@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "capturePolicy": "read-only-system-proxy-v1",
+  "sensitive": true,
+  "locale": "C",
+  "records": [
+    {
+      "requestKind": "macos-product-version",
+      "program": "/usr/bin/sw_vers",
+      "arguments": ["-productVersion"],
+      "result": { "kind": "success", "stdout": "26.5\n" }
+    },
+    {
+      "requestKind": "macos-build-version",
+      "program": "/usr/bin/sw_vers",
+      "arguments": ["-buildVersion"],
+      "result": { "kind": "success", "stdout": "25F90\n" }
+    },
+    {
+      "requestKind": "macos-architecture",
+      "program": "/usr/bin/uname",
+      "arguments": ["-m"],
+      "result": { "kind": "success", "stdout": "arm64\n" }
+    },
+    {
+      "requestKind": "default-route",
+      "program": "/sbin/route",
+      "arguments": ["-n", "get", "default"],
+      "result": {
+        "kind": "success",
+        "stdout": "   route to: default\ndestination: default\n       mask: default\n    gateway: 192.0.2.1\n  interface: en42\n      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>\n recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire\n       0         0         0         0         0         0      1500         0\n"
+      }
+    },
+    {
+      "requestKind": "list-network-service-order",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-listnetworkserviceorder"],
+      "result": {
+        "kind": "success",
+        "stdout": "An asterisk (*) denotes that a network service is disabled.\n(1) Unrelated Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n(2) Controlled Lab Ethernet\n(Hardware Port: USB 10/100/1000 LAN, Device: en42)\n(3) Unrelated Bridge\n(Hardware Port: Bridge, Device: bridge0)\n"
+      }
+    },
+    {
+      "requestKind": "get-http-proxy",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getwebproxy", "Controlled Lab Ethernet"],
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: Yes\nServer: controlled.proxy.invalid\nPort: 3128\nAuthenticated Proxy Enabled: 0\n"
+      }
+    },
+    {
+      "requestKind": "get-https-proxy",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getsecurewebproxy", "Controlled Lab Ethernet"],
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: Yes\nServer: controlled.proxy.invalid\nPort: 3128\nAuthenticated Proxy Enabled: 0\n"
+      }
+    },
+    {
+      "requestKind": "get-socks-proxy",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getsocksfirewallproxy", "Controlled Lab Ethernet"],
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: No\nServer: socks.controlled.invalid\nPort: 1080\nAuthenticated Proxy Enabled: 0\n"
+      }
+    },
+    {
+      "requestKind": "get-auto-proxy-url",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getautoproxyurl", "Controlled Lab Ethernet"],
+      "result": {
+        "kind": "success",
+        "stdout": "URL: https://controlled.proxy.invalid/lab/private-name.pac\nEnabled: No\n"
+      }
+    },
+    {
+      "requestKind": "get-proxy-bypass-domains",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getproxybypassdomains", "Controlled Lab Ethernet"],
+      "result": {
+        "kind": "success",
+        "stdout": "internal.controlled.invalid\n*.controlled.invalid\n"
+      }
+    },
+    {
+      "requestKind": "get-proxy-auto-discovery",
+      "program": "/usr/sbin/networksetup",
+      "arguments": ["-getproxyautodiscovery", "Controlled Lab Ethernet"],
+      "result": { "kind": "success", "stdout": "Auto Proxy Discovery: Off\n" }
+    }
+  ]
+}
