@@ -88,6 +88,23 @@ test("deterministically compiles the fixed synthetic raw transcript without raw 
   assert.doesNotMatch(first.privacyDiff, /Controlled|en42|USB|192\.0\.2\.1/u);
 });
 
+test("allocates pseudonyms outside the complete set of raw source values", async () => {
+  const raw = await json("synthetic-base.json");
+  replaceResult(raw, "get-http-proxy", {
+    kind: "success",
+    stdout:
+      "Enabled: Yes\nServer: proxy-host-1.fixture.invalid\nPort: 40001\nAuthenticated Proxy Enabled: 0\n",
+  });
+
+  const compiled = compileTranscript(raw, {
+    fixtureId: "pseudonym-collision",
+    sourceKind: "synthetic-test",
+  });
+  const serialized = JSON.stringify(compiled.fixture);
+  assert.doesNotMatch(serialized, /proxy-host-1\.fixture\.invalid/u);
+  assert.doesNotMatch(serialized, /Port: 40001/u);
+});
+
 test("checked-in real Tart fixture and privacy diff retain their validated exact identities", async () => {
   const checkedRoot = path.join(repositoryRoot, "docs/quality/fixtures/macos-platform-transcripts");
   const fixtureBytes = await readFile(path.join(checkedRoot, "system-proxy-macos26-arm64.json"));
@@ -208,6 +225,20 @@ test("refuses arbitrary programs, arguments, paths, remote targets, open fields,
     () => compileTranscript(oversized, { fixtureId: "oversized", sourceKind: "synthetic-test" }),
     /oversized/u,
   );
+
+  const malformedEmptyBypass = clone(base);
+  replaceResult(malformedEmptyBypass, "get-proxy-bypass-domains", {
+    kind: "success",
+    stdout: "There aren't any bypass domains set on Controlled Lab Ethernet. unexpected-field\n",
+  });
+  assert.throws(
+    () =>
+      compileTranscript(malformedEmptyBypass, {
+        fixtureId: "malformed-empty-bypass",
+        sourceKind: "synthetic-test",
+      }),
+    /empty proxy bypass response is malformed/iu,
+  );
 });
 
 async function quarantine(name: string, raw: unknown): Promise<string> {
@@ -281,6 +312,36 @@ test("cleanup failure visibly fails, removes candidate outputs, and never blesse
   assert.deepEqual(
     (await readdir(inputRoot)).sort(),
     [rawTranscriptFileName, sensitiveMarkerFileName].sort(),
+  );
+  await cleanupQuarantine(inputRoot);
+});
+
+test("compile rejects invalid UTF-8 raw bytes before JSON decoding", async () => {
+  const raw = await json("synthetic-base.json");
+  const inputRoot = await quarantine("invalid-utf8", raw);
+  const rawPath = path.join(inputRoot, rawTranscriptFileName);
+  const bytes = Buffer.from(`${JSON.stringify(raw)}\n`);
+  const offset = bytes.indexOf("controlled.proxy.invalid");
+  assert.notEqual(offset, -1);
+  bytes[offset] = 0x80;
+  await writeFile(rawPath, bytes);
+
+  const suffix = `system-proxy-test-invalid-utf8-${process.pid}`;
+  await assert.rejects(
+    compileQuarantine({
+      fixtureId: "invalid-utf8",
+      fixtureOutput: path.join(
+        repositoryRoot,
+        `docs/quality/fixtures/macos-platform-transcripts/${suffix}.json`,
+      ),
+      inputRoot,
+      privacyDiffOutput: path.join(
+        repositoryRoot,
+        `docs/quality/fixtures/macos-platform-transcripts/${suffix}.privacy.md`,
+      ),
+      sourceKind: "synthetic-test",
+    }),
+    /not valid UTF-8/u,
   );
   await cleanupQuarantine(inputRoot);
 });

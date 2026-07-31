@@ -220,22 +220,48 @@ function pseudonym(
 }
 
 class Pseudonyms {
+  readonly #sources = new Map<string, string[]>();
   readonly #values = new Map<string, Map<string, string>>();
+  #sealed = false;
 
   map(
     kind: "domain" | "hardware-port" | "host" | "interface" | "port" | "service",
     value: string,
   ): string {
-    let values = this.#values.get(kind);
-    if (!values) {
-      values = new Map();
+    if (!this.#sealed) {
+      let sources = this.#sources.get(kind);
+      if (!sources) {
+        sources = [];
+        this.#sources.set(kind, sources);
+      }
+      if (!sources.includes(value)) sources.push(value);
+      return pseudonym(sources.indexOf(value) + 1, kind);
+    }
+    const mapped = this.#values.get(kind)?.get(value);
+    invariant(mapped, `Unreserved ${kind} value reached pseudonym emission.`);
+    return mapped;
+  }
+
+  seal(): void {
+    invariant(!this.#sealed, "Pseudonym allocation is already sealed.");
+    const sourceValues = new Set([...this.#sources.values()].flat());
+    const outputs = new Set<string>();
+    for (const [kind, sources] of this.#sources) {
+      const values = new Map<string, string>();
+      let index = 1;
+      for (const source of sources) {
+        let candidate = pseudonym(index, kind as Parameters<typeof pseudonym>[1]);
+        while (sourceValues.has(candidate) || outputs.has(candidate)) {
+          index += 1;
+          candidate = pseudonym(index, kind as Parameters<typeof pseudonym>[1]);
+        }
+        values.set(source, candidate);
+        outputs.add(candidate);
+        index += 1;
+      }
       this.#values.set(kind, values);
     }
-    const existing = values.get(value);
-    if (existing) return existing;
-    const mapped = pseudonym(values.size + 1, kind);
-    values.set(value, mapped);
-    return mapped;
+    this.#sealed = true;
   }
 
   counts(): Record<string, number> {
@@ -365,15 +391,24 @@ function sanitizePac(output: string, pseudonyms: Pseudonyms): string {
   return `URL: ${sanitizedUrl}\nEnabled: ${enabled ? "Yes" : "No"}\n`;
 }
 
-function sanitizeBypass(output: string, pseudonyms: Pseudonyms): string {
+function sanitizeBypass(
+  output: string,
+  pseudonyms: Pseudonyms,
+  expectedService: string,
+  syntheticService: string,
+): string {
   const lines = strictLines(output)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (
-    lines.length === 0 ||
-    (lines.length === 1 && lines[0]!.startsWith("There aren't any bypass domains set on "))
-  ) {
-    return "There aren't any bypass domains set on network-service-1.\n";
+  if (lines.length === 0) {
+    return `There aren't any bypass domains set on ${syntheticService}.\n`;
+  }
+  if (lines.length === 1 && lines[0]!.startsWith("There aren't any bypass domains set on ")) {
+    invariant(
+      lines[0] === `There aren't any bypass domains set on ${expectedService}.`,
+      "Empty proxy bypass response is malformed.",
+    );
+    return `There aren't any bypass domains set on ${syntheticService}.\n`;
   }
   invariant(lines.length <= 64, "Proxy bypass list is oversized.");
   return `${lines
@@ -921,7 +956,8 @@ export function validateSanitizedTranscript(value: unknown): asserts value is Sa
         invariant(
           strictLines(stdout).every(
             (line) =>
-              line === "There aren't any bypass domains set on network-service-1." ||
+              line ===
+                `There aren't any bypass domains set on ${candidate.operand!.networkService}.` ||
               /^(?:\*\.)?domain-\d+\.fixture\.invalid$/u.test(line),
           ),
           "Sanitized bypass output contains a non-synthetic value.",
@@ -1014,6 +1050,36 @@ export function compileTranscript(
     validateRecordIdentity(record, expectedDefinition(record.requestKind, serviceMetadata.service));
 
   const pseudonyms = new Pseudonyms();
+  pseudonyms.map("interface", route.interfaceName);
+  const collectingService = pseudonyms.map("service", serviceMetadata.service);
+  pseudonyms.map("hardware-port", serviceMetadata.hardwarePort);
+  for (const record of raw.records.slice(5)) {
+    if (record.result.kind !== "success") continue;
+    switch (record.requestKind) {
+      case "get-http-proxy":
+      case "get-https-proxy":
+      case "get-socks-proxy":
+        sanitizeManualProxy(record.result.stdout, pseudonyms);
+        break;
+      case "get-auto-proxy-url":
+        sanitizePac(record.result.stdout, pseudonyms);
+        break;
+      case "get-proxy-bypass-domains":
+        sanitizeBypass(
+          record.result.stdout,
+          pseudonyms,
+          serviceMetadata.service,
+          collectingService,
+        );
+        break;
+      case "get-proxy-auto-discovery":
+        sanitizeDiscovery(record.result.stdout);
+        break;
+      default:
+        throw new Error(`Unexpected getter ${record.requestKind} reached pseudonym collection.`);
+    }
+  }
+  pseudonyms.seal();
   const syntheticInterface = pseudonyms.map("interface", route.interfaceName);
   const syntheticService = pseudonyms.map("service", serviceMetadata.service);
   const syntheticHardwarePort = pseudonyms.map("hardware-port", serviceMetadata.hardwarePort);
@@ -1048,7 +1114,12 @@ export function compileTranscript(
         stdout = sanitizePac(record.result.stdout, pseudonyms);
         break;
       case "get-proxy-bypass-domains":
-        stdout = sanitizeBypass(record.result.stdout, pseudonyms);
+        stdout = sanitizeBypass(
+          record.result.stdout,
+          pseudonyms,
+          serviceMetadata.service,
+          syntheticService,
+        );
         break;
       case "get-proxy-auto-discovery":
         stdout = sanitizeDiscovery(record.result.stdout);
@@ -1216,7 +1287,10 @@ export async function compileQuarantine(
       markerMetadata.size <= 256,
     "Sensitive marker file metadata is invalid.",
   );
-  const raw = JSON.parse(await readFile(rawPath, "utf8")) as unknown;
+  const rawBytes = await readFile(rawPath);
+  const rawText = rawBytes.toString("utf8");
+  invariant(Buffer.from(rawText).equals(rawBytes), "Raw transcript is not valid UTF-8.");
+  const raw = JSON.parse(rawText) as unknown;
   const compiled = compileTranscript(raw, options);
   const fixtureOutput = await validateOutputPath(options.fixtureOutput, fixtureName);
   const privacyDiffOutput = await validateOutputPath(options.privacyDiffOutput, privacyDiffName);
