@@ -58,12 +58,14 @@ confirmation loop first sees the stale state, retries, and then accepts only
 the propagated observation. Scheduled active-service or proxy changes cancel
 pending propagation and become unrelated drift.
 
-Runtime replacement creates a new real Capture reconciler and Runtime while
-retaining only the simulated platform and journal state. Restart tests then
-exercise the production restart audit or command path: an observed managed
-state can be completed idempotently, an unrequested owned state is restored,
-and unrelated drift remains untouched as Recovery Required. Neither desired
-state nor journal presence is accepted without a fresh model observation.
+Process-termination restart drops the process-owned activation coordinator,
+Capture reconciler, Runtime, and application host before rebuilding them over
+only the simulated platform and journal state. Restart tests then exercise the
+production restart audit or command path: an observed managed state can be
+completed idempotently, an unrequested owned state is restored, and unrelated
+drift remains untouched as Recovery Required. A separate concurrent replacement
+helper keeps the old Runtime alive only for stale-completion coverage. Neither
+desired state nor journal presence is accepted without a fresh model observation.
 
 Scenario input contains only closed synthetic initial state, logical-time
 ownership changes, and occurrence-bounded injected failures. Logical time

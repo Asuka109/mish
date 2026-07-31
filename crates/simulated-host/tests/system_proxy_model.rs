@@ -6,7 +6,8 @@ use mish_runtime::{
 };
 use mish_simulated_host::{
     EffectKind, EffectResultKind, InjectedFailure, InjectedFailureKind, ScenarioRuntime,
-    ScheduledChange, SimulatedHostScenario, SyntheticProxyState, SyntheticService,
+    ScheduledChange, SimulatedHostScenario, SyntheticAuthorityId, SyntheticProxyState,
+    SyntheticRuntimeId, SyntheticService,
 };
 
 fn system_proxy_request(active: bool) -> CaptureRequest {
@@ -399,7 +400,9 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .await
         .unwrap();
     let writes_before = complete.host.observation().proxy_actual_revision;
-    complete.restart_runtime();
+    let terminated_capture = Arc::downgrade(&complete.capture);
+    let complete = complete.terminate_and_restart();
+    assert!(terminated_capture.upgrade().is_none());
     complete
         .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
@@ -433,7 +436,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap();
-    compensate.restart_runtime();
+    let compensate = compensate.terminate_and_restart();
     compensate
         .runtime_host
         .audit_capture(CaptureAuditReason::Restart)
@@ -463,7 +466,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .unwrap();
     drift.host.advance_to(3).unwrap();
     let external = drift.host.actual_proxy_state();
-    drift.restart_runtime();
+    let drift = drift.terminate_and_restart();
     let error = drift
         .runtime_host
         .audit_capture(CaptureAuditReason::Restart)
@@ -497,7 +500,7 @@ async fn replacement_retires_a_stale_equal_target_completion_from_the_old_runtim
             .await
     });
     settle_until(|| scenario.host.observation().pending_proxy_propagation).await;
-    scenario.restart_runtime();
+    scenario.replace_runtime();
     let replacement_before = scenario
         .runtime_host
         .current()
@@ -519,6 +522,21 @@ async fn replacement_retires_a_stale_equal_target_completion_from_the_old_runtim
         CaptureOperationPhase::Idle
     );
     assert!(!replacement_after.runtime.system_proxy_enabled);
+    let old_completion = scenario
+        .host
+        .observation()
+        .transcript
+        .events
+        .into_iter()
+        .find(|event| event.effect_kind == EffectKind::CaptureObserve && event.logical_time == 5)
+        .expect("old Runtime confirmation observation");
+    assert_eq!(
+        old_completion.authority_id,
+        SyntheticAuthorityId::CaptureOne
+    );
+    assert_eq!(old_completion.runtime_id, SyntheticRuntimeId::RuntimeOne);
+    assert_eq!(old_completion.operation_id, Some(1));
+    assert_eq!(old_completion.admitted_revision, 1);
 }
 
 #[test]

@@ -514,6 +514,14 @@ struct PendingProxyObservation {
     stale_observation_returned: bool,
 }
 
+type EffectCorrelation = (
+    SyntheticAuthorityId,
+    u64,
+    Option<u64>,
+    u64,
+    SyntheticRuntimeId,
+);
+
 struct Model {
     active_runtime: Option<MishRuntime>,
     authority_scopes: Vec<u64>,
@@ -591,6 +599,17 @@ impl SimulatedHost {
             model.runtime_id = SyntheticRuntimeId::RuntimeTwo;
         }
         model.active_runtime = Some(runtime);
+    }
+
+    fn detach_process(&self) {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        *self
+            .capture
+            .lock()
+            .expect("simulated capture lock poisoned") = None;
+        if model.active_runtime.take().is_some() {
+            model.runtime_id = SyntheticRuntimeId::RuntimeTwo;
+        }
     }
 
     pub fn advance_to(&self, logical_time: u64) -> Result<(), SimulatedHostFailure> {
@@ -712,16 +731,7 @@ impl SimulatedHost {
         }
     }
 
-    fn correlation(
-        &self,
-        model: &mut Model,
-    ) -> (
-        SyntheticAuthorityId,
-        u64,
-        Option<u64>,
-        u64,
-        SyntheticRuntimeId,
-    ) {
+    fn correlation(&self, model: &mut Model) -> EffectCorrelation {
         let capture = self
             .capture
             .lock()
@@ -759,14 +769,28 @@ impl SimulatedHost {
         )
     }
 
+    fn effect_correlation(&self) -> EffectCorrelation {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        self.correlation(&mut model)
+    }
+
     fn emit(
         &self,
         effect_kind: EffectKind,
         result_kind: EffectResultKind,
     ) -> Result<(), SimulatedHostFailure> {
+        self.emit_with_correlation(effect_kind, result_kind, None)
+    }
+
+    fn emit_with_correlation(
+        &self,
+        effect_kind: EffectKind,
+        result_kind: EffectResultKind,
+        correlation: Option<EffectCorrelation>,
+    ) -> Result<(), SimulatedHostFailure> {
         let mut model = self.model.lock().expect("simulated host lock poisoned");
         let (authority_id, scope_epoch, operation_id, admitted_revision, runtime_id) =
-            self.correlation(&mut model);
+            correlation.unwrap_or_else(|| self.correlation(&mut model));
         let occurrence = {
             let entry = model.effect_occurrences.entry(effect_kind).or_insert(0);
             *entry = entry.saturating_add(1);
@@ -833,6 +857,8 @@ impl SimulatedHost {
     async fn observe_proxy_state(
         &self,
     ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        // Freeze the initiating machine identity before propagation can outlive a Runtime.
+        let correlation = self.effect_correlation();
         loop {
             let changed = self.clock_changed.notified();
             let state = {
@@ -859,8 +885,12 @@ impl SimulatedHost {
                 }
             };
             if let Some(state) = state {
-                self.emit(EffectKind::CaptureObserve, EffectResultKind::Observed)
-                    .map_err(Self::capture_error)?;
+                self.emit_with_correlation(
+                    EffectKind::CaptureObserve,
+                    EffectResultKind::Observed,
+                    Some(correlation),
+                )
+                .map_err(Self::capture_error)?;
                 return Ok(state);
             }
             changed.await;
@@ -1087,7 +1117,7 @@ impl CapturePlatform for SimulatedHost {
         if self.scenario.propagation_delay == 0 {
             CaptureConfirmationWindow::immediate()
         } else {
-            CaptureConfirmationWindow::bounded(3, Duration::ZERO, Duration::from_secs(30))
+            CaptureConfirmationWindow::bounded(3, Duration::ZERO, Duration::ZERO)
         }
     }
 
@@ -1276,7 +1306,7 @@ impl ScenarioRuntime {
         })
     }
 
-    pub fn restart_runtime(&self) -> Arc<CaptureReconciler> {
+    pub fn replace_runtime(&self) -> Arc<CaptureReconciler> {
         let platform: Arc<dyn CapturePlatform> = self.host.clone();
         let journal: Arc<dyn CaptureJournalStore> = self.host.clone();
         let capture = Arc::new(CaptureReconciler::new(
@@ -1290,6 +1320,69 @@ impl ScenarioRuntime {
         self.host.attach_runtime(runtime.clone());
         self.runtime_host.replace(runtime);
         capture
+    }
+
+    pub fn terminate_and_restart(self) -> Self {
+        let Self {
+            _root,
+            activation,
+            capture,
+            host,
+            profile_service,
+            runtime_host,
+        } = self;
+        drop(activation);
+        drop(capture);
+        drop(runtime_host);
+        host.detach_process();
+
+        let platform: Arc<dyn CapturePlatform> = host.clone();
+        let journal: Arc<dyn CaptureJournalStore> = host.clone();
+        let capture = Arc::new(CaptureReconciler::new(
+            platform,
+            journal,
+            LoopbackProxyEndpoint::managed(),
+        ));
+        host.attach_capture(&capture);
+        let core: Arc<dyn CoreRuntime> = host.clone();
+        let safe_runtime = MishRuntime::with_capture(core, capture.clone());
+        host.attach_runtime(safe_runtime.clone());
+        let runtime_host = DesktopRuntimeHost::with_mutation_authority(
+            safe_runtime.clone(),
+            profile_service.mutation_authority(),
+        );
+        let manager = Arc::new(
+            MihomoActivationManager::new_with_capture(
+                ManagedMihomoResolver::development(
+                    _root.path().join("managed-core-fixture"),
+                    _root.path().join("runtime"),
+                ),
+                ActivationTiming::default(),
+                Some(capture.clone()),
+            )
+            .with_test_listener_host(host.clone()),
+        );
+        let activation = Arc::new(ProfileActivationCoordinator::new(
+            profile_service.clone(),
+            manager,
+            runtime_host.clone(),
+            safe_runtime,
+            || {
+                ManagedRuntimePolicy::new(
+                    SocketAddr::from((Ipv4Addr::LOCALHOST, 19090)),
+                    "simulated-controller-secret",
+                )
+            },
+        ));
+
+        Self {
+            _root,
+            activation,
+            capture,
+            host,
+            profile_service,
+            runtime_host,
+        }
     }
 }
 
