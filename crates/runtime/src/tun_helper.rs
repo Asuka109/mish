@@ -329,6 +329,7 @@ pub trait TunHelperPlatform: Send + Sync {
 pub struct TunHelperController {
     operation: AsyncMutex<()>,
     platform: std::sync::Arc<dyn TunHelperPlatform>,
+    runtime_failure: Mutex<Option<TunHelperFailureKind>>,
     snapshot: Mutex<TunHelperSnapshot>,
 }
 
@@ -338,6 +339,7 @@ impl TunHelperController {
         Self {
             operation: AsyncMutex::new(()),
             platform,
+            runtime_failure: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
         }
     }
@@ -355,6 +357,11 @@ impl TunHelperController {
     }
 
     pub fn mark_runtime_unavailable(&self, failure: TunHelperFailureKind) {
+        let mut runtime_failure = self
+            .runtime_failure
+            .lock()
+            .expect("TUN helper runtime failure lock poisoned");
+        *runtime_failure = Some(failure);
         let mut snapshot = self
             .snapshot
             .lock()
@@ -482,7 +489,41 @@ impl TunHelperController {
             }
         };
         if confirmed {
+            if operation == TunHelperLifecycleOperation::Remove {
+                *self
+                    .runtime_failure
+                    .lock()
+                    .expect("TUN helper runtime failure lock poisoned") = None;
+                let unblocked = self.refresh_locked(None).await;
+                if unblocked.health != TunHelperHealth::NotInstalled
+                    || unblocked.installed_version.is_some()
+                    || unblocked.availability == TunHelperAvailability::Unavailable
+                {
+                    let error = TunHelperError::new(
+                        TunHelperFailureKind::ConfirmationFailed,
+                        "The TUN helper removal could not be confirmed after recovery cleared",
+                    );
+                    self.record_failure(error.kind);
+                    return Err(error);
+                }
+                return Ok(unblocked);
+            }
             return Ok(observed);
+        }
+        if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && observed.health == TunHelperHealth::Healthy
+            && observed.installed_version.as_deref() == Some(TUN_HELPER_EXPECTED_VERSION)
+            && let Some(runtime_failure) = *self
+                .runtime_failure
+                .lock()
+                .expect("TUN helper runtime failure lock poisoned")
+        {
+            return Err(TunHelperError::new(
+                runtime_failure,
+                "The helper was repaired, but this application session remains unavailable",
+            ));
         }
         let error = TunHelperError::new(
             TunHelperFailureKind::ConfirmationFailed,
@@ -499,7 +540,12 @@ impl TunHelperController {
         match self.platform.observe_helper().await {
             Ok(observation) => {
                 let mut snapshot = snapshot_from_observation(observation);
-                if let Some(failure) = operation_failure {
+                let runtime_failure = self
+                    .runtime_failure
+                    .lock()
+                    .expect("TUN helper runtime failure lock poisoned");
+                if let Some(failure) = (*runtime_failure).or(operation_failure) {
+                    snapshot.availability = TunHelperAvailability::Unavailable;
                     snapshot.phase = TunHelperLifecyclePhase::Failed;
                     snapshot.last_failure = Some(failure);
                 }
@@ -526,6 +572,11 @@ impl TunHelperController {
     }
 
     fn record_failure(&self, failure: TunHelperFailureKind) {
+        let runtime_failure = self
+            .runtime_failure
+            .lock()
+            .expect("TUN helper runtime failure lock poisoned");
+        let failure = (*runtime_failure).unwrap_or(failure);
         let mut snapshot = self
             .snapshot
             .lock()

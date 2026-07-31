@@ -45,7 +45,9 @@ use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, LoopbackProxyEndpoint,
     NetworkServiceProxyState, TunNetworkObservation, tun_observation_now,
 };
-use mish_state_machine::{Correlation, EffectExecutor, NoopObserver, RunnerConfig, spawn_runner};
+use mish_state_machine::{
+    Correlation, Disposition, EffectExecutor, RunnerConfig, TransitionObserver, spawn_runner,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -159,6 +161,22 @@ struct MaintenanceCaptureContext {
     restore_system_proxy_on_app_start: bool,
 }
 
+struct PackageLifecycleObserver {
+    projection: tokio::sync::watch::Sender<PackageProjection>,
+}
+
+impl TransitionObserver<PackageMachine> for PackageLifecycleObserver {
+    fn transitioned(
+        &self,
+        _previous: &PackageState,
+        _input: &PackageInput,
+        current: &PackageState,
+        _disposition: Disposition,
+    ) {
+        self.projection.send_replace(current.projection());
+    }
+}
+
 #[derive(Clone, Debug)]
 struct StagedPrivilegedController {
     path: PathBuf,
@@ -225,6 +243,8 @@ enum TartMaintenanceFailure {
 struct MaintenanceLockRecord {
     operation_id: String,
     pid: u32,
+    #[serde(default)]
+    process_identity_sha256: String,
     schema_version: u16,
 }
 
@@ -508,10 +528,13 @@ impl MaintenanceProcessLock {
         ensure_private_runtime(home, uid)?;
         let path = maintenance_lock_path(home);
         let pid = std::process::id();
+        let owner_process_identity_sha256 =
+            process_identity_sha256(pid).ok_or("maintenance-lock-process-identity-unavailable")?;
         let record = MaintenanceLockRecord {
             operation_id: operation_id.to_owned(),
             pid,
-            schema_version: 1,
+            process_identity_sha256: owner_process_identity_sha256,
+            schema_version: 2,
         };
         let bytes = serde_json::to_vec(&record).map_err(|_| "maintenance-lock-record-invalid")?;
         for _ in 0..2 {
@@ -545,11 +568,20 @@ impl MaintenanceProcessLock {
                             "maintenance-lock-unavailable",
                         )?)
                         .map_err(|_| "maintenance-concurrent-command")?;
-                    if existing.schema_version != 1
-                        || existing.pid == 0
-                        || existing.operation_id.is_empty()
-                        || process_is_running(existing.pid)
-                    {
+                    if existing.pid == 0 || existing.operation_id.is_empty() {
+                        return Err("maintenance-concurrent-command".into());
+                    }
+                    let owner_is_active = match existing.schema_version {
+                        1 if existing.process_identity_sha256.is_empty() => {
+                            process_is_running(existing.pid)
+                        }
+                        2 if valid_digest(&existing.process_identity_sha256) => {
+                            process_identity_sha256(existing.pid).as_deref()
+                                == Some(existing.process_identity_sha256.as_str())
+                        }
+                        _ => return Err("maintenance-concurrent-command".into()),
+                    };
+                    if owner_is_active {
                         return Err("maintenance-concurrent-command".into());
                     }
                     fs::remove_file(&path).map_err(|_| "maintenance-stale-lock-remove-failed")?;
@@ -576,6 +608,8 @@ impl Drop for MaintenanceProcessLock {
         };
         if record.operation_id == self.operation_id
             && record.pid == self.pid
+            && record.process_identity_sha256
+                == process_identity_sha256(self.pid).unwrap_or_default()
             && validate_bounded_regular_file(&self.path, self.uid, 0o600, INSTALLER_FILE_MAX_BYTES)
                 .is_ok()
         {
@@ -583,6 +617,30 @@ impl Drop for MaintenanceProcessLock {
             let _ = sync_parent(&self.path);
         }
     }
+}
+
+fn process_identity_sha256(pid: u32) -> Option<String> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>();
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size as libc::c_int,
+        )
+    };
+    if written != size as libc::c_int {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    if info.pbi_pid != pid || (info.pbi_start_tvsec == 0 && info.pbi_start_tvusec == 0) {
+        return None;
+    }
+    Some(sha256_bytes(
+        format!("{pid}:{}:{}", info.pbi_start_tvsec, info.pbi_start_tvusec).as_bytes(),
+    ))
 }
 
 fn process_is_running(pid: u32) -> bool {
@@ -2138,15 +2196,47 @@ fn recover_interrupted_maintenance_before_capture(
 fn privileged_uninstall_capture_evidence(
     operation_id: &str,
 ) -> Result<MaintenanceCaptureEvidence, String> {
+    privileged_recovery_capture_evidence(operation_id, "uninstall")
+}
+
+fn privileged_repair_capture_evidence(
+    operation_id: &str,
+) -> Result<MaintenanceCaptureEvidence, String> {
+    privileged_recovery_capture_evidence(operation_id, "repair")
+}
+
+fn privileged_recovery_capture_evidence(
+    operation_id: &str,
+    operation: &str,
+) -> Result<MaintenanceCaptureEvidence, String> {
     let unknown = TunNetworkObservation::unknown(tun_observation_now());
     Ok(MaintenanceCaptureEvidence {
-        accepted_operation_id: format!("{operation_id}:privileged-uninstall-recovery"),
+        accepted_operation_id: format!("{operation_id}:privileged-{operation}-recovery"),
         after: unknown.clone(),
         before: unknown,
         core_was_running: false,
         network_ownership_record_sha256: network_ownership_record_digest()?,
         restore_capture_on_app_start: false,
     })
+}
+
+fn repair_capture_requires_interrupted_recovery(journal_terminal: Option<bool>) -> bool {
+    matches!(journal_terminal, Some(false))
+}
+
+async fn wait_for_package_terminal(
+    projection: &mut tokio::sync::watch::Receiver<PackageProjection>,
+) -> Result<PackageProjection, String> {
+    loop {
+        let current = projection.borrow_and_update().clone();
+        if !matches!(current, PackageProjection::InFlight { .. }) {
+            return Ok(current);
+        }
+        projection
+            .changed()
+            .await
+            .map_err(|_| "package-lifecycle-runner-retired".to_string())?;
+    }
 }
 
 async fn run_package_lifecycle(
@@ -2174,6 +2264,12 @@ async fn run_package_lifecycle(
     };
     let operation_id = Uuid::new_v4().to_string();
     let _maintenance_lock = MaintenanceProcessLock::acquire(home, uid, &operation_id)?;
+    if action == UserAction::Repair
+        && observed == ObservedPackageState::HealthyDisabled
+        && !admitted_existing_installation_is_intact(uid)?
+    {
+        observed = ObservedPackageState::RepairRequired;
+    }
     let preauthorized = if tart_terminal_authorization {
         None
     } else {
@@ -2226,35 +2322,52 @@ async fn run_package_lifecycle(
             }
         }
         Err(initial_error) if observed == ObservedPackageState::RepairRequired => {
-            recover_interrupted_maintenance_before_capture(
-                package,
-                uid,
-                gid,
-                home,
-                tart_terminal_authorization,
-            )
-            .map_err(|recovery_error| {
-                format!("maintenance-recovery-required:{initial_error}:{recovery_error}")
-            })?;
-            observed = observed_package_state(package, uid)?;
-            maintenance_capture_evidence(
-                observed,
-                &operation_id,
-                uid,
-                home,
-                &package.manifest.package_version,
-                persist_restore_marker,
-            )
-            .await
-            .map_err(|reobserved_error| {
-                format!("maintenance-recovery-required:{initial_error}:{reobserved_error}")
-            })?
+            let maintenance_journal = read_root_maintenance_journal()?;
+            let interrupted = repair_capture_requires_interrupted_recovery(
+                maintenance_journal
+                    .as_ref()
+                    .map(InternalTunMaintenanceJournal::is_terminal),
+            );
+            if interrupted {
+                recover_interrupted_maintenance_before_capture(
+                    package,
+                    uid,
+                    gid,
+                    home,
+                    tart_terminal_authorization,
+                )
+                .map_err(|recovery_error| {
+                    format!("maintenance-recovery-required:{initial_error}:{recovery_error}")
+                })?;
+                observed = observed_package_state(package, uid)?;
+                maintenance_capture_evidence(
+                    observed,
+                    &operation_id,
+                    uid,
+                    home,
+                    &package.manifest.package_version,
+                    persist_restore_marker,
+                )
+                .await
+                .map_err(|reobserved_error| {
+                    format!("maintenance-recovery-required:{initial_error}:{reobserved_error}")
+                })?
+            } else {
+                MaintenanceCaptureContext {
+                    evidence: privileged_repair_capture_evidence(&operation_id)?,
+                    prior_package: None,
+                    restore_system_proxy_on_app_start: false,
+                }
+            }
         }
         Err(error) => return Err(error),
     };
+    let initial_state = PackageState::initial(observed);
+    let (lifecycle_projection, mut lifecycle_projection_rx) =
+        tokio::sync::watch::channel(initial_state.projection());
     let runner = spawn_runner(
         Arc::new(PackageMachine),
-        PackageState::initial(observed),
+        initial_state,
         Arc::new(PackageLifecycleExecutor {
             action,
             capture: capture.evidence.clone(),
@@ -2268,7 +2381,9 @@ async fn run_package_lifecycle(
             tart_terminal_authorization,
             uid,
         }),
-        Arc::new(NoopObserver),
+        Arc::new(PackageLifecycleObserver {
+            projection: lifecycle_projection,
+        }),
         RunnerConfig::default(),
     );
     let operation = PackageOperation {
@@ -2286,12 +2401,7 @@ async fn run_package_lifecycle(
         .admit(PackageInput::Begin(operation))
         .await
         .map_err(|_| "package-lifecycle-busy".to_string())?;
-    let projection = loop {
-        match runner.snapshot().projection() {
-            PackageProjection::InFlight { .. } => tokio::task::yield_now().await,
-            projection => break projection,
-        }
-    };
+    let projection = wait_for_package_terminal(&mut lifecycle_projection_rx).await?;
     let mut result = match projection {
         PackageProjection::HealthyDisabled(success) => {
             if capture.evidence.restore_capture_on_app_start {
@@ -2379,7 +2489,12 @@ fn admitted_existing_installation_is_intact(uid: u32) -> Result<bool, String> {
     let Some(receipt) = read_optional_root_receipt()? else {
         return Ok(false);
     };
-    if !matches!(receipt.schema_version, 1 | 2)
+    let enrollment = match read_optional_enrollment(uid) {
+        Ok(Some(enrollment)) => enrollment,
+        Ok(None) | Err(_) => return Ok(false),
+    };
+    if !receipt_matches_admitted_enrollment(uid, &receipt, Some(&enrollment))
+        || !matches!(receipt.schema_version, 1 | 2)
         || receipt.profile != PROFILE
         || receipt.installing_uid != uid
         || receipt.protocol_version != PROTOCOL_VERSION
@@ -2421,6 +2536,23 @@ fn admitted_existing_installation_is_intact(uid: u32) -> Result<bool, String> {
         &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
     )?;
     Ok(launchd.status.success())
+}
+
+fn receipt_matches_admitted_enrollment(
+    uid: u32,
+    receipt: &InstallationReceipt,
+    enrollment: Option<&InstallationEnrollmentRecord>,
+) -> bool {
+    enrollment.is_some_and(|enrollment| {
+        validate_enrollment_receipt_identity(uid, enrollment, receipt).is_ok()
+    })
+}
+
+fn rollback_receipt_for_verified_prior(
+    old_receipt: Option<&InstallationReceipt>,
+    prior_is_intact: bool,
+) -> Option<InstallationReceipt> {
+    prior_is_intact.then(|| old_receipt.cloned()).flatten()
 }
 
 fn run_authorized(
@@ -2789,6 +2921,10 @@ fn cleanup_maintenance_backup() -> Result<(), String> {
 }
 
 fn backup_prior_installation(receipt: &InstallationReceipt) -> Result<(), String> {
+    let enrollment = read_optional_enrollment(receipt.installing_uid)?
+        .ok_or_else(|| "maintenance-prior-enrollment-missing".to_string())?;
+    validate_enrollment_receipt_identity(receipt.installing_uid, &enrollment, receipt)
+        .map_err(|_| "maintenance-prior-enrollment-mismatch")?;
     cleanup_maintenance_backup()?;
     ensure_root_directory(maintenance_backup_root(), 0o700)?;
     for (source, name, mode, digest) in [
@@ -2835,7 +2971,27 @@ fn backup_prior_installation(receipt: &InstallationReceipt) -> Result<(), String
         &maintenance_backup_root().join(BACKUP_RECEIPT_NAME),
         0o444,
         &receipt_digest,
+    )?;
+    let backed_up_receipt = read_receipt(
+        &maintenance_backup_root().join(BACKUP_RECEIPT_NAME),
+        0,
+        0o444,
+    )?;
+    let backed_up_enrollment = load_installation_enrollment_for_user(
+        &maintenance_backup_root().join(BACKUP_ENROLLMENT_NAME),
+        receipt.installing_uid,
+        true,
     )
+    .map_err(|_| "maintenance-prior-enrollment-mismatch")?;
+    if backed_up_receipt != *receipt || backed_up_enrollment != enrollment {
+        return Err("maintenance-prior-installation-changed".into());
+    }
+    validate_enrollment_receipt_identity(
+        receipt.installing_uid,
+        &backed_up_enrollment,
+        &backed_up_receipt,
+    )
+    .map_err(|_| "maintenance-prior-enrollment-mismatch".to_string())
 }
 
 fn restore_prior_installation(journal: &InternalTunMaintenanceJournal) -> Result<(), String> {
@@ -3082,6 +3238,10 @@ async fn privileged_install(
         None => 0,
     };
     let old_receipt = read_optional_root_receipt()?;
+    let rollback_receipt = rollback_receipt_for_verified_prior(
+        old_receipt.as_ref(),
+        old_receipt.is_some() && admitted_existing_installation_is_intact(uid)?,
+    );
     if let Some(old) = old_receipt.as_ref()
         && compare_internal_tun_package_versions(
             &package.manifest.package_version,
@@ -3123,7 +3283,7 @@ async fn privileged_install(
     let mut journal = InternalTunMaintenanceJournal {
         artifacts: MaintenanceArtifactEvidence {
             new: Some(package_artifact_digests(package, &plist_sha256)?),
-            old: old_receipt.as_ref().map(receipt_artifact_digests),
+            old: rollback_receipt.as_ref().map(receipt_artifact_digests),
         },
         capture,
         commit_point: MaintenanceCommitPoint::IntentPersisted,
@@ -3196,7 +3356,10 @@ async fn privileged_install(
             MaintenanceCommitPoint::CaptureReconciled,
             failure_injection.as_ref(),
         )?;
-        if let Some(old) = old_receipt.as_ref() {
+        if let Some(old) = rollback_receipt.as_ref() {
+            if !admitted_existing_installation_is_intact(uid)? {
+                return Err("maintenance-prior-installation-changed".into());
+            }
             backup_prior_installation(old)?;
         } else {
             cleanup_maintenance_backup()?;
@@ -4458,6 +4621,123 @@ mod tests {
             MaintenanceProcessLock::acquire(&home, uid, &Uuid::new_v4().to_string()).unwrap();
         drop(replacement);
         assert!(!maintenance_lock_path(&home).exists());
+    }
+
+    #[test]
+    fn maintenance_lock_recovers_when_a_live_pid_has_a_different_process_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let home = fs::canonicalize(temporary.path()).unwrap();
+        let uid = unsafe { libc::getuid() };
+        ensure_private_runtime(&home, uid).unwrap();
+        let stale = MaintenanceLockRecord {
+            operation_id: Uuid::new_v4().to_string(),
+            pid: std::process::id(),
+            process_identity_sha256: "0".repeat(64),
+            schema_version: 2,
+        };
+        let path = maintenance_lock_path(&home);
+        fs::write(&path, serde_json::to_vec(&stale).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let replacement =
+            MaintenanceProcessLock::acquire(&home, uid, &Uuid::new_v4().to_string()).unwrap();
+        drop(replacement);
+
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn corrupt_prior_installation_is_not_admitted_as_a_rollback_target() {
+        let (enrollment, receipt) = matching_installation_records(501);
+
+        assert_eq!(
+            rollback_receipt_for_verified_prior(Some(&receipt), true),
+            Some(receipt.clone())
+        );
+        assert_eq!(
+            rollback_receipt_for_verified_prior(Some(&receipt), false),
+            None
+        );
+        assert!(receipt_matches_admitted_enrollment(
+            501,
+            &receipt,
+            Some(&enrollment)
+        ));
+        assert!(!receipt_matches_admitted_enrollment(501, &receipt, None));
+        let mut replacement = enrollment;
+        replacement.key_id = "9".repeat(64);
+        assert!(!receipt_matches_admitted_enrollment(
+            501,
+            &receipt,
+            Some(&replacement)
+        ));
+    }
+
+    #[test]
+    fn repair_capture_only_replays_a_nonterminal_maintenance_journal() {
+        assert!(!repair_capture_requires_interrupted_recovery(None));
+        assert!(!repair_capture_requires_interrupted_recovery(Some(true)));
+        assert!(repair_capture_requires_interrupted_recovery(Some(false)));
+    }
+
+    struct FailingPackageExecutor;
+
+    impl EffectExecutor<PackageMachine> for FailingPackageExecutor {
+        fn execute(
+            &self,
+            effect: PackageEffect,
+            _cancellation: tokio_util::sync::CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = PackageInput> + Send + 'static>> {
+            let correlation = mish_state_machine::CorrelatedEffect::correlation(&effect).clone();
+            Box::pin(async move {
+                PackageInput::EffectCompleted {
+                    correlation,
+                    outcome: PackageEffectOutcome::Failed(PackageFailure::recovery_required(
+                        "fixture-failure",
+                    )),
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn package_lifecycle_waiter_observes_the_runner_terminal_projection() {
+        let initial = PackageState::initial(ObservedPackageState::Absent);
+        let (projection, mut projection_rx) = tokio::sync::watch::channel(initial.projection());
+        let runner = spawn_runner(
+            Arc::new(PackageMachine),
+            initial,
+            Arc::new(FailingPackageExecutor),
+            Arc::new(PackageLifecycleObserver { projection }),
+            RunnerConfig::default(),
+        );
+        let operation = PackageOperation {
+            correlation: Correlation {
+                machine_authority: "fixture".into(),
+                scope_epoch: 1,
+                operation_id: "fixture-operation".into(),
+                admitted_revision: 1,
+                effect_id: 0,
+            },
+            initial: ObservedPackageState::Absent,
+            kind: PackageOperationKind::Install,
+        };
+
+        runner.admit(PackageInput::Begin(operation)).await.unwrap();
+        let terminal = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_for_package_terminal(&mut projection_rx),
+        )
+        .await
+        .expect("terminal projection wait must not spin or hang")
+        .unwrap();
+
+        assert_eq!(
+            terminal,
+            PackageProjection::Failed(PackageFailure::recovery_required("fixture-failure"))
+        );
+        runner.shutdown().await;
     }
 
     #[test]
