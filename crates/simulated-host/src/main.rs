@@ -14,8 +14,9 @@ use axum::{
 use mish_bridge::{
     LoopbackPortSelection, LoopbackServerConfig, start_loopback_server_with_runtime_host,
 };
+use mish_runtime::{CaptureAuditReason, CaptureRequest, CaptureSelection, StatusAdapterKind};
 use mish_simulated_host::{
-    ScenarioRuntime, SimulatedHost, SimulatedHostScenario, TEST_AUTH_TOKEN, TEST_CONTROL_KEY,
+    ScenarioRuntime, SimulatedHostScenario, TEST_AUTH_TOKEN, TEST_CONTROL_KEY,
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -27,6 +28,11 @@ struct HarnessDescriptor {
     control_key: &'static str,
     control_url: String,
     rpc_url: String,
+}
+
+#[derive(Clone)]
+struct HarnessState {
+    scenario: Arc<ScenarioRuntime>,
 }
 
 fn bridge_config(scenario: &ScenarioRuntime) -> LoopbackServerConfig {
@@ -61,29 +67,73 @@ fn cors(response: impl IntoResponse) -> Response {
 }
 
 async fn advance(
-    State(host): State<Arc<SimulatedHost>>,
+    State(state): State<HarnessState>,
     Path((key, logical_time)): Path<(String, u64)>,
 ) -> Response {
     if key != TEST_CONTROL_KEY {
         return cors(StatusCode::FORBIDDEN);
     }
-    match host.advance_to(logical_time) {
-        Ok(()) => cors(Json(host.observation())),
+    match state.scenario.host.advance_to(logical_time) {
+        Ok(()) => cors(Json(state.scenario.host.observation())),
         Err(_) => cors(StatusCode::CONFLICT),
     }
 }
 
-async fn observation(State(host): State<Arc<SimulatedHost>>, Path(key): Path<String>) -> Response {
+async fn observation(State(state): State<HarnessState>, Path(key): Path<String>) -> Response {
     if key != TEST_CONTROL_KEY {
         return cors(StatusCode::FORBIDDEN);
     }
-    cors(Json(host.observation()))
+    cors(Json(state.scenario.host.observation()))
+}
+
+async fn prime_system_proxy(
+    State(state): State<HarnessState>,
+    Path(key): Path<String>,
+) -> Response {
+    if key != TEST_CONTROL_KEY {
+        return cors(StatusCode::FORBIDDEN);
+    }
+    let logical_time = state.scenario.host.observation().logical_time;
+    if logical_time < 21 && state.scenario.host.advance_to(21).is_err() {
+        return cors(StatusCode::CONFLICT);
+    }
+    let activation = state.scenario.activation.clone();
+    tokio::spawn(async move {
+        let _ = activation
+            .set_capture(
+                CaptureRequest {
+                    active: true,
+                    selection: CaptureSelection {
+                        system_proxy: true,
+                        tun: false,
+                    },
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await;
+    });
+    cors(StatusCode::ACCEPTED)
+}
+
+async fn audit_system_proxy(
+    State(state): State<HarnessState>,
+    Path(key): Path<String>,
+) -> Response {
+    if key != TEST_CONTROL_KEY {
+        return cors(StatusCode::FORBIDDEN);
+    }
+    let _ = state
+        .scenario
+        .runtime_host
+        .audit_capture(CaptureAuditReason::NetworkChanged)
+        .await;
+    cors(Json(state.scenario.host.observation()))
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scenario =
-        ScenarioRuntime::build(SimulatedHostScenario::initial_foreign_listener()).await?;
+        Arc::new(ScenarioRuntime::build(SimulatedHostScenario::browser_journey()).await?);
     let bridge = start_loopback_server_with_runtime_host(
         bridge_config(&scenario),
         scenario.runtime_host.clone(),
@@ -95,8 +145,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let control_shutdown_signal = control_shutdown.clone();
     let control = Router::new()
         .route("/advance/{key}/{logical_time}", post(advance))
+        .route("/audit-system-proxy/{key}", post(audit_system_proxy))
         .route("/observation/{key}", get(observation))
-        .with_state(scenario.host.clone());
+        .route("/prime-system-proxy/{key}", post(prime_system_proxy))
+        .with_state(HarnessState {
+            scenario: scenario.clone(),
+        });
     let control_task = tokio::spawn(async move {
         axum::serve(control_listener, control)
             .with_graceful_shutdown(control_shutdown_signal.cancelled_owned())

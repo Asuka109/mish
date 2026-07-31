@@ -25,12 +25,47 @@ loading clears only when the matching authoritative terminal snapshot arrives.
 A second scenario schedules a new foreign owner between the first check and
 the commit-boundary check and proves that Applied is never published.
 
+The System Proxy transaction scenario drives the same real application
+coordinator directly for model/property and failure-injection coverage, then
+uses authenticated loopback RPC and real Chromium for cross-surface evidence.
+Pending remains authoritative while modeled propagation is incomplete;
+native/RPC snapshots, semantic notifications, RPC results, and React loading
+all settle from the matching real Capture terminal operation. Browser control
+routes only advance logical time or start this fixed synthetic transaction.
+
 ## Model, scenarios, and logical time
 
 One `Arc`-shared in-memory model backs every adapter in a scenario. Effects
 mutate endpoint ownership, Core phase, preparation phase, Capture state, and
 journal state; later observations read those mutations. This is a stateful
 model, not a sequential cassette and not a list of canned call responses.
+
+The System Proxy slice adds one closed synthetic active service with complete
+typed HTTP, HTTPS, SOCKS, PAC, auto-discovery, authentication, and bypass
+state. Its built-in baselines cover disabled, enabled manual, disabled but
+populated, reversible PAC, reversible auto-discovery, authenticated, and
+incomplete configurations. Fixed `.invalid` values make exact journaling and
+restoration observable in Rust without admitting user-derived service names,
+hosts, URLs, or credentials to the scenario or transcript schemas.
+
+The model keeps applied state separate from observable state. `apply_service`
+performs a bounded semantic field transaction against shared state, and each
+completed field boundary can fail after mutation so the real Capture
+implementation must compensate from its real journal. These semantic fields
+are not assertions about `networksetup` command ordering. Successful writes
+may remain unobservable until explicit logical time advances; the real Capture
+confirmation loop first sees the stale state, retries, and then accepts only
+the propagated observation. Scheduled active-service or proxy changes cancel
+pending propagation and become unrelated drift.
+
+Process-termination restart drops the process-owned activation coordinator,
+Capture reconciler, Runtime, and application host before rebuilding them over
+only the simulated platform and journal state. Restart tests then exercise the
+production restart audit or command path: an observed managed state can be
+completed idempotently, an unrequested owned state is restored, and unrelated
+drift remains untouched as Recovery Required. A separate concurrent replacement
+helper keeps the old Runtime alive only for stale-completion coverage. Neither
+desired state nor journal presence is accepted without a fresh model observation.
 
 Scenario input contains only closed synthetic initial state, logical-time
 ownership changes, and occurrence-bounded injected failures. Logical time

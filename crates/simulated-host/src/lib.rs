@@ -3,6 +3,7 @@ use std::{
     fs,
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex, Weak},
+    time::Duration,
 };
 
 use futures_util::future::{BoxFuture, ready};
@@ -12,9 +13,9 @@ use mish_bridge::{
     MihomoActivationManager, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
 };
 use mish_runtime::{
-    CapabilityAvailability, CaptureJournal, CaptureJournalStore, CapturePlatform,
-    CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus,
-    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
+    CapabilityAvailability, CaptureConfirmationWindow, CaptureJournal, CaptureJournalStore,
+    CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime,
+    CoreStatus, LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -60,9 +61,10 @@ pub enum PreparationPhase {
     Complete,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SimulatedCorePhase {
+    #[default]
     Stopped,
     Starting,
     Running,
@@ -74,6 +76,12 @@ pub enum EffectKind {
     CaptureApply,
     CaptureConfirmListener,
     CaptureObserve,
+    CaptureWriteAutoDiscovery,
+    CaptureWriteBypass,
+    CaptureWriteHttp,
+    CaptureWriteHttps,
+    CaptureWritePac,
+    CaptureWriteSocks,
     CleanupCandidate,
     CoreObserve,
     CoreOwnsListener,
@@ -125,29 +133,157 @@ pub struct InjectedFailure {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ScheduledChange {
+    ActiveService {
+        at: u64,
+        service: SyntheticService,
+    },
     ManagedEndpointOwner {
         at: u64,
         owner: ManagedEndpointOwner,
+    },
+    CorePhase {
+        at: u64,
+        phase: SimulatedCorePhase,
+    },
+    ProxyState {
+        at: u64,
+        state: SyntheticProxyState,
     },
 }
 
 impl ScheduledChange {
     const fn at(self) -> u64 {
         match self {
-            Self::ManagedEndpointOwner { at, .. } => at,
+            Self::ActiveService { at, .. }
+            | Self::ManagedEndpointOwner { at, .. }
+            | Self::CorePhase { at, .. }
+            | Self::ProxyState { at, .. } => at,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticService {
+    Primary,
+    Secondary,
+}
+
+impl SyntheticService {
+    const fn id(self) -> &'static str {
+        match self {
+            Self::Primary => SYNTHETIC_SERVICE_ID,
+            Self::Secondary => "synthetic-secondary-service",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticProxyState {
+    Authenticated,
+    AutoDiscovery,
+    DisabledPopulated,
+    #[default]
+    Disabled,
+    Manual,
+    Pac,
+    UnsafeIncomplete,
+}
+
+impl SyntheticProxyState {
+    fn materialize(self) -> NetworkServiceProxyState {
+        let populated = |enabled: bool, authenticated: bool, suffix: &str, port| ManualProxyState {
+            authenticated,
+            enabled,
+            host: format!("{suffix}.proxy.invalid"),
+            port,
+        };
+        match self {
+            Self::Disabled => disabled_proxy_state(),
+            Self::Manual => NetworkServiceProxyState {
+                auto_discovery_enabled: false,
+                bypass_domains: vec!["internal.invalid".into(), "*.test".into()],
+                http: populated(true, false, "http", 8_080),
+                https: populated(true, false, "https", 8_443),
+                pac_enabled: false,
+                pac_url: "https://pac.invalid/manual.pac".into(),
+                service_id: SYNTHETIC_SERVICE_ID.into(),
+                socks: populated(true, false, "socks", 1_080),
+            },
+            Self::DisabledPopulated => NetworkServiceProxyState {
+                auto_discovery_enabled: false,
+                bypass_domains: vec!["internal.invalid".into(), "*.test".into()],
+                http: populated(false, false, "http", 8_080),
+                https: populated(false, false, "https", 8_443),
+                pac_enabled: false,
+                pac_url: "https://pac.invalid/disabled.pac".into(),
+                service_id: SYNTHETIC_SERVICE_ID.into(),
+                socks: populated(false, false, "socks", 1_080),
+            },
+            Self::Pac => NetworkServiceProxyState {
+                pac_enabled: true,
+                pac_url: "https://pac.invalid/config.pac".into(),
+                bypass_domains: vec!["internal.invalid".into()],
+                ..disabled_proxy_state()
+            },
+            Self::AutoDiscovery => NetworkServiceProxyState {
+                auto_discovery_enabled: true,
+                bypass_domains: vec!["*.test".into()],
+                ..disabled_proxy_state()
+            },
+            Self::Authenticated => NetworkServiceProxyState {
+                http: populated(true, true, "authenticated", 8_080),
+                ..disabled_proxy_state()
+            },
+            Self::UnsafeIncomplete => NetworkServiceProxyState {
+                https: ManualProxyState {
+                    authenticated: false,
+                    enabled: true,
+                    host: String::new(),
+                    port: 0,
+                },
+                ..disabled_proxy_state()
+            },
+        }
+    }
+}
+
+const SYNTHETIC_SERVICE_ID: &str = "synthetic-primary-service";
+
+const fn default_cleanup_completes_at() -> u64 {
+    20
+}
+
+const fn default_second_check_at() -> u64 {
+    10
+}
+
+const fn default_transcript_limit() -> usize {
+    DEFAULT_TRANSCRIPT_LIMIT
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SimulatedHostScenario {
+    #[serde(default = "default_cleanup_completes_at")]
     pub cleanup_completes_at: u64,
+    #[serde(default)]
     pub declared_effects: Vec<EffectKind>,
+    #[serde(default)]
     pub failures: Vec<InjectedFailure>,
+    #[serde(default)]
+    pub initial_core_phase: SimulatedCorePhase,
     pub initial_endpoint_owner: ManagedEndpointOwner,
+    #[serde(default)]
+    pub initial_proxy_state: SyntheticProxyState,
+    #[serde(default)]
+    pub propagation_delay: u64,
+    #[serde(default)]
     pub scheduled_changes: Vec<ScheduledChange>,
+    #[serde(default = "default_second_check_at")]
     pub second_check_at: u64,
+    #[serde(default = "default_transcript_limit")]
     pub transcript_limit: usize,
 }
 
@@ -157,7 +293,10 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects: initial_conflict_effect_contract(),
             failures: Vec::new(),
+            initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Foreign,
+            initial_proxy_state: SyntheticProxyState::Disabled,
+            propagation_delay: 0,
             scheduled_changes: Vec::new(),
             second_check_at: 10,
             transcript_limit: DEFAULT_TRANSCRIPT_LIMIT,
@@ -169,7 +308,10 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects: commit_conflict_effect_contract(),
             failures: Vec::new(),
+            initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Free,
+            initial_proxy_state: SyntheticProxyState::Disabled,
+            propagation_delay: 0,
             scheduled_changes: vec![ScheduledChange::ManagedEndpointOwner {
                 at: 5,
                 owner: ManagedEndpointOwner::Foreign,
@@ -177,6 +319,48 @@ impl SimulatedHostScenario {
             second_check_at: 10,
             transcript_limit: DEFAULT_TRANSCRIPT_LIMIT,
         }
+    }
+
+    pub fn system_proxy_transaction(initial_proxy_state: SyntheticProxyState) -> Self {
+        Self {
+            cleanup_completes_at: 20,
+            declared_effects: system_proxy_effect_contract(),
+            failures: Vec::new(),
+            initial_core_phase: SimulatedCorePhase::Running,
+            initial_endpoint_owner: ManagedEndpointOwner::Mish,
+            initial_proxy_state,
+            propagation_delay: 0,
+            scheduled_changes: Vec::new(),
+            second_check_at: 10,
+            transcript_limit: DEFAULT_TRANSCRIPT_LIMIT,
+        }
+    }
+
+    pub fn browser_journey() -> Self {
+        let mut scenario = Self::initial_foreign_listener();
+        scenario
+            .declared_effects
+            .extend(system_proxy_effect_contract());
+        scenario
+            .declared_effects
+            .sort_by_key(|effect| *effect as u8);
+        scenario.declared_effects.dedup();
+        scenario.propagation_delay = 5;
+        scenario.scheduled_changes = vec![
+            ScheduledChange::ManagedEndpointOwner {
+                at: 21,
+                owner: ManagedEndpointOwner::Mish,
+            },
+            ScheduledChange::CorePhase {
+                at: 21,
+                phase: SimulatedCorePhase::Running,
+            },
+            ScheduledChange::ProxyState {
+                at: 40,
+                state: SyntheticProxyState::Manual,
+            },
+        ];
+        scenario
     }
 
     fn validate(&self) -> Result<(), SimulatedHostFailure> {
@@ -224,6 +408,25 @@ fn commit_conflict_effect_contract() -> Vec<EffectKind> {
     let mut effects = initial_conflict_effect_contract();
     effects.push(EffectKind::ManagedEndpointOwnershipCheckCommit);
     effects
+}
+
+fn system_proxy_effect_contract() -> Vec<EffectKind> {
+    vec![
+        EffectKind::CaptureApply,
+        EffectKind::CaptureConfirmListener,
+        EffectKind::CaptureObserve,
+        EffectKind::CaptureWriteAutoDiscovery,
+        EffectKind::CaptureWriteBypass,
+        EffectKind::CaptureWriteHttp,
+        EffectKind::CaptureWriteHttps,
+        EffectKind::CaptureWritePac,
+        EffectKind::CaptureWriteSocks,
+        EffectKind::CoreObserve,
+        EffectKind::CoreStop,
+        EffectKind::JournalClear,
+        EffectKind::JournalLoad,
+        EffectKind::JournalSave,
+    ]
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -282,8 +485,12 @@ impl<'de> Deserialize<'de> for SemanticTranscript {
 pub struct ScenarioObservation {
     pub core_phase: SimulatedCorePhase,
     pub endpoint_owner: ManagedEndpointOwner,
+    pub journal_present: bool,
     pub logical_time: u64,
+    pub pending_proxy_propagation: bool,
     pub preparation_phase: PreparationPhase,
+    pub proxy_actual_revision: u64,
+    pub proxy_observed_revision: u64,
     pub transcript: SemanticTranscript,
 }
 
@@ -301,6 +508,20 @@ pub enum SimulatedHostFailure {
     UndeclaredEffect(EffectKind),
 }
 
+struct PendingProxyObservation {
+    state: NetworkServiceProxyState,
+    visible_at: u64,
+    stale_observation_returned: bool,
+}
+
+type EffectCorrelation = (
+    SyntheticAuthorityId,
+    u64,
+    Option<u64>,
+    u64,
+    SyntheticRuntimeId,
+);
+
 struct Model {
     active_runtime: Option<MishRuntime>,
     authority_scopes: Vec<u64>,
@@ -309,8 +530,12 @@ struct Model {
     effect_occurrences: HashMap<EffectKind, u8>,
     journal: Option<CaptureJournal>,
     logical_time: u64,
+    pending_proxy_observation: Option<PendingProxyObservation>,
     preparation_phase: PreparationPhase,
     proxy_state: NetworkServiceProxyState,
+    proxy_actual_revision: u64,
+    proxy_observed_revision: u64,
+    proxy_observation: NetworkServiceProxyState,
     scheduled_cursor: usize,
     runtime_id: SyntheticRuntimeId,
     transcript: VecDeque<TranscriptEvent>,
@@ -337,13 +562,17 @@ impl SimulatedHost {
             model: Mutex::new(Model {
                 active_runtime: None,
                 authority_scopes: Vec::new(),
-                core_phase: SimulatedCorePhase::Stopped,
+                core_phase: scenario.initial_core_phase,
                 endpoint_owner: scenario.initial_endpoint_owner,
                 effect_occurrences: HashMap::new(),
                 journal: None,
                 logical_time: 0,
+                pending_proxy_observation: None,
                 preparation_phase: PreparationPhase::Idle,
-                proxy_state: disabled_proxy_state(),
+                proxy_state: scenario.initial_proxy_state.materialize(),
+                proxy_actual_revision: 0,
+                proxy_observed_revision: 0,
+                proxy_observation: scenario.initial_proxy_state.materialize(),
                 scheduled_cursor: 0,
                 runtime_id: SyntheticRuntimeId::RuntimeOne,
                 transcript: VecDeque::new(),
@@ -372,6 +601,17 @@ impl SimulatedHost {
         model.active_runtime = Some(runtime);
     }
 
+    fn detach_process(&self) {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        *self
+            .capture
+            .lock()
+            .expect("simulated capture lock poisoned") = None;
+        if model.active_runtime.take().is_some() {
+            model.runtime_id = SyntheticRuntimeId::RuntimeTwo;
+        }
+    }
+
     pub fn advance_to(&self, logical_time: u64) -> Result<(), SimulatedHostFailure> {
         let mut model = self.model.lock().expect("simulated host lock poisoned");
         if logical_time < model.logical_time {
@@ -388,11 +628,41 @@ impl SimulatedHost {
                 break;
             }
             match change {
+                ScheduledChange::ActiveService { service, .. } => {
+                    model.proxy_state.service_id = service.id().into();
+                    model.proxy_observation.service_id = service.id().into();
+                    model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                    model.proxy_observed_revision = model.proxy_actual_revision;
+                    model.pending_proxy_observation = None;
+                }
                 ScheduledChange::ManagedEndpointOwner { owner, .. } => {
                     model.endpoint_owner = owner;
                 }
+                ScheduledChange::CorePhase { phase, .. } => {
+                    model.core_phase = phase;
+                }
+                ScheduledChange::ProxyState { state, .. } => {
+                    let state = state.materialize();
+                    model.proxy_state = state.clone();
+                    model.proxy_observation = state;
+                    model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                    model.proxy_observed_revision = model.proxy_actual_revision;
+                    model.pending_proxy_observation = None;
+                }
             }
             model.scheduled_cursor += 1;
+        }
+        if model
+            .pending_proxy_observation
+            .as_ref()
+            .is_some_and(|pending| pending.visible_at <= logical_time)
+        {
+            let pending = model
+                .pending_proxy_observation
+                .take()
+                .expect("checked pending proxy observation");
+            model.proxy_observation = pending.state;
+            model.proxy_observed_revision = model.proxy_actual_revision;
         }
         drop(model);
         self.clock_changed.notify_waiters();
@@ -404,13 +674,41 @@ impl SimulatedHost {
         ScenarioObservation {
             core_phase: model.core_phase,
             endpoint_owner: model.endpoint_owner,
+            journal_present: model.journal.is_some(),
             logical_time: model.logical_time,
+            pending_proxy_propagation: model.pending_proxy_observation.is_some(),
             preparation_phase: model.preparation_phase,
+            proxy_actual_revision: model.proxy_actual_revision,
+            proxy_observed_revision: model.proxy_observed_revision,
             transcript: SemanticTranscript {
                 events: model.transcript.iter().copied().collect(),
                 schema_version: TRANSCRIPT_SCHEMA_VERSION,
             },
         }
+    }
+
+    pub fn actual_proxy_state(&self) -> NetworkServiceProxyState {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .proxy_state
+            .clone()
+    }
+
+    pub fn observed_proxy_state(&self) -> NetworkServiceProxyState {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .proxy_observation
+            .clone()
+    }
+
+    pub fn journal_snapshot(&self) -> Option<CaptureJournal> {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .journal
+            .clone()
     }
 
     pub fn exercise_effect(&self, effect: EffectKind) -> Result<(), SimulatedHostFailure> {
@@ -433,16 +731,7 @@ impl SimulatedHost {
         }
     }
 
-    fn correlation(
-        &self,
-        model: &mut Model,
-    ) -> (
-        SyntheticAuthorityId,
-        u64,
-        Option<u64>,
-        u64,
-        SyntheticRuntimeId,
-    ) {
+    fn correlation(&self, model: &mut Model) -> EffectCorrelation {
         let capture = self
             .capture
             .lock()
@@ -480,14 +769,28 @@ impl SimulatedHost {
         )
     }
 
+    fn effect_correlation(&self) -> EffectCorrelation {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        self.correlation(&mut model)
+    }
+
     fn emit(
         &self,
         effect_kind: EffectKind,
         result_kind: EffectResultKind,
     ) -> Result<(), SimulatedHostFailure> {
+        self.emit_with_correlation(effect_kind, result_kind, None)
+    }
+
+    fn emit_with_correlation(
+        &self,
+        effect_kind: EffectKind,
+        result_kind: EffectResultKind,
+        correlation: Option<EffectCorrelation>,
+    ) -> Result<(), SimulatedHostFailure> {
         let mut model = self.model.lock().expect("simulated host lock poisoned");
         let (authority_id, scope_epoch, operation_id, admitted_revision, runtime_id) =
-            self.correlation(&mut model);
+            correlation.unwrap_or_else(|| self.correlation(&mut model));
         let occurrence = {
             let entry = model.effect_occurrences.entry(effect_kind).or_insert(0);
             *entry = entry.saturating_add(1);
@@ -549,6 +852,56 @@ impl SimulatedHost {
             .lock()
             .expect("simulated host lock poisoned")
             .preparation_phase = phase;
+    }
+
+    async fn observe_proxy_state(
+        &self,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        // Freeze the initiating machine identity before propagation can outlive a Runtime.
+        let correlation = self.effect_correlation();
+        loop {
+            let changed = self.clock_changed.notified();
+            let state = {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model
+                    .pending_proxy_observation
+                    .as_ref()
+                    .is_some_and(|pending| pending.visible_at <= model.logical_time)
+                {
+                    let pending = model
+                        .pending_proxy_observation
+                        .take()
+                        .expect("checked pending proxy observation");
+                    model.proxy_observation = pending.state;
+                    model.proxy_observed_revision = model.proxy_actual_revision;
+                }
+                match model.pending_proxy_observation.as_mut() {
+                    Some(pending) if pending.stale_observation_returned => None,
+                    Some(pending) => {
+                        pending.stale_observation_returned = true;
+                        Some(model.proxy_observation.clone())
+                    }
+                    None => Some(model.proxy_observation.clone()),
+                }
+            };
+            if let Some(state) = state {
+                self.emit_with_correlation(
+                    EffectKind::CaptureObserve,
+                    EffectResultKind::Observed,
+                    Some(correlation),
+                )
+                .map_err(Self::capture_error)?;
+                return Ok(state);
+            }
+            changed.await;
+        }
+    }
+
+    fn expose_partial_proxy_write(&self) {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        model.proxy_observation = model.proxy_state.clone();
+        model.proxy_observed_revision = model.proxy_actual_revision;
+        model.pending_proxy_observation = None;
     }
 
     async fn finalize_model_preparation(&self) -> Result<(), SimulatedHostFailure> {
@@ -681,16 +1034,7 @@ impl CapturePlatform for SimulatedHost {
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
-        let result = self
-            .emit(EffectKind::CaptureObserve, EffectResultKind::Observed)
-            .map_err(Self::capture_error);
-        let state = self
-            .model
-            .lock()
-            .expect("simulated host lock poisoned")
-            .proxy_state
-            .clone();
-        Box::pin(ready(result.map(|_| state)))
+        Box::pin(self.observe_proxy_state())
     }
 
     fn observe_service(
@@ -704,16 +1048,77 @@ impl CapturePlatform for SimulatedHost {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
-        let result = self
-            .emit(EffectKind::CaptureApply, EffectResultKind::Applied)
-            .map_err(Self::capture_error);
-        if result.is_ok() {
-            self.model
-                .lock()
-                .expect("simulated host lock poisoned")
-                .proxy_state = target;
+        Box::pin(async move {
+            self.emit(EffectKind::CaptureApply, EffectResultKind::Applied)
+                .map_err(Self::capture_error)?;
+            let writes = [
+                EffectKind::CaptureWriteAutoDiscovery,
+                EffectKind::CaptureWritePac,
+                EffectKind::CaptureWriteHttp,
+                EffectKind::CaptureWriteHttps,
+                EffectKind::CaptureWriteSocks,
+                EffectKind::CaptureWriteBypass,
+            ];
+            for effect in writes {
+                {
+                    let mut model = self.model.lock().expect("simulated host lock poisoned");
+                    match effect {
+                        EffectKind::CaptureWriteAutoDiscovery => {
+                            model.proxy_state.auto_discovery_enabled =
+                                target.auto_discovery_enabled;
+                        }
+                        EffectKind::CaptureWritePac => {
+                            model.proxy_state.pac_enabled = target.pac_enabled;
+                            model.proxy_state.pac_url.clone_from(&target.pac_url);
+                        }
+                        EffectKind::CaptureWriteHttp => {
+                            model.proxy_state.http.clone_from(&target.http);
+                        }
+                        EffectKind::CaptureWriteHttps => {
+                            model.proxy_state.https.clone_from(&target.https);
+                        }
+                        EffectKind::CaptureWriteSocks => {
+                            model.proxy_state.socks.clone_from(&target.socks);
+                        }
+                        EffectKind::CaptureWriteBypass => {
+                            model
+                                .proxy_state
+                                .bypass_domains
+                                .clone_from(&target.bypass_domains);
+                        }
+                        _ => unreachable!("ordered proxy write vocabulary is closed"),
+                    }
+                    model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                }
+                if let Err(error) = self.emit(effect, EffectResultKind::Applied) {
+                    self.expose_partial_proxy_write();
+                    return Err(Self::capture_error(error));
+                }
+            }
+            let mut model = self.model.lock().expect("simulated host lock poisoned");
+            if self.scenario.propagation_delay == 0 {
+                model.proxy_observation = model.proxy_state.clone();
+                model.proxy_observed_revision = model.proxy_actual_revision;
+                model.pending_proxy_observation = None;
+            } else {
+                model.pending_proxy_observation = Some(PendingProxyObservation {
+                    state: model.proxy_state.clone(),
+                    visible_at: model
+                        .logical_time
+                        .saturating_add(self.scenario.propagation_delay),
+                    stale_observation_returned: false,
+                });
+            }
+            Ok(())
+        })
+    }
+
+    fn confirmation_window(&self) -> CaptureConfirmationWindow {
+        if self.scenario.propagation_delay == 0 {
+            CaptureConfirmationWindow::immediate()
+        } else {
+            CaptureConfirmationWindow::bounded(3, Duration::ZERO, Duration::ZERO)
         }
-        Box::pin(ready(result))
     }
 
     fn confirm_proxy_listener(
@@ -828,6 +1233,7 @@ impl CoreRuntime for SimulatedHost {
 pub struct ScenarioRuntime {
     _root: TempDir,
     pub activation: Arc<ProfileActivationCoordinator>,
+    pub capture: Arc<CaptureReconciler>,
     pub host: Arc<SimulatedHost>,
     pub profile_service: Arc<mish_bridge::DesktopProfileService>,
     pub runtime_host: DesktopRuntimeHost,
@@ -874,7 +1280,7 @@ impl ScenarioRuntime {
             MihomoActivationManager::new_with_capture(
                 ManagedMihomoResolver::development(binary, root.path().join("runtime")),
                 ActivationTiming::default(),
-                Some(capture),
+                Some(capture.clone()),
             )
             .with_test_listener_host(host.clone()),
         );
@@ -893,10 +1299,90 @@ impl ScenarioRuntime {
         Ok(Self {
             _root: root,
             activation,
+            capture,
             host,
             profile_service,
             runtime_host,
         })
+    }
+
+    pub fn replace_runtime(&self) -> Arc<CaptureReconciler> {
+        let platform: Arc<dyn CapturePlatform> = self.host.clone();
+        let journal: Arc<dyn CaptureJournalStore> = self.host.clone();
+        let capture = Arc::new(CaptureReconciler::new(
+            platform,
+            journal,
+            LoopbackProxyEndpoint::managed(),
+        ));
+        self.host.attach_capture(&capture);
+        let core: Arc<dyn CoreRuntime> = self.host.clone();
+        let runtime = MishRuntime::with_capture(core, capture.clone());
+        self.host.attach_runtime(runtime.clone());
+        self.runtime_host.replace(runtime);
+        capture
+    }
+
+    pub fn terminate_and_restart(self) -> Self {
+        let Self {
+            _root,
+            activation,
+            capture,
+            host,
+            profile_service,
+            runtime_host,
+        } = self;
+        drop(activation);
+        drop(capture);
+        drop(runtime_host);
+        host.detach_process();
+
+        let platform: Arc<dyn CapturePlatform> = host.clone();
+        let journal: Arc<dyn CaptureJournalStore> = host.clone();
+        let capture = Arc::new(CaptureReconciler::new(
+            platform,
+            journal,
+            LoopbackProxyEndpoint::managed(),
+        ));
+        host.attach_capture(&capture);
+        let core: Arc<dyn CoreRuntime> = host.clone();
+        let safe_runtime = MishRuntime::with_capture(core, capture.clone());
+        host.attach_runtime(safe_runtime.clone());
+        let runtime_host = DesktopRuntimeHost::with_mutation_authority(
+            safe_runtime.clone(),
+            profile_service.mutation_authority(),
+        );
+        let manager = Arc::new(
+            MihomoActivationManager::new_with_capture(
+                ManagedMihomoResolver::development(
+                    _root.path().join("managed-core-fixture"),
+                    _root.path().join("runtime"),
+                ),
+                ActivationTiming::default(),
+                Some(capture.clone()),
+            )
+            .with_test_listener_host(host.clone()),
+        );
+        let activation = Arc::new(ProfileActivationCoordinator::new(
+            profile_service.clone(),
+            manager,
+            runtime_host.clone(),
+            safe_runtime,
+            || {
+                ManagedRuntimePolicy::new(
+                    SocketAddr::from((Ipv4Addr::LOCALHOST, 19090)),
+                    "simulated-controller-secret",
+                )
+            },
+        ));
+
+        Self {
+            _root,
+            activation,
+            capture,
+            host,
+            profile_service,
+            runtime_host,
+        }
     }
 }
 
@@ -908,7 +1394,7 @@ fn disabled_proxy_state() -> NetworkServiceProxyState {
         https: ManualProxyState::disabled(),
         pac_enabled: false,
         pac_url: "(null)".into(),
-        service_id: "simulated-service".into(),
+        service_id: SYNTHETIC_SERVICE_ID.into(),
         socks: ManualProxyState::disabled(),
     }
 }
@@ -1521,7 +2007,7 @@ mod tests {
     #[tokio::test]
     async fn adapter_mutations_are_shared_state_not_canned_responses() {
         let mut definition = SimulatedHostScenario::initial_foreign_listener();
-        definition.declared_effects = vec![EffectKind::CaptureApply, EffectKind::CaptureObserve];
+        definition.declared_effects = system_proxy_effect_contract();
         let host = SimulatedHost::new(definition).unwrap();
         let mut target = disabled_proxy_state();
         target.pac_enabled = true;

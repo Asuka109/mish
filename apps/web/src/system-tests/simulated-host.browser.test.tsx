@@ -47,11 +47,27 @@ async function observation() {
   const response = await fetch(`${harness.controlUrl}/observation/${harness.controlKey}`);
   if (!response.ok) throw new Error("Unable to read simulated host observation");
   return response.json() as Promise<{
+    journalPresent: boolean;
+    pendingProxyPropagation: boolean;
     preparationPhase: string;
     transcript: {
       events: Array<{ effectKind: string; resultKind: string }>;
     };
   }>;
+}
+
+async function primeSystemProxy() {
+  const response = await fetch(`${harness.controlUrl}/prime-system-proxy/${harness.controlKey}`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Unable to prime the simulated System Proxy transaction");
+}
+
+async function auditSystemProxy() {
+  const response = await fetch(`${harness.controlUrl}/audit-system-proxy/${harness.controlKey}`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Unable to audit the simulated System Proxy transaction");
 }
 
 async function advanceTo(logicalTime: number) {
@@ -133,4 +149,69 @@ test("System Proxy stays authoritative and loading-bound through early conflict 
   expect(terminal.transcript.events.some(({ effectKind }) => effectKind === "capture-apply")).toBe(
     false,
   );
+});
+
+test("System Proxy feedback follows real pending, applied, and restored RPC authority", async () => {
+  const systemProxy = page.getByRole("button", {
+    name: /^System Proxy/,
+  });
+
+  await primeSystemProxy();
+  await vi.waitFor(async () => {
+    expect((await observation()).pendingProxyPropagation).toBe(true);
+  });
+  await expect.element(systemProxy).toBeDisabled();
+
+  await advanceTo(26);
+  await vi.waitFor(async () => {
+    expect((await observation()).pendingProxyPropagation).toBe(false);
+  });
+  await expect.element(systemProxy).toBeEnabled();
+  await expect.element(systemProxy).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .element(page.getByText("System Proxy is applied and confirmed by macOS.", { exact: false }))
+    .toBeInTheDocument();
+
+  await userEvent.click(systemProxy);
+  await vi.waitFor(async () => {
+    expect((await observation()).pendingProxyPropagation).toBe(true);
+  });
+  await expect.element(systemProxy).toBeDisabled();
+  await expect.element(systemProxy).toHaveAttribute("aria-busy", "true");
+  await expect
+    .element(page.getByText("System Proxy is pending macOS confirmation.", { exact: false }))
+    .toBeInTheDocument();
+
+  await advanceTo(31);
+  await vi.waitFor(async () => {
+    const model = await observation();
+    expect(model.pendingProxyPropagation).toBe(false);
+    expect(model.journalPresent).toBe(false);
+  });
+  await expect.element(systemProxy).toBeEnabled();
+  await expect.element(systemProxy).toHaveAttribute("aria-pressed", "false");
+  await expect.element(systemProxy).not.toHaveAttribute("aria-busy", "true");
+  await expect
+    .element(page.getByText("System Proxy is off and confirmed by macOS.", { exact: false }))
+    .toBeInTheDocument();
+
+  await primeSystemProxy();
+  await vi.waitFor(async () => {
+    expect((await observation()).pendingProxyPropagation).toBe(true);
+  });
+  await advanceTo(36);
+  await expect.element(systemProxy).toHaveAttribute("aria-pressed", "true");
+
+  await advanceTo(40);
+  await auditSystemProxy();
+  await expect.element(systemProxy).toBeEnabled();
+  await expect.element(systemProxy).not.toHaveAttribute("aria-busy", "true");
+  await expect
+    .element(
+      page.getByText(
+        "System Proxy differs from Mish's requested state. Repair it or leave the current OS settings as is.",
+        { exact: false },
+      ),
+    )
+    .toBeInTheDocument();
 });
