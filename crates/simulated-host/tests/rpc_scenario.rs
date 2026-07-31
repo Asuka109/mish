@@ -10,7 +10,7 @@ use mish_bridge::{
 };
 use mish_simulated_host::{
     EffectKind, EffectResultKind, PreparationPhase, ScenarioRuntime, SimulatedHostScenario,
-    TEST_AUTH_TOKEN,
+    SyntheticProxyState, TEST_AUTH_TOKEN,
 };
 use serde_json::{Value, json};
 use tokio_tungstenite::{
@@ -211,6 +211,124 @@ async fn authenticated_clients_observe_pending_early_conflict_terminal_and_recon
 
     drop(status);
     drop(notifications);
+    drop(reconnected);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
+}
+
+#[tokio::test]
+async fn authenticated_rpc_disable_tracks_logical_propagation_and_matching_terminal_authority() {
+    let mut definition =
+        SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::DisabledPopulated);
+    definition.propagation_delay = 5;
+    let scenario = Arc::new(ScenarioRuntime::build(definition).await.unwrap());
+    let activation = scenario.activation.clone();
+    let enable = tokio::spawn(async move {
+        activation
+            .set_capture(
+                mish_runtime::CaptureRequest {
+                    active: true,
+                    selection: mish_runtime::CaptureSelection {
+                        system_proxy: true,
+                        tun: false,
+                    },
+                },
+                mish_runtime::StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    settle_until(|| scenario.host.observation().pending_proxy_propagation).await;
+    scenario.host.advance_to(5).unwrap();
+    enable.await.unwrap().unwrap();
+
+    let bridge =
+        start_loopback_server_with_runtime_host(config(&scenario), scenario.runtime_host.clone())
+            .await
+            .unwrap();
+    let mut status = socket(bridge.address).await;
+    let mut commander = socket(bridge.address).await;
+    for client in [&mut status, &mut commander] {
+        authenticate(client).await;
+    }
+    request(
+        &mut status,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+
+    let command = tokio::spawn(async move {
+        request(
+            &mut commander,
+            json!({
+                "jsonrpc":"2.0",
+                "id":3,
+                "method":"status.setCapture",
+                "params":{
+                    "active":false,
+                    "selection":{"systemProxy":true,"tun":false}
+                }
+            }),
+        )
+        .await
+    });
+    settle_until(|| scenario.host.observation().pending_proxy_propagation).await;
+
+    let mut pending = None;
+    for _ in 0..6 {
+        let update = next_json(&mut status).await;
+        if update["method"] == "status.snapshot"
+            && update["params"]["snapshot"]["runtime"]["captureOperation"]["phase"] == "pending"
+        {
+            pending = Some(update);
+            break;
+        }
+    }
+    let pending = pending.expect("status subscription did not publish disable Pending");
+    let operation_id =
+        pending["params"]["snapshot"]["runtime"]["captureOperation"]["operationId"].clone();
+    assert_eq!(
+        pending["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "pending"
+    );
+    assert!(!command.is_finished());
+
+    scenario.host.advance_to(10).unwrap();
+    let terminal = command.await.unwrap();
+    assert_eq!(
+        terminal["result"]["runtime"]["captureOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        terminal["result"]["runtime"]["captureOperation"]["phase"],
+        "applied"
+    );
+    assert_eq!(terminal["result"]["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(terminal["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(
+        serde_json::to_value(scenario.runtime_host.notification_snapshot()).unwrap()["notifications"],
+        json!([])
+    );
+    assert!(scenario.host.journal_snapshot().is_none());
+
+    let mut reconnected = socket(bridge.address).await;
+    authenticate(&mut reconnected).await;
+    let baseline = request(
+        &mut reconnected,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    assert_eq!(
+        baseline["result"]["snapshot"]["runtime"]["captureOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        baseline["result"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+
+    drop(status);
     drop(reconnected);
     assert!(matches!(
         bridge.shutdown().await,
