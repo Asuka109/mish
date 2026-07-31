@@ -111,9 +111,9 @@ the guest was stopped. Exactly two files left the guest:
 - `system-proxy-macos26-arm64.privacy.md` — SHA-256
   `df13246a227f006c55126c2427d131c1b15eec221d4df41eaef79c5247575703`.
 
-The task clone remains stopped until hands-on acceptance, after which it is
-deleted while the base remains unchanged. Acceptance is recorded in the PR and
-assigned Issue, not self-declared by fixture provenance.
+After hands-on acceptance, the task clone was deleted and the base remained
+stopped and unchanged. Acceptance is recorded in the PR and assigned Issue, not
+self-declared by fixture provenance.
 
 ## Evidence limit
 
