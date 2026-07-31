@@ -3946,6 +3946,7 @@ async fn privileged_uninstall(
             return Err("maintenance-uninstall-owner-rejected".into());
         }
         Ok(Some(journal)) if !journal.is_terminal() => {}
+        Ok(Some(journal)) if bounded_disabled_journal_authorizes_uninstall(&journal, uid)? => {}
         Ok(Some(_)) => validate_uninstall_authorization(uid)?,
         Ok(None) | Err(_) => validate_uninstall_authorization(uid)?,
     }
@@ -3968,6 +3969,55 @@ async fn privileged_uninstall(
         return Err("privileged-uninstall-incomplete".into());
     }
     Ok(json!({ "ok": true }))
+}
+
+fn bounded_disabled_journal_authorizes_uninstall(
+    journal: &InternalTunMaintenanceJournal,
+    uid: u32,
+) -> Result<bool, String> {
+    if journal.validate().is_err()
+        || journal.intent.installing_uid != uid
+        || journal.artifacts.old.is_some()
+        || !journal
+            .terminal
+            .as_ref()
+            .is_some_and(|terminal| terminal.outcome == MaintenanceTerminalOutcome::BoundedDisabled)
+        || read_optional_enrollment(uid)?.is_some()
+        || read_optional_root_receipt()?.is_some()
+        || [
+            DEV_TUN_SERVICE_HELPER_PATH,
+            DEV_TUN_SERVICE_CORE_PATH,
+            DEV_TUN_SERVICE_PLIST_PATH,
+        ]
+        .iter()
+        .any(|path| fs::symlink_metadata(path).is_ok())
+    {
+        return Ok(false);
+    }
+    let socket = format!("/var/run/com.asuka109.mish.tun-helper.{uid}.sock");
+    if fs::symlink_metadata(&socket).is_ok()
+        || fs::symlink_metadata(format!("{socket}.state")).is_ok()
+    {
+        return Ok(false);
+    }
+    let launchd = command_output(
+        "/bin/launchctl",
+        &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+    )?;
+    if launchd.status.success() {
+        return Ok(false);
+    }
+    validate_root_directory(Path::new(ROOT_RECEIPT_DIRECTORY), 0o755)?;
+    let mut entries =
+        fs::read_dir(ROOT_RECEIPT_DIRECTORY).map_err(|_| "root-receipt-directory-unavailable")?;
+    let only_journal = entries
+        .next()
+        .transpose()
+        .map_err(|_| "root-receipt-directory-unavailable")?
+        .is_some_and(|entry| {
+            entry.file_name() == OsStr::new("maintenance-journal.json") && entries.next().is_none()
+        });
+    Ok(only_journal)
 }
 
 fn validate_uninstall_authorization(uid: u32) -> Result<(), String> {
