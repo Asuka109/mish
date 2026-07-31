@@ -1557,7 +1557,7 @@ type RootTranslation = {
 		 */
 		configurationRequiredTitle: string
 		/**
-		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​S​e​l​e​c​t​i​n​g​ ​a​ ​m​o​d​e​ ​r​e​c​h​e​c​k​s​ ​i​t​s​ ​c​u​r​r​e​n​t​ ​a​v​a​i​l​a​b​i​l​i​t​y​ ​a​n​d​ ​e​x​p​l​a​i​n​s​ ​a​n​y​ ​r​e​j​e​c​t​i​o​n​.
 		 */
 		desktopDescription: string
 		/**
@@ -2602,6 +2602,14 @@ type RootTranslation = {
 			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​i​t​s​ ​p​a​c​k​a​g​e​d​ ​M​i​h​o​m​o​ ​C​o​r​e​.​ ​C​h​e​c​k​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​r​e​t​r​y​.
 			 */
 			start: string
+			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​i​t​s​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​i​s​ ​n​o​t​ ​i​n​s​t​a​l​l​e​d​ ​o​r​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​I​n​s​t​a​l​l​ ​o​r​ ​r​e​p​a​i​r​ ​i​t​ ​i​n​ ​S​e​t​t​i​n​g​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			tunHelperUnavailable: string
+			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​ ​o​w​n​s​ ​t​h​e​ ​a​c​t​i​v​e​ ​T​U​N​,​ ​D​N​S​,​ ​o​r​ ​r​o​u​t​e​s​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​a​t​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​ ​u​n​c​h​a​n​g​e​d​.​ ​S​t​o​p​ ​t​h​e​ ​o​t​h​e​r​ ​a​p​p​'​s​ ​n​e​t​w​o​r​k​ ​c​a​p​t​u​r​e​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			tunNetworkOwnershipConflict: string
 			/**
 			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​m​i​t​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​a​t​e​ ​s​a​f​e​l​y​.
 			 */
@@ -6365,7 +6373,7 @@ export type TranslationFunctions = {
 		 */
 		configurationRequiredTitle: () => LocalizedString
 		/**
-		 * These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.
+		 * These controls show capture state reported by the local desktop service. Selecting a mode rechecks its current availability and explains any rejection.
 		 */
 		desktopDescription: () => LocalizedString
 		/**
@@ -7357,6 +7365,14 @@ export type TranslationFunctions = {
 			 * Mish could not start its packaged Mihomo Core. Check the selected profile and retry.
 			 */
 			start: () => LocalizedString
+			/**
+			 * Virtual Interface could not start because its system component is not installed or unavailable. Install or repair it in Settings, then retry.
+			 */
+			tunHelperUnavailable: () => LocalizedString
+			/**
+			 * Virtual Interface could not start because another app owns the active TUN, DNS, or routes. Mish left that network state unchanged. Stop the other app's network capture, then retry.
+			 */
+			tunNetworkOwnershipConflict: () => LocalizedString
 			/**
 			 * Mish could not commit the authoritative activation state safely.
 			 */

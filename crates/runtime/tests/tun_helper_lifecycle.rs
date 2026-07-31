@@ -153,19 +153,54 @@ async fn version_drift_requires_repair_and_repair_reobserves_health() {
 
 #[tokio::test]
 async fn development_runtime_restriction_preserves_the_typed_observation_failure() {
-    let helper = TunHelperController::new(Arc::new(FakeHelperPlatform::not_installed()));
+    let platform = Arc::new(FakeHelperPlatform::not_installed());
+    let helper = TunHelperController::new(platform);
     helper.install().await.unwrap();
 
     helper.mark_runtime_unavailable(TunHelperFailureKind::ObservationForeign);
+    let refreshed = helper.refresh().await;
 
-    let snapshot = helper.snapshot();
-    assert_eq!(snapshot.availability, TunHelperAvailability::Unavailable);
-    assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(refreshed.availability, TunHelperAvailability::Unavailable);
+    assert_eq!(refreshed.phase, TunHelperLifecyclePhase::Failed);
     assert_eq!(
-        snapshot.last_failure,
+        refreshed.last_failure,
         Some(TunHelperFailureKind::ObservationForeign)
     );
-    assert!(!snapshot.is_healthy());
+    assert!(!refreshed.is_healthy());
+    assert_eq!(
+        helper.repair().await.unwrap_err().kind,
+        TunHelperFailureKind::ObservationForeign
+    );
+    assert_eq!(
+        helper.snapshot().last_failure,
+        Some(TunHelperFailureKind::ObservationForeign)
+    );
+
+    let removed = helper.remove().await.unwrap();
+    assert_eq!(removed.health, TunHelperHealth::NotInstalled);
+    assert_eq!(
+        removed.availability,
+        TunHelperAvailability::PermissionRequired
+    );
+}
+
+#[tokio::test]
+async fn failed_removal_does_not_clear_the_development_runtime_restriction() {
+    let platform = Arc::new(FakeHelperPlatform::not_installed());
+    let helper = TunHelperController::new(platform.clone());
+    helper.install().await.unwrap();
+    helper.mark_runtime_unavailable(TunHelperFailureKind::ObservationForeign);
+    platform.fail_next_lifecycle(TunHelperFailureKind::PermissionDenied);
+
+    let error = helper.remove().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::PermissionDenied);
+    let refreshed = helper.refresh().await;
+    assert_eq!(refreshed.availability, TunHelperAvailability::Unavailable);
+    assert_eq!(
+        refreshed.last_failure,
+        Some(TunHelperFailureKind::ObservationForeign)
+    );
 }
 
 #[tokio::test]

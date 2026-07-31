@@ -746,6 +746,79 @@ class DeferredCaptureClient extends SnapshotStatusClient {
   }
 }
 
+class FailingAfterPendingCaptureClient extends SnapshotStatusClient {
+  private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+  private currentSnapshot: StatusSnapshotDto;
+  private rejectCapture: ((error: StatusClientError) => void) | null = null;
+  captureSignal: AbortSignal | null = null;
+
+  constructor(snapshot: StatusSnapshotDto) {
+    super(snapshot);
+    this.currentSnapshot = structuredClone(snapshot);
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.currentSnapshot);
+  }
+
+  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  override setCapture(
+    _selection: CaptureSelectionDto,
+    _active: boolean,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    this.captureSignal = options?.signal ?? null;
+    this.currentSnapshot.applicationOrder.order += 1;
+    this.currentSnapshot.runtime.captureOperation = {
+      operationId: "2",
+      phase: "pending",
+      scopeEpoch: this.currentSnapshot.runtime.captureOperation.scopeEpoch,
+    };
+    this.currentSnapshot.runtime.systemProxy.phase = "pending";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
+    return new Promise<StatusSnapshotDto>((_resolve, reject) => {
+      this.rejectCapture = reject;
+      options?.signal?.addEventListener(
+        "abort",
+        () => reject(new StatusClientError("cancelled", "Capture command was cancelled")),
+        { once: true },
+      );
+    });
+  }
+
+  failWithTerminalSnapshot() {
+    this.currentSnapshot.applicationOrder.order += 1;
+    this.currentSnapshot.runtime.captureOperation.phase = "failed";
+    this.currentSnapshot.runtime.phase = "inactive";
+    this.currentSnapshot.runtime.systemProxy = {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    };
+    this.currentSnapshot.runtime.systemProxyEnabled = false;
+    this.currentSnapshot.runtime.tun.phase = "off";
+    this.currentSnapshot.runtime.tunEnabled = false;
+    this.rejectCapture?.(
+      new StatusClientError(
+        "remote",
+        "System Proxy reconciliation failed",
+        true,
+        structuredClone(this.currentSnapshot),
+      ),
+    );
+  }
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -1485,6 +1558,35 @@ describe("production routes", () => {
     await user.click(reinstall);
 
     expect(settingsClient.repairTunHelper).toHaveBeenCalledOnce();
+  });
+
+  it("installs the development TUN helper from native Settings", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "permission-required",
+      expectedVersion: "3",
+      health: "not-installed",
+      installationId: null,
+      installedVersion: null,
+      lastFailure: null,
+      phase: "idle",
+    };
+    renderRoute(
+      "/settings",
+      "en",
+      new InactiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const install = await screen.findByRole("button", { name: "Install Helper" });
+    expect(install).toBeEnabled();
+    await user.click(install);
+
+    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
   });
 
   it("keeps Settings operable by keyboard at the minimum desktop window breakpoint", async () => {
@@ -2245,7 +2347,7 @@ describe("desktop RPC experience", () => {
     ).toEqual(["", ""]);
   });
 
-  it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
+  it("renders a sparse reconnecting snapshot without fixture claims and keeps capture retryable", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot(true);
     const client = new SnapshotStatusClient(snapshot, {
@@ -2277,11 +2379,11 @@ describe("desktop RPC experience", () => {
     expect(proxyControl).toHaveAccessibleDescription(/capture is unavailable/i);
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
-    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toBeEnabled();
     expect(systemProxy).toHaveAccessibleDescription(/System Proxy is unavailable/i);
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
     expect(tun).toHaveAccessibleDescription(
       /Virtual Interface is not available in this version of Mish/i,
     );
@@ -2331,12 +2433,12 @@ describe("desktop RPC experience", () => {
     await screen.findByText("Live desktop traffic");
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
-    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toBeEnabled();
     expect(systemProxy).toHaveAccessibleDescription(/not supported by the current local service/i);
     expect(systemProxy).not.toHaveAttribute("aria-describedby", "fixture-action-description");
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
     expect(tun).toHaveAccessibleDescription(
       /Install, approve, or repair the Internal TUN service in Settings/i,
     );
@@ -2383,6 +2485,96 @@ describe("desktop RPC experience", () => {
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
+  });
+
+  it("starts desktop Helper installation before a permission-required TUN command", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const setCapture = statusClient.setCapture;
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "permission-required",
+      expectedVersion: "3",
+      health: "not-installed",
+      installationId: null,
+      installedVersion: null,
+      lastFailure: null,
+      phase: "idle",
+    };
+    settingsClient.installTunHelper.mockImplementation(async () => {
+      settingsClient.snapshot.tunHelper = {
+        availability: "available",
+        expectedVersion: "3",
+        health: "healthy",
+        installationId: "a".repeat(64),
+        installedVersion: "3",
+        lastFailure: null,
+        phase: "idle",
+      };
+      return settingsClient.getSnapshot();
+    });
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Before enabling Virtual Interface" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Install Helper" }));
+
+    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
+    expect(setCapture).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Enable Virtual Interface" }));
+    await waitFor(() =>
+      expect(setCapture).toHaveBeenCalledWith(
+        expect.objectContaining({ tun: true }),
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
+  it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
+    snapshot.runtime.captureOperation.phase = "recovery-required";
+    snapshot.runtime.systemProxy.recoveryActions = ["repair"];
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: false };
+    const client = new RecordingCaptureClient(snapshot, {
+      attempt: 2,
+      phase: "reconnecting",
+      stale: true,
+    });
+    renderRoute("/status", "en", client);
+    await screen.findByText("Live desktop traffic");
+
+    const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
+    const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
+    expect(systemProxy).toBeEnabled();
+    expect(tun).toBeEnabled();
+
+    await user.click(systemProxy);
+    await waitFor(() =>
+      expect(client.setCapture).toHaveBeenCalledWith(
+        { systemProxy: true, tun: false },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
   });
 });
 
@@ -3011,6 +3203,29 @@ describe("Status fixture experience", () => {
     expect(proxyControl).toHaveAttribute("aria-busy", "true");
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveTextContent("Pending");
+  });
+
+  it("keeps the initiating Capture command alive through Pending and consumes its terminal failure", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new FailingAfterPendingCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "System Proxy, selected, not running",
+      }),
+    );
+    const proxyControl = screen.getByRole("button", { name: "Launch Proxy" });
+    await waitFor(() => expect(proxyControl).toHaveAttribute("aria-busy", "true"));
+    expect(client.captureSignal?.aborted).toBe(false);
+
+    act(() => client.failWithTerminalSnapshot());
+
+    await waitFor(() => expect(proxyControl).toHaveAttribute("aria-busy", "false"));
+    expect(proxyControl).toBeEnabled();
+    expect(proxyControl).toHaveTextContent("Launch");
   });
 
   it("describes a typed permission failure without claiming success", async () => {

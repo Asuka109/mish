@@ -239,6 +239,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           continue;
         }
         if (!confirmAuthority) continue;
+        if (command === "capture" && nextSnapshot.runtime.captureOperation.phase === "pending") {
+          continue;
+        }
         if (confirmCommandAuthority(operation, productCommandAuthority(nextSnapshot, command))) {
           entry.controller.abort();
           commandControllers.current.delete(key);

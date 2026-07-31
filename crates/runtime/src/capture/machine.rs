@@ -74,6 +74,7 @@ pub(super) enum TransitionStage {
 
 #[derive(Clone, Debug)]
 pub(super) struct TransitioningCapture {
+    pub deferred_failure: Option<CaptureTransitionError>,
     pub operation: ActiveOperation,
     pub stable: StableCapture,
     pub stage: TransitionStage,
@@ -681,6 +682,7 @@ impl CaptureMachine {
         let request = operation.request.clone();
         Transition::EffectEmitting {
             state: CaptureState::Transitioning(TransitioningCapture {
+                deferred_failure: None,
                 operation,
                 stable,
                 stage: TransitionStage::Finalizing,
@@ -743,6 +745,7 @@ impl Machine for CaptureMachine {
                         .with_effect(PREFLIGHT_EFFECT_ID);
                     Transition::EffectEmitting {
                         state: CaptureState::Transitioning(TransitioningCapture {
+                            deferred_failure: None,
                             stage: TransitionStage::Preflighting,
                             ..current.clone()
                         }),
@@ -771,7 +774,24 @@ impl Machine for CaptureMachine {
                     if current.stage == TransitionStage::Preflighting
                         && Self::matching(&current.operation, correlation, PREFLIGHT_EFFECT_ID) =>
                 {
+                    if let Some(error) = &current.deferred_failure {
+                        if error.kind == super::CaptureFailureKind::RollbackFailed {
+                            return Transition::RecoveryRequired(self.recovery(
+                                current.stable.clone(),
+                                &current.operation,
+                                current.operation.previous.clone(),
+                                error.clone(),
+                            ));
+                        }
+                        return Transition::Failed(self.failed(
+                            current.stable.clone(),
+                            &current.operation,
+                            current.operation.previous.clone(),
+                            error.clone(),
+                        ));
+                    }
                     Transition::Accepted(CaptureState::Transitioning(TransitioningCapture {
+                        deferred_failure: None,
                         stage: TransitionStage::Reserved,
                         ..current.clone()
                     }))
@@ -787,6 +807,7 @@ impl Machine for CaptureMachine {
                     return Transition::Rejected(super::runtime_transition_error());
                 };
                 Transition::Accepted(CaptureState::Transitioning(TransitioningCapture {
+                    deferred_failure: None,
                     operation,
                     stable,
                     stage: TransitionStage::Reserved,
@@ -809,6 +830,7 @@ impl Machine for CaptureMachine {
                 let previous = operation.previous.clone();
                 Transition::EffectEmitting {
                     state: CaptureState::Transitioning(TransitioningCapture {
+                        deferred_failure: None,
                         operation,
                         stable,
                         stage: TransitionStage::Mutating,
@@ -847,6 +869,7 @@ impl Machine for CaptureMachine {
                     .with_effect(MUTATION_EFFECT_ID);
                 Transition::EffectEmitting {
                     state: CaptureState::Transitioning(TransitioningCapture {
+                        deferred_failure: None,
                         stage: TransitionStage::Mutating,
                         ..current.clone()
                     }),
@@ -913,12 +936,31 @@ impl Machine for CaptureMachine {
                 let CaptureState::Transitioning(current) = state else {
                     return Transition::Retired;
                 };
-                if current.stage != TransitionStage::Reserved
-                    || !current
-                        .operation
-                        .correlation
-                        .same_operation(&token.correlation)
+                if !current
+                    .operation
+                    .correlation
+                    .same_operation(&token.correlation)
                 {
+                    return Transition::Retired;
+                }
+                if current.stage == TransitionStage::Preflighting {
+                    if current.deferred_failure.is_some() {
+                        return Transition::Unchanged;
+                    }
+                    return Transition::EffectEmitting {
+                        state: CaptureState::Transitioning(TransitioningCapture {
+                            deferred_failure: Some(error.clone()),
+                            ..current.clone()
+                        }),
+                        effects: EffectBatch::one(CaptureEffect::Cancel(
+                            current
+                                .operation
+                                .correlation
+                                .with_effect(PREFLIGHT_EFFECT_ID),
+                        )),
+                    };
+                }
+                if current.stage != TransitionStage::Reserved {
                     return Transition::Retired;
                 }
                 if error.kind == super::CaptureFailureKind::RollbackFailed {
@@ -1075,6 +1117,7 @@ impl Machine for CaptureMachine {
                 let commit = operation.correlation.with_effect(AUDIT_COMMIT_EFFECT_ID);
                 Transition::EffectEmitting {
                     state: CaptureState::Transitioning(TransitioningCapture {
+                        deferred_failure: None,
                         operation,
                         stable: current.stable.clone(),
                         stage: TransitionStage::Mutating,
@@ -1141,6 +1184,7 @@ impl Machine for CaptureMachine {
                 let correlation = operation.correlation.with_effect(RECOVERY_EFFECT_ID);
                 Transition::EffectEmitting {
                     state: CaptureState::Transitioning(TransitioningCapture {
+                        deferred_failure: None,
                         operation,
                         stable,
                         stage: TransitionStage::Mutating,
@@ -1163,6 +1207,26 @@ impl Machine for CaptureMachine {
                 };
                 if !operation.correlation.same_operation(correlation) {
                     return Transition::Retired;
+                }
+                if let CaptureState::Transitioning(current) = state
+                    && current.stage == TransitionStage::Preflighting
+                    && correlation.effect_id == PREFLIGHT_EFFECT_ID
+                    && let Some(error) = &current.deferred_failure
+                {
+                    if error.kind == super::CaptureFailureKind::RollbackFailed {
+                        return Transition::RecoveryRequired(self.recovery(
+                            current.stable.clone(),
+                            &current.operation,
+                            current.operation.previous.clone(),
+                            error.clone(),
+                        ));
+                    }
+                    return Transition::Failed(self.failed(
+                        current.stable.clone(),
+                        &current.operation,
+                        current.operation.previous.clone(),
+                        error.clone(),
+                    ));
                 }
                 let stable = match state {
                     CaptureState::Transitioning(current) => current.stable.clone(),
@@ -1586,6 +1650,68 @@ mod tests {
         assert_eq!(
             reserved.projection().capture_operation.phase,
             CaptureOperationPhase::Pending
+        );
+    }
+
+    #[test]
+    fn reserved_failure_cancels_preflight_before_publishing_terminal_state() {
+        let machine = machine();
+        let reserved = transition_state(machine.reduce(
+            &initial(),
+            &CaptureInput::Reserve {
+                request: request(),
+                mode: TransitionMode::Prepared,
+            },
+        ));
+        let operation = reserved.operation().unwrap();
+        let (reply, _response) = tokio::sync::oneshot::channel();
+        let preflighting = transition_state(machine.reduce(
+            &reserved,
+            &CaptureInput::Preflight {
+                cancellation: CancellationToken::new(),
+                reply: Arc::new(Mutex::new(Some(reply))),
+                request: request(),
+            },
+        ));
+        assert!(matches!(
+            preflighting,
+            CaptureState::Transitioning(TransitioningCapture {
+                stage: TransitionStage::Preflighting,
+                ..
+            })
+        ));
+
+        let cancellation = machine.reduce(
+            &preflighting,
+            &CaptureInput::FailReserved {
+                error: CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Profile activation failed during Capture preflight",
+                ),
+                operation: operation.clone(),
+            },
+        );
+        assert_eq!(cancellation.disposition(), Disposition::EffectEmitting);
+        let cancellation = transition_state(cancellation);
+        assert_eq!(
+            cancellation.projection().capture_operation.phase,
+            CaptureOperationPhase::Pending,
+            "the public operation stays Pending until preflight cleanup finishes"
+        );
+
+        let terminal = machine.reduce(
+            &cancellation,
+            &CaptureInput::PreflightFinished {
+                correlation: operation.correlation.with_effect(PREFLIGHT_EFFECT_ID),
+            },
+        );
+        assert_eq!(terminal.disposition(), Disposition::Failed);
+        assert_eq!(
+            transition_state(terminal)
+                .projection()
+                .capture_operation
+                .phase,
+            CaptureOperationPhase::Failed
         );
     }
 

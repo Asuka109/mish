@@ -4,11 +4,11 @@ This is the hands-on acceptance procedure for the development-only Stage 1
 privileged Core host. It requires Apple Silicon macOS, a trusted checkout, the
 stable Rust toolchain, Node.js, pnpm, `gh`, and an administrator account.
 
-Stage 1 runs only a prepared Mihomo candidate with `tun.enable: false`. It does
-not enable Virtual Interface, create a `utun`, change routes or DNS, change the
-macOS System Proxy, install `SMAppService`, or add anything to a release bundle.
-All product UIs remain System Proxy-only. The service is installed only by the
-explicit commands below.
+The core-only Stage 1 commands run only a prepared Mihomo candidate with
+`tun.enable: false`. They do not enable Virtual Interface, create a `utun`,
+change routes or DNS, change the macOS System Proxy, install `SMAppService`, or
+add anything to a release bundle. The service is installed only by the explicit
+commands below.
 
 For a trusted Mac that must not install a checkout or development toolchain,
 use the structurally separate
@@ -19,11 +19,27 @@ health, repair, and uninstall. It cannot enable TUN or mutate network state. Do
 not copy its artifacts into `Mish.app` or use it as evidence for production
 signing.
 
-Issue acceptance may additionally exercise the complete development TUN path
-inside a uniquely named disposable Tart clone. That path is documented in
+`pnpm desktop:dev` may use the complete development TUN path after the separate
+development-TUN service is explicitly installed:
+
+```sh
+pnpm prepare:mihomo
+pnpm desktop:dev
+```
+
+In Settings, choose **Install virtual interface** and approve the native
+administrator dialog. This explicit GUI action is the primary development
+installation path; `pnpm macos:tun:install:dev` is its CLI equivalent. Restart
+`desktop:dev` once so startup can bind the verified privileged Core host.
+Starting the app alone never installs or repairs the service. The tracked
+development command uses a separate `--development-tun` installer boundary; it
+does not gain Tart failure injection or terminal authorization, and production,
+demo, ad-hoc, and signed-direct builds remain unchanged.
+
+Issue acceptance may additionally exercise the same network path with
+Tart-only controls inside a uniquely named disposable clone. That path is documented in
 [the helper contract](../architecture/macos-tun-helper.md#disposable-tart-tun-acceptance).
-It does not weaken this Stage 1 command: ordinary development continues to
-reject `tun.enable: true`.
+It does not grant those acceptance-only controls to ordinary development.
 
 ## Disposable Tart TUN journey
 

@@ -28,6 +28,7 @@ const tunStatus = {
 
 let root: Root;
 function renderHost(host: "Settings" | "Status") {
+  const onTunChange = vi.fn();
   root.render(
     <TypesafeI18n locale="en">
       <MemoryRouter>
@@ -41,7 +42,7 @@ function renderHost(host: "Settings" | "Status") {
               capabilities={{ systemProxy: "supported", tun: "unavailable" }}
               commandSupported
               onSystemProxyChange={vi.fn()}
-              onTunChange={vi.fn()}
+              onTunChange={onTunChange}
               systemProxyEnabled={false}
               systemProxySelected={false}
               systemProxyStatus={systemProxyStatus}
@@ -54,6 +55,7 @@ function renderHost(host: "Settings" | "Status") {
       </MemoryRouter>
     </TypesafeI18n>,
   );
+  return onTunChange;
 }
 
 beforeAll(async () => {
@@ -66,30 +68,25 @@ beforeAll(async () => {
 
 afterAll(() => root.unmount());
 
-describe("unavailable Virtual Interface tooltip", () => {
-  test("opens on pointer hover in Status without activating the disabled control", async () => {
-    renderHost("Status");
-    const trigger = page.getByLabelText("Virtual Interface", { exact: true });
+describe("unavailable Virtual Interface authoritative retry", () => {
+  test("remains actionable in Status and asks the authority to recheck", async () => {
+    const onTunChange = renderHost("Status");
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
-    await userEvent.hover(trigger);
-    await expect.element(page.getByText(unavailableMessage, { exact: true })).toBeVisible();
-    await expect.element(tun).toBeDisabled();
+    await expect.element(tun).toBeEnabled();
+    await userEvent.click(tun);
+    expect(onTunChange).toHaveBeenCalledOnce();
+    expect(onTunChange.mock.calls[0]?.[0]).toBe(true);
   });
 
-  test("opens on keyboard focus in the narrow Settings host", async () => {
-    renderHost("Settings");
-    const trigger = page.getByLabelText("Virtual Interface", { exact: true });
+  test("keeps its reason accessible from the narrow Settings host", async () => {
+    const onTunChange = renderHost("Settings");
+    const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
-    await userEvent.tab();
-    await userEvent.tab();
-    await expect.element(trigger).toHaveFocus();
-    await vi.waitFor(() => {
-      const tooltip = document.querySelector<HTMLElement>(".tooltip-content");
-      expect(tooltip).toBeVisible();
-      expect(tooltip).toHaveTextContent(unavailableMessage);
-    });
-    await expect.element(trigger).toHaveAccessibleDescription(unavailableMessage);
+    tun.element().focus();
+    await expect.element(tun).toHaveFocus();
+    await expect.element(tun).toHaveAccessibleDescription(unavailableMessage);
     await userEvent.keyboard("{Enter}");
+    expect(onTunChange).toHaveBeenCalledOnce();
   });
 });

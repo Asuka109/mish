@@ -14,15 +14,16 @@ use mish_profile::{
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
-    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, MishRuntime, NotificationPublication,
-    NotificationSeverity, ProfileActivationAsnFailedApplicationNotificationData,
+    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind,
+    CaptureOperationPhase, CaptureRequest, CaptureSelection, CaptureTransitionError, MishRuntime,
+    NotificationPublication, NotificationSeverity,
+    ProfileActivationAsnFailedApplicationNotificationData,
     ProfileActivationFailedApplicationNotificationData,
     ProfileActivationGeoipFailedApplicationNotificationData,
     ProfileActivationGeositeFailedApplicationNotificationData,
     ProfileActivationListenerConflictApplicationNotificationData,
     ProfileActivationMmdbFailedApplicationNotificationData, ProviderSnapshot,
-    ProxyLaunchTimingApplicationEventData, StatusAdapterKind,
+    ProxyLaunchTimingApplicationEventData, StatusAdapterKind, SystemProxyPhase, TunPhase,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
@@ -74,6 +75,8 @@ pub enum ProfileActivationFailure {
     GeodataFailed,
     GeodataTimeout,
     Start,
+    TunHelperUnavailable,
+    TunNetworkOwnershipConflict,
     EarlyExit,
     ManagedListenerConflict,
     VersionMismatch,
@@ -241,6 +244,8 @@ enum ProfileActivationFailureEvidence {
     GeodataFailed(crate::GeodataAsset),
     GeodataTimeout(crate::GeodataAsset),
     Start,
+    TunHelperUnavailable,
+    TunNetworkOwnershipConflict,
     EarlyExit,
     ManagedListenerConflict(String),
     VersionMismatch,
@@ -262,6 +267,10 @@ impl ProfileActivationFailureEvidence {
             Self::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
             Self::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
             Self::Start => ProfileActivationFailure::Start,
+            Self::TunHelperUnavailable => ProfileActivationFailure::TunHelperUnavailable,
+            Self::TunNetworkOwnershipConflict => {
+                ProfileActivationFailure::TunNetworkOwnershipConflict
+            }
             Self::EarlyExit => ProfileActivationFailure::EarlyExit,
             Self::ManagedListenerConflict(_) => ProfileActivationFailure::ManagedListenerConflict,
             Self::VersionMismatch => ProfileActivationFailure::VersionMismatch,
@@ -916,7 +925,7 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(&permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        self.activate_inner(command_id, profile_id, Some(permit))
+        self.activate_inner(command_id, profile_id, Some(permit), None)
             .await
     }
 
@@ -925,6 +934,7 @@ impl ProfileActivationCoordinator {
         command_id: &str,
         profile_id: &str,
         permit: Option<StateMutationPermit>,
+        admitted_tun_selection: Option<bool>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let availability = self.availability;
@@ -994,17 +1004,21 @@ impl ProfileActivationCoordinator {
                 return Err(error.into());
             }
         };
-        let policy = (self.policy_factory)()
-            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
+        let policy = (self.policy_factory)().and_then(|policy| match admitted_tun_selection {
+            Some(enabled) => policy.with_admitted_tun_selection(enabled),
+            None => Ok(policy),
+        });
         let policy = match policy {
             Ok(policy) => policy,
             Err(error) => {
-                self.finish_preflight_activation(
-                    &command,
-                    ProfileActivationFailureEvidence::StateCommit,
-                )
-                .await;
-                return Err(error);
+                let evidence = match error {
+                    crate::RuntimeConfigGenerationError::TunHelperUnavailable => {
+                        ProfileActivationFailureEvidence::TunHelperUnavailable
+                    }
+                    _ => ProfileActivationFailureEvidence::StateCommit,
+                };
+                self.finish_preflight_activation(&command, evidence).await;
+                return Err(ProfileActivationCoordinatorError::PolicyUnavailable);
             }
         };
         let coordinator = self.clone();
@@ -1126,6 +1140,7 @@ impl ProfileActivationCoordinator {
     async fn reactivate_active_authorized(
         self: &Arc<Self>,
         permit: &StateMutationPermit,
+        admitted_tun_selection: Option<bool>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         self.authority
             .validate(permit)
@@ -1137,7 +1152,9 @@ impl ProfileActivationCoordinator {
             .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
         let command_id = Uuid::new_v4().to_string();
         let mut updates = self.subscribe();
-        let pending = self.activate_inner(&command_id, &profile_id, None).await?;
+        let pending = self
+            .activate_inner(&command_id, &profile_id, None, admitted_tun_selection)
+            .await?;
         if pending.phase != ProfileActivationPhase::Pending {
             return Ok(pending);
         }
@@ -1298,7 +1315,12 @@ impl ProfileActivationCoordinator {
             Ok(current)
         } else {
             let activation = self
-                .activate_inner(command_id, &profile_id, None)
+                .activate_inner(
+                    command_id,
+                    &profile_id,
+                    None,
+                    Some(request.active && request.selection.tun),
+                )
                 .await
                 .map_err(profile_launch_error);
             if let Ok(activation) = &activation {
@@ -1442,7 +1464,13 @@ impl ProfileActivationCoordinator {
                 Ok((preflight, activation_elapsed, preflight_elapsed)) => {
                     let capture_started = Instant::now();
                     let result = if requires_tun_reactivation && !activation_started_for_launch {
-                        match self.reactivate_active_authorized(&permit).await {
+                        match self
+                            .reactivate_active_authorized(
+                                &permit,
+                                Some(request.active && request.selection.tun),
+                            )
+                            .await
+                        {
                             Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => {
                                 self.host
                                     .set_capture_with_admitted_preflight(
@@ -1518,6 +1546,42 @@ impl ProfileActivationCoordinator {
             outcome,
         );
         result
+    }
+
+    /// Confirms that the shared Capture projection, not only the platform effects, reached the
+    /// requested terminal state.
+    ///
+    /// Maintenance recovery uses this after independently observing Helper-owned network state.
+    /// A Helper/Core that is really active while the application projection says
+    /// Recovery Required must remain recoverable evidence, never a completed replay.
+    pub async fn capture_projection_matches(
+        &self,
+        active: bool,
+        selection: &CaptureSelection,
+        adapter_kind: StatusAdapterKind,
+    ) -> bool {
+        let snapshot = self
+            .host
+            .current()
+            .status_snapshot_typed(adapter_kind)
+            .await;
+        let runtime = snapshot.runtime;
+        runtime.capture_operation.phase == CaptureOperationPhase::Applied
+            && runtime.capture_selection == *selection
+            && runtime.system_proxy_enabled == (active && selection.system_proxy)
+            && runtime.tun_enabled == (active && selection.tun)
+            && runtime.system_proxy.phase
+                == if active && selection.system_proxy {
+                    SystemProxyPhase::Applied
+                } else {
+                    SystemProxyPhase::Off
+                }
+            && runtime.tun.phase
+                == if active && selection.tun {
+                    TunPhase::Applied
+                } else {
+                    TunPhase::Off
+                }
     }
 
     fn begin_proxy_preparation(&self) -> ProxyPreparationCancellation {
@@ -1623,13 +1687,13 @@ impl ProfileActivationCoordinator {
         &self,
         command_id: &str,
     ) -> Result<ProfileActivationSnapshot, CaptureTransitionError> {
+        let mut updates = self.subscribe();
         let current = self.activation_snapshot().await;
         if current.command_id.as_deref() == Some(command_id)
             && current.phase != ProfileActivationPhase::Pending
         {
             return Ok(current);
         }
-        let mut updates = self.subscribe();
         loop {
             let snapshot = updates.recv().await.map_err(|_| {
                 CaptureTransitionError::new(
@@ -1724,7 +1788,10 @@ impl ProfileActivationCoordinator {
             )
             .await?;
         let activation_result = match permit {
-            Some(permit) => self.reactivate_active_authorized(permit).await,
+            Some(permit) => {
+                self.reactivate_active_authorized(permit, Some(desired_tun))
+                    .await
+            }
             None => self.reactivate_active().await,
         };
         let reactivated = matches!(
@@ -2401,6 +2468,7 @@ fn usable_capture_selection(
     capabilities: &mish_runtime::PlatformCapabilities,
     mut selection: CaptureSelection,
 ) -> Result<CaptureSelection, CaptureTransitionError> {
+    let explicit_selection = selection.system_proxy || selection.tun;
     let available = |availability| {
         matches!(
             (adapter_kind, availability),
@@ -2412,7 +2480,7 @@ fn usable_capture_selection(
     };
     selection.system_proxy &= available(capabilities.system_proxy);
     selection.tun &= available(capabilities.tun);
-    if !selection.system_proxy && !selection.tun {
+    if !explicit_selection && !selection.system_proxy && !selection.tun {
         selection.system_proxy = available(capabilities.system_proxy);
         selection.tun = !selection.system_proxy && available(capabilities.tun);
     }
@@ -2445,9 +2513,10 @@ mod capture_selection_tests {
     use std::time::Duration;
 
     use super::{
-        ProfileActivationFailure, launch_duration_milliseconds,
-        profile_activation_failure_notification, usable_capture_selection,
+        ProfileActivationFailure, activation_failure_evidence, launch_duration_milliseconds,
+        map_failure, profile_activation_failure_notification, usable_capture_selection,
     };
+    use crate::MihomoActivationError;
     use mish_runtime::{
         ApplicationActionId, CapabilityAvailability, CaptureSelection, PlatformCapabilities,
         StatusAdapterKind,
@@ -2461,7 +2530,7 @@ mod capture_selection_tests {
     }
 
     #[test]
-    fn native_launch_selection_preserves_remembered_modes_and_falls_back_deterministically() {
+    fn native_launch_selection_preserves_explicit_modes_and_defaults_only_empty_selection() {
         let supported = capabilities(
             CapabilityAvailability::Supported,
             CapabilityAvailability::Supported,
@@ -2496,7 +2565,7 @@ mod capture_selection_tests {
                 tun: false
             }
         );
-        assert_eq!(
+        assert!(
             usable_capture_selection(
                 StatusAdapterKind::Native,
                 &capabilities(
@@ -2508,11 +2577,7 @@ mod capture_selection_tests {
                     tun: false
                 },
             )
-            .unwrap(),
-            CaptureSelection {
-                system_proxy: false,
-                tun: true
-            }
+            .is_err()
         );
         assert!(
             usable_capture_selection(
@@ -2542,6 +2607,7 @@ mod capture_selection_tests {
         for failure in [
             ProfileActivationFailure::Staging,
             ProfileActivationFailure::Start,
+            ProfileActivationFailure::TunNetworkOwnershipConflict,
             ProfileActivationFailure::EarlyExit,
             ProfileActivationFailure::Controller,
             ProfileActivationFailure::Timeout,
@@ -2562,6 +2628,7 @@ mod capture_selection_tests {
             ProfileActivationFailure::Validation,
             ProfileActivationFailure::GeodataFailed,
             ProfileActivationFailure::GeodataTimeout,
+            ProfileActivationFailure::TunHelperUnavailable,
             ProfileActivationFailure::ManagedListenerConflict,
             ProfileActivationFailure::VersionMismatch,
             ProfileActivationFailure::Cancelled,
@@ -2572,6 +2639,52 @@ mod capture_selection_tests {
             assert!(notification.action_ids.is_empty());
             assert!(notification.actions_valid());
         }
+    }
+
+    #[test]
+    fn unavailable_privileged_service_produces_tun_setup_notification_evidence() {
+        let error = MihomoActivationError::TunHelperUnavailable;
+        assert_eq!(
+            activation_failure_evidence(error).failure(),
+            ProfileActivationFailure::TunHelperUnavailable
+        );
+        assert_eq!(
+            map_failure(error),
+            ProfileActivationFailure::TunHelperUnavailable
+        );
+
+        let notification =
+            profile_activation_failure_notification(ProfileActivationFailure::TunHelperUnavailable);
+        assert!(notification.action_ids.is_empty());
+        assert_eq!(
+            serde_json::to_value(notification.content).unwrap()["data"]["failure"],
+            "tun-helper-unavailable"
+        );
+    }
+
+    #[test]
+    fn foreign_tun_network_state_produces_retryable_ownership_notification_evidence() {
+        let error = MihomoActivationError::TunNetworkOwnershipConflict;
+        assert_eq!(
+            activation_failure_evidence(error).failure(),
+            ProfileActivationFailure::TunNetworkOwnershipConflict
+        );
+        assert_eq!(
+            map_failure(error),
+            ProfileActivationFailure::TunNetworkOwnershipConflict
+        );
+
+        let notification = profile_activation_failure_notification(
+            ProfileActivationFailure::TunNetworkOwnershipConflict,
+        );
+        assert_eq!(
+            notification.action_ids,
+            vec![ApplicationActionId::RetryProfileActivation]
+        );
+        assert_eq!(
+            serde_json::to_value(notification.content).unwrap()["data"]["failure"],
+            "tun-network-ownership-conflict"
+        );
     }
 }
 
@@ -3288,6 +3401,12 @@ fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivatio
             ProfileActivationFailureEvidence::GeodataTimeout(asset)
         }
         MihomoActivationError::StartFailed => ProfileActivationFailureEvidence::Start,
+        MihomoActivationError::TunHelperUnavailable => {
+            ProfileActivationFailureEvidence::TunHelperUnavailable
+        }
+        MihomoActivationError::TunNetworkOwnershipConflict => {
+            ProfileActivationFailureEvidence::TunNetworkOwnershipConflict
+        }
         MihomoActivationError::EarlyExit => ProfileActivationFailureEvidence::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(endpoint) => {
             ProfileActivationFailureEvidence::ManagedListenerConflict(endpoint.to_string())
@@ -3319,6 +3438,12 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
         MihomoActivationError::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
         MihomoActivationError::StartFailed => ProfileActivationFailure::Start,
+        MihomoActivationError::TunHelperUnavailable => {
+            ProfileActivationFailure::TunHelperUnavailable
+        }
+        MihomoActivationError::TunNetworkOwnershipConflict => {
+            ProfileActivationFailure::TunNetworkOwnershipConflict
+        }
         MihomoActivationError::EarlyExit => ProfileActivationFailure::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(_) => {
             ProfileActivationFailure::ManagedListenerConflict
@@ -3362,6 +3487,8 @@ fn profile_activation_failure_id(failure: ProfileActivationFailure) -> &'static 
         ProfileActivationFailure::GeodataFailed => "geodata-failed",
         ProfileActivationFailure::GeodataTimeout => "geodata-timeout",
         ProfileActivationFailure::Start => "start",
+        ProfileActivationFailure::TunHelperUnavailable => "tun-helper-unavailable",
+        ProfileActivationFailure::TunNetworkOwnershipConflict => "tun-network-ownership-conflict",
         ProfileActivationFailure::EarlyExit => "early-exit",
         ProfileActivationFailure::ManagedListenerConflict => "managed-listener-conflict",
         ProfileActivationFailure::VersionMismatch => "version-mismatch",
@@ -3397,6 +3524,7 @@ fn profile_activation_failure_is_retryable(failure: ProfileActivationFailure) ->
         failure,
         ProfileActivationFailure::Staging
             | ProfileActivationFailure::Start
+            | ProfileActivationFailure::TunNetworkOwnershipConflict
             | ProfileActivationFailure::EarlyExit
             | ProfileActivationFailure::Controller
             | ProfileActivationFailure::Timeout

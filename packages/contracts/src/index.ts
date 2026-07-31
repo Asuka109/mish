@@ -2080,6 +2080,14 @@ export const StatusCommandErrorDataSchema = z
   .strict();
 export interface StatusCommandErrorDataDto extends z.infer<typeof StatusCommandErrorDataSchema> {}
 
+export const CaptureCommandErrorDataSchema = z
+  .object({
+    kind: CaptureFailureKindSchema,
+    snapshot: RpcStatusSnapshotSchema.optional(),
+  })
+  .strict();
+export interface CaptureCommandErrorDataDto extends z.infer<typeof CaptureCommandErrorDataSchema> {}
+
 export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
   adapterKind: z.literal("native"),
 });
@@ -2511,6 +2519,8 @@ export const ProfileActivationFailureSchema = z.enum([
   "geodata-failed",
   "geodata-timeout",
   "start",
+  "tun-helper-unavailable",
+  "tun-network-ownership-conflict",
   "early-exit",
   "managed-listener-conflict",
   "version-mismatch",

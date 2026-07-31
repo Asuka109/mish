@@ -7,18 +7,18 @@ use `<scope>:<action>[:<variant>]` when they target one product area and
 
 ## Daily commands
 
-| Command                     | Purpose                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `pnpm demo`                 | Start the explicit browser demo on the first port from 4173.                                                  |
-| `pnpm desktop:demo`         | Start the backend-free demo in a native Tauri window.                                                         |
-| `pnpm dev`                  | Start the ordinary unauthenticated Web development entry.                                                     |
-| `pnpm desktop:dev`          | Start operational Tauri, print a one-time authorized Browser Client URL, and use an auto-selected Web origin. |
-| `pnpm desktop:dev:tart-tun` | Start the explicit disposable-Tart development TUN acceptance entry.                                          |
-| `pnpm test:watch`           | Run Web unit tests in watch mode.                                                                             |
-| `pnpm test:unit`            | Run all TypeScript unit tests once.                                                                           |
-| `pnpm check`                | Run the fast pull-request-equivalent gate.                                                                    |
-| `pnpm check:all`            | Run the complete non-browser repository inspection.                                                           |
-| `pnpm test:browser`         | Run the responsive suite in a real Chromium browser.                                                          |
+| Command                     | Purpose                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm demo`                 | Start the explicit browser demo on the first port from 4173.                                                                     |
+| `pnpm desktop:demo`         | Start the backend-free demo in a native Tauri window.                                                                            |
+| `pnpm dev`                  | Start the ordinary unauthenticated Web development entry.                                                                        |
+| `pnpm desktop:dev`          | Start operational Tauri with optional explicitly installed development TUN, print a Browser Client URL, and select a Web origin. |
+| `pnpm desktop:dev:tart-tun` | Start the explicit disposable-Tart development TUN acceptance entry.                                                             |
+| `pnpm test:watch`           | Run Web unit tests in watch mode.                                                                                                |
+| `pnpm test:unit`            | Run all TypeScript unit tests once.                                                                                              |
+| `pnpm check`                | Run the fast pull-request-equivalent gate.                                                                                       |
+| `pnpm check:all`            | Run the complete non-browser repository inspection.                                                                              |
+| `pnpm test:browser`         | Run the responsive suite in a real Chromium browser.                                                                             |
 
 Arguments pass through to the underlying package command. For example:
 
@@ -92,11 +92,19 @@ and release builds. Follow
 [`macos-development-core-host.md`](macos-development-core-host.md) for the
 administrator-operated acceptance procedure.
 
-The complete development TUN path is narrower still. Only inside a disposable
-Tart clone, use `macos:tun:prepare:tart`, `macos:tun:install:tart`,
-`desktop:dev:tart-tun`, and `macos:tun:uninstall:tart`. The launcher and service
-must both receive that exact opt-in; ordinary source development and every
-packaged layout stay unavailable. The acceptance harness is
+Ordinary source development may opt into Virtual Interface by starting
+`desktop:dev`, opening Settings, choosing **Install virtual interface**, and
+approving the native administrator prompt. Restart the dev process once before
+activation. `macos:tun:prepare:dev`, `macos:tun:install:dev`, and the shared
+`macos:tun:uninstall` remain equivalent CLI preparation and recovery paths.
+Startup never installs privileged state without the explicit Settings action.
+
+Only inside a disposable Tart clone, use `macos:tun:prepare:tart`,
+`macos:tun:install:tart`, `desktop:dev:tart-tun`, and
+`macos:tun:uninstall:tart`. The launcher and service must both receive that
+exact acceptance opt-in. It adds only Tart DNS fixtures, failure injection, and
+the terminal-authorization transport; ordinary source development and every
+packaged layout cannot select them. The acceptance harness is
 `scripts/macos-tart-tun-rpc.ts`. It accepts only the repository-owned
 `fictional-tart.yaml` profile and emits bounded, redacted state.
 

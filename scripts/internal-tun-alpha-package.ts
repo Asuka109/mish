@@ -20,7 +20,7 @@ import path from "node:path";
 
 export const internalTunAlphaProfile = "internal-tun-alpha" as const;
 export const internalTunAlphaManifestName = "internal-tun-alpha-manifest.json";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.4";
+export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.6";
 export const internalTunAlphaIdentityScheme = "sha256-helper-core-rendered-plist-v1" as const;
 
 const fixedTimestamp = new Date("2020-01-01T00:00:00.000Z");
@@ -466,14 +466,23 @@ administrator prompt. Installation starts healthy and disabled. It does not
 change routes, DNS, System Proxy, or other network state. Open Mish.app to
 enable Virtual Interface through the shared Rust Capture controls.
 
+Installing a newer package is one journaled transaction. Mish first reconciles
+an active Virtual Interface through the authenticated Helper operation, stops
+the prior app, backs up the last verified Helper/Core/enrollment/receipt, and
+then commits the replacement. A successful active-Capture upgrade opens the
+new app and restores the retained Virtual Interface intent once. An identical
+reinstall changes nothing, and an older package is rejected before mutation.
+
 Use Health Internal TUN Alpha.command to verify the exact package manifest,
 installed Helper/Core/LaunchDaemon/receipts, P-256 enrollment, protocol, and a
 fresh disabled observation. If health fails, Repair Internal TUN Alpha.command
-is the bounded recovery path and replaces only fixed Mish-owned artifacts.
+is the bounded recovery path: it completes or compensates an interrupted
+journal before replacing only fixed Mish-owned artifacts. Recovery Required is
+never guessed or replayed; run Repair with the admitted package, or Uninstall.
 Uninstall Internal TUN Alpha.command removes the service, Core, socket,
-receipts, enrollment, and client key while preserving unrelated system and user
-state. A partial or foreign installation fails closed; restore the matching
-package evidence before retrying repair or uninstall.
+maintenance journal/backup, receipts, enrollment, client key, and only
+Mish-owned network effects while preserving unrelated system and user state.
+A foreign installation still fails closed.
 
 The private P-256 key is a user-owned mode-0600 file. This blocks clients that
 cannot read it, but it cannot resist malware or another process already running

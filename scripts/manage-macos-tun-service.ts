@@ -128,6 +128,7 @@ type InstallationDiscovery = {
 };
 
 type ToolchainEnvironment = Record<string, string | undefined>;
+const developmentTunArgument = "--development-tun";
 const tartTunAcceptanceArgument = "--tart-tun-acceptance";
 const tartTerminalAuthorizationArgument = "--tart-terminal-authorization";
 
@@ -145,8 +146,13 @@ export type ToolchainDiscoveryOptions = {
 
 export function parseDevelopmentServiceArguments(arguments_: string[]) {
   const [requestedAction, ...options] = arguments_;
-  const knownOptions = new Set([tartTunAcceptanceArgument, tartTerminalAuthorizationArgument]);
+  const knownOptions = new Set([
+    developmentTunArgument,
+    tartTunAcceptanceArgument,
+    tartTerminalAuthorizationArgument,
+  ]);
   const unknown = options.filter((option) => !knownOptions.has(option));
+  const developmentTun = options.includes(developmentTunArgument);
   const tartTunAcceptance = options.includes(tartTunAcceptanceArgument);
   const tartTerminalAuthorization = options.includes(tartTerminalAuthorizationArgument);
   if (
@@ -161,6 +167,7 @@ export function parseDevelopmentServiceArguments(arguments_: string[]) {
     ]).has(requestedAction ?? "") ||
     unknown.length > 0 ||
     options.some((option, index) => options.indexOf(option) !== index) ||
+    (developmentTun && tartTunAcceptance) ||
     (tartTerminalAuthorization &&
       (!tartTunAcceptance ||
         !new Set(["install", "repair", "reset-key", "rotate-key", "uninstall"]).has(
@@ -168,7 +175,7 @@ export function parseDevelopmentServiceArguments(arguments_: string[]) {
         )))
   ) {
     throw new Error(
-      "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|reset-key|rotate-key|status|uninstall> [--tart-tun-acceptance [--tart-terminal-authorization]]",
+      "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|reset-key|rotate-key|status|uninstall> [--development-tun | --tart-tun-acceptance [--tart-terminal-authorization]]",
     );
   }
   return {
@@ -180,6 +187,7 @@ export function parseDevelopmentServiceArguments(arguments_: string[]) {
       | "rotate-key"
       | "status"
       | "uninstall",
+    developmentTun,
     tartTerminalAuthorization,
     tartTunAcceptance,
   };
@@ -189,6 +197,7 @@ const invocation = import.meta.main
   ? parseDevelopmentServiceArguments(process.argv.slice(2))
   : ({
       action: "status",
+      developmentTun: false,
       tartTerminalAuthorization: false,
       tartTunAcceptance: false,
     } as const);
@@ -1097,7 +1106,11 @@ async function main() {
   }
 
   await finalizePendingKeyIfEnrolled(`/var/run/com.asuka109.mish.tun-helper.${uid}.sock`, uid);
-  const prepared = await prepare(uid, invocation.tartTunAcceptance, action);
+  const prepared = await prepare(
+    uid,
+    invocation.developmentTun || invocation.tartTunAcceptance,
+    action,
+  );
   if (action === "prepare") {
     await report({ ok: true, stage: "prepared" });
     return;

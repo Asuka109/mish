@@ -126,6 +126,42 @@ describe("notification presentation registry", () => {
     ]);
   });
 
+  it("attributes an unavailable privileged Core service to Virtual Interface setup", () => {
+    const notification = record("profile.activation-failed", {
+      failure: "tun-helper-unavailable",
+    });
+    const failure = presentNotification(notification, i18nObject("en"));
+
+    expect(failure.message).toBe(
+      "Virtual Interface could not start because its system component is not installed or unavailable. Install or repair it in Settings, then retry.",
+    );
+    expect(failure.message).not.toContain("selected profile");
+    expect(failure.actions).toEqual([]);
+    expect(presentNotification(notification, i18nObject("zh")).message).toBe(
+      "虚拟网卡无法启动，因为所需的系统组件尚未安装或当前不可用。请先到“设置”中安装或修复系统组件，然后重试。",
+    );
+  });
+
+  it("attributes foreign TUN network state to the owning application", () => {
+    const notification = record(
+      "profile.activation-failed",
+      { failure: "tun-network-ownership-conflict" },
+      ["retry-profile-activation"],
+    );
+    const failure = presentNotification(notification, i18nObject("en"));
+
+    expect(failure.message).toBe(
+      "Virtual Interface could not start because another app owns the active TUN, DNS, or routes. Mish left that network state unchanged. Stop the other app's network capture, then retry.",
+    );
+    expect(failure.message).not.toContain("selected profile");
+    expect(failure.actions).toEqual([
+      { id: "retry-profile-activation", label: "Retry Activation" },
+    ]);
+    expect(presentNotification(notification, i18nObject("zh")).message).toBe(
+      "虚拟网卡无法启动，因为其他应用正在接管 TUN、DNS 或路由。Mish 未改动这些网络状态。请先停止其他应用的网络接管，然后重试。",
+    );
+  });
+
   it("keeps takeover evidence redacted and uses only allowlisted actions", () => {
     const presentation = presentNotification(
       record("capture.failure", { failure: "takeover-rejected", takeoverReason: "protected-pac" }, [

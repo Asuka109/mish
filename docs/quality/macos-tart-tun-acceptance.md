@@ -243,6 +243,243 @@ System Proxy SHA-256
 `a85bb673159212cb8d463b52c72baee4bf40693c2d5805b7a2a1ca6588984a18`,
 and the `utun0` through `utun7` baseline were unchanged.
 
+## Transactional Internal TUN Alpha maintenance (Issue #298)
+
+The 2026-07-28 acceptance used the uniquely named disposable clone
+`mish-298-transactional-20260728` on macOS 26.5 ARM64. The accepted `.4`
+baseline manifest SHA-256 was
+`4955c694bbc983c8591328f9736d13c150ded70532a3874fdd1c392e33001be2`.
+The full transactional walkthrough used a pre-review `.5` archive SHA-256 of
+`731f75bbef949a83ff20002721d9cc0e8cafa8dc91cbea1d6a32d9a956e8ac9d`
+and its manifest SHA-256 was
+`342fa33c72749042bbe64b51847cbd689651a1005a8233fb516e4854e750c573`.
+
+The `.4` package installed with generation 1 and key identifier
+`ca8c7074257678dbec08983553bc61c8ab985da56ebaa47d12cf6e324471f392`.
+The packaged app started a real root-owned Mihomo TUN Core, the UI confirmed
+Virtual Interface capture, the guest had the Mish-owned MTU-9000 interface and
+managed DNS, and `curl https://example.com` returned HTTP/2 200. Powering off
+the VM while Capture was active left the next cold boot on the exact original
+Ethernet DNS, proxy, default route, and four non-Mish `utun` interfaces.
+
+An injected `.5` failure immediately after `core-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:CoreReplaced`.
+The durable journal retained admitted package, service, enrollment, artifact,
+Capture, commit-point, and compensation evidence without Profile, generated
+configuration, private-key, or raw unrelated network data. It confirmed all
+four prior Capture components before reconciliation, all four absent
+afterwards, and restored the verified `.4` Helper, Core, plist, enrollment,
+receipt, and exact prior network state. The key identifier and generation did
+not change. The candidate app exposed the bounded Repair Required semantic
+notification instead of claiming success or restoring Capture.
+
+A normal active `.4` to `.5` upgrade committed a new installation identity,
+preserved the same key and generation, launched the verified service, and
+restored real TUN Capture through the app marker. An identical active `.5`
+reinstall returned `active-unchanged`. A separately built lower `.4`
+acceptance candidate using the current controller returned
+`maintenance-downgrade-rejected` before mutation.
+
+Explicit repair was then aborted at the exact `enrollment-committed` boundary.
+The journal remained nonterminal with the accepted operation UUID and
+confirmed-disabled Capture evidence. After a full VM restart, Status returned
+`recovery-required`; Helper, Core, watchdog, and Mish network effects were
+absent. Repair first compensated the interrupted journal, retried the bounded
+Helper startup observation, and then completed a fresh verified transaction as
+`healthy-disabled`. A separate installed-Helper mode fault produced the same
+closed Recovery Required state and did not advertise Helper availability until
+the administrator restored the expected fixed-artifact mode and repair
+confirmed recovery.
+
+For final cleanup, the recovered `.5` app again started real TUN Capture and
+`curl https://example.com` returned HTTP/2 200. Active uninstall reconciled
+Capture through the authenticated operation and returned `not-installed`.
+The LaunchDaemon, Helper, Core, enrollment, receipt, maintenance journal and
+backup, socket and state directory, user receipt, and client key were absent.
+No Mish app, Helper, Core, or watchdog process remained. Ethernet DNS had no
+explicit server, System Proxy matched the original disabled dictionary, the
+default route was again `192.168.64.1` on `en0`, and the exact original
+`utun0` through `utun3` list and MTUs were restored.
+
+After review tightened administrator-cancellation Capture restoration and
+terminal-journal uninstall authorization, the final `.5` candidate was rebuilt
+with archive SHA-256
+`446e03d95397b168973ec4e847610a244417646cf68c01ef38aed7eeeb033eb9`
+and manifest SHA-256
+`6c8650b88a2b65bb3b94b52170af52538010a7fafdaed7e2a72b6a9578fcf5b5`.
+A focused rerun on the same disposable clone installed a clean `.4` service
+with generation 1, observed the expected `recovery-required` stale-version
+status from the final `.5` controller, and then uninstalled that healthy
+terminal-journal installation through the final controller. Status returned
+`not-installed`; all fixed root and user-owned TUN artifacts were absent; and
+Ethernet DNS, System Proxy, the `en0` default route, and `utun0` through
+`utun3` exactly matched the pre-install baseline. The final candidate's active
+Capture upgrade and native administrator-cancellation path remain part of the
+explicit human acceptance gate rather than being inferred from the focused
+rerun.
+
+The final 2026-07-29 follow-up on the same disposable clone used archive
+SHA-256
+`e61d09a20cdc75d25416df41219a916300cf299f7b13a89a0df528632aa93b7e`
+and package-manifest SHA-256
+`f5e65285e602be53ee4f3b524287676cc5ff421984026a9f48d9e0293f9e1d38`.
+The app preference was returned to `launchBehavior: off` before this run.
+A real active root Core produced `utun4` at MTU 9000, managed DNS
+`198.18.0.1`, disabled Ethernet HTTP/HTTPS/SOCKS proxies, and public HTTP 200.
+Installation generation 1, installation identity
+`a2ac27e277591cca0c37d8fb81ae96cccae7c0f49b870c8c3f444124935d0de7`,
+key identifier
+`510f85c23cdb7b5151ac0319cb982962b3ac5b9623d7e2f4bd24a764188b29af`,
+and the client-key file SHA-256
+`6c583dd5e8a6200e92bf7f9611c7215aa43e970491db807eb3e4833b236dd297`
+remained continuous through repair and replacement.
+
+Failure injection at `helper-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`.
+Five seconds later the final implementation had no app or Core, no Mish TUN or
+managed DNS, one healthy launchd Helper with no prior exit, and a regular
+user-owned mode-`0600` version-bound Capture marker. The journal was terminal
+`rolled-back`, commit point `verified`, with artifact, enrollment, network, and
+cleanup compensation all `restored`. An ordinary app start retained that
+marker and stayed disabled for the two-minute observation window rather than
+guessing or reporting restored Capture; this is the accepted bounded Recovery
+Required outcome, not evidence of automatic Capture restoration.
+
+Uninstall was then exercised from that bounded recovery state and returned
+`service: not-installed`. Launchd registration, Helper, pinned Core, socket,
+enrollment, root and user receipts, maintenance journal and backup, client key,
+restore marker, and maintenance lock were absent. No Mish TUN or managed DNS
+remained; Ethernet HTTP, HTTPS, and SOCKS proxy settings were all disabled and
+public HTTP returned 200. The package directory itself remained only as the
+user-owned acceptance input.
+
+That candidate also exposed and therefore did not pass one restoration edge:
+after rollback, the Helper could confirm a real restored TUN while the shared
+Capture projection remained Recovery Required. The app deleted the marker from
+the Helper observation alone and displayed a stopped session even though the
+root Core, `utun4`, and managed DNS were active. This hybrid state was rejected
+as acceptance evidence.
+
+After the source-development TUN boundary was added, the corrected final
+candidate was rebuilt from the final source state with archive SHA-256
+`150c5c486c8de981a4feeac2c840466d628b1ff125542e840bed41d35dd5bca3`
+and package-manifest SHA-256
+`d96f31b79cb366fd00ce7b67dcc38e0cd27c2ac041995c1984aa1eb1ce87ee54`.
+It installed as `healthy-disabled` with generation 1, installation identity
+`00601c93a4d72bbaf8eec4880e82caa7e6067a6570cd610db02e0d7b6192e9ae`,
+and key identifier
+`5a30a5976fc27e64445f4814d17bc3491208b1fa88906cc4d1c3743b49f0a9c2`.
+The packaged app then started the real root Core, produced `utun4` at MTU 9000
+with managed DNS `198.18.0.1`, kept Ethernet HTTP, HTTPS, and SOCKS proxies
+disabled, and returned public HTTP 200. Its accessibility projection reported
+`Virtual Interface, selected, running`.
+
+Failure injection at `helper-replaced` again returned the exact typed
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`
+outcome. The controller stopped the app and Core, restored the verified
+service, removed `utun4` and managed DNS, and retained the version-bound marker.
+On ordinary startup, the corrected dual-evidence gate did not accept Helper
+effects without a matching Applied shared Capture projection. It safely
+disabled the unconfirmed attempt and retained the marker: no root Core, Mish
+interface, or Mish DNS remained; System Proxy stayed off; and the UI reported
+`Virtual Interface, selected, not running`, that the prior capture state had
+been restored, and that the Internal TUN service could be installed or repaired
+in Settings. It never reproduced the rejected active-but-unprojected hybrid
+state.
+
+Uninstall from that bounded recovery state returned `service: not-installed`.
+The LaunchDaemon, Helper, Core, socket, enrollment, root and user receipts,
+client key, restore marker, and Mish-owned network effects were absent.
+The exact original `utun0` through `utun3` list was restored. DNS SHA-256
+`107b83e6c47cffe00657651f789e351801b60fe144f117e6a57fc5dde6f89dca`
+and System Proxy SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the pre-install baselines byte for byte.
+
+The 2026-07-30 residual acceptance reused the stopped, previously uninstalled
+disposable clone with delivery head
+`badac85f2993c3518a263e0f65b17444bf238ab2`. The final package archive
+SHA-256 was
+`eba6de56243149ad2579029a89a9e1d41edee4839f5ade1f4d7db2781eda2a28`
+and its manifest SHA-256 was
+`0769ea80b79934daecd41774c33d6328a6656d3aaef06c06947cc57fbbb0e080`.
+The clean baseline reported `not-installed`, `utun0` through `utun3`, default
+route `192.168.64.1` on `en0`, automatic Ethernet DNS, and the same System
+Proxy digest recorded above.
+
+The package installed as `healthy-disabled`, generation 1. The packaged app
+started a real root Core, created `utun4` at MTU 9000, installed the complete
+managed route partition and scoped `198.18.0.1` DNS, kept System Proxy
+byte-for-byte unchanged, returned public HTTP 200, and projected Virtual
+Interface selected and running. An identical install while Capture was active
+returned `active-unchanged`, retained generation 1, and kept packet flow
+confirmed.
+
+An explicit repair failure after `helper-replaced` returned
+`maintenance-upgrade-failed-rolled-back:maintenance-injected-failure:HelperReplaced`.
+Rollback removed the active Core, `utun4`, and managed DNS and restored the
+verified Helper. On the following ordinary startup, the app briefly attempted
+Capture restoration but did not project Applied from Helper effects alone:
+at 15 seconds the real Core and `utun4` were present while the UI remained
+selected and not running. By the next bounded observation at approximately 35
+seconds, compensation had stopped the Core, removed `utun4`, restored
+automatic DNS, and retained the version-bound restore marker. The rejected
+active-but-unprojected hybrid state therefore never became a terminal success.
+
+Uninstall from that bounded Recovery Required state returned `not-installed`.
+The LaunchDaemon, Helper, Core, socket, enrollment, receipts, client key,
+maintenance evidence, restore marker, and Mish-owned network effects were
+absent. The exact `utun0` through `utun3` list, `en0` default route, automatic
+DNS SHA-256
+`dd527661f63e293ce0da027adb4c50e7e9ef3936f130853d8ae3f695b4177ddc`,
+and System Proxy SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the start of this residual run.
+
+The 2026-07-31 post-review walkthrough reused that stopped, uninstalled
+disposable clone and exercised the rollback-admission fixes through final
+source commit `615f323`. The final package was promoted to
+`0.1.0-internal-tun-alpha.6` because its privileged controller differs from the
+previously exercised `.5` identity. Its archive SHA-256 was
+`92a90c98e51dd39b4e799782e072ba2b90d42df4c64a6748521b91f55af1bdf4`,
+its manifest SHA-256 was
+`165d4afdf04544607b78eec790d5a111c5240f3a866b48a45489245627ea559e`,
+and its controller SHA-256 was
+`8403afcfc7281f79da4f387a36bb7cbd037e54c818bdc321106dedb82aa50442`.
+
+A clean `.5` install and identical reinstall retained generation 1, the exact
+installation identity, and the exact key identifier. The `.6` controller
+observed that installation as repair-required, upgraded it to healthy-disabled,
+and preserved all three values. An identical `.6` reinstall then returned
+`active-unchanged`.
+
+The first real failure injection caught an ordering defect in the new
+commit-boundary recheck: launchd had already been intentionally stopped, so a
+second check that still required the service to be running rejected a healthy
+prior installation. The final implementation separates initial
+package/service/enrollment admission from the pre-backup static artifact and
+enrollment recheck. A repeated `helper-replaced` failure then returned the
+exact `maintenance-upgrade-failed-rolled-back` outcome and restored the prior
+service rather than admitting changed artifacts.
+
+For the corrupt-prior case, the installed Core mode was changed from the
+receipt's fixed mode before repair. The transaction did not admit that
+installation as a rollback target. Failure after `helper-replaced` returned
+`maintenance-install-failed-bounded-disabled`; the terminal journal recorded
+`artifacts.old: null`, `bounded-disabled` artifact compensation, and no
+receipt, enrollment, Helper, Core, plist, socket, or launchd service. The final
+`.6` controller then uninstalled that exact bounded state as `not-installed`.
+
+Final inspection found no root or user receipt, enrollment, client or pending
+key, maintenance journal, restore marker, lock, socket/state directory,
+Helper, Core, plist, process, or launchd job. The guest retained only
+`utun0` through `utun3`, the default route remained `192.168.64.1` on `en0`,
+Ethernet DNS was automatic, public HTTPS returned 200, and System Proxy
+SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the pre-install baseline. This automated disposable-host walkthrough
+does not replace the explicit human acceptance gate.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the

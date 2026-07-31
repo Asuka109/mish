@@ -443,7 +443,8 @@ const zh: Translation = {
     acknowledge: "知道了",
     configurationRequired: "启动代理前，请先选择或导入一个 Profile 配置。",
     configurationRequiredTitle: "需要 Profile 配置",
-    desktopDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
+    desktopDescription:
+      "选择 Mish 接管流量的方式。点击选项会重新检查当前可用性，并说明无法开启的原因。",
     deviceDescription: "选择 Mish 接管流量的方式。当前设备不支持的选项无法开启。",
     fixtureDescription:
       "按钮按下表示该方式已被选择并记住，绿色图标表示正在运行。左下角关闭只会暂停，再次启动会恢复已记住的组合。当前演示不会修改系统网络配置。",
@@ -717,6 +718,10 @@ const zh: Translation = {
       priorStop: "Mish 无法确认之前的托管 Core 已安全停止。",
       staging: "Mish 无法把经过验证的 Core 与配置暂存到私有运行目录。",
       start: "Mish 无法启动安装包内的 Mihomo Core。请检查所选配置后重试。",
+      tunHelperUnavailable:
+        "虚拟网卡无法启动，因为所需的系统组件尚未安装或当前不可用。请先到“设置”中安装或修复系统组件，然后重试。",
+      tunNetworkOwnershipConflict:
+        "虚拟网卡无法启动，因为其他应用正在接管 TUN、DNS 或路由。Mish 未改动这些网络状态。请先停止其他应用的网络接管，然后重试。",
       stateCommit: "Mish 无法安全提交权威启用状态。",
       timeout: "Mihomo 未能在启动截止时间前就绪。",
       unsafeRuntime: "Mish 拒绝了不安全的托管 Core 路径或私有运行边界。",

@@ -28,7 +28,7 @@ import { verifyInternalTunAlphaVerificationEvidence } from "./verify-internal-tu
 
 export const internalTunAlphaStageKind = "internal-tun-alpha-immutable-stage";
 export const internalTunAlphaCandidateKind = "internal-tun-alpha-dmg-candidate";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.4";
+export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.6";
 export const internalTunAlphaDmgName = `Mish-Internal-TUN-Alpha-${internalTunAlphaPackageVersion}-arm64.dmg`;
 export const internalTunAlphaPackageManifestName = "internal-tun-alpha-package-manifest.json";
 export const internalTunAlphaSbomName = "internal-tun-alpha-sbom.spdx.json";

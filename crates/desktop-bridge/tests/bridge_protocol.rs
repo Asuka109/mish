@@ -468,6 +468,59 @@ impl TunHelperPlatform for HealthyTunHelperPlatform {
     }
 }
 
+#[derive(Default)]
+struct InstallingTunHelperPlatform {
+    installed: Mutex<bool>,
+    operations: Mutex<Vec<TunHelperLifecycleOperation>>,
+}
+
+impl InstallingTunHelperPlatform {
+    fn operations(&self) -> Vec<TunHelperLifecycleOperation> {
+        self.operations.lock().unwrap().clone()
+    }
+}
+
+impl TunHelperPlatform for InstallingTunHelperPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot::unavailable(
+            TunHelperAvailability::PermissionRequired,
+            TunHelperHealth::NotInstalled,
+            mish_runtime::TunHelperFailureKind::PermissionDenied,
+        )
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        let installed = *self.installed.lock().unwrap();
+        Box::pin(async move {
+            Ok(if installed {
+                TunHelperObservation::healthy_installation(
+                    TUN_HELPER_EXPECTED_VERSION,
+                    "development-gui-installation",
+                )
+            } else {
+                TunHelperObservation::not_installed()
+            })
+        })
+    }
+
+    fn run_lifecycle(
+        &self,
+        operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        self.operations.lock().unwrap().push(operation);
+        *self.installed.lock().unwrap() = operation != TunHelperLifecycleOperation::Remove;
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+    }
+
+    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
 impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
     fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
         Box::pin(ready(Ok(NetworkDnsObservation {
@@ -1998,6 +2051,47 @@ async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle()
 }
 
 #[tokio::test]
+async fn native_settings_rpc_installs_the_development_tun_helper() {
+    let platform = Arc::new(InstallingTunHelperPlatform::default());
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
+        TunHelperController::new(platform.clone()),
+    ))));
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let before = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":1, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        before["result"]["tunHelper"]["availability"],
+        "permission-required"
+    );
+
+    let installed = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        installed["result"]["tunHelper"]["availability"],
+        "available"
+    );
+    assert_eq!(installed["result"]["tunHelper"]["health"], "healthy");
+    assert_eq!(
+        platform.operations(),
+        vec![TunHelperLifecycleOperation::Install]
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn authenticates_and_serves_contract_compatible_status() {
     let bridge = start_loopback_server(config(), runtime(no_core()))
         .await
@@ -2838,6 +2932,18 @@ async fn missing_profile_capture_failure_is_shared_by_rpc_clients_and_reconnects
     )
     .await;
     assert_eq!(rejected["error"]["data"]["kind"], "configuration-required");
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["captureOperation"]["phase"],
+        "failed"
+    );
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+    assert_eq!(
+        rejected["error"]["data"]["snapshot"]["runtime"]["tun"]["phase"],
+        "off"
+    );
 
     let mut operation_id = None;
     for _ in 0..3 {

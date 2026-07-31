@@ -109,10 +109,22 @@ generation.
 
 The package controller has no enable, disable, Core-run, arbitrary-command, or
 arbitrary-path action. `MISH_TUN_SERVICE_ALLOW_TUN` is fixed to `1` in the
-`.4` package, but a successful install is still healthy and disabled. The
+`.5` package, but a successful install is still healthy and disabled. The
 packaged `Mish.app` is the only UI that receives a supported TUN projection; it
 uses the shared Rust Capture transaction and the existing authenticated typed
 Helper commands. Browser Client remains observation-only for this capability.
+
+The `.5` lifecycle is the private Internal TUN Alpha transactional maintenance
+contract documented in `docs/architecture/macos-tun-helper.md`: it adds no
+network updater, public release path, Developer ID/notarization, SMAppService,
+XPC, or Helper wire capability.
+
+Only a disposable Tart run using the exact terminal-authorization boundary may
+append one closed `--tart-fail-after=<commit-point>` or
+`--tart-abort-after=<commit-point>` option to an install or repair controller
+invocation. The package's user-facing commands never emit either option, other
+actions reject them, and the admitted value can only return an error or abort
+at one named maintenance commit boundary.
 
 `alpha-ad-hoc`, `signed-direct`, the embedded Browser Client, legacy
 credential-free production fixtures, and future production application
@@ -124,7 +136,7 @@ selects this package profile.
 
 The manual **Validate macOS Release Candidate** workflow accepts the explicit
 `internal-tun-alpha` profile only at version
-`0.1.0-internal-tun-alpha.4`. Unlike the other credential-free validation
+`0.1.0-internal-tun-alpha.6`. Unlike the other credential-free validation
 profiles, this path requires the selected source to equal the frozen reviewed
 `main` workflow SHA exactly; an older ancestor, pull-request or merge ref, fork,
 arbitrary workflow revision, or mismatched tooling tree fails before packaging.
@@ -152,7 +164,7 @@ Staging uses four fail-closed phases:
 
 The final private artifact contains one exact `candidate/` directory with:
 
-- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.4-arm64.dmg`;
+- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.6-arm64.dmg`;
 - the exact copied package manifest;
 - `internal-tun-alpha-sbom.spdx.json`;
 - `internal-tun-alpha-provenance.intoto.json`;

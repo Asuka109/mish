@@ -1,4 +1,5 @@
 import {
+  CaptureCommandErrorDataSchema,
   StatusClientError,
   StatusCommandErrorDataSchema,
   mishRpcMethods,
@@ -457,6 +458,7 @@ export function mapRpcError(error: unknown) {
   }
   if (error instanceof RpcRemoteError) {
     const parsed = StatusCommandErrorDataSchema.safeParse(error.data);
+    const captureParsed = CaptureCommandErrorDataSchema.safeParse(error.data);
     const kind =
       error.data && typeof error.data === "object" && "kind" in error.data
         ? (error.data as { kind?: unknown }).kind
@@ -492,6 +494,15 @@ export function mapRpcError(error: unknown) {
     }
     if (kind === "inconsistent-observation") {
       return new StatusClientError("inconsistent-observation", error.message, true);
+    }
+    if (captureParsed.success) {
+      const retryable = error.code >= -32_099 && error.code <= -32_000;
+      return new StatusClientError(
+        "remote",
+        error.message,
+        retryable,
+        captureParsed.data.snapshot ?? null,
+      );
     }
     if (error.code === -32_602) {
       return new StatusClientError("invalid-request", error.message);

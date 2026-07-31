@@ -889,6 +889,31 @@ pub struct DevelopmentCoreHostStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaintenanceCaptureReconciliation {
+    pub accepted_operation_id: String,
+    pub after: TunNetworkObservation,
+    pub before: TunNetworkObservation,
+    pub core_was_running: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaintenanceCaptureAdmission {
+    before: TunNetworkObservation,
+    core_was_running: bool,
+    operation_id: String,
+}
+
+impl MaintenanceCaptureAdmission {
+    pub fn core_was_running(&self) -> bool {
+        self.core_was_running
+    }
+
+    pub fn restore_capture_on_app_start(&self) -> bool {
+        self.before.confirms_enabled_at(self.before.observed_at)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DevelopmentInstallationDiscovery {
     pub algorithm: String,
     pub generation: u64,
@@ -901,7 +926,7 @@ pub struct DevelopmentInstallationDiscovery {
 struct DevelopmentTunLifecycle {
     repository_root: PathBuf,
     script_path: PathBuf,
-    tart_tun_acceptance: bool,
+    tun_argument: Option<&'static str>,
 }
 
 #[derive(Clone, Debug)]
@@ -998,22 +1023,26 @@ impl MacOsTunServiceClient {
     }
 
     pub fn development_with_lifecycle(repository_root: PathBuf) -> Self {
-        Self::development_with_lifecycle_boundary(repository_root, false)
+        Self::development_with_lifecycle_boundary(repository_root, None)
+    }
+
+    pub fn development_with_tun_lifecycle(repository_root: PathBuf) -> Self {
+        Self::development_with_lifecycle_boundary(repository_root, Some("--development-tun"))
     }
 
     pub fn development_with_tart_tun_acceptance(repository_root: PathBuf) -> Self {
-        Self::development_with_lifecycle_boundary(repository_root, true)
+        Self::development_with_lifecycle_boundary(repository_root, Some("--tart-tun-acceptance"))
     }
 
     fn development_with_lifecycle_boundary(
         repository_root: PathBuf,
-        tart_tun_acceptance: bool,
+        tun_argument: Option<&'static str>,
     ) -> Self {
         let mut client = Self::development();
         client.lifecycle = Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
             script_path: repository_root.join("scripts/manage-macos-tun-service.ts"),
             repository_root,
-            tart_tun_acceptance,
+            tun_argument,
         }));
         client
     }
@@ -1051,12 +1080,28 @@ impl MacOsTunServiceClient {
     }
 
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
+        self.request_with_id(command, uuid::Uuid::new_v4().to_string())
+            .await
+    }
+
+    async fn request_with_id(
+        &self,
+        command: ServiceCommand,
+        request_id: String,
+    ) -> Result<ServiceStatus, ServiceClientError> {
         // One packaged application owns one authenticated Helper command stream. Core readiness,
         // watchdog observation, and Capture reconciliation may poll concurrently, but the Helper
         // lifecycle machine intentionally admits only one privileged operation at a time.
         let _authenticated_request = self.authenticated_request.lock().await;
         let request_timeout = service_request_timeout(&command);
-        let request_id = uuid::Uuid::new_v4().to_string();
+        if request_id.is_empty()
+            || request_id.len() > 128
+            || !request_id.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
+            })
+        {
+            return Err(ServiceClientError::Protocol);
+        }
         let mut client_nonce = [0_u8; 32];
         OsRng.fill_bytes(&mut client_nonce);
         let request = ServiceClientMessage::Challenge {
@@ -1215,6 +1260,9 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
     }
@@ -1235,6 +1283,9 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
     }
@@ -1247,8 +1298,97 @@ impl MacOsTunServiceClient {
                 ServiceClientError::Unavailable => "core-host-unavailable",
                 ServiceClientError::Protocol => "core-host-protocol-mismatch",
                 ServiceClientError::Rejected => "core-host-request-rejected",
+                ServiceClientError::NetworkOwnershipConflict => {
+                    "core-host-network-ownership-conflict"
+                }
                 ServiceClientError::OperationFailed => "core-host-operation-failed",
             })
+    }
+
+    /// Admits maintenance through a signed observation tied to one caller-owned operation.
+    /// When Core is active, the caller must terminate the exact owning Mish process before
+    /// completing reconciliation; the closed Helper protocol intentionally rejects cross-process
+    /// Disable while that owner is still alive.
+    pub async fn admit_maintenance_reconciliation(
+        &self,
+        operation_id: &str,
+    ) -> Result<MaintenanceCaptureAdmission, &'static str> {
+        let before = self
+            .maintenance_request_with_retry(ServiceCommand::Status, operation_id, "observe-before")
+            .await?;
+        let now = tun_observation_now();
+        if !before.observation.is_fresh_at(now)
+            || [
+                before.observation.core,
+                before.observation.interface,
+                before.observation.routes,
+                before.observation.dns,
+            ]
+            .contains(&TunObservationComponentState::Foreign)
+        {
+            return Err("maintenance-capture-authority-unknown");
+        }
+        let core_was_running = before.core.is_some();
+        Ok(MaintenanceCaptureAdmission {
+            before: before.observation,
+            core_was_running,
+            operation_id: operation_id.to_owned(),
+        })
+    }
+
+    /// Completes one admitted maintenance operation only after the prior app owner has exited.
+    /// The returned observation is evidence, not desired state: callers must refuse artifact
+    /// replacement unless the Helper confirmed exact disabled network ownership.
+    pub async fn complete_maintenance_reconciliation(
+        &self,
+        admission: MaintenanceCaptureAdmission,
+    ) -> Result<MaintenanceCaptureReconciliation, &'static str> {
+        let now = tun_observation_now();
+        let needed_disable =
+            admission.core_was_running || !admission.before.confirms_disabled_at(now);
+        let (after_core_running, after) = if needed_disable {
+            let status = self
+                .maintenance_request_with_retry(
+                    ServiceCommand::Disable,
+                    &admission.operation_id,
+                    "disable",
+                )
+                .await?;
+            (status.core.is_some(), status.observation)
+        } else {
+            (false, admission.before.clone())
+        };
+        if after_core_running || !after.confirms_disabled_at(tun_observation_now()) {
+            return Err("maintenance-capture-reconciliation-unconfirmed");
+        }
+        Ok(MaintenanceCaptureReconciliation {
+            accepted_operation_id: admission.operation_id,
+            after,
+            before: admission.before,
+            core_was_running: admission.core_was_running,
+        })
+    }
+
+    async fn maintenance_request_with_retry(
+        &self,
+        command: ServiceCommand,
+        operation_id: &str,
+        phase: &str,
+    ) -> Result<ServiceStatus, &'static str> {
+        const ATTEMPTS: u8 = 40;
+        for attempt in 0..ATTEMPTS {
+            let request_id = maintenance_request_id(operation_id, phase, attempt)?;
+            match self.request_with_id(command.clone(), request_id).await {
+                Ok(status) => return Ok(status),
+                Err(ServiceClientError::Rejected | ServiceClientError::Unavailable)
+                    if attempt + 1 < ATTEMPTS =>
+                {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(maintenance_client_error(error)),
+            }
+        }
+        unreachable!("bounded maintenance request loop always returns")
     }
 
     pub async fn prepare_development_startup(&self) -> DevelopmentTunStartup {
@@ -1289,6 +1429,39 @@ impl MacOsTunServiceClient {
             Err(_) => DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::OperationFailed),
         }
     }
+}
+
+fn maintenance_client_error(error: ServiceClientError) -> &'static str {
+    match error {
+        ServiceClientError::Unavailable => "maintenance-helper-unavailable",
+        ServiceClientError::Protocol => "maintenance-helper-protocol-mismatch",
+        ServiceClientError::Rejected => "maintenance-helper-request-rejected",
+        ServiceClientError::NetworkOwnershipConflict => "maintenance-network-ownership-conflict",
+        ServiceClientError::OperationFailed => "maintenance-helper-operation-failed",
+    }
+}
+
+fn maintenance_request_id(
+    operation_id: &str,
+    phase: &str,
+    attempt: u8,
+) -> Result<String, &'static str> {
+    let operation =
+        uuid::Uuid::parse_str(operation_id).map_err(|_| "maintenance-operation-id-invalid")?;
+    if !matches!(phase, "observe-before" | "disable") {
+        return Err("maintenance-operation-phase-invalid");
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"mish-internal-tun-maintenance-request-v1");
+    digest.update(operation.as_bytes());
+    digest.update(phase.as_bytes());
+    digest.update([attempt]);
+    let digest = digest.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Ok(uuid::Uuid::from_bytes(bytes).to_string())
 }
 
 fn service_request_timeout(command: &ServiceCommand) -> Duration {
@@ -1343,6 +1516,16 @@ async fn read_service_message(
 }
 
 fn map_service_response_error(response: ServiceResponse) -> ServiceClientError {
+    if [
+        response.status.observation.core,
+        response.status.observation.dns,
+        response.status.observation.interface,
+        response.status.observation.routes,
+    ]
+    .contains(&TunObservationComponentState::Foreign)
+    {
+        return ServiceClientError::NetworkOwnershipConflict;
+    }
     match response.diagnostic {
         Some(
             ServiceDiagnosticCode::AlreadyOwned
@@ -1373,6 +1556,7 @@ enum ServiceClientError {
     Unavailable,
     Protocol,
     Rejected,
+    NetworkOwnershipConflict,
     OperationFailed,
 }
 
@@ -1382,6 +1566,9 @@ fn map_host_error(error: ServiceClientError) -> PrivilegedCoreHostError {
             PrivilegedCoreHostError::Unavailable
         }
         ServiceClientError::Rejected => PrivilegedCoreHostError::Rejected,
+        ServiceClientError::NetworkOwnershipConflict => {
+            PrivilegedCoreHostError::NetworkOwnershipConflict
+        }
         ServiceClientError::OperationFailed => PrivilegedCoreHostError::OperationFailed,
     }
 }
@@ -1524,7 +1711,7 @@ impl InternalTunAlphaLifecycle {
             || !valid_installation_id(&status.manifest_sha256)
             || !matches!(
                 status.service.as_str(),
-                "installed" | "not-installed" | "repair-required"
+                "installed" | "not-installed" | "repair-required" | "recovery-required"
             )
         {
             return Err(TunHelperError::new(
@@ -1650,7 +1837,7 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                 let status = lifecycle.status().await?;
                 return match status.service.as_str() {
                     "not-installed" => Ok(TunHelperObservation::not_installed()),
-                    "repair-required" => Ok(TunHelperObservation {
+                    "repair-required" | "recovery-required" => Ok(TunHelperObservation {
                         availability: TunHelperAvailability::RepairRequired,
                         health: TunHelperHealth::Unknown,
                         installation_id: None,
@@ -1756,8 +1943,8 @@ impl TunHelperPlatform for MacOsTunServiceClient {
             })?;
             let mut command = Command::new(node);
             command.arg(script_path).arg(action);
-            if lifecycle.tart_tun_acceptance {
-                command.arg("--tart-tun-acceptance");
+            if let Some(tun_argument) = lifecycle.tun_argument {
+                command.arg(tun_argument);
             }
             let output = command
                 .current_dir(repository_root)
@@ -4605,6 +4792,36 @@ mod tests {
     }
 
     #[test]
+    fn foreign_network_evidence_is_not_collapsed_into_a_core_start_failure() {
+        let response = ServiceResponse {
+            diagnostic: Some(ServiceDiagnosticCode::SpawnFailed),
+            ok: false,
+            request_id: "foreign-network-start".to_owned(),
+            status: ServiceStatus {
+                core: None,
+                helper_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                installation_id: "a".repeat(64),
+                observation: TunNetworkObservation::new(
+                    TunObservationComponentState::Absent,
+                    TunObservationComponentState::Foreign,
+                    TunObservationComponentState::Foreign,
+                    TunObservationComponentState::Foreign,
+                    tun_observation_now(),
+                ),
+            },
+        };
+
+        assert_eq!(
+            map_service_response_error(response),
+            ServiceClientError::NetworkOwnershipConflict
+        );
+        assert_eq!(
+            map_host_error(ServiceClientError::NetworkOwnershipConflict),
+            PrivilegedCoreHostError::NetworkOwnershipConflict
+        );
+    }
+
+    #[test]
     fn development_tun_service_requires_an_exact_explicit_boundary() {
         assert_eq!(development_tun_allowed(None), Ok(false));
         assert_eq!(development_tun_allowed(Some(OsStr::new("0"))), Ok(false));
@@ -4623,7 +4840,7 @@ mod tests {
             Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
         let internal = MacOsTunServiceClient::internal_tun_alpha(
             PathBuf::from("/Volumes/Mish TUN Alpha"),
-            "0.1.0-internal-tun-alpha.4",
+            "0.1.0-internal-tun-alpha.6",
         );
         let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
 
@@ -4738,6 +4955,30 @@ mod tests {
                 routes: None,
             }),
         }
+    }
+
+    #[test]
+    fn maintenance_request_ids_are_valid_stable_and_phase_scoped() {
+        let operation_id = "82fe7bd2-6946-4458-8cd8-e4216061cf37";
+        let observe = maintenance_request_id(operation_id, "observe-before", 0).unwrap();
+        let observe_retry = maintenance_request_id(operation_id, "observe-before", 1).unwrap();
+        let disable = maintenance_request_id(operation_id, "disable", 0).unwrap();
+
+        assert!(valid_token(&observe));
+        assert!(valid_token(&observe_retry));
+        assert!(valid_token(&disable));
+        assert_ne!(observe, disable);
+        assert_ne!(observe, observe_retry);
+        assert_eq!(
+            maintenance_request_id(operation_id, "observe-before", 0).unwrap(),
+            observe
+        );
+        assert_eq!(
+            maintenance_request_id(operation_id, "disable", 0).unwrap(),
+            disable
+        );
+        assert!(maintenance_request_id("not-a-uuid", "disable", 0).is_err());
+        assert!(maintenance_request_id(operation_id, "unknown", 0).is_err());
     }
 
     #[test]
@@ -6265,7 +6506,7 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: false,
+                tun_argument: None,
             })),
             socket_path: repository.path().join("unused.sock"),
         };
@@ -6284,7 +6525,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tart_lifecycle_preserves_the_explicit_installer_boundary() {
+    async fn development_tun_lifecycle_preserves_the_explicit_installer_boundary() {
         let repository = tempfile::tempdir().unwrap();
         let scripts = repository.path().join("scripts");
         fs::create_dir(&scripts).unwrap();
@@ -6301,7 +6542,41 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: true,
+                tun_argument: Some("--development-tun"),
+            })),
+            socket_path: repository.path().join("unused.sock"),
+        };
+
+        client
+            .run_lifecycle(TunHelperLifecycleOperation::Repair)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(repository.path().join("observed-action.txt")).unwrap(),
+            "repair,--development-tun"
+        );
+    }
+
+    #[tokio::test]
+    async fn tart_lifecycle_keeps_its_acceptance_only_installer_boundary() {
+        let repository = tempfile::tempdir().unwrap();
+        let scripts = repository.path().join("scripts");
+        fs::create_dir(&scripts).unwrap();
+        let installer = scripts.join("manage-macos-tun-service.ts");
+        fs::write(
+            &installer,
+            "import { writeFileSync } from 'node:fs';\nwriteFileSync('observed-action.txt', process.argv.slice(2).join(','));\nprocess.stdout.write(JSON.stringify({ ok: true }));\n",
+        )
+        .unwrap();
+        fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
+        let client = MacOsTunServiceClient {
+            authenticated_request: Arc::new(Mutex::new(())),
+            client_keys: None,
+            lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
+                repository_root: repository.path().to_path_buf(),
+                script_path: installer,
+                tun_argument: Some("--tart-tun-acceptance"),
             })),
             socket_path: repository.path().join("unused.sock"),
         };
@@ -6335,7 +6610,7 @@ mod tests {
             lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
-                tart_tun_acceptance: false,
+                tun_argument: None,
             })),
             socket_path: repository.path().join("unused.sock"),
         };

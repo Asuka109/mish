@@ -123,6 +123,45 @@ template with the installation-identity placeholder). The fixed socket, kernel
 UID/PID checks, canonical path/ownership/freshness gates, closed typed commands,
 single-owner lifecycle, and canonical challenge-response are unchanged.
 
+Install, repair, reinstall, upgrade, rollback, and recovery share one
+root-owned, versioned maintenance journal. The journal separates the admitted
+intent, package/service/enrollment identities, old and new artifact digests,
+the accepted Capture operation and closed network observations, commit point,
+compensation progress, and terminal outcome. It stores only the digest of the
+root network recovery record, never its raw DNS or route contents, and never a
+Profile, generated Core configuration, or private installation key. A separate
+mode-`0700` root backup contains only the last verified bounded
+Helper/Core/plist/enrollment/receipt set.
+
+Before any artifact replacement, the controller uses the existing installation
+key and one accepted operation identity to authenticate Status and, when
+needed, Disable. It confirms the exact disabled network observation and
+consumes the Mish-owned recovery record before detaching the service. An
+identical verified reinstall is a no-op; a downgrade is rejected before Capture
+or privileged state changes. An installation-identity change requires the
+explicitly administrator-authorized enrollment rebind path, while optional key
+rotation still requires both proofs and lost-key reset remains a separate
+administrator action.
+
+The replacement Helper reobserves the exact installed artifacts, enrollment,
+receipt, and journal before opening its socket. Only a post-enrollment commit
+with complete new proof may finish automatically; earlier, mixed, corrupt, or
+unknown authority stays unavailable as Recovery Required. Repair compensates
+from the verified backup or leaves a bounded disabled installation. When an
+active TUN upgrade commits, a private version-bound marker asks the packaged
+app to restore Capture through the shared Capture authority. The app waits for
+the maintenance process lock to retire, generates a cold Core from the admitted
+TUN selection rather than the prior confirmed projection, and removes the
+marker only after 101 consecutive authenticated Helper observations over ten
+seconds and a matching Applied projection from the shared Capture authority.
+An unstable or projection-mismatched attempt is stopped through that authority
+and the authenticated Helper before a bounded retry. Failed maintenance
+returns with the verified Helper/Core and enrollment disabled, retains the
+private marker, and does not relaunch the app inside the failing command. The
+next ordinary app startup either completes the same dual-evidence gate or
+retains Recovery Required evidence in a bounded disabled installation; failed
+maintenance never replays Capture from guessed state.
+
 Before requesting administrator authorization, the running controller copies
 its already verified executable to a private mode-`0500` staging file and
 binds its exact manifest size and SHA-256 digest into the authorization
@@ -146,7 +185,10 @@ After the privileged transaction returns, install and repair allow a bounded
 `core-host-unavailable` is retried; artifact, receipt, enrollment, protocol,
 identity, or disabled-observation failures still fail immediately and trigger
 the same confirmed rollback. This prevents a healthy delayed socket from being
-misclassified without weakening any trust check.
+misclassified without weakening any trust check. Rollback writes its terminal
+journal before launchd starts, then requires three consecutive authenticated
+disabled observations with the restored receipt, installation identity, key,
+and generation before exposing durable Capture recovery evidence.
 
 Uninstall reads and validates the root enrollment and receipt before any
 `launchctl` stop or global filesystem mutation. Both records must authorize
@@ -258,10 +300,38 @@ Enclave. After the new generation commits, Mish deletes the plaintext key.
 Production still independently requires `SMAppService`, Developer ID
 same-Team audit-token validation, signing, notarization, and signed XPC.
 
+### Source development TUN
+
+The tracked `pnpm desktop:dev` launcher may use Virtual Interface through the
+development Helper. Start the app, open Settings, choose **Install virtual
+interface**, and approve the native administrator prompt. The CLI is an
+equivalent recovery path:
+
+```sh
+pnpm desktop:dev
+# Settings → Install virtual interface
+
+# Optional CLI equivalent:
+pnpm macos:tun:install:dev
+```
+
+The `--development-tun` installer boundary admits the same closed Helper
+protocol, pinned Core, installation-key proof, exact network ownership, shared
+Capture transaction, and bounded cleanup used by acceptance. The launcher does
+not install or repair the service at startup. Settings invokes that boundary
+only after the user explicitly chooses install, repair, reinstall, or remove. A
+service installed from the running Settings page becomes the observed authority
+immediately, but the dev process must restart once before its activation
+manager can bind the privileged Core host.
+
+This source-only path does not add failure injection, terminal authorization,
+Tart DNS fixtures, a packaged capability, or a production privilege. Demo,
+alpha-ad-hoc, signed-direct, and production layouts remain fail-closed.
+
 ### Disposable Tart TUN acceptance
 
-The complete development TUN path requires a second, exact boundary on both
-sides of the service:
+Disposable acceptance adds a second, exact Tart boundary on both sides of the
+same development service:
 
 ```sh
 pnpm macos:tun:install:tart
@@ -271,9 +341,10 @@ pnpm desktop:dev:tart-tun
 These commands are for a disposable Tart guest only and must never be run on
 the host Mac. The installer records the Tart opt-in in the installation
 identity, and the desktop launcher accepts it only in a Tauri development
-build. Omitting either side keeps Virtual Interface unavailable. Demo,
-ordinary source development, alpha-ad-hoc, signed-direct, and production
-layouts are unchanged and fail-closed.
+build. Omitting either side keeps Tart-only DNS and failure-injection acceptance
+unavailable. Ordinary source development cannot select those controls. Demo,
+alpha-ad-hoc, signed-direct, and production layouts are unchanged and
+fail-closed.
 
 Inside this boundary, the service accepts only Mish's fixed private managed
 runtime layout and the existing pinned Core. The generated policy fixes

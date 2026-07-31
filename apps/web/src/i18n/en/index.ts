@@ -481,7 +481,7 @@ const en = {
     configurationRequired: "Choose or import a Profile configuration before launching the proxy.",
     configurationRequiredTitle: "Profile configuration required",
     desktopDescription:
-      "These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.",
+      "These controls show capture state reported by the local desktop service. Selecting a mode rechecks its current availability and explains any rejection.",
     deviceDescription:
       "These controls show capture state reported by this device. A control stays disabled when its capability or action is unavailable.",
     fixtureDescription:
@@ -784,6 +784,10 @@ const en = {
       priorStop: "Mish could not confirm that the previous managed Core stopped safely.",
       staging: "Mish could not stage the verified Core and profile in its private runtime.",
       start: "Mish could not start its packaged Mihomo Core. Check the selected profile and retry.",
+      tunHelperUnavailable:
+        "Virtual Interface could not start because its system component is not installed or unavailable. Install or repair it in Settings, then retry.",
+      tunNetworkOwnershipConflict:
+        "Virtual Interface could not start because another app owns the active TUN, DNS, or routes. Mish left that network state unchanged. Stop the other app's network capture, then retry.",
       stateCommit: "Mish could not commit the authoritative activation state safely.",
       timeout: "Mihomo did not become ready before the bounded launch deadline.",
       unsafeRuntime: "Mish rejected the managed Core path or private runtime boundary.",

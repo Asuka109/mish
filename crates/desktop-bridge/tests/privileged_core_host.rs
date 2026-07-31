@@ -55,6 +55,39 @@ impl PrivilegedCoreHost for FakePrivilegedHost {
     }
 }
 
+struct UnavailablePrivilegedHost;
+
+impl PrivilegedCoreHost for UnavailablePrivilegedHost {
+    fn start(
+        &self,
+        _request: PrivilegedCoreLaunchRequest,
+    ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+
+    fn observe(
+        &self,
+        _process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<Option<PrivilegedCoreProcess>, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+
+    fn stop(
+        &self,
+        _process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<(), PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+
+    fn owns_listener(
+        &self,
+        _process: PrivilegedCoreProcess,
+        _endpoint: LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, PrivilegedCoreHostError>> {
+        Box::pin(async { Err(PrivilegedCoreHostError::Unavailable) })
+    }
+}
+
 #[tokio::test]
 async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
     let temporary = tempfile::tempdir().unwrap();
@@ -91,4 +124,35 @@ async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
     let stopped = process.stop().await.unwrap();
     assert!(matches!(stopped.phase, CorePhase::Stopped));
     assert_eq!(stopped.pid, None);
+}
+
+#[tokio::test]
+async fn desktop_process_preserves_an_unavailable_privileged_start_failure() {
+    let temporary = tempfile::tempdir().unwrap();
+    let binary = temporary.path().join("mihomo-fixture");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nif [ \"$1\" = \"-v\" ]; then echo 'Mihomo Meta v1.19.29'; fi\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let config_directory = temporary.path().join("home");
+    let config_file = temporary.path().join("config.yaml");
+    std::fs::create_dir(&config_directory).unwrap();
+    std::fs::write(&config_file, "tun:\n  enable: true\n").unwrap();
+    let process = DesktopMihomoProcess::new_pinned_privileged(
+        DesktopMihomoProcessConfig {
+            binary: Some(binary),
+            config_directory: Some(config_directory),
+            config_file: Some(config_file),
+        },
+        "v1.19.29",
+        Arc::new(UnavailablePrivilegedHost),
+    );
+
+    assert!(process.start().await.is_err());
+    assert_eq!(
+        process.privileged_start_failure().await,
+        Some(PrivilegedCoreHostError::Unavailable)
+    );
 }

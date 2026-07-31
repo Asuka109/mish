@@ -144,6 +144,8 @@ impl PrivilegedCoreProcess {
 pub enum PrivilegedCoreHostError {
     #[error("the privileged Core host is unavailable")]
     Unavailable,
+    #[error("the privileged Core host found externally owned TUN network state")]
+    NetworkOwnershipConflict,
     #[error("the privileged Core host rejected the launch request")]
     Rejected,
     #[error("the privileged Core host operation failed")]
@@ -194,6 +196,7 @@ struct Inner {
     child: Option<Child>,
     generation: u64,
     owned_process: Option<ManagedCoreProcess>,
+    privileged_start_failure: Option<PrivilegedCoreHostError>,
     privileged_process: Option<PrivilegedCoreProcess>,
     status: CoreStatus,
 }
@@ -253,6 +256,7 @@ impl DesktopMihomoProcess {
                 child: None,
                 generation: 0,
                 owned_process: None,
+                privileged_start_failure: None,
                 privileged_process: None,
                 status: CoreStatus {
                     error: None,
@@ -434,6 +438,7 @@ impl DesktopMihomoProcess {
             return Ok(inner.status.clone());
         }
 
+        inner.privileged_start_failure = None;
         inner.status.phase = CorePhase::Starting;
         inner.status.error = None;
         let version = match self.checked_version(Duration::from_secs(5)).await {
@@ -461,7 +466,8 @@ impl DesktopMihomoProcess {
             );
             let process = match host.start(request).await {
                 Ok(process) => process,
-                Err(_) => {
+                Err(error) => {
+                    inner.privileged_start_failure = Some(error);
                     let message =
                         "Unable to start Mihomo through the privileged service".to_owned();
                     inner.status.phase = CorePhase::Failed;
@@ -590,6 +596,10 @@ impl DesktopMihomoProcess {
         drop(inner);
         self.monitor_child(generation);
         Ok(status)
+    }
+
+    pub async fn privileged_start_failure(&self) -> Option<PrivilegedCoreHostError> {
+        self.inner.lock().await.privileged_start_failure
     }
 
     fn command(&self) -> Command {
