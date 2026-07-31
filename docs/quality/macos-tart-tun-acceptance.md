@@ -436,6 +436,50 @@ and System Proxy SHA-256
 `d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
 matched the start of this residual run.
 
+The 2026-07-31 post-review walkthrough reused that stopped, uninstalled
+disposable clone and exercised the rollback-admission fixes through final
+source commit `615f323`. The final package was promoted to
+`0.1.0-internal-tun-alpha.6` because its privileged controller differs from the
+previously exercised `.5` identity. Its archive SHA-256 was
+`92a90c98e51dd39b4e799782e072ba2b90d42df4c64a6748521b91f55af1bdf4`,
+its manifest SHA-256 was
+`165d4afdf04544607b78eec790d5a111c5240f3a866b48a45489245627ea559e`,
+and its controller SHA-256 was
+`8403afcfc7281f79da4f387a36bb7cbd037e54c818bdc321106dedb82aa50442`.
+
+A clean `.5` install and identical reinstall retained generation 1, the exact
+installation identity, and the exact key identifier. The `.6` controller
+observed that installation as repair-required, upgraded it to healthy-disabled,
+and preserved all three values. An identical `.6` reinstall then returned
+`active-unchanged`.
+
+The first real failure injection caught an ordering defect in the new
+commit-boundary recheck: launchd had already been intentionally stopped, so a
+second check that still required the service to be running rejected a healthy
+prior installation. The final implementation separates initial
+package/service/enrollment admission from the pre-backup static artifact and
+enrollment recheck. A repeated `helper-replaced` failure then returned the
+exact `maintenance-upgrade-failed-rolled-back` outcome and restored the prior
+service rather than admitting changed artifacts.
+
+For the corrupt-prior case, the installed Core mode was changed from the
+receipt's fixed mode before repair. The transaction did not admit that
+installation as a rollback target. Failure after `helper-replaced` returned
+`maintenance-install-failed-bounded-disabled`; the terminal journal recorded
+`artifacts.old: null`, `bounded-disabled` artifact compensation, and no
+receipt, enrollment, Helper, Core, plist, socket, or launchd service. The final
+`.6` controller then uninstalled that exact bounded state as `not-installed`.
+
+Final inspection found no root or user receipt, enrollment, client or pending
+key, maintenance journal, restore marker, lock, socket/state directory,
+Helper, Core, plist, process, or launchd job. The guest retained only
+`utun0` through `utun3`, the default route remained `192.168.64.1` on `en0`,
+Ethernet DNS was automatic, public HTTPS returned 200, and System Proxy
+SHA-256
+`d06cf10f79ee90d7f59fc10d3467c11282bca1002f942301a97c13dbf5c66f28`
+matched the pre-install baseline. This automated disposable-host walkthrough
+does not replace the explicit human acceptance gate.
+
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
 The local delivery-boundary reproduction used Apple Silicon macOS and the
