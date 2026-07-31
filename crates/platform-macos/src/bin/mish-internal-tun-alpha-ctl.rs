@@ -2486,6 +2486,17 @@ fn observed_package_state(
 }
 
 fn admitted_existing_installation_is_intact(uid: u32) -> Result<bool, String> {
+    if !admitted_existing_installation_artifacts_are_intact(uid)? {
+        return Ok(false);
+    }
+    let launchd = command_output(
+        "/bin/launchctl",
+        &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
+    )?;
+    Ok(launchd.status.success())
+}
+
+fn admitted_existing_installation_artifacts_are_intact(uid: u32) -> Result<bool, String> {
     let Some(receipt) = read_optional_root_receipt()? else {
         return Ok(false);
     };
@@ -2531,11 +2542,7 @@ fn admitted_existing_installation_is_intact(uid: u32) -> Result<bool, String> {
             return Ok(false);
         }
     }
-    let launchd = command_output(
-        "/bin/launchctl",
-        &["print", &format!("system/{DEV_TUN_SERVICE_LABEL}")],
-    )?;
-    Ok(launchd.status.success())
+    Ok(true)
 }
 
 fn receipt_matches_admitted_enrollment(
@@ -3357,7 +3364,7 @@ async fn privileged_install(
             failure_injection.as_ref(),
         )?;
         if let Some(old) = rollback_receipt.as_ref() {
-            if !admitted_existing_installation_is_intact(uid)? {
+            if !admitted_existing_installation_artifacts_are_intact(uid)? {
                 return Err("maintenance-prior-installation-changed".into());
             }
             backup_prior_installation(old)?;
