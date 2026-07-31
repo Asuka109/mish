@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "malformed-output",
+      "requestKind": "get-http-proxy",
+      "result": { "kind": "success", "stdout": "Enabled Yes\n" },
+      "expectError": "malformed field"
+    },
+    {
+      "name": "version-line-ending-variation",
+      "requestKind": "macos-product-version",
+      "result": { "kind": "success", "stdout": "15.7.1\r\n" },
+      "also": {
+        "requestKind": "macos-build-version",
+        "result": { "kind": "success", "stdout": "24G90\r\n" }
+      }
+    },
+    {
+      "name": "locale-variation-rejected",
+      "requestKind": "macos-product-version",
+      "result": { "kind": "success", "stdout": "26.5\n" },
+      "topLevel": { "locale": "fr_FR.UTF-8" },
+      "expectError": "safety metadata"
+    },
+    {
+      "name": "truncation",
+      "requestKind": "get-http-proxy",
+      "result": { "kind": "output-too-large" }
+    },
+    {
+      "name": "timeout",
+      "requestKind": "get-https-proxy",
+      "result": { "kind": "timed-out" }
+    },
+    {
+      "name": "permission-error",
+      "requestKind": "get-socks-proxy",
+      "result": { "kind": "permission-denied" }
+    },
+    {
+      "name": "unexpected-field",
+      "requestKind": "get-http-proxy",
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: Yes\nServer: controlled.proxy.invalid\nPort: 3128\nAuthenticated Proxy Enabled: 0\nUsername: private-user\n"
+      },
+      "expectError": "unexpected field"
+    },
+    {
+      "name": "pseudonym-consistency",
+      "requestKind": "get-https-proxy",
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: Yes\nServer: controlled.proxy.invalid\nPort: 3128\nAuthenticated Proxy Enabled: 0\n"
+      }
+    },
+    {
+      "name": "privacy-rejection",
+      "requestKind": "get-proxy-bypass-domains",
+      "result": {
+        "kind": "success",
+        "stdout": "-----BEGIN PRIVATE KEY-----\nfictional-private-material\n-----END PRIVATE KEY-----\n"
+      },
+      "expectError": "forbidden secret"
+    },
+    {
+      "name": "closed-result-kind",
+      "requestKind": "get-http-proxy",
+      "result": { "kind": "partial" },
+      "expectError": "open result kind"
+    },
+    {
+      "name": "cleanup-failure",
+      "requestKind": "get-proxy-auto-discovery",
+      "result": { "kind": "success", "stdout": "Auto Proxy Discovery: Off\n" }
+    }
+  ]
+}

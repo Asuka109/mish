@@ -1,0 +1,115 @@
+{
+  "architecture": "arm64",
+  "buildFamily": "25F",
+  "fixtureKind": "macos-command-runner-system-proxy",
+  "locale": "C",
+  "platformFamily": "macos",
+  "productVersionFamily": "26.x",
+  "provenance": {
+    "captureEnvironment": "disposable-tart-clone",
+    "capturePolicy": "read-only-system-proxy-v1",
+    "compiler": "macos-platform-transcript-v1",
+    "fixtureId": "system-proxy-readonly-macos26-arm64",
+    "sanitizedTranscriptSha256": "e20c6d461d58bf144dfccf6f71d6315b1fbc34eecb5a0e93e2486694c79e6cbe",
+    "sourceKind": "real-tart-capture"
+  },
+  "requests": [
+    {
+      "operand": null,
+      "requestKind": "default-route",
+      "result": {
+        "kind": "success",
+        "stdout": "route to: default\ninterface: interface-1\n"
+      },
+      "tool": "route"
+    },
+    {
+      "operand": null,
+      "requestKind": "list-network-service-order",
+      "result": {
+        "kind": "success",
+        "stdout": "(1) network-service-1\n(Hardware Port: hardware-port-1, Device: interface-1)\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-http-proxy",
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-https-proxy",
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-socks-proxy",
+      "result": {
+        "kind": "success",
+        "stdout": "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-auto-proxy-url",
+      "result": {
+        "kind": "success",
+        "stdout": "URL: (null)\nEnabled: No\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-proxy-bypass-domains",
+      "result": {
+        "kind": "success",
+        "stdout": "*.domain-1.fixture.invalid\ndomain-2.fixture.invalid\n"
+      },
+      "tool": "networksetup"
+    },
+    {
+      "operand": {
+        "networkService": "network-service-1"
+      },
+      "requestKind": "get-proxy-auto-discovery",
+      "result": {
+        "kind": "success",
+        "stdout": "Auto Proxy Discovery: Off\n"
+      },
+      "tool": "networksetup"
+    }
+  ],
+  "schemaVersion": 1,
+  "toolEvidence": [
+    {
+      "identity": "networksetup",
+      "pathClass": "macos-system-networksetup",
+      "versionEvidence": "not-observable"
+    },
+    {
+      "identity": "route",
+      "pathClass": "macos-system-route",
+      "versionEvidence": "not-observable"
+    }
+  ]
+}

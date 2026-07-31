@@ -104,6 +104,9 @@ of treating an implementation accident as intent.
 - [`operations/macos-packaging.md`](operations/macos-packaging.md) and
   [`quality/macos-p0-acceptance.md`](quality/macos-p0-acceptance.md) — macOS
   packaging, signing, installation, daily journey, and recovery.
+- [`quality/macos-platform-transcript-fixtures.md`](quality/macos-platform-transcript-fixtures.md)
+  — opt-in read-only macOS adapter capture, deterministic sanitization, privacy
+  review, production exclusion, refresh policy, and bounded Tart evidence.
 - [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
   — fail-closed PR/fork isolation, frozen workflow/tooling identity, candidate
   manifest and immutable artifact binding, CODEOWNERS, Environment/OIDC/runner
