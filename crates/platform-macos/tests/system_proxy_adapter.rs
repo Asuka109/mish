@@ -15,7 +15,161 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState, SystemProxyPhase,
 };
+use serde::Deserialize;
 use tokio::sync::Barrier;
+
+const REAL_PLATFORM_TRANSCRIPT: &str = include_str!(
+    "../../../docs/quality/fixtures/macos-platform-transcripts/system-proxy-macos26-arm64.json"
+);
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlatformTranscriptFixture {
+    architecture: String,
+    build_family: String,
+    fixture_kind: String,
+    locale: String,
+    platform_family: String,
+    product_version_family: String,
+    provenance: PlatformTranscriptProvenance,
+    requests: Vec<PlatformTranscriptRequest>,
+    schema_version: u32,
+    tool_evidence: Vec<PlatformToolEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlatformTranscriptProvenance {
+    capture_environment: String,
+    capture_policy: String,
+    compiler: String,
+    fixture_id: String,
+    sanitized_transcript_sha256: String,
+    source_kind: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlatformToolEvidence {
+    identity: String,
+    path_class: String,
+    version_evidence: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlatformTranscriptRequest {
+    operand: Option<PlatformTranscriptOperand>,
+    request_kind: String,
+    result: PlatformTranscriptResult,
+    tool: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlatformTranscriptOperand {
+    network_service: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case", tag = "kind")]
+enum PlatformTranscriptResult {
+    Failed,
+    OutputTooLarge,
+    PermissionDenied,
+    Success { stdout: String },
+    TimedOut,
+    Unavailable,
+}
+
+struct PlatformTranscriptRunner {
+    fixture: PlatformTranscriptFixture,
+}
+
+impl PlatformTranscriptRunner {
+    fn new() -> Self {
+        let fixture: PlatformTranscriptFixture =
+            serde_json::from_str(REAL_PLATFORM_TRANSCRIPT).expect("valid real-platform fixture");
+        Self { fixture }
+    }
+
+    fn request_identity(command: &MacOsCommand) -> (&'static str, Option<&str>, &'static str) {
+        match command {
+            MacOsCommand::DefaultRoute => ("default-route", None, "route"),
+            MacOsCommand::ListNetworkServiceOrder => {
+                ("list-network-service-order", None, "networksetup")
+            }
+            MacOsCommand::GetProxy { kind, service } => (
+                match kind {
+                    MacOsProxyKind::Http => "get-http-proxy",
+                    MacOsProxyKind::Https => "get-https-proxy",
+                    MacOsProxyKind::Socks => "get-socks-proxy",
+                },
+                Some(service),
+                "networksetup",
+            ),
+            MacOsCommand::GetAutoProxyUrl { service } => {
+                ("get-auto-proxy-url", Some(service), "networksetup")
+            }
+            MacOsCommand::GetProxyBypassDomains { service } => {
+                ("get-proxy-bypass-domains", Some(service), "networksetup")
+            }
+            MacOsCommand::GetProxyAutoDiscovery { service } => {
+                ("get-proxy-auto-discovery", Some(service), "networksetup")
+            }
+            _ => panic!("non-System-Proxy observation command reached platform transcript"),
+        }
+    }
+}
+
+impl MacOsCommandRunner for PlatformTranscriptRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        let (request_kind, service, tool) = Self::request_identity(&command);
+        let matches = self
+            .fixture
+            .requests
+            .iter()
+            .filter(|request| {
+                request.request_kind == request_kind
+                    && request.tool == tool
+                    && request
+                        .operand
+                        .as_ref()
+                        .map(|operand| operand.network_service.as_str())
+                        == service
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "closed request identity must resolve exactly once"
+        );
+        let result = match &matches[0].result {
+            PlatformTranscriptResult::Success { stdout } => Ok(MacOsCommandOutput {
+                stdout: stdout.clone(),
+            }),
+            PlatformTranscriptResult::Failed => Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::Failed,
+            }),
+            PlatformTranscriptResult::OutputTooLarge => Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::OutputTooLarge,
+            }),
+            PlatformTranscriptResult::PermissionDenied => Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::PermissionDenied,
+            }),
+            PlatformTranscriptResult::TimedOut => Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::TimedOut,
+            }),
+            PlatformTranscriptResult::Unavailable => Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::Unavailable,
+            }),
+        };
+        Box::pin(ready(result))
+    }
+}
 
 struct FixtureRunner {
     commands: Mutex<Vec<MacOsCommand>>,
@@ -434,6 +588,98 @@ fn crash_fixture_target(prior: &NetworkServiceProxyState) -> NetworkServiceProxy
         socks: proxy,
         ..prior.clone()
     }
+}
+
+#[tokio::test]
+async fn maintainer_reviewed_real_platform_fixture_replays_through_the_production_adapter() {
+    let runner = Arc::new(PlatformTranscriptRunner::new());
+    assert_eq!(runner.fixture.schema_version, 1);
+    assert_eq!(
+        runner.fixture.fixture_kind,
+        "macos-command-runner-system-proxy"
+    );
+    assert_eq!(runner.fixture.platform_family, "macos");
+    assert_eq!(runner.fixture.product_version_family, "26.x");
+    assert_eq!(runner.fixture.build_family, "25F");
+    assert_eq!(runner.fixture.architecture, "arm64");
+    assert_eq!(runner.fixture.locale, "C");
+    assert_eq!(runner.fixture.requests.len(), 8);
+    assert_eq!(
+        runner.fixture.provenance.capture_environment,
+        "disposable-tart-clone"
+    );
+    assert_eq!(
+        runner.fixture.provenance.capture_policy,
+        "read-only-system-proxy-v1"
+    );
+    assert_eq!(
+        runner.fixture.provenance.compiler,
+        "macos-platform-transcript-v1"
+    );
+    assert_eq!(
+        runner.fixture.provenance.fixture_id,
+        "system-proxy-readonly-macos26-arm64"
+    );
+    assert_eq!(runner.fixture.provenance.source_kind, "real-tart-capture");
+    assert!(
+        runner
+            .fixture
+            .provenance
+            .sanitized_transcript_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    );
+    assert_eq!(
+        runner
+            .fixture
+            .tool_evidence
+            .iter()
+            .map(|evidence| (
+                evidence.identity.as_str(),
+                evidence.path_class.as_str(),
+                evidence.version_evidence.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "networksetup",
+                "macos-system-networksetup",
+                "not-observable"
+            ),
+            ("route", "macos-system-route", "not-observable"),
+        ]
+    );
+
+    // A lookup before the adapter journey proves the fixture runner is keyed by closed request
+    // identity and does not turn the recorder's raw command order into a semantic contract.
+    runner
+        .run(MacOsCommand::GetProxyAutoDiscovery {
+            service: "network-service-1".into(),
+        })
+        .await
+        .expect("order-independent fixture lookup");
+
+    let platform = MacOsSystemProxyPlatform::with_runner(runner);
+    let observation = platform
+        .observe_active()
+        .await
+        .expect("production parser accepts the sanitized real-platform fixture");
+    assert_eq!(
+        observation,
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: vec![
+                "*.domain-1.fixture.invalid".into(),
+                "domain-2.fixture.invalid".into(),
+            ],
+            http: ManualProxyState::disabled(),
+            https: ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "network-service-1".into(),
+            socks: ManualProxyState::disabled(),
+        }
+    );
 }
 
 async fn assert_restart_recovers_after_write(

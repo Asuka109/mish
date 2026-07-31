@@ -5,6 +5,8 @@ target/
 *.tsbuildinfo
 .npm-cache/
 .vitest-attachments/
+# Explicit sensitive quarantine for the opt-in macOS platform transcript recorder.
+.scratch/macos-platform-transcripts/
 .scratch/
 
 # Local environment
