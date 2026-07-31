@@ -2869,6 +2869,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mish-simulated-host"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "mish-bridge",
+ "mish-profile",
+ "mish-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "tokio-util",
+]
+
+[[package]]
 name = "mish-state-authority"
 version = "0.1.0"
 dependencies = [

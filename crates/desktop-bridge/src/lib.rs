@@ -22,6 +22,8 @@ pub use activation::{
     ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager, MihomoResolveError,
     ResolvedManagedMihomo, RuntimeConfigGenerationError, RuntimeConfigGenerator,
 };
+#[cfg(feature = "test-activation-host")]
+pub use activation::{ManagedListenerCheckPhase, ManagedListenerHost, ManagedListenerOwnership};
 pub use controller_source::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
     ControllerStatusSourceError,
@@ -53,8 +55,9 @@ pub use managed_process::{
 };
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
-    ProfileActivationCoordinatorError, ProfileActivationEvidence, ProfileActivationEvidenceKind,
-    ProfileActivationFailure, ProfileActivationOperation, ProfileActivationPhase,
+    ProfileActivationCoordinatorError, ProfileActivationEffects, ProfileActivationEvidence,
+    ProfileActivationEvidenceKind, ProfileActivationFailure, ProfileActivationOperation,
+    ProfileActivationPhase, ProfileActivationProgress, ProfileActivationProgressObserver,
     ProfileActivationShutdownFailure, ProfileActivationSnapshot, ProfileStartupPolicy,
 };
 pub use profile_file_actions::{

@@ -166,3 +166,8 @@ ordered OS writes, and post-write confirmation remain serial. They establish
 ownership and prevent the machine from pointing at an unavailable listener.
 The preliminary journal and state reads are repeated at commit time by design;
 removing that repeated I/O would make stale preflight data authoritative.
+
+The deterministic, non-privileged system evidence for early listener-conflict
+notification, finalization ownership, duplicate admission, and commit-boundary
+TOCTOU rejection is specified in
+[`transcript-driven-system-tests.md`](transcript-driven-system-tests.md).

@@ -1,5 +1,6 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -7,10 +8,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use futures_util::future::BoxFuture;
 use mish_profile::{
     ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
-    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot, ProfileServiceError,
-    ProfileSnapshot, Timestamp,
+    ProfileRecord, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot,
+    ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
@@ -847,11 +849,91 @@ impl Drop for ProxyPreparationCancellation {
 type PolicyFactory =
     dyn Fn() -> Result<ManagedRuntimePolicy, RuntimeConfigGenerationError> + Send + Sync;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileActivationProgress {
+    ManagedListenerConflict(SocketAddr),
+}
+
+pub type ProfileActivationProgressObserver =
+    Arc<dyn Fn(ProfileActivationProgress) + Send + Sync + 'static>;
+
+/// Product-specific effect boundary below the Profile activation coordinator.
+///
+/// The production implementation remains `MihomoActivationManager`. Tests can replace only the
+/// Core/platform effects while retaining admission, cancellation, finalization, notifications,
+/// runtime replacement, and RPC projection in this coordinator.
+pub trait ProfileActivationEffects: Send + Sync {
+    fn availability(&self) -> Result<(), MihomoResolveError>;
+
+    fn activate_cancellable<'a>(
+        &'a self,
+        record: &'a ProfileRecord,
+        policy: &'a ManagedRuntimePolicy,
+        cancellation: CancellationToken,
+        progress: ProfileActivationProgressObserver,
+    ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>>;
+
+    fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>>;
+
+    fn managed_state(&self) -> BoxFuture<'_, crate::ManagedActivationState>;
+
+    fn complete_runtime_handoff(&self) -> BoxFuture<'_, ()>;
+
+    fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>>;
+
+    fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String>;
+
+    fn delete_route_selections(&self, profile_id: &str);
+}
+
+impl ProfileActivationEffects for MihomoActivationManager {
+    fn availability(&self) -> Result<(), MihomoResolveError> {
+        MihomoActivationManager::availability(self)
+    }
+
+    fn activate_cancellable<'a>(
+        &'a self,
+        record: &'a ProfileRecord,
+        policy: &'a ManagedRuntimePolicy,
+        cancellation: CancellationToken,
+        progress: ProfileActivationProgressObserver,
+    ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>> {
+        Box::pin(async move {
+            self.activate_cancellable_observed(record, policy, cancellation, Some(&progress))
+                .await
+        })
+    }
+
+    fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>> {
+        Box::pin(MihomoActivationManager::active_runtime(self))
+    }
+
+    fn managed_state(&self) -> BoxFuture<'_, crate::ManagedActivationState> {
+        Box::pin(MihomoActivationManager::managed_state(self))
+    }
+
+    fn complete_runtime_handoff(&self) -> BoxFuture<'_, ()> {
+        Box::pin(MihomoActivationManager::complete_runtime_handoff(self))
+    }
+
+    fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
+        Box::pin(MihomoActivationManager::shutdown(self))
+    }
+
+    fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String> {
+        MihomoActivationManager::route_selections(self, record)
+    }
+
+    fn delete_route_selections(&self, profile_id: &str) {
+        MihomoActivationManager::delete_route_selections(self, profile_id);
+    }
+}
+
 pub struct ProfileActivationCoordinator {
     availability: ProfileActivationAvailability,
     authority: StateMutationAuthority,
     host: DesktopRuntimeHost,
-    manager: Arc<MihomoActivationManager>,
+    manager: Arc<dyn ProfileActivationEffects>,
     policy_factory: Arc<PolicyFactory>,
     profiles: Arc<DesktopProfileService>,
     proxy_cancellation: Arc<std::sync::Mutex<Option<(Uuid, CancellationToken)>>>,
@@ -868,7 +950,7 @@ pub struct ProfileActivationCoordinator {
 impl ProfileActivationCoordinator {
     pub fn new<F>(
         profiles: Arc<DesktopProfileService>,
-        manager: Arc<MihomoActivationManager>,
+        manager: Arc<dyn ProfileActivationEffects>,
         host: DesktopRuntimeHost,
         safe_runtime: MishRuntime,
         policy_factory: F,
@@ -1022,10 +1104,21 @@ impl ProfileActivationCoordinator {
             }
         };
         let coordinator = self.clone();
+        let progress_host = self.host.clone();
+        let progress_command_id = command.command_id.clone();
+        let progress: ProfileActivationProgressObserver = Arc::new(move |event| match event {
+            ProfileActivationProgress::ManagedListenerConflict(endpoint) => {
+                publish_activation_failure_notification(
+                    &progress_host,
+                    &progress_command_id,
+                    MihomoActivationError::ManagedListenerConflict(endpoint),
+                );
+            }
+        });
         tokio::spawn(async move {
             let result = coordinator
                 .manager
-                .activate_cancellable(&record, &policy, cancellation)
+                .activate_cancellable(&record, &policy, cancellation, progress)
                 .await;
             coordinator.finish_activation(&command, result).await;
             drop(permit);

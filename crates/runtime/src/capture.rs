@@ -2318,6 +2318,14 @@ pub struct CaptureRuntimeTransition {
     reconciler: Arc<CaptureReconciler>,
 }
 
+#[cfg(feature = "test-correlation")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaptureCorrelationSnapshot {
+    pub admitted_revision: u64,
+    pub operation_id: Option<String>,
+    pub scope_epoch: u64,
+}
+
 impl Drop for CaptureRuntimeTransition {
     fn drop(&mut self) {
         self.reconciler
@@ -2405,6 +2413,19 @@ impl CaptureReconciler {
 
     pub fn status(&self) -> CaptureRuntimeStatus {
         self.runner.snapshot().projection().clone()
+    }
+
+    /// Returns the non-payload correlation values admitted by the real Capture machine.
+    /// Test-only adapters can map these values to closed synthetic identities without
+    /// exposing the machine authority UUID or introducing a parallel lifecycle.
+    #[cfg(feature = "test-correlation")]
+    pub fn correlation_snapshot(&self) -> CaptureCorrelationSnapshot {
+        let state = self.runner.snapshot();
+        CaptureCorrelationSnapshot {
+            admitted_revision: state.revision(),
+            operation_id: state.projection().capture_operation.operation_id.clone(),
+            scope_epoch: self.identity,
+        }
     }
 
     /// Returns the last state confirmed by the capture platforms, excluding any public pending

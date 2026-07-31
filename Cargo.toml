@@ -10,6 +10,7 @@ members = [
   "crates/presentation-contract",
   "crates/runtime",
   "crates/settings",
+  "crates/simulated-host",
   "crates/state-authority",
   "crates/state-machine",
   "crates/updater",

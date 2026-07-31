@@ -7,6 +7,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(feature = "test-activation-host")]
+use std::{future::Future, pin::Pin};
+
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_profile::{
     Fingerprint, ManagedRuntimeValues, PolicyClassification, PolicyViolationKind, ProfileRecord,
@@ -395,6 +398,18 @@ pub struct ActivationCommit {
 }
 
 impl ActivationCommit {
+    pub fn new(
+        fingerprint: impl Into<String>,
+        profile_id: impl Into<String>,
+        revision: impl Into<String>,
+    ) -> Self {
+        Self {
+            fingerprint: fingerprint.into(),
+            profile_id: profile_id.into(),
+            revision: revision.into(),
+        }
+    }
+
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
@@ -449,6 +464,46 @@ pub struct MihomoActivationManager {
     resolver: ManagedMihomoResolver,
     state: Mutex<ActivationState>,
     timing: ActivationTiming,
+    #[cfg(feature = "test-activation-host")]
+    listener_host: Option<Arc<dyn ManagedListenerHost>>,
+}
+
+#[cfg(feature = "test-activation-host")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedListenerCheckPhase {
+    Early,
+    Commit,
+}
+
+#[cfg(feature = "test-activation-host")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedListenerOwnership {
+    Free,
+    Foreign,
+    Mish,
+}
+
+/// Narrow test-build seam for the managed endpoint effects exercised by the
+/// transcript-driven host. Product builds do not compile this contract.
+#[cfg(feature = "test-activation-host")]
+pub trait ManagedListenerHost: Send + Sync {
+    fn begin_preparation(&self) -> Result<(), MihomoActivationError>;
+
+    fn check<'a>(
+        &'a self,
+        phase: ManagedListenerCheckPhase,
+        endpoint: SocketAddr,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ManagedListenerOwnership, MihomoActivationError>>
+                + Send
+                + 'a,
+        >,
+    >;
+
+    fn finalize_failed_preparation(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), MihomoActivationError>> + Send + '_>>;
 }
 
 impl MihomoActivationManager {
@@ -509,7 +564,64 @@ impl MihomoActivationManager {
                 ..ActivationState::default()
             }),
             timing,
+            #[cfg(feature = "test-activation-host")]
+            listener_host: None,
         }
+    }
+
+    #[cfg(feature = "test-activation-host")]
+    pub fn with_test_listener_host(mut self, host: Arc<dyn ManagedListenerHost>) -> Self {
+        self.listener_host = Some(host);
+        self
+    }
+
+    fn begin_listener_preparation(&self) -> Result<(), MihomoActivationError> {
+        #[cfg(feature = "test-activation-host")]
+        if let Some(host) = &self.listener_host {
+            return host.begin_preparation();
+        }
+        Ok(())
+    }
+
+    async fn finish_listener_preparation(&self) -> Result<(), MihomoActivationError> {
+        #[cfg(feature = "test-activation-host")]
+        if let Some(host) = &self.listener_host {
+            return host.finalize_failed_preparation().await;
+        }
+        Ok(())
+    }
+
+    async fn early_listener_conflict(
+        &self,
+        active: Option<&ActiveMihomo>,
+        policy: &ManagedRuntimePolicy,
+    ) -> Result<Option<SocketAddr>, MihomoActivationError> {
+        #[cfg(feature = "test-activation-host")]
+        if let Some(host) = &self.listener_host {
+            let endpoint = SocketAddr::new(
+                policy.proxy_endpoint().host(),
+                policy.proxy_endpoint().port(),
+            );
+            let ownership = host
+                .check(ManagedListenerCheckPhase::Early, endpoint)
+                .await?;
+            return Ok((ownership == ManagedListenerOwnership::Foreign).then_some(endpoint));
+        }
+        Ok(preflight_managed_proxy_listener_conflict(active, policy).await)
+    }
+
+    async fn commit_listener_conflict(
+        &self,
+        endpoint: SocketAddr,
+    ) -> Result<bool, MihomoActivationError> {
+        #[cfg(feature = "test-activation-host")]
+        if let Some(host) = &self.listener_host {
+            return host
+                .check(ManagedListenerCheckPhase::Commit, endpoint)
+                .await
+                .map(|ownership| ownership != ManagedListenerOwnership::Free);
+        }
+        Ok(managed_proxy_listener_remains_occupied(endpoint).await)
     }
 
     pub fn with_connection_cleanup_preference(
@@ -561,15 +673,16 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable_inner(record, policy, cancellation)
+        self.activate_cancellable_observed(record, policy, cancellation, None)
             .await
     }
 
-    async fn activate_cancellable_inner(
+    pub(crate) async fn activate_cancellable_observed(
         &self,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
+        progress: Option<&crate::ProfileActivationProgressObserver>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
@@ -578,12 +691,29 @@ impl MihomoActivationManager {
         validate_activation_record(record)?;
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
-        if let Some(endpoint) =
-            preflight_managed_proxy_listener_conflict(state.active.as_ref(), policy).await
+        self.begin_listener_preparation()?;
+        let early_conflict = match self
+            .early_listener_conflict(state.active.as_ref(), policy)
+            .await
         {
+            Ok(conflict) => conflict,
+            Err(error) => {
+                record_failed_attempt(&mut state.managed, record, error);
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                self.finish_listener_preparation().await?;
+                return Err(error);
+            }
+        };
+        if let Some(endpoint) = early_conflict {
             let error = MihomoActivationError::ManagedListenerConflict(endpoint);
+            if let Some(progress) = progress {
+                progress(crate::ProfileActivationProgress::ManagedListenerConflict(
+                    endpoint,
+                ));
+            }
             record_failed_attempt(&mut state.managed, record, error);
             persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            self.finish_listener_preparation().await?;
             return Err(error);
         }
         let candidate = match self.prepare_generation(&resolved, record, policy) {
@@ -591,6 +721,7 @@ impl MihomoActivationManager {
             Err(error) => {
                 record_failed_attempt(&mut state.managed, record, error);
                 persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                self.finish_listener_preparation().await?;
                 return Err(error);
             }
         };
@@ -599,6 +730,7 @@ impl MihomoActivationManager {
             rollback_candidate(candidate).await;
             record_failed_attempt(&mut state.managed, record, MihomoActivationError::Cancelled);
             persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            self.finish_listener_preparation().await?;
             return Err(MihomoActivationError::Cancelled);
         }
 
@@ -693,7 +825,42 @@ impl MihomoActivationManager {
             candidate.proxy_endpoint.host(),
             candidate.proxy_endpoint.port(),
         );
-        if managed_proxy_listener_remains_occupied(proxy_endpoint).await {
+        let commit_conflict = match self.commit_listener_conflict(proxy_endpoint).await {
+            Ok(conflict) => conflict,
+            Err(error) => {
+                rollback_candidate(candidate).await;
+                let restored = self
+                    .restore_previous(
+                        state.active.as_ref(),
+                        suspended_capture.as_ref(),
+                        capture_transition.as_ref(),
+                    )
+                    .await;
+                record_failed_attempt(&mut state.managed, record, error);
+                if !restored {
+                    if let Some(previous) = state.active.take() {
+                        previous.source.close().await;
+                        retire_candidate(resolved.runtime_root(), &previous);
+                    }
+                    state.managed.active_fingerprint = None;
+                    state.managed.active_profile_id = None;
+                    state.managed.active_revision = None;
+                    state.managed.active_runtime_id = None;
+                    persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                    self.finish_listener_preparation().await?;
+                    return Err(MihomoActivationError::RollbackFailedSafeStopped);
+                }
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                self.finish_listener_preparation().await?;
+                return Err(error);
+            }
+        };
+        if commit_conflict {
+            if let Some(progress) = progress {
+                progress(crate::ProfileActivationProgress::ManagedListenerConflict(
+                    proxy_endpoint,
+                ));
+            }
             rollback_candidate(candidate).await;
             let restored = self
                 .restore_previous(
@@ -714,9 +881,11 @@ impl MihomoActivationManager {
                 state.managed.active_revision = None;
                 state.managed.active_runtime_id = None;
                 persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                self.finish_listener_preparation().await?;
                 return Err(MihomoActivationError::RollbackFailedSafeStopped);
             }
             persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            self.finish_listener_preparation().await?;
             return Err(error);
         }
 
