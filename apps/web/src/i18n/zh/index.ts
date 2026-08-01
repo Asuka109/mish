@@ -515,8 +515,13 @@ const zh: Translation = {
       restartDescription:
         "Mish 会重启代理并暂时更改设备路由。关闭虚拟网卡后，这些路由会被移除，其他已选择的代理方式不受影响。",
       restartTitle: "代理会重启，设备路由会改变",
+      repairDescription:
+        "Mish 会通过同一套 macOS 授权流程修复系统组件。Rust 确认修复后的组件健康且网络观察结果为新鲜的关闭状态之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
+      repairHelper: "修复系统组件",
+      repairingHelper: "正在修复系统组件…",
+      repairTitle: "需要修复系统组件",
       setupDescription:
-        "虚拟网卡需要先安装系统组件。继续后，macOS 会请求管理员授权；安装完成前，虚拟网卡不会开启。",
+        "Mish 会通过 macOS 授权安装系统组件。Rust 确认组件版本和健康状态正确，且网络观察结果为新鲜的关闭状态之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
       setupTitle: "先安装系统组件",
       title: "启用虚拟网卡之前",
     },

@@ -1789,7 +1789,23 @@ type RootTranslation = {
 			 */
 			restartTitle: string
 			/**
-			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​m​a​i​n​s​ ​o​f​f​ ​u​n​t​i​l​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​i​s​ ​i​n​s​t​a​l​l​e​d​ ​o​r​ ​a​p​p​r​o​v​e​d​.​ ​M​i​s​h​ ​w​i​l​l​ ​a​s​k​ ​m​a​c​O​S​ ​f​o​r​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​a​n​d​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​h​e​l​p​e​r​ ​b​e​f​o​r​e​ ​c​o​n​t​i​n​u​i​n​g​.
+			 * M​i​s​h​ ​w​i​l​l​ ​r​e​p​a​i​r​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​s​a​m​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​f​l​o​w​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​l​e​s​s​ ​R​u​s​t​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​r​e​p​a​i​r​e​d​ ​h​e​l​p​e​r​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
+			 */
+			repairDescription: string
+			/**
+			 * R​e​p​a​i​r​ ​H​e​l​p​e​r
+			 */
+			repairHelper: string
+			/**
+			 * R​e​p​a​i​r​i​n​g​ ​H​e​l​p​e​r​…
+			 */
+			repairingHelper: string
+			/**
+			 * H​e​l​p​e​r​ ​r​e​p​a​i​r​ ​r​e​q​u​i​r​e​d
+			 */
+			repairTitle: string
+			/**
+			 * M​i​s​h​ ​w​i​l​l​ ​i​n​s​t​a​l​l​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​t​h​r​o​u​g​h​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​l​e​s​s​ ​R​u​s​t​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​e​x​a​c​t​ ​h​e​a​l​t​h​y​ ​h​e​l​p​e​r​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
 			 */
 			setupDescription: string
 			/**
@@ -6602,7 +6618,23 @@ export type TranslationFunctions = {
 			 */
 			restartTitle: () => LocalizedString
 			/**
-			 * Virtual Interface remains off until the privileged helper is installed or approved. Mish will ask macOS for administrator authorization and confirm the helper before continuing.
+			 * Mish will repair the privileged helper through the same macOS authorization flow. Virtual Interface stays off unless Rust confirms the repaired helper and a fresh disabled network observation, then resumes this enable request.
+			 */
+			repairDescription: () => LocalizedString
+			/**
+			 * Repair Helper
+			 */
+			repairHelper: () => LocalizedString
+			/**
+			 * Repairing Helper…
+			 */
+			repairingHelper: () => LocalizedString
+			/**
+			 * Helper repair required
+			 */
+			repairTitle: () => LocalizedString
+			/**
+			 * Mish will install the privileged helper through macOS authorization. Virtual Interface stays off unless Rust confirms the exact healthy helper and a fresh disabled network observation, then resumes this enable request.
 			 */
 			setupDescription: () => LocalizedString
 			/**

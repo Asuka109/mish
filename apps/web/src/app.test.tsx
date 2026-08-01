@@ -2383,7 +2383,7 @@ describe("desktop RPC experience", () => {
     expect(systemProxy).toHaveAccessibleDescription(/System Proxy is unavailable/i);
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeEnabled();
+    expect(tun).toBeDisabled();
     expect(tun).toHaveAccessibleDescription(
       /Virtual Interface is not available in this version of Mish/i,
     );
@@ -2487,7 +2487,7 @@ describe("desktop RPC experience", () => {
     expect(setRoutingMode).not.toHaveBeenCalled();
   });
 
-  it("starts desktop Helper installation before a permission-required TUN command", async () => {
+  it("asks the desktop Helper lifecycle to install and resume a permission-required TUN command", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
@@ -2535,16 +2535,60 @@ describe("desktop RPC experience", () => {
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Install Helper" }));
 
-    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
+    expect(settingsClient.installTunHelper).toHaveBeenCalledWith({ resumeCapture: true });
     expect(setCapture).not.toHaveBeenCalled();
-    await user.click(await screen.findByRole("button", { name: "Enable Virtual Interface" }));
-    await waitFor(() =>
-      expect(setCapture).toHaveBeenCalledWith(
-        expect.objectContaining({ tun: true }),
-        true,
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      ),
+  });
+
+  it("asks the desktop Helper lifecycle to repair and resume the original TUN command", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "repair-required" };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const setCapture = statusClient.setCapture;
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "repair-required",
+      expectedVersion: "3",
+      health: "version-mismatch",
+      installationId: "a".repeat(64),
+      installedVersion: "2",
+      lastFailure: "version-mismatch",
+      phase: "idle",
+    };
+    settingsClient.repairTunHelper.mockImplementation(async () => {
+      settingsClient.snapshot.tunHelper = {
+        availability: "available",
+        expectedVersion: "3",
+        health: "healthy",
+        installationId: "a".repeat(64),
+        installedVersion: "3",
+        lastFailure: null,
+        phase: "idle",
+      };
+      return settingsClient.getSnapshot();
+    });
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
     );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    expect(await screen.findByText("Helper repair required")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Repair Helper" }));
+
+    await waitFor(() =>
+      expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({ resumeCapture: true }),
+    );
+    expect(setCapture).not.toHaveBeenCalled();
   });
 
   it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {
@@ -2565,7 +2609,7 @@ describe("desktop RPC experience", () => {
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(systemProxy).toBeEnabled();
-    expect(tun).toBeEnabled();
+    expect(tun).toBeDisabled();
 
     await user.click(systemProxy);
     await waitFor(() =>

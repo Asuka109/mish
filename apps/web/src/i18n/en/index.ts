@@ -562,8 +562,13 @@ const en = {
       restartDescription:
         "Mish will restart the active Core with TUN enabled and briefly update device routes. Turning it off removes the virtual route and returns to the remaining selected capture modes.",
       restartTitle: "Core and routes change",
+      repairDescription:
+        "Mish will repair the privileged helper through the same macOS authorization flow. Virtual Interface stays off unless Rust confirms the repaired helper and a fresh disabled network observation, then resumes this enable request.",
+      repairHelper: "Repair Helper",
+      repairingHelper: "Repairing Helper…",
+      repairTitle: "Helper repair required",
       setupDescription:
-        "Virtual Interface remains off until the privileged helper is installed or approved. Mish will ask macOS for administrator authorization and confirm the helper before continuing.",
+        "Mish will install the privileged helper through macOS authorization. Virtual Interface stays off unless Rust confirms the exact healthy helper and a fresh disabled network observation, then resumes this enable request.",
       setupTitle: "Helper setup required",
       title: "Before enabling Virtual Interface",
     },

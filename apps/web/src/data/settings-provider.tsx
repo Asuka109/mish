@@ -9,6 +9,7 @@ import type {
   SettingsSnapshotDto,
   StartupPreferencesDto,
   SystemProxyTakeoverPolicy,
+  TunHelperLifecycleOptions,
   ManagedPortPreferencesDto,
   ManagedPortKind,
   TunHelperFailureKind,
@@ -35,15 +36,19 @@ export type TunHelperOperationResult =
   | { ok: true }
   | { failure: TunHelperFailureKind | null; ok: false };
 
+export interface TunHelperSetupOptions {
+  resumeCapture?: boolean;
+}
+
 interface SettingsContextValue {
   acceptSnapshot(snapshot: SettingsSnapshotDto): void;
   error: string | null;
   pending: boolean;
-  installTunHelper(): Promise<TunHelperOperationResult>;
+  installTunHelper(options?: TunHelperSetupOptions): Promise<TunHelperOperationResult>;
   localBackupClient: LocalBackupClient;
   refreshNetworkDns(): Promise<boolean>;
   removeTunHelper(): Promise<boolean>;
-  repairTunHelper(): Promise<boolean>;
+  repairTunHelper(options?: TunHelperSetupOptions): Promise<TunHelperOperationResult>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
@@ -160,12 +165,14 @@ export function SettingsProvider({
     () => ({
       acceptSnapshot,
       error,
-      installTunHelper: () => runTunHelper(() => client.installTunHelper()),
+      installTunHelper: (options) =>
+        runTunHelper(() => client.installTunHelper(tunHelperLifecycleOptions(options))),
       localBackupClient,
       pending,
       refreshNetworkDns,
       removeTunHelper: async () => (await runTunHelper(() => client.removeTunHelper())).ok,
-      repairTunHelper: async () => (await runTunHelper(() => client.repairTunHelper())).ok,
+      repairTunHelper: (options) =>
+        runTunHelper(() => client.repairTunHelper(tunHelperLifecycleOptions(options))),
       setAppearance: async (appearance) => (await run(() => client.setAppearance(appearance))).ok,
       setLanguage: async (language) => (await run(() => client.setLanguage(language))).ok,
       setOnboardingWelcomeState: async (action) =>
@@ -203,6 +210,13 @@ export function SettingsProvider({
     ],
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
+}
+
+function tunHelperLifecycleOptions(
+  options: TunHelperSetupOptions | undefined,
+): TunHelperLifecycleOptions | undefined {
+  if (!options?.resumeCapture) return undefined;
+  return { resumeCapture: true };
 }
 
 export function useSettings() {

@@ -3429,6 +3429,13 @@ export const SetCloseOldConnectionsAfterGroupSwitchCommandSchema = z
   .object({ enabled: z.boolean() })
   .strict();
 
+export const TunHelperLifecycleCommandSchema = z
+  .object({ resumeCapture: z.boolean().optional() })
+  .strict();
+export interface TunHelperLifecycleCommand extends z.infer<
+  typeof TunHelperLifecycleCommandSchema
+> {}
+
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
   "settings.refreshNetworkDns": {
@@ -3436,11 +3443,11 @@ export const settingsRpcMethods = {
     result: RpcSettingsSnapshotSchema,
   },
   "settings.installTunHelper": {
-    params: EmptyCommandSchema,
+    params: TunHelperLifecycleCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.repairTunHelper": {
-    params: EmptyCommandSchema,
+    params: TunHelperLifecycleCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.removeTunHelper": {
@@ -3704,8 +3711,8 @@ export interface StatusClient {
 export interface SettingsClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   refreshNetworkDns(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
-  installTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
-  repairTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  installTunHelper(options?: TunHelperLifecycleOptions): Promise<SettingsSnapshotDto>;
+  repairTunHelper(options?: TunHelperLifecycleOptions): Promise<SettingsSnapshotDto>;
   removeTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   setAppearance(
     appearance: AppearancePreference,
@@ -3757,6 +3764,11 @@ export interface SettingsClient {
     surface: WindowSurfacePreference,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
+}
+
+export interface TunHelperLifecycleOptions {
+  resumeCapture?: boolean;
+  signal?: AbortSignal;
 }
 
 export type ProfileClientErrorCode =

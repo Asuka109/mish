@@ -508,6 +508,19 @@ impl TunHelperController {
                 }
                 return Ok(unblocked);
             }
+
+            // A helper acknowledgement is not enough to resume a first-click Capture request.
+            // Re-observe utun, routes, and DNS after the lifecycle completes so callers only
+            // receive success while the previous TUN intent is freshly and authoritatively off.
+            let network = self.observe_tun_locked().await?;
+            if !network.confirms_disabled_at(tun_observation_now()) {
+                let error = TunHelperError::new(
+                    network.failure_kind_at(tun_observation_now()),
+                    "The helper lifecycle left a non-disabled TUN observation",
+                );
+                self.record_failure(error.kind);
+                return Err(error);
+            }
             return Ok(observed);
         }
         if matches!(

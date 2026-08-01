@@ -482,6 +482,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         browser,
         protocol: ProtocolState {
             auth_token: config.auth_token,
+            capture_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             profile_activation: config.profile_activation,
             profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
