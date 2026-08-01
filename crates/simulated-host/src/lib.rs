@@ -26,9 +26,10 @@ use tokio_util::sync::CancellationToken;
 mod internal_tun;
 
 pub use internal_tun::{
-    MaintenanceEngine, MaintenanceFault, MaintenanceFaultKind, MaintenanceHarnessError,
-    MaintenanceObservation, MaintenanceScenario, MaintenanceScenarioRuntime,
-    SyntheticMaintenanceInitial, SyntheticOwnership, SyntheticPackageVersion,
+    MaintenanceCompletionInjection, MaintenanceEngine, MaintenanceFault, MaintenanceFaultKind,
+    MaintenanceHarnessError, MaintenanceObservation, MaintenanceScenario,
+    MaintenanceScenarioRuntime, SyntheticMaintenanceInitial, SyntheticOwnership,
+    SyntheticPackageVersion,
 };
 
 pub const TRANSCRIPT_SCHEMA_VERSION: u16 = 1;

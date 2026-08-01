@@ -21,8 +21,9 @@ use mish_bridge::{
     MihomoActivationManager, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
 };
 use mish_platform_macos::{
-    DEV_TUN_INSTALLATION_KEY_ALGORITHM, DEV_TUN_INSTALLATION_KEY_RECORD_VERSION,
-    DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION, InstallationClientKeyStore,
+    DEV_TUN_CLIENT_KEY_FILE_NAME, DEV_TUN_INSTALLATION_KEY_ALGORITHM,
+    DEV_TUN_INSTALLATION_KEY_RECORD_VERSION, DEV_TUN_INSTALLATION_KEY_TRANSCRIPT_VERSION,
+    DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME, InstallationClientKeyStore,
     InstallationEnrollmentOperation, InstallationKeyRotationRequest,
     apply_installation_enrollment_operation, canonical_rotation_transcript,
     load_installation_enrollment_for_user, remove_installation_enrollment,
@@ -59,7 +60,7 @@ use mish_state_machine::{
 };
 use p256::{
     ecdsa::{Signature, SigningKey, signature::Signer},
-    pkcs8::EncodePublicKey,
+    pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -147,6 +148,15 @@ pub enum MaintenanceFaultKind {
     ProcessTerminated,
     ReplacedArtifact,
     StaleCompletion,
+}
+
+/// A deliberate completion supplied to the real package runner while a stage effect is live.
+/// This stays inside the simulator package so tests can verify runner correlation behavior
+/// without reproducing the package machine's transition logic.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaintenanceCompletionInjection {
+    EqualStage,
+    StaleStage,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -288,6 +298,16 @@ struct SyntheticInstallation {
     key_id: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyntheticClientKeyRecord {
+    algorithm: String,
+    key_id: String,
+    private_key_pkcs8: String,
+    public_key_spki: String,
+    schema_version: u16,
+}
+
 impl SyntheticInstallation {
     fn success(&self) -> PackageSuccess {
         PackageSuccess {
@@ -398,6 +418,8 @@ pub struct MaintenanceEngine {
     active_runner: Mutex<Option<RunnerHandle<PackageMachine>>>,
     client_keys: InstallationClientKeyStore,
     configuration: Mutex<MaintenanceScenario>,
+    credential_backup_root: PathBuf,
+    credentials_backed_up: Mutex<bool>,
     enrollment_path: PathBuf,
     host: Weak<SimulatedHost>,
     operation: AsyncMutex<()>,
@@ -425,11 +447,18 @@ impl MaintenanceEngine {
             .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
         fs::set_permissions(&enrollment_directory, fs::Permissions::from_mode(0o700))
             .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
+        let credential_backup_root = state_root.path().join("credential-backup");
+        fs::create_dir(&credential_backup_root)
+            .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
+        fs::set_permissions(&credential_backup_root, fs::Permissions::from_mode(0o700))
+            .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
         let client_keys = InstallationClientKeyStore::for_runtime_root(&runtime_root, uid());
         let engine = Arc::new_cyclic(|self_ref| Self {
             active_runner: Mutex::new(None),
             client_keys,
             configuration: Mutex::new(configuration.clone()),
+            credential_backup_root,
+            credentials_backed_up: Mutex::new(false),
             enrollment_path: enrollment_directory.join("enrollment.json"),
             host,
             operation: AsyncMutex::new(()),
@@ -590,6 +619,49 @@ impl MaintenanceEngine {
         if let Some(runner) = runner {
             let _ = runner.shutdown().await;
         }
+    }
+
+    /// Injects a completion through the live runner rather than reducing the package machine in
+    /// test code. Callers pause the stage effect first so the injected input is admitted while
+    /// that effect remains owned by the runner.
+    pub async fn inject_stage_completion(
+        &self,
+        injection: MaintenanceCompletionInjection,
+    ) -> Result<Disposition, MaintenanceHarnessError> {
+        let runner = self
+            .active_runner
+            .lock()
+            .expect("maintenance active runner lock poisoned")
+            .clone()
+            .ok_or(MaintenanceHarnessError::StateUnavailable)?;
+        let (operation_id, admitted_revision) = {
+            let host = self.host()?;
+            let model = host.model.lock().expect("simulated host lock poisoned");
+            let operation_id = model
+                .maintenance
+                .as_ref()
+                .and_then(|maintenance| maintenance.active_operation)
+                .ok_or(MaintenanceHarnessError::StateUnavailable)?;
+            (operation_id, operation_id)
+        };
+        let mut correlation = Correlation {
+            machine_authority: "simulated-internal-tun-package".into(),
+            scope_epoch: 1,
+            operation_id: format!("{SYNTHETIC_OPERATION_PREFIX}{operation_id}"),
+            admitted_revision,
+            effect_id: 1,
+        };
+        if injection == MaintenanceCompletionInjection::StaleStage {
+            correlation.scope_epoch = correlation.scope_epoch.saturating_add(1);
+        }
+        runner
+            .admit(PackageInput::EffectCompleted {
+                correlation,
+                outcome: PackageEffectOutcome::Staged,
+            })
+            .await
+            .map(|admission| admission.disposition)
+            .map_err(|_| MaintenanceHarnessError::Busy)
     }
 
     async fn run_lifecycle(
@@ -855,6 +927,7 @@ impl MaintenanceEngine {
         cancellation: CancellationToken,
     ) -> Result<PackageEffectOutcome, String> {
         let host = self.host().map_err(display_error)?;
+        self.snapshot_credential_backup().map_err(display_error)?;
         self.with_maintenance(&host, |maintenance| {
             let journal = self
                 .journal_for(maintenance, operation_id, admitted_revision, kind, target)
@@ -1445,6 +1518,7 @@ impl MaintenanceEngine {
     }
 
     fn restore_prior(&self, host: &Arc<SimulatedHost>, reason: &str) -> Result<(), String> {
+        self.restore_credential_backup().map_err(display_error)?;
         self.with_maintenance(host, |maintenance| {
             let restored = maintenance
                 .backup
@@ -1508,6 +1582,97 @@ impl MaintenanceEngine {
             ManagedEndpointOwner::Free
         };
         Ok(())
+    }
+
+    fn snapshot_credential_backup(&self) -> Result<(), MaintenanceHarnessError> {
+        snapshot_optional_private_file(
+            &self.runtime_root.join(DEV_TUN_CLIENT_KEY_FILE_NAME),
+            &self
+                .credential_backup_root
+                .join(DEV_TUN_CLIENT_KEY_FILE_NAME),
+        )?;
+        snapshot_optional_private_file(
+            &self.enrollment_path,
+            &self.credential_backup_root.join("enrollment.json"),
+        )?;
+        snapshot_optional_private_file(
+            &self.runtime_root.join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME),
+            &self
+                .credential_backup_root
+                .join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME),
+        )?;
+        *self
+            .credentials_backed_up
+            .lock()
+            .expect("maintenance credential backup lock poisoned") = true;
+        Ok(())
+    }
+
+    fn restore_credential_backup(&self) -> Result<(), MaintenanceHarnessError> {
+        if !*self
+            .credentials_backed_up
+            .lock()
+            .expect("maintenance credential backup lock poisoned")
+        {
+            return Err(MaintenanceHarnessError::StateUnavailable);
+        }
+        restore_optional_private_file_from_backup(
+            &self.enrollment_path,
+            &self.credential_backup_root.join("enrollment.json"),
+        )?;
+        restore_optional_private_file_from_backup(
+            &self.runtime_root.join(DEV_TUN_CLIENT_KEY_FILE_NAME),
+            &self
+                .credential_backup_root
+                .join(DEV_TUN_CLIENT_KEY_FILE_NAME),
+        )?;
+        restore_optional_private_file_from_backup(
+            &self.runtime_root.join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME),
+            &self
+                .credential_backup_root
+                .join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME),
+        )
+    }
+
+    fn stage_pending_client_key(
+        &self,
+        replacement: &SigningKey,
+        public_key_spki: &[u8],
+        key_id: &str,
+    ) -> Result<(), MaintenanceHarnessError> {
+        let private_key = replacement
+            .to_pkcs8_der()
+            .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
+        let record = SyntheticClientKeyRecord {
+            algorithm: DEV_TUN_INSTALLATION_KEY_ALGORITHM.into(),
+            key_id: key_id.into(),
+            private_key_pkcs8: BASE64.encode(private_key.as_bytes()),
+            public_key_spki: BASE64.encode(public_key_spki),
+            schema_version: DEV_TUN_INSTALLATION_KEY_RECORD_VERSION,
+        };
+        write_private_json(
+            &self.runtime_root.join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME),
+            &record,
+        )
+    }
+
+    fn promote_pending_client_key(&self, key_id: &str) -> Result<(), MaintenanceHarnessError> {
+        let (_, source) = self
+            .client_keys
+            .sign(key_id, b"simulated-client-key-promotion")
+            .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
+        self.client_keys
+            .finalize_pending(source)
+            .map_err(|_| MaintenanceHarnessError::StateUnavailable)
+    }
+
+    fn discard_pending_client_key(&self) -> Result<(), MaintenanceHarnessError> {
+        let path = self.runtime_root.join(DEV_TUN_PENDING_CLIENT_KEY_FILE_NAME);
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(MaintenanceHarnessError::StateUnavailable),
+        }
     }
 
     fn mark_bounded_disabled(&self, host: &Arc<SimulatedHost>, reason: &str) -> Result<(), String> {
@@ -1888,15 +2053,28 @@ impl MaintenanceEngine {
         request.new_signature = sign(&replacement, &transcript);
         let request_path = self.state_root.path().join("rotation.json");
         write_private_json(&request_path, &request)?;
-        let receipt = apply_installation_enrollment_operation(
+        self.stage_pending_client_key(
+            &replacement,
+            replacement_public.as_bytes(),
+            &replacement_key_id,
+        )?;
+        let receipt = match apply_installation_enrollment_operation(
             InstallationEnrollmentOperation::Rotate,
             std::slice::from_ref(&request_path),
             &self.enrollment_path,
             &installation_id,
             uid(),
             false,
-        )
-        .map_err(|_| MaintenanceHarnessError::Rejected("dual-proof-rotation-rejected".into()))?;
+        ) {
+            Ok(receipt) => receipt,
+            Err(_) => {
+                self.discard_pending_client_key()?;
+                return Err(MaintenanceHarnessError::Rejected(
+                    "dual-proof-rotation-rejected".into(),
+                ));
+            }
+        };
+        self.promote_pending_client_key(&replacement_key_id)?;
         self.with_maintenance(&host, |maintenance| {
             let installed = maintenance
                 .installed
@@ -1944,15 +2122,24 @@ impl MaintenanceEngine {
         };
         let path = self.state_root.path().join("reset.json");
         write_private_json(&path, &candidate)?;
-        let receipt = apply_installation_enrollment_operation(
+        self.stage_pending_client_key(&replacement, public.as_bytes(), &candidate.key_id)?;
+        let receipt = match apply_installation_enrollment_operation(
             InstallationEnrollmentOperation::Reset,
             std::slice::from_ref(&path),
             &self.enrollment_path,
             &installation_id,
             uid(),
             false,
-        )
-        .map_err(|_| MaintenanceHarnessError::Rejected("lost-key-reset-rejected".into()))?;
+        ) {
+            Ok(receipt) => receipt,
+            Err(_) => {
+                self.discard_pending_client_key()?;
+                return Err(MaintenanceHarnessError::Rejected(
+                    "lost-key-reset-rejected".into(),
+                ));
+            }
+        };
+        self.promote_pending_client_key(&candidate.key_id)?;
         self.with_maintenance(&host, |maintenance| {
             let installed = maintenance
                 .installed
@@ -2593,17 +2780,68 @@ fn sign(key: &SigningKey, transcript: &[u8]) -> String {
     BASE64.encode(signature.to_der().as_bytes())
 }
 
+fn read_optional_private_file(
+    path: &std::path::Path,
+) -> Result<Option<Vec<u8>>, MaintenanceHarnessError> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(MaintenanceHarnessError::StateUnavailable),
+    }
+}
+
+fn snapshot_optional_private_file(
+    source: &std::path::Path,
+    backup: &std::path::Path,
+) -> Result<(), MaintenanceHarnessError> {
+    match read_optional_private_file(source)? {
+        Some(bytes) => write_private_bytes(backup, &bytes),
+        None => remove_optional_private_file(backup),
+    }
+}
+
+fn restore_optional_private_file_from_backup(
+    target: &std::path::Path,
+    backup: &std::path::Path,
+) -> Result<(), MaintenanceHarnessError> {
+    restore_optional_private_file(target, &read_optional_private_file(backup)?)
+}
+
+fn restore_optional_private_file(
+    path: &std::path::Path,
+    backup: &Option<Vec<u8>>,
+) -> Result<(), MaintenanceHarnessError> {
+    match backup {
+        Some(bytes) => write_private_bytes(path, bytes),
+        None => remove_optional_private_file(path),
+    }
+}
+
+fn remove_optional_private_file(path: &std::path::Path) -> Result<(), MaintenanceHarnessError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(MaintenanceHarnessError::StateUnavailable),
+    }
+}
+
+fn write_private_bytes(
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), MaintenanceHarnessError> {
+    fs::write(path, bytes).map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|_| MaintenanceHarnessError::StateUnavailable)
+}
+
 fn write_private_json(
     path: &std::path::Path,
     value: &impl Serialize,
 ) -> Result<(), MaintenanceHarnessError> {
-    fs::write(
+    write_private_bytes(
         path,
-        serde_json::to_vec(value).map_err(|_| MaintenanceHarnessError::StateUnavailable)?,
+        &serde_json::to_vec(value).map_err(|_| MaintenanceHarnessError::StateUnavailable)?,
     )
-    .map_err(|_| MaintenanceHarnessError::StateUnavailable)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|_| MaintenanceHarnessError::StateUnavailable)
 }
 
 trait PackageInputOutcome {

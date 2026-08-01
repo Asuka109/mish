@@ -15,11 +15,12 @@ use mish_platform_macos::internal_tun_maintenance::{
 use mish_runtime::{CaptureRequest, CaptureSelection, StatusAdapterKind, TunHelperFailureKind};
 use mish_settings::SettingsServiceError;
 use mish_simulated_host::{
-    EffectKind, MAX_TRANSCRIPT_LIMIT, MaintenanceFault, MaintenanceFaultKind, MaintenanceScenario,
-    MaintenanceScenarioRuntime, ScenarioObservation, ScheduledChange, SimulatedHostScenario,
-    SyntheticMaintenanceInitial, SyntheticOwnership, SyntheticPackageVersion, SyntheticProxyState,
-    TEST_AUTH_TOKEN,
+    EffectKind, MAX_TRANSCRIPT_LIMIT, MaintenanceCompletionInjection, MaintenanceFault,
+    MaintenanceFaultKind, MaintenanceScenario, MaintenanceScenarioRuntime, ScenarioObservation,
+    ScheduledChange, SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticOwnership,
+    SyntheticPackageVersion, SyntheticProxyState, TEST_AUTH_TOKEN,
 };
+use mish_state_machine::Disposition;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 use tokio_tungstenite::{
@@ -396,7 +397,7 @@ async fn reinstall_repair_upgrade_downgrade_rotation_reset_and_uninstall_are_typ
 
     let keys = build(
         SyntheticMaintenanceInitial::HealthyV1,
-        SyntheticPackageVersion::V1,
+        SyntheticPackageVersion::V2,
         Vec::new(),
     )
     .await;
@@ -410,6 +411,14 @@ async fn reinstall_repair_upgrade_downgrade_rotation_reset_and_uninstall_are_typ
             .enrollment_generation
             .map(|generation| generation + 1)
     );
+    handoff_capture(&keys).await;
+    repair(&keys).await.unwrap();
+    let upgraded_after_rotation = keys.host.maintenance_observation().unwrap();
+    assert_eq!(
+        upgraded_after_rotation.installation_id,
+        Some("2".repeat(64))
+    );
+    assert_eq!(upgraded_after_rotation.key_id, rotated.key_id);
     assert!(keys.maintenance.reset_lost_key(false).is_err());
     let before_reset = keys.host.maintenance_observation().unwrap();
     keys.maintenance.reset_lost_key(true).unwrap();
@@ -421,6 +430,9 @@ async fn reinstall_repair_upgrade_downgrade_rotation_reset_and_uninstall_are_typ
             .enrollment_generation
             .map(|generation| generation + 1)
     );
+    keys.maintenance.rotate_key_with_dual_proof().unwrap();
+    let rotated_after_reset = keys.host.maintenance_observation().unwrap();
+    assert_ne!(rotated_after_reset.key_id, reset.key_id);
 
     let uninstall = build(
         SyntheticMaintenanceInitial::HealthyV1,
@@ -461,6 +473,102 @@ async fn reinstall_repair_upgrade_downgrade_rotation_reset_and_uninstall_are_typ
         journal.terminal.unwrap().outcome,
         MaintenanceTerminalOutcome::Uninstalled
     );
+}
+
+#[tokio::test]
+async fn post_enrollment_rollback_restores_credentials_for_followup_maintenance() {
+    let scenario = build(
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V2,
+        vec![MaintenanceFault {
+            at: MaintenanceCommitPoint::ReceiptCommitted,
+            kind: MaintenanceFaultKind::DiskFull,
+        }],
+    )
+    .await;
+    handoff_capture(&scenario).await;
+    assert!(repair(&scenario).await.is_err());
+    let rolled_back = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(rolled_back.installation_id, Some("1".repeat(64)));
+    assert_eq!(
+        scenario
+            .maintenance
+            .journal_snapshot()
+            .unwrap()
+            .terminal
+            .unwrap()
+            .outcome,
+        MaintenanceTerminalOutcome::RolledBack
+    );
+
+    scenario
+        .maintenance
+        .configure(SyntheticPackageVersion::V2, Vec::new())
+        .unwrap();
+    scenario.maintenance.rotate_key_with_dual_proof().unwrap();
+    repair(&scenario).await.unwrap();
+    let recovered = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(recovered.installation_id, Some("2".repeat(64)));
+}
+
+#[tokio::test]
+async fn runner_injections_retire_stale_and_deduplicate_equal_stage_completions() {
+    for (injection, expected) in [
+        (
+            MaintenanceCompletionInjection::StaleStage,
+            Disposition::Retired,
+        ),
+        (
+            MaintenanceCompletionInjection::EqualStage,
+            Disposition::EffectEmitting,
+        ),
+    ] {
+        let scenario = build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V2,
+            Vec::new(),
+        )
+        .await;
+        handoff_capture(&scenario).await;
+        scenario
+            .maintenance
+            .pause_at(MaintenanceCommitPoint::IntentPersisted, 1)
+            .unwrap();
+        let settings = scenario.settings_service.clone();
+        let operation = tokio::spawn(async move { settings.repair_tun_helper().await });
+        settle_until(|| scenario.maintenance.journal_snapshot().is_some()).await;
+
+        let admitted = tokio::time::timeout(
+            Duration::from_secs(2),
+            scenario.maintenance.inject_stage_completion(injection),
+        )
+        .await
+        .expect("injected completion must be admitted")
+        .unwrap();
+        assert_eq!(admitted, expected, "{injection:?}");
+
+        scenario.host.advance_to(1).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), operation)
+                .await
+                .expect("maintenance must settle after injected completion")
+                .unwrap()
+                .is_ok(),
+            "{injection:?} must not alter the terminal maintenance result"
+        );
+        assert_eq!(
+            scenario
+                .host
+                .observation()
+                .transcript
+                .events
+                .iter()
+                .filter(|event| event.effect_kind == EffectKind::MaintenanceAuthorize)
+                .count(),
+            1,
+            "{injection:?} must not start a second authorization effect"
+        );
+    }
 }
 
 #[tokio::test]
