@@ -84,8 +84,54 @@ export const MobileVpnNotificationPermissionSchema = z.enum([
 ]);
 export type MobileVpnNotificationPermission = z.infer<typeof MobileVpnNotificationPermissionSchema>;
 
+export const MobileVpnLifecycleCommandKindSchema = z.enum([
+  "request-notification-permission",
+  "request-vpn-consent",
+  "start",
+  "stop",
+]);
+export const MobileVpnLifecycleOperationOutcomeSchema = z.enum([
+  "pending",
+  "completed",
+  "rejected",
+  "cancelled",
+  "unknown",
+]);
+export const MobileVpnLifecycleFailureSchema = z.enum([
+  "busy",
+  "cancelled",
+  "invalid-command",
+  "invalid-recovery-evidence",
+  "permission-denied",
+  "platform-failure",
+  "service-destroyed",
+  "stale-platform-authority",
+  "timeout",
+]);
+export const MobileVpnLifecycleOperationSchema = z
+  .object({
+    failure: MobileVpnLifecycleFailureSchema.nullable(),
+    kind: MobileVpnLifecycleCommandKindSchema,
+    operationId: IdentifierSchema.max(128),
+    outcome: MobileVpnLifecycleOperationOutcomeSchema,
+  })
+  .strict()
+  .superRefine((operation, context) => {
+    if (operation.outcome === "pending" && operation.failure !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "A pending lifecycle operation cannot carry terminal failure evidence",
+        path: ["failure"],
+      });
+    }
+  });
+export interface MobileVpnLifecycleOperationDto extends z.infer<
+  typeof MobileVpnLifecycleOperationSchema
+> {}
+
 export const MobileVpnSnapshotSchema = z
   .object({
+    authorityId: IdentifierSchema.max(128),
     backendKind: z.literal("fixture"),
     contractVersion: z.literal(1),
     coreAbiVersion: z.literal(1).nullable(),
@@ -103,8 +149,10 @@ export const MobileVpnSnapshotSchema = z
     loadedConfigRevision: z.string().min(1).max(128).nullable(),
     message: z.string().min(1).max(512),
     notificationPermission: MobileVpnNotificationPermissionSchema,
+    operation: MobileVpnLifecycleOperationSchema.nullable(),
     permission: MobileVpnPermissionSchema,
     phase: MobileVpnPhaseSchema,
+    revision: z.number().int().nonnegative(),
     sequence: z.number().int().nonnegative(),
     sessionId: z.string().min(1).max(128),
     updatedAtMillis: z.number().int().nonnegative(),
@@ -175,8 +223,10 @@ export interface MobileVpnSnapshotDto extends z.infer<typeof MobileVpnSnapshotSc
 
 export const MobileVpnEventSchema = z
   .object({
+    authorityId: IdentifierSchema.max(128),
     eventKind: z.literal("snapshot-changed"),
-    eventVersion: z.literal(1),
+    eventVersion: z.literal(2),
+    revision: z.number().int().nonnegative(),
     sequence: z.number().int().nonnegative(),
     sessionId: z.string().min(1).max(128),
     snapshot: MobileVpnSnapshotSchema,
@@ -184,6 +234,8 @@ export const MobileVpnEventSchema = z
   .strict()
   .superRefine((event, context) => {
     if (
+      event.authorityId !== event.snapshot.authorityId ||
+      event.revision !== event.snapshot.revision ||
       event.sequence !== event.snapshot.sequence ||
       event.sessionId !== event.snapshot.sessionId
     ) {
@@ -194,6 +246,35 @@ export const MobileVpnEventSchema = z
     }
   });
 export interface MobileVpnEventDto extends z.infer<typeof MobileVpnEventSchema> {}
+
+export const MobileVpnCommandResultSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    operation: MobileVpnLifecycleOperationSchema,
+    snapshot: MobileVpnSnapshotSchema,
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (result.operation.outcome === "pending") {
+      context.addIssue({
+        code: "custom",
+        message: "Lifecycle commands must settle terminally or explicitly unknown",
+        path: ["operation", "outcome"],
+      });
+    }
+    if (
+      result.snapshot.operation === null ||
+      result.snapshot.operation.operationId !== result.operation.operationId ||
+      result.snapshot.operation.outcome !== result.operation.outcome
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Lifecycle command result must match the authoritative snapshot operation",
+        path: ["snapshot", "operation"],
+      });
+    }
+  });
+export interface MobileVpnCommandResultDto extends z.infer<typeof MobileVpnCommandResultSchema> {}
 
 export const MobileConfigValidationFailureSchema = z.enum([
   "cancelled",

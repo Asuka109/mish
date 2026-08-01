@@ -34,7 +34,7 @@ class MishMobileCoreValidationTest {
     }
 
     @Test
-    fun `valid and rejected fictional bytes preserve VPN and Core snapshot state`() {
+    fun `valid and rejected fictional bytes preserve platform facts`() {
         val repository = ValidationRepository()
         val initial = repository.current()
         val validator = SequencedValidator(
@@ -54,7 +54,6 @@ class MishMobileCoreValidationTest {
         assertEquals("configuration-rejected", invalid.failure)
         assertEquals(initial, repository.current())
         assertEquals("unavailable", repository.current().coreAvailability)
-        assertFalse(repository.current().vpnActive)
     }
 
     @Test
@@ -76,8 +75,8 @@ class MishMobileCoreValidationTest {
         val initial = repository.current()
         val args = ValidateConfigArgs().apply {
             configBytes = IntArray(MOBILE_CORE_MAX_CONFIG_BYTES_V1 + 1)
-            sequence = initial.sequence
-            sessionId = initial.sessionId
+            sequence = initial.factSequence
+            sessionId = initial.platformSessionId
         }
 
         val result = coordinator.validate(args)
@@ -105,8 +104,8 @@ class MishMobileCoreValidationTest {
         )
         val initial = repository.current()
         val malformed = ValidateConfigArgs().apply {
-            sequence = initial.sequence
-            sessionId = initial.sessionId
+            sequence = initial.factSequence
+            sessionId = initial.platformSessionId
         }
 
         val result = validateConfigSafely(coordinator, malformed, repository::current)
@@ -205,26 +204,26 @@ class MishMobileCoreValidationTest {
     }
 }
 
-private fun args(snapshot: MobileVpnSnapshot, config: String): ValidateConfigArgs =
+private fun args(snapshot: MobilePlatformFacts, config: String): ValidateConfigArgs =
     ValidateConfigArgs().apply {
         configBytes = config.toByteArray().map { it.toInt() and 0xff }.toIntArray()
-        sequence = snapshot.sequence
-        sessionId = snapshot.sessionId
+        sequence = snapshot.factSequence
+        sessionId = snapshot.platformSessionId
     }
 
-private class ValidationRepository : SnapshotRepository {
-    private val snapshot = MobileVpnSnapshot(
+private class ValidationRepository : PlatformFactRepository {
+    private val snapshot = MobilePlatformFacts(
         coreAvailability = "unavailable",
-        phase = VpnPhase.STOPPED.wireName,
-        sequence = 11,
-        sessionId = "validation-session",
-        vpnActive = false,
+        factSequence = 11,
+        platformSessionId = "validation-session",
     )
 
-    override fun current(): MobileVpnSnapshot = snapshot
+    override fun current(): MobilePlatformFacts = snapshot
 
-    override fun update(transform: (MobileVpnSnapshot) -> MobileVpnSnapshot): MobileVpnSnapshot {
-        throw AssertionError("Configuration validation must not update VPN state")
+    override fun update(
+        transform: (MobilePlatformFacts) -> MobilePlatformFacts,
+    ): MobilePlatformFacts {
+        throw AssertionError("Configuration validation must not update platform facts")
     }
 }
 

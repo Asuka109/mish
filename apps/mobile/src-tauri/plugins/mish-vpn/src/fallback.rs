@@ -1,9 +1,11 @@
 use tauri::{AppHandle, Runtime, plugin::PluginApi};
 
+use crate::lifecycle::LifecycleCommandKind;
 use crate::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadFailure,
     MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
-    MobileConfigValidationRequest, MobileConfigValidationResult, MobileVpnSnapshot, Result,
+    MobileConfigValidationRequest, MobileConfigValidationResult, MobileVpnCommandRequest,
+    MobileVpnCommandResult, MobileVpnSnapshot, Result,
 };
 
 #[derive(Clone)]
@@ -14,27 +16,58 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, _api: PluginApi<R, ()>) -> Result<Mi
 }
 
 impl<R: Runtime> MishVpn<R> {
-    pub fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
+    pub async fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
         Ok(MobileVpnSnapshot::unsupported())
     }
 
-    pub fn request_notification_permission(&self) -> Result<MobileVpnSnapshot> {
-        self.get_snapshot()
+    pub async fn request_notification_permission(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        Ok(MobileVpnCommandResult::unsupported(
+            request.operation_id,
+            LifecycleCommandKind::RequestNotificationPermission,
+        ))
     }
 
-    pub fn request_vpn_consent(&self) -> Result<MobileVpnSnapshot> {
-        self.get_snapshot()
+    pub async fn request_vpn_consent(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        Ok(MobileVpnCommandResult::unsupported(
+            request.operation_id,
+            LifecycleCommandKind::RequestVpnConsent,
+        ))
     }
 
-    pub fn start_fixture_lifecycle(&self) -> Result<MobileVpnSnapshot> {
-        self.get_snapshot()
+    pub async fn start_fixture_lifecycle(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        Ok(MobileVpnCommandResult::unsupported(
+            request.operation_id,
+            LifecycleCommandKind::Start,
+        ))
     }
 
-    pub fn stop(&self) -> Result<MobileVpnSnapshot> {
-        self.get_snapshot()
+    pub async fn stop(&self, request: MobileVpnCommandRequest) -> Result<MobileVpnCommandResult> {
+        Ok(MobileVpnCommandResult::unsupported(
+            request.operation_id,
+            LifecycleCommandKind::Stop,
+        ))
     }
 
-    pub fn validate_config(
+    pub async fn cancel_lifecycle_operation(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        Ok(MobileVpnCommandResult::unsupported(
+            request.operation_id,
+            LifecycleCommandKind::Stop,
+        ))
+    }
+
+    pub async fn validate_config(
         &self,
         request: MobileConfigValidationRequest,
     ) -> MobileConfigValidationResult {
@@ -58,14 +91,15 @@ impl<R: Runtime> MishVpn<R> {
         )
     }
 
-    pub fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
+    pub async fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
         if let Some(result) = MobileConfigLoadResult::preflight(&request) {
             return result;
         }
-        MobileConfigLoadResult::plugin_failure(&request, self.get_snapshot().ok()).with_failure(
-            MobileConfigLoadFailure::CoreUnavailable,
-            "Mobile Core configuration loading is unavailable on this platform.",
-        )
+        MobileConfigLoadResult::plugin_failure(&request, Some(MobileVpnSnapshot::unsupported()))
+            .with_failure(
+                MobileConfigLoadFailure::CoreUnavailable,
+                "Mobile Core configuration loading is unavailable on this platform.",
+            )
     }
 
     pub fn cancel_config_load(

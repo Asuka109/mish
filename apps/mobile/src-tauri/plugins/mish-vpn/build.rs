@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "request_vpn_consent",
     "start_fixture_lifecycle",
     "stop",
+    "cancel_lifecycle_operation",
     "validate_config",
     "load_config",
     "cancel_config_load",

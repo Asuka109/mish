@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[cfg(not(target_os = "android"))]
+use crate::lifecycle::{
+    LifecycleFailure, LifecycleOperation, LifecycleOperationOutcome, LifecyclePhase, LifecycleState,
+};
+
 pub const CONTRACT_VERSION: u8 = 1;
 pub const MOBILE_CORE_MAX_CONFIG_BYTES_V1: usize = 1_048_576;
 pub const MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS: u64 = 30_000;
@@ -9,6 +12,7 @@ pub const MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS: u64 = 30_000;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileVpnSnapshot {
+    pub authority_id: String,
     pub backend_kind: String,
     pub contract_version: u8,
     pub core_abi_version: Option<u8>,
@@ -23,8 +27,10 @@ pub struct MobileVpnSnapshot {
     pub loaded_config_revision: Option<String>,
     pub message: String,
     pub notification_permission: String,
+    pub operation: Option<LifecycleOperation>,
     pub permission: String,
     pub phase: String,
+    pub revision: u64,
     pub sequence: u64,
     pub session_id: String,
     pub updated_at_millis: u64,
@@ -36,9 +42,69 @@ pub struct MobileVpnSnapshot {
 }
 
 impl MobileVpnSnapshot {
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn from_lifecycle(state: &LifecycleState) -> Self {
+        let message = match state.phase {
+            LifecyclePhase::Stopped => {
+                "Android VPN lifecycle stopped safely. No TUN or Mobile Core is running."
+            }
+            LifecyclePhase::PermissionRequired => {
+                "Android VPN permission is required. No service or traffic capture was started."
+            }
+            LifecyclePhase::Starting => {
+                "Starting the Android foreground-service fixture. No TUN or Mobile Core will start."
+            }
+            LifecyclePhase::Running => {
+                "Android reported a running lifecycle that this fixture cannot authorize."
+            }
+            LifecyclePhase::Stopping => {
+                "Stopping the Android foreground-service fixture and cleaning up platform resources."
+            }
+            LifecyclePhase::Failed => {
+                "The Android lifecycle failed safely without exposing platform details."
+            }
+            LifecyclePhase::RecoveryRequired => {
+                "The previous Android lifecycle outcome is unknown. Stop and retry explicitly."
+            }
+            LifecyclePhase::Unavailable => {
+                "The foreground-service fixture completed without creating a TUN or starting Mobile Core."
+            }
+        };
+        Self {
+            authority_id: state.authority_id.clone(),
+            backend_kind: "fixture".into(),
+            contract_version: CONTRACT_VERSION,
+            core_abi_version: state.facts.core_abi_version,
+            core_availability: state.facts.core_availability.clone(),
+            core_commit: state.facts.core_commit.clone(),
+            config_failure_injection_available: state.facts.config_failure_injection_available,
+            core_version: state.facts.core_version.clone(),
+            core_wrapper_revision: state.facts.core_wrapper_revision.clone(),
+            core_config_state: state.facts.core_config_state.clone(),
+            foreground: state.facts.service_foreground,
+            loaded_config_digest: state.facts.loaded_config_digest.clone(),
+            loaded_config_revision: state.facts.loaded_config_revision.clone(),
+            message: message.into(),
+            notification_permission: state.facts.notification_permission.clone(),
+            operation: state.latest_operation(),
+            permission: state.facts.vpn_permission.clone(),
+            phase: phase_wire_name(state.phase).into(),
+            revision: state.revision,
+            sequence: state.sequence,
+            session_id: state.session_id.clone(),
+            updated_at_millis: state.facts.observed_at_millis,
+            validated_config_digest: state.facts.validated_config_digest.clone(),
+            validated_config_revision: state.facts.validated_config_revision.clone(),
+            vpn_active: false,
+            vpn_availability: "unavailable".into(),
+            tun_availability: "unavailable".into(),
+        }
+    }
+
     #[cfg(not(target_os = "android"))]
     pub(crate) fn unsupported() -> Self {
         Self {
+            authority_id: "non-android-authority".into(),
             backend_kind: "fixture".into(),
             contract_version: CONTRACT_VERSION,
             core_abi_version: None,
@@ -53,8 +119,10 @@ impl MobileVpnSnapshot {
             loaded_config_revision: None,
             message: "The Android VPN lifecycle fixture is unavailable on this platform.".into(),
             notification_permission: "not-required".into(),
+            operation: None,
             permission: "unknown".into(),
             phase: "unavailable".into(),
+            revision: 0,
             sequence: 0,
             session_id: "non-android-fixture".into(),
             updated_at_millis: 0,
@@ -63,6 +131,112 @@ impl MobileVpnSnapshot {
             vpn_active: false,
             vpn_availability: "unavailable".into(),
             tun_availability: "unavailable".into(),
+        }
+    }
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn phase_wire_name(phase: LifecyclePhase) -> &'static str {
+    match phase {
+        LifecyclePhase::Stopped => "stopped",
+        LifecyclePhase::PermissionRequired => "permission-required",
+        LifecyclePhase::Starting => "starting",
+        LifecyclePhase::Running => "running",
+        LifecyclePhase::Stopping => "stopping",
+        LifecyclePhase::Failed => "failed",
+        LifecyclePhase::RecoveryRequired => "recovery-required",
+        LifecyclePhase::Unavailable => "unavailable",
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MobileVpnCommandRequest {
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MobileVpnCommandResult {
+    pub contract_version: u8,
+    pub operation: LifecycleOperation,
+    pub snapshot: MobileVpnSnapshot,
+}
+
+impl MobileVpnCommandResult {
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn from_state(state: &LifecycleState, operation_id: &str) -> Option<Self> {
+        let operation = state.operation(operation_id)?.clone();
+        if operation.outcome == LifecycleOperationOutcome::Pending {
+            return None;
+        }
+        Some(Self {
+            contract_version: CONTRACT_VERSION,
+            operation,
+            snapshot: MobileVpnSnapshot::from_lifecycle(state),
+        })
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn invalid(
+        operation_id: String,
+        kind: crate::lifecycle::LifecycleCommandKind,
+        snapshot: MobileVpnSnapshot,
+    ) -> Self {
+        Self {
+            contract_version: CONTRACT_VERSION,
+            operation: LifecycleOperation {
+                failure: Some(LifecycleFailure::InvalidCommand),
+                kind,
+                operation_id,
+                outcome: LifecycleOperationOutcome::Rejected,
+            },
+            snapshot,
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub(crate) fn unsupported(
+        operation_id: String,
+        kind: crate::lifecycle::LifecycleCommandKind,
+    ) -> Self {
+        Self {
+            contract_version: CONTRACT_VERSION,
+            operation: LifecycleOperation {
+                failure: Some(LifecycleFailure::PlatformFailure),
+                kind,
+                operation_id,
+                outcome: LifecycleOperationOutcome::Unknown,
+            },
+            snapshot: MobileVpnSnapshot::unsupported(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) struct MobileVpnEvent {
+    pub authority_id: String,
+    pub event_kind: &'static str,
+    pub event_version: u8,
+    pub revision: u64,
+    pub sequence: u64,
+    pub session_id: String,
+    pub snapshot: MobileVpnSnapshot,
+}
+
+impl MobileVpnEvent {
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn from_state(state: &LifecycleState) -> Self {
+        Self {
+            authority_id: state.authority_id.clone(),
+            event_kind: "snapshot-changed",
+            event_version: 2,
+            revision: state.revision,
+            sequence: state.sequence,
+            session_id: state.session_id.clone(),
+            snapshot: MobileVpnSnapshot::from_lifecycle(state),
         }
     }
 }
@@ -269,7 +443,7 @@ impl MobileConfigLoadResult {
         self
     }
 
-    fn failure(
+    pub(crate) fn failure(
         request: &MobileConfigLoadRequest,
         failure: MobileConfigLoadFailure,
         message: &str,

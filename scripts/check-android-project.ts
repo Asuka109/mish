@@ -23,6 +23,8 @@ const pluginNativeBridge = source(`${pluginRoot}/android/src/main/cpp/mish_vpn_j
 const mobileCoreHeader = source("mobile-core/abi/mish_mobile_core.h");
 const pluginPermission = source(`${pluginRoot}/permissions/default.toml`);
 const pluginRustModels = source(`${pluginRoot}/src/models.rs`);
+const pluginRustLifecycle = source(`${pluginRoot}/src/lifecycle.rs`);
+const pluginRustAndroid = source(`${pluginRoot}/src/android.rs`);
 const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
@@ -30,6 +32,7 @@ const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
   scripts?: Record<string, string>;
 };
 const mobilePermission = source("apps/mobile/src-tauri/permissions/mobile_fixture_bootstrap.toml");
+const mobileCapability = source("apps/mobile/src-tauri/capabilities/mobile.json");
 const mobileRust = source("apps/mobile/src-tauri/src/lib.rs");
 const tauri = source("apps/mobile/src-tauri/tauri.conf.json");
 const kotlinRoot = resolve(root, pluginRoot, "android/src/main/java/com/asuka109/mish/vpn");
@@ -159,7 +162,10 @@ for (const requirement of [
   "FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED",
   "NotificationChannel(",
   "Executors.newSingleThreadExecutor",
-  "class FixtureVpnBackend",
+  "class MishVpnPlatformStore",
+  "PlatformRecoveryEvidence",
+  "serviceStarted",
+  "serviceDestroyed",
   'System.loadLibrary("mish_vpn_jni")',
   "class MishMobileCoreProbe",
   "class MobileConfigValidationCoordinator",
@@ -168,14 +174,55 @@ for (const requirement of [
   "nativeLoadConfig",
   "nativeInspectLoadedConfig",
   "MOBILE_CORE_MAX_CONFIG_BYTES_V1",
-  "recoverAfterProcessStart",
-  'trigger("snapshot"',
+  "getPlatformFacts",
+  "startPlatformLifecycle",
+  'trigger("facts"',
 ]) {
   invariant(
     kotlin.includes(requirement),
     `Android VPN lifecycle source is missing: ${requirement}`,
   );
 }
+for (const forbidden of [
+  "class MishVpnStateMachine",
+  "enum class VpnPhase",
+  "data class MobileVpnSnapshot",
+  "Failed to persist the authoritative Android VPN lifecycle snapshot",
+]) {
+  invariant(
+    !kotlin.includes(forbidden),
+    `Kotlin must remain a platform facts/effects adapter, not product authority: ${forbidden}`,
+  );
+}
+invariant(
+  kotlin.includes(".remove(LEGACY_PRODUCT_SNAPSHOT)") && !kotlin.includes("putString(SNAPSHOT"),
+  "The unreleased Kotlin product snapshot must be deleted rather than migrated or rewritten.",
+);
+for (const requirement of [
+  "pub(crate) struct LifecycleMachine",
+  "impl Machine for LifecycleMachine",
+  "LifecycleOperationOutcome",
+  "machine_authority",
+  "scope_epoch",
+  "admitted_revision",
+  "LifecycleFailure",
+  "PlatformRecoveryEvidence",
+]) {
+  invariant(
+    pluginRustLifecycle.includes(requirement),
+    `Shared Rust lifecycle authority is missing: ${requirement}`,
+  );
+}
+invariant(
+  pluginRustAndroid.includes('emit("mish-vpn://snapshot"') &&
+    pluginRustAndroid.includes('event: "facts"') &&
+    mobileVpnClient.includes('listen("mish-vpn://snapshot"') &&
+    mobileCapability.includes('"core:event:allow-listen"') &&
+    mobileCapability.includes('"core:event:allow-unlisten"') &&
+    mobileVpnClient.includes("acceptBaseline") &&
+    mobileVpnClient.includes("retiredAuthorityIds"),
+  "Rust-to-React delivery must require a complete baseline and authority/session ordering.",
+);
 for (const forbidden of [".establish(", "ParcelFileDescriptor", "libmihomo", "MihomoCore"]) {
   invariant(
     !kotlin.includes(forbidden),
@@ -236,6 +283,7 @@ for (const command of [
   "request_vpn_consent",
   "start_fixture_lifecycle",
   "stop",
+  "cancel_lifecycle_operation",
   "validate_config",
   "load_config",
   "cancel_config_load",
@@ -266,5 +314,5 @@ invariant(
 );
 
 console.log(
-  "Android project valid: API 36, protected fixture VpnService, bounded Mobile Core validation/load bridge with truthful unavailable VPN/TUN, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, Shared Rust-authoritative fixture lifecycle, Kotlin platform facts/effects, bounded Mobile Core validation/load bridge, truthful unavailable VPN/TUN, predictive back, and no generated TV/FileProvider residue.",
 );

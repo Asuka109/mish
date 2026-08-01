@@ -33,6 +33,12 @@
       "recoveryBoundary": "The existing Capture journal and exact prior System Proxy/TUN state remain authoritative; restart and every terminal apply restore are decided from fresh platform observation and explicit drift/recovery-required evidence."
     },
     {
+      "id": "android-fixture-vpn-lifecycle",
+      "classification": "conforming",
+      "canonicalOwner": "apps/mobile/src-tauri/plugins/mish-vpn/src/lifecycle.rs",
+      "recoveryBoundary": "A minimal Kotlin-owned foreground-service recovery record plus fresh VPN permission and service facts; invalid, ambiguous, or prior-process evidence becomes safely stopped or recovery-required under the new Rust authority."
+    },
+    {
       "id": "application-core-lifecycle",
       "classification": "migration-required",
       "canonicalOwner": "crates/desktop-bridge",

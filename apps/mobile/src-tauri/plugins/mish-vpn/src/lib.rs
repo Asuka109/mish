@@ -8,7 +8,12 @@ mod android;
 mod error;
 #[cfg(not(target_os = "android"))]
 mod fallback;
+mod lifecycle;
 mod models;
+
+pub use lifecycle::{
+    LifecycleCommandKind, LifecycleFailure, LifecycleOperation, LifecycleOperationOutcome,
+};
 
 #[cfg(target_os = "android")]
 use android as platform;
@@ -20,50 +25,80 @@ pub use models::{
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
     MobileConfigLoadResult, MobileConfigLoadTiming, MobileConfigRollback,
     MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
-    MobileVpnSnapshot,
+    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot,
 };
 
 #[tauri::command]
-fn get_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
-    app.state::<platform::MishVpn<R>>().get_snapshot()
+async fn get_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
+    app.state::<platform::MishVpn<R>>().get_snapshot().await
 }
 
 #[tauri::command]
-fn request_notification_permission<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
+async fn request_notification_permission<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileVpnCommandRequest,
+) -> Result<MobileVpnCommandResult> {
     app.state::<platform::MishVpn<R>>()
-        .request_notification_permission()
+        .request_notification_permission(request)
+        .await
 }
 
 #[tauri::command]
-fn request_vpn_consent<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
-    app.state::<platform::MishVpn<R>>().request_vpn_consent()
-}
-
-#[tauri::command]
-fn start_fixture_lifecycle<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
+async fn request_vpn_consent<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileVpnCommandRequest,
+) -> Result<MobileVpnCommandResult> {
     app.state::<platform::MishVpn<R>>()
-        .start_fixture_lifecycle()
+        .request_vpn_consent(request)
+        .await
 }
 
 #[tauri::command]
-fn stop<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
-    app.state::<platform::MishVpn<R>>().stop()
+async fn start_fixture_lifecycle<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileVpnCommandRequest,
+) -> Result<MobileVpnCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .start_fixture_lifecycle(request)
+        .await
 }
 
 #[tauri::command]
-fn validate_config<R: Runtime>(
+async fn stop<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileVpnCommandRequest,
+) -> Result<MobileVpnCommandResult> {
+    app.state::<platform::MishVpn<R>>().stop(request).await
+}
+
+#[tauri::command]
+async fn cancel_lifecycle_operation<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileVpnCommandRequest,
+) -> Result<MobileVpnCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .cancel_lifecycle_operation(request)
+        .await
+}
+
+#[tauri::command]
+async fn validate_config<R: Runtime>(
     app: AppHandle<R>,
     request: MobileConfigValidationRequest,
 ) -> MobileConfigValidationResult {
-    app.state::<platform::MishVpn<R>>().validate_config(request)
+    app.state::<platform::MishVpn<R>>()
+        .validate_config(request)
+        .await
 }
 
 #[tauri::command]
-fn load_config<R: Runtime>(
+async fn load_config<R: Runtime>(
     app: AppHandle<R>,
     request: MobileConfigLoadRequest,
 ) -> MobileConfigLoadResult {
-    app.state::<platform::MishVpn<R>>().load_config(request)
+    app.state::<platform::MishVpn<R>>()
+        .load_config(request)
+        .await
 }
 
 #[tauri::command]
@@ -83,6 +118,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             request_vpn_consent,
             start_fixture_lifecycle,
             stop,
+            cancel_lifecycle_operation,
             validate_config,
             load_config,
             cancel_config_load,

@@ -3,15 +3,17 @@
 ## Scope and claim boundary
 
 Phase 0 packages the standalone Mish mobile shell with a typed Tauri native
-fixture and a Kotlin `VpnService` lifecycle prototype. The shell has Home,
+fixture, one Shared Rust lifecycle authority, and a Kotlin `VpnService`
+platform adapter. The shell has Home,
 Routes, Profiles, Activity, and Settings as its five primary destinations. It
 does not reuse the desktop loopback bridge or a desktop sidecar.
 
 The Android prototype requests VPN consent only after an explicit user action,
-uses a protected foreground service and honest notification, serializes
-lifecycle transitions, and publishes versioned snapshots and events across
-Activity or WebView recreation. Its replaceable fixture backend reports VPN
-capability as unavailable. An explicitly staged, checksum-matched native Core
+uses a protected foreground service and honest notification, and routes Kotlin
+permission/service facts through the repository-owned Rust reducer/effect
+runner. Rust publishes complete versioned snapshots and events across Activity
+or WebView recreation. The fixture reports VPN capability as unavailable. An
+explicitly staged, checksum-matched native Core
 may report its ABI and version identity through a bounded JNI probe. The typed
 mobile adapter may also carry caller-owned fictional configuration bytes through
 Tauri, Kotlin, and JNI to initialize the Core and invoke
@@ -21,11 +23,10 @@ loaded, unloaded, and unknown Core state. Loading never starts Core or changes
 VPN state. The prototype never calls
 `VpnService.Builder.establish`, creates a TUN, or captures traffic. No
 subscription, token, node, or private configuration is included. This work
-proves the **compiled shell** evidence
-level and part of the **native fixture** level defined by
+proves the **installable app** evidence level on the retained API 36 ARM64
+emulator and part of the **native fixture** level defined by
 [`../quality/mobile-validation.md`](../quality/mobile-validation.md). It does
-not prove an **installable app** because no Android device or emulator was
-connected for installation and launch, and it does not prove a device VPN.
+not prove physical-device behavior or a device VPN.
 
 ## Verified upstream requirements
 
@@ -69,17 +70,25 @@ official sources:
   **Review VPN permission** command.
 - Consent success never starts the service. The user must separately run the
   lifecycle check, and the service rechecks consent before foreground startup.
-- `MishVpnService` owns a single-thread executor. Start, stop, revoke,
-  destruction, and recovery transitions cannot mutate lifecycle state in
-  parallel.
-- Snapshots persist a session identifier and globally increasing sequence.
-  WebView listeners reject older sequences and request a complete snapshot on
-  bootstrap before accepting later events.
-- A persisted `starting`, `running`, or `stopping` phase after process creation
-  becomes `recovery-required`. Consequential commands are never replayed after
-  an unknown outcome.
-- The production Phase 0 wiring uses `FixtureVpnBackend`. Its start operation
-  always returns `unavailable`; the honest fixture notification remains
+- Shared Rust owns the data-bearing phase, operation/authority/session identity,
+  monotonic revision and sequence, terminal-or-explicitly-unknown result,
+  redacted failure, cancellation, late-completion retirement, and recovery
+  policy. Its bounded runner owns platform-effect tasks and finalizers.
+- Kotlin owns only VPN/notification permission observations, foreground-service
+  effects, Android callbacks, JNI/Core observations, and publication of typed
+  platform facts. It stores no product phase, message, session, sequence, or
+  complete product snapshot.
+- The only lifecycle persistence is a versioned minimal foreground-service
+  recovery record. The unreleased `snapshot-v1` product record is deleted rather
+  than migrated. Missing evidence is safely stopped; malformed or
+  foreground-expected evidence becomes `recovery-required` without replay.
+- React installs the Rust event listener first but buffers events until a
+  complete baseline arrives. Later updates must match baseline authority plus
+  session and advance sequence with a non-decreasing revision; prior-authority
+  and retired-session events are rejected.
+- The production Phase 0 platform adapter never receives a TUN descriptor or
+  starts Core. Rust therefore commits fixture start as `unavailable`; the honest
+  fixture notification remains
   foreground only until explicit stop, revoke, or destruction. `vpnActive`
   remains false throughout. Core availability describes only verified package
   identity; loaded configuration is reported separately and does not imply TUN
@@ -90,29 +99,33 @@ official sources:
 
 The machine started with no Android SDK or JDK. The retained set is deliberately
 limited to one JDK, one Android platform, one Build Tools version, Platform
-Tools, one NDK, and the two required Android Rust standard libraries:
+Tools, one NDK, one API 36 ARM64 emulator image, and the two required Android
+Rust standard libraries:
 
-| Component                            | Retained version         |                Measured size |
-| ------------------------------------ | ------------------------ | ---------------------------: |
-| OpenJDK                              | 17.0.19                  |                  312,500 KiB |
-| Android command-line tools           | 14742923                 |                  169,580 KiB |
-| Android SDK root                     | API 36 package set below |                3,608,916 KiB |
-| Rust ARM64 Android standard library  | stable toolchain         |                  142,032 KiB |
-| Rust x86_64 Android standard library | stable toolchain         |                  143,572 KiB |
-| **Retained total**                   |                          | **4,376,600 KiB (4.17 GiB)** |
+| Component                            | Retained version         |                 Measured size |
+| ------------------------------------ | ------------------------ | ----------------------------: |
+| OpenJDK                              | 17.0.19                  |                   312,500 KiB |
+| Android command-line tools           | 14742923                 |                   169,580 KiB |
+| Android SDK root                     | API 36 package set below |                 3,608,916 KiB |
+| Android emulator                     | 37.1.11                  |                 1,202,500 KiB |
+| API 36 Google APIs ARM64 image       | revision 7               |                 4,471,168 KiB |
+| Rust ARM64 Android standard library  | stable toolchain         |                   142,032 KiB |
+| Rust x86_64 Android standard library | stable toolchain         |                   143,572 KiB |
+| **Retained total**                   |                          | **10,050,268 KiB (9.58 GiB)** |
 
 The Android SDK root contains only:
 
 - `platforms;android-36` revision 2;
 - `build-tools;36.1.0`;
 - `platform-tools` 37.0.0; and
-- `ndk;29.0.14206865`.
+- `ndk;29.0.14206865`;
+- `emulator` 37.1.11; and
+- `system-images;android-36;google_apis;arm64-v8a` revision 7.
 
-No emulator or system image was installed. A transient Build Tools 35.0.0
-package requested during the first Gradle bootstrap was removed, as were the
-unused ARMv7 and i686 Rust targets. The retained footprint is below the 15 GiB
-budget; build intermediates and dependency caches are not part of the retained
-toolchain.
+A transient Build Tools 35.0.0 package requested during the first Gradle
+bootstrap was removed, as were the unused ARMv7 and i686 Rust targets. The
+retained footprint remains below the 15 GiB budget; build intermediates and
+dependency caches are not part of the retained toolchain.
 
 ## Reproducible setup and build
 
@@ -235,7 +248,37 @@ and its embedded bounded identity is Mihomo `v1.19.29`, commit
 `e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`, wrapper
 `mish-mobile-core-v1`. The package still uses `FixtureVpnBackend`, never creates
 a TUN, and must not be reported as a device VPN. No Android device was connected
-during this build.
+during the build itself; the installable fixture demo below used the retained
+emulator after packaging.
+
+## 2026-08-02 Rust-authority fixture demo
+
+The ARM64 debug APK was installed and cold-launched on the retained Android 16 /
+API 36 ARM64 emulator. The demo exercised VPN-consent denial and acceptance,
+notification permission, fixture start, Activity recreation by rotation,
+explicit stop, process termination, recovery-required relaunch, and explicit
+recovery reset.
+
+- Consent denial stayed permission-required and did not create the foreground
+  service. Consent acceptance alone also did not start it.
+- Fixture start returned an operation-bound completed result in `unavailable`,
+  with `foreground=true`, `vpnActive=false`, and VPN/TUN availability still
+  unavailable. The notification read `Lifecycle fixture only · no traffic
+  capture`.
+- Rotation preserved the same Rust authority, session, revision, and sequence;
+  the recreated WebView projected the complete current snapshot.
+- Explicit stop returned a completed stop result, removed foreground service and
+  notification state, and settled stopped.
+- Force-stopping the foreground fixture and cold-launching created a new Rust
+  authority whose first complete snapshot was recovery-required. The explicit
+  reset command settled stopped without replaying start.
+- `/proc/net/dev` contained no `tun0`; the only Mish process was the application
+  process, Mobile Core remained unavailable/unloaded, and no traffic or running
+  VPN was claimed.
+
+The ignored `.scratch/android-acceptance/` evidence report records bounded APK,
+emulator, installation, and process observations. This remains emulator-only
+fixture evidence and does not replace the Meizu physical-device checklist.
 
 ## Meizu 20 Pro Android 16 manual acceptance
 
