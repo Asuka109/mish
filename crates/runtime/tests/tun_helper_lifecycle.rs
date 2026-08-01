@@ -57,6 +57,18 @@ impl FakeHelperPlatform {
         }
     }
 
+    fn legacy_tun_policy_generation() -> Self {
+        Self {
+            initially_healthy: false,
+            lifecycle_failure: Mutex::new(None),
+            // Helper v3 was the generation that could persist a fail-closed
+            // MISH_TUN_SERVICE_ALLOW_TUN=0 policy. A policy-semantic migration must
+            // force repair before Capture can try to start a TUN Core.
+            observation: Mutex::new(TunHelperObservation::healthy("3")),
+            tun_enabled: Mutex::new(false),
+        }
+    }
+
     fn healthy() -> Self {
         Self {
             initially_healthy: true,
@@ -217,6 +229,22 @@ async fn version_drift_requires_repair_and_repair_reobserves_health() {
 
     let repaired = helper.repair().await.unwrap();
     assert!(repaired.is_healthy());
+}
+
+#[tokio::test]
+async fn legacy_tun_policy_generation_requires_repair_before_tun_is_admitted() {
+    let helper =
+        TunHelperController::new(Arc::new(FakeHelperPlatform::legacy_tun_policy_generation()));
+
+    let snapshot = helper.refresh().await;
+
+    assert_eq!(snapshot.availability, TunHelperAvailability::RepairRequired);
+    assert_eq!(snapshot.health, TunHelperHealth::VersionMismatch);
+    assert_eq!(
+        snapshot.last_failure,
+        Some(TunHelperFailureKind::VersionMismatch)
+    );
+    assert!(!snapshot.is_healthy());
 }
 
 #[tokio::test]

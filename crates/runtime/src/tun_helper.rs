@@ -8,7 +8,10 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "3";
+// v4 records the TUN-capable Helper policy. v3 may have persisted the
+// fail-closed MISH_TUN_SERVICE_ALLOW_TUN=0 boundary, so it must repair before
+// a Capture transaction can admit Virtual Interface activation.
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "4";
 pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 3;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const TUN_OBSERVATION_SCHEMA_VERSION: u16 = 1;

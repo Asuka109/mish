@@ -1549,7 +1549,11 @@ fn development_tun_startup_admission(
     startup: DevelopmentTunStartup,
 ) -> (bool, Option<TunHelperFailureKind>) {
     match startup {
-        DevelopmentTunStartup::Ready => (true, None),
+        DevelopmentTunStartup::Ready if snapshot.is_healthy() => (true, None),
+        // Preserve a confirmed install/repair requirement for the guided UI. Marking this
+        // as a transient runtime failure would collapse RepairRequired into Unavailable and
+        // prevent the next Virtual Interface click from offering the serial Rust repair flow.
+        DevelopmentTunStartup::Ready => (false, None),
         DevelopmentTunStartup::ReadOnly(_failure)
             if development_tun_service_not_installed(snapshot) =>
         {
@@ -2386,6 +2390,24 @@ mod tests {
                 DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign),
             ),
             (true, None)
+        );
+    }
+
+    #[test]
+    fn development_tun_does_not_admit_a_helper_that_requires_repair() {
+        let snapshot = TunHelperSnapshot {
+            availability: TunHelperAvailability::RepairRequired,
+            expected_version: "4".to_owned(),
+            health: TunHelperHealth::VersionMismatch,
+            installation_id: Some("legacy-tun-policy-installation".to_owned()),
+            installed_version: Some("3".to_owned()),
+            last_failure: Some(TunHelperFailureKind::VersionMismatch),
+            phase: TunHelperLifecyclePhase::Idle,
+        };
+
+        assert_eq!(
+            development_tun_startup_admission(&snapshot, DevelopmentTunStartup::Ready),
+            (false, None)
         );
     }
 
