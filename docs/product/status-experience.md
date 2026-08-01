@@ -101,36 +101,45 @@ The DOM element owns the fallback blue surface and text contrast.
 - Every application notification is committed exactly once into the shared Rust
   notification Module. Rust-native capture, profile activation, Settings, and
   Traffic producers commit directly; TypeScript-only producers use the one RPC
-  publication Interface. Events remain diagnostic history. Every Web client
-  projects the same Rust snapshot and gives a newly observed record one matching
-  toast. Initial and reconnect baselines never replay old toasts. A specific
-  capture/runtime failure suppresses any generic command failure for the same
-  attempt. The center orders records by Rust-owned revision and observation;
-  severity and available actions never influence ordering. Opening the center
-  marks retained items read through Rust without removing them. Messages wrap
-  naturally and remain selectable, and source labels are omitted. Users can
-  dismiss the client-local toast without changing history, or remove an
-  individual center record with its X control; removal is written through Rust
-  and synchronized across clients. A notification kind is a presentation
+  publication Interface. Events remain diagnostic history. A Rust-created
+  record begins unpresented. The first eligible WebView or Browser client claims
+  one FIFO toast lease atomically while it subscribes; a baseline, a read, a
+  reconnect, or a React remount is never proof that the record was presented.
+  At most one current lease exists across all concurrent clients. Disconnect,
+  replacement, or expiry requeues it for a new claim, while an acknowledgement must match the
+  record ID, current revision, client/session, and lease generation. A timeout,
+  close button, or semantic suppression folds the toast but keeps the center
+  record. A specific capture/runtime failure suppresses any generic command
+  failure for the same attempt.
+
+  The center orders records by Rust-owned revision and observation; severity
+  and available actions never influence ordering. Opening the center marks
+  retained items read through Rust without consuming an unpresented or
+  presenting toast. Messages wrap naturally and remain selectable, and source
+  labels are omitted. Toast dismissal, action execution, read state, producer
+  resolution, and individual center removal are separate operations unless the
+  semantic kind explicitly joins them. A notification kind is a presentation
   definition rather than a singleton: separate operation attempts create
   separate records, while revisions of one explicit lifecycle keep the same ID.
   The center X and toast X stay hidden until hover or their own keyboard focus;
   the toast X is placed at the upper right. Ordinary toasts expire after the
   bounded Sonner default. Active asynchronous work may pin a record: its toast
   persists and its center record cannot be removed until Rust resolves the same
-  ID, at which point the toast dismisses, history remains, and the center X
-  becomes available.
+  ID. Resolution itself retains history and changes presentation only when the
+  semantic registry explicitly asks it to.
+
 - Profile activation publishes GeoSite, GeoIP, MMDB, or ASN preparation directly
   into the Rust notification Module. Preparation is pinned in both the center
   and its toast. Success resolves and retains the same record; preparation
   failure updates that same record into an unpinned actionable failure. Raw
   Mihomo output never crosses the notification Seam.
-- On a fresh eligible desktop installation, the notification center also retains
-  one versioned welcome invitation. Existing installations receive the same
-  invitation once when upgrading from an older settings schema. On the first
-  desktop entry, an unprompted invitation produces a persistent information
-  toast with an action that opens the welcome tour; that presentation is recorded
-  independently from opening, dismissal, and completion. The four-page tour
+- On a fresh eligible desktop installation, the Rust desktop startup path creates
+  one versioned welcome invitation before any GUI connects. Existing
+  installations receive the same invitation once when upgrading from an older
+  settings schema. The first eligible client atomically claims the unprompted
+  invitation for an information toast with an action that opens the welcome
+  tour; creation alone does not mark it presented. That lease folds independently
+  from opening, dismissal, and completion. The four-page tour
   introduces Mish and Mihomo, profiles, System Proxy and TUN capture concepts,
   and routing modes with policy groups. Its inset cover illustration contains no
   localized text. Escape, the close control, and “Not now” persist dismissal

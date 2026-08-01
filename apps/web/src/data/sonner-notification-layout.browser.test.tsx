@@ -56,9 +56,10 @@ function notification(
 function showNotification(
   value: DeliveredNotification,
   execute: (actionId?: string) => Promise<void> = async () => undefined,
+  lifecycle?: { onAutoClose(): void; onDismiss(): void },
 ) {
   activeNotificationIds.add(value.id);
-  presentNotificationToast(value, execute);
+  presentNotificationToast(value, execute, lifecycle);
 }
 
 function toastContaining(text: string): HTMLElement {
@@ -104,6 +105,19 @@ afterAll(() => {
 });
 
 describe.sequential("Sonner notification layout", () => {
+  test("reports an automatic timeout separately from explicit dismissal", async () => {
+    const onAutoClose = vi.fn();
+    const onDismiss = vi.fn();
+    showNotification(
+      notification({ duration: 1, id: "automatic-timeout", message: "Profile saved" }),
+      undefined,
+      { onAutoClose, onDismiss },
+    );
+
+    await vi.waitFor(() => expect(onAutoClose).toHaveBeenCalledTimes(1));
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   test("keeps selectable no-action copy in one row with an accessible trailing close control", async () => {
     await page.viewport(960, 720);
     showNotification(notification({ id: "no-action", message: longChineseMessage }));

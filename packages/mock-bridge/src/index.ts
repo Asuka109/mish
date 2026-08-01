@@ -297,7 +297,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 30,
+              protocolVersion: 31,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,

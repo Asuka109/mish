@@ -1,4 +1,8 @@
-import { mishRpcMethods, type NotificationSnapshotDto } from "@mish/contracts";
+import {
+  mishRpcMethods,
+  type NotificationPresentationClaimDto,
+  type NotificationSnapshotDto,
+} from "@mish/contracts";
 import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RpcNotificationClient } from "./rpc-notification-client";
@@ -60,6 +64,7 @@ function snapshot(revision: number): NotificationSnapshotDto {
               observedAt: 1,
               pinned: false,
               presentation: { actionIds: [], data: {}, kind: "profile.saved" },
+              presentationState: { phase: "unpresented" },
               read: false,
               resolved: false,
               revision,
@@ -67,6 +72,32 @@ function snapshot(revision: number): NotificationSnapshotDto {
             },
           ],
     revision,
+  };
+}
+
+function presentingSnapshot(revision: number, leaseGeneration: number): NotificationSnapshotDto {
+  const value = snapshot(revision);
+  const record = value.notifications[0];
+  if (record) {
+    record.presentationState = {
+      leaseExpiresAt: 90_000,
+      leaseGeneration,
+      phase: "presenting",
+    };
+  }
+  return value;
+}
+
+function claimFor(snapshot: NotificationSnapshotDto): NotificationPresentationClaimDto {
+  const record = snapshot.notifications[0];
+  if (!record || record.presentationState.phase !== "presenting") {
+    throw new Error("A presenting notification is required");
+  }
+  return {
+    id: record.id,
+    leaseExpiresAt: record.presentationState.leaseExpiresAt,
+    leaseGeneration: record.presentationState.leaseGeneration,
+    revision: record.revision,
   };
 }
 
@@ -95,7 +126,7 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcNotificationClient", () => {
-  it("treats a publication that races initial subscription as baseline history", async () => {
+  it("keeps an unclaimed subscription baseline historical until the server returns a lease", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
       authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
@@ -122,13 +153,85 @@ describe("RpcNotificationClient", () => {
       deliveries.push(`${kind}:${snapshot.revision}`),
     );
     const subscribeRequest = await waitForRequest(transport, 2);
+    expect(subscribeRequest.params).toEqual({
+      clientId: expect.stringMatching(/^notification-client-/),
+      sessionId: expect.stringMatching(/^notification-session-/),
+    });
     transport.respond({
       id: subscribeRequest.id,
       jsonrpc: "2.0",
-      result: { snapshot: snapshot(1), subscriptionId: "notifications-1" },
+      result: { claim: null, snapshot: snapshot(1), subscriptionId: "notifications-1" },
     });
     await flushMicrotasks();
     expect(deliveries).toEqual(["baseline:1"]);
+
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("binds completion acknowledgements to the subscription identity and ignores equal snapshots", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcNotificationClient(rpc);
+    const deliveries: Array<{
+      claim: NotificationPresentationClaimDto | null | undefined;
+      kind: string;
+    }> = [];
+    client.subscribeSnapshots(({ claim, kind }) => deliveries.push({ claim, kind }));
+
+    await authenticate(transport);
+    const subscribeRequest = await waitForRequest(transport, 1);
+    const activeSnapshot = presentingSnapshot(1, 1);
+    const claim = claimFor(activeSnapshot);
+    transport.respond({
+      id: subscribeRequest.id,
+      jsonrpc: "2.0",
+      result: { claim, snapshot: activeSnapshot, subscriptionId: "notifications-1" },
+    });
+    await flushMicrotasks();
+    expect(deliveries).toEqual([{ claim, kind: "baseline" }]);
+
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "notifications.snapshot",
+      params: { snapshot: activeSnapshot, subscriptionId: "notifications-1" },
+    });
+    await flushMicrotasks();
+    expect(deliveries).toHaveLength(1);
+
+    const completion = client.completePresentation(claim, "dismissed");
+    const completionRequest = await waitForRequest(transport, 2);
+    expect(completionRequest.params).toEqual({
+      ...subscribeRequest.params,
+      id: claim.id,
+      leaseGeneration: claim.leaseGeneration,
+      outcome: "dismissed",
+      revision: claim.revision,
+    });
+    const foldedSnapshot = snapshot(2);
+    const folded = foldedSnapshot.notifications[0];
+    if (folded) {
+      folded.presentationState = {
+        foldReason: "dismissed",
+        foldedAt: 1,
+        phase: "folded",
+      };
+    }
+    transport.respond({
+      id: completionRequest.id,
+      jsonrpc: "2.0",
+      result: { accepted: true, snapshot: foldedSnapshot },
+    });
+    await expect(completion).resolves.toMatchObject({ accepted: true });
+    await flushMicrotasks();
+    expect(deliveries).toEqual([
+      { claim, kind: "baseline" },
+      { claim: undefined, kind: "update" },
+    ]);
 
     client.dispose();
     rpc.dispose();
@@ -155,13 +258,18 @@ describe("RpcNotificationClient", () => {
     transports[0].respond({
       id: firstSubscribe.id,
       jsonrpc: "2.0",
-      result: { snapshot: snapshot(1), subscriptionId: "notifications-1" },
+      result: { claim: null, snapshot: snapshot(1), subscriptionId: "notifications-1" },
     });
     await flushMicrotasks();
     transports[0].respond({
       jsonrpc: "2.0",
       method: "notifications.snapshot",
       params: { snapshot: snapshot(2), subscriptionId: "notifications-1" },
+    });
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "notifications.snapshot",
+      params: { snapshot: snapshot(1), subscriptionId: "notifications-1" },
     });
     transports[0].respond({
       jsonrpc: "2.0",
@@ -175,10 +283,12 @@ describe("RpcNotificationClient", () => {
     await vi.advanceTimersByTimeAsync(5);
     await authenticate(transports[1]);
     const secondSubscribe = await waitForRequest(transports[1], 1);
+    expect(secondSubscribe.params.clientId).toBe(firstSubscribe.params.clientId);
+    expect(secondSubscribe.params.sessionId).not.toBe(firstSubscribe.params.sessionId);
     transports[1].respond({
       id: secondSubscribe.id,
       jsonrpc: "2.0",
-      result: { snapshot: snapshot(3), subscriptionId: "notifications-2" },
+      result: { claim: null, snapshot: snapshot(3), subscriptionId: "notifications-2" },
     });
     await flushMicrotasks();
     expect(deliveries).toEqual(["baseline:1", "update:2", "baseline:3"]);

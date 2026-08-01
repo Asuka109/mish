@@ -55,6 +55,10 @@ function ToastActionGroup({
 export function presentNotificationToast(
   notification: DeliveredNotification,
   execute: (actionId: ApplicationActionId) => Promise<void>,
+  lifecycle: {
+    onAutoClose(): void;
+    onDismiss(): void;
+  } = { onAutoClose: () => undefined, onDismiss: () => undefined },
 ) {
   const styles = notificationToastStyles();
   const options = {
@@ -71,6 +75,8 @@ export function presentNotificationToast(
         : (notification.detail ?? (notification.title ? notification.message : undefined)),
     duration: notification.duration,
     id: notification.id,
+    onAutoClose: lifecycle.onAutoClose,
+    onDismiss: lifecycle.onDismiss,
     action:
       notification.actions.length > 0
         ? createElement(ToastActionGroup, {

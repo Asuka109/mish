@@ -4,10 +4,11 @@
 
 The notification center is one deep Rust **Module** owned by `MishRuntime` and
 preserved across desktop runtime replacement. Its **Interface** accepts semantic
-publications and exposes snapshot, subscribe, mark-read, and producer lifecycle
-operations. The **Implementation** owns stable IDs, newest-first order,
-monotonic snapshot and record revisions, replacement and resolution, shared read
-state, producer retirement, and a 128-record retention bound.
+publications and exposes snapshot, presentation claim/acknowledgement,
+mark-read, and producer lifecycle operations. The **Implementation** owns stable
+IDs, newest-first order, monotonic snapshot and record revisions, replacement
+and resolution, shared read state, producer retirement, a bounded presentation
+lease queue, and a 128-record retention bound.
 
 This **Depth** keeps lifecycle policy behind one small Interface. Rust-native
 producers call the Module directly. TypeScript-only producers cross the same
@@ -79,27 +80,63 @@ This split provides **Leverage**: Rust guarantees one synchronized lifecycle for
 every surface while TypeScript can re-localize retained records without changing
 their identity, order, read/removal state, or stored copy.
 
-## Client synchronization
+## Client synchronization and presentation leases
 
-Each client subscribes with an atomic baseline snapshot. A reconnect installs a
-new baseline. Baseline records populate the center but never create toasts. A
-record ID first observed in a later monotonic update creates exactly one
-bottom-right Sonner toast. A later revision of that ID updates the same toast;
-resolution dismisses it while retaining history. Stale or duplicate revisions
-are ignored.
+Creation and presentation are independent Rust-authoritative state machines. A
+new record begins `unpresented`; it is not marked presented by publication,
+snapshot retrieval, center reading, or React mounting. `resolved` remains a
+separate producer lifecycle field, so a record can be resolved and still be
+eligible for presentation unless that semantic kind explicitly requests a
+fold.
 
-Ordinary toasts use the application's bounded eight-second default duration. A Rust-pinned record
-instead produces a persistent toast and cannot be removed from the center while
-its work is active. Resolution keeps the same record, clears its pinned state,
-dismisses the toast, and exposes per-instance removal. This gives the lifecycle
-**Depth** without sending presentation policy across the Seam.
+`notifications.subscribe` receives a validated `clientId` and short-lived
+`sessionId`. While holding the notification lock it installs the live receiver,
+claims the FIFO next eligible record, and returns `{ snapshot, claim,
+subscriptionId }`. The sole returned claim moves that record to `presenting`
+with a private owner identity, public lease generation, expiry, and current
+record revision. A second WebView or Browser subscription sees the same
+snapshot but no claim while that lease is current. The owner identity is never
+projected in a notification record. The bridge binds each identity to one live
+WebSocket; a concurrent socket reusing that pair is refused, so it cannot
+acknowledge or release the owner's lease when it disconnects.
 
-Opening the center marks retained IDs read through Rust. The explicit X appears
-only on hover or its own keyboard focus and removes only an unpinned record ID
-through the Rust **Interface**; every client observes the result. Rust lifecycle
-replacement, resolution, producer retirement, and bounded retention remain
-authoritative. Toast dismissal, animation, and action-pending state retain UI
-**Locality** and do not delete the center record.
+The client renders a Sonner toast only for its returned claim; it never infers
+toast delivery from a baseline, a first-seen ID, or a revision difference. It
+may call `notifications.claimPresentation` for the same subscribed identity to
+obtain the current claim after a record revision changes. Completion uses
+`notifications.completePresentation` and includes record ID, record revision,
+lease generation, client ID, session ID, and an explicit folded outcome. Rust
+accepts the acknowledgement only if every value still matches the current live
+lease. Old, duplicate, equal-revision, disconnected, or replacement-session
+messages therefore cannot fold a newer lease.
+
+An explicit unsubscribe, WebSocket disappearance, client replacement, or lease
+expiry requeues a live lease as `unpresented`; the next eligible client must
+claim it atomically. A timeout, close button, or semantic suppression folds the
+lease as `folded` while retaining the center record. This makes crash-before-
+completion deterministic without treating a reconnect baseline as evidence of
+delivery.
+
+While a notification subscription is live, the bridge periodically asks the
+Rust Module to expire the current lease. It emits no polling snapshots: Rust
+broadcasts only when the expiry actually requeues a record, so a stalled but
+still-open client cannot indefinitely block the global queue.
+
+Ordinary toasts use the application's bounded eight-second default duration. A
+Rust-pinned record makes the rendered toast persistent and prevents center
+removal while its work is active, but pinning does not bypass the lease. A
+semantic kind can explicitly map a producer update to suppression (for example,
+resolved GeoData progress); generic producer resolution does not implicitly fold
+or remove a presentation.
+
+Opening the center marks retained IDs read through Rust without consuming an
+unpresented or presenting lease. Toast timeout, explicit dismissal, action
+execution, read state, producer resolution, and record removal stay separate
+unless the semantic registry explicitly joins them. The explicit center X
+appears only on hover or its own keyboard focus and removes only an unpinned
+record ID through the Rust **Interface**; every client observes the result.
+Toast geometry, animation, focus, and action-pending display retain UI
+**Locality**, but they cannot decide the durable delivery lifecycle.
 
 ## Interfaces
 
@@ -111,9 +148,16 @@ The JSON-RPC Interface is:
 - `notifications.remove`
 - `notifications.removeByDedupeKey`
 - `notifications.subscribe`
+- `notifications.claimPresentation`
+- `notifications.completePresentation`
 - `notifications.unsubscribe`
 - `notifications.snapshot` subscription notifications
 
-The fixture notification center implements the same client Interface for tests
-and demo surfaces. It is an Adapter for fixture behavior, not a production
-authority or compatibility reader.
+Desktop startup creates an eligible onboarding invitation through this Rust
+Interface before any GUI surface starts. The first eligible client therefore
+claims it exactly as it claims any other pre-GUI record; React never publishes
+that production onboarding record.
+
+The fixture notification center implements the same claim/lease/ack client
+Interface for tests and demo surfaces. It is an Adapter for fixture behavior,
+not a production authority or compatibility reader.

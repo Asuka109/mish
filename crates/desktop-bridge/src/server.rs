@@ -16,7 +16,11 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use mish_runtime::{MishRuntime, PlatformLifecycleEventSource, RuntimeShutdownFailure};
+use mish_runtime::{
+    ApplicationActionId, ApplicationNotification, ApplicationNotificationContent, MishRuntime,
+    NotificationPublication, NotificationSeverity, OnboardingWelcomeApplicationNotificationData,
+    PlatformLifecycleEventSource, RuntimeShutdownFailure,
+};
 use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde::Deserialize;
 use serde_json::json;
@@ -340,6 +344,46 @@ pub async fn start_loopback_server(
     start_loopback_server_with_runtime_host(config, DesktopRuntimeHost::new(runtime)).await
 }
 
+/// Creates the durable onboarding notification before any GUI surface can subscribe.
+///
+/// The notification center intentionally owns creation and presentation eligibility. The client
+/// only claims and renders the resulting record, so an app restart cannot infer presentation from
+/// a baseline snapshot.
+pub fn initialize_onboarding_welcome_notification(
+    runtime: &DesktopRuntimeHost,
+    settings: &SettingsService,
+) -> Result<bool, String> {
+    let invitation = settings
+        .snapshot(SettingsAdapterKind::Rpc)
+        .preferences
+        .onboarding
+        .welcome_invitation;
+    let Some(invitation) = invitation else {
+        return Ok(false);
+    };
+    if invitation.completed_at.is_some() {
+        return Ok(false);
+    }
+
+    let prompt = invitation.prompted_at.is_none();
+    runtime
+        .publish_notification(NotificationPublication {
+            dedupe_key: "onboarding.welcome".into(),
+            pinned: false,
+            presentation: ApplicationNotification::new(
+                ApplicationNotificationContent::OnboardingWelcome(
+                    OnboardingWelcomeApplicationNotificationData { prompt },
+                ),
+                vec![ApplicationActionId::OpenWelcome],
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Info,
+        })
+        .map_err(|_| "The onboarding notification could not be created".to_owned())?;
+    Ok(true)
+}
+
 pub async fn start_loopback_server_with_runtime_host(
     config: LoopbackServerConfig,
     runtime: DesktopRuntimeHost,
@@ -443,6 +487,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
             process_icon_resolver: config.process_icon_resolver,
+            notification_presentation_sessions: Default::default(),
             runtime: runtime.clone(),
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,
