@@ -832,7 +832,15 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
     }
     let subscribed = rpc_request(
         &mut notifications,
-        json!({"jsonrpc":"2.0", "id":2, "method":"notifications.subscribe", "params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{
+                "clientId":"internal-tun-maintenance-notifications",
+                "sessionId":"internal-tun-maintenance-session-1"
+            }
+        }),
     )
     .await;
     assert!(subscribed["result"]["subscriptionId"].is_string());
