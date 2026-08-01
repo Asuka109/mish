@@ -27,6 +27,7 @@ import {
   buildRouteGraph,
   createRouteSearchState,
   getRouteChildLatency,
+  isGlobalRouteGroup,
   normalizeMeasuredLatency,
   type RouteGraph,
   type RouteGraphError,
@@ -78,10 +79,6 @@ const routeStyles = tv({
 function getEntityLabel(graph: RouteGraph, entityId: string | null | undefined) {
   if (!entityId) return "";
   return graph.groupById.get(entityId)?.label ?? graph.nodeById.get(entityId)?.label ?? entityId;
-}
-
-function isGlobalGroup(group: PolicyGroupDto) {
-  return group.label === "GLOBAL";
 }
 
 function getGraphErrorMessage(LL: TranslationFunctions, graph: RouteGraph, error: RouteGraphError) {
@@ -256,7 +253,9 @@ export function RoutesPage() {
     );
   }
 
-  const modeGroups = groups.filter((group) => routingMode === "global" || !isGlobalGroup(group));
+  const modeGroups = groups.filter(
+    (group) => routingMode === "global" || !isGlobalRouteGroup(group),
+  );
   const visibleGroupIds = modeGroups
     .map((group) => group.id)
     .filter((id) => !search.queryActive || search.visibleEntityIds.has(id));
@@ -335,7 +334,7 @@ export function RoutesPage() {
                 commandsDisabled={
                   configuredRoutesActive ||
                   connection.stale ||
-                  (routingMode === "global" && !isGlobalGroup(standaloneGroup))
+                  (routingMode === "global" && !isGlobalRouteGroup(standaloneGroup))
                 }
                 emptyClassName="route-group-empty border-t border-hairline-soft bg-canvas px-3.5 py-4.5 text-center text-metadata text-muted-foreground"
                 emptyLabel={LL.routes.noChildren()}
@@ -388,7 +387,7 @@ export function RoutesPage() {
         commandsDisabled={
           configuredRoutesActive ||
           connection.stale ||
-          Boolean(pickerGroup && routingMode === "global" && !isGlobalGroup(pickerGroup))
+          Boolean(pickerGroup && routingMode === "global" && !isGlobalRouteGroup(pickerGroup))
         }
         graph={graph}
         groupId={pickerGroup?.id ?? null}

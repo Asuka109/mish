@@ -64,4 +64,18 @@ describe("MobileShell", () => {
     expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Rules" })).toHaveAttribute("aria-current", "page");
   });
+
+  it("keeps Routes active and exposes the progressive back targets for group and child links", () => {
+    const group = renderShell("/routes/proxy");
+
+    expect(screen.getByRole("link", { name: "Routes" })).toHaveClass("is-active");
+    expect(screen.getByRole("link", { name: "Routes" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/routes");
+
+    group.unmount();
+    renderShell("/routes/proxy/children/nrt-03");
+
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/routes/proxy");
+    expect(screen.getByRole("link", { name: "Routes" })).toHaveAttribute("aria-current", "page");
+  });
 });

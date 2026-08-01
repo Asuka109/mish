@@ -1,10 +1,11 @@
 import type { MobileFixtureBootstrapDto } from "@mish/contracts";
+import { ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { GearSix } from "@phosphor-icons/react/GearSix";
 import { House } from "@phosphor-icons/react/House";
 import { Pulse } from "@phosphor-icons/react/Pulse";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -28,6 +29,11 @@ const mobileShellStyles = tv({
     topBar: cx(
       "mobile-top-app-bar flex min-h-[calc(56px+env(safe-area-inset-top))] items-center gap-2.75",
       "px-4 pt-[env(safe-area-inset-top)] [&_img]:size-7",
+    ),
+    back: cx(
+      "mobile-top-app-bar-back grid min-h-11 min-w-11 place-items-center rounded-md text-muted-foreground",
+      "touch-manipulation no-underline hover:bg-accent hover:text-ink focus-visible:bg-accent focus-visible:text-ink",
+      "[&_svg]:size-5.5",
     ),
     brandLight: "brand-image-light theme-dark:hidden",
     brandDark: "brand-image-dark hidden theme-dark:block",
@@ -69,7 +75,8 @@ interface MobileShellProps {
 
 function getTitle(LL: TranslationFunctions, pathname: string) {
   if (pathname === "/status") return LL.mobileNavigation.home();
-  if (pathname === "/routes") return LL.mobileNavigation.routes();
+  if (pathname === "/routes" || pathname.startsWith("/routes/"))
+    return LL.mobileNavigation.routes();
   if (pathname === "/profiles") return LL.mobileNavigation.profiles();
   if (pathname === "/settings") return LL.mobileNavigation.settings();
   return LL.mobileNavigation.activity();
@@ -79,34 +86,58 @@ function isActivityPath(pathname: string) {
   return pathname === "/traffic" || pathname === "/events";
 }
 
+function isRoutesPath(pathname: string) {
+  return pathname === "/routes" || pathname.startsWith("/routes/");
+}
+
+function mobileBackTarget(pathname: string) {
+  const segments = pathname.split("/");
+  if (segments[1] !== "routes" || segments.length < 3) return null;
+  if (segments[3] === "children" && segments[2]) return "/routes/" + segments[2];
+  return "/routes";
+}
+
 export function MobileShell({ fixture }: MobileShellProps) {
   const { LL } = useI18nContext();
   const location = useLocation();
   const activity = isActivityPath(location.pathname);
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
+  const backTarget = mobileBackTarget(location.pathname);
 
   return (
     <div className={mobileShellStyles().root()} data-platform={fixture.platform}>
       <RouteFocusManager
         headingSelector=".mobile-top-app-bar h1"
-        scrollerSelector="main .mobile-home-page"
+        scrollerSelector="main .mobile-route-scroller, main .mobile-home-page"
       />
       <div className={mobileShellStyles().chrome()}>
         <header className={mobileShellStyles().topBar()}>
-          <img
-            alt=""
-            aria-hidden="true"
-            className={mobileShellStyles().brandLight()}
-            draggable={false}
-            src="/brand/mish-icon-outline.svg"
-          />
-          <img
-            alt=""
-            aria-hidden="true"
-            className={mobileShellStyles().brandDark()}
-            draggable={false}
-            src="/brand/mish-icon-outline-dark.svg"
-          />
+          {backTarget ? (
+            <Link
+              aria-label={LL.mobileRoutes.back()}
+              className={mobileShellStyles().back()}
+              to={backTarget}
+            >
+              <ArrowLeft aria-hidden="true" />
+            </Link>
+          ) : (
+            <>
+              <img
+                alt=""
+                aria-hidden="true"
+                className={mobileShellStyles().brandLight()}
+                draggable={false}
+                src="/brand/mish-icon-outline.svg"
+              />
+              <img
+                alt=""
+                aria-hidden="true"
+                className={mobileShellStyles().brandDark()}
+                draggable={false}
+                src="/brand/mish-icon-outline-dark.svg"
+              />
+            </>
+          )}
           <h1 className={mobileShellStyles().title()}>{getTitle(LL, location.pathname)}</h1>
         </header>
         {activity ? (
@@ -153,13 +184,18 @@ export function MobileShell({ fixture }: MobileShellProps) {
       >
         {destinations.map(({ icon: Icon, key, path }) => {
           const label = LL.mobileNavigation[key]();
-          const selected = key === "activity" ? activity : location.pathname === path;
+          const selected =
+            key === "activity"
+              ? activity
+              : key === "routes"
+                ? isRoutesPath(location.pathname)
+                : location.pathname === path;
           return (
             <NavLink
               aria-current={selected ? "page" : undefined}
               aria-label={label}
               className={mobileShellStyles({ selected }).destination()}
-              end={key !== "activity"}
+              end={key !== "activity" && key !== "routes"}
               key={path}
               to={path}
             >
