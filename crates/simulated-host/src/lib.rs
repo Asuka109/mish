@@ -23,6 +23,14 @@ use thiserror::Error;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+mod internal_tun;
+
+pub use internal_tun::{
+    MaintenanceEngine, MaintenanceFault, MaintenanceFaultKind, MaintenanceHarnessError,
+    MaintenanceObservation, MaintenanceScenario, MaintenanceScenarioRuntime,
+    SyntheticMaintenanceInitial, SyntheticOwnership, SyntheticPackageVersion,
+};
+
 pub const TRANSCRIPT_SCHEMA_VERSION: u16 = 1;
 pub const DEFAULT_TRANSCRIPT_LIMIT: usize = 96;
 pub const MAX_TRANSCRIPT_LIMIT: usize = 128;
@@ -34,6 +42,7 @@ pub const TEST_CONTROL_KEY: &str = "mish-simulated-host-control-key";
 pub enum SyntheticAuthorityId {
     CaptureOne,
     CaptureTwo,
+    InternalTunMaintenance,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -91,6 +100,19 @@ pub enum EffectKind {
     JournalClear,
     JournalLoad,
     JournalSave,
+    MaintenanceAuthorize,
+    MaintenanceBackupArtifacts,
+    MaintenanceCaptureReconcile,
+    MaintenanceCommitEnrollment,
+    MaintenanceCommitReceipt,
+    MaintenanceCommitService,
+    MaintenanceFinalizeUninstall,
+    MaintenanceJournalPersist,
+    MaintenanceObserve,
+    MaintenanceRestore,
+    MaintenanceStageArtifacts,
+    MaintenanceStartService,
+    MaintenanceVerify,
     ManagedEndpointOwnershipCheckCommit,
     ManagedEndpointOwnershipCheckEarly,
     ProfilePreparation,
@@ -103,6 +125,7 @@ pub enum EffectKind {
 #[serde(rename_all = "kebab-case")]
 pub enum EffectResultKind {
     Applied,
+    Authorized,
     Cancelled,
     Completed,
     FailedClosed,
@@ -111,8 +134,12 @@ pub enum EffectResultKind {
     InjectedFailure,
     MishOwned,
     Observed,
+    Rejected,
+    Restored,
+    RolledBack,
     Started,
     Stopped,
+    Verified,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -336,6 +363,31 @@ impl SimulatedHostScenario {
         }
     }
 
+    /// Closed Internal TUN maintenance input. The package, Helper/Core, Capture, and
+    /// application adapters all observe one synthetic host model; this is not a fixture
+    /// for a privileged host command sequence.
+    pub fn internal_tun_maintenance() -> Self {
+        let mut declared_effects = system_proxy_effect_contract();
+        // The authenticated application command path uses the same profile-preparation and
+        // listener-ownership effects as the desktop activation coordinator.
+        declared_effects.extend(initial_conflict_effect_contract());
+        declared_effects.extend(maintenance_effect_contract());
+        declared_effects.sort_by_key(|effect| *effect as u8);
+        declared_effects.dedup();
+        Self {
+            cleanup_completes_at: 20,
+            declared_effects,
+            failures: Vec::new(),
+            initial_core_phase: SimulatedCorePhase::Running,
+            initial_endpoint_owner: ManagedEndpointOwner::Mish,
+            initial_proxy_state: SyntheticProxyState::Disabled,
+            propagation_delay: 0,
+            scheduled_changes: Vec::new(),
+            second_check_at: 10,
+            transcript_limit: MAX_TRANSCRIPT_LIMIT,
+        }
+    }
+
     pub fn browser_journey() -> Self {
         let mut scenario = Self::initial_foreign_listener();
         scenario
@@ -371,7 +423,7 @@ impl SimulatedHostScenario {
             return Err(SimulatedHostFailure::InvalidScenario);
         }
         if self.failures.len() > 16
-            || self.declared_effects.len() > 32
+            || self.declared_effects.len() > 64
             || self.scheduled_changes.len() > 32
             || self.failures.iter().any(|failure| failure.occurrence == 0)
         {
@@ -426,6 +478,34 @@ fn system_proxy_effect_contract() -> Vec<EffectKind> {
         EffectKind::JournalClear,
         EffectKind::JournalLoad,
         EffectKind::JournalSave,
+    ]
+}
+
+fn maintenance_effect_contract() -> Vec<EffectKind> {
+    vec![
+        EffectKind::CaptureObserve,
+        EffectKind::CaptureWriteAutoDiscovery,
+        EffectKind::CaptureWriteBypass,
+        EffectKind::CaptureWriteHttp,
+        EffectKind::CaptureWriteHttps,
+        EffectKind::CaptureWritePac,
+        EffectKind::CaptureWriteSocks,
+        EffectKind::CoreObserve,
+        EffectKind::CoreStart,
+        EffectKind::CoreStop,
+        EffectKind::MaintenanceAuthorize,
+        EffectKind::MaintenanceBackupArtifacts,
+        EffectKind::MaintenanceCaptureReconcile,
+        EffectKind::MaintenanceCommitEnrollment,
+        EffectKind::MaintenanceCommitReceipt,
+        EffectKind::MaintenanceCommitService,
+        EffectKind::MaintenanceFinalizeUninstall,
+        EffectKind::MaintenanceJournalPersist,
+        EffectKind::MaintenanceObserve,
+        EffectKind::MaintenanceRestore,
+        EffectKind::MaintenanceStageArtifacts,
+        EffectKind::MaintenanceStartService,
+        EffectKind::MaintenanceVerify,
     ]
 }
 
@@ -487,6 +567,7 @@ pub struct ScenarioObservation {
     pub endpoint_owner: ManagedEndpointOwner,
     pub journal_present: bool,
     pub logical_time: u64,
+    pub maintenance: Option<MaintenanceObservation>,
     pub pending_proxy_propagation: bool,
     pub preparation_phase: PreparationPhase,
     pub proxy_actual_revision: u64,
@@ -530,6 +611,7 @@ struct Model {
     effect_occurrences: HashMap<EffectKind, u8>,
     journal: Option<CaptureJournal>,
     logical_time: u64,
+    maintenance: Option<internal_tun::MaintenanceModel>,
     pending_proxy_observation: Option<PendingProxyObservation>,
     preparation_phase: PreparationPhase,
     proxy_state: NetworkServiceProxyState,
@@ -546,6 +628,7 @@ pub struct SimulatedHost {
     clock_changed: Notify,
     declared_effects: HashSet<EffectKind>,
     failures: Vec<InjectedFailure>,
+    maintenance_engine: Mutex<Option<Weak<internal_tun::MaintenanceEngine>>>,
     model: Mutex<Model>,
     preparation_task: Mutex<Option<(CancellationToken, tokio::task::JoinHandle<()>)>>,
     scenario: SimulatedHostScenario,
@@ -559,6 +642,7 @@ impl SimulatedHost {
             clock_changed: Notify::new(),
             declared_effects: scenario.declared_effects.iter().copied().collect(),
             failures: scenario.failures.clone(),
+            maintenance_engine: Mutex::new(None),
             model: Mutex::new(Model {
                 active_runtime: None,
                 authority_scopes: Vec::new(),
@@ -567,6 +651,7 @@ impl SimulatedHost {
                 effect_occurrences: HashMap::new(),
                 journal: None,
                 logical_time: 0,
+                maintenance: None,
                 pending_proxy_observation: None,
                 preparation_phase: PreparationPhase::Idle,
                 proxy_state: scenario.initial_proxy_state.materialize(),
@@ -599,6 +684,55 @@ impl SimulatedHost {
             model.runtime_id = SyntheticRuntimeId::RuntimeTwo;
         }
         model.active_runtime = Some(runtime);
+    }
+
+    pub(crate) fn attach_maintenance_engine(&self, engine: &Arc<internal_tun::MaintenanceEngine>) {
+        *self
+            .maintenance_engine
+            .lock()
+            .expect("simulated maintenance engine lock poisoned") = Some(Arc::downgrade(engine));
+    }
+
+    pub(crate) fn maintenance_engine(&self) -> Option<Arc<internal_tun::MaintenanceEngine>> {
+        self.maintenance_engine
+            .lock()
+            .expect("simulated maintenance engine lock poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    pub fn maintenance_observation(&self) -> Option<MaintenanceObservation> {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .maintenance
+            .as_ref()
+            .map(internal_tun::MaintenanceModel::observation)
+    }
+
+    pub(crate) fn emit_maintenance(
+        &self,
+        effect_kind: EffectKind,
+        result_kind: EffectResultKind,
+        operation_id: u64,
+        admitted_revision: u64,
+    ) -> Result<(), SimulatedHostFailure> {
+        let runtime_id = self
+            .model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .runtime_id;
+        self.emit_with_correlation(
+            effect_kind,
+            result_kind,
+            Some((
+                SyntheticAuthorityId::InternalTunMaintenance,
+                1,
+                Some(operation_id),
+                admitted_revision,
+                runtime_id,
+            )),
+        )
     }
 
     fn detach_process(&self) {
@@ -676,6 +810,10 @@ impl SimulatedHost {
             endpoint_owner: model.endpoint_owner,
             journal_present: model.journal.is_some(),
             logical_time: model.logical_time,
+            maintenance: model
+                .maintenance
+                .as_ref()
+                .map(internal_tun::MaintenanceModel::observation),
             pending_proxy_propagation: model.pending_proxy_observation.is_some(),
             preparation_phase: model.preparation_phase,
             proxy_actual_revision: model.proxy_actual_revision,

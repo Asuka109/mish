@@ -1746,6 +1746,7 @@ async fn handle_message(
             };
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
+            publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
             match service.install_tun_helper().await {
                 Ok(mut snapshot) => {
                     publish_tun_helper_lifecycle(state, &operation_id, "install", "applied", None);
@@ -1785,6 +1786,7 @@ async fn handle_message(
                 );
                 return Some(capture_error_response(id, error));
             }
+            publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
             match service.repair_tun_helper().await {
                 Ok(mut snapshot) => {
                     publish_tun_helper_lifecycle(state, &operation_id, "repair", "applied", None);
@@ -1824,6 +1826,7 @@ async fn handle_message(
                 );
                 return Some(capture_error_response(id, error));
             }
+            publish_tun_helper_lifecycle(state, &operation_id, "remove", "finalizing", None);
             match service.remove_tun_helper().await {
                 Ok(mut snapshot) => {
                     publish_tun_helper_lifecycle(state, &operation_id, "remove", "applied", None);
@@ -2499,7 +2502,7 @@ fn publish_tun_helper_lifecycle(
     outcome: &str,
     failure: Option<String>,
 ) {
-    let pending = outcome == "pending";
+    let pending = matches!(outcome, "pending" | "finalizing");
     let severity = match outcome {
         "applied" => NotificationSeverity::Success,
         "recovery-required" => NotificationSeverity::Error,
