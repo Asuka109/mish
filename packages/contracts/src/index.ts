@@ -1037,6 +1037,11 @@ const NotificationReferenceSchema = z
   .min(1)
   .max(96)
   .regex(/^[a-z0-9][a-z0-9._:-]*$/u);
+const NotificationPresentationIdentityReferenceSchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/u);
 export const NotificationPublicationSchema = z
   .object({
     dedupeKey: NotificationReferenceSchema,
@@ -1049,6 +1054,59 @@ export const NotificationPublicationSchema = z
   .strict();
 export interface NotificationPublicationDto extends z.infer<typeof NotificationPublicationSchema> {}
 
+export const NotificationPresentationPhaseSchema = z.enum(["unpresented", "presenting", "folded"]);
+export type NotificationPresentationPhase = z.infer<typeof NotificationPresentationPhaseSchema>;
+
+export const NotificationPresentationFoldReasonSchema = z.enum([
+  "dismissed",
+  "timed-out",
+  "suppressed",
+]);
+export type NotificationPresentationFoldReason = z.infer<
+  typeof NotificationPresentationFoldReasonSchema
+>;
+
+export const NotificationPresentationStateSchema = z.discriminatedUnion("phase", [
+  z.object({ phase: z.literal("unpresented") }).strict(),
+  z
+    .object({
+      leaseExpiresAt: NonNegativeIntegerSchema,
+      leaseGeneration: z.number().int().positive(),
+      phase: z.literal("presenting"),
+    })
+    .strict(),
+  z
+    .object({
+      foldReason: NotificationPresentationFoldReasonSchema,
+      foldedAt: NonNegativeIntegerSchema,
+      phase: z.literal("folded"),
+    })
+    .strict(),
+]);
+export type NotificationPresentationState = z.infer<typeof NotificationPresentationStateSchema>;
+
+export const NotificationPresentationIdentitySchema = z
+  .object({
+    clientId: NotificationPresentationIdentityReferenceSchema,
+    sessionId: NotificationPresentationIdentityReferenceSchema,
+  })
+  .strict();
+export interface NotificationPresentationIdentityDto extends z.infer<
+  typeof NotificationPresentationIdentitySchema
+> {}
+
+export const NotificationPresentationClaimSchema = z
+  .object({
+    id: NotificationReferenceSchema,
+    leaseExpiresAt: NonNegativeIntegerSchema,
+    leaseGeneration: z.number().int().positive(),
+    revision: NonNegativeIntegerSchema,
+  })
+  .strict();
+export interface NotificationPresentationClaimDto extends z.infer<
+  typeof NotificationPresentationClaimSchema
+> {}
+
 export const NotificationRecordSchema = z
   .object({
     createdRevision: NonNegativeIntegerSchema,
@@ -1057,6 +1115,7 @@ export const NotificationRecordSchema = z
     observedAt: NonNegativeIntegerSchema,
     pinned: z.boolean(),
     presentation: applicationNotificationSchema,
+    presentationState: NotificationPresentationStateSchema,
     read: z.boolean(),
     resolved: z.boolean(),
     revision: NonNegativeIntegerSchema,
@@ -1084,6 +1143,7 @@ export const NotificationSnapshotSchema = z
 export interface NotificationSnapshotDto extends z.infer<typeof NotificationSnapshotSchema> {}
 
 export interface NotificationSnapshotDelivery {
+  claim?: NotificationPresentationClaimDto | null;
   kind: "baseline" | "update";
   snapshot: NotificationSnapshotDto;
 }
@@ -2185,7 +2245,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(30),
+    protocolVersion: z.literal(31),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3262,10 +3322,33 @@ export const NotificationIdCommandSchema = z.object({ id: NotificationReferenceS
 export const NotificationDedupeKeyCommandSchema = z
   .object({ dedupeKey: NotificationReferenceSchema })
   .strict();
+export const NotificationPresentationCompletionCommandSchema =
+  NotificationPresentationIdentitySchema.extend({
+    id: NotificationReferenceSchema,
+    leaseGeneration: z.number().int().positive(),
+    outcome: NotificationPresentationFoldReasonSchema,
+    revision: NonNegativeIntegerSchema,
+  }).strict();
+export const NotificationPresentationClaimResultSchema = z
+  .object({
+    claim: NotificationPresentationClaimSchema.nullable(),
+    snapshot: NotificationSnapshotSchema,
+  })
+  .strict();
+export interface NotificationPresentationClaimResultDto extends z.infer<
+  typeof NotificationPresentationClaimResultSchema
+> {}
+export const NotificationPresentationCompletionResultSchema = z
+  .object({ accepted: z.boolean(), snapshot: NotificationSnapshotSchema })
+  .strict();
+export interface NotificationPresentationCompletionResultDto extends z.infer<
+  typeof NotificationPresentationCompletionResultSchema
+> {}
 export const NotificationSubscriptionIdSchema = z
   .object({ subscriptionId: IdentifierSchema })
   .strict();
 export const NotificationSubscriptionSchema = NotificationSubscriptionIdSchema.extend({
+  claim: NotificationPresentationClaimSchema.nullable(),
   snapshot: NotificationSnapshotSchema,
 }).strict();
 export const NotificationSnapshotNotificationSchema = z
@@ -3276,6 +3359,14 @@ export interface NotificationSnapshotNotificationDto extends z.infer<
 > {}
 
 export const notificationRpcMethods = {
+  "notifications.claimPresentation": {
+    params: NotificationPresentationIdentitySchema,
+    result: NotificationPresentationClaimResultSchema,
+  },
+  "notifications.completePresentation": {
+    params: NotificationPresentationCompletionCommandSchema,
+    result: NotificationPresentationCompletionResultSchema,
+  },
   "notifications.getSnapshot": { params: EmptyCommandSchema, result: NotificationSnapshotSchema },
   "notifications.markRead": {
     params: NotificationIdsCommandSchema,
@@ -3294,7 +3385,7 @@ export const notificationRpcMethods = {
     result: NotificationSnapshotSchema,
   },
   "notifications.subscribe": {
-    params: EmptyCommandSchema,
+    params: NotificationPresentationIdentitySchema,
     result: NotificationSubscriptionSchema,
   },
   "notifications.unsubscribe": {
@@ -3884,6 +3975,14 @@ export interface UpdaterClient {
 }
 
 export interface NotificationClient {
+  claimPresentation(options?: {
+    signal?: AbortSignal;
+  }): Promise<NotificationPresentationClaimResultDto>;
+  completePresentation(
+    claim: NotificationPresentationClaimDto,
+    outcome: NotificationPresentationFoldReason,
+    options?: { signal?: AbortSignal },
+  ): Promise<NotificationPresentationCompletionResultDto>;
   dispose(): void;
   getConnectionState(): EventsConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<NotificationSnapshotDto>;

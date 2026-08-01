@@ -2,6 +2,8 @@ use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
     CaptureAuditReason, CaptureOperation, CapturePreflight, CaptureRecoveryAction, CaptureRequest,
     CaptureTransitionError, CoreError, CoreStatus, EventsSnapshot, MishRuntime,
+    NotificationPresentationClaimResult, NotificationPresentationCompletion,
+    NotificationPresentationCompletionResult, NotificationPresentationIdentity,
     NotificationPublication, NotificationSnapshot, NotificationValidationError, ProviderAuthority,
     ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
     ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
@@ -513,6 +515,41 @@ impl DesktopRuntimeHost {
         NotificationSnapshot,
     ) {
         self.current().subscribe_notifications_with_snapshot()
+    }
+
+    pub fn subscribe_notifications_with_presentation_claim(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> (
+        tokio::sync::broadcast::Receiver<NotificationSnapshot>,
+        NotificationPresentationClaimResult,
+    ) {
+        self.current()
+            .subscribe_notifications_with_presentation_claim(identity)
+    }
+
+    pub fn claim_next_notification_presentation(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> NotificationPresentationClaimResult {
+        self.current()
+            .claim_next_notification_presentation(identity)
+    }
+
+    pub fn complete_notification_presentation(
+        &self,
+        completion: NotificationPresentationCompletion,
+    ) -> NotificationPresentationCompletionResult {
+        self.current()
+            .complete_notification_presentation(completion)
+    }
+
+    pub fn release_notification_presentation_leases(
+        &self,
+        identity: &NotificationPresentationIdentity,
+    ) -> NotificationSnapshot {
+        self.current()
+            .release_notification_presentation_leases(identity)
     }
 
     pub fn mark_notifications_read(&self, ids: &[String]) -> NotificationSnapshot {

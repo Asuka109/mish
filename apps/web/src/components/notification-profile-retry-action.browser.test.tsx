@@ -101,7 +101,7 @@ afterAll(() => {
 });
 
 describe("profile activation failure notification action", () => {
-  test("retries the failed target by keyboard while retaining notification history", async () => {
+  test("retries the failed target by keyboard without folding its toast lifecycle", async () => {
     await publisher.publish(
       notificationPublication("profile.activation-failed", {
         actionIds: ["retry-profile-activation"],
@@ -128,13 +128,24 @@ describe("profile activation failure notification action", () => {
         { signal: expect.any(AbortSignal) },
       );
     });
-    await vi.waitFor(() => {
-      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0);
-    });
+    expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1);
     expect(
       (await publisher.getSnapshot()).notifications.some(
         ({ dedupeKey }) => dedupeKey === "profile.activation-failure:activation-command-1",
       ),
     ).toBe(true);
+    const closeToast = document.querySelector<HTMLButtonElement>(
+      "[data-sonner-toast] [data-close-button]",
+    );
+    if (!closeToast) throw new Error("Missing retry toast close control");
+    await closeToast.click();
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
+    expect(
+      (await publisher.getSnapshot()).notifications.find(
+        ({ dedupeKey }) => dedupeKey === "profile.activation-failure:activation-command-1",
+      )?.presentationState,
+    ).toMatchObject({ foldReason: "dismissed", phase: "folded" });
   });
 });

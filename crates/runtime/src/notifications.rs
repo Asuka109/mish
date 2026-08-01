@@ -14,6 +14,7 @@ pub const NOTIFICATION_PRESENTATION_BYTES_LIMIT: usize = 2_048;
 pub const NOTIFICATION_PRESENTATION_DEPTH_LIMIT: usize = 3;
 pub const NOTIFICATION_PRESENTATION_ENTRIES_LIMIT: usize = 32;
 pub const NOTIFICATION_PRESENTATION_STRING_LIMIT: usize = 160;
+pub const NOTIFICATION_PRESENTATION_LEASE_MILLISECONDS: u64 = 30_000;
 pub const NOTIFICATION_REPLACEMENT_LIMIT: usize = 8;
 
 const IDENTIFIER_LIMIT: usize = 96;
@@ -51,10 +52,15 @@ pub struct NotificationRecord {
     pub observed_at: u64,
     pub pinned: bool,
     pub presentation: ApplicationNotification,
+    pub presentation_state: NotificationPresentationState,
     pub read: bool,
     pub resolved: bool,
     pub revision: u64,
     pub severity: NotificationSeverity,
+    #[serde(skip)]
+    presentation_generation: u64,
+    #[serde(skip)]
+    presentation_lease: Option<NotificationPresentationLease>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -62,6 +68,129 @@ pub struct NotificationRecord {
 pub struct NotificationSnapshot {
     pub notifications: Vec<NotificationRecord>,
     pub revision: u64,
+}
+
+/// Identifies one client instance and one connection session. The session is deliberately
+/// short-lived: reconnecting clients receive a fresh one and cannot complete an old lease.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotificationPresentationIdentity {
+    pub client_id: String,
+    pub session_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationPresentationPhase {
+    Folded,
+    Presenting,
+    Unpresented,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationPresentationFoldReason {
+    Dismissed,
+    Suppressed,
+    TimedOut,
+}
+
+/// The public, redacted projection of the toast lifecycle. Lease owner identity stays private
+/// to Rust; a client receives it only through its own claim acknowledgement.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPresentationState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fold_reason: Option<NotificationPresentationFoldReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folded_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_generation: Option<u64>,
+    pub phase: NotificationPresentationPhase,
+}
+
+impl NotificationPresentationState {
+    fn folded(reason: NotificationPresentationFoldReason, now: u64) -> Self {
+        Self {
+            fold_reason: Some(reason),
+            folded_at: Some(now),
+            lease_expires_at: None,
+            lease_generation: None,
+            phase: NotificationPresentationPhase::Folded,
+        }
+    }
+
+    fn presenting(generation: u64, expires_at: u64) -> Self {
+        Self {
+            fold_reason: None,
+            folded_at: None,
+            lease_expires_at: Some(expires_at),
+            lease_generation: Some(generation),
+            phase: NotificationPresentationPhase::Presenting,
+        }
+    }
+
+    fn unpresented() -> Self {
+        Self {
+            fold_reason: None,
+            folded_at: None,
+            lease_expires_at: None,
+            lease_generation: None,
+            phase: NotificationPresentationPhase::Unpresented,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct NotificationPresentationLease {
+    expires_at: u64,
+    generation: u64,
+    identity: NotificationPresentationIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPresentationClaim {
+    pub id: String,
+    pub lease_expires_at: u64,
+    pub lease_generation: u64,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPresentationClaimResult {
+    pub claim: Option<NotificationPresentationClaim>,
+    pub snapshot: NotificationSnapshot,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotificationPresentationCompletion {
+    pub client_id: String,
+    pub id: String,
+    pub lease_generation: u64,
+    pub outcome: NotificationPresentationFoldReason,
+    pub revision: u64,
+    pub session_id: String,
+}
+
+impl NotificationPresentationCompletion {
+    pub fn identity(&self) -> NotificationPresentationIdentity {
+        NotificationPresentationIdentity {
+            client_id: self.client_id.clone(),
+            session_id: self.session_id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPresentationCompletionResult {
+    pub accepted: bool,
+    pub snapshot: NotificationSnapshot,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,7 +208,20 @@ struct NotificationState {
     revision: u64,
 }
 
+pub trait NotificationClock: Send + Sync {
+    fn now_unix_milliseconds(&self) -> u64;
+}
+
+struct SystemNotificationClock;
+
+impl NotificationClock for SystemNotificationClock {
+    fn now_unix_milliseconds(&self) -> u64 {
+        now_unix_milliseconds()
+    }
+}
+
 struct NotificationCenterInner {
+    clock: Arc<dyn NotificationClock>,
     state: Mutex<NotificationState>,
     updates: broadcast::Sender<NotificationSnapshot>,
 }
@@ -99,9 +241,14 @@ impl Default for NotificationCenter {
 
 impl NotificationCenter {
     pub fn new() -> Self {
+        Self::with_clock(Arc::new(SystemNotificationClock))
+    }
+
+    pub fn with_clock(clock: Arc<dyn NotificationClock>) -> Self {
         let (updates, _) = broadcast::channel(32);
         Self {
             inner: Arc::new(NotificationCenterInner {
+                clock,
                 state: Mutex::new(NotificationState::default()),
                 updates,
             }),
@@ -156,7 +303,7 @@ impl NotificationCenter {
                 && (!record.resolved || publication.resolved)
         }) {
             let mut record = state.records.remove(index).expect("existing notification");
-            record.observed_at = now_unix_milliseconds();
+            record.observed_at = self.now();
             record.pinned = publication.pinned;
             record.presentation = publication.presentation;
             record.resolved = publication.resolved;
@@ -170,13 +317,16 @@ impl NotificationCenter {
                 created_revision: revision,
                 dedupe_key: publication.dedupe_key,
                 id,
-                observed_at: now_unix_milliseconds(),
+                observed_at: self.now(),
                 pinned: publication.pinned,
                 presentation: publication.presentation,
+                presentation_state: NotificationPresentationState::unpresented(),
                 read: false,
                 resolved: publication.resolved,
                 revision,
                 severity: publication.severity,
+                presentation_generation: 0,
+                presentation_lease: None,
             });
         }
         while state.records.len() > NOTIFICATION_RETENTION_LIMIT {
@@ -241,13 +391,13 @@ impl NotificationCenter {
     }
 
     pub fn snapshot(&self) -> NotificationSnapshot {
-        snapshot(
-            &self
-                .inner
-                .state
-                .lock()
-                .expect("notification state poisoned"),
-        )
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        self.requeue_expired_locked(&mut state, self.now());
+        snapshot(&state)
     }
 
     /// Installs the receiver while the state lock is held, so a publication cannot land between
@@ -258,13 +408,113 @@ impl NotificationCenter {
         broadcast::Receiver<NotificationSnapshot>,
         NotificationSnapshot,
     ) {
-        let state = self
+        let mut state = self
             .inner
             .state
             .lock()
             .expect("notification state poisoned");
         let receiver = self.inner.updates.subscribe();
+        self.requeue_expired_locked(&mut state, self.now());
         (receiver, snapshot(&state))
+    }
+
+    /// Atomically installs a snapshot receiver and claims the next eligible record. This is the
+    /// only startup/reconnect path that may create a toast lease.
+    pub fn subscribe_with_presentation_claim(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> (
+        broadcast::Receiver<NotificationSnapshot>,
+        NotificationPresentationClaimResult,
+    ) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        let receiver = self.inner.updates.subscribe();
+        let result = self.claim_next_locked(&mut state, identity, self.now());
+        (receiver, result)
+    }
+
+    pub fn claim_next_presentation(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> NotificationPresentationClaimResult {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        self.claim_next_locked(&mut state, identity, self.now())
+    }
+
+    pub fn complete_presentation(
+        &self,
+        completion: NotificationPresentationCompletion,
+    ) -> NotificationPresentationCompletionResult {
+        let now = self.now();
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        let mut changed_indices = self.expire_locked(&mut state, now);
+        let identity = completion.identity();
+        let accepted = state
+            .records
+            .iter()
+            .position(|record| record.id == completion.id)
+            .is_some_and(|index| {
+                let record = &state.records[index];
+                record.revision == completion.revision
+                    && record.presentation_state.phase == NotificationPresentationPhase::Presenting
+                    && record.presentation_lease.as_ref().is_some_and(|lease| {
+                        lease.identity == identity
+                            && lease.generation == completion.lease_generation
+                            && lease.expires_at > now
+                    })
+            });
+        if accepted {
+            let index = state
+                .records
+                .iter()
+                .position(|record| record.id == completion.id)
+                .expect("accepted presentation record");
+            let record = &mut state.records[index];
+            record.presentation_lease = None;
+            record.presentation_state =
+                NotificationPresentationState::folded(completion.outcome, now);
+            changed_indices.push(index);
+        }
+        let snapshot = self.commit_indices_locked(&mut state, changed_indices);
+        NotificationPresentationCompletionResult { accepted, snapshot }
+    }
+
+    /// Releases every live lease held by a disconnected client session. A later client must make
+    /// a fresh atomic claim; it cannot infer presentation from a retained snapshot.
+    pub fn release_presentation_leases(
+        &self,
+        identity: &NotificationPresentationIdentity,
+    ) -> NotificationSnapshot {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        let mut changed_indices = self.expire_locked(&mut state, self.now());
+        for (index, record) in state.records.iter_mut().enumerate() {
+            if record
+                .presentation_lease
+                .as_ref()
+                .is_some_and(|lease| &lease.identity == identity)
+            {
+                record.presentation_lease = None;
+                record.presentation_state = NotificationPresentationState::unpresented();
+                changed_indices.push(index);
+            }
+        }
+        self.commit_indices_locked(&mut state, changed_indices)
     }
 
     fn publish_snapshot(&self, state: &NotificationState) -> NotificationSnapshot {
@@ -290,6 +540,145 @@ impl NotificationCenter {
         state.revision = state.revision.saturating_add(1);
         self.publish_snapshot(&state)
     }
+
+    fn claim_next_locked(
+        &self,
+        state: &mut NotificationState,
+        identity: NotificationPresentationIdentity,
+        now: u64,
+    ) -> NotificationPresentationClaimResult {
+        let mut changed_indices = self.expire_locked(state, now);
+        if let Some(index) = state.records.iter().position(|record| {
+            record
+                .presentation_lease
+                .as_ref()
+                .is_some_and(|lease| lease.identity == identity)
+        }) {
+            let snapshot = self.commit_indices_locked(state, changed_indices);
+            return NotificationPresentationClaimResult {
+                claim: presentation_claim(&state.records[index]),
+                snapshot,
+            };
+        }
+
+        // This is a single bounded presentation queue, not one independent queue per client.
+        // A different client cannot skip the current lease and start presenting a later record.
+        if state.records.iter().any(|record| {
+            record.presentation_state.phase == NotificationPresentationPhase::Presenting
+        }) {
+            let snapshot = self.commit_indices_locked(state, changed_indices);
+            return NotificationPresentationClaimResult {
+                claim: None,
+                snapshot,
+            };
+        }
+
+        if let Some(index) = state.records.iter().position(|record| {
+            record.presentation_state.phase == NotificationPresentationPhase::Unpresented
+        }) {
+            let next_generation = state.records[index]
+                .presentation_generation
+                .saturating_add(1)
+                .max(1);
+            let expires_at = now.saturating_add(NOTIFICATION_PRESENTATION_LEASE_MILLISECONDS);
+            let record = &mut state.records[index];
+            record.presentation_generation = next_generation;
+            record.presentation_lease = Some(NotificationPresentationLease {
+                expires_at,
+                generation: next_generation,
+                identity: identity.clone(),
+            });
+            record.presentation_state =
+                NotificationPresentationState::presenting(next_generation, expires_at);
+            changed_indices.push(index);
+        }
+
+        let snapshot = self.commit_indices_locked(state, changed_indices);
+        let claim = state
+            .records
+            .iter()
+            .find(|record| {
+                record
+                    .presentation_lease
+                    .as_ref()
+                    .is_some_and(|lease| lease.identity == identity)
+            })
+            .and_then(presentation_claim);
+        NotificationPresentationClaimResult { claim, snapshot }
+    }
+
+    fn commit_indices_locked(
+        &self,
+        state: &mut NotificationState,
+        mut changed_indices: Vec<usize>,
+    ) -> NotificationSnapshot {
+        changed_indices.sort_unstable();
+        changed_indices.dedup();
+        if changed_indices.is_empty() {
+            return snapshot(state);
+        }
+        state.revision = state.revision.saturating_add(1);
+        let revision = state.revision;
+        for index in changed_indices {
+            if let Some(record) = state.records.get_mut(index) {
+                record.revision = revision;
+            }
+        }
+        self.publish_snapshot(state)
+    }
+
+    fn expire_locked(&self, state: &mut NotificationState, now: u64) -> Vec<usize> {
+        let mut expired = Vec::new();
+        for (index, record) in state.records.iter_mut().enumerate() {
+            if record
+                .presentation_lease
+                .as_ref()
+                .is_some_and(|lease| lease.expires_at <= now)
+            {
+                record.presentation_lease = None;
+                record.presentation_state = NotificationPresentationState::unpresented();
+                expired.push(index);
+            }
+        }
+        expired
+    }
+
+    fn requeue_expired_locked(&self, state: &mut NotificationState, now: u64) -> bool {
+        let expired = self.expire_locked(state, now);
+        if expired.is_empty() {
+            return false;
+        }
+        self.commit_indices_locked(state, expired);
+        true
+    }
+
+    fn now(&self) -> u64 {
+        self.inner.clock.now_unix_milliseconds()
+    }
+}
+
+fn presentation_claim(record: &NotificationRecord) -> Option<NotificationPresentationClaim> {
+    let lease = record.presentation_lease.as_ref()?;
+    Some(NotificationPresentationClaim {
+        id: record.id.clone(),
+        lease_expires_at: lease.expires_at,
+        lease_generation: lease.generation,
+        revision: record.revision,
+    })
+}
+
+pub fn valid_notification_presentation_identity(
+    identity: &NotificationPresentationIdentity,
+) -> bool {
+    valid_identifier(&identity.client_id, false) && valid_identifier(&identity.session_id, false)
+}
+
+pub fn valid_notification_presentation_completion(
+    completion: &NotificationPresentationCompletion,
+) -> bool {
+    valid_notification_presentation_identity(&completion.identity())
+        && valid_identifier(&completion.id, true)
+        && completion.lease_generation > 0
 }
 
 fn snapshot(state: &NotificationState) -> NotificationSnapshot {
@@ -423,7 +812,8 @@ fn now_unix_milliseconds() -> u64 {
 mod tests {
     use mish_presentation_contract::{
         ApplicationActionId, ApplicationNotificationContent,
-        ProfileCreatedApplicationNotificationData, ProfileSavedApplicationNotificationData,
+        OnboardingWelcomeApplicationNotificationData, ProfileCreatedApplicationNotificationData,
+        ProfileSavedApplicationNotificationData,
     };
 
     use super::*;
@@ -443,6 +833,49 @@ mod tests {
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Info,
+        }
+    }
+
+    #[derive(Default)]
+    struct TestClock(Mutex<u64>);
+
+    impl TestClock {
+        fn advance(&self, milliseconds: u64) {
+            let mut now = self.0.lock().unwrap();
+            *now = now.saturating_add(milliseconds);
+        }
+    }
+
+    impl NotificationClock for TestClock {
+        fn now_unix_milliseconds(&self) -> u64 {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    fn center_with_clock() -> (NotificationCenter, Arc<TestClock>) {
+        let clock = Arc::new(TestClock(Mutex::new(1_000)));
+        (NotificationCenter::with_clock(clock.clone()), clock)
+    }
+
+    fn identity(client_id: &str, session_id: &str) -> NotificationPresentationIdentity {
+        NotificationPresentationIdentity {
+            client_id: client_id.into(),
+            session_id: session_id.into(),
+        }
+    }
+
+    fn completion(
+        identity: &NotificationPresentationIdentity,
+        claim: &NotificationPresentationClaim,
+        outcome: NotificationPresentationFoldReason,
+    ) -> NotificationPresentationCompletion {
+        NotificationPresentationCompletion {
+            client_id: identity.client_id.clone(),
+            id: claim.id.clone(),
+            lease_generation: claim.lease_generation,
+            outcome,
+            revision: claim.revision,
+            session_id: identity.session_id.clone(),
         }
     }
 
@@ -571,6 +1004,244 @@ mod tests {
         let next = center.publish(publication("next", 2)).unwrap();
         assert_eq!(baseline.notifications.len(), 1);
         assert_eq!(updates.try_recv().unwrap(), next);
+    }
+
+    #[test]
+    fn pre_gui_onboarding_creation_claims_atomically_and_never_implies_presentation() {
+        let (center, _) = center_with_clock();
+        let created = center
+            .publish(NotificationPublication {
+                dedupe_key: "onboarding.welcome".into(),
+                pinned: false,
+                presentation: ApplicationNotification::new(
+                    ApplicationNotificationContent::OnboardingWelcome(
+                        OnboardingWelcomeApplicationNotificationData { prompt: true },
+                    ),
+                    vec![ApplicationActionId::OpenWelcome],
+                ),
+                replaces: Vec::new(),
+                resolved: false,
+                severity: NotificationSeverity::Info,
+            })
+            .unwrap();
+        assert_eq!(
+            created.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Unpresented
+        );
+
+        let owner = identity("desktop-webview", "session-1");
+        let (_updates, subscribed) = center.subscribe_with_presentation_claim(owner);
+        let claim = subscribed
+            .claim
+            .expect("first eligible client claims onboarding");
+        assert_eq!(claim.id, created.notifications[0].id);
+        assert_eq!(
+            claim.revision,
+            subscribed.snapshot.notifications[0].revision
+        );
+        assert_eq!(
+            subscribed.snapshot.notifications[0]
+                .presentation_state
+                .phase,
+            NotificationPresentationPhase::Presenting
+        );
+        assert_eq!(
+            subscribed.snapshot.notifications[0]
+                .presentation_state
+                .lease_generation,
+            Some(claim.lease_generation)
+        );
+    }
+
+    #[test]
+    fn only_one_client_can_hold_a_current_lease_and_stale_ack_cannot_fold_a_replacement() {
+        let (center, _) = center_with_clock();
+        let created = center.publish(publication("lease", 1)).unwrap();
+        let queued = center.publish(publication("queued", 2)).unwrap();
+        let first = identity("browser-a", "session-a");
+        let second = identity("browser-b", "session-b");
+        let first_claim = center
+            .claim_next_presentation(first.clone())
+            .claim
+            .expect("first client claims");
+        assert_eq!(first_claim.id, created.notifications[0].id);
+        assert!(
+            center
+                .claim_next_presentation(second.clone())
+                .claim
+                .is_none()
+        );
+        assert_eq!(
+            center
+                .snapshot()
+                .notifications
+                .iter()
+                .filter(|record| {
+                    record.presentation_state.phase == NotificationPresentationPhase::Presenting
+                })
+                .count(),
+            1,
+            "a later queued record cannot be claimed by a concurrent client"
+        );
+
+        let read = center.mark_read(&[first_claim.id.clone()]);
+        let refreshed_claim = center
+            .claim_next_presentation(first.clone())
+            .claim
+            .expect("same owner gets its current lease");
+        assert_eq!(
+            refreshed_claim.lease_generation,
+            first_claim.lease_generation
+        );
+        assert_eq!(
+            refreshed_claim.revision,
+            read.notifications
+                .iter()
+                .find(|record| record.id == first_claim.id)
+                .expect("claimed record remains retained")
+                .revision
+        );
+        assert!(
+            !center
+                .complete_presentation(completion(
+                    &first,
+                    &first_claim,
+                    NotificationPresentationFoldReason::Dismissed,
+                ))
+                .accepted
+        );
+
+        center.release_presentation_leases(&first);
+        let replacement_claim = center
+            .claim_next_presentation(second.clone())
+            .claim
+            .expect("replacement client claims requeued record");
+        assert!(replacement_claim.lease_generation > first_claim.lease_generation);
+        assert!(
+            !center
+                .complete_presentation(completion(
+                    &first,
+                    &refreshed_claim,
+                    NotificationPresentationFoldReason::Dismissed,
+                ))
+                .accepted
+        );
+        let folded = center.complete_presentation(completion(
+            &second,
+            &replacement_claim,
+            NotificationPresentationFoldReason::Dismissed,
+        ));
+        assert!(folded.accepted);
+        let folded_record = folded
+            .snapshot
+            .notifications
+            .iter()
+            .find(|record| record.id == first_claim.id)
+            .expect("folded record stays in the center");
+        assert_eq!(
+            folded_record.presentation_state.phase,
+            NotificationPresentationPhase::Folded
+        );
+        assert_eq!(
+            folded_record.presentation_state.fold_reason,
+            Some(NotificationPresentationFoldReason::Dismissed)
+        );
+        let next = center
+            .claim_next_presentation(second)
+            .claim
+            .expect("folding the active toast advances the global queue");
+        assert_eq!(next.id, queued.notifications[0].id);
+    }
+
+    #[test]
+    fn disconnect_and_expiry_requeue_while_completion_persists_the_folded_record() {
+        let (center, clock) = center_with_clock();
+        center.publish(publication("requeue", 1)).unwrap();
+        let crashed = identity("browser-a", "session-a");
+        let recovery = identity("desktop-webview", "session-b");
+        let claimed = center
+            .claim_next_presentation(crashed.clone())
+            .claim
+            .expect("client claims before crashing");
+        let requeued = center.release_presentation_leases(&crashed);
+        assert_eq!(
+            requeued.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Unpresented
+        );
+        let recovered = center
+            .claim_next_presentation(recovery.clone())
+            .claim
+            .expect("disconnected lease requeues");
+        assert!(recovered.lease_generation > claimed.lease_generation);
+
+        clock.advance(NOTIFICATION_PRESENTATION_LEASE_MILLISECONDS);
+        let expired = center.snapshot();
+        assert_eq!(
+            expired.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Unpresented,
+            "the authoritative expiry sweep requeues without a client claim"
+        );
+        let after_expiry = center
+            .claim_next_presentation(crashed.clone())
+            .claim
+            .expect("expired lease requeues for another client");
+        assert!(after_expiry.lease_generation > recovered.lease_generation);
+        let folded = center.complete_presentation(completion(
+            &crashed,
+            &after_expiry,
+            NotificationPresentationFoldReason::TimedOut,
+        ));
+        assert!(folded.accepted);
+        assert_eq!(folded.snapshot.notifications.len(), 1);
+        assert_eq!(
+            folded.snapshot.notifications[0]
+                .presentation_state
+                .fold_reason,
+            Some(NotificationPresentationFoldReason::TimedOut)
+        );
+        assert!(center.claim_next_presentation(recovery).claim.is_none());
+    }
+
+    #[test]
+    fn read_resolution_and_removal_do_not_implicitly_consume_a_presentation_lease() {
+        let (center, _) = center_with_clock();
+        let created = center.publish(publication("independent", 1)).unwrap();
+        let id = created.notifications[0].id.clone();
+        let read = center.mark_read(&[id.clone()]);
+        assert!(read.notifications[0].read);
+        assert_eq!(
+            read.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Unpresented
+        );
+        let resolved = center.resolve_by_dedupe_key("independent");
+        assert!(resolved.notifications[0].resolved);
+        assert_eq!(
+            resolved.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Unpresented
+        );
+
+        let owner = identity("desktop-webview", "session-1");
+        let claim = center
+            .claim_next_presentation(owner.clone())
+            .claim
+            .expect("resolution does not consume the pending presentation");
+        let resolved_while_presenting = center.resolve_by_dedupe_key("independent");
+        assert_eq!(
+            resolved_while_presenting.notifications[0]
+                .presentation_state
+                .phase,
+            NotificationPresentationPhase::Presenting
+        );
+        center.remove(&id);
+        assert!(
+            !center
+                .complete_presentation(completion(
+                    &owner,
+                    &claim,
+                    NotificationPresentationFoldReason::Dismissed,
+                ))
+                .accepted
+        );
     }
 
     #[test]

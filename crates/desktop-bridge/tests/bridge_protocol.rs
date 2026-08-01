@@ -18,8 +18,8 @@ use mish_bridge::{
     LoopbackPortSelection, LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy,
     MihomoActivationManager, ProcessIcon, ProcessIconResolver, ProfileActivationCoordinator,
     ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
-    ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
-    start_loopback_server_with_runtime_host,
+    ReqwestHttpsSourceReader, ServiceProbeConfig, initialize_onboarding_welcome_notification,
+    start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -864,6 +864,25 @@ async fn next_json(
     serde_json::from_str(&message).unwrap()
 }
 
+async fn request_matching_response(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    value: Value,
+) -> Value {
+    let request_id = value["id"].clone();
+    socket
+        .send(Message::Text(value.to_string().into()))
+        .await
+        .unwrap();
+    loop {
+        let response = next_json(socket).await;
+        if response.get("id") == Some(&request_id) {
+            return response;
+        }
+    }
+}
+
 #[tokio::test]
 async fn authoritative_application_notifications_reach_every_notification_client() {
     let runtime = runtime(no_core());
@@ -879,7 +898,15 @@ async fn authoritative_application_notifications_reach_every_notification_client
     for (id, socket) in [(2, &mut first), (3, &mut second)] {
         let subscribed = request(
             socket,
-            json!({"jsonrpc":"2.0", "id":id, "method":"notifications.subscribe", "params":{}}),
+            json!({
+                "jsonrpc":"2.0",
+                "id":id,
+                "method":"notifications.subscribe",
+                "params":{
+                    "clientId": format!("notification-client-{id}"),
+                    "sessionId": format!("notification-session-{id}")
+                }
+            }),
         )
         .await;
         assert!(subscribed["result"]["subscriptionId"].is_string());
@@ -987,6 +1014,446 @@ async fn authoritative_application_notifications_reach_every_notification_client
             1
         );
     }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_client() {
+    let settings = settings_service();
+    let crashed_before_gui = DesktopRuntimeHost::new(runtime(no_core()));
+
+    assert!(initialize_onboarding_welcome_notification(&crashed_before_gui, &settings).unwrap());
+    let interrupted_record = crashed_before_gui
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .find(|record| record.presentation.kind() == "onboarding.welcome")
+        .expect("onboarding record before GUI startup");
+    let mish_runtime::ApplicationNotificationContent::OnboardingWelcome(interrupted) =
+        interrupted_record.presentation.content
+    else {
+        unreachable!("onboarding notification content");
+    };
+    assert!(interrupted.prompt);
+    assert!(
+        settings
+            .snapshot(mish_settings::SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("fresh onboarding invitation")
+            .prompted_at
+            .is_none()
+    );
+    drop(crashed_before_gui);
+
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
+    assert!(initialize_onboarding_welcome_notification(&runtime_host, &settings).unwrap());
+    runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "presentation-queue-follow-up".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::SettingsOperationFailed(
+                    mish_runtime::SettingsOperationFailedApplicationNotificationData {
+                        failure: "persistence".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let created = runtime_host.notification_snapshot();
+    let record = created
+        .notifications
+        .iter()
+        .find(|record| record.presentation.kind() == "onboarding.welcome")
+        .expect("onboarding record");
+    let record_id = record.id.clone();
+    let queued_record_id = created
+        .notifications
+        .iter()
+        .find(|record| record.dedupe_key == "presentation-queue-follow-up")
+        .expect("queued record")
+        .id
+        .clone();
+    assert_eq!(created.notifications.len(), 2);
+    assert_eq!(record.presentation.kind(), "onboarding.welcome");
+    assert_eq!(
+        record.presentation_state.phase,
+        mish_runtime::NotificationPresentationPhase::Unpresented
+    );
+    assert!(
+        settings
+            .snapshot(mish_settings::SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("fresh onboarding invitation")
+            .prompted_at
+            .is_none()
+    );
+
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings.clone());
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
+        .await
+        .unwrap();
+    let mut desktop_webview = socket(bridge.address).await;
+    let mut browser = socket(bridge.address).await;
+    authenticate(&mut desktop_webview).await;
+    authenticate(&mut browser).await;
+
+    let desktop_claim = request(
+        &mut desktop_webview,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"desktop-webview","sessionId":"desktop-session-1"}
+        }),
+    )
+    .await;
+    assert_eq!(desktop_claim["result"]["claim"]["id"], record_id);
+    let desktop_record = desktop_claim["result"]["snapshot"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"].as_str() == Some(record_id.as_str()))
+        .expect("claimed onboarding snapshot");
+    assert_eq!(desktop_record["presentationState"]["phase"], "presenting");
+    let lease_generation = desktop_claim["result"]["claim"]["leaseGeneration"]
+        .as_u64()
+        .expect("lease generation");
+
+    let browser_claim = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"browser","sessionId":"browser-session-1"}
+        }),
+    )
+    .await;
+    assert!(browser_claim["result"]["claim"].is_null());
+    let queued_record = browser_claim["result"]["snapshot"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"].as_str() == Some(queued_record_id.as_str()))
+        .expect("queued snapshot");
+    assert_eq!(queued_record["presentationState"]["phase"], "unpresented");
+
+    let stale_ack = request(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"browser",
+                "sessionId":"browser-session-1",
+                "id":record_id,
+                "revision":desktop_claim["result"]["claim"]["revision"],
+                "leaseGeneration":lease_generation,
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(stale_ack["result"]["accepted"], false);
+    let retained = stale_ack["result"]["snapshot"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"].as_str() == Some(record_id.as_str()))
+        .expect("retained onboarding snapshot");
+    assert_eq!(retained["presentationState"]["phase"], "presenting");
+
+    let released = request_matching_response(
+        &mut desktop_webview,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"notifications.unsubscribe",
+            "params":{"subscriptionId":desktop_claim["result"]["subscriptionId"]}
+        }),
+    )
+    .await;
+    assert_eq!(released["result"], true);
+
+    let replacement = request_matching_response(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":5,
+            "method":"notifications.claimPresentation",
+            "params":{"clientId":"browser","sessionId":"browser-session-1"}
+        }),
+    )
+    .await;
+    let replacement_claim = &replacement["result"]["claim"];
+    assert_eq!(replacement_claim["id"], record_id);
+    assert!(replacement_claim["leaseGeneration"].as_u64().unwrap() > lease_generation);
+
+    let stale_replacement_ack = request_matching_response(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":6,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"browser",
+                "sessionId":"browser-session-1",
+                "id":record_id,
+                "revision":desktop_claim["result"]["claim"]["revision"],
+                "leaseGeneration":lease_generation,
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(stale_replacement_ack["result"]["accepted"], false);
+
+    let completion = request_matching_response(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":7,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"browser",
+                "sessionId":"browser-session-1",
+                "id":replacement_claim["id"],
+                "revision":replacement_claim["revision"],
+                "leaseGeneration":replacement_claim["leaseGeneration"],
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(completion["result"]["accepted"], true);
+    let folded_record = completion["result"]["snapshot"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"].as_str() == Some(record_id.as_str()))
+        .expect("folded onboarding snapshot");
+    assert_eq!(folded_record["presentationState"]["phase"], "folded");
+    assert!(
+        settings
+            .snapshot(mish_settings::SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("completed onboarding presentation")
+            .prompted_at
+            .is_some()
+    );
+
+    let duplicate_completion = request_matching_response(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":8,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"browser",
+                "sessionId":"browser-session-1",
+                "id":replacement_claim["id"],
+                "revision":replacement_claim["revision"],
+                "leaseGeneration":replacement_claim["leaseGeneration"],
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(duplicate_completion["result"]["accepted"], false);
+
+    let queued_claim = request_matching_response(
+        &mut browser,
+        json!({
+            "jsonrpc":"2.0",
+            "id":9,
+            "method":"notifications.claimPresentation",
+            "params":{"clientId":"browser","sessionId":"browser-session-1"}
+        }),
+    )
+    .await;
+    assert_eq!(queued_claim["result"]["claim"]["id"], queued_record_id);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn presentation_identity_cannot_be_shared_by_two_live_sockets() {
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
+    let created = runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "presentation-identity-owner".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::SettingsOperationFailed(
+                    mish_runtime::SettingsOperationFailedApplicationNotificationData {
+                        failure: "persistence".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let record_id = created.notifications[0].id.clone();
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut owner = socket(bridge.address).await;
+    let mut duplicate = socket(bridge.address).await;
+    authenticate(&mut owner).await;
+    authenticate(&mut duplicate).await;
+
+    let first = request(
+        &mut owner,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"shared-client","sessionId":"shared-session"}
+        }),
+    )
+    .await;
+    let claim = &first["result"]["claim"];
+    assert_eq!(claim["id"], record_id);
+
+    let rejected = request(
+        &mut duplicate,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"shared-client","sessionId":"shared-session"}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["code"], -32031);
+    duplicate.close(None).await.unwrap();
+    drop(duplicate);
+
+    let completion = request_matching_response(
+        &mut owner,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"shared-client",
+                "sessionId":"shared-session",
+                "id":claim["id"],
+                "revision":claim["revision"],
+                "leaseGeneration":claim["leaseGeneration"],
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(completion["result"]["accepted"], true);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn socket_loss_requeues_a_presentation_lease_for_the_next_authenticated_client() {
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
+    let created = runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "socket-loss-presentation".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::SettingsOperationFailed(
+                    mish_runtime::SettingsOperationFailedApplicationNotificationData {
+                        failure: "persistence".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let record_id = created.notifications[0].id.clone();
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut owner = socket(bridge.address).await;
+    authenticate(&mut owner).await;
+    let first = request(
+        &mut owner,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"lost-client","sessionId":"lost-session"}
+        }),
+    )
+    .await;
+    assert_eq!(first["result"]["claim"]["id"], record_id);
+    let first_generation = first["result"]["claim"]["leaseGeneration"]
+        .as_u64()
+        .expect("initial lease generation");
+    owner.close(None).await.unwrap();
+    drop(owner);
+
+    let mut replacement = socket(bridge.address).await;
+    authenticate(&mut replacement).await;
+    let subscribed = request(
+        &mut replacement,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"replacement-client","sessionId":"replacement-session"}
+        }),
+    )
+    .await;
+    let replacement_claim = if subscribed["result"]["claim"].is_null() {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                let claimed = request_matching_response(
+                    &mut replacement,
+                    json!({
+                        "jsonrpc":"2.0",
+                        "id":3,
+                        "method":"notifications.claimPresentation",
+                        "params":{"clientId":"replacement-client","sessionId":"replacement-session"}
+                    }),
+                )
+                .await;
+                if !claimed["result"]["claim"].is_null() {
+                    return claimed;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("socket teardown requeues the lease")
+    } else {
+        subscribed
+    };
+    assert_eq!(replacement_claim["result"]["claim"]["id"], record_id);
+    assert!(
+        replacement_claim["result"]["claim"]["leaseGeneration"]
+            .as_u64()
+            .unwrap()
+            > first_generation
+    );
 
     bridge.shutdown().await;
 }
@@ -2104,7 +2571,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 30);
+    assert_eq!(info["result"]["protocolVersion"], 31);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],
@@ -2917,7 +3384,12 @@ async fn missing_profile_capture_failure_is_shared_by_rpc_clients_and_reconnects
     .await;
     request(
         &mut notification_observer,
-        json!({"jsonrpc":"2.0", "id":2, "method":"notifications.subscribe", "params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"notification-observer","sessionId":"notification-session"}
+        }),
     )
     .await;
 

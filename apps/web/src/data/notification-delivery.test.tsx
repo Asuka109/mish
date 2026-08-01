@@ -1,4 +1,8 @@
 import { act, render } from "@testing-library/react";
+import type {
+  NotificationPresentationClaimDto,
+  NotificationPresentationFoldReason,
+} from "@mish/contracts";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -13,6 +17,22 @@ import {
   useNotificationDelivery,
   type NotificationDeliveryContextValue,
 } from "./notification-delivery";
+
+class RejectingCompletionClient extends FixtureNotificationClient {
+  override async completePresentation(
+    _claim: NotificationPresentationClaimDto,
+    _outcome: NotificationPresentationFoldReason,
+  ) {
+    const current = await this.getSnapshot();
+    const revision = current.revision + 1;
+    const snapshot = {
+      notifications: current.notifications.map((record) => ({ ...record, revision })),
+      revision,
+    };
+    this.receive(snapshot);
+    return { accepted: false, snapshot };
+  }
+}
 
 describe("Rust-authoritative notification delivery projection", () => {
   let delivery: NotificationDeliveryContextValue | null = null;
@@ -56,7 +76,7 @@ describe("Rust-authoritative notification delivery projection", () => {
     randomUuid.mockRestore();
   });
 
-  it("hydrates the baseline without a toast and observes one new same-ID projection", async () => {
+  it("claims a pre-GUI record, then keeps read state separate from its toast lifecycle", async () => {
     const center = new FixtureNotificationCenter();
     const publisher = new FixtureNotificationClient(center);
     await publisher.publish(
@@ -74,7 +94,22 @@ describe("Rust-authoritative notification delivery projection", () => {
       </TypesafeI18n>,
     );
     await vi.waitFor(() => expect(delivery?.entries).toHaveLength(1));
-    expect(delivery?.toastEntries).toEqual([]);
+    await vi.waitFor(() => expect(delivery?.toastEntries).toHaveLength(1));
+    const preGuiId = delivery!.toastEntries[0]!.id;
+    expect(delivery?.toastEntries[0]?.message).toBe("Profile created");
+
+    act(() => delivery?.markRead([preGuiId]));
+    await vi.waitFor(() =>
+      expect(delivery?.entries.find((entry) => entry.id === preGuiId)?.read).toBe(true),
+    );
+    expect(delivery?.toastEntries[0]?.id).toBe(preGuiId);
+
+    act(() => delivery?.completePresentation(preGuiId, "dismissed"));
+    await vi.waitFor(() => expect(delivery?.toastEntries).toEqual([]));
+    expect((await client.getSnapshot()).notifications[0]?.presentationState).toMatchObject({
+      phase: "folded",
+      foldReason: "dismissed",
+    });
 
     await act(() =>
       publisher.publish(
@@ -108,6 +143,10 @@ describe("Rust-authoritative notification delivery projection", () => {
       expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true),
     );
     const authorityBeforeLocaleChange = await client.getSnapshot();
+    const leaseBeforeLocaleChange = authorityBeforeLocaleChange.notifications.find(
+      (entry) => entry.id === id,
+    )?.presentationState;
+    expect(leaseBeforeLocaleChange?.phase).toBe("presenting");
 
     view.rerender(
       <TypesafeI18n key="zh" locale="zh">
@@ -122,9 +161,22 @@ describe("Rust-authoritative notification delivery projection", () => {
       ),
     );
     expect(delivery?.entries).toHaveLength(2);
-    expect(delivery?.toastEntries).toEqual([]);
+    expect(delivery?.toastEntries).toHaveLength(1);
+    expect(delivery?.toastEntries[0]?.id).toBe(id);
     expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true);
-    expect(await client.getSnapshot()).toEqual(authorityBeforeLocaleChange);
+    const authorityAfterLocaleChange = await client.getSnapshot();
+    const leaseAfterLocaleChange = authorityAfterLocaleChange.notifications.find(
+      (entry) => entry.id === id,
+    )?.presentationState;
+    expect(leaseAfterLocaleChange?.phase).toBe("presenting");
+    if (
+      leaseBeforeLocaleChange?.phase === "presenting" &&
+      leaseAfterLocaleChange?.phase === "presenting"
+    ) {
+      expect(leaseAfterLocaleChange.leaseGeneration).toBeGreaterThan(
+        leaseBeforeLocaleChange.leaseGeneration,
+      );
+    }
   });
 
   it("writes read and remove lifecycle through the shared authority", async () => {
@@ -157,5 +209,100 @@ describe("Rust-authoritative notification delivery projection", () => {
     act(() => delivery?.remove(id));
     await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
     expect((await second.getSnapshot()).notifications).toEqual([]);
+  });
+
+  it("reprojects a toast when a stale completion leaves its lease active", async () => {
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    const client = new RejectingCompletionClient(center);
+    await publisher.publish(
+      notificationPublication("profile.saved", {
+        dedupeKey: "stale-completion",
+        severity: "success",
+      }),
+    );
+    const view = render(
+      <TypesafeI18n locale="en">
+        <NotificationDeliveryProvider client={client}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
+    );
+    await vi.waitFor(() => expect(delivery?.toastEntries).toHaveLength(1));
+    const toast = delivery!.toastEntries[0]!;
+
+    act(() => delivery?.completePresentation(toast.id, "dismissed"));
+
+    await vi.waitFor(() =>
+      expect(delivery?.toastEntries[0]).toMatchObject({
+        id: toast.id,
+        presentationAttempt: toast.presentationAttempt + 1,
+      }),
+    );
+
+    view.unmount();
+    client.dispose();
+    publisher.dispose();
+  });
+
+  it("models one active lease, reconnect replacement, expiry, and stale acknowledgements", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    const first = new FixtureNotificationClient(center);
+    const second = new FixtureNotificationClient(center);
+    const third = new FixtureNotificationClient(center);
+    await publisher.publish(
+      notificationPublication("profile.saved", {
+        dedupeKey: "lease-model",
+        severity: "success",
+      }),
+    );
+    await publisher.publish(
+      notificationPublication("profile.created", {
+        dedupeKey: "lease-queued",
+        severity: "success",
+      }),
+    );
+
+    const firstClaim = center.claimPresentation(first.presentationIdentity).claim;
+    expect(firstClaim).not.toBeNull();
+    expect((await first.getSnapshot()).notifications).toHaveLength(2);
+    expect(center.claimPresentation(second.presentationIdentity).claim).toBeNull();
+    const id = firstClaim!.id;
+    const read = center.markRead([id]);
+    expect(read.notifications.find((record) => record.id === id)?.presentationState.phase).toBe(
+      "presenting",
+    );
+
+    first.dispose();
+    const replacement = center.claimPresentation(second.presentationIdentity).claim;
+    expect(replacement?.leaseGeneration).toBeGreaterThan(firstClaim!.leaseGeneration);
+    expect(
+      center.completePresentation(first.presentationIdentity, firstClaim!, "dismissed").accepted,
+    ).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const afterExpiry = center.claimPresentation(third.presentationIdentity).claim;
+    expect(afterExpiry?.leaseGeneration).toBeGreaterThan(replacement!.leaseGeneration);
+    const timedOut = center.completePresentation(
+      third.presentationIdentity,
+      afterExpiry!,
+      "timed-out",
+    );
+    expect(timedOut.accepted).toBe(true);
+    expect(
+      timedOut.snapshot.notifications.find((record) => record.id === id)?.presentationState,
+    ).toMatchObject({ foldReason: "timed-out", phase: "folded" });
+    const nextQueuedClaim = center.claimPresentation(second.presentationIdentity).claim;
+    expect(nextQueuedClaim?.id).not.toBe(id);
+    const afterRemoval = center.remove(id).notifications;
+    expect(afterRemoval).toHaveLength(1);
+    expect(afterRemoval[0]?.id).toBe(nextQueuedClaim?.id);
+
+    publisher.dispose();
+    second.dispose();
+    third.dispose();
   });
 });

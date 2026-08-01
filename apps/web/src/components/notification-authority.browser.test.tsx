@@ -116,7 +116,24 @@ afterAll(() => {
 
 describe("Rust-authoritative notification browser projection", () => {
   test("synchronizes toast, read, action, localization, instance removal, and reconnect lifecycle", async () => {
-    expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0);
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
+    );
+    expect(document.querySelector("[data-sonner-toast]")?.textContent).toContain(
+      "Closed 2 active connections",
+    );
+    const preGuiClose = document.querySelector<HTMLButtonElement>(
+      "[data-sonner-toast] [data-close-button]",
+    );
+    if (!preGuiClose) throw new Error("Missing pre-GUI toast close control");
+    await preGuiClose.click();
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
+    expect((await firstClient.getSnapshot()).notifications[0]?.presentationState).toMatchObject({
+      foldReason: "dismissed",
+      phase: "folded",
+    });
 
     await secondClient.publish(
       notificationPublication("system-proxy.drift", {
@@ -165,9 +182,14 @@ describe("Rust-authoritative notification browser projection", () => {
         severity: "warning",
       }),
     );
-    await vi.waitFor(() =>
-      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
+    await vi.waitFor(async () =>
+      expect(
+        (await firstClient.getSnapshot()).notifications.find(
+          ({ dedupeKey }) => dedupeKey === "system-proxy.drift",
+        )?.presentationState,
+      ).toMatchObject({ phase: "folded" }),
     );
+    expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0);
     expect(
       (await firstClient.getSnapshot()).notifications.find(
         ({ dedupeKey }) => dedupeKey === "system-proxy.drift",
@@ -229,20 +251,9 @@ describe("Rust-authoritative notification browser projection", () => {
       }),
     );
     await vi.waitFor(() =>
-      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(2),
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
     );
-    await vi.waitFor(() => {
-      const activeGeodataToasts = [
-        ...document.querySelectorAll<HTMLElement>("[data-sonner-toast]"),
-      ];
-      expect(activeGeodataToasts.every((toast) => toast.getBoundingClientRect().height > 0)).toBe(
-        true,
-      );
-      const activeGeodataRects = activeGeodataToasts
-        .map((toast) => toast.getBoundingClientRect())
-        .sort((left, right) => left.top - right.top);
-      expect(activeGeodataRects[0]!.bottom).toBeLessThanOrEqual(activeGeodataRects[1]!.top);
-    });
+    expect(document.querySelector("[data-sonner-toast]")?.textContent).toContain("GeoSite");
     await expect
       .element(
         page.getByRole("dialog").getByText("正在准备启用配置所需的 GeoSite…", { exact: true }),
@@ -259,6 +270,17 @@ describe("Rust-authoritative notification browser projection", () => {
         }),
       )
       .not.toBeInTheDocument();
+
+    const geositeClose = document.querySelector<HTMLButtonElement>(
+      "[data-sonner-toast] [data-close-button]",
+    );
+    if (!geositeClose) throw new Error("Missing GeoSite toast close control");
+    await geositeClose.click();
+    await vi.waitFor(() => {
+      const toasts = document.querySelectorAll("[data-sonner-toast]");
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0]?.textContent).toContain("MMDB");
+    });
 
     await secondClient.publish(
       notificationPublication("profile.activation-geosite-progress", {
@@ -281,6 +303,9 @@ describe("Rust-authoritative notification browser projection", () => {
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
     );
+    if (!document.querySelector('[role="dialog"]')) {
+      await page.getByRole("button", { name: /通知/ }).click();
+    }
     const completedGeodata = page.getByText("GeoSite 已准备完成，可以启用配置。", {
       exact: true,
     });

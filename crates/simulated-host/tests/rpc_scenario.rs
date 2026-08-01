@@ -124,7 +124,12 @@ async fn authenticated_clients_observe_pending_early_conflict_terminal_and_recon
     .await;
     request(
         &mut notifications,
-        json!({"jsonrpc":"2.0","id":2,"method":"notifications.subscribe","params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"scenario-notifications","sessionId":"scenario-notifications-1"}
+        }),
     )
     .await;
 
@@ -189,7 +194,12 @@ async fn authenticated_clients_observe_pending_early_conflict_terminal_and_recon
     authenticate(&mut reconnected).await;
     let baseline = request(
         &mut reconnected,
-        json!({"jsonrpc":"2.0","id":2,"method":"notifications.subscribe","params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"scenario-reconnected","sessionId":"scenario-reconnected-1"}
+        }),
     )
     .await;
     assert_eq!(

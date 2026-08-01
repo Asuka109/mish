@@ -15,12 +15,13 @@ export function NotificationPublicationController() {
   const geodataProgress = useRef(new Map<string, { key: string; type: GeodataProgressType }>());
   const welcomePromptPending = useRef(false);
   const welcomeInvitation = settings?.snapshot.preferences.onboarding.welcomeInvitation;
+  const fixture = snapshot?.adapterKind === "fixture";
   const activation = profiles?.snapshot?.activation;
   const systemProxy = snapshot?.runtime.systemProxy;
   const tun = snapshot?.runtime.tun;
-  const fixture = snapshot?.adapterKind === "fixture";
 
   useEffect(() => {
+    if (!fixture) return;
     if (!welcomeInvitation) return;
     if (!settings) return;
     if (welcomeInvitation.promptedAt !== null) {
@@ -48,7 +49,7 @@ export function NotificationPublicationController() {
         }),
       );
     });
-  }, [publish, retire, settings, welcomeInvitation]);
+  }, [fixture, publish, settings, welcomeInvitation]);
 
   useEffect(() => {
     if (!fixture) return;
