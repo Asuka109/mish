@@ -1,6 +1,6 @@
 use super::{
-    AvailableCandidate, UpdateCandidateIdentity, UpdateChannel, UpdateOperationError, UpdatePhase,
-    UpdateProgress, UpdaterError,
+    AvailableCandidate, DiscoveryOutcome, UpdateCandidateIdentity, UpdateChannel,
+    UpdateOperationError, UpdatePhase, UpdateProgress, UpdaterError, UpdaterSnapshot,
 };
 use mish_state_machine::{
     CorrelatedEffect, Correlation, EffectBatch, EffectMode, Machine, TaskFailure, Transition,
@@ -16,6 +16,7 @@ pub(super) struct CheckOperation {
     pub operation_id: String,
     pub admitted_revision: u64,
     pub channel: UpdateChannel,
+    pub baseline: Box<CheckProjection>,
 }
 
 impl CheckOperation {
@@ -75,6 +76,7 @@ impl CheckFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum RetiredTerminal {
     Available { candidate: Box<AvailableCandidate> },
+    Baseline { projection: Box<CheckProjection> },
     Cancelled,
     Failed { failure: CheckFailure },
     Stable,
@@ -98,6 +100,9 @@ pub(super) enum CheckState {
     NoUpdate {
         operation: CheckOperation,
         reason: UpdateOperationError,
+    },
+    Unchanged {
+        operation: CheckOperation,
     },
     Failed {
         operation: CheckOperation,
@@ -125,6 +130,7 @@ impl CheckState {
             | Self::Checking { operation, .. }
             | Self::CommittingAvailable { operation, .. }
             | Self::NoUpdate { operation, .. }
+            | Self::Unchanged { operation }
             | Self::Failed { operation, .. }
             | Self::Cancelled { operation }
             | Self::Retired {
@@ -149,6 +155,7 @@ impl CheckState {
             Self::Checking { .. } => "checking",
             Self::CommittingAvailable { .. } => "committing-available",
             Self::NoUpdate { .. } => "no-update",
+            Self::Unchanged { .. } => "unchanged",
             Self::Failed { .. } => "failed",
             Self::Cancelled { .. } => "cancelled",
             Self::Retired { .. } => "retired",
@@ -167,6 +174,7 @@ impl CheckState {
             Self::NoUpdate { operation, reason } => {
                 CheckProjection::failed(operation, reason.code())
             }
+            Self::Unchanged { operation } => operation.baseline.as_ref().clone(),
             Self::Failed { operation, failure } => {
                 CheckProjection::failed(operation, failure.code())
             }
@@ -179,6 +187,7 @@ impl CheckState {
                     operation.as_ref().expect("available operation"),
                     candidate,
                 ),
+                RetiredTerminal::Baseline { projection } => projection.as_ref().clone(),
                 RetiredTerminal::Cancelled => {
                     CheckProjection::cancelled(operation.as_ref().expect("cancelled operation"))
                 }
@@ -204,6 +213,18 @@ pub(super) struct CheckProjection {
 }
 
 impl CheckProjection {
+    pub fn from_snapshot(snapshot: &UpdaterSnapshot) -> Self {
+        Self {
+            phase: snapshot.phase,
+            operation_id: snapshot.operation_id.clone(),
+            channel: snapshot.channel,
+            candidate: snapshot.candidate.clone(),
+            progress: snapshot.progress.clone(),
+            resumable: snapshot.resumable,
+            terminal_reason: snapshot.terminal_reason.clone(),
+        }
+    }
+
     fn idle() -> Self {
         Self {
             phase: UpdatePhase::Idle,
@@ -306,7 +327,7 @@ impl CorrelatedEffect for CheckEffect {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum CheckEffectOutcome {
-    Discovery(Result<Box<AvailableCandidate>, UpdateOperationError>),
+    Discovery(Result<DiscoveryOutcome, UpdateOperationError>),
     Commit(Result<(), UpdateOperationError>),
     TaskFailed(CheckTaskFailure),
 }
@@ -476,6 +497,7 @@ pub(super) fn reduce(
                 }
                 | CheckState::Stable { .. }
                 | CheckState::NoUpdate { .. }
+                | CheckState::Unchanged { .. }
                 | CheckState::Failed { .. }
                 | CheckState::Cancelled { .. }
                 | CheckState::Retired { .. } => Ok(CheckDecision::unchanged(
@@ -539,6 +561,15 @@ pub(super) fn reduce(
                     operation: Some(operation.clone()),
                     terminal: RetiredTerminal::Failed {
                         failure: CheckFailure::Operation(*reason),
+                    },
+                },
+                Vec::new(),
+            )),
+            CheckState::Unchanged { operation } => Ok(CheckDecision::applied(
+                CheckState::Retired {
+                    operation: Some(operation.clone()),
+                    terminal: RetiredTerminal::Baseline {
+                        projection: operation.baseline.clone(),
                     },
                 },
                 Vec::new(),
@@ -710,7 +741,7 @@ fn reduce_completion(
                 ));
             };
             match result {
-                Ok(candidate) => Ok(CheckDecision::applied(
+                Ok(DiscoveryOutcome::Available(candidate)) => Ok(CheckDecision::applied(
                     CheckState::CommittingAvailable {
                         operation: operation.clone(),
                         candidate: candidate.as_ref().clone(),
@@ -720,6 +751,12 @@ fn reduce_completion(
                         correlation: operation.correlation(COMMIT_AVAILABLE_EFFECT_ID),
                         candidate,
                     }],
+                )),
+                Ok(DiscoveryOutcome::Unchanged) => Ok(CheckDecision::applied(
+                    CheckState::Unchanged {
+                        operation: operation.clone(),
+                    },
+                    Vec::new(),
                 )),
                 Err(reason) if is_no_update(reason) => Ok(CheckDecision::applied(
                     CheckState::NoUpdate {
@@ -804,6 +841,7 @@ fn reduce_completion(
         }
         CheckState::Stable { .. }
         | CheckState::NoUpdate { .. }
+        | CheckState::Unchanged { .. }
         | CheckState::Failed { .. }
         | CheckState::Cancelled { .. }
         | CheckState::Retired { .. } => Ok(CheckDecision::unchanged(
@@ -833,6 +871,7 @@ mod tests {
             operation_id: id.into(),
             admitted_revision: revision,
             channel: UpdateChannel::Alpha,
+            baseline: Box::new(CheckProjection::idle()),
         }
     }
 
@@ -879,7 +918,9 @@ mod tests {
             &checking,
             CheckInput::EffectCompleted(CheckCompletion {
                 correlation: operation.correlation(DISCOVER_EFFECT_ID),
-                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate("1.0.1-alpha.1")))),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(Box::new(
+                    candidate("1.0.1-alpha.1"),
+                )))),
             }),
         )
         .unwrap();
@@ -928,6 +969,36 @@ mod tests {
     }
 
     #[test]
+    fn identical_rediscovery_restores_the_exact_outer_baseline() {
+        let mut operation = operation_token("rediscovery", 9, 21);
+        *operation.baseline = CheckProjection {
+            phase: UpdatePhase::Ready,
+            operation_id: Some("original".into()),
+            channel: Some(UpdateChannel::Alpha),
+            candidate: Some(candidate("1.0.1-alpha.1").identity()),
+            progress: Some(UpdateProgress {
+                downloaded_bytes: 42,
+                total_bytes: 42,
+            }),
+            resumable: false,
+            terminal_reason: None,
+        };
+        let baseline = operation.baseline.as_ref().clone();
+        let checking = request(&CheckState::idle(), operation.clone()).next;
+        let unchanged = reduce(
+            &checking,
+            CheckInput::EffectCompleted(CheckCompletion {
+                correlation: operation.correlation(DISCOVER_EFFECT_ID),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Unchanged)),
+            }),
+        )
+        .unwrap()
+        .next;
+        assert!(matches!(unchanged, CheckState::Unchanged { .. }));
+        assert_eq!(unchanged.projection(), baseline);
+    }
+
+    #[test]
     fn cancellation_linearizes_before_discovery_but_is_too_late_after_commit_point() {
         let operation = operation_token("operation-a", 1, 1);
         let checking = request(&CheckState::idle(), operation.clone()).next;
@@ -946,7 +1017,9 @@ mod tests {
             &cancelling.next,
             CheckInput::EffectCompleted(CheckCompletion {
                 correlation: operation.correlation(DISCOVER_EFFECT_ID),
-                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate("1.0.1-alpha.1")))),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(Box::new(
+                    candidate("1.0.1-alpha.1"),
+                )))),
             }),
         )
         .unwrap()
@@ -959,7 +1032,9 @@ mod tests {
             &checking,
             CheckInput::EffectCompleted(CheckCompletion {
                 correlation: operation.correlation(DISCOVER_EFFECT_ID),
-                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate("1.0.1-alpha.2")))),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(Box::new(
+                    candidate("1.0.1-alpha.2"),
+                )))),
             }),
         )
         .unwrap()
@@ -1047,9 +1122,9 @@ mod tests {
                 &checking,
                 CheckInput::EffectCompleted(CheckCompletion {
                     correlation,
-                    outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate(
-                        "1.0.1-alpha.1",
-                    )))),
+                    outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(
+                        Box::new(candidate("1.0.1-alpha.1")),
+                    ))),
                 }),
             )
             .unwrap();
@@ -1061,7 +1136,9 @@ mod tests {
             &checking,
             CheckInput::EffectCompleted(CheckCompletion {
                 correlation: operation.correlation(DISCOVER_EFFECT_ID),
-                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate("1.0.1-alpha.1")))),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(Box::new(
+                    candidate("1.0.1-alpha.1"),
+                )))),
             }),
         )
         .unwrap()
@@ -1070,7 +1147,9 @@ mod tests {
             &committing,
             CheckInput::EffectCompleted(CheckCompletion {
                 correlation: operation.correlation(DISCOVER_EFFECT_ID),
-                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate("9.9.9-alpha.9")))),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Available(Box::new(
+                    candidate("9.9.9-alpha.9"),
+                )))),
             }),
         )
         .unwrap();

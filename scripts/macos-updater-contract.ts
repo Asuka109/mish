@@ -14,6 +14,8 @@ export const updaterTarget = "darwin-aarch64" as const;
 export const updaterSchemaVersion = 1 as const;
 export const updaterFixtureVersion = "0.1.1-alpha.2";
 export const updaterFixtureSourceSha = "1".repeat(40);
+export const updaterStableFixtureVersion = "0.1.1";
+export const updaterStableFixtureSourceSha = "2".repeat(40);
 
 export type UpdaterChannel = "alpha" | "stable";
 
@@ -28,6 +30,38 @@ export type UpdaterArtifactSet = {
   sourceSha: string;
   version: string;
 };
+
+export interface UpdaterPublicationFixture {
+  alphaListVisible: boolean;
+  channel: UpdaterChannel;
+  draft: boolean;
+  immutable: boolean;
+  published: boolean;
+  stableLatestVisible: boolean;
+  timeline: string[];
+  verifiedAssets: string[];
+  version: string;
+}
+
+export interface UpdaterReleaseFixture {
+  assetDigests: Record<string, string>;
+  channel: UpdaterChannel;
+  draft: boolean;
+  immutable: boolean;
+  latest: boolean;
+  prerelease: boolean;
+  published: boolean;
+  version: string;
+}
+
+export interface UpdaterHighWaterFixture {
+  digest: string;
+  version: string;
+}
+
+export type UpdaterDiscoveryFixture =
+  | { disposition: "available"; digest: string; version: string }
+  | { disposition: "unchanged"; digest: string; version: string };
 
 type UpdaterMetadata = {
   version: string;
@@ -59,6 +93,130 @@ function invariant(condition: unknown, message: string): asserts condition {
 
 function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function compareUpdaterVersions(left: string, right: string, channel: UpdaterChannel): number {
+  validateUpdaterVersion(left, channel);
+  validateUpdaterVersion(right, channel);
+  const components = (version: string) =>
+    version
+      .replace("-alpha.", ".")
+      .split(".")
+      .map((value) => BigInt(value));
+  const leftComponents = components(left);
+  const rightComponents = components(right);
+  for (let index = 0; index < leftComponents.length; index += 1) {
+    if (leftComponents[index] < rightComponents[index]) return -1;
+    if (leftComponents[index] > rightComponents[index]) return 1;
+  }
+  return 0;
+}
+
+function releaseFixtureDigest(release: UpdaterReleaseFixture): string {
+  const entries = Object.entries(release.assetDigests).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  return sha256(Buffer.from(JSON.stringify(entries)));
+}
+
+function validateReleaseFixtureAssets(release: UpdaterReleaseFixture): void {
+  const expected = updaterArtifactNames(release.version, release.channel).sort();
+  const actual = Object.keys(release.assetDigests).sort();
+  invariant(
+    JSON.stringify(actual) === JSON.stringify(expected) &&
+      Object.values(release.assetDigests).every((digest) => /^[0-9a-f]{64}$/u.test(digest)),
+    "Updater Release fixture is partial, duplicated, or malformed.",
+  );
+}
+
+export function simulateUpdaterPublication(options: {
+  assetDigests: Record<string, string>;
+  channel: UpdaterChannel;
+  interruptAfterVerifiedAssets?: number;
+  version: string;
+}): UpdaterPublicationFixture {
+  const release: UpdaterReleaseFixture = {
+    assetDigests: options.assetDigests,
+    channel: options.channel,
+    draft: true,
+    immutable: false,
+    latest: false,
+    prerelease: options.channel === "alpha",
+    published: false,
+    version: options.version,
+  };
+  validateUpdaterVersion(release.version, release.channel);
+  validateReleaseFixtureAssets(release);
+  const timeline = ["draft-created"];
+  const verifiedAssets: string[] = [];
+  const names = updaterArtifactNames(release.version, release.channel);
+  for (const name of names) {
+    timeline.push(`uploaded:${name}`);
+    invariant(
+      /^[0-9a-f]{64}$/u.test(release.assetDigests[name] ?? ""),
+      "Updater Draft asset read-back digest is invalid.",
+    );
+    timeline.push(`read-back-verified:${name}`);
+    verifiedAssets.push(name);
+    if (verifiedAssets.length === options.interruptAfterVerifiedAssets) {
+      timeline.push("interrupted-draft-hidden");
+      return {
+        alphaListVisible: false,
+        channel: release.channel,
+        draft: true,
+        immutable: false,
+        published: false,
+        stableLatestVisible: false,
+        timeline,
+        verifiedAssets,
+        version: release.version,
+      };
+    }
+  }
+  timeline.push("published-immutable");
+  return {
+    alphaListVisible: release.channel === "alpha",
+    channel: release.channel,
+    draft: false,
+    immutable: true,
+    published: true,
+    stableLatestVisible: release.channel === "stable",
+    timeline,
+    verifiedAssets,
+    version: release.version,
+  };
+}
+
+export function discoverUpdaterReleaseFixture(
+  releases: UpdaterReleaseFixture[],
+  channel: UpdaterChannel,
+  highWater?: UpdaterHighWaterFixture,
+): UpdaterDiscoveryFixture {
+  const visible = releases.filter(
+    (release) =>
+      release.channel === channel &&
+      !release.draft &&
+      release.immutable &&
+      release.published &&
+      release.prerelease === (channel === "alpha") &&
+      (channel === "alpha" || release.latest),
+  );
+  invariant(visible.length > 0, "No canonical published updater Release is visible.");
+  for (const release of visible) validateReleaseFixtureAssets(release);
+  const selected = visible.reduce((current, release) =>
+    compareUpdaterVersions(release.version, current.version, channel) > 0 ? release : current,
+  );
+  invariant(
+    visible.filter((release) => release.version === selected.version).length === 1,
+    "Updater Release version is duplicated.",
+  );
+  const digest = releaseFixtureDigest(selected);
+  if (!highWater) return { disposition: "available", digest, version: selected.version };
+  const ordering = compareUpdaterVersions(selected.version, highWater.version, channel);
+  invariant(ordering >= 0, "Updater Release listing is stale below the high-water mark.");
+  if (ordering > 0) return { disposition: "available", digest, version: selected.version };
+  invariant(digest === highWater.digest, "Updater Release version has a conflicting digest.");
+  return { disposition: "unchanged", digest, version: selected.version };
 }
 
 function decodeTauriText(value: string, description: string): string {
@@ -268,31 +426,104 @@ export function verifyUpdaterArtifacts(
 export function runUpdaterContractFixture(): Record<string, string> {
   const fixtures = path.resolve(import.meta.dirname, "fixtures/macos-updater");
   using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-updater-contract-"));
-  const outputDirectory = path.join(temporary.path, "output");
-  mkdirSync(outputDirectory);
-  const result = prepareUpdaterArtifacts({
+  const publicKey = readFileSync(path.join(fixtures, "updater-fixture.key.pub"), "utf8").trim();
+  const alphaDirectory = path.join(temporary.path, "alpha");
+  const stableDirectory = path.join(temporary.path, "stable");
+  mkdirSync(alphaDirectory);
+  mkdirSync(stableDirectory);
+  const alpha = prepareUpdaterArtifacts({
     artifact: path.join(fixtures, updaterArtifactName(updaterFixtureVersion)),
     artifactSignature: path.join(fixtures, `${updaterArtifactName(updaterFixtureVersion)}.sig`),
     channel: "alpha",
     metadataSignature: path.join(fixtures, "mish-alpha.json.sig"),
-    outputDirectory,
-    publicKey: readFileSync(path.join(fixtures, "updater-fixture.key.pub"), "utf8").trim(),
+    outputDirectory: alphaDirectory,
+    publicKey,
     sourceSha: updaterFixtureSourceSha,
     version: updaterFixtureVersion,
   });
-  invariant(
-    readFileSync(path.join(outputDirectory, result.metadataName)).equals(
-      readFileSync(path.join(fixtures, result.metadataName)),
+  const stable = prepareUpdaterArtifacts({
+    artifact: path.join(fixtures, updaterArtifactName(updaterStableFixtureVersion)),
+    artifactSignature: path.join(
+      fixtures,
+      `${updaterArtifactName(updaterStableFixtureVersion)}.sig`,
     ),
-    "Generated updater metadata differs from the signed deterministic fixture.",
+    channel: "stable",
+    metadataSignature: path.join(fixtures, "mish-stable.json.sig"),
+    outputDirectory: stableDirectory,
+    publicKey,
+    sourceSha: updaterStableFixtureSourceSha,
+    version: updaterStableFixtureVersion,
+  });
+  invariant(
+    [
+      [alphaDirectory, alpha.metadataName],
+      [stableDirectory, stable.metadataName],
+    ].every(([directory, name]) =>
+      readFileSync(path.join(directory, name)).equals(readFileSync(path.join(fixtures, name))),
+    ),
+    "Generated updater metadata differs from its signed deterministic fixture.",
+  );
+
+  const release = (directory: string, artifactSet: UpdaterArtifactSet): UpdaterReleaseFixture => ({
+    assetDigests: Object.fromEntries(
+      updaterArtifactNames(artifactSet.version, artifactSet.channel).map((name) => [
+        name,
+        sha256(readFileSync(path.join(directory, name))),
+      ]),
+    ),
+    channel: artifactSet.channel,
+    draft: false,
+    immutable: true,
+    latest: artifactSet.channel === "stable",
+    prerelease: artifactSet.channel === "alpha",
+    published: true,
+    version: artifactSet.version,
+  });
+  const alphaRelease = release(alphaDirectory, alpha);
+  const stableRelease = release(stableDirectory, stable);
+  const alphaPublication = simulateUpdaterPublication({
+    assetDigests: alphaRelease.assetDigests,
+    channel: "alpha",
+    version: alpha.version,
+  });
+  const stablePublication = simulateUpdaterPublication({
+    assetDigests: stableRelease.assetDigests,
+    channel: "stable",
+    version: stable.version,
+  });
+  const interrupted = simulateUpdaterPublication({
+    assetDigests: alphaRelease.assetDigests,
+    channel: "alpha",
+    interruptAfterVerifiedAssets: 2,
+    version: alpha.version,
+  });
+  const discovered = discoverUpdaterReleaseFixture([alphaRelease], "alpha");
+  const rediscovered = discoverUpdaterReleaseFixture([alphaRelease], "alpha", {
+    digest: discovered.digest,
+    version: discovered.version,
+  });
+  invariant(
+    alphaPublication.alphaListVisible &&
+      stablePublication.stableLatestVisible &&
+      !interrupted.alphaListVisible &&
+      interrupted.draft &&
+      rediscovered.disposition === "unchanged",
+    "Updater publication/discovery lifecycle fixture did not reach its fail-closed boundaries.",
   );
   return {
-    artifacts: updaterArtifactNames(result.version, result.channel).join(","),
-    channel: result.channel,
+    artifacts: updaterArtifactNames(alpha.version, alpha.channel).join(","),
+    alphaArtifacts: updaterArtifactNames(alpha.version, alpha.channel).join(","),
+    alphaVisibility: "published-list-only",
+    channel: "alpha,stable",
+    interruption: "draft-hidden",
     network: "not-used",
     privateKey: "not-present",
+    rediscovery: rediscovered.disposition,
+    stableArtifacts: updaterArtifactNames(stable.version, stable.channel).join(","),
+    stableVisibility: "published-latest-only",
+    publicationStage: "contract-only-release-fixture",
     stage: "contract-only",
-    version: result.version,
+    version: `${alpha.version},${stable.version}`,
   };
 }
 

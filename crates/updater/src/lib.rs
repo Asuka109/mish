@@ -105,6 +105,7 @@ pub enum UpdaterError {
     MetadataSignatureInvalid,
     MissingArtifactSignature,
     MissingMetadataSignature,
+    VersionDigestConflict,
     WrongChannelVersion,
 }
 
@@ -129,6 +130,7 @@ impl UpdaterError {
             Self::MetadataSignatureInvalid => "metadata-signature-invalid",
             Self::MissingArtifactSignature => "missing-artifact-signature",
             Self::MissingMetadataSignature => "missing-metadata-signature",
+            Self::VersionDigestConflict => "version-digest-conflict",
             Self::WrongChannelVersion => "wrong-channel-version",
         }
     }
