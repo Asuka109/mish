@@ -2639,6 +2639,50 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
 }
 
 #[tokio::test]
+async fn native_healthy_helper_reinstall_reconciles_capture_after_success() {
+    let platform = Arc::new(HealthyTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
+        .await
+        .unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let enabled = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":1, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(enabled.get("error").is_none(), "{enabled}");
+
+    let installed = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert!(installed.get("error").is_none(), "{installed}");
+
+    let after = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":false,"tun":false})
+    );
+    assert_eq!(after["result"]["runtime"]["tunEnabled"], false);
+    assert!(!*platform.enabled.lock().unwrap());
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
     let lifecycle_release = Arc::new(Notify::new());
     let lifecycle_started = Arc::new(Notify::new());

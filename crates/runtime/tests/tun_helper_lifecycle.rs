@@ -32,6 +32,7 @@ fn unsupported_and_unsigned_builds_never_report_helper_availability() {
 }
 
 struct FakeHelperPlatform {
+    initially_healthy: bool,
     lifecycle_failure: Mutex<Option<TunHelperFailureKind>>,
     observation: Mutex<TunHelperObservation>,
     tun_enabled: Mutex<bool>,
@@ -40,6 +41,7 @@ struct FakeHelperPlatform {
 impl FakeHelperPlatform {
     fn not_installed() -> Self {
         Self {
+            initially_healthy: false,
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::not_installed()),
             tun_enabled: Mutex::new(false),
@@ -48,8 +50,18 @@ impl FakeHelperPlatform {
 
     fn version_mismatch() -> Self {
         Self {
+            initially_healthy: false,
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy("0")),
+            tun_enabled: Mutex::new(false),
+        }
+    }
+
+    fn healthy() -> Self {
+        Self {
+            initially_healthy: true,
+            lifecycle_failure: Mutex::new(None),
+            observation: Mutex::new(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)),
             tun_enabled: Mutex::new(false),
         }
     }
@@ -61,6 +73,17 @@ impl FakeHelperPlatform {
 
 impl TunHelperPlatform for FakeHelperPlatform {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
+        if self.initially_healthy {
+            return TunHelperSnapshot {
+                availability: TunHelperAvailability::Available,
+                expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                health: TunHelperHealth::Healthy,
+                installation_id: None,
+                installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
+                last_failure: None,
+                phase: TunHelperLifecyclePhase::Idle,
+            };
+        }
         TunHelperSnapshot::unavailable(
             TunHelperAvailability::PermissionRequired,
             TunHelperHealth::NotInstalled,
@@ -137,6 +160,18 @@ async fn install_requires_a_fresh_disabled_network_observation_before_succeeding
         helper.snapshot().last_failure,
         Some(TunHelperFailureKind::ObservationPartial)
     );
+}
+
+#[tokio::test]
+async fn healthy_reinstall_hands_off_active_tun_before_confirming_completion() {
+    let platform = Arc::new(FakeHelperPlatform::healthy());
+    *platform.tun_enabled.lock().unwrap() = true;
+    let helper = TunHelperController::new(platform.clone());
+
+    let snapshot = helper.install().await.unwrap();
+
+    assert!(snapshot.is_healthy());
+    assert!(!*platform.tun_enabled.lock().unwrap());
 }
 
 #[tokio::test]

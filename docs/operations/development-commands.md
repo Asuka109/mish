@@ -119,16 +119,17 @@ launching another worktree that can operate Mihomo or system capture.
 
 ## Tests
 
-| Command                         | Coverage                                                          |
-| ------------------------------- | ----------------------------------------------------------------- |
-| `test:watch`                    | Web Vitest watch mode.                                            |
-| `test:unit`                     | Web, mock bridge, and RPC client unit tests, once.                |
-| `test:workspace`                | Every package that defines `test:run`, including native packages. |
-| `test:rust`                     | Complete Cargo workspace with one test thread.                    |
-| `test:browser`                  | Real-Chromium responsive coverage.                                |
-| `test:macos:p0`                 | Credential-free macOS P0 fixture journey.                         |
-| `test:macos:internal-tun-alpha` | Closed package manifest, layout, integrity, and leakage policy.   |
-| `test:macos:release`            | Credential-free Alpha release validation and staging decisions.   |
+| Command                              | Coverage                                                          |
+| ------------------------------------ | ----------------------------------------------------------------- |
+| `test:watch`                         | Web Vitest watch mode.                                            |
+| `test:unit`                          | Web, mock bridge, and RPC client unit tests, once.                |
+| `test:workspace`                     | Every package that defines `test:run`, including native packages. |
+| `test:rust`                          | Complete Cargo workspace with one test thread.                    |
+| `test:rust:internal-tun-maintenance` | Exact nine-scenario Internal TUN maintenance contract.            |
+| `test:browser`                       | Real-Chromium responsive coverage.                                |
+| `test:macos:p0`                      | Credential-free macOS P0 fixture journey.                         |
+| `test:macos:internal-tun-alpha`      | Closed package manifest, layout, integrity, and leakage policy.   |
+| `test:macos:release`                 | Credential-free Alpha release validation and staging decisions.   |
 
 Install the repository-pinned Chromium once with
 `pnpm test:browser:install`.

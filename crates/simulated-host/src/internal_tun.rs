@@ -1261,10 +1261,13 @@ impl MaintenanceEngine {
             .ok_or_else(|| "maintenance-capture-unavailable".to_string())?;
         let status = capture.status();
         let correlation = capture.correlation_snapshot();
-        if status.capture_operation.phase == mish_runtime::CaptureOperationPhase::Pending
-            || status.capture_selection.tun
-            || status.tun_enabled
-        {
+        // Helper maintenance independently hands the network off before package mutation. The
+        // guided first-click flow intentionally preserves Capture's prior intent until a
+        // successful Helper lifecycle authorizes its serialized Capture reconciliation. A
+        // stable desired TUN projection is therefore not evidence that the handoff failed;
+        // pending Capture work still is, and the fresh fail-closed network observation below is
+        // required in either case.
+        if status.capture_operation.phase == mish_runtime::CaptureOperationPhase::Pending {
             return Err("maintenance-capture-handoff-not-accepted".into());
         }
         let after = self.network_observation(host)?;

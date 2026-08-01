@@ -444,9 +444,13 @@ impl TunHelperController {
         operation: TunHelperLifecycleOperation,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
+        // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
+        // It needs the same confirmed handoff as repair or removal before lifecycle work starts.
         if matches!(
             operation,
-            TunHelperLifecycleOperation::Repair | TunHelperLifecycleOperation::Remove
+            TunHelperLifecycleOperation::Install
+                | TunHelperLifecycleOperation::Repair
+                | TunHelperLifecycleOperation::Remove
         ) && self.snapshot().has_healthy_identity()
         {
             if let Err(error) = self.platform.set_tun_enabled(false).await {

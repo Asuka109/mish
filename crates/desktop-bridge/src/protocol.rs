@@ -85,6 +85,10 @@ pub(crate) struct ProtocolState {
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
     pub socket_shutdown: CancellationToken,
+    // Covers the Helper operation and its post-success Capture handoff together. The Helper
+    // controller serializes the former, but releasing it before the latter lets a duplicate
+    // command race the Capture transaction and publish a stale terminal lifecycle notification.
+    pub tun_helper_lifecycle_transaction: std::sync::Arc<Mutex<()>>,
     pub updater: std::sync::Arc<UpdaterService>,
     pub client_surface: RpcClientSurface,
 }
@@ -1982,11 +1986,25 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
+            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
             match service.install_tun_helper().await {
                 Ok(mut snapshot) => {
+                    // Do not alter Capture before a Helper lifecycle has actually succeeded. A
+                    // confirmed install may have handed off an already healthy TUN, so reconcile
+                    // its projection before optionally restoring the prior intent below.
+                    if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
+                        publish_tun_helper_lifecycle(
+                            state,
+                            &operation_id,
+                            "install",
+                            "recovery-required",
+                            Some(capture_failure_id(error.kind)),
+                        );
+                        return Some(capture_error_response(id, error));
+                    }
                     if params.resume_capture {
                         if let Err(error) = resume_tun_after_helper_lifecycle(state).await {
                             publish_tun_helper_lifecycle(
@@ -2028,6 +2046,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
+            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
@@ -2083,6 +2102,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
+            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "pending", None);
             if let Err(error) = disable_tun_for_helper_lifecycle(state).await {

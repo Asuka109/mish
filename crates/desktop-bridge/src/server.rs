@@ -492,6 +492,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,
             socket_shutdown: socket_shutdown.clone(),
+            tun_helper_lifecycle_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             updater: updater_service.clone(),
             client_surface: crate::protocol::RpcClientSurface::Native,
         },
