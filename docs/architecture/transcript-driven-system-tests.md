@@ -82,6 +82,40 @@ effect/result kind, and adapter behavior needed by an application journey;
 they do not introduce a generic operating-system emulator or a second product
 lifecycle.
 
+## Internal TUN maintenance slice
+
+The Internal TUN slice uses the same shared model for package artifacts,
+installation enrollment, Helper/Core process state, service/socket generation,
+TUN/route/DNS ownership, Capture, and an explicitly separate unrelated owner.
+It drives the production versioned `PackageMachine`, `TunHelperController`,
+`CaptureReconciler`, enrollment/key-continuity operations, maintenance journal
+and recovery decision. Only the privileged effects beneath those boundaries are
+synthetic.
+
+The closed v1/v2 artifacts use fixed opaque identities and 64-character digest
+values. They can prove exact admission, identical reinstallation, upgrade,
+downgrade rejection, receipt/enrollment continuity, dual-proof rotation,
+lost-key reset authorization, compensation, restart observation, and complete
+uninstall without representing a package path, profile, configuration, private
+key, credential, or host network value. A healthy initial package is seeded as
+an active Mish-owned TUN in the real Capture machine; lifecycle commands must
+perform the real Capture handoff before the package machine accepts work.
+
+Failure injection occurs at every maintenance journal boundary and is expressed
+as semantic failure kinds such as cancellation, disk exhaustion, interrupted
+copy, process exit, artifact replacement, stale completion, cleanup failure,
+or a runner panic. Clean failures drive the real compensation state; ambiguous
+ones remain non-terminal until the real recovery decision observes the shared
+model after restart. Repaired and uninstalled Mish-owned fields never mutate
+the modeled unrelated files, service, process, route, DNS, or key.
+
+An authenticated loopback-RPC test composes the real Settings command and
+notification path with this model. It proves Pending and finalizing lifecycle
+projections, lifecycle-lock serialization of a duplicate command, an early
+typed Capture failure with the permitted recovery action, and unpinned or
+resolved terminal records. This is application/semantic evidence only; it does
+not invoke a desktop driver or a privileged macOS component.
+
 ## Semantic transcript
 
 The transcript has a schema version and a fixed event limit. Capture operation

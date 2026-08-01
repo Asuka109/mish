@@ -107,6 +107,62 @@ test("product Rust feature graphs exclude the simulator-only seams", () => {
   }
 });
 
+test("Internal TUN maintenance simulation remains confined to the non-publishable package", () => {
+  const metadata = cargoMetadata();
+  const simulated = metadata.packages.find(({ name }) => name === simulatedPackage);
+  assert.ok(simulated, "The Internal TUN simulator package is missing.");
+  assert.equal(
+    simulated.manifest_path.endsWith("/crates/simulated-host/Cargo.toml"),
+    true,
+    "Internal TUN maintenance must remain in the dedicated simulator package.",
+  );
+  assert.equal(
+    read("crates/simulated-host/Cargo.toml").includes("publish = false"),
+    true,
+    "Internal TUN maintenance must remain non-publishable.",
+  );
+
+  const productManifests = [
+    "crates/desktop-bridge/Cargo.toml",
+    "crates/platform-macos/Cargo.toml",
+    "crates/runtime/Cargo.toml",
+    "crates/settings/Cargo.toml",
+  ];
+  for (const manifest of productManifests) {
+    assert.equal(
+      read(manifest).includes(simulatedPackage),
+      false,
+      `${manifest} reaches the Internal TUN simulation package.`,
+    );
+  }
+
+  const simulatorSources = filesUnder(simulatedPath).filter((file) => file.endsWith(".rs"));
+  assert.ok(
+    simulatorSources.some((file) => file.endsWith("internal_tun.rs")),
+    "The closed Internal TUN model is missing from the simulator package.",
+  );
+  for (const sourceRoot of [
+    "crates/desktop-bridge/src",
+    "crates/platform-macos/src",
+    "crates/runtime/src",
+    "crates/settings/src",
+  ]) {
+    const leaked = filesUnder(sourceRoot).filter((file) => {
+      const content = read(file);
+      return (
+        content.includes("MaintenanceScenarioRuntime") ||
+        content.includes("SyntheticMaintenanceInitial") ||
+        content.includes("mish_simulated_host")
+      );
+    });
+    assert.deepEqual(
+      leaked,
+      [],
+      `${sourceRoot} imports an Internal TUN simulator-only type: ${leaked.join(", ")}`,
+    );
+  }
+});
+
 test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude SimulatedHost", () => {
   const releaseInputs = [
     ...filesUnder(".github"),
