@@ -2346,9 +2346,9 @@ mod tests {
     use mish_bridge::MihomoResolveError;
     use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
-        CaptureFailureKind, CaptureSelection, TunHelperAvailability, TunHelperFailureKind,
-        TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot, TunNetworkObservation,
-        tun_observation_now,
+        CaptureFailureKind, CaptureSelection, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
+        TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot,
+        TunNetworkObservation, tun_observation_now,
     };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
 
@@ -2397,10 +2397,10 @@ mod tests {
     fn development_tun_does_not_admit_a_helper_that_requires_repair() {
         let snapshot = TunHelperSnapshot {
             availability: TunHelperAvailability::RepairRequired,
-            expected_version: "4".to_owned(),
+            expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
             health: TunHelperHealth::VersionMismatch,
-            installation_id: Some("legacy-tun-policy-installation".to_owned()),
-            installed_version: Some("3".to_owned()),
+            installation_id: Some("immediate-tun-observation-installation".to_owned()),
+            installed_version: Some("4".to_owned()),
             last_failure: Some(TunHelperFailureKind::VersionMismatch),
             phase: TunHelperLifecyclePhase::Idle,
         };

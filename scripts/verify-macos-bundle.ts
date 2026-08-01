@@ -235,7 +235,7 @@ if (productionLayout) {
       throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
     }
   }
-  if (command(productionHelper, ["--version"]) !== "4") {
+  if (command(productionHelper, ["--version"]) !== "5") {
     throw new Error("The production TUN helper reports an unexpected version");
   }
   if (command(productionHelper, ["--protocol-version"]) !== "3") {
