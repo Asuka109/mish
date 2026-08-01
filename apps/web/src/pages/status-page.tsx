@@ -320,8 +320,8 @@ export function StatusPage() {
                   settings
                     ? (operation) =>
                         operation === "repair"
-                          ? settings.repairTunHelper()
-                          : settings.installTunHelper()
+                          ? settings.repairTunHelper({ resumeCapture: true })
+                          : settings.installTunHelper({ resumeCapture: true })
                     : undefined
                 }
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}

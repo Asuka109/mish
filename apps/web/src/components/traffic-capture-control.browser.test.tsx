@@ -113,7 +113,7 @@ describe("Virtual Interface native setup boundary", () => {
     expect(onTunChange).not.toHaveBeenCalled();
   });
 
-  test("uses the repair lifecycle before automatically resuming the original TUN intent", async () => {
+  test("delegates repair and original TUN resumption to the native lifecycle", async () => {
     const setup = vi.fn(async () => ({ ok: true }) as const);
     const onTunChange = renderHost("Status", "repair-required", setup);
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
@@ -124,7 +124,6 @@ describe("Virtual Interface native setup boundary", () => {
 
     await expect.poll(() => setup.mock.calls.length).toBe(1);
     expect(setup).toHaveBeenCalledWith("repair");
-    await expect.poll(() => onTunChange.mock.calls.length).toBe(1);
-    expect(onTunChange).toHaveBeenCalledWith(true);
+    expect(onTunChange).not.toHaveBeenCalled();
   });
 });

@@ -68,6 +68,8 @@ interface TrafficCaptureControlProps {
   tunStatus: TunRuntimeStatusDto;
 }
 
+type TunSetupOperation = "install" | "repair";
+
 function getCaptureState(selected: boolean, enabled: boolean) {
   if (enabled) return "running";
   if (selected) return "remembered";
@@ -93,6 +95,7 @@ export function TrafficCaptureControl({
 }: TrafficCaptureControlProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [tunGuideOpen, setTunGuideOpen] = useState(false);
+  const [tunGuideOperation, setTunGuideOperation] = useState<TunSetupOperation | null>(null);
   const [tunSetupPending, setTunSetupPending] = useState(false);
   const tunGuideReturnFocus = useRef<HTMLElement | null>(null);
   const { LL } = useI18nContext();
@@ -110,6 +113,8 @@ export function TrafficCaptureControl({
           ? "repair"
           : null;
   const tunSetupRequired = tunSetupOperation !== null;
+  const guideTunSetupOperation = tunGuideOperation ?? tunSetupOperation;
+  const guideTunSetupRequired = guideTunSetupOperation !== null;
   const tunActionable = tunAvailable || tunSetupRequired;
   const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
@@ -145,7 +150,8 @@ export function TrafficCaptureControl({
   }
 
   function requestTunChange(selected: boolean) {
-    if (selected && tunSetupRequired) {
+    if (selected && tunSetupOperation) {
+      setTunGuideOperation(tunSetupOperation);
       tunGuideReturnFocus.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setTunGuideOpen(true);
@@ -156,20 +162,19 @@ export function TrafficCaptureControl({
 
   function closeTunGuide(restoreFocus = true) {
     if (!restoreFocus) tunGuideReturnFocus.current = null;
+    setTunGuideOperation(null);
     setTunGuideOpen(false);
   }
 
   async function setupTunHelperFromGuide() {
-    if (!tunSetupOperation || !onTunHelperSetup || tunSetupPending) return;
+    if (!tunGuideOperation || !onTunHelperSetup || tunSetupPending) return;
     setTunSetupPending(true);
     try {
-      const result = await onTunHelperSetup(tunSetupOperation);
+      const result = await onTunHelperSetup(tunGuideOperation);
       if (!result.ok) return;
 
-      // A successful lifecycle result has already been verified by Rust against a fresh,
-      // disabled network observation. Resume only the original Capture transaction.
+      // The native lifecycle command resumes Capture from a fresh authority snapshot.
       closeTunGuide(false);
-      onTunChange(true);
     } finally {
       setTunSetupPending(false);
     }
@@ -352,12 +357,12 @@ export function TrafficCaptureControl({
               <ShieldCheck aria-hidden="true" />
               <div>
                 <h2>
-                  {tunSetupOperation === "repair"
+                  {guideTunSetupOperation === "repair"
                     ? LL.capture.tunGuide.repairTitle()
                     : LL.capture.tunGuide.setupTitle()}
                 </h2>
                 <p>
-                  {tunSetupOperation === "repair"
+                  {guideTunSetupOperation === "repair"
                     ? LL.capture.tunGuide.repairDescription()
                     : LL.capture.tunGuide.setupDescription()}
                 </p>
@@ -370,7 +375,7 @@ export function TrafficCaptureControl({
             >
               {LL.capture.tunGuide.notNow()}
             </DialogClose>
-            {tunSetupRequired ? (
+            {guideTunSetupRequired ? (
               onTunHelperSetup ? (
                 <Button
                   aria-busy={tunSetupPending}
@@ -378,7 +383,7 @@ export function TrafficCaptureControl({
                   onClick={() => void setupTunHelperFromGuide()}
                   type="button"
                 >
-                  {tunSetupOperation === "repair"
+                  {guideTunSetupOperation === "repair"
                     ? tunSetupPending
                       ? LL.capture.tunGuide.repairingHelper()
                       : LL.capture.tunGuide.repairHelper()

@@ -108,7 +108,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).not.toHaveBeenCalled();
   });
 
-  it("resumes the original Capture request after Rust confirms Helper installation", async () => {
+  it("lets the native lifecycle resume the original Capture request after Helper installation", async () => {
     const user = userEvent.setup();
     const onTunChange = vi.fn();
     const setup = vi.fn(
@@ -143,39 +143,43 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     await user.click(screen.getByRole("button", { name: "Install Helper" }));
 
     await waitFor(() => expect(setup).toHaveBeenCalledWith("install"));
-    await waitFor(() => expect(onTunChange).toHaveBeenCalledWith(true));
-    expect(onTunChange).toHaveBeenCalledOnce();
+    expect(onTunChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Before enabling Virtual Interface" })).toBeNull();
   });
 
-  it("keeps Capture unchanged on a failed setup and lets the user retry", async () => {
+  it("keeps the original lifecycle action retryable after a failed setup changes the capability", async () => {
     const user = userEvent.setup();
     const onTunChange = vi.fn();
     const setup = vi
       .fn<() => Promise<TunHelperOperationResult>>()
       .mockResolvedValueOnce({ failure: "authorization-cancelled", ok: false })
       .mockResolvedValueOnce({ ok: true });
-    render(
-      <MemoryRouter>
-        <TypesafeI18n locale="en">
-          <TooltipProvider>
-            <TrafficCaptureControl
-              adapterKind="rpc"
-              capabilities={{ systemProxy: "supported", tun: "permission-required" }}
-              commandSupported
-              onSystemProxyChange={vi.fn()}
-              onTunHelperSetup={setup}
-              onTunChange={onTunChange}
-              systemProxyEnabled={false}
-              systemProxySelected={false}
-              systemProxyStatus={systemProxyStatus}
-              tunEnabled={false}
-              tunSelected={false}
-              tunStatus={tunStatus}
-            />
-          </TooltipProvider>
-        </TypesafeI18n>
-      </MemoryRouter>,
-    );
+    function control(tun: "permission-required" | "unavailable") {
+      return (
+        <MemoryRouter>
+          <TypesafeI18n locale="en">
+            <TooltipProvider>
+              <TrafficCaptureControl
+                adapterKind="rpc"
+                capabilities={{ systemProxy: "supported", tun }}
+                commandSupported
+                onSystemProxyChange={vi.fn()}
+                onTunHelperSetup={setup}
+                onTunChange={onTunChange}
+                systemProxyEnabled={false}
+                systemProxySelected={false}
+                systemProxyStatus={systemProxyStatus}
+                tunEnabled={false}
+                tunSelected={false}
+                tunStatus={tunStatus}
+              />
+            </TooltipProvider>
+          </TypesafeI18n>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(control("permission-required"));
 
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
     await user.click(screen.getByRole("button", { name: "Install Helper" }));
@@ -184,12 +188,15 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
 
+    rerender(control("unavailable"));
+    expect(screen.getByRole("button", { name: "Install Helper" })).toBeEnabled();
+
     await user.click(screen.getByRole("button", { name: "Install Helper" }));
     await waitFor(() => expect(setup).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(onTunChange).toHaveBeenCalledWith(true));
+    expect(onTunChange).not.toHaveBeenCalled();
   });
 
-  it("uses the shared repair lifecycle and resumes Capture only after it succeeds", async () => {
+  it("uses the shared repair lifecycle and leaves Capture resumption to Rust", async () => {
     const user = userEvent.setup();
     const onTunChange = vi.fn();
     const setup = vi.fn(
@@ -226,7 +233,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     await user.click(screen.getByRole("button", { name: "Repair Helper" }));
 
     await waitFor(() => expect(setup).toHaveBeenCalledWith("repair"));
-    await waitFor(() => expect(onTunChange).toHaveBeenCalledWith(true));
+    expect(onTunChange).not.toHaveBeenCalled();
   });
 
   it("uses the authoritative Capture path when the Helper projection is supported", async () => {

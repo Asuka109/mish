@@ -31,7 +31,7 @@ use mish_settings::{
     WindowCloseBehavior, WindowSurfacePreference,
 };
 use mish_updater::{UpdateChannel, UpdateOperationError, UpdaterService, UpdaterSnapshot};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -68,6 +68,7 @@ struct Authentication {
 #[derive(Clone)]
 pub(crate) struct ProtocolState {
     pub auth_token: String,
+    pub capture_transaction: std::sync::Arc<Mutex<()>>,
     pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
     pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
@@ -284,6 +285,13 @@ struct SetServiceProbeIntervalParams {
 struct SetCaptureParams {
     active: bool,
     selection: CaptureSelection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TunHelperLifecycleParams {
+    #[serde(default, rename = "resumeCapture")]
+    resume_capture: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -820,8 +828,6 @@ async fn handle_message(
             | "events.subscribe"
             | "settings.getSnapshot"
             | "settings.refreshNetworkDns"
-            | "settings.installTunHelper"
-            | "settings.repairTunHelper"
             | "settings.removeTunHelper"
             | "updater.getSnapshot"
             | "updater.subscribe"
@@ -1707,6 +1713,12 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
+            let _capture_transaction = match try_capture_transaction(state) {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    return Some(capture_status_error_response(state, id, error).await);
+                }
+            };
             match state
                 .runtime
                 .recover_system_proxy(params.action, StatusAdapterKind::Rpc)
@@ -1738,6 +1750,10 @@ async fn handle_message(
             serde_json::to_value(snapshot).expect("serializable settings snapshot")
         }
         "settings.installTunHelper" => {
+            let params: TunHelperLifecycleParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
             if !state.permits_tun_lifecycle() {
                 return Some(settings_capability_error(id));
             }
@@ -1748,6 +1764,18 @@ async fn handle_message(
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             match service.install_tun_helper().await {
                 Ok(mut snapshot) => {
+                    if params.resume_capture {
+                        if let Err(error) = resume_tun_after_helper_lifecycle(state).await {
+                            publish_tun_helper_lifecycle(
+                                state,
+                                &operation_id,
+                                "install",
+                                "recovery-required",
+                                Some(capture_failure_id(error.kind)),
+                            );
+                            return Some(capture_error_response(id, error));
+                        }
+                    }
                     publish_tun_helper_lifecycle(state, &operation_id, "install", "applied", None);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
@@ -1767,6 +1795,10 @@ async fn handle_message(
             }
         }
         "settings.repairTunHelper" => {
+            let params: TunHelperLifecycleParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
             if !state.permits_tun_lifecycle() {
                 return Some(settings_capability_error(id));
             }
@@ -1789,6 +1821,18 @@ async fn handle_message(
                             Some(capture_failure_id(error.kind)),
                         );
                         return Some(capture_error_response(id, error));
+                    }
+                    if params.resume_capture {
+                        if let Err(error) = resume_tun_after_helper_lifecycle(state).await {
+                            publish_tun_helper_lifecycle(
+                                state,
+                                &operation_id,
+                                "repair",
+                                "recovery-required",
+                                Some(capture_failure_id(error.kind)),
+                            );
+                            return Some(capture_error_response(id, error));
+                        }
                     }
                     publish_tun_helper_lifecycle(state, &operation_id, "repair", "applied", None);
                     state.project_settings_snapshot(&mut snapshot);
@@ -2156,7 +2200,25 @@ fn project_browser_settings_value(value: &mut Value) {
     }
 }
 
+fn try_capture_transaction(
+    state: &ProtocolState,
+) -> Result<tokio::sync::MutexGuard<'_, ()>, CaptureTransitionError> {
+    state.capture_transaction.try_lock().map_err(|_| {
+        CaptureTransitionError::new(
+            CaptureFailureKind::RuntimeTransition,
+            "Another aggregate Capture operation is already in progress",
+        )
+    })
+}
+
 async fn disable_tun_for_helper_lifecycle(
+    state: &ProtocolState,
+) -> Result<(), CaptureTransitionError> {
+    let _capture_transaction = try_capture_transaction(state)?;
+    disable_tun_for_helper_lifecycle_locked(state).await
+}
+
+async fn disable_tun_for_helper_lifecycle_locked(
     state: &ProtocolState,
 ) -> Result<(), CaptureTransitionError> {
     let snapshot = state
@@ -2200,6 +2262,14 @@ async fn set_capture_with_core_reactivation(
 /// Single transport-neutral boundary for aggregate proxy launch/stop.  Native menu callers can
 /// reuse this through `ProfileActivationCoordinator::launch_proxy` without reproducing Web flow.
 async fn set_aggregate_capture(
+    state: &ProtocolState,
+    params: SetCaptureParams,
+) -> Result<Value, CaptureTransitionError> {
+    let _capture_transaction = try_capture_transaction(state)?;
+    set_aggregate_capture_locked(state, params).await
+}
+
+async fn set_aggregate_capture_locked(
     state: &ProtocolState,
     params: SetCaptureParams,
 ) -> Result<Value, CaptureTransitionError> {
@@ -2252,6 +2322,27 @@ async fn set_aggregate_capture(
             StatusAdapterKind::Rpc,
         )
         .await
+}
+
+async fn resume_tun_after_helper_lifecycle(
+    state: &ProtocolState,
+) -> Result<(), CaptureTransitionError> {
+    let _capture_transaction = try_capture_transaction(state)?;
+    let snapshot = state
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    let mut selection = snapshot.runtime.capture_selection;
+    selection.tun = true;
+    set_aggregate_capture_locked(
+        state,
+        SetCaptureParams {
+            active: true,
+            selection,
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn requested_capture_selection(

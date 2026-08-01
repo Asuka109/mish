@@ -723,7 +723,9 @@ export function SettingsPage() {
               }
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
               onTunHelperSetup={(operation) =>
-                operation === "repair" ? settings.repairTunHelper() : settings.installTunHelper()
+                operation === "repair"
+                  ? settings.repairTunHelper({ resumeCapture: true })
+                  : settings.installTunHelper({ resumeCapture: true })
               }
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}

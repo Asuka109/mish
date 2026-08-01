@@ -2487,7 +2487,7 @@ describe("desktop RPC experience", () => {
     expect(setRoutingMode).not.toHaveBeenCalled();
   });
 
-  it("installs the desktop Helper and automatically resumes a permission-required TUN command", async () => {
+  it("asks the desktop Helper lifecycle to install and resume a permission-required TUN command", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
@@ -2535,17 +2535,11 @@ describe("desktop RPC experience", () => {
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Install Helper" }));
 
-    expect(settingsClient.installTunHelper).toHaveBeenCalledOnce();
-    await waitFor(() =>
-      expect(setCapture).toHaveBeenCalledWith(
-        expect.objectContaining({ tun: true }),
-        true,
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      ),
-    );
+    expect(settingsClient.installTunHelper).toHaveBeenCalledWith({ resumeCapture: true });
+    expect(setCapture).not.toHaveBeenCalled();
   });
 
-  it("repairs the desktop Helper and automatically resumes the original TUN command", async () => {
+  it("asks the desktop Helper lifecycle to repair and resume the original TUN command", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "repair-required" };
@@ -2591,14 +2585,10 @@ describe("desktop RPC experience", () => {
     expect(await screen.findByText("Helper repair required")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Repair Helper" }));
 
-    await waitFor(() => expect(settingsClient.repairTunHelper).toHaveBeenCalledOnce());
     await waitFor(() =>
-      expect(setCapture).toHaveBeenCalledWith(
-        expect.objectContaining({ tun: true }),
-        true,
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      ),
+      expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({ resumeCapture: true }),
     );
+    expect(setCapture).not.toHaveBeenCalled();
   });
 
   it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {

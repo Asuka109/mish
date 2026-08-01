@@ -470,7 +470,10 @@ impl TunHelperPlatform for HealthyTunHelperPlatform {
 
 #[derive(Default)]
 struct InstallingTunHelperPlatform {
+    enabled: Mutex<bool>,
     installed: Mutex<bool>,
+    lifecycle_release: Option<Arc<Notify>>,
+    lifecycle_started: Option<Arc<Notify>>,
     operations: Mutex<Vec<TunHelperLifecycleOperation>>,
 }
 
@@ -508,15 +511,33 @@ impl TunHelperPlatform for InstallingTunHelperPlatform {
         operation: TunHelperLifecycleOperation,
     ) -> BoxFuture<'_, Result<(), TunHelperError>> {
         self.operations.lock().unwrap().push(operation);
-        *self.installed.lock().unwrap() = operation != TunHelperLifecycleOperation::Remove;
-        Box::pin(async { Ok(()) })
+        let lifecycle_release = self.lifecycle_release.clone();
+        let lifecycle_started = self.lifecycle_started.clone();
+        Box::pin(async move {
+            if let Some(lifecycle_started) = lifecycle_started {
+                lifecycle_started.notify_one();
+            }
+            if let Some(lifecycle_release) = lifecycle_release {
+                lifecycle_release.notified().await;
+            }
+            *self.installed.lock().unwrap() = operation != TunHelperLifecycleOperation::Remove;
+            Ok(())
+        })
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
-        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+        let enabled = *self.enabled.lock().unwrap();
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
     }
 
-    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        *self.enabled.lock().unwrap() = enabled;
         Box::pin(async { Ok(()) })
     }
 }
@@ -662,6 +683,28 @@ fn capture_runtime_with_tun() -> (MishRuntime, Arc<HealthyTunHelperPlatform>) {
         MishRuntime::with_capture(Arc::new(RunningCore), capture),
         helper_platform,
     )
+}
+
+fn capture_runtime_with_helper(helper: Arc<TunHelperController>) -> MishRuntime {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "rpc-shared-tun-fixture-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    ));
+    MishRuntime::with_capture(Arc::new(RunningCore), capture)
 }
 
 fn slow_capture_runtime_parts() -> (MishRuntime, Arc<SlowCapturePlatform>) {
@@ -2114,6 +2157,7 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
         json!({"jsonrpc":"2.0", "id":2, "method":"settings.installTunHelper", "params":{}}),
     )
     .await;
+    assert!(installed.get("error").is_none(), "{installed}");
     assert_eq!(
         installed["result"]["tunHelper"]["availability"],
         "available"
@@ -2123,6 +2167,74 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
         platform.operations(),
         vec![TunHelperLifecycleOperation::Install]
     );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
+    let lifecycle_release = Arc::new(Notify::new());
+    let lifecycle_started = Arc::new(Notify::new());
+    let platform = Arc::new(InstallingTunHelperPlatform {
+        lifecycle_release: Some(lifecycle_release.clone()),
+        lifecycle_started: Some(lifecycle_started.clone()),
+        ..InstallingTunHelperPlatform::default()
+    });
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
+        .await
+        .unwrap();
+
+    let mut setup_client = socket(bridge.address).await;
+    let mut capture_client = socket(bridge.address).await;
+    authenticate(&mut setup_client).await;
+    authenticate(&mut capture_client).await;
+
+    setup_client
+        .send(Message::Text(
+            json!({
+                "jsonrpc":"2.0", "id":2, "method":"settings.installTunHelper",
+                "params":{"resumeCapture":true}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(2), lifecycle_started.notified())
+        .await
+        .expect("helper lifecycle did not begin");
+
+    let system_proxy = request(
+        &mut capture_client,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert!(system_proxy.get("error").is_none());
+
+    lifecycle_release.notify_one();
+    let installed = next_json(&mut setup_client).await;
+    assert!(installed.get("error").is_none(), "{installed}");
+    assert_eq!(
+        installed["result"]["tunHelper"]["availability"],
+        "available"
+    );
+
+    let after = request(
+        &mut capture_client,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":true,"tun":true})
+    );
+    assert_eq!(after["result"]["runtime"]["tunEnabled"], true);
 
     bridge.shutdown().await;
 }

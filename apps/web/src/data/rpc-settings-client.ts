@@ -15,6 +15,7 @@ import {
   type WindowCloseBehavior,
   type WindowSurfacePreference,
   type SystemProxyTakeoverPolicy,
+  type TunHelperLifecycleOptions,
 } from "@mish/contracts";
 import type { RpcClient, RpcConnectionState, RpcRequestOptions } from "@mish/rpc-client";
 
@@ -58,15 +59,17 @@ export class RpcSettingsClient implements SettingsClient {
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
-  installTunHelper(options?: RpcRequestOptions) {
+  installTunHelper(options?: TunHelperLifecycleOptions) {
+    const { resumeCapture = false, ...requestOptions } = options ?? {};
     return this.rpc
-      .request("settings.installTunHelper", {}, options)
+      .request("settings.installTunHelper", { resumeCapture }, requestOptions)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
-  repairTunHelper(options?: RpcRequestOptions) {
+  repairTunHelper(options?: TunHelperLifecycleOptions) {
+    const { resumeCapture = false, ...requestOptions } = options ?? {};
     return this.rpc
-      .request("settings.repairTunHelper", {}, options)
+      .request("settings.repairTunHelper", { resumeCapture }, requestOptions)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
