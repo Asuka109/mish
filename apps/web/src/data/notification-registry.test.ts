@@ -218,6 +218,25 @@ describe("notification presentation registry", () => {
     expect(completed.removable).toBe(true);
   });
 
+  it("keeps Internal TUN finalization in the same pending presentation", () => {
+    const pending = presentNotification(
+      record("tun-helper.lifecycle", { operation: "repair", outcome: "pending" }, [], {
+        pinned: true,
+      }),
+      i18nObject("en"),
+    );
+    const finalizing = presentNotification(
+      record("tun-helper.lifecycle", { operation: "repair", outcome: "finalizing" }, [], {
+        pinned: true,
+      }),
+      i18nObject("en"),
+    );
+
+    expect(finalizing.message).toBe(pending.message);
+    expect(finalizing.duration).toBe(Number.POSITIVE_INFINITY);
+    expect(finalizing.removable).toBe(false);
+  });
+
   it("rejects legacy and incomplete transport shapes", () => {
     expect(
       NotificationRecordSchema.safeParse({
