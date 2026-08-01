@@ -21,9 +21,7 @@ use mish_runtime::{
     NotificationPublication, NotificationSeverity, OnboardingWelcomeApplicationNotificationData,
     PlatformLifecycleEventSource, RuntimeShutdownFailure,
 };
-use mish_settings::{
-    OnboardingWelcomeAction, SettingsAdapterKind, SettingsAvailability, SettingsService,
-};
+use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde::Deserialize;
 use serde_json::json;
 use subtle::ConstantTimeEq;
@@ -368,11 +366,6 @@ pub fn initialize_onboarding_welcome_notification(
     }
 
     let prompt = invitation.prompted_at.is_none();
-    if prompt {
-        settings
-            .set_onboarding_welcome_state(OnboardingWelcomeAction::Prompt)
-            .map_err(|_| "The onboarding invitation could not be persisted".to_owned())?;
-    }
     runtime
         .publish_notification(NotificationPublication {
             dedupe_key: "onboarding.welcome".into(),
@@ -493,6 +486,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
             process_icon_resolver: config.process_icon_resolver,
+            notification_presentation_sessions: Default::default(),
             runtime: runtime.clone(),
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,

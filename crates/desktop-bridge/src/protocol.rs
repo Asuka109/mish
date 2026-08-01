@@ -18,8 +18,9 @@ use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
     CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
     CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
-    NotificationPresentationCompletion, NotificationPresentationIdentity, NotificationPublication,
-    NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
+    NotificationPresentationCompletion, NotificationPresentationCompletionResult,
+    NotificationPresentationIdentity, NotificationPublication, NotificationSeverity,
+    ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation,
@@ -42,6 +43,7 @@ use uuid::Uuid;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_NOTIFICATION_PRESENTATION_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 const PROCESS_ICON_MAX_BYTES: usize = 262_144;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
@@ -77,12 +79,58 @@ pub(crate) struct ProtocolState {
     pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
     pub process_icon_resolver: Option<std::sync::Arc<dyn crate::ProcessIconResolver>>,
+    pub notification_presentation_sessions: NotificationPresentationSessionRegistry,
     pub runtime: crate::DesktopRuntimeHost,
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
     pub socket_shutdown: CancellationToken,
     pub updater: std::sync::Arc<UpdaterService>,
     pub client_surface: RpcClientSurface,
+}
+
+/// Tracks which live WebSocket owns each client-provided presentation identity. The identity is
+/// part of the durable lease contract, but it must not be shareable by two sockets because either
+/// socket could otherwise release or acknowledge the other's lease.
+#[derive(Clone, Default)]
+pub(crate) struct NotificationPresentationSessionRegistry {
+    owners: std::sync::Arc<std::sync::Mutex<HashMap<NotificationPresentationIdentity, u64>>>,
+}
+
+impl NotificationPresentationSessionRegistry {
+    fn reserve(&self, identity: &NotificationPresentationIdentity, socket_id: u64) -> bool {
+        let mut owners = self
+            .owners
+            .lock()
+            .expect("notification presentation session registry poisoned");
+        match owners.get(identity) {
+            Some(owner) => *owner == socket_id,
+            None => {
+                owners.insert(identity.clone(), socket_id);
+                true
+            }
+        }
+    }
+
+    fn owns(&self, identity: &NotificationPresentationIdentity, socket_id: u64) -> bool {
+        self.owners
+            .lock()
+            .expect("notification presentation session registry poisoned")
+            .get(identity)
+            .is_some_and(|owner| *owner == socket_id)
+    }
+
+    fn release(&self, identity: &NotificationPresentationIdentity, socket_id: u64) {
+        let mut owners = self
+            .owners
+            .lock()
+            .expect("notification presentation session registry poisoned");
+        if owners
+            .get(identity)
+            .is_some_and(|owner| *owner == socket_id)
+        {
+            owners.remove(identity);
+        }
+    }
 }
 
 impl ProtocolState {
@@ -173,6 +221,26 @@ impl ProtocolState {
 
     fn permits_tun_lifecycle(&self) -> bool {
         self.client_surface == RpcClientSurface::Native
+    }
+
+    fn record_onboarding_welcome_presentation(
+        &self,
+        notification_id: &str,
+        completion: &NotificationPresentationCompletionResult,
+    ) {
+        if !completion.accepted
+            || !completion.snapshot.notifications.iter().any(|record| {
+                record.id == notification_id && record.presentation.kind() == "onboarding.welcome"
+            })
+        {
+            return;
+        }
+        let Some(settings) = &self.settings_service else {
+            return;
+        };
+        // Completion is authoritative. A failed settings write must leave the invitation
+        // eligible for a later prompt rather than retroactively rejecting the fold.
+        let _ = settings.set_onboarding_welcome_state(OnboardingWelcomeAction::Prompt);
     }
 }
 
@@ -411,25 +479,39 @@ struct SocketSubscriptions {
 /// can only be acknowledged by a session that subscribed on this WebSocket, and all outstanding
 /// leases become eligible again when the socket disappears.
 struct NotificationPresentationLeaseTracker {
+    socket_id: u64,
+    sessions: NotificationPresentationSessionRegistry,
     runtime: crate::DesktopRuntimeHost,
     subscriptions: HashMap<String, NotificationPresentationIdentity>,
 }
 
 impl NotificationPresentationLeaseTracker {
-    fn new(runtime: crate::DesktopRuntimeHost) -> Self {
+    fn new(
+        runtime: crate::DesktopRuntimeHost,
+        sessions: NotificationPresentationSessionRegistry,
+    ) -> Self {
         Self {
+            socket_id: NEXT_NOTIFICATION_PRESENTATION_SOCKET_ID.fetch_add(1, Ordering::Relaxed),
+            sessions,
             runtime,
             subscriptions: HashMap::new(),
         }
     }
 
+    fn reserve(&self, identity: &NotificationPresentationIdentity) -> bool {
+        self.sessions.reserve(identity, self.socket_id)
+    }
+
     fn contains(&self, identity: &NotificationPresentationIdentity) -> bool {
-        self.subscriptions
-            .values()
-            .any(|candidate| candidate == identity)
+        self.sessions.owns(identity, self.socket_id)
+            && self
+                .subscriptions
+                .values()
+                .any(|candidate| candidate == identity)
     }
 
     fn register(&mut self, subscription_id: String, identity: NotificationPresentationIdentity) {
+        debug_assert!(self.sessions.owns(&identity, self.socket_id));
         self.subscriptions.insert(subscription_id, identity);
     }
 
@@ -444,6 +526,7 @@ impl NotificationPresentationLeaseTracker {
         {
             self.runtime
                 .release_notification_presentation_leases(&identity);
+            self.sessions.release(&identity, self.socket_id);
         }
     }
 }
@@ -456,6 +539,7 @@ impl Drop for NotificationPresentationLeaseTracker {
         for identity in identities {
             self.runtime
                 .release_notification_presentation_leases(&identity);
+            self.sessions.release(&identity, self.socket_id);
         }
     }
 }
@@ -571,6 +655,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         notification_ids: HashSet::new(),
         notification_presentation_leases: NotificationPresentationLeaseTracker::new(
             state.runtime.clone(),
+            state.notification_presentation_sessions.clone(),
         ),
         notification_updates,
         profile_ids: HashSet::new(),
@@ -1364,6 +1449,17 @@ async fn handle_message(
                     Ok(identity) if valid_notification_presentation_identity(&identity) => identity,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            if !subscriptions
+                .notification_presentation_leases
+                .reserve(&identity)
+            {
+                return Some(error_response(
+                    id,
+                    -32031,
+                    "Presentation identity already belongs to another socket",
+                    None,
+                ));
+            }
             let (updates, result) = state
                 .runtime
                 .subscribe_notifications_with_presentation_claim(identity.clone());
@@ -1413,8 +1509,10 @@ async fn handle_message(
                     }
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
-            serde_json::to_value(state.runtime.complete_notification_presentation(completion))
-                .expect("serializable notification presentation completion")
+            let notification_id = completion.id.clone();
+            let result = state.runtime.complete_notification_presentation(completion);
+            state.record_onboarding_welcome_presentation(&notification_id, &result);
+            serde_json::to_value(result).expect("serializable notification presentation completion")
         }
         "notifications.unsubscribe" => {
             let Some(subscription_id) =

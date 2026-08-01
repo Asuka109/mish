@@ -218,6 +218,7 @@ export function NotificationBubble({
         level: notification.level,
         message: notification.message,
         pendingActionId,
+        presentationAttempt: notification.presentationAttempt,
         title: notification.title,
         toast: notification.toast,
       });

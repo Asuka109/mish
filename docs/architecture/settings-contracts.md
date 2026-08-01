@@ -61,12 +61,14 @@ also uses `protect-existing` for System Proxy takeover and `always` for
 connection process discovery. Existing schemas migrate to those conservative,
 observable values, so an upgrade cannot begin replacing PAC or auto-discovery
 state and does not silently leave process attribution disabled.
-also creates and immediately persists exactly one version-2 welcome invitation
+Missing storage also creates and immediately persists exactly one version-2 welcome invitation
 with a stable creation time. Before any desktop GUI connects, the Rust desktop
-bootstrap records `promptedAt` for an unprompted invitation and creates its
-semantic notification record. The first eligible client then claims the toast
-lease; snapshot arrival alone is never presentation evidence. Opening records a
-separate first-open time. Dismissal records another time but retains the
+bootstrap creates its semantic notification record without changing
+`promptedAt`. The first eligible client then atomically claims the toast lease;
+an accepted presentation completion records `promptedAt`, and snapshot arrival
+alone is never presentation evidence. A crash before that completion therefore
+leaves the invitation eligible for the next launch. Opening records a separate
+first-open time. Dismissal records another time but retains the
 invitation. Completion records its own time and suppresses the invitation across
 restart and future schema upgrades.
 

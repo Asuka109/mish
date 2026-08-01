@@ -1020,10 +1020,35 @@ async fn authoritative_application_notifications_reach_every_notification_client
 
 #[tokio::test]
 async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_client() {
-    let runtime = runtime(no_core());
-    let runtime_host = DesktopRuntimeHost::new(runtime);
     let settings = settings_service();
+    let crashed_before_gui = DesktopRuntimeHost::new(runtime(no_core()));
 
+    assert!(initialize_onboarding_welcome_notification(&crashed_before_gui, &settings).unwrap());
+    let interrupted_record = crashed_before_gui
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .find(|record| record.presentation.kind() == "onboarding.welcome")
+        .expect("onboarding record before GUI startup");
+    let mish_runtime::ApplicationNotificationContent::OnboardingWelcome(interrupted) =
+        interrupted_record.presentation.content
+    else {
+        unreachable!("onboarding notification content");
+    };
+    assert!(interrupted.prompt);
+    assert!(
+        settings
+            .snapshot(mish_settings::SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("fresh onboarding invitation")
+            .prompted_at
+            .is_none()
+    );
+    drop(crashed_before_gui);
+
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
     assert!(initialize_onboarding_welcome_notification(&runtime_host, &settings).unwrap());
     runtime_host
         .publish_notification(NotificationPublication {
@@ -1070,10 +1095,12 @@ async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_cl
             .welcome_invitation
             .expect("fresh onboarding invitation")
             .prompted_at
-            .is_some()
+            .is_none()
     );
 
-    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings.clone());
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
         .await
         .unwrap();
     let mut desktop_webview = socket(bridge.address).await;
@@ -1218,6 +1245,16 @@ async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_cl
         .find(|record| record["id"].as_str() == Some(record_id.as_str()))
         .expect("folded onboarding snapshot");
     assert_eq!(folded_record["presentationState"]["phase"], "folded");
+    assert!(
+        settings
+            .snapshot(mish_settings::SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("completed onboarding presentation")
+            .prompted_at
+            .is_some()
+    );
 
     let duplicate_completion = request_matching_response(
         &mut browser,
@@ -1249,6 +1286,84 @@ async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_cl
     )
     .await;
     assert_eq!(queued_claim["result"]["claim"]["id"], queued_record_id);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn presentation_identity_cannot_be_shared_by_two_live_sockets() {
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
+    let created = runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "presentation-identity-owner".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::SettingsOperationFailed(
+                    mish_runtime::SettingsOperationFailedApplicationNotificationData {
+                        failure: "persistence".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let record_id = created.notifications[0].id.clone();
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut owner = socket(bridge.address).await;
+    let mut duplicate = socket(bridge.address).await;
+    authenticate(&mut owner).await;
+    authenticate(&mut duplicate).await;
+
+    let first = request(
+        &mut owner,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"shared-client","sessionId":"shared-session"}
+        }),
+    )
+    .await;
+    let claim = &first["result"]["claim"];
+    assert_eq!(claim["id"], record_id);
+
+    let rejected = request(
+        &mut duplicate,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"shared-client","sessionId":"shared-session"}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["code"], -32031);
+    duplicate.close(None).await.unwrap();
+    drop(duplicate);
+
+    let completion = request_matching_response(
+        &mut owner,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"notifications.completePresentation",
+            "params":{
+                "clientId":"shared-client",
+                "sessionId":"shared-session",
+                "id":claim["id"],
+                "revision":claim["revision"],
+                "leaseGeneration":claim["leaseGeneration"],
+                "outcome":"dismissed"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(completion["result"]["accepted"], true);
 
     bridge.shutdown().await;
 }

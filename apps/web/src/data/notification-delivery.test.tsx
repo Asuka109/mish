@@ -1,4 +1,8 @@
 import { act, render } from "@testing-library/react";
+import type {
+  NotificationPresentationClaimDto,
+  NotificationPresentationFoldReason,
+} from "@mish/contracts";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -13,6 +17,22 @@ import {
   useNotificationDelivery,
   type NotificationDeliveryContextValue,
 } from "./notification-delivery";
+
+class RejectingCompletionClient extends FixtureNotificationClient {
+  override async completePresentation(
+    _claim: NotificationPresentationClaimDto,
+    _outcome: NotificationPresentationFoldReason,
+  ) {
+    const current = await this.getSnapshot();
+    const revision = current.revision + 1;
+    const snapshot = {
+      notifications: current.notifications.map((record) => ({ ...record, revision })),
+      revision,
+    };
+    this.receive(snapshot);
+    return { accepted: false, snapshot };
+  }
+}
 
 describe("Rust-authoritative notification delivery projection", () => {
   let delivery: NotificationDeliveryContextValue | null = null;
@@ -189,6 +209,40 @@ describe("Rust-authoritative notification delivery projection", () => {
     act(() => delivery?.remove(id));
     await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
     expect((await second.getSnapshot()).notifications).toEqual([]);
+  });
+
+  it("reprojects a toast when a stale completion leaves its lease active", async () => {
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    const client = new RejectingCompletionClient(center);
+    await publisher.publish(
+      notificationPublication("profile.saved", {
+        dedupeKey: "stale-completion",
+        severity: "success",
+      }),
+    );
+    const view = render(
+      <TypesafeI18n locale="en">
+        <NotificationDeliveryProvider client={client}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
+    );
+    await vi.waitFor(() => expect(delivery?.toastEntries).toHaveLength(1));
+    const toast = delivery!.toastEntries[0]!;
+
+    act(() => delivery?.completePresentation(toast.id, "dismissed"));
+
+    await vi.waitFor(() =>
+      expect(delivery?.toastEntries[0]).toMatchObject({
+        id: toast.id,
+        presentationAttempt: toast.presentationAttempt + 1,
+      }),
+    );
+
+    view.unmount();
+    client.dispose();
+    publisher.dispose();
   });
 
   it("models one active lease, reconnect replacement, expiry, and stale acknowledgements", async () => {

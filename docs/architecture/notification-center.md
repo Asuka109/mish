@@ -96,7 +96,9 @@ subscriptionId }`. The sole returned claim moves that record to `presenting`
 with a private owner identity, public lease generation, expiry, and current
 record revision. A second WebView or Browser subscription sees the same
 snapshot but no claim while that lease is current. The owner identity is never
-projected in a notification record.
+projected in a notification record. The bridge binds each identity to one live
+WebSocket; a concurrent socket reusing that pair is refused, so it cannot
+acknowledge or release the owner's lease when it disconnects.
 
 The client renders a Sonner toast only for its returned claim; it never infers
 toast delivery from a baseline, a first-seen ID, or a revision difference. It

@@ -27,6 +27,10 @@ import { presentNotification, type DeliveredNotification } from "./notification-
 
 export type { DeliveredNotification, NotificationActionDescriptor } from "./notification-registry";
 
+export interface ToastDeliveredNotification extends DeliveredNotification {
+  presentationAttempt: number;
+}
+
 export interface NotificationDeliveryContextValue {
   completePresentation(notificationId: string, outcome: NotificationPresentationFoldReason): void;
   entries: readonly DeliveredNotification[];
@@ -34,7 +38,7 @@ export interface NotificationDeliveryContextValue {
   publish(publication: NotificationPublicationDto): void;
   remove(id: string): void;
   retire(dedupeKey: string): void;
-  toastEntries: readonly DeliveredNotification[];
+  toastEntries: readonly ToastDeliveredNotification[];
 }
 
 const NotificationDeliveryContext = createContext<NotificationDeliveryContextValue | null>(null);
@@ -53,6 +57,7 @@ export function NotificationDeliveryProvider({
     revision: 0,
   });
   const [activeClaim, setActiveClaim] = useState<NotificationPresentationClaimDto | null>(null);
+  const [presentationAttempt, setPresentationAttempt] = useState(0);
   const activeClaimRef = useRef(activeClaim);
   const claimRequestInFlight = useRef(false);
   const completingClaims = useRef(new Set<string>());
@@ -145,7 +150,13 @@ export function NotificationDeliveryProvider({
       void resolvedClient
         .completePresentation(claim, outcome)
         .then((result) => {
-          if (!result.accepted || !mounted.current) return;
+          if (!mounted.current) return;
+          if (!result.accepted) {
+            if (sameLease(activeClaimRef.current, claim)) {
+              setPresentationAttempt((attempt) => attempt + 1);
+            }
+            return;
+          }
           if (!sameClaim(activeClaimRef.current, claim)) return;
           activeClaimRef.current = null;
           setActiveClaim(null);
@@ -163,10 +174,10 @@ export function NotificationDeliveryProvider({
     () => snapshot.notifications.map((record) => presentNotification(record, LL)),
     [LL, snapshot.notifications],
   );
-  const toastEntries = useMemo(() => {
+  const toastEntries = useMemo<readonly ToastDeliveredNotification[]>(() => {
     const record = activeClaim ? presentationRecord(snapshot, activeClaim) : null;
-    return record ? [presentNotification(record, LL)] : [];
-  }, [LL, activeClaim, snapshot]);
+    return record ? [{ ...presentNotification(record, LL), presentationAttempt }] : [];
+  }, [LL, activeClaim, presentationAttempt, snapshot]);
   const value = useMemo<NotificationDeliveryContextValue>(
     () => ({ completePresentation, entries, markRead, publish, remove, retire, toastEntries }),
     [completePresentation, entries, markRead, publish, remove, retire, toastEntries],
@@ -259,6 +270,13 @@ function sameClaim(
     left.leaseGeneration === right.leaseGeneration &&
     left.revision === right.revision
   );
+}
+
+function sameLease(
+  left: NotificationPresentationClaimDto | null,
+  right: NotificationPresentationClaimDto,
+) {
+  return left?.id === right.id && left.leaseGeneration === right.leaseGeneration;
 }
 
 export function notificationPublication<K extends ApplicationNotificationKind>(
