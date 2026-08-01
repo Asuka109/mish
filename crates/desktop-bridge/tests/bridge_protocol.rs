@@ -28,9 +28,9 @@ use mish_runtime::{
     RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
     StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase,
     TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunHelperAvailability,
-    TunHelperController, TunHelperError, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
-    TunNetworkObservation, tun_observation_now,
+    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
+    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -510,6 +510,42 @@ impl TunHelperPlatform for InstallingTunHelperPlatform {
         self.operations.lock().unwrap().push(operation);
         *self.installed.lock().unwrap() = operation != TunHelperLifecycleOperation::Remove;
         Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+    }
+
+    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+struct FailingRepairTunHelperPlatform;
+
+impl TunHelperPlatform for FailingRepairTunHelperPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot::unavailable(
+            TunHelperAvailability::RepairRequired,
+            TunHelperHealth::VersionMismatch,
+            TunHelperFailureKind::VersionMismatch,
+        )
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunHelperObservation::healthy("2")) })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async {
+            Err(TunHelperError::new(
+                TunHelperFailureKind::AuthorizationCancelled,
+                "Synthetic repair authorization cancellation",
+            ))
+        })
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
@@ -2086,6 +2122,71 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
     assert_eq!(
         platform.operations(),
         vec![TunHelperLifecycleOperation::Install]
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchanged() {
+    let (runtime, _) = capture_runtime_with_tun();
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
+        TunHelperController::new(Arc::new(FailingRepairTunHelperPlatform)),
+    ))));
+    let bridge = start_loopback_server(bridge_config, runtime).await.unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let enabled = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":1, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(enabled.get("error").is_none());
+    assert_eq!(enabled["result"]["runtime"]["tunEnabled"], true);
+
+    let repair = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.repairTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(repair["error"]["code"], -32055);
+    assert_eq!(repair["error"]["data"]["kind"], "authorization-cancelled");
+
+    let after = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":false,"tun":true})
+    );
+    assert_eq!(after["result"]["runtime"]["tunEnabled"], true);
+
+    let notifications = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":4, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let lifecycle = notifications["result"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|notification| notification["presentation"]["kind"] == "tun-helper.lifecycle")
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle.len(), 1);
+    assert_eq!(
+        lifecycle[0]["presentation"]["data"]["outcome"],
+        "recovery-required"
+    );
+    assert_eq!(
+        lifecycle[0]["presentation"]["data"]["failure"],
+        "authorization-cancelled"
     );
 
     bridge.shutdown().await;

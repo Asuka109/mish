@@ -124,6 +124,39 @@ async fn install_requires_confirmation_and_reports_a_healthy_exact_version() {
 }
 
 #[tokio::test]
+async fn install_requires_a_fresh_disabled_network_observation_before_succeeding() {
+    let platform = Arc::new(FakeHelperPlatform::not_installed());
+    *platform.tun_enabled.lock().unwrap() = true;
+    let helper = TunHelperController::new(platform);
+
+    let error = helper.install().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ObservationPartial);
+    assert_eq!(helper.snapshot().phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(
+        helper.snapshot().last_failure,
+        Some(TunHelperFailureKind::ObservationPartial)
+    );
+}
+
+#[tokio::test]
+async fn repair_requires_a_fresh_disabled_network_observation_before_succeeding() {
+    let platform = Arc::new(FakeHelperPlatform::version_mismatch());
+    *platform.tun_enabled.lock().unwrap() = true;
+    let helper = TunHelperController::new(platform);
+    helper.refresh().await;
+
+    let error = helper.repair().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ObservationPartial);
+    assert_eq!(helper.snapshot().phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(
+        helper.snapshot().last_failure,
+        Some(TunHelperFailureKind::ObservationPartial)
+    );
+}
+
+#[tokio::test]
 async fn permission_refusal_remains_a_typed_failed_state() {
     let platform = Arc::new(FakeHelperPlatform::not_installed());
     platform.fail_next_lifecycle(TunHelperFailureKind::PermissionDenied);

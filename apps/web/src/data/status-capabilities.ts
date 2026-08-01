@@ -32,7 +32,7 @@ export function getCaptureModeDescriptionId(
   mode: "systemProxy" | "tun",
 ) {
   if (adapterKind === "fixture") return statusDescriptionIds.fixtureAction;
-  if (availability === "permission-required") {
+  if (availability === "permission-required" || availability === "repair-required") {
     return mode === "systemProxy"
       ? statusDescriptionIds.systemProxyPermission
       : statusDescriptionIds.tunPermission;
@@ -53,7 +53,10 @@ export function getAggregateCaptureDescriptionId(
   if (snapshot.adapterKind === "fixture") return statusDescriptionIds.fixtureAction;
 
   const availabilities = [snapshot.capabilities.systemProxy, snapshot.capabilities.tun];
-  if (availabilities.includes("permission-required")) {
+  if (
+    availabilities.includes("permission-required") ||
+    availabilities.includes("repair-required")
+  ) {
     return statusDescriptionIds.capturePermission;
   }
   if (

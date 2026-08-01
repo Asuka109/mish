@@ -1,7 +1,7 @@
 import { Desktop } from "@phosphor-icons/react/Desktop";
 import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import {
@@ -34,7 +34,6 @@ import {
   statusDescriptionIds,
 } from "../data/status-capabilities";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
-import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 
 const captureStyles = tv({
   slots: {
@@ -57,7 +56,7 @@ interface TrafficCaptureControlProps {
   commandSupported: boolean;
   disabled?: boolean;
   onSystemProxyChange(value: boolean): void;
-  onTunHelperInstall?(): Promise<TunHelperOperationResult>;
+  onTunHelperSetup?(operation: "install" | "repair"): Promise<TunHelperOperationResult>;
   onTunChange(value: boolean): void;
   pending?: boolean;
   pendingMode?: "systemProxy" | "tun" | null;
@@ -65,7 +64,6 @@ interface TrafficCaptureControlProps {
   systemProxySelected: boolean;
   systemProxyStatus: SystemProxyRuntimeStatusDto;
   tunEnabled: boolean;
-  tunHelperReady?: boolean;
   tunSelected: boolean;
   tunStatus: TunRuntimeStatusDto;
 }
@@ -82,7 +80,7 @@ export function TrafficCaptureControl({
   commandSupported,
   disabled = false,
   onSystemProxyChange,
-  onTunHelperInstall,
+  onTunHelperSetup,
   onTunChange,
   pending = false,
   pendingMode = null,
@@ -90,27 +88,39 @@ export function TrafficCaptureControl({
   systemProxySelected,
   systemProxyStatus,
   tunEnabled,
-  tunHelperReady = false,
   tunSelected,
   tunStatus,
 }: TrafficCaptureControlProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [tunGuideOpen, setTunGuideOpen] = useState(false);
-  const [tunInstallFailure, setTunInstallFailure] = useState<
-    Extract<TunHelperOperationResult, { ok: false }>["failure"] | undefined
-  >();
-  const [tunInstallPending, setTunInstallPending] = useState(false);
+  const [tunSetupPending, setTunSetupPending] = useState(false);
+  const tunGuideReturnFocus = useRef<HTMLElement | null>(null);
   const { LL } = useI18nContext();
   const navigate = useNavigate();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable =
     adapterKind === "rpc" && isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
   const canRequestAuthoritativeCaptureCheck = adapterKind === "rpc";
-  const tunRequiresPermission = capabilities.tun === "permission-required";
-  const tunSetupRequired = adapterKind === "rpc" && tunRequiresPermission && !tunHelperReady;
-  const tunDescriptionId = tunRequiresPermission
+  const tunSetupOperation =
+    adapterKind !== "rpc"
+      ? null
+      : capabilities.tun === "permission-required"
+        ? "install"
+        : capabilities.tun === "repair-required"
+          ? "repair"
+          : null;
+  const tunSetupRequired = tunSetupOperation !== null;
+  const tunActionable = tunAvailable || tunSetupRequired;
+  const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
     : statusDescriptionIds.tunUnavailable;
+
+  useEffect(() => {
+    if (tunGuideOpen || !tunGuideReturnFocus.current) return;
+    const trigger = tunGuideReturnFocus.current;
+    tunGuideReturnFocus.current = null;
+    trigger.focus();
+  }, [tunGuideOpen]);
 
   function getHelpDescription(mode: "systemProxy" | "tun", availability: CapabilityAvailability) {
     if (adapterKind === "fixture") {
@@ -118,7 +128,7 @@ export function TrafficCaptureControl({
         ? LL.capture.systemProxyFixtureDescription()
         : LL.capture.tunFixtureDescription();
     }
-    if (availability === "permission-required") {
+    if (availability === "permission-required" || availability === "repair-required") {
       return mode === "systemProxy"
         ? LL.capabilities.systemProxyPermission()
         : LL.capabilities.tunPermission();
@@ -136,24 +146,33 @@ export function TrafficCaptureControl({
 
   function requestTunChange(selected: boolean) {
     if (selected && tunSetupRequired) {
+      tunGuideReturnFocus.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setTunGuideOpen(true);
       return;
     }
     onTunChange(selected);
   }
 
-  function enableTunAfterGuide() {
+  function closeTunGuide(restoreFocus = true) {
+    if (!restoreFocus) tunGuideReturnFocus.current = null;
     setTunGuideOpen(false);
-    onTunChange(true);
   }
 
-  async function installTunHelperFromGuide() {
-    if (!onTunHelperInstall || tunInstallPending) return;
-    setTunInstallFailure(undefined);
-    setTunInstallPending(true);
-    const result = await onTunHelperInstall();
-    setTunInstallPending(false);
-    setTunInstallFailure(result.ok ? undefined : result.failure);
+  async function setupTunHelperFromGuide() {
+    if (!tunSetupOperation || !onTunHelperSetup || tunSetupPending) return;
+    setTunSetupPending(true);
+    try {
+      const result = await onTunHelperSetup(tunSetupOperation);
+      if (!result.ok) return;
+
+      // A successful lifecycle result has already been verified by Rust against a fresh,
+      // disabled network observation. Resume only the original Capture transaction.
+      closeTunGuide(false);
+      onTunChange(true);
+    } finally {
+      setTunSetupPending(false);
+    }
   }
 
   return (
@@ -189,7 +208,7 @@ export function TrafficCaptureControl({
             )}
             <span>{LL.capture.systemProxy()}</span>
           </Toggle>
-          {tunAvailable || canRequestAuthoritativeCaptureCheck ? (
+          {tunActionable ? (
             <Toggle
               aria-busy={pendingMode === "tun"}
               aria-describedby={getCaptureModeDescriptionId(
@@ -248,7 +267,7 @@ export function TrafficCaptureControl({
                 </Toggle>
               </TooltipTrigger>
               <TooltipContent>
-                {tunRequiresPermission
+                {tunSetupRequired
                   ? getHelpDescription("tun", capabilities.tun)
                   : LL.capabilities.tunUnavailable()}
               </TooltipContent>
@@ -311,8 +330,17 @@ export function TrafficCaptureControl({
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={setTunGuideOpen} open={tunGuideOpen}>
-        <DialogContent closeLabel={LL.common.close()}>
+      <Dialog
+        onOpenChange={(open) => {
+          if (open) {
+            setTunGuideOpen(true);
+          } else if (!tunSetupPending) {
+            closeTunGuide();
+          }
+        }}
+        open={tunGuideOpen}
+      >
+        <DialogContent closeLabel={LL.common.close()} showCloseButton={!tunSetupPending}>
           <DialogHeader className={captureStyles().dialogHeader()}>
             <DialogTitle className="dialog-title">{LL.capture.tunGuide.title()}</DialogTitle>
             <DialogDescription className="dialog-description">
@@ -324,43 +352,44 @@ export function TrafficCaptureControl({
               <ShieldCheck aria-hidden="true" />
               <div>
                 <h2>
-                  {tunSetupRequired
-                    ? LL.capture.tunGuide.setupTitle()
-                    : LL.capture.tunGuide.helperTitle()}
+                  {tunSetupOperation === "repair"
+                    ? LL.capture.tunGuide.repairTitle()
+                    : LL.capture.tunGuide.setupTitle()}
                 </h2>
                 <p>
-                  {tunSetupRequired
-                    ? LL.capture.tunGuide.setupDescription()
-                    : LL.capture.tunGuide.helperDescription()}
+                  {tunSetupOperation === "repair"
+                    ? LL.capture.tunGuide.repairDescription()
+                    : LL.capture.tunGuide.setupDescription()}
                 </p>
               </div>
             </section>
           </div>
           <DialogFooter className={captureStyles().dialogFooter()}>
-            {tunInstallFailure !== undefined ? (
-              <p className="dialog-error" role="alert">
-                {tunHelperFailureMessage(LL, tunInstallFailure)}
-              </p>
-            ) : null}
-            <DialogClose render={<Button type="button" variant="outline" />}>
+            <DialogClose
+              render={<Button disabled={tunSetupPending} type="button" variant="outline" />}
+            >
               {LL.capture.tunGuide.notNow()}
             </DialogClose>
             {tunSetupRequired ? (
-              onTunHelperInstall ? (
+              onTunHelperSetup ? (
                 <Button
-                  aria-busy={tunInstallPending}
-                  disabled={tunInstallPending}
-                  onClick={() => void installTunHelperFromGuide()}
+                  aria-busy={tunSetupPending}
+                  disabled={tunSetupPending}
+                  onClick={() => void setupTunHelperFromGuide()}
                   type="button"
                 >
-                  {tunInstallPending
-                    ? LL.capture.tunGuide.installingHelper()
-                    : LL.capture.tunGuide.installHelper()}
+                  {tunSetupOperation === "repair"
+                    ? tunSetupPending
+                      ? LL.capture.tunGuide.repairingHelper()
+                      : LL.capture.tunGuide.repairHelper()
+                    : tunSetupPending
+                      ? LL.capture.tunGuide.installingHelper()
+                      : LL.capture.tunGuide.installHelper()}
                 </Button>
               ) : (
                 <Button
                   onClick={() => {
-                    setTunGuideOpen(false);
+                    closeTunGuide(false);
                     void navigate("/settings");
                   }}
                   type="button"
@@ -368,11 +397,7 @@ export function TrafficCaptureControl({
                   {LL.capture.tunGuide.reviewSetup()}
                 </Button>
               )
-            ) : (
-              <Button onClick={enableTunAfterGuide} type="button">
-                {LL.capture.tunGuide.enable()}
-              </Button>
-            )}
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1775,18 +1775,21 @@ async fn handle_message(
             };
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
-            if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
-                publish_tun_helper_lifecycle(
-                    state,
-                    &operation_id,
-                    "repair",
-                    "recovery-required",
-                    Some(capture_failure_id(error.kind)),
-                );
-                return Some(capture_error_response(id, error));
-            }
             match service.repair_tun_helper().await {
                 Ok(mut snapshot) => {
+                    // Do not alter Capture before a repair has actually succeeded. A cancelled
+                    // authorization or typed lifecycle failure must leave the original intent
+                    // untouched; only a confirmed repair may clear it before auto-resume.
+                    if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
+                        publish_tun_helper_lifecycle(
+                            state,
+                            &operation_id,
+                            "repair",
+                            "recovery-required",
+                            Some(capture_failure_id(error.kind)),
+                        );
+                        return Some(capture_error_response(id, error));
+                    }
                     publish_tun_helper_lifecycle(state, &operation_id, "repair", "applied", None);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")

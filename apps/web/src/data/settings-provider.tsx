@@ -43,7 +43,7 @@ interface SettingsContextValue {
   localBackupClient: LocalBackupClient;
   refreshNetworkDns(): Promise<boolean>;
   removeTunHelper(): Promise<boolean>;
-  repairTunHelper(): Promise<boolean>;
+  repairTunHelper(): Promise<TunHelperOperationResult>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
@@ -165,7 +165,7 @@ export function SettingsProvider({
       pending,
       refreshNetworkDns,
       removeTunHelper: async () => (await runTunHelper(() => client.removeTunHelper())).ok,
-      repairTunHelper: async () => (await runTunHelper(() => client.repairTunHelper())).ok,
+      repairTunHelper: () => runTunHelper(() => client.repairTunHelper()),
       setAppearance: async (appearance) => (await run(() => client.setAppearance(appearance))).ok,
       setLanguage: async (language) => (await run(() => client.setLanguage(language))).ok,
       setOnboardingWelcomeState: async (action) =>
