@@ -218,7 +218,7 @@ function knownPresentation(
           : string("operation") === "repair"
             ? LL.settingsPage.repairTunHelper()
             : LL.settingsPage.removeTunHelper();
-      if (string("outcome") === "pending") {
+      if (["pending", "finalizing"].includes(string("outcome") ?? "")) {
         return { message: LL.settingsPage.tunHelperLifecyclePending({ operation }) };
       }
       if (string("outcome") === "applied") {
