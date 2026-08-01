@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -18,11 +18,13 @@ use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
     CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
     CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
-    NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
+    NotificationPresentationCompletion, NotificationPresentationIdentity, NotificationPublication,
+    NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation,
-    TunHelperLifecycleApplicationNotificationData,
+    TunHelperLifecycleApplicationNotificationData, valid_notification_presentation_completion,
+    valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
@@ -31,7 +33,10 @@ use mish_settings::{
     WindowCloseBehavior, WindowSurfacePreference,
 };
 use mish_updater::{UpdateChannel, UpdateOperationError, UpdaterService, UpdaterSnapshot};
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time::{Duration, MissedTickBehavior},
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -387,6 +392,7 @@ struct SocketSubscriptions {
     event_ids: HashSet<String>,
     event_updates: broadcast::Receiver<()>,
     notification_ids: HashSet<String>,
+    notification_presentation_leases: NotificationPresentationLeaseTracker,
     notification_updates: broadcast::Receiver<mish_runtime::NotificationSnapshot>,
     profile_ids: HashSet<String>,
     profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
@@ -399,6 +405,59 @@ struct SocketSubscriptions {
     traffic_updates: broadcast::Receiver<CoreStatus>,
     updater_ids: HashSet<String>,
     updater_updates: broadcast::Receiver<UpdaterSnapshot>,
+}
+
+/// Socket-local ownership is deliberately separate from the client supplied identity. A lease
+/// can only be acknowledged by a session that subscribed on this WebSocket, and all outstanding
+/// leases become eligible again when the socket disappears.
+struct NotificationPresentationLeaseTracker {
+    runtime: crate::DesktopRuntimeHost,
+    subscriptions: HashMap<String, NotificationPresentationIdentity>,
+}
+
+impl NotificationPresentationLeaseTracker {
+    fn new(runtime: crate::DesktopRuntimeHost) -> Self {
+        Self {
+            runtime,
+            subscriptions: HashMap::new(),
+        }
+    }
+
+    fn contains(&self, identity: &NotificationPresentationIdentity) -> bool {
+        self.subscriptions
+            .values()
+            .any(|candidate| candidate == identity)
+    }
+
+    fn register(&mut self, subscription_id: String, identity: NotificationPresentationIdentity) {
+        self.subscriptions.insert(subscription_id, identity);
+    }
+
+    fn unsubscribe(&mut self, subscription_id: &str) {
+        let Some(identity) = self.subscriptions.remove(subscription_id) else {
+            return;
+        };
+        if !self
+            .subscriptions
+            .values()
+            .any(|candidate| candidate == &identity)
+        {
+            self.runtime
+                .release_notification_presentation_leases(&identity);
+        }
+    }
+}
+
+impl Drop for NotificationPresentationLeaseTracker {
+    fn drop(&mut self) {
+        let identities = std::mem::take(&mut self.subscriptions)
+            .into_values()
+            .collect::<HashSet<_>>();
+        for identity in identities {
+            self.runtime
+                .release_notification_presentation_leases(&identity);
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -499,12 +558,20 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .map(|service| service.subscribe())
         .unwrap_or(inactive_settings_receiver);
     let updater_updates = state.updater.subscribe();
+    // A lease must eventually requeue even when its holder stops making RPC calls without
+    // disconnecting. The sweep only asks Rust to expire state; Rust broadcasts only if a lease
+    // actually changed, so this never turns the loop into a snapshot polling protocol.
+    let mut notification_lease_sweep = tokio::time::interval(Duration::from_secs(1));
+    notification_lease_sweep.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut authenticated = false;
     let (command_responses, mut command_response_updates) = mpsc::unbounded_channel();
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
         event_updates,
         notification_ids: HashSet::new(),
+        notification_presentation_leases: NotificationPresentationLeaseTracker::new(
+            state.runtime.clone(),
+        ),
         notification_updates,
         profile_ids: HashSet::new(),
         profile_updates,
@@ -535,6 +602,8 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
                 subscriptions.traffic_updates = runtime.subscribe_status();
                 subscriptions.event_updates = runtime.subscribe_events();
+                let (notification_updates, _) = runtime.subscribe_notifications_with_snapshot();
+                subscriptions.notification_updates = notification_updates;
                 if authenticated && !subscriptions.status_ids.is_empty() {
                     let snapshot = state.status_snapshot().await;
                     for subscription_id in &subscriptions.status_ids {
@@ -706,6 +775,9 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
+            _ = notification_lease_sweep.tick(), if authenticated && !subscriptions.notification_ids.is_empty() => {
+                let _ = state.runtime.notification_snapshot();
+            }
             update = subscriptions.profile_updates.recv(), if authenticated && !subscriptions.profile_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
@@ -863,7 +935,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 30,
+            "protocolVersion": 31,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
@@ -1287,7 +1359,14 @@ async fn handle_message(
                     None,
                 ));
             }
-            let (updates, snapshot) = state.runtime.subscribe_notifications_with_snapshot();
+            let identity: NotificationPresentationIdentity =
+                match serde_json::from_value(request.params) {
+                    Ok(identity) if valid_notification_presentation_identity(&identity) => identity,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            let (updates, result) = state
+                .runtime
+                .subscribe_notifications_with_presentation_claim(identity.clone());
             subscriptions.notification_updates = updates;
             let subscription_id = format!(
                 "notifications-{}",
@@ -1296,7 +1375,46 @@ async fn handle_message(
             subscriptions
                 .notification_ids
                 .insert(subscription_id.clone());
-            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
+            subscriptions
+                .notification_presentation_leases
+                .register(subscription_id.clone(), identity);
+            json!({
+                "claim": result.claim,
+                "snapshot": result.snapshot,
+                "subscriptionId": subscription_id,
+            })
+        }
+        "notifications.claimPresentation" => {
+            let identity: NotificationPresentationIdentity =
+                match serde_json::from_value(request.params) {
+                    Ok(identity)
+                        if valid_notification_presentation_identity(&identity)
+                            && subscriptions
+                                .notification_presentation_leases
+                                .contains(&identity) =>
+                    {
+                        identity
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(state.runtime.claim_next_notification_presentation(identity))
+                .expect("serializable notification presentation claim")
+        }
+        "notifications.completePresentation" => {
+            let completion: NotificationPresentationCompletion =
+                match serde_json::from_value(request.params) {
+                    Ok(completion)
+                        if valid_notification_presentation_completion(&completion)
+                            && subscriptions
+                                .notification_presentation_leases
+                                .contains(&completion.identity()) =>
+                    {
+                        completion
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(state.runtime.complete_notification_presentation(completion))
+                .expect("serializable notification presentation completion")
         }
         "notifications.unsubscribe" => {
             let Some(subscription_id) =
@@ -1304,7 +1422,13 @@ async fn handle_message(
             else {
                 return Some(error_response(id, -32602, "Invalid params", None));
             };
-            json!(subscriptions.notification_ids.remove(subscription_id))
+            let removed = subscriptions.notification_ids.remove(subscription_id);
+            if removed {
+                subscriptions
+                    .notification_presentation_leases
+                    .unsubscribe(subscription_id);
+            }
+            json!(removed)
         }
         "profiles.getSnapshot" => match profile_rpc_snapshot(state).await {
             Ok(snapshot) => snapshot,

@@ -55,7 +55,7 @@ export function presentNotification(
     read: record.read,
     removable: !record.pinned,
     title: copy.title,
-    toast: record.resolved ? "dismiss" : (copy.toast ?? "present"),
+    toast: copy.toast ?? "present",
   };
 }
 
@@ -118,6 +118,7 @@ function knownPresentation(
         message: resolved
           ? LL.profiles.geodataPrepared({ asset: geodataAssetName(string("asset")) })
           : LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
+        toast: resolved ? "dismiss" : undefined,
       };
     case "profile.activation-listener-conflict":
       return {

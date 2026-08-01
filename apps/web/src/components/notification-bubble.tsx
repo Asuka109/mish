@@ -103,7 +103,8 @@ export function NotificationBubble({
   const profiles = useOptionalProfiles();
   const { recoverSystemProxy, snapshot } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
-  const { entries, markRead, remove, toastEntries } = useNotificationDelivery();
+  const { completePresentation, entries, markRead, remove, toastEntries } =
+    useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -114,6 +115,7 @@ export function NotificationBubble({
     useState<SystemProxySettingsGuidance | null>(null);
   const executingActions = useRef(new Set<string>());
   const presented = useRef<ReadonlyMap<string, string>>(new Map());
+  const suppressedToastCompletions = useRef(new Set<string>());
 
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const execute = useCallback(
@@ -133,7 +135,6 @@ export function NotificationBubble({
         if (actionId === "repair") await recoverSystemProxy("repair");
         else if (actionId === "leave-as-is") await recoverSystemProxy("leave-as-is");
         else if (actionId === "open-profiles") {
-          dismissNotificationToast(notificationId);
           setOpen(false);
           navigate("/profiles");
         } else if (actionId === "find-ports-and-retry" && settings && snapshot) {
@@ -145,14 +146,12 @@ export function NotificationBubble({
           await setCapture(selection, true);
         } else if (actionId === "open-welcome" && settings) {
           if (!(await settings.setOnboardingWelcomeState("open"))) return;
-          dismissNotificationToast(notificationId);
           setWelcomeOpen(true);
         } else if (actionId === "retry-profile-activation" && profiles) {
           const activation = profiles.snapshot?.activation;
           if (activation?.phase !== "failure" || !activation.targetProfileId) return;
           const result = await profiles.activateProfile(activation.targetProfileId);
           if (!result.ok) return;
-          dismissNotificationToast(notificationId);
         } else if (actionId === "show-system-proxy-settings-steps") {
           setOpen(false);
           setSystemProxySettingsGuidance("manual");
@@ -205,6 +204,12 @@ export function NotificationBubble({
   useEffect(() => {
     const nextPresented = new Map<string, string>();
     for (const notification of toastEntries) {
+      if (notification.toast !== "present") {
+        suppressedToastCompletions.current.add(notification.id);
+        dismissNotificationToast(notification.id);
+        completePresentation(notification.id, "suppressed");
+        continue;
+      }
       const pendingActionId = pendingActions.get(notification.id);
       const presentedNotification = { ...notification, pendingActionId };
       const signature = JSON.stringify({
@@ -217,22 +222,27 @@ export function NotificationBubble({
         toast: notification.toast,
       });
       nextPresented.set(notification.id, signature);
-      if (notification.toast === "dismiss") {
-        dismissNotificationToast(notification.id);
-      } else if (
-        notification.toast === "present" &&
-        presented.current.get(notification.id) !== signature
-      ) {
-        presentNotificationToast(presentedNotification, (actionId) =>
-          execute(notification.id, actionId),
+      if (presented.current.get(notification.id) !== signature) {
+        presentNotificationToast(
+          presentedNotification,
+          (actionId) => execute(notification.id, actionId),
+          {
+            onAutoClose: () => completePresentation(notification.id, "timed-out"),
+            onDismiss: () => {
+              if (suppressedToastCompletions.current.delete(notification.id)) return;
+              completePresentation(notification.id, "dismissed");
+            },
+          },
         );
       }
     }
     for (const id of presented.current.keys()) {
-      if (!nextPresented.has(id)) dismissNotificationToast(id);
+      if (nextPresented.has(id)) continue;
+      suppressedToastCompletions.current.add(id);
+      dismissNotificationToast(id);
     }
     presented.current = nextPresented;
-  }, [execute, pendingActions, toastEntries]);
+  }, [completePresentation, execute, pendingActions, toastEntries]);
 
   const retainedNotifications = entries;
   const unreadCount = retainedNotifications.filter(({ read }) => !read).length;

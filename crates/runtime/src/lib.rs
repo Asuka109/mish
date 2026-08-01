@@ -1187,6 +1187,38 @@ impl MishRuntime {
         self.notifications.subscribe_with_snapshot()
     }
 
+    pub fn subscribe_notifications_with_presentation_claim(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> (
+        broadcast::Receiver<NotificationSnapshot>,
+        NotificationPresentationClaimResult,
+    ) {
+        self.notifications
+            .subscribe_with_presentation_claim(identity)
+    }
+
+    pub fn claim_next_notification_presentation(
+        &self,
+        identity: NotificationPresentationIdentity,
+    ) -> NotificationPresentationClaimResult {
+        self.notifications.claim_next_presentation(identity)
+    }
+
+    pub fn complete_notification_presentation(
+        &self,
+        completion: NotificationPresentationCompletion,
+    ) -> NotificationPresentationCompletionResult {
+        self.notifications.complete_presentation(completion)
+    }
+
+    pub fn release_notification_presentation_leases(
+        &self,
+        identity: &NotificationPresentationIdentity,
+    ) -> NotificationSnapshot {
+        self.notifications.release_presentation_leases(identity)
+    }
+
     pub fn mark_notifications_read(&self, ids: &[String]) -> NotificationSnapshot {
         self.notifications.mark_read(ids)
     }

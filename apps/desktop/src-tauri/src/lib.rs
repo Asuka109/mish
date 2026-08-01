@@ -22,6 +22,7 @@ use mish_bridge::{
     RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
     SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
     TerminationEvidenceStore, compose_desktop_runtime_with_capture,
+    initialize_onboarding_welcome_notification,
     start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
@@ -1093,6 +1094,8 @@ fn initialize(
         .map_err(|error| io::Error::other(error.to_string()))?;
         let runtime_host =
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
+        initialize_onboarding_welcome_notification(&runtime_host, &settings_service)
+            .map_err(io::Error::other)?;
         let privileged_host = internal_tun_service
             .or_else(|| development_tun_service.filter(|_| development_service_ready))
             .map(|service| service as Arc<dyn PrivilegedCoreHost>);

@@ -2834,7 +2834,13 @@ describe("Status fixture experience", () => {
       undefined,
       new FixtureNotificationClient(center),
     );
-    expect(errorToast).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
+        expect.objectContaining({ id: "notification:1" }),
+      ),
+    );
+    expect(errorToast).toHaveBeenCalledTimes(1);
     const startButton = screen.getByRole("button", { name: "启动代理" });
     expect(startButton).toHaveAttribute("data-status", "inactive");
     await waitFor(() => expect(startButton).toBeEnabled());

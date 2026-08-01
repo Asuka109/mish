@@ -62,11 +62,13 @@ connection process discovery. Existing schemas migrate to those conservative,
 observable values, so an upgrade cannot begin replacing PAC or auto-discovery
 state and does not silently leave process attribution disabled.
 also creates and immediately persists exactly one version-2 welcome invitation
-with a stable creation time. The desktop frontend records `promptedAt` when it
-first presents the proactive welcome message. Opening records a separate first
-open time. Dismissal records another time but retains the invitation. Completion
-records its own time and suppresses the invitation across restart and future
-schema upgrades.
+with a stable creation time. Before any desktop GUI connects, the Rust desktop
+bootstrap records `promptedAt` for an unprompted invitation and creates its
+semantic notification record. The first eligible client then claims the toast
+lease; snapshot arrival alone is never presentation evidence. Opening records a
+separate first-open time. Dismissal records another time but retains the
+invitation. Completion records its own time and suppresses the invitation across
+restart and future schema upgrades.
 
 Version 0 appearance/locale data and version 1, 2, or 3 settings migrate into
 the current schema with one unprompted invitation, so existing installations

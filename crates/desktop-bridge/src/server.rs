@@ -16,8 +16,14 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use mish_runtime::{MishRuntime, PlatformLifecycleEventSource, RuntimeShutdownFailure};
-use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
+use mish_runtime::{
+    ApplicationActionId, ApplicationNotification, ApplicationNotificationContent, MishRuntime,
+    NotificationPublication, NotificationSeverity, OnboardingWelcomeApplicationNotificationData,
+    PlatformLifecycleEventSource, RuntimeShutdownFailure,
+};
+use mish_settings::{
+    OnboardingWelcomeAction, SettingsAdapterKind, SettingsAvailability, SettingsService,
+};
 use serde::Deserialize;
 use serde_json::json;
 use subtle::ConstantTimeEq;
@@ -338,6 +344,51 @@ pub async fn start_loopback_server(
     runtime: MishRuntime,
 ) -> Result<LoopbackServerHandle, String> {
     start_loopback_server_with_runtime_host(config, DesktopRuntimeHost::new(runtime)).await
+}
+
+/// Creates the durable onboarding notification before any GUI surface can subscribe.
+///
+/// The notification center intentionally owns creation and presentation eligibility. The client
+/// only claims and renders the resulting record, so an app restart cannot infer presentation from
+/// a baseline snapshot.
+pub fn initialize_onboarding_welcome_notification(
+    runtime: &DesktopRuntimeHost,
+    settings: &SettingsService,
+) -> Result<bool, String> {
+    let invitation = settings
+        .snapshot(SettingsAdapterKind::Rpc)
+        .preferences
+        .onboarding
+        .welcome_invitation;
+    let Some(invitation) = invitation else {
+        return Ok(false);
+    };
+    if invitation.completed_at.is_some() {
+        return Ok(false);
+    }
+
+    let prompt = invitation.prompted_at.is_none();
+    if prompt {
+        settings
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Prompt)
+            .map_err(|_| "The onboarding invitation could not be persisted".to_owned())?;
+    }
+    runtime
+        .publish_notification(NotificationPublication {
+            dedupe_key: "onboarding.welcome".into(),
+            pinned: false,
+            presentation: ApplicationNotification::new(
+                ApplicationNotificationContent::OnboardingWelcome(
+                    OnboardingWelcomeApplicationNotificationData { prompt },
+                ),
+                vec![ApplicationActionId::OpenWelcome],
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Info,
+        })
+        .map_err(|_| "The onboarding notification could not be created".to_owned())?;
+    Ok(true)
 }
 
 pub async fn start_loopback_server_with_runtime_host(
