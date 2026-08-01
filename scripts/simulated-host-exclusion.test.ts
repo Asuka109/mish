@@ -7,6 +7,10 @@ import path from "node:path";
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const simulatedPackage = "mish-simulated-host";
 const simulatedPath = "crates/simulated-host";
+const boundedInternalTunMaintenanceContract =
+  "cargo test -p mish-simulated-host --test internal_tun_maintenance -- --test-threads=1";
+const approvedCiContractDeclaration = `const internalTunMaintenanceContract =
+  "${boundedInternalTunMaintenanceContract}";`;
 
 interface CargoMetadata {
   packages: Array<{
@@ -178,8 +182,14 @@ test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude
 
   for (const file of releaseInputs) {
     const content = read(file);
+    // The CI contract validator may name this one bounded test command solely to reject drift.
+    // Strip that exact declaration, then retain the product-input exclusion for every other
+    // simulator reference in the validator and all other release inputs.
+    const checkedContent = file.endsWith("check-ci-workflow.ts")
+      ? content.replace(approvedCiContractDeclaration, "")
+      : content;
     assert.equal(
-      content.includes(simulatedPackage) || content.includes(simulatedPath),
+      checkedContent.includes(simulatedPackage) || checkedContent.includes(simulatedPath),
       false,
       `${file} makes test-only SimulatedHost reachable from a release or product input.`,
     );
