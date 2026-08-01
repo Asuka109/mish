@@ -275,6 +275,7 @@ function captureFailurePresentation(
     if (captureMode === "tun") return { message: LL.capture.tunDrift() };
     return { message: LL.capture.systemProxyDrift() };
   }
+  if (captureMode === "tun") return { message: LL.capture.tunFailure() };
   return { message: LL.capture.systemProxyFailure() };
 }
 

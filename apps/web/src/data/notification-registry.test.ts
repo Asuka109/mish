@@ -200,6 +200,18 @@ describe("notification presentation registry", () => {
     expect(presentation.actions).toEqual([]);
   });
 
+  it("presents a failed TUN confirmation without Core or System Proxy terminology", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { captureMode: "tun", failure: "confirmation-failed" }),
+      i18nObject("zh"),
+    );
+
+    expect(presentation.message).toBe("虚拟网卡没有成功开启，已恢复之前的网络状态。");
+    expect(presentation.message).not.toContain("Core");
+    expect(presentation.message).not.toContain("系统代理");
+    expect(presentation.actions).toEqual([]);
+  });
+
   it("derives lifecycle without storing localized copy", () => {
     const progress = presentNotification(
       record("profile.activation-geosite-progress", { asset: "geo-site" }, [], { pinned: true }),

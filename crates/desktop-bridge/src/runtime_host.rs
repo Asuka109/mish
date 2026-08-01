@@ -497,6 +497,10 @@ impl DesktopRuntimeHost {
         self.current().record_application_event(event);
     }
 
+    pub fn record_capture_failure(&self, error: &CaptureTransitionError) {
+        self.current().record_capture_failure(error);
+    }
+
     pub fn publish_notification(
         &self,
         publication: NotificationPublication,

@@ -1007,7 +1007,7 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(&permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        self.activate_inner(command_id, profile_id, Some(permit), None)
+        self.activate_inner(command_id, profile_id, Some(permit), None, false)
             .await
     }
 
@@ -1017,6 +1017,7 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
         permit: Option<StateMutationPermit>,
         admitted_tun_selection: Option<bool>,
+        suppress_capture_failure_notification: bool,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let availability = self.availability;
@@ -1120,7 +1121,9 @@ impl ProfileActivationCoordinator {
                 .manager
                 .activate_cancellable(&record, &policy, cancellation, progress)
                 .await;
-            coordinator.finish_activation(&command, result).await;
+            coordinator
+                .finish_activation(&command, result, suppress_capture_failure_notification)
+                .await;
             drop(permit);
         });
         Ok(pending)
@@ -1246,7 +1249,7 @@ impl ProfileActivationCoordinator {
         let command_id = Uuid::new_v4().to_string();
         let mut updates = self.subscribe();
         let pending = self
-            .activate_inner(&command_id, &profile_id, None, admitted_tun_selection)
+            .activate_inner(&command_id, &profile_id, None, admitted_tun_selection, true)
             .await?;
         if pending.phase != ProfileActivationPhase::Pending {
             return Ok(pending);
@@ -1402,6 +1405,7 @@ impl ProfileActivationCoordinator {
         let activation_started = Instant::now();
         let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;
+        let activation_command_before = current.command_id.clone();
         let activation = if current.phase == ProfileActivationPhase::Success
             && current.active_profile_id.as_deref() == Some(profile_id.as_str())
         {
@@ -1413,6 +1417,7 @@ impl ProfileActivationCoordinator {
                     &profile_id,
                     None,
                     Some(request.active && request.selection.tun),
+                    true,
                 )
                 .await
                 .map_err(profile_launch_error);
@@ -1437,6 +1442,12 @@ impl ProfileActivationCoordinator {
                     .current()
                     .finish_capture_operation_failure(&capture_operation, &error)
                     .await;
+                if self
+                    .aggregate_activation_capture_failed_since(activation_command_before.as_deref())
+                    .await
+                {
+                    self.host.record_capture_failure(&error);
+                }
                 return Err(error);
             }
         };
@@ -1629,6 +1640,12 @@ impl ProfileActivationCoordinator {
                 .current()
                 .finish_capture_operation_failure(&capture_operation, error)
                 .await;
+            if self
+                .aggregate_activation_capture_failed_since(activation_command_before.as_deref())
+                .await
+            {
+                self.host.record_capture_failure(error);
+            }
         }
         self.record_launch_timing(
             launch_started,
@@ -1639,6 +1656,16 @@ impl ProfileActivationCoordinator {
             outcome,
         );
         result
+    }
+
+    async fn aggregate_activation_capture_failed_since(
+        &self,
+        previous_command_id: Option<&str>,
+    ) -> bool {
+        let activation = self.activation_snapshot().await;
+        activation.phase == ProfileActivationPhase::Failure
+            && activation.failure == Some(ProfileActivationFailure::Capture)
+            && activation.command_id.as_deref() != previous_command_id
     }
 
     /// Confirms that the shared Capture projection, not only the platform effects, reached the
@@ -2392,6 +2419,7 @@ impl ProfileActivationCoordinator {
         &self,
         command: &ProfileActivationCommand,
         result: Result<crate::ActivationCommit, MihomoActivationError>,
+        suppress_capture_failure_notification: bool,
     ) {
         let managed = self.manager.managed_state().await;
         let active_runtime = self.manager.active_runtime().await;
@@ -2471,7 +2499,12 @@ impl ProfileActivationCoordinator {
                 let _ = self.updates.send(snapshot);
                 drop(state);
                 self.host.record_application_event(diagnostic);
-                publish_activation_failure_notification(&self.host, &command.command_id, error);
+                if should_publish_activation_failure_notification(
+                    error,
+                    suppress_capture_failure_notification,
+                ) {
+                    publish_activation_failure_notification(&self.host, &command.command_id, error);
+                }
                 return;
             }
         }
@@ -2607,7 +2640,8 @@ mod capture_selection_tests {
 
     use super::{
         ProfileActivationFailure, activation_failure_evidence, launch_duration_milliseconds,
-        map_failure, profile_activation_failure_notification, usable_capture_selection,
+        map_failure, profile_activation_failure_notification,
+        should_publish_activation_failure_notification, usable_capture_selection,
     };
     use crate::MihomoActivationError;
     use mish_runtime::{
@@ -2778,6 +2812,22 @@ mod capture_selection_tests {
             serde_json::to_value(notification.content).unwrap()["data"]["failure"],
             "tun-network-ownership-conflict"
         );
+    }
+
+    #[test]
+    fn aggregate_capture_failure_uses_the_canonical_capture_notification_only() {
+        assert!(!should_publish_activation_failure_notification(
+            MihomoActivationError::CaptureFailed,
+            true,
+        ));
+        assert!(should_publish_activation_failure_notification(
+            MihomoActivationError::CaptureFailed,
+            false,
+        ));
+        assert!(should_publish_activation_failure_notification(
+            MihomoActivationError::StartFailed,
+            true,
+        ));
     }
 }
 
@@ -3683,6 +3733,13 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
     ApplicationDiagnosticEvent::profile_activation_failure(profile_activation_failure_id(
         map_failure(error),
     ))
+}
+
+fn should_publish_activation_failure_notification(
+    error: MihomoActivationError,
+    suppress_capture_failure_notification: bool,
+) -> bool {
+    !suppress_capture_failure_notification || error != MihomoActivationError::CaptureFailed
 }
 
 fn publish_activation_failure_notification(

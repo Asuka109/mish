@@ -8,10 +8,11 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-// v4 records the TUN-capable Helper policy. v3 may have persisted the
-// fail-closed MISH_TUN_SERVICE_ALLOW_TUN=0 boundary, so it must repair before
-// a Capture transaction can admit Virtual Interface activation.
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "4";
+// v5 bounds the privileged Core/utun/route convergence window before managed
+// network state is applied. v4 remains fail-closed, but it can reject a valid
+// first activation before the new Core has finished publishing its evidence,
+// so it must repair before Capture can admit Virtual Interface activation.
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "5";
 pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 3;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const TUN_OBSERVATION_SCHEMA_VERSION: u16 = 1;
@@ -401,13 +402,7 @@ impl TunHelperController {
                 "The TUN helper is not healthy",
             ));
         }
-        match self.platform.observe_tun().await {
-            Ok(observed) => Ok(observed),
-            Err(error) => {
-                self.record_failure(error.kind);
-                Err(error)
-            }
-        }
+        self.platform.observe_tun().await
     }
 
     pub async fn set_tun_enabled(
@@ -421,10 +416,7 @@ impl TunHelperController {
                 "The TUN helper is not healthy",
             ));
         }
-        if let Err(error) = self.platform.set_tun_enabled(enabled).await {
-            self.record_failure(error.kind);
-            return Err(error);
-        }
+        self.platform.set_tun_enabled(enabled).await?;
         let observed = self.observe_tun_locked().await?;
         let confirmed = if enabled {
             observed.confirms_enabled_at(tun_observation_now())
@@ -519,7 +511,13 @@ impl TunHelperController {
             // A helper acknowledgement is not enough to resume a first-click Capture request.
             // Re-observe utun, routes, and DNS after the lifecycle completes so callers only
             // receive success while the previous TUN intent is freshly and authoritatively off.
-            let network = self.observe_tun_locked().await?;
+            let network = match self.observe_tun_locked().await {
+                Ok(network) => network,
+                Err(error) => {
+                    self.record_failure(error.kind);
+                    return Err(error);
+                }
+            };
             if !network.confirms_disabled_at(tun_observation_now()) {
                 let error = TunHelperError::new(
                     network.failure_kind_at(tun_observation_now()),

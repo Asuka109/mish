@@ -3238,30 +3238,25 @@ async fn execute_request_effect(
                 .filter(|tun| !tun.dns_applied)
                 .and_then(|tun| tun.network.clone());
             if let Some(network) = pending_network.as_ref() {
-                let correlation_before = current_tun_correlation(&service_state, observer.as_ref());
-                let system = match observer.observe().await {
+                let system = match wait_for_network_apply_precondition(
+                    &mut service_state,
+                    observer.as_ref(),
+                    network_controller.as_ref(),
+                    network_recovery,
+                    TUN_CONFIRMATION_TIMEOUT,
+                )
+                .await
+                {
                     Ok(system) => system,
-                    Err(()) => {
+                    Err(observation) => {
                         return ServiceResponse::error(
                             ServiceDiagnosticCode::SpawnFailed,
                             service_state.status(),
-                            unknown_tun_observation(),
+                            observation,
                             installation_id,
                         );
                     }
                 };
-                let correlation_after = current_tun_correlation(&service_state, observer.as_ref());
-                let correlation = stable_tun_correlation(correlation_before, correlation_after);
-                let precondition =
-                    service_state.tun_observation(&system, correlation_result(&correlation));
-                if !confirms_network_apply_precondition(&precondition) {
-                    return ServiceResponse::error(
-                        ServiceDiagnosticCode::SpawnFailed,
-                        service_state.status(),
-                        precondition,
-                        installation_id,
-                    );
-                }
                 match apply_network_transaction(
                     network_controller.as_ref(),
                     network_recovery,
@@ -3700,6 +3695,49 @@ fn confirms_network_apply_precondition(observation: &TunNetworkObservation) -> b
         && observation.core == TunObservationComponentState::Confirmed
         && observation.interface == TunObservationComponentState::Confirmed
         && observation.routes == TunObservationComponentState::Confirmed
+}
+
+async fn wait_for_network_apply_precondition(
+    state: &mut ServiceState,
+    observer: &dyn TunSystemObserver,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+    confirmation_timeout: Duration,
+) -> Result<TunSystemSnapshot, TunNetworkObservation> {
+    let deadline = tokio::time::Instant::now() + confirmation_timeout;
+    loop {
+        reap_if_exited(state, network_controller, network_recovery).await;
+        if state.process.is_none() || state.tun.is_none() {
+            return Err(unknown_tun_observation());
+        }
+        let correlation_before = current_tun_correlation(state, observer);
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let system = match timeout(remaining, observer.observe()).await {
+            Ok(Ok(system)) => Some(system),
+            Ok(Err(())) => None,
+            Err(_) => return Err(unknown_tun_observation()),
+        };
+        let correlation_after = current_tun_correlation(state, observer);
+        let correlation = stable_tun_correlation(correlation_before, correlation_after);
+        let observation = system.as_ref().map_or_else(
+            || {
+                let mut observation = unknown_tun_observation();
+                observation.core = TunObservationComponentState::Confirmed;
+                observation
+            },
+            |system| state.tun_observation(system, correlation_result(&correlation)),
+        );
+        if confirms_network_apply_precondition(&observation) {
+            return Ok(system.expect("confirmed precondition requires a system observation"));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(observation);
+        }
+        tokio::time::sleep_until(
+            (tokio::time::Instant::now() + Duration::from_millis(200)).min(deadline),
+        )
+        .await;
+    }
 }
 
 const REQUIRED_IPV4_ROUTES: &[&[&str]] = &[
@@ -4681,6 +4719,53 @@ mod tests {
             _system: &'a TunSystemSnapshot,
         ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
             Box::pin(async { Err(network_ownership::NetworkControllerApplyFailure::Unchanged) })
+        }
+
+        fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async {
+                Ok(NetworkOwnershipObservation {
+                    dns: TunObservationComponentState::Confirmed,
+                    routes: TunObservationComponentState::Confirmed,
+                })
+            })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            _state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async { Ok(TunObservationComponentState::Confirmed) })
+        }
+    }
+
+    struct AppliedNetworkController {
+        applied: Arc<AtomicBool>,
+    }
+
+    impl TunNetworkController for AppliedNetworkController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Ok(network_ownership::test_network_snapshot()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
+            self.applied.store(true, Ordering::SeqCst);
+            Box::pin(async { Ok(()) })
         }
 
         fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
@@ -6167,6 +6252,148 @@ mod tests {
         // SAFETY: getuid has no preconditions and only returns the real user ID.
         let owner_uid = unsafe { libc::getuid() };
         NetworkRecoveryJournal::for_enrollment(&root.join("enrollment.json"), owner_uid).unwrap()
+    }
+
+    #[tokio::test]
+    async fn enable_waits_for_owned_tun_before_applying_managed_network() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let mut service_state = child_service_state(
+            temporary.path(),
+            "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.2; done",
+        );
+        service_state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: vec!["utun0".into()],
+            dns_applied: false,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        let mut managed = healthy_snapshot();
+        managed.dns_resolvers[0].nameservers = vec!["198.18.0.1".parse().unwrap()];
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![baseline_snapshot(), healthy_snapshot(), managed],
+            Ok(vec!["utun1".into()]),
+        ));
+        let applied = Arc::new(AtomicBool::new(false));
+        let network_controller: Arc<dyn TunNetworkController> =
+            Arc::new(AppliedNetworkController {
+                applied: applied.clone(),
+            });
+        let network_recovery = test_network_recovery(temporary.path());
+        let state = Arc::new(Mutex::new(service_state));
+        let context = ServiceOperationContext {
+            allowed_binary: temporary.path().join("mihomo"),
+            allowed_uid: unsafe { libc::getuid() },
+            allow_tun: true,
+            installation_id: Arc::from("fixture"),
+            manage_network: true,
+            network_controller: network_controller.clone(),
+            network_recovery: network_recovery.clone(),
+            observer,
+            pinned_binary_sha256: String::new(),
+            pinned_version: "v1.19.29".into(),
+            runtime_root: temporary.path().join("runtime"),
+            sealed_root: temporary.path().join("sealed"),
+            spawn_watchdog: false,
+            state: state.clone(),
+        };
+
+        let response = execute_request_effect(
+            ServiceCommand::Enable,
+            std::process::id(),
+            &uuid::Uuid::new_v4().to_string(),
+            &context,
+        )
+        .await;
+        let mut service_state = state.lock().await;
+        stop_process(
+            &mut service_state,
+            network_controller.as_ref(),
+            &network_recovery,
+        )
+        .await
+        .unwrap();
+
+        assert!(response.ok, "{response:?}");
+        assert!(
+            response
+                .status
+                .observation
+                .confirms_enabled_at(tun_observation_now()),
+            "{:?}",
+            response.status.observation
+        );
+        assert!(applied.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enable_never_applies_managed_network_for_persistent_foreign_tun() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let mut service_state = child_service_state(
+            temporary.path(),
+            "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.2; done",
+        );
+        service_state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: vec!["utun0".into()],
+            dns_applied: false,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![healthy_snapshot()],
+            Ok(Vec::new()),
+        ));
+        let applied = Arc::new(AtomicBool::new(false));
+        let network_controller: Arc<dyn TunNetworkController> =
+            Arc::new(AppliedNetworkController {
+                applied: applied.clone(),
+            });
+        let network_recovery = test_network_recovery(temporary.path());
+        let state = Arc::new(Mutex::new(service_state));
+        let context = ServiceOperationContext {
+            allowed_binary: temporary.path().join("mihomo"),
+            allowed_uid: unsafe { libc::getuid() },
+            allow_tun: true,
+            installation_id: Arc::from("fixture"),
+            manage_network: true,
+            network_controller: network_controller.clone(),
+            network_recovery: network_recovery.clone(),
+            observer,
+            pinned_binary_sha256: String::new(),
+            pinned_version: "v1.19.29".into(),
+            runtime_root: temporary.path().join("runtime"),
+            sealed_root: temporary.path().join("sealed"),
+            spawn_watchdog: false,
+            state: state.clone(),
+        };
+
+        let response = execute_request_effect(
+            ServiceCommand::Enable,
+            std::process::id(),
+            &uuid::Uuid::new_v4().to_string(),
+            &context,
+        )
+        .await;
+        let mut service_state = state.lock().await;
+        // This test uses Tokio's paused clock to exercise the full confirmation timeout.
+        // Reap its real fixture process directly so the mocked timeout cannot outrun SIGTERM.
+        let mut process = service_state.process.take().expect("fixture process");
+        process.child.start_kill().unwrap();
+        process.child.wait().await.unwrap();
+
+        assert!(!response.ok);
+        assert_eq!(
+            response.diagnostic,
+            Some(ServiceDiagnosticCode::SpawnFailed)
+        );
+        assert_eq!(
+            response.status.observation.interface,
+            TunObservationComponentState::Foreign
+        );
+        assert!(!applied.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

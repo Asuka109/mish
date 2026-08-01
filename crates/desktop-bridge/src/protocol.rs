@@ -1991,33 +1991,23 @@ async fn handle_message(
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
             match service.install_tun_helper().await {
-                Ok(mut snapshot) => {
+                Ok(_) => {
                     // Do not alter Capture before a Helper lifecycle has actually succeeded. A
                     // confirmed install may have handed off an already healthy TUN, so reconcile
                     // its projection before optionally restoring the prior intent below.
-                    if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
-                        publish_tun_helper_lifecycle(
-                            state,
-                            &operation_id,
-                            "install",
-                            "recovery-required",
-                            Some(capture_failure_id(error.kind)),
-                        );
-                        return Some(capture_error_response(id, error));
-                    }
-                    if params.resume_capture {
-                        if let Err(error) = resume_tun_after_helper_lifecycle(state).await {
-                            publish_tun_helper_lifecycle(
-                                state,
-                                &operation_id,
-                                "install",
-                                "recovery-required",
-                                Some(capture_failure_id(error.kind)),
-                            );
-                            return Some(capture_error_response(id, error));
-                        }
-                    }
+                    let disable_error = disable_tun_for_helper_lifecycle(state).await.err();
                     publish_tun_helper_lifecycle(state, &operation_id, "install", "applied", None);
+                    let capture_error = match disable_error {
+                        Some(error) => Some(error),
+                        None if params.resume_capture => {
+                            resume_tun_after_helper_lifecycle(state).await.err()
+                        }
+                        None => None,
+                    };
+                    if let Some(error) = capture_error {
+                        state.runtime.record_capture_failure(&error);
+                    }
+                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
@@ -2051,33 +2041,23 @@ async fn handle_message(
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
             match service.repair_tun_helper().await {
-                Ok(mut snapshot) => {
+                Ok(_) => {
                     // Do not alter Capture before a repair has actually succeeded. A cancelled
                     // authorization or typed lifecycle failure must leave the original intent
                     // untouched; only a confirmed repair may clear it before auto-resume.
-                    if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
-                        publish_tun_helper_lifecycle(
-                            state,
-                            &operation_id,
-                            "repair",
-                            "recovery-required",
-                            Some(capture_failure_id(error.kind)),
-                        );
-                        return Some(capture_error_response(id, error));
-                    }
-                    if params.resume_capture {
-                        if let Err(error) = resume_tun_after_helper_lifecycle(state).await {
-                            publish_tun_helper_lifecycle(
-                                state,
-                                &operation_id,
-                                "repair",
-                                "recovery-required",
-                                Some(capture_failure_id(error.kind)),
-                            );
-                            return Some(capture_error_response(id, error));
-                        }
-                    }
+                    let disable_error = disable_tun_for_helper_lifecycle(state).await.err();
                     publish_tun_helper_lifecycle(state, &operation_id, "repair", "applied", None);
+                    let capture_error = match disable_error {
+                        Some(error) => Some(error),
+                        None if params.resume_capture => {
+                            resume_tun_after_helper_lifecycle(state).await.err()
+                        }
+                        None => None,
+                    };
+                    if let Some(error) = capture_error {
+                        state.runtime.record_capture_failure(&error);
+                    }
+                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }

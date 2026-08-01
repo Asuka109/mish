@@ -1235,7 +1235,7 @@ impl MishRuntime {
         self.notifications.resolve_by_dedupe_key(dedupe_key)
     }
 
-    fn record_capture_failure(&self, error: &CaptureTransitionError) {
+    pub fn record_capture_failure(&self, error: &CaptureTransitionError) {
         let failure = error.kind;
         let capture_status = self.capture.as_ref().map(|capture| capture.status());
         let action_ids = capture_failure_action_ids(
@@ -1254,9 +1254,12 @@ impl MishRuntime {
                 ApplicationNotificationContent::CaptureFailure(
                     CaptureFailureApplicationNotificationData {
                         capture_mode: capture_status.as_ref().and_then(|status| {
-                            if status.tun.phase == TunPhase::Drift {
+                            if matches!(status.tun.phase, TunPhase::Failed | TunPhase::Drift) {
                                 Some("tun".into())
-                            } else if status.system_proxy.phase == SystemProxyPhase::Drift {
+                            } else if matches!(
+                                status.system_proxy.phase,
+                                SystemProxyPhase::Failed | SystemProxyPhase::Drift
+                            ) {
                                 Some("system-proxy".into())
                             } else {
                                 None
