@@ -237,6 +237,29 @@ describe("notification presentation registry", () => {
     expect(finalizing.removable).toBe(false);
   });
 
+  it("presents Helper preparation failures as actionable user-facing recovery", () => {
+    const notification = record("tun-helper.lifecycle", {
+      failure: "preparation-failed",
+      operation: "repair",
+      outcome: "recovery-required",
+    });
+
+    const presentation = presentNotification(notification, i18nObject("zh"));
+
+    expect(presentation.message).toBe(
+      "修复系统组件未完成。Mish 无法准备或验证安装所需文件，因此没有请求管理员授权。请重新启动 Mish 后重试；若仍失败，请重新安装当前版本。",
+    );
+    expect(presentation.message).not.toContain("preparation-failed");
+    expect(presentation.message).not.toContain("Mihomo");
+    expect(presentation.message).not.toContain("Rust");
+
+    const english = presentNotification(notification, i18nObject("en"));
+    expect(english.message).toBe(
+      "Repair Helper could not be completed. Mish could not prepare or verify the files required for installation, so administrator approval was not requested. Restart Mish and retry; if it still fails, reinstall this version.",
+    );
+    expect(english.message).not.toContain("preparation-failed");
+  });
+
   it("rejects legacy and incomplete transport shapes", () => {
     expect(
       NotificationRecordSchema.safeParse({

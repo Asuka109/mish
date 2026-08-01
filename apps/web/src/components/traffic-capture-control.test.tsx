@@ -229,7 +229,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
 
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
     expect(screen.getByText("Helper repair required")).toBeVisible();
-    expect(screen.getByText(/repair the privileged helper/i)).toBeVisible();
+    expect(screen.getByText(/repair the system component/i)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Repair Helper" }));
 
     await waitFor(() => expect(setup).toHaveBeenCalledWith("repair"));

@@ -564,8 +564,14 @@ impl TunHelperController {
                     .runtime_failure
                     .lock()
                     .expect("TUN helper runtime failure lock poisoned");
-                if let Some(failure) = (*runtime_failure).or(operation_failure) {
+                if let Some(failure) = *runtime_failure {
                     snapshot.availability = TunHelperAvailability::Unavailable;
+                    snapshot.phase = TunHelperLifecyclePhase::Failed;
+                    snapshot.last_failure = Some(failure);
+                } else if let Some(failure) = operation_failure {
+                    // The fresh Helper observation remains authoritative after a bounded
+                    // lifecycle attempt fails. Preserve PermissionRequired or RepairRequired
+                    // so the user can retry, while the failed phase keeps the result fail-closed.
                     snapshot.phase = TunHelperLifecyclePhase::Failed;
                     snapshot.last_failure = Some(failure);
                 }

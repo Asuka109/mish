@@ -356,7 +356,7 @@ type RootTranslation = {
 		 */
 		tunHelperLifecycleApplied: RequiredParams<'operation'>
 		/**
-		 * {​o​p​e​r​a​t​i​o​n​}​ ​n​e​e​d​s​ ​r​e​c​o​v​e​r​y​:​ ​{​f​a​i​l​u​r​e​}​.
+		 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​.​ ​{​f​a​i​l​u​r​e​}
 		 * @param {string} failure
 		 * @param {string} operation
 		 */
@@ -1773,7 +1773,7 @@ type RootTranslation = {
 			 */
 			notNow: string
 			/**
-			 * H​e​l​p​e​r​ ​p​r​e​p​a​r​a​t​i​o​n​ ​f​a​i​l​e​d​ ​b​e​f​o​r​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​e​r​i​f​y​ ​t​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​a​r​t​i​f​a​c​t​ ​a​n​d​ ​R​u​s​t​ ​t​o​o​l​c​h​a​i​n​,​ ​t​h​e​n​ ​r​e​s​t​a​r​t​ ​t​h​e​ ​d​e​v​ ​a​p​p​ ​a​n​d​ ​r​e​t​r​y​.
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​o​r​ ​v​e​r​i​f​y​ ​t​h​e​ ​f​i​l​e​s​ ​r​e​q​u​i​r​e​d​ ​f​o​r​ ​i​n​s​t​a​l​l​a​t​i​o​n​,​ ​s​o​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​p​p​r​o​v​a​l​ ​w​a​s​ ​n​o​t​ ​r​e​q​u​e​s​t​e​d​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​ ​a​n​d​ ​r​e​t​r​y​;​ ​i​f​ ​i​t​ ​s​t​i​l​l​ ​f​a​i​l​s​,​ ​r​e​i​n​s​t​a​l​l​ ​t​h​i​s​ ​v​e​r​s​i​o​n​.
 			 */
 			preparationFailed: string
 			/**
@@ -1789,7 +1789,7 @@ type RootTranslation = {
 			 */
 			restartTitle: string
 			/**
-			 * M​i​s​h​ ​w​i​l​l​ ​r​e​p​a​i​r​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​s​a​m​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​f​l​o​w​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​l​e​s​s​ ​R​u​s​t​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​r​e​p​a​i​r​e​d​ ​h​e​l​p​e​r​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
+			 * M​i​s​h​ ​w​i​l​l​ ​r​e​p​a​i​r​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​s​a​m​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​f​l​o​w​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​r​e​p​a​i​r​e​d​ ​c​o​m​p​o​n​e​n​t​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
 			 */
 			repairDescription: string
 			/**
@@ -1805,7 +1805,7 @@ type RootTranslation = {
 			 */
 			repairTitle: string
 			/**
-			 * M​i​s​h​ ​w​i​l​l​ ​i​n​s​t​a​l​l​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​t​h​r​o​u​g​h​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​l​e​s​s​ ​R​u​s​t​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​e​x​a​c​t​ ​h​e​a​l​t​h​y​ ​h​e​l​p​e​r​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
+			 * M​i​s​h​ ​w​i​l​l​ ​i​n​s​t​a​l​l​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​r​o​u​g​h​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​e​x​a​c​t​ ​h​e​a​l​t​h​y​ ​c​o​m​p​o​n​e​n​t​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
 			 */
 			setupDescription: string
 			/**
@@ -5207,7 +5207,7 @@ export type TranslationFunctions = {
 		 */
 		tunHelperLifecycleApplied: (arg: { operation: string }) => LocalizedString
 		/**
-		 * {operation} needs recovery: {failure}.
+		 * {operation} could not be completed. {failure}
 		 */
 		tunHelperLifecycleFailed: (arg: { failure: string, operation: string }) => LocalizedString
 		/**
@@ -6602,7 +6602,7 @@ export type TranslationFunctions = {
 			 */
 			notNow: () => LocalizedString
 			/**
-			 * Helper preparation failed before macOS authorization. Verify the pinned Mihomo artifact and Rust toolchain, then restart the dev app and retry.
+			 * Mish could not prepare or verify the files required for installation, so administrator approval was not requested. Restart Mish and retry; if it still fails, reinstall this version.
 			 */
 			preparationFailed: () => LocalizedString
 			/**
@@ -6618,7 +6618,7 @@ export type TranslationFunctions = {
 			 */
 			restartTitle: () => LocalizedString
 			/**
-			 * Mish will repair the privileged helper through the same macOS authorization flow. Virtual Interface stays off unless Rust confirms the repaired helper and a fresh disabled network observation, then resumes this enable request.
+			 * Mish will repair the system component through the same macOS authorization flow. Virtual Interface stays off until Mish confirms the repaired component and a fresh disabled network observation, then resumes this enable request.
 			 */
 			repairDescription: () => LocalizedString
 			/**
@@ -6634,7 +6634,7 @@ export type TranslationFunctions = {
 			 */
 			repairTitle: () => LocalizedString
 			/**
-			 * Mish will install the privileged helper through macOS authorization. Virtual Interface stays off unless Rust confirms the exact healthy helper and a fresh disabled network observation, then resumes this enable request.
+			 * Mish will install the system component through macOS authorization. Virtual Interface stays off until Mish confirms the exact healthy component and a fresh disabled network observation, then resumes this enable request.
 			 */
 			setupDescription: () => LocalizedString
 			/**

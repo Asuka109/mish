@@ -217,6 +217,32 @@ async fn permission_refusal_remains_a_typed_failed_state() {
         helper.snapshot().last_failure,
         Some(TunHelperFailureKind::PermissionDenied)
     );
+    assert_eq!(
+        helper.snapshot().availability,
+        TunHelperAvailability::PermissionRequired
+    );
+}
+
+#[tokio::test]
+async fn failed_repair_preserves_authoritative_repair_required_for_retry() {
+    let platform = Arc::new(FakeHelperPlatform::version_mismatch());
+    let helper = TunHelperController::new(platform.clone());
+    helper.refresh().await;
+    platform.fail_next_lifecycle(TunHelperFailureKind::PreparationFailed);
+
+    let error = helper.repair().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::PreparationFailed);
+    let failed = helper.snapshot();
+    assert_eq!(failed.availability, TunHelperAvailability::RepairRequired);
+    assert_eq!(failed.phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(
+        failed.last_failure,
+        Some(TunHelperFailureKind::PreparationFailed)
+    );
+
+    let repaired = helper.repair().await.unwrap();
+    assert!(repaired.is_healthy());
 }
 
 #[tokio::test]

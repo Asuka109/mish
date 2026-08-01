@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../../../.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29": "mihomo-aarch64-apple-darwin"
+    }
+  }
+}

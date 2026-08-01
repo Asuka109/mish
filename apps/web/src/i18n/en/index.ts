@@ -109,7 +109,7 @@ const en = {
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install Helper",
     tunHelperLifecycleApplied: "{operation:string} completed and was confirmed.",
-    tunHelperLifecycleFailed: "{operation:string} needs recovery: {failure:string}.",
+    tunHelperLifecycleFailed: "{operation:string} could not be completed. {failure:string}",
     tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
@@ -557,18 +557,18 @@ const en = {
         "Mish could not start the development helper installer or read its result. Reopen the dev app from pnpm and retry.",
       notNow: "Not Now",
       preparationFailed:
-        "Helper preparation failed before macOS authorization. Verify the pinned Mihomo artifact and Rust toolchain, then restart the dev app and retry.",
+        "Mish could not prepare or verify the files required for installation, so administrator approval was not requested. Restart Mish and retry; if it still fails, reinstall this version.",
       reviewSetup: "Review Helper Setup",
       restartDescription:
         "Mish will restart the active Core with TUN enabled and briefly update device routes. Turning it off removes the virtual route and returns to the remaining selected capture modes.",
       restartTitle: "Core and routes change",
       repairDescription:
-        "Mish will repair the privileged helper through the same macOS authorization flow. Virtual Interface stays off unless Rust confirms the repaired helper and a fresh disabled network observation, then resumes this enable request.",
+        "Mish will repair the system component through the same macOS authorization flow. Virtual Interface stays off until Mish confirms the repaired component and a fresh disabled network observation, then resumes this enable request.",
       repairHelper: "Repair Helper",
       repairingHelper: "Repairing Helper…",
       repairTitle: "Helper repair required",
       setupDescription:
-        "Mish will install the privileged helper through macOS authorization. Virtual Interface stays off unless Rust confirms the exact healthy helper and a fresh disabled network observation, then resumes this enable request.",
+        "Mish will install the system component through macOS authorization. Virtual Interface stays off until Mish confirms the exact healthy component and a fresh disabled network observation, then resumes this enable request.",
       setupTitle: "Helper setup required",
       title: "Before enabling Virtual Interface",
     },

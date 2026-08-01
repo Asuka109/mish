@@ -2780,9 +2780,24 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(repair["error"]["code"], -32055);
     assert_eq!(repair["error"]["data"]["kind"], "authorization-cancelled");
 
+    let settings = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        settings["result"]["tunHelper"]["availability"],
+        "repair-required"
+    );
+    assert_eq!(settings["result"]["tunHelper"]["phase"], "failed");
+    assert_eq!(
+        settings["result"]["tunHelper"]["lastFailure"],
+        "authorization-cancelled"
+    );
+
     let after = request(
         &mut native,
-        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
@@ -2793,7 +2808,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
 
     let notifications = request(
         &mut native,
-        json!({"jsonrpc":"2.0", "id":4, "method":"notifications.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":5, "method":"notifications.getSnapshot", "params":{}}),
     )
     .await;
     let lifecycle = notifications["result"]["notifications"]

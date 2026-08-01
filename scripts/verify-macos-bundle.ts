@@ -24,7 +24,11 @@ const application = path.resolve(
 const contents = path.join(application, "Contents");
 const resources = path.join(contents, "Resources");
 const bundledMihomo = path.join(resources, "mihomo-aarch64-apple-darwin");
-const preparedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
+const pinnedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
+const preparedMihomo = path.resolve(".scratch/macos-bundle/mihomo-aarch64-apple-darwin");
+const mihomoManifest = JSON.parse(
+  await readFile(path.resolve("resources/mihomo/macos-arm64.json"), "utf8"),
+) as { binarySha256: string };
 const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
 const bundledGeodata = path.join(resources, "geodata/snapshot");
@@ -112,6 +116,12 @@ for (const binary of [executable, bundledMihomo, ...(productionLayout ? [product
 
 const mihomoDigest = await sha256(bundledMihomo);
 const preparedMihomoDigest = await sha256(preparedMihomo);
+const pinnedMihomoDigest = await sha256(pinnedMihomo);
+if (pinnedMihomoDigest !== mihomoManifest.binarySha256) {
+  throw new Error(
+    `Pinned Mihomo checksum mismatch after bundle staging: expected ${mihomoManifest.binarySha256}, received ${pinnedMihomoDigest}`,
+  );
+}
 if (mihomoDigest !== preparedMihomoDigest) {
   throw new Error(
     `Bundled Mihomo checksum mismatch: expected ${preparedMihomoDigest}, received ${mihomoDigest}`,
