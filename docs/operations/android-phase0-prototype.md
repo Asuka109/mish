@@ -264,7 +264,7 @@ recovery reset.
 - Fixture start returned an operation-bound completed result in `unavailable`,
   with `foreground=true`, `vpnActive=false`, and VPN/TUN availability still
   unavailable. The notification read `Lifecycle fixture only · no traffic
-  capture`.
+capture`.
 - Rotation preserved the same Rust authority, session, revision, and sequence;
   the recreated WebView projected the complete current snapshot.
 - Explicit stop returned a completed stop result, removed foreground service and
