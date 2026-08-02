@@ -1,9 +1,10 @@
 # macOS updater fixture
 
-These files are deterministic, credential-free Tauri v2 updater fixtures for
-repository tests only. The public key and detached signatures were produced by
-the pinned Tauri CLI. No private key is stored in the repository, and this key
-must never be configured in a shipped Mish build.
+These Alpha and Stable files are deterministic, credential-free Tauri v2
+updater fixtures for repository tests only. The committed public key and
+detached Minisign-compatible signatures were produced from a one-time fixture
+key. The private key was discarded, is not stored in the repository, and this
+public key must never be configured in a shipped Mish build.
 
-The payload is intentionally plain fixture content despite its contract name.
-It is not an application archive and cannot be installed.
+The payloads are intentionally plain fixture content despite their contract
+names. They are not application archives and cannot be installed or published.

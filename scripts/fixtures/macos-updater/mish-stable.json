@@ -1,0 +1,17 @@
+{
+  "version": "0.1.1",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/Asuka109/mish/releases/download/v0.1.1/Mish-0.1.1-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIGZpeHR1cmUtb25seSBzZWNyZXQga2V5ClJVUXB1a3FpSVRjTzEydHpCMGhMNzJpTjZUUVJPM2xpczNpTWdndGRJSGVuVzNmMnlZdVl0aHJ3aWQxODUvZk1pRXNCWjN6ZlRXcGw0bk9wOGloOGZhcGh1Z090V0FPWTl3MD0KdHJ1c3RlZCBjb21tZW50OiB0aW1lc3RhbXA6MTc4NTYwMDAwMAlmaWxlOk1pc2gtMC4xLjEtYWFyY2g2NC5hcHAudGFyLmd6CmhHbytCcExvL3RYdUtRUjVJNTA4dW5RK25HeXJsd0kxOU4wdUJ2WUNkYTVTTmFKeUI1QUtLbGp4bnBZL2R1ZFV5ZDBjL2ZMQ3dIREd2bUF3VXYybkJRPT0K"
+    }
+  },
+  "mish": {
+    "schema_version": 1,
+    "channel": "stable",
+    "source_sha": "2222222222222222222222222222222222222222",
+    "artifact_name": "Mish-0.1.1-aarch64.app.tar.gz",
+    "artifact_sha256": "2b12c66b8bb3520639b2f3b99f27e4c7bf9a4a9339d678cab351823a0bb4477e",
+    "artifact_size": 60
+  }
+}
