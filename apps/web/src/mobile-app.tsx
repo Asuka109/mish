@@ -5,6 +5,7 @@ import type {
 } from "@mish/contracts";
 import { ProductRoutes } from "./app-routes";
 import { MobileShell } from "./components/mobile-shell";
+import { NotificationToastPresenter } from "./components/notification-toast-presenter";
 import { NotificationDeliveryProvider } from "./data/notification-delivery";
 import { MobileHomePage } from "./pages/mobile-home-page";
 import {
@@ -33,6 +34,7 @@ export function AppRoutes({
 
   return (
     <NotificationDeliveryProvider client={notificationClient}>
+      <NotificationToastPresenter suppressActions />
       <ProductRoutes
         routesChildElement={<MobileRouteChildPage />}
         routesElement={<MobileRoutesPage />}
