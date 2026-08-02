@@ -55,17 +55,17 @@ internal data class MobileConfigValidationResult(
         .put("sessionId", sessionId)
 
     companion object {
-        fun valid(snapshot: MobileVpnSnapshot): MobileConfigValidationResult =
+        fun valid(snapshot: MobilePlatformFacts): MobileConfigValidationResult =
             MobileConfigValidationResult(
                 contractVersion = CONTRACT_VERSION,
                 failure = null,
                 message = "Configuration is valid.",
                 outcome = "valid",
-                sequence = snapshot.sequence,
-                sessionId = snapshot.sessionId,
+                sequence = snapshot.factSequence,
+                sessionId = snapshot.platformSessionId,
             )
 
-        fun invalid(snapshot: MobileVpnSnapshot): MobileConfigValidationResult =
+        fun invalid(snapshot: MobilePlatformFacts): MobileConfigValidationResult =
             failure(
                 snapshot,
                 "configuration-rejected",
@@ -74,7 +74,7 @@ internal data class MobileConfigValidationResult(
             )
 
         fun failure(
-            snapshot: MobileVpnSnapshot,
+            snapshot: MobilePlatformFacts,
             failure: String,
             message: String,
             outcome: String = "failed",
@@ -85,15 +85,15 @@ internal data class MobileConfigValidationResult(
                 failure = failure,
                 message = message,
                 outcome = outcome,
-                sequence = snapshot.sequence,
-                sessionId = snapshot.sessionId,
+                sequence = snapshot.factSequence,
+                sessionId = snapshot.platformSessionId,
             )
         }
     }
 }
 
 internal class MobileConfigValidationCoordinator(
-    private val repository: SnapshotRepository,
+    private val repository: PlatformFactRepository,
     private val validator: MobileCoreConfigValidator,
 ) {
     private val validationActive = AtomicBoolean(false)
@@ -109,7 +109,10 @@ internal class MobileConfigValidationCoordinator(
         }
 
         try {
-            if (args.sequence != initial.sequence || args.sessionId != initial.sessionId) {
+            if (
+                args.sequence != initial.factSequence ||
+                args.sessionId != initial.platformSessionId
+            ) {
                 return staleAuthority(initial)
             }
             if (args.configBytes.size > MOBILE_CORE_MAX_CONFIG_BYTES_V1) {
@@ -135,8 +138,8 @@ internal class MobileConfigValidationCoordinator(
             }
             val current = repository.current()
             if (
-                current.sequence != initial.sequence ||
-                current.sessionId != initial.sessionId
+                current.factSequence != initial.factSequence ||
+                current.platformSessionId != initial.platformSessionId
             ) {
                 return staleAuthority(current)
             }
@@ -147,7 +150,7 @@ internal class MobileConfigValidationCoordinator(
     }
 
     private fun mapNativeResult(
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
         nativeResult: NativeConfigValidationResult,
     ): MobileConfigValidationResult = when (nativeResult.code) {
         NativeValidationCode.VALID -> MobileConfigValidationResult.valid(snapshot)
@@ -189,7 +192,7 @@ internal class MobileConfigValidationCoordinator(
         )
     }
 
-    private fun staleAuthority(snapshot: MobileVpnSnapshot): MobileConfigValidationResult =
+    private fun staleAuthority(snapshot: MobilePlatformFacts): MobileConfigValidationResult =
         MobileConfigValidationResult.failure(
             snapshot,
             "stale-authority",
@@ -205,7 +208,7 @@ internal fun sha256Hex(bytes: ByteArray): String =
 internal fun validateConfigSafely(
     coordinator: MobileConfigValidationCoordinator,
     args: ValidateConfigArgs,
-    currentSnapshot: () -> MobileVpnSnapshot,
+    currentSnapshot: () -> MobilePlatformFacts,
 ): MobileConfigValidationResult =
     runCatching { coordinator.validate(args) }
         .getOrElse {

@@ -5,5 +5,10 @@
   "local": true,
   "windows": ["main"],
   "platforms": ["android", "iOS"],
-  "permissions": ["allow-mobile-fixture-bootstrap", "mish-vpn:default"]
+  "permissions": [
+    "allow-mobile-fixture-bootstrap",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "mish-vpn:default"
+  ]
 }

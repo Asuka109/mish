@@ -6,26 +6,32 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class MishVpnService : VpnService() {
     private lateinit var executor: ExecutorService
-    private lateinit var stateMachine: MishVpnStateMachine
-    private lateinit var store: MishVpnStateStore
+    private lateinit var store: MishVpnPlatformStore
+    private val serviceInstanceId = UUID.randomUUID().toString()
+    @Volatile
+    private var explicitCleanup = false
 
     override fun onCreate() {
         super.onCreate()
-        store = MishVpnStateStore(this)
-        store.recoverAfterProcessStart()
+        val allowFailureInjection = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        store = MobileCoreProcessRuntimeRegistry.acquire(
+            this,
+            allowFailureInjection = allowFailureInjection,
+        ).store
         ProcessRuntimeRegistry.serviceActive = true
-        stateMachine = MishVpnStateMachine(store, FixtureVpnBackend())
         executor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "mish-vpn-lifecycle").apply { isDaemon = true }
+            Thread(runnable, "mish-vpn-platform-effects").apply { isDaemon = true }
         }
     }
 
@@ -33,18 +39,15 @@ class MishVpnService : VpnService() {
         when (intent?.action) {
             ACTION_START -> {
                 promoteToForeground()
-                executor.execute {
-                    val permissionGranted = prepare(this) == null
-                    val snapshot = stateMachine.start(permissionGranted)
-                    if (!snapshot.foreground) finishForeground(startId)
-                }
+                executor.execute { store.serviceStarted(serviceInstanceId) }
             }
             ACTION_STOP -> executor.execute {
-                stateMachine.stop()
+                explicitCleanup = true
+                store.serviceStopped()
                 finishForeground(startId)
             }
             else -> executor.execute {
-                stateMachine.serviceDestroyed()
+                store.serviceDestroyed()
                 finishForeground(startId)
             }
         }
@@ -53,7 +56,8 @@ class MishVpnService : VpnService() {
 
     override fun onRevoke() {
         executor.execute {
-            stateMachine.revoked()
+            explicitCleanup = true
+            store.revoked()
             finishForeground()
         }
         super.onRevoke()
@@ -66,7 +70,9 @@ class MishVpnService : VpnService() {
                 if (!executor.awaitTermination(750, TimeUnit.MILLISECONDS)) executor.shutdownNow()
             }
         }
-        if (::stateMachine.isInitialized) stateMachine.serviceDestroyed()
+        if (::store.isInitialized && !explicitCleanup && store.current().serviceForeground) {
+            store.serviceDestroyed()
+        }
         ProcessRuntimeRegistry.serviceActive = false
         super.onDestroy()
     }

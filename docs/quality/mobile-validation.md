@@ -68,13 +68,17 @@ emulator where practical.
 
 ### Native client
 
-- Initial bind returns one complete validated snapshot.
+- Initial bind subscribes first, then accepts one complete Shared Rust baseline
+  before replaying later same-authority events.
 - Activity recreation and WebView reload rebind without starting or stopping
   the VPN unexpectedly.
-- Commands are idempotent and duplicate pending submission is rejected.
+- Lifecycle commands carry operation identity, are idempotent for the same
+  command, reject conflicting or duplicate pending work, and return only a
+  terminal or explicitly unknown outcome.
 - A dropped binder or activity connection reconciles current service state
   before accepting later events.
-- Unknown, oversized, stale, or malformed native messages are rejected.
+- Prior-authority, retired-session, out-of-order, unknown, oversized, stale, or
+  malformed native messages are rejected.
 
 For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
 boundary: consent, foreground notification, serialization, reconstruction, and
@@ -85,6 +89,12 @@ validate exact fictional bytes, and call `mish_core_load_config_v1`. It
 publishes validated, loaded, unloaded, or unknown Core configuration state
 without starting Core, supplying a TUN descriptor, or changing VPN state. No
 fixture result satisfies any item in the VPN behavior subsection below.
+
+Shared Rust is the only product lifecycle authority for this fixture. Kotlin
+owns permission observations, foreground-service effects, Android callbacks,
+and fact publication. Kotlin persists only minimum platform recovery evidence;
+it does not persist or reconstruct product phase, message, authority/session,
+revision, sequence, or complete snapshots.
 
 Configuration loading carries only caller-owned fictional bytes plus bounded
 operation, revision, digest, and current mobile session/sequence authority.

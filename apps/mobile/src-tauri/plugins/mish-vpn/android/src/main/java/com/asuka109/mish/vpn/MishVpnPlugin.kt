@@ -6,10 +6,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.os.SystemClock
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.appcompat.app.AppCompatActivity
@@ -44,57 +45,41 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val validationCoordinator = coreRuntime.validationCoordinator
     private val loadCoordinator = coreRuntime.loadCoordinator
     private val configExecutor: ExecutorService = coreRuntime.configExecutor
+    private val platformExecutor: ExecutorService = coreRuntime.platformExecutor
     private var receiverRegistered = false
-    private val snapshotReceiver = object : BroadcastReceiver() {
+    private val factsReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val encoded = intent?.getStringExtra(MishVpnStateStore.EXTRA_EVENT) ?: return
-            trigger("snapshot", JSObject(encoded))
+            val encoded = intent?.getStringExtra(MishVpnPlatformStore.EXTRA_FACTS) ?: return
+            trigger("facts", JSObject(encoded))
         }
     }
 
     override fun load(webView: WebView) {
-        registerSnapshotReceiver()
+        registerFactsReceiver()
     }
 
     override fun onResume() {
-        reconcilePermissions()
+        observePlatformFacts()
     }
 
     override fun onDestroy(activity: AppCompatActivity) {
         if (receiverRegistered) {
-            this.activity.unregisterReceiver(snapshotReceiver)
+            this.activity.unregisterReceiver(factsReceiver)
             receiverRegistered = false
         }
     }
 
     @Command
-    fun getSnapshot(invoke: Invoke) {
-        invoke.resolveObject(reconcileSnapshot())
-    }
-
-    @Command
-    fun register_listener(invoke: Invoke) {
-        registerListener(invoke)
-    }
-
-    @Command
-    fun remove_listener(invoke: Invoke) {
-        removeListener(invoke)
+    fun getPlatformFacts(invoke: Invoke) {
+        invoke.resolveObject(observePlatformFacts())
     }
 
     @Command
     fun requestVpnConsent(invoke: Invoke) {
         val consentIntent = VpnService.prepare(activity)
         if (consentIntent == null) {
-            invoke.resolveObject(updateVpnPermission(true, "Android VPN permission is granted."))
+            invoke.resolveObject(store.consentResult(true))
             return
-        }
-        store.update {
-            it.copy(
-                message = "Waiting for explicit Android VPN permission.",
-                permission = "required",
-                phase = VpnPhase.PERMISSION_REQUIRED.wireName,
-            )
         }
         startActivityForResult(invoke, consentIntent, "vpnConsentResult")
     }
@@ -102,18 +87,13 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     @ActivityCallback
     fun vpnConsentResult(invoke: Invoke, result: ActivityResult) {
         val granted = result.resultCode == Activity.RESULT_OK && VpnService.prepare(activity) == null
-        val message = if (granted) {
-            "Android VPN permission is granted. The fixture has not started a VPN."
-        } else {
-            "Android VPN permission was not granted. No service or traffic capture was started."
-        }
-        invoke.resolveObject(updateVpnPermission(granted, message))
+        invoke.resolveObject(store.consentResult(granted))
     }
 
     @Command
     fun requestNotificationPermission(invoke: Invoke) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasNotificationPermission()) {
-            invoke.resolveObject(reconcileSnapshot())
+            invoke.resolveObject(observePlatformFacts())
             return
         }
         requestPermissionForAlias("notifications", invoke, "notificationPermissionResult")
@@ -121,41 +101,41 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @PermissionCallback
     fun notificationPermissionResult(invoke: Invoke) {
-        val granted = hasNotificationPermission()
-        val snapshot = store.update {
-            it.copy(
-                message = if (granted) {
-                    "Notification permission is granted for foreground VPN status."
-                } else {
-                    "Notification permission is denied. Android may show foreground status only in Task Manager."
-                },
-                notificationPermission = if (granted) "granted" else "denied",
-            )
-        }
-        invoke.resolveObject(snapshot)
+        invoke.resolveObject(store.notificationResult(hasNotificationPermission()))
     }
 
     @Command
-    fun startFixtureLifecycle(invoke: Invoke) {
-        if (VpnService.prepare(activity) != null) {
-            invoke.resolveObject(
-                updateVpnPermission(
-                    false,
-                    "Android VPN permission is required. Request it explicitly before starting.",
-                ),
-            )
+    fun startPlatformLifecycle(invoke: Invoke) {
+        val observed = observePlatformFacts()
+        if (observed.vpnPermission != "granted") {
+            invoke.resolveObject(observed)
             return
         }
         val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_START)
-        ContextCompat.startForegroundService(activity, intent)
-        invoke.resolveObject(reconcileSnapshot())
+        val initialSequence = observed.factSequence
+        runCatching { ContextCompat.startForegroundService(activity, intent) }
+            .onFailure {
+                invoke.resolveObject(store.current())
+                return
+            }
+        resolveAfterPlatformEffect(invoke, initialSequence) { it.serviceForeground }
     }
 
     @Command
-    fun stop(invoke: Invoke) {
+    fun stopPlatformLifecycle(invoke: Invoke) {
+        val observed = observePlatformFacts()
+        if (!observed.serviceForeground && !ProcessRuntimeRegistry.serviceActive) {
+            invoke.resolveObject(store.serviceStopped())
+            return
+        }
         val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_STOP)
-        activity.startService(intent)
-        invoke.resolveObject(reconcileSnapshot())
+        val initialSequence = observed.factSequence
+        runCatching { activity.startService(intent) }
+            .onFailure {
+                invoke.resolveObject(store.current())
+                return
+            }
+        resolveAfterPlatformEffect(invoke, initialSequence) { !it.serviceForeground }
     }
 
     @Command
@@ -192,24 +172,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     fun loadConfig(invoke: Invoke) {
         val args = runCatching { invoke.parseArgs(LoadConfigArgs::class.java) }
             .getOrElse {
-                invoke.resolveObject(
-                    MobileConfigLoadResult(
-                        cancellation = "not-requested",
-                        digest = "",
-                        failure = "invalid-input",
-                        message = "The Android configuration load plugin rejected malformed input.",
-                        operationId = "",
-                        outcome = "failed",
-                        revision = "",
-                        rollback = when (store.current().coreConfigState) {
-                            "loaded" -> "preserved"
-                            "unloaded" -> "unloaded"
-                            else -> "unknown"
-                        },
-                        snapshot = store.current(),
-                        timing = "on-time",
-                    ),
-                )
+                invoke.resolveObject(loadConfigFailure(LoadConfigArgs(), store.current()))
                 return
             }
         runCatching {
@@ -231,60 +194,42 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolveObject(loadCoordinator.cancel(args.operationId))
     }
 
-    private fun reconcileSnapshot(): MobileVpnSnapshot {
-        reconcilePermissions()
-        store.reconcileCore(coreProbe.inspect())
-        store.reconcileFailureInjection(failureInjectionAvailable)
-        val expectedDigest = store.current().loadedConfigDigest
-        return store.reconcileLoadedConfig(coreProbe.inspectLoaded(expectedDigest))
-    }
-
-    private fun reconcilePermissions(): MobileVpnSnapshot {
-        if (!ProcessRuntimeRegistry.serviceActive) store.recoverAfterProcessStart()
-        val current = store.current()
+    private fun observePlatformFacts(): MobilePlatformFacts {
         val vpnPermission = if (VpnService.prepare(activity) == null) "granted" else "required"
+        val current = store.current()
         val notificationPermission = when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> "not-required"
             hasNotificationPermission() -> "granted"
             current.notificationPermission == "denied" -> "denied"
             else -> "required"
         }
-        if (
-            current.permission == vpnPermission &&
-            current.notificationPermission == notificationPermission
-        ) {
-            return current
-        }
-        return store.update {
-            it.copy(
-                notificationPermission = notificationPermission,
-                permission = vpnPermission,
-                phase = if (
-                    vpnPermission == "required" &&
-                    it.phase !in setOf(
-                        VpnPhase.STARTING.wireName,
-                        VpnPhase.RUNNING.wireName,
-                        VpnPhase.STOPPING.wireName,
-                        VpnPhase.RECOVERY_REQUIRED.wireName,
-                    )
-                ) {
-                    VpnPhase.PERMISSION_REQUIRED.wireName
-                } else {
-                    it.phase
-                },
-            )
-        }
+        store.reconcilePermissions(vpnPermission, notificationPermission)
+        store.reconcileCore(coreProbe.inspect())
+        store.reconcileFailureInjection(failureInjectionAvailable)
+        val expectedDigest = store.current().loadedConfigDigest
+        return store.reconcileLoadedConfig(coreProbe.inspectLoaded(expectedDigest))
     }
 
-    private fun updateVpnPermission(granted: Boolean, message: String): MobileVpnSnapshot =
-        store.update {
-            it.copy(
-                message = message,
-                permission = if (granted) "granted" else "required",
-                phase = if (granted) VpnPhase.STOPPED.wireName else VpnPhase.PERMISSION_REQUIRED.wireName,
-                vpnActive = false,
-            )
-        }
+    private fun resolveAfterPlatformEffect(
+        invoke: Invoke,
+        initialSequence: Long,
+        completed: (MobilePlatformFacts) -> Boolean,
+    ) {
+        runCatching {
+            platformExecutor.execute {
+                val deadline = SystemClock.elapsedRealtime() + PLATFORM_EFFECT_TIMEOUT_MILLIS
+                var current = store.current()
+                while (
+                    (current.factSequence <= initialSequence || !completed(current)) &&
+                    SystemClock.elapsedRealtime() < deadline
+                ) {
+                    Thread.sleep(10)
+                    current = store.current()
+                }
+                invoke.resolveObject(current)
+            }
+        }.onFailure { invoke.resolveObject(store.current()) }
+    }
 
     private fun hasNotificationPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -293,15 +238,19 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 Manifest.permission.POST_NOTIFICATIONS,
             ) == PackageManager.PERMISSION_GRANTED
 
-    private fun registerSnapshotReceiver() {
+    private fun registerFactsReceiver() {
         if (receiverRegistered) return
-        val filter = IntentFilter(MishVpnStateStore.ACTION_SNAPSHOT_CHANGED)
+        val filter = IntentFilter(MishVpnPlatformStore.ACTION_FACTS_CHANGED)
         ContextCompat.registerReceiver(
             activity,
-            snapshotReceiver,
+            factsReceiver,
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         receiverRegistered = true
+    }
+
+    private companion object {
+        const val PLATFORM_EFFECT_TIMEOUT_MILLIS = 5_000L
     }
 }

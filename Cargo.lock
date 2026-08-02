@@ -5133,11 +5133,16 @@ dependencies = [
 name = "tauri-plugin-mish-vpn"
 version = "0.1.0"
 dependencies = [
+ "mish-state-machine",
  "serde",
+ "serde_json",
  "sha2",
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]

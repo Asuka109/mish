@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -85,26 +85,28 @@ const evidence: readonly Evidence[] = [
     meaning: "the loopback RPC and WebSocket server is explicitly a desktop adapter",
   },
   {
-    file: "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnStateMachine.kt",
+    file: "apps/mobile/src-tauri/plugins/mish-vpn/src/lifecycle.rs",
     includes: [
-      "internal class MishVpnStateMachine",
-      "fun start(permissionGranted: Boolean)",
-      "fun serviceDestroyed()",
+      "pub(crate) struct LifecycleState",
+      "impl Machine for LifecycleMachine",
+      "pub authority_id: String",
+      "pub sequence: u64",
     ],
-    meaning: "the Android prototype currently owns product transitions in Kotlin",
+    meaning: "Shared Rust owns the Android fixture lifecycle and ordering authority",
   },
   {
     file: "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnStateStore.kt",
     includes: [
-      "internal class MishVpnStateStore",
+      "internal class MishVpnPlatformStore",
       "getSharedPreferences",
-      "sequence = current.sequence + 1",
+      "foregroundExpected",
+      "serviceInstanceId",
     ],
-    meaning: "the Android prototype currently persists and sequences product snapshots in Kotlin",
+    meaning: "Android persists only the minimum platform recovery evidence",
   },
   {
     file: "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnPlugin.kt",
-    includes: ["class MishVpnPlugin", "VpnService.prepare(activity)", "startFixtureLifecycle"],
+    includes: ["class MishVpnPlugin", "VpnService.prepare(activity)", "startPlatformLifecycle"],
     meaning: "the Android plugin owns permission and service command projection",
   },
   {
@@ -118,8 +120,13 @@ const evidence: readonly Evidence[] = [
   },
   {
     file: "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
-    includes: ["pub struct MobileVpnSnapshot", "pub session_id: String"],
-    meaning: "the mobile snapshot is duplicated at the Rust Tauri projection",
+    includes: [
+      "pub struct MobileVpnSnapshot",
+      "pub authority_id: String",
+      "pub session_id: String",
+      "pub revision: u64",
+    ],
+    meaning: "Rust projects the complete mobile authority snapshot at the Tauri boundary",
   },
   {
     file: "packages/contracts/src/index.ts",
@@ -130,9 +137,11 @@ const evidence: readonly Evidence[] = [
     file: "apps/web/src/platform/mobile-vpn-client.ts",
     includes: [
       "export class MobileVpnFixtureClient",
+      "private acceptBaseline",
+      "this.retiredAuthorityIds.has(snapshot.authorityId)",
       "snapshot.sequence <= this.snapshot.sequence",
     ],
-    meaning: "the current mobile client accepts snapshot order by sequence alone",
+    meaning: "the mobile client requires a baseline and rejects stale authorities and sequences",
   },
   {
     file: "apps/web/src/platform/mobile-runtime-bootstrap.ts",
@@ -226,6 +235,11 @@ const boundaryTerms = [
 
 const failures: string[] = [];
 
+const forbiddenMobileAuthorityFiles = [
+  "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnBackend.kt",
+  "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnStateMachine.kt",
+] as const;
+
 function inspect(file: string, requiredText: readonly string[]) {
   const content = readFileSync(resolve(repositoryRoot, file), "utf8");
   for (const text of requiredText) {
@@ -235,6 +249,11 @@ function inspect(file: string, requiredText: readonly string[]) {
 }
 
 for (const item of evidence) inspect(item.file, item.includes);
+for (const file of forbiddenMobileAuthorityFiles) {
+  if (existsSync(resolve(repositoryRoot, file))) {
+    failures.push(`${file} must not restore Kotlin-owned product lifecycle authority`);
+  }
+}
 inspect(contractFile, [
   ...requiredSections,
   ...scopes,
