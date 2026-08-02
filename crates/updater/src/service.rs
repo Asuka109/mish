@@ -21,11 +21,13 @@ use mish_state_machine::{
     TransitionObserver, spawn_runner,
 };
 use reqwest::{
-    Client, Response, StatusCode,
+    Client, RequestBuilder, Response, StatusCode,
     header::{
-        ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_RANGE, ETAG, IF_RANGE, RANGE,
+        ACCEPT, ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_RANGE, ETAG, IF_RANGE,
+        LOCATION, RANGE, USER_AGENT,
     },
 };
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
@@ -45,7 +47,7 @@ use crate::{
 mod check_machine;
 use check_machine::{
     CheckCompletion, CheckEffect, CheckEffectOutcome, CheckInput, CheckMachine, CheckOperation,
-    CheckState, CheckTaskFailure,
+    CheckProjection, CheckState, CheckTaskFailure,
 };
 
 const STORE_SCHEMA_VERSION: u8 = 1;
@@ -62,6 +64,14 @@ const CANDIDATE_MANIFEST: &str = "manifest.json";
 const STRONG_ETAG_MAX_BYTES: usize = 256;
 const CHECK_EVIDENCE_LIMIT: usize = 64;
 const CHECK_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+const ALPHA_RELEASE_LIST_LIMIT: usize = 32;
+const RELEASE_ASSET_LIST_LIMIT: usize = 64;
+const GITHUB_API_VERSION: &str = "2026-03-10";
+const GITHUB_USER_AGENT: &str = "Mish-Updater-Discovery/1";
+const GITHUB_REPOSITORY_RELEASE_PATH: &str = "/Asuka109/mish/releases/download/";
+const GITHUB_ALPHA_RELEASES_PATH: &str = "/repos/Asuka109/mish/releases";
+const GITHUB_STABLE_LATEST_API_PATH: &str = "/repos/Asuka109/mish/releases/latest";
+const GITHUB_STABLE_LATEST_PATH: &str = "/Asuka109/mish/releases/latest/download/";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -304,6 +314,37 @@ struct ConfiguredUpdater {
     store: CandidateStore,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+struct GitHubReleaseAsset {
+    id: u64,
+    name: String,
+    state: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GitHubRelease {
+    id: u64,
+    tag_name: String,
+    draft: bool,
+    prerelease: bool,
+    immutable: bool,
+    published_at: Option<String>,
+    assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReleaseHint {
+    tag: String,
+    version: String,
+    listed_assets: Option<BTreeSet<String>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DiscoveryOutcome {
+    Available(Box<AvailableCandidate>),
+    Unchanged,
+}
+
 type CheckEffectFuture = Pin<Box<dyn Future<Output = CheckCompletion> + Send + 'static>>;
 
 trait CheckEffectExecutor: Send + Sync {
@@ -325,9 +366,7 @@ impl CheckEffectExecutor for ProductionCheckEffectExecutor {
                     correlation,
                     channel,
                 } => {
-                    let result = discover(&configured, &state, channel, &cancellation)
-                        .await
-                        .map(Box::new);
+                    let result = discover(&configured, &state, channel, &cancellation).await;
                     CheckCompletion {
                         correlation,
                         outcome: CheckEffectOutcome::Discovery(result),
@@ -463,6 +502,7 @@ impl CheckRuntime {
             operation_id,
             admitted_revision: snapshot.revision.saturating_add(1),
             channel,
+            baseline: Box::new(CheckProjection::from_snapshot(&snapshot)),
         };
         let admission = self
             .runner
@@ -571,13 +611,6 @@ fn project_check_state_locked(
     state.snapshot.resumable = projection.resumable;
     state.snapshot.terminal_reason = projection.terminal_reason;
     match machine {
-        CheckState::Checking {
-            cancel_requested: false,
-            ..
-        } => {
-            state.available = None;
-            state.active_cancel = None;
-        }
         CheckState::Stable {
             available: Some((_, candidate)),
         } => {
@@ -592,15 +625,13 @@ fn project_check_state_locked(
             state.active_cancel = None;
         }
         CheckState::NoUpdate { .. }
+        | CheckState::Unchanged { .. }
         | CheckState::Failed { .. }
         | CheckState::Cancelled { .. }
         | CheckState::Retired { .. } => {
             state.active_cancel = None;
         }
-        CheckState::Checking {
-            cancel_requested: true,
-            ..
-        }
+        CheckState::Checking { .. }
         | CheckState::CommittingAvailable { .. }
         | CheckState::Stable { available: None } => {}
     }
@@ -869,15 +900,23 @@ async fn discover(
     state: &Mutex<RuntimeState>,
     channel: UpdateChannel,
     cancel: &CancellationToken,
-) -> Result<AvailableCandidate, UpdateOperationError> {
-    let metadata_url = configured
-        .endpoint
-        .join(channel.metadata_name())
-        .map_err(|_| UpdateOperationError::NotConfigured)?;
-    let signature_url = configured
-        .endpoint
-        .join(&format!("{}.sig", channel.metadata_name()))
-        .map_err(|_| UpdateOperationError::NotConfigured)?;
+) -> Result<DiscoveryOutcome, UpdateOperationError> {
+    let metadata_name = channel.metadata_name();
+    let metadata_signature_name = format!("{metadata_name}.sig");
+    let hint = match channel {
+        UpdateChannel::Alpha => discover_alpha_release(configured, cancel).await?,
+        UpdateChannel::Stable => {
+            let published = discover_stable_release(configured, cancel).await?;
+            validate_stable_latest_asset(configured, metadata_name, &published, cancel).await?;
+            validate_stable_latest_asset(configured, &metadata_signature_name, &published, cancel)
+                .await?;
+            published
+        }
+    };
+    require_listed_asset(&hint, metadata_name)?;
+    require_listed_asset(&hint, &metadata_signature_name)?;
+    let metadata_url = immutable_release_asset_url(&hint.version, metadata_name)?;
+    let signature_url = immutable_release_asset_url(&hint.version, &metadata_signature_name)?;
     let metadata = fetch_bounded(
         configured,
         &metadata_url,
@@ -894,19 +933,13 @@ async fn discover(
     .await?;
     let metadata_signature =
         String::from_utf8(signature).map_err(|_| UpdateOperationError::InvalidResponse)?;
-    let accepted = state
-        .lock()
-        .expect("updater state poisoned")
-        .accepted
-        .clone();
     let verified = configured.adapter.verify_metadata(VerifyMetadataRequest {
-        accepted_metadata_sha256: &accepted.digests,
+        accepted_metadata_sha256: &[],
         metadata: &metadata,
         metadata_signature: metadata_signature.trim(),
         policy: configured.policy.clone(),
     })?;
-    accepted.require_newer(&verified)?;
-    if verified.channel != channel {
+    if verified.channel != channel || verified.version != hint.version {
         return Err(UpdateOperationError::Verification(
             UpdaterError::ChannelMismatch,
         ));
@@ -914,8 +947,16 @@ async fn discover(
     if verified.artifact_size > configured.limits.max_artifact_bytes {
         return Err(UpdateOperationError::OversizedPayload);
     }
-    let artifact_signature_url = Url::parse(&format!("{}.sig", verified.artifact_url))
-        .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let artifact_signature_name = format!("{}.sig", verified.artifact_name);
+    require_listed_asset(&hint, &verified.artifact_name)?;
+    require_listed_asset(&hint, &artifact_signature_name)?;
+    if channel == UpdateChannel::Stable {
+        for asset_name in [&verified.artifact_name, &artifact_signature_name] {
+            validate_stable_latest_asset(configured, asset_name, &hint, cancel).await?;
+        }
+    }
+    let artifact_signature_url =
+        immutable_release_asset_url(&hint.version, &artifact_signature_name)?;
     let artifact_signature = match fetch_bounded(
         configured,
         &artifact_signature_url,
@@ -944,11 +985,238 @@ async fn discover(
             UpdaterError::ArtifactSignatureMismatch,
         ));
     }
-    Ok(AvailableCandidate {
+    let candidate = AvailableCandidate {
         metadata: verified,
         metadata_bytes: metadata,
         metadata_signature: metadata_signature.trim().to_owned(),
+    };
+    classify_discovery(state, candidate)
+}
+
+async fn discover_alpha_release(
+    configured: &ConfiguredUpdater,
+    cancel: &CancellationToken,
+) -> Result<ReleaseHint, UpdateOperationError> {
+    let body = fetch_github_api(configured, &configured.endpoint, cancel).await?;
+    let releases = serde_json::from_slice::<Vec<GitHubRelease>>(&body)
+        .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    select_alpha_release(releases)
+}
+
+async fn discover_stable_release(
+    configured: &ConfiguredUpdater,
+    cancel: &CancellationToken,
+) -> Result<ReleaseHint, UpdateOperationError> {
+    let logical_url = Url::parse(&format!(
+        "https://api.github.com{GITHUB_STABLE_LATEST_API_PATH}"
+    ))
+    .map_err(|_| UpdateOperationError::NotConfigured)?;
+    let body = fetch_github_api(configured, &logical_url, cancel).await?;
+    let release = serde_json::from_slice::<GitHubRelease>(&body)
+        .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    release_hint(release, UpdateChannel::Stable)
+}
+
+async fn fetch_github_api(
+    configured: &ConfiguredUpdater,
+    logical_url: &Url,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, UpdateOperationError> {
+    let request_url = request_url(configured, logical_url)?;
+    let request = configured
+        .client
+        .get(request_url)
+        .header(ACCEPT_ENCODING, "identity")
+        .header(ACCEPT, "application/vnd.github+json")
+        .header("x-github-api-version", GITHUB_API_VERSION)
+        .header(USER_AGENT, GITHUB_USER_AGENT);
+    fetch_bounded_request(
+        request,
+        configured.limits.max_metadata_bytes,
+        configured,
+        cancel,
+    )
+    .await
+}
+
+fn select_alpha_release(releases: Vec<GitHubRelease>) -> Result<ReleaseHint, UpdateOperationError> {
+    if releases.len() > ALPHA_RELEASE_LIST_LIMIT {
+        return Err(UpdateOperationError::InvalidResponse);
+    }
+    let mut seen_versions = BTreeSet::new();
+    let mut selected: Option<(Version, ReleaseHint)> = None;
+    for release in releases {
+        if release.draft
+            || !release.prerelease
+            || !release.immutable
+            || release.published_at.as_deref().is_none_or(str::is_empty)
+        {
+            continue;
+        }
+        let hint = release_hint(release, UpdateChannel::Alpha)?;
+        let version = hint.version.clone();
+        let parsed = parse_version(&version).map_err(|_| UpdateOperationError::InvalidResponse)?;
+        if !seen_versions.insert(version) {
+            return Err(UpdateOperationError::Verification(
+                UpdaterError::VersionDigestConflict,
+            ));
+        }
+        if selected
+            .as_ref()
+            .is_none_or(|(selected_version, _)| parsed > *selected_version)
+        {
+            selected = Some((parsed, hint));
+        }
+    }
+    selected
+        .map(|(_, hint)| hint)
+        .ok_or(UpdateOperationError::InvalidResponse)
+}
+
+fn release_hint(
+    release: GitHubRelease,
+    channel: UpdateChannel,
+) -> Result<ReleaseHint, UpdateOperationError> {
+    if release.id == 0
+        || release.draft
+        || release.prerelease != (channel == UpdateChannel::Alpha)
+        || !release.immutable
+        || release.published_at.as_deref().is_none_or(str::is_empty)
+        || release.assets.len() > RELEASE_ASSET_LIST_LIMIT
+    {
+        return Err(UpdateOperationError::InvalidResponse);
+    }
+    let version = release
+        .tag_name
+        .strip_prefix('v')
+        .ok_or(UpdateOperationError::InvalidResponse)?
+        .to_owned();
+    let parsed = parse_version(&version).map_err(|_| UpdateOperationError::InvalidResponse)?;
+    validate_channel_version(&parsed, channel).map_err(UpdateOperationError::Verification)?;
+    let mut asset_ids = BTreeSet::new();
+    let mut assets = BTreeSet::new();
+    for asset in release.assets {
+        if asset.id == 0
+            || asset.state != "uploaded"
+            || !asset_ids.insert(asset.id)
+            || !assets.insert(asset.name)
+        {
+            return Err(UpdateOperationError::InvalidResponse);
+        }
+    }
+    Ok(ReleaseHint {
+        tag: release.tag_name,
+        version,
+        listed_assets: Some(assets),
     })
+}
+
+async fn validate_stable_latest_asset(
+    configured: &ConfiguredUpdater,
+    asset_name: &str,
+    published: &ReleaseHint,
+    cancel: &CancellationToken,
+) -> Result<(), UpdateOperationError> {
+    let logical_url = configured
+        .endpoint
+        .join(asset_name)
+        .map_err(|_| UpdateOperationError::NotConfigured)?;
+    let request_url = request_url(configured, &logical_url)?;
+    let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
+    let response = tokio::select! {
+        _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
+        response = timeout_at(deadline, configured.client
+            .get(request_url)
+            .header(ACCEPT_ENCODING, "identity")
+            .send()) => response
+                .map_err(|_| UpdateOperationError::Timeout)?
+                .map_err(map_reqwest_error)?,
+    };
+    if !response.status().is_redirection() {
+        return Err(UpdateOperationError::InvalidResponse);
+    }
+    let location = response
+        .headers()
+        .get(LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(UpdateOperationError::InvalidResponse)?;
+    let location = Url::parse(location).map_err(|_| UpdateOperationError::InvalidResponse)?;
+    if trusted_release_asset_destination(&location) {
+        return Ok(());
+    }
+    let version = exact_release_asset_version(&location, asset_name, UpdateChannel::Stable)?;
+    if version == published.version && format!("v{version}") == published.tag {
+        Ok(())
+    } else {
+        Err(UpdateOperationError::InvalidResponse)
+    }
+}
+
+fn require_listed_asset(hint: &ReleaseHint, name: &str) -> Result<(), UpdateOperationError> {
+    if hint
+        .listed_assets
+        .as_ref()
+        .is_some_and(|assets| !assets.contains(name))
+    {
+        Err(UpdateOperationError::InvalidResponse)
+    } else {
+        Ok(())
+    }
+}
+
+fn classify_discovery(
+    state: &Mutex<RuntimeState>,
+    candidate: AvailableCandidate,
+) -> Result<DiscoveryOutcome, UpdateOperationError> {
+    let state = state.lock().expect("updater state poisoned");
+    if let Some(existing) = &state.available {
+        match parse_version(&candidate.metadata.version)
+            .expect("authenticated version is canonical")
+            .cmp(&parse_version(&existing.metadata.version).expect("verified version is canonical"))
+        {
+            Ordering::Less => {
+                return Err(UpdateOperationError::Verification(
+                    UpdaterError::DowngradeRejected,
+                ));
+            }
+            Ordering::Equal if candidate.identity() == existing.identity() => {
+                return Ok(DiscoveryOutcome::Unchanged);
+            }
+            Ordering::Equal => {
+                return Err(UpdateOperationError::Verification(
+                    UpdaterError::VersionDigestConflict,
+                ));
+            }
+            Ordering::Greater => {}
+        }
+    }
+    match state.accepted.compare(&candidate.metadata) {
+        Some(Ordering::Less) => Err(UpdateOperationError::Verification(
+            UpdaterError::DowngradeRejected,
+        )),
+        Some(Ordering::Equal)
+            if state
+                .accepted
+                .digests
+                .contains(&candidate.metadata.metadata_sha256) =>
+        {
+            Ok(DiscoveryOutcome::Unchanged)
+        }
+        Some(Ordering::Equal) => Err(UpdateOperationError::Verification(
+            UpdaterError::VersionDigestConflict,
+        )),
+        Some(Ordering::Greater) | None
+            if state
+                .accepted
+                .digests
+                .contains(&candidate.metadata.metadata_sha256) =>
+        {
+            Err(UpdateOperationError::Verification(
+                UpdaterError::MetadataReplay,
+            ))
+        }
+        Some(Ordering::Greater) | None => Ok(DiscoveryOutcome::Available(Box::new(candidate))),
+    }
 }
 
 async fn fetch_bounded(
@@ -958,13 +1226,23 @@ async fn fetch_bounded(
     cancel: &CancellationToken,
 ) -> Result<Vec<u8>, UpdateOperationError> {
     let request_url = request_url(configured, logical_url)?;
+    let request = configured
+        .client
+        .get(request_url)
+        .header(ACCEPT_ENCODING, "identity");
+    fetch_bounded_request(request, maximum, configured, cancel).await
+}
+
+async fn fetch_bounded_request(
+    request: RequestBuilder,
+    maximum: u64,
+    configured: &ConfiguredUpdater,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, UpdateOperationError> {
     let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
     let response = tokio::select! {
         _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
-        response = timeout_at(deadline, configured.client
-            .get(request_url)
-            .header(ACCEPT_ENCODING, "identity")
-            .send()) => response
+        response = timeout_at(deadline, request.send()) => response
                 .map_err(|_| UpdateOperationError::Timeout)?
                 .map_err(map_reqwest_error)?,
     };
@@ -1373,22 +1651,90 @@ fn validate_production_endpoint(
     endpoint: &Url,
     channel: UpdateChannel,
 ) -> Result<(), UpdateOperationError> {
-    let expected_path = match channel {
-        UpdateChannel::Alpha => "/Asuka109/mish/releases/download/updater-alpha/",
-        UpdateChannel::Stable => "/Asuka109/mish/releases/download/updater-stable/",
-    };
-    if endpoint.scheme() == "https"
-        && endpoint.host_str() == Some("github.com")
+    let common = endpoint.scheme() == "https"
         && endpoint.username().is_empty()
         && endpoint.password().is_none()
-        && endpoint.query().is_none()
-        && endpoint.fragment().is_none()
-        && endpoint.path() == expected_path
-    {
+        && endpoint.fragment().is_none();
+    let valid = match channel {
+        UpdateChannel::Alpha => {
+            common
+                && endpoint.host_str() == Some("api.github.com")
+                && endpoint.path() == GITHUB_ALPHA_RELEASES_PATH
+                && endpoint
+                    .query_pairs()
+                    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                    .collect::<Vec<_>>()
+                    == [
+                        ("per_page".to_owned(), ALPHA_RELEASE_LIST_LIMIT.to_string()),
+                        ("page".to_owned(), "1".to_owned()),
+                    ]
+        }
+        UpdateChannel::Stable => {
+            common
+                && endpoint.host_str() == Some("github.com")
+                && endpoint.path() == GITHUB_STABLE_LATEST_PATH
+                && endpoint.query().is_none()
+        }
+    };
+    if valid {
         Ok(())
     } else {
         Err(UpdateOperationError::NotConfigured)
     }
+}
+
+fn immutable_release_asset_url(
+    version: &str,
+    asset_name: &str,
+) -> Result<Url, UpdateOperationError> {
+    let url = Url::parse(&format!(
+        "https://github.com{GITHUB_REPOSITORY_RELEASE_PATH}v{version}/{asset_name}"
+    ))
+    .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let channel = if version.contains('-') {
+        UpdateChannel::Alpha
+    } else {
+        UpdateChannel::Stable
+    };
+    exact_release_asset_version(&url, asset_name, channel)?;
+    Ok(url)
+}
+
+fn exact_release_asset_version(
+    url: &Url,
+    asset_name: &str,
+    channel: UpdateChannel,
+) -> Result<String, UpdateOperationError> {
+    if url.scheme() != "https"
+        || url.host_str() != Some("github.com")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(UpdateOperationError::InvalidResponse);
+    }
+    let segments = url
+        .path_segments()
+        .ok_or(UpdateOperationError::InvalidResponse)?
+        .collect::<Vec<_>>();
+    let [owner, repository, releases, download, tag, asset] = segments.as_slice() else {
+        return Err(UpdateOperationError::InvalidResponse);
+    };
+    if *owner != "Asuka109"
+        || *repository != "mish"
+        || *releases != "releases"
+        || *download != "download"
+        || *asset != asset_name
+    {
+        return Err(UpdateOperationError::InvalidResponse);
+    }
+    let version = tag
+        .strip_prefix('v')
+        .ok_or(UpdateOperationError::InvalidResponse)?;
+    let parsed = parse_version(version).map_err(|_| UpdateOperationError::InvalidResponse)?;
+    validate_channel_version(&parsed, channel).map_err(UpdateOperationError::Verification)?;
+    Ok(version.to_owned())
 }
 
 fn trusted_release_redirect(previous: &[Url], destination: &Url) -> bool {
@@ -1396,13 +1742,12 @@ fn trusted_release_redirect(previous: &[Url], destination: &Url) -> bool {
         return false;
     }
     let source = &previous[0];
-    let trusted_source = source.scheme() == "https"
-        && source.host_str() == Some("github.com")
-        && source.username().is_empty()
-        && source.password().is_none()
-        && source.query().is_none()
-        && source.fragment().is_none();
-    let trusted_destination = destination.scheme() == "https"
+    let trusted_source = trusted_immutable_release_source(source);
+    trusted_source && trusted_release_asset_destination(destination)
+}
+
+fn trusted_release_asset_destination(destination: &Url) -> bool {
+    destination.scheme() == "https"
         && destination.username().is_empty()
         && destination.password().is_none()
         && destination.fragment().is_none()
@@ -1414,8 +1759,39 @@ fn trusted_release_redirect(previous: &[Url], destination: &Url) -> bool {
                 .path()
                 .starts_with("/github-production-release-asset-"),
             _ => false,
-        };
-    trusted_source && trusted_destination
+        }
+}
+
+fn trusted_immutable_release_source(source: &Url) -> bool {
+    if source.scheme() != "https"
+        || source.host_str() != Some("github.com")
+        || !source.username().is_empty()
+        || source.password().is_some()
+        || source.query().is_some()
+        || source.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(segments) = source.path_segments().map(Iterator::collect::<Vec<_>>) else {
+        return false;
+    };
+    let [owner, repository, releases, download, tag, asset] = segments.as_slice() else {
+        return false;
+    };
+    if *owner != "Asuka109"
+        || *repository != "mish"
+        || *releases != "releases"
+        || *download != "download"
+        || asset.is_empty()
+    {
+        return false;
+    }
+    tag.strip_prefix('v')
+        .and_then(|version| parse_version(version).ok())
+        .is_some_and(|version| {
+            validate_channel_version(&version, UpdateChannel::Alpha).is_ok()
+                || validate_channel_version(&version, UpdateChannel::Stable).is_ok()
+        })
 }
 
 fn request_url(
@@ -1423,13 +1799,35 @@ fn request_url(
     logical_url: &Url,
 ) -> Result<Url, UpdateOperationError> {
     if let Some(rewrite) = &configured.fixture_rewrite {
-        let file = logical_url
+        if logical_url.host_str() == Some("api.github.com") {
+            let fixture_path = if logical_url.path() == GITHUB_STABLE_LATEST_API_PATH {
+                "api/releases/latest"
+            } else if logical_url.path() == GITHUB_ALPHA_RELEASES_PATH {
+                "api/releases"
+            } else {
+                return Err(UpdateOperationError::InvalidResponse);
+            };
+            return rewrite
+                .join(fixture_path)
+                .map_err(|_| UpdateOperationError::InvalidResponse);
+        }
+        let segments = logical_url
             .path_segments()
-            .and_then(Iterator::last)
+            .ok_or(UpdateOperationError::InvalidResponse)?
+            .collect::<Vec<_>>();
+        let file = segments
+            .last()
             .filter(|value| !value.is_empty())
             .ok_or(UpdateOperationError::InvalidResponse)?;
+        let fixture_path = if logical_url.path().starts_with(GITHUB_STABLE_LATEST_PATH) {
+            format!("latest/{file}")
+        } else if let [_, _, "releases", "download", tag, _] = segments.as_slice() {
+            format!("release/{tag}/{file}")
+        } else {
+            return Err(UpdateOperationError::InvalidResponse);
+        };
         return rewrite
-            .join(file)
+            .join(&fixture_path)
             .map_err(|_| UpdateOperationError::InvalidResponse);
     }
     Ok(logical_url.clone())
@@ -2317,13 +2715,13 @@ mod tests {
     use std::{
         convert::Infallible,
         net::{Ipv4Addr, SocketAddr},
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
     use axum::{
         Router,
         body::{Body, Bytes},
-        extract::State,
+        extract::{Path as AxumPath, State},
         http::{HeaderMap, Response as HttpResponse, header},
         response::IntoResponse,
         routing::get,
@@ -2351,6 +2749,14 @@ mod tests {
     const ARTIFACT_SIGNATURE: &str = include_str!(
         "../../../scripts/fixtures/macos-updater/Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig"
     );
+    const STABLE_METADATA: &[u8] =
+        include_bytes!("../../../scripts/fixtures/macos-updater/mish-stable.json");
+    const STABLE_METADATA_SIGNATURE: &str =
+        include_str!("../../../scripts/fixtures/macos-updater/mish-stable.json.sig");
+    const STABLE_ARTIFACT: &[u8] =
+        include_bytes!("../../../scripts/fixtures/macos-updater/Mish-0.1.1-aarch64.app.tar.gz");
+    const STABLE_ARTIFACT_SIGNATURE: &str =
+        include_str!("../../../scripts/fixtures/macos-updater/Mish-0.1.1-aarch64.app.tar.gz.sig");
 
     #[derive(Clone)]
     enum FakeDiscovery {
@@ -2399,19 +2805,25 @@ mod tests {
                             release.notified().await;
                             CheckCompletion {
                                 correlation,
-                                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                                outcome: CheckEffectOutcome::Discovery(Ok(
+                                    DiscoveryOutcome::Available(Box::new(candidate)),
+                                )),
                             }
                         }
                         FakeDiscovery::CompletionConflict => {
                             correlation.scope_epoch = correlation.scope_epoch.saturating_add(1);
                             CheckCompletion {
                                 correlation,
-                                outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                                outcome: CheckEffectOutcome::Discovery(Ok(
+                                    DiscoveryOutcome::Available(Box::new(candidate)),
+                                )),
                             }
                         }
                         FakeDiscovery::Immediate => CheckCompletion {
                             correlation,
-                            outcome: CheckEffectOutcome::Discovery(Ok(Box::new(candidate))),
+                            outcome: CheckEffectOutcome::Discovery(Ok(
+                                DiscoveryOutcome::Available(Box::new(candidate)),
+                            )),
                         },
                         FakeDiscovery::Panic => panic!("injected Check effect panic"),
                         FakeDiscovery::Pending => std::future::pending().await,
@@ -2744,12 +3156,34 @@ mod tests {
         Substituted,
     }
 
+    #[derive(Clone, Copy, Debug)]
+    enum ReleaseMode {
+        Draft,
+        Good,
+        Mutable,
+        Partial,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum StableVisibility {
+        DirectCdn,
+        Hidden,
+        Mutable,
+        Published,
+        SplitVersion,
+        UntrustedCdn,
+    }
+
     struct FixtureState {
         metadata_mode: Mutex<MetadataMode>,
         artifact_mode: Mutex<ArtifactMode>,
         artifact_signature_mode: Mutex<ArtifactSignatureMode>,
+        release_mode: Mutex<ReleaseMode>,
+        stable_visibility: Mutex<StableVisibility>,
         ranges: Mutex<Vec<Option<String>>>,
         artifact_requests: AtomicUsize,
+        release_requests: AtomicUsize,
+        authorization_seen: AtomicBool,
     }
 
     struct FixtureServer {
@@ -2769,16 +3203,45 @@ mod tests {
             metadata_mode: Mutex::new(MetadataMode::Good),
             artifact_mode: Mutex::new(ArtifactMode::Success),
             artifact_signature_mode: Mutex::new(ArtifactSignatureMode::Good),
+            release_mode: Mutex::new(ReleaseMode::Good),
+            stable_visibility: Mutex::new(StableVisibility::Published),
             ranges: Mutex::new(Vec::new()),
             artifact_requests: AtomicUsize::new(0),
+            release_requests: AtomicUsize::new(0),
+            authorization_seen: AtomicBool::new(false),
         });
         let app = Router::new()
-            .route("/mish-alpha.json", get(metadata))
-            .route("/mish-alpha.json.sig", get(metadata_signature))
-            .route("/Mish-0.1.1-alpha.2-aarch64.app.tar.gz", get(artifact))
+            .route("/api/releases", get(releases))
+            .route("/api/releases/latest", get(stable_api_latest))
+            .route("/latest/{asset}", get(stable_latest))
+            .route("/release/v0.1.1-alpha.2/mish-alpha.json", get(metadata))
             .route(
-                "/Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig",
+                "/release/v0.1.1-alpha.2/mish-alpha.json.sig",
+                get(metadata_signature),
+            )
+            .route(
+                "/release/v0.1.1-alpha.2/Mish-0.1.1-alpha.2-aarch64.app.tar.gz",
+                get(artifact),
+            )
+            .route(
+                "/release/v0.1.1-alpha.2/Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig",
                 get(artifact_signature),
+            )
+            .route(
+                "/release/v0.1.1/mish-stable.json",
+                get(|| async { STABLE_METADATA }),
+            )
+            .route(
+                "/release/v0.1.1/mish-stable.json.sig",
+                get(|| async { STABLE_METADATA_SIGNATURE }),
+            )
+            .route(
+                "/release/v0.1.1/Mish-0.1.1-aarch64.app.tar.gz",
+                get(stable_artifact),
+            )
+            .route(
+                "/release/v0.1.1/Mish-0.1.1-aarch64.app.tar.gz.sig",
+                get(|| async { STABLE_ARTIFACT_SIGNATURE }),
             )
             .route("/redirected", get(|| async { ARTIFACT }))
             .with_state(state.clone());
@@ -2794,6 +3257,117 @@ mod tests {
             join,
             state,
         }
+    }
+
+    async fn releases(
+        State(state): State<Arc<FixtureState>>,
+        headers: HeaderMap,
+    ) -> impl IntoResponse {
+        state.release_requests.fetch_add(1, Ordering::SeqCst);
+        state
+            .authorization_seen
+            .store(headers.contains_key("authorization"), Ordering::SeqCst);
+        let mode = *state.release_mode.lock().unwrap();
+        let mut assets = vec![
+            serde_json::json!({"id": 1, "name": "mish-alpha.json", "state": "uploaded"}),
+            serde_json::json!({"id": 2, "name": "mish-alpha.json.sig", "state": "uploaded"}),
+            serde_json::json!({"id": 3, "name": "Mish-0.1.1-alpha.2-aarch64.app.tar.gz", "state": "uploaded"}),
+            serde_json::json!({"id": 4, "name": "Mish-0.1.1-alpha.2-aarch64.app.tar.gz.sig", "state": "uploaded"}),
+        ];
+        if matches!(mode, ReleaseMode::Partial) {
+            assets.pop();
+        }
+        axum::Json(serde_json::json!([{
+            "id": 41,
+            "tag_name": "v0.1.1-alpha.2",
+            "draft": matches!(mode, ReleaseMode::Draft),
+            "prerelease": true,
+            "immutable": !matches!(mode, ReleaseMode::Mutable),
+            "published_at": if matches!(mode, ReleaseMode::Draft) {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String("2026-08-01T00:00:00Z".into())
+            },
+            "assets": assets,
+        }]))
+    }
+
+    async fn stable_api_latest(
+        State(state): State<Arc<FixtureState>>,
+        headers: HeaderMap,
+    ) -> HttpResponse<Body> {
+        state.release_requests.fetch_add(1, Ordering::SeqCst);
+        state
+            .authorization_seen
+            .store(headers.contains_key("authorization"), Ordering::SeqCst);
+        let visibility = *state.stable_visibility.lock().unwrap();
+        if matches!(visibility, StableVisibility::Hidden) {
+            return HttpResponse::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap();
+        }
+        let body = serde_json::to_vec(&serde_json::json!({
+            "id": 51,
+            "tag_name": "v0.1.1",
+            "draft": false,
+            "prerelease": false,
+            "immutable": !matches!(visibility, StableVisibility::Mutable),
+            "published_at": "2026-08-01T00:00:00Z",
+            "assets": [
+                {"id": 11, "name": "mish-stable.json", "state": "uploaded"},
+                {"id": 12, "name": "mish-stable.json.sig", "state": "uploaded"},
+                {"id": 13, "name": "Mish-0.1.1-aarch64.app.tar.gz", "state": "uploaded"},
+                {"id": 14, "name": "Mish-0.1.1-aarch64.app.tar.gz.sig", "state": "uploaded"},
+            ],
+        }))
+        .unwrap();
+        HttpResponse::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_LENGTH, body.len())
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    async fn stable_latest(
+        State(state): State<Arc<FixtureState>>,
+        AxumPath(asset): AxumPath<String>,
+    ) -> HttpResponse<Body> {
+        let visibility = *state.stable_visibility.lock().unwrap();
+        if matches!(visibility, StableVisibility::Hidden) {
+            return HttpResponse::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap();
+        }
+        if matches!(visibility, StableVisibility::DirectCdn) {
+            return HttpResponse::builder()
+                .status(StatusCode::FOUND)
+                .header(
+                    LOCATION,
+                    "https://release-assets.githubusercontent.com/github-production-release-asset/1/2?sp=read",
+                )
+                .body(Body::empty())
+                .unwrap();
+        }
+        if matches!(visibility, StableVisibility::UntrustedCdn) {
+            return HttpResponse::builder()
+                .status(StatusCode::FOUND)
+                .header(LOCATION, "https://example.com/release-asset")
+                .body(Body::empty())
+                .unwrap();
+        }
+        let split =
+            matches!(visibility, StableVisibility::SplitVersion) && asset == "mish-stable.json.sig";
+        let version = if split { "0.1.2" } else { "0.1.1" };
+        HttpResponse::builder()
+            .status(StatusCode::FOUND)
+            .header(
+                LOCATION,
+                format!("https://github.com/Asuka109/mish/releases/download/v{version}/{asset}"),
+            )
+            .body(Body::empty())
+            .unwrap()
     }
 
     async fn metadata(State(state): State<Arc<FixtureState>>) -> impl IntoResponse {
@@ -2916,6 +3490,15 @@ mod tests {
         response.body(body).unwrap()
     }
 
+    async fn stable_artifact() -> HttpResponse<Body> {
+        HttpResponse::builder()
+            .status(StatusCode::OK)
+            .header(ETAG, "\"stable-fixture-v1\"")
+            .header(CONTENT_LENGTH, STABLE_ARTIFACT.len())
+            .body(Body::from(STABLE_ARTIFACT))
+            .unwrap()
+    }
+
     fn policy() -> UpdatePolicy {
         UpdatePolicy {
             installed: InstalledUpdate {
@@ -2924,6 +3507,27 @@ mod tests {
             },
             selected_channel: UpdateChannel::Alpha,
         }
+    }
+
+    fn alpha_endpoint() -> Url {
+        Url::parse(&format!(
+            "https://api.github.com{GITHUB_ALPHA_RELEASES_PATH}?per_page={ALPHA_RELEASE_LIST_LIMIT}&page=1"
+        ))
+        .unwrap()
+    }
+
+    fn stable_policy() -> UpdatePolicy {
+        UpdatePolicy {
+            installed: InstalledUpdate {
+                channel: UpdateChannel::Stable,
+                version: "0.1.0".into(),
+            },
+            selected_channel: UpdateChannel::Stable,
+        }
+    }
+
+    fn stable_endpoint() -> Url {
+        Url::parse(&format!("https://github.com{GITHUB_STABLE_LATEST_PATH}")).unwrap()
     }
 
     fn limits() -> UpdaterLimits {
@@ -2949,7 +3553,7 @@ mod tests {
                 authority.into(),
                 PUBLIC_KEY.trim(),
                 policy(),
-                server.base.clone(),
+                alpha_endpoint(),
                 root.to_path_buf(),
                 limits,
                 Some(server.base.clone()),
@@ -2968,7 +3572,7 @@ mod tests {
             "test-authority".into(),
             PUBLIC_KEY.trim(),
             policy(),
-            server.base.clone(),
+            alpha_endpoint(),
             root.to_path_buf(),
             limits(),
             Some(server.base.clone()),
@@ -2993,6 +3597,22 @@ mod tests {
         );
         service.check = Some(check);
         Arc::new(service)
+    }
+
+    async fn configured_stable_service(server: &FixtureServer, root: &Path) -> Arc<UpdaterService> {
+        Arc::new(
+            UpdaterService::configured_inner(
+                "stable-authority".into(),
+                PUBLIC_KEY.trim(),
+                stable_policy(),
+                stable_endpoint(),
+                root.to_path_buf(),
+                limits(),
+                Some(server.base.clone()),
+            )
+            .await
+            .unwrap(),
+        )
     }
 
     async fn wait_phase(service: &UpdaterService, phase: UpdatePhase) -> UpdaterSnapshot {
@@ -3403,7 +4023,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn accepted_metadata_replay_fails_without_republishing_ready() {
+    async fn identical_rediscovery_restores_ready_without_replay_or_payload_download() {
         let server = fixture_server().await;
         let temporary = TempDir::new().unwrap();
         let service = configured_service(
@@ -3415,14 +4035,198 @@ mod tests {
         .await;
         discover_available(&service, "first").await;
         service.start_download("first").unwrap();
-        wait_phase(&service, UpdatePhase::Ready).await;
+        let original = wait_phase(&service, UpdatePhase::Ready).await;
         service
             .start_check("second", UpdateChannel::Alpha)
             .await
             .unwrap();
-        let failed = wait_phase(&service, UpdatePhase::Failed).await;
-        assert_eq!(failed.terminal_reason.as_deref(), Some("metadata-replay"));
+        let rediscovered = wait_phase(&service, UpdatePhase::Ready).await;
+        assert_eq!(rediscovered.operation_id, original.operation_id);
+        assert_eq!(rediscovered.candidate, original.candidate);
+        assert_eq!(rediscovered.terminal_reason, None);
+        assert!(rediscovered.revision > original.revision);
         assert_eq!(server.state.artifact_requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn alpha_listing_is_single_anonymous_semver_discovery_and_partial_publication_fails_closed()
+     {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let service = configured_service(&server, &root, "process", limits()).await;
+        discover_available(&service, "published").await;
+        let preserved = service.state.lock().unwrap().available.clone().unwrap();
+        assert_eq!(server.state.release_requests.load(Ordering::SeqCst), 1);
+        assert!(!server.state.authorization_seen.load(Ordering::SeqCst));
+        assert_eq!(server.state.artifact_requests.load(Ordering::SeqCst), 0);
+
+        *server.state.release_mode.lock().unwrap() = ReleaseMode::Draft;
+        service
+            .start_check("draft-hidden", UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        let failed = wait_phase(&service, UpdatePhase::Failed).await;
+        assert_eq!(failed.terminal_reason.as_deref(), Some("invalid-response"));
+        assert_eq!(
+            service.state.lock().unwrap().available,
+            Some(preserved.clone())
+        );
+
+        *server.state.release_mode.lock().unwrap() = ReleaseMode::Mutable;
+        service
+            .start_check("mutable-hidden", UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        let failed = wait_phase(&service, UpdatePhase::Failed).await;
+        assert_eq!(failed.terminal_reason.as_deref(), Some("invalid-response"));
+        assert_eq!(
+            service.state.lock().unwrap().available,
+            Some(preserved.clone())
+        );
+
+        *server.state.release_mode.lock().unwrap() = ReleaseMode::Partial;
+        service
+            .start_check("partial-hidden", UpdateChannel::Alpha)
+            .await
+            .unwrap();
+        let failed = wait_phase(&service, UpdatePhase::Failed).await;
+        assert_eq!(failed.terminal_reason.as_deref(), Some("invalid-response"));
+        assert_eq!(service.state.lock().unwrap().available, Some(preserved));
+        assert_eq!(server.state.artifact_requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn stable_latest_binds_all_assets_to_one_published_immutable_release() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let service = configured_stable_service(&server, &temporary.path().join("updates")).await;
+        service
+            .start_check("stable-published", UpdateChannel::Stable)
+            .await
+            .unwrap();
+        let available = wait_phase(&service, UpdatePhase::Available).await;
+        assert_eq!(server.state.release_requests.load(Ordering::SeqCst), 1);
+        assert!(!server.state.authorization_seen.load(Ordering::SeqCst));
+        assert_eq!(
+            available
+                .candidate
+                .as_ref()
+                .map(|candidate| candidate.version.as_str()),
+            Some("0.1.1")
+        );
+        service.start_download("stable-published").unwrap();
+        let ready = wait_phase(&service, UpdatePhase::Ready).await;
+        assert_eq!(
+            ready.progress.as_ref().map(|progress| progress.total_bytes),
+            Some(STABLE_ARTIFACT.len() as u64)
+        );
+
+        let server = fixture_server().await;
+        *server.state.stable_visibility.lock().unwrap() = StableVisibility::DirectCdn;
+        let temporary = TempDir::new().unwrap();
+        let service = configured_stable_service(&server, &temporary.path().join("updates")).await;
+        service
+            .start_check("stable-direct-cdn", UpdateChannel::Stable)
+            .await
+            .unwrap();
+        wait_phase(&service, UpdatePhase::Available).await;
+
+        for visibility in [
+            StableVisibility::Hidden,
+            StableVisibility::Mutable,
+            StableVisibility::SplitVersion,
+            StableVisibility::UntrustedCdn,
+        ] {
+            let server = fixture_server().await;
+            *server.state.stable_visibility.lock().unwrap() = visibility;
+            let temporary = TempDir::new().unwrap();
+            let service =
+                configured_stable_service(&server, &temporary.path().join("updates")).await;
+            service
+                .start_check("stable-fail-closed", UpdateChannel::Stable)
+                .await
+                .unwrap();
+            let failed = wait_phase(&service, UpdatePhase::Failed).await;
+            assert_eq!(failed.terminal_reason.as_deref(), Some("invalid-response"));
+            assert!(service.state.lock().unwrap().available.is_none());
+        }
+    }
+
+    #[test]
+    fn alpha_selection_ignores_order_and_rejects_malformed_or_duplicate_versions() {
+        fn release(id: u64, version: &str) -> GitHubRelease {
+            GitHubRelease {
+                id,
+                tag_name: format!("v{version}"),
+                draft: false,
+                prerelease: true,
+                immutable: true,
+                published_at: Some("2026-08-01T00:00:00Z".into()),
+                assets: vec![GitHubReleaseAsset {
+                    id: id.saturating_mul(10),
+                    name: "mish-alpha.json".into(),
+                    state: "uploaded".into(),
+                }],
+            }
+        }
+
+        let selected = select_alpha_release(vec![
+            release(2, "0.1.1-alpha.2"),
+            release(4, "0.1.1-alpha.4"),
+            release(3, "0.1.1-alpha.3"),
+        ])
+        .unwrap();
+        assert_eq!(selected.version, "0.1.1-alpha.4");
+        assert_eq!(
+            select_alpha_release(vec![release(1, "0.1.1-beta.1")]),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::WrongChannelVersion
+            ))
+        );
+        assert_eq!(
+            select_alpha_release(vec![
+                release(1, "0.1.1-alpha.2"),
+                release(2, "0.1.1-alpha.2"),
+            ]),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::VersionDigestConflict
+            ))
+        );
+    }
+
+    #[test]
+    fn candidate_identity_is_idempotent_but_same_version_digest_conflict_is_hard() {
+        let existing = fake_candidate();
+        let state = Mutex::new(RuntimeState {
+            snapshot: UpdaterSnapshot::idle("authority".into(), true),
+            accepted: AcceptedMetadata::empty(),
+            available: Some(existing.clone()),
+            active_cancel: None,
+            check_admission_pending: false,
+        });
+        assert_eq!(
+            classify_discovery(&state, existing.clone()),
+            Ok(DiscoveryOutcome::Unchanged)
+        );
+
+        let mut conflict = existing.clone();
+        conflict.metadata.metadata_sha256 = "d".repeat(64);
+        assert_eq!(
+            classify_discovery(&state, conflict),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::VersionDigestConflict
+            ))
+        );
+
+        let mut stale = existing;
+        stale.metadata.version = "0.1.1-alpha.1".into();
+        assert_eq!(
+            classify_discovery(&state, stale),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::DowngradeRejected
+            ))
+        );
     }
 
     #[test]
@@ -3539,28 +4343,15 @@ mod tests {
 
     #[test]
     fn production_endpoint_and_operation_identifiers_are_closed_over_exact_inputs() {
-        assert!(
-            validate_production_endpoint(
-                &Url::parse("https://github.com/Asuka109/mish/releases/download/updater-alpha/")
-                    .unwrap(),
-                UpdateChannel::Alpha,
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_production_endpoint(
-                &Url::parse("https://github.com/Asuka109/mish/releases/download/updater-stable/")
-                    .unwrap(),
-                UpdateChannel::Stable,
-            )
-            .is_ok()
-        );
+        assert!(validate_production_endpoint(&alpha_endpoint(), UpdateChannel::Alpha).is_ok());
+        assert!(validate_production_endpoint(&stable_endpoint(), UpdateChannel::Stable).is_ok());
         for endpoint in [
-            "http://github.com/Asuka109/mish/releases/download/updater-alpha/",
-            "https://token@github.com/Asuka109/mish/releases/download/updater-alpha/",
-            "https://github.com/other/mish/releases/download/updater-alpha/",
-            "https://github.com/Asuka109/mish/releases/download/updater-stable/",
-            "https://github.com/Asuka109/mish/releases/download/updater-alpha/?token=secret",
+            "http://api.github.com/repos/Asuka109/mish/releases?per_page=32&page=1",
+            "https://token@api.github.com/repos/Asuka109/mish/releases?per_page=32&page=1",
+            "https://api.github.com/repos/other/mish/releases?per_page=32&page=1",
+            "https://api.github.com/repos/Asuka109/mish/releases?per_page=31&page=1",
+            "https://api.github.com/repos/Asuka109/mish/releases?per_page=32&page=2",
+            "https://api.github.com/repos/Asuka109/mish/releases?page=1&per_page=32",
         ] {
             assert_eq!(
                 validate_production_endpoint(&Url::parse(endpoint).unwrap(), UpdateChannel::Alpha,),
@@ -3568,7 +4359,7 @@ mod tests {
             );
         }
         let source = Url::parse(
-            "https://github.com/Asuka109/mish/releases/download/updater-alpha/mish-alpha.json",
+            "https://github.com/Asuka109/mish/releases/download/v0.1.1-alpha.2/mish-alpha.json",
         )
         .unwrap();
         let release_asset = Url::parse(
