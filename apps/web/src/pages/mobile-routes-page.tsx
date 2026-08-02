@@ -10,12 +10,11 @@ import {
   Input,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
-import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useParams, useSearchParams } from "react-router";
 import {
   getPolicyGroupTypeLabel,
   PolicyGroupBrowser,
-  usePolicyGroupBrowserSession,
   usePolicyGroupSelection,
 } from "../components/policy-group-browser";
 import {
@@ -32,6 +31,7 @@ import {
   getRouteChildLatency,
   isGlobalRouteGroup,
   normalizeMeasuredLatency,
+  type RouteSort,
 } from "./routes-model";
 
 const mobileRoutesStyles = tv({
@@ -87,8 +87,23 @@ function groupPath(groupId: string) {
   return "/routes/" + encodeURIComponent(groupId);
 }
 
-function childPath(groupId: string, childId: string) {
-  return groupPath(groupId) + "/children/" + encodeURIComponent(childId);
+function childPath(groupId: string, childId: string, search: string) {
+  return groupPath(groupId) + "/children/" + encodeURIComponent(childId) + search;
+}
+
+function parseRouteSort(value: string | null): RouteSort {
+  if (value === "latency" || value === "label") return value;
+  return "configuration";
+}
+
+function serializeGroupRouteSearch(searchParams: URLSearchParams, query: string, sort: RouteSort) {
+  const next = new URLSearchParams(searchParams);
+  next.delete("query");
+  next.delete("sort");
+  if (sort !== "configuration") next.set("sort", sort);
+  if (query) next.set("query", query);
+  const value = next.toString();
+  return value ? "?" + value : "";
 }
 
 function useMobileRouteData() {
@@ -282,17 +297,27 @@ export function MobileRouteGroupPage() {
   const data = useMobileRouteData();
   const { LL } = useI18nContext();
   const { groupId: routeGroupId } = useParams<{ groupId: string }>();
-  const [query, setQuery] = useState("");
-  const browserSession = usePolicyGroupBrowserSession();
+  const [searchParams] = useSearchParams();
   const styles = mobileRoutesStyles();
   const groupId = decodeRouteParam(routeGroupId);
   const group = groupId ? (data.graph.groupById.get(groupId) ?? null) : null;
+  const routeQuery = searchParams.get("query") ?? "";
+  const routeSort = parseRouteSort(searchParams.get("sort"));
+  const [query, setQuery] = useState(routeQuery);
+  const [sort, setSort] = useState<RouteSort>(routeSort);
   const commandDisabled = commandsAreDisabled(
     data.configuredRoutesActive,
     data.connection.stale,
     data.routingMode,
     group,
   );
+
+  useEffect(() => {
+    setQuery(routeQuery);
+    setSort(routeSort);
+  }, [groupId, routeQuery, routeSort]);
+
+  const routeSearch = serializeGroupRouteSearch(searchParams, query, sort);
   const selectionUnavailable = commandDisabled || !data.isCommandSupported("group");
   const delayUnavailable = commandDisabled || !data.isCommandSupported("group-delay");
   const actionNotice = data.connection.stale
@@ -355,7 +380,7 @@ export function MobileRouteGroupPage() {
                 child: getEntityLabel(data.graph, childId),
               })
             }
-            childBrowseTo={(childId) => childPath(group.id, childId)}
+            childBrowseTo={(childId) => childPath(group.id, childId, routeSearch)}
             commandsDisabled={commandDisabled}
             emptyClassName="px-4 py-7 text-center text-metadata text-muted-foreground"
             emptyLabel={LL.routes.noChildren()}
@@ -364,11 +389,11 @@ export function MobileRouteGroupPage() {
             listClassName="min-w-0"
             mobile
             onQueryChange={setQuery}
-            onSortChange={(sort) => browserSession.setSort(group.id, sort)}
+            onSortChange={setSort}
             query={query}
             searchLabel={LL.routes.searchCurrentGroup({ group: group.label })}
             searchPlaceholder={LL.routes.searchCurrentGroupPlaceholder()}
-            sort={browserSession.sortFor(group.id)}
+            sort={sort}
           />
         </div>
       </section>

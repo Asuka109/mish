@@ -73,9 +73,12 @@ describe("MobileShell", () => {
     expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/routes");
 
     group.unmount();
-    renderShell("/routes/proxy/children/nrt-03");
+    renderShell("/routes/proxy/children/nrt-03?query=NRT-03&sort=latency");
 
-    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/routes/proxy");
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute(
+      "href",
+      "/routes/proxy?query=NRT-03&sort=latency",
+    );
     expect(screen.getByRole("link", { name: "Routes" })).toHaveAttribute("aria-current", "page");
   });
 });

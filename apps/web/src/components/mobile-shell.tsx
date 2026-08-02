@@ -90,10 +90,10 @@ function isRoutesPath(pathname: string) {
   return pathname === "/routes" || pathname.startsWith("/routes/");
 }
 
-function mobileBackTarget(pathname: string) {
+function mobileBackTarget(pathname: string, search: string) {
   const segments = pathname.split("/");
   if (segments[1] !== "routes" || segments.length < 3) return null;
-  if (segments[3] === "children" && segments[2]) return "/routes/" + segments[2];
+  if (segments[3] === "children" && segments[2]) return "/routes/" + segments[2] + search;
   return "/routes";
 }
 
@@ -102,7 +102,7 @@ export function MobileShell({ fixture }: MobileShellProps) {
   const location = useLocation();
   const activity = isActivityPath(location.pathname);
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
-  const backTarget = mobileBackTarget(location.pathname);
+  const backTarget = mobileBackTarget(location.pathname, location.search);
 
   return (
     <div className={mobileShellStyles().root()} data-platform={fixture.platform}>

@@ -71,7 +71,7 @@ function renderMobileRoutes(
 ) {
   document.documentElement.dataset.runtime = "mobile";
   container = document.createElement("div");
-  container.style.height = "100vh";
+  container.id = "root";
   document.body.append(container);
   root = createRoot(container);
   root.render(
@@ -229,6 +229,30 @@ describe("Android mobile Routes geometry", () => {
     });
     await userEvent.click(page.getByRole("link", { exact: true, name: "Back" }));
     await vi.waitFor(() => expect(document.querySelector(".mobile-routes-list")).not.toBeNull());
+  });
+
+  test("keeps the group search and sort in the route when returning from a child", async () => {
+    await page.viewport(360, 568);
+    renderMobileRoutes("/routes/streaming");
+    await waitForRoute(".mobile-policy-browser-toolbar");
+
+    await userEvent.click(page.getByRole("combobox", { name: "Sort children in 🎬 Streaming" }));
+    await userEvent.click(await page.getByRole("option", { name: "Latency" }));
+    const search = page.getByRole("searchbox", { name: "Search direct children of 🎬 Streaming" });
+    await userEvent.click(search);
+    await userEvent.type(search, "NRT-03");
+    await userEvent.click(page.getByRole("link", { name: "View Details for 🇯🇵 NRT-03" }));
+    await waitForRoute("#mobile-routes-child-title");
+    await userEvent.click(page.getByRole("link", { exact: true, name: "Back" }));
+
+    await vi.waitFor(() => {
+      expect(
+        page.getByRole("searchbox", { name: "Search direct children of 🎬 Streaming" }),
+      ).toHaveValue("NRT-03");
+      expect(
+        page.getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
+      ).toHaveTextContent("Latency");
+    });
   });
 
   test("bounds a large group and announces the next page without losing touch geometry", async () => {

@@ -244,6 +244,33 @@ describe("Android mobile Routes", () => {
     ).toBeEnabled();
   });
 
+  it("preserves group search and sort when returning from a child detail route", async () => {
+    const user = userEvent.setup();
+    renderMobileRoutes({ entry: "/routes/streaming" });
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search direct children of 🎬 Streaming",
+    });
+    await user.click(screen.getByRole("combobox", { name: "Sort children in 🎬 Streaming" }));
+    await user.click(await screen.findByRole("option", { name: "Latency" }));
+    await user.type(search, "NRT-03");
+    await user.click(screen.getByRole("link", { name: "View Details for 🇯🇵 NRT-03" }));
+
+    expect(await screen.findByRole("heading", { name: "🇯🇵 NRT-03" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute(
+      "href",
+      "/routes/streaming?sort=latency&query=NRT-03",
+    );
+    await user.click(screen.getByRole("link", { name: "Back" }));
+
+    expect(
+      await screen.findByRole("searchbox", { name: "Search direct children of 🎬 Streaming" }),
+    ).toHaveValue("NRT-03");
+    expect(
+      screen.getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
+    ).toHaveTextContent("Latency");
+  });
+
   it("explains unavailable mobile commands without changing the confirmed selection", async () => {
     const client = new UnsupportedCommandsClient();
     renderMobileRoutes({ client, entry: "/routes/streaming" });

@@ -79,6 +79,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+:root[data-runtime="mobile"],
+:root[data-runtime="mobile"] body,
+:root[data-runtime="mobile"] #root {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
 :root[data-window-surface="material"],
 :root[data-window-surface="material"] body,
 :root[data-window-surface="material"] #root,
