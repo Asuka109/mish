@@ -1384,62 +1384,60 @@ impl MishRuntime {
         self.record_application_event(ApplicationDiagnosticEvent::capture_transition_failure(
             error,
         ));
-        let _ = self
-            .notifications
-            .publish_occurrence(NotificationPublication {
-                dedupe_key: "capture.failure".into(),
-                pinned: false,
-                presentation: ApplicationNotification::new(
-                    ApplicationNotificationContent::CaptureFailure(
-                        CaptureFailureApplicationNotificationData {
-                            capture_mode: attempted_selection
-                                .and_then(|selection| {
-                                    if selection.tun {
+        let _ = self.publish_notification(NotificationPublication {
+            dedupe_key: "capture.failure".into(),
+            pinned: false,
+            presentation: ApplicationNotification::new(
+                ApplicationNotificationContent::CaptureFailure(
+                    CaptureFailureApplicationNotificationData {
+                        capture_mode: attempted_selection
+                            .and_then(|selection| {
+                                if selection.tun {
+                                    Some("tun".into())
+                                } else if selection.system_proxy {
+                                    Some("system-proxy".into())
+                                } else {
+                                    None
+                                }
+                            })
+                            .or_else(|| {
+                                capture_status.as_ref().and_then(|status| {
+                                    if matches!(
+                                        status.tun.phase,
+                                        TunPhase::Failed | TunPhase::Drift
+                                    ) {
                                         Some("tun".into())
-                                    } else if selection.system_proxy {
+                                    } else if matches!(
+                                        status.system_proxy.phase,
+                                        SystemProxyPhase::Failed | SystemProxyPhase::Drift
+                                    ) {
                                         Some("system-proxy".into())
                                     } else {
                                         None
                                     }
                                 })
-                                .or_else(|| {
-                                    capture_status.as_ref().and_then(|status| {
-                                        if matches!(
-                                            status.tun.phase,
-                                            TunPhase::Failed | TunPhase::Drift
-                                        ) {
-                                            Some("tun".into())
-                                        } else if matches!(
-                                            status.system_proxy.phase,
-                                            SystemProxyPhase::Failed | SystemProxyPhase::Drift
-                                        ) {
-                                            Some("system-proxy".into())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                }),
-                            failure: capture_failure_presentation_id(failure).into(),
-                            observation_stage: error
-                                .observation_stage
-                                .map(system_proxy_observation_stage_presentation_id)
-                                .map(str::to_owned),
-                            takeover_reason: error
-                                .takeover_rejection
-                                .map(system_proxy_takeover_rejection_presentation_id)
-                                .map(str::to_owned),
-                        },
-                    ),
-                    action_ids,
+                            }),
+                        failure: capture_failure_presentation_id(failure).into(),
+                        observation_stage: error
+                            .observation_stage
+                            .map(system_proxy_observation_stage_presentation_id)
+                            .map(str::to_owned),
+                        takeover_reason: error
+                            .takeover_rejection
+                            .map(system_proxy_takeover_rejection_presentation_id)
+                            .map(str::to_owned),
+                    },
                 ),
-                replaces: Vec::new(),
-                resolved: false,
-                severity: if failure == CaptureFailureKind::CoreUnhealthy {
-                    NotificationSeverity::Warning
-                } else {
-                    NotificationSeverity::Error
-                },
-            });
+                action_ids,
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: if failure == CaptureFailureKind::CoreUnhealthy {
+                NotificationSeverity::Warning
+            } else {
+                NotificationSeverity::Error
+            },
+        });
     }
 
     pub fn run_proxy_diagnostic(

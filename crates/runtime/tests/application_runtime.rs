@@ -709,7 +709,7 @@ fn capture_diagnostics_remain_independent_from_notification_state() {
 }
 
 #[test]
-fn a_repeated_capture_failure_requeues_its_folded_notification_without_duplication() {
+fn a_repeated_unresolved_capture_failure_does_not_requeue_its_folded_notification() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
     let failure = CaptureTransitionError::new(
         mish_runtime::CaptureFailureKind::ConfirmationFailed,
@@ -743,14 +743,28 @@ fn a_repeated_capture_failure_requeues_its_folded_notification_without_duplicati
     assert_eq!(snapshot.notifications[0].id, first.id);
     assert_eq!(
         snapshot.notifications[0].presentation_state.phase,
-        NotificationPresentationPhase::Unpresented
+        NotificationPresentationPhase::Folded
     );
     let repeated = runtime
         .claim_next_notification_presentation(NotificationPresentationIdentity {
             client_id: "desktop-webview".into(),
             session_id: "second-session".into(),
         })
+        .claim;
+    assert!(repeated.is_none());
+
+    runtime.resolve_notification("capture.failure");
+    runtime.record_capture_failure(&failure);
+
+    let recurred = runtime.notification_snapshot();
+    assert_eq!(recurred.notifications.len(), 2);
+    assert_ne!(recurred.notifications[0].id, recurred.notifications[1].id);
+    let next = runtime
+        .claim_next_notification_presentation(NotificationPresentationIdentity {
+            client_id: "desktop-webview".into(),
+            session_id: "third-session".into(),
+        })
         .claim
-        .expect("repeated failure is presentable again");
-    assert!(repeated.lease_generation > first.lease_generation);
+        .expect("a failure that recurs after resolution is a new occurrence");
+    assert_ne!(next.id, first.id);
 }

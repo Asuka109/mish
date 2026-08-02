@@ -43,7 +43,9 @@ use mish_runtime::{
     CaptureAuditReason, CaptureFailureKind, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
     CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState, RoutingMode, StatusAdapterKind, SystemProxyPhase,
+    NetworkServiceProxyState, NotificationPresentationCompletion,
+    NotificationPresentationFoldReason, NotificationPresentationIdentity,
+    NotificationPresentationPhase, RoutingMode, StatusAdapterKind, SystemProxyPhase,
     TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
     TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
@@ -999,6 +1001,58 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         .await;
     assert!(!degraded.runtime.tun_enabled);
     assert_eq!(degraded.runtime.tun.phase, mish_runtime::TunPhase::Drift);
+    let notification_owner = NotificationPresentationIdentity {
+        client_id: "desktop-webview".into(),
+        session_id: "degraded-tun".into(),
+    };
+    let first_drift = host
+        .current()
+        .claim_next_notification_presentation(notification_owner.clone())
+        .claim
+        .expect("the first degraded TUN observation is presentable");
+    assert!(
+        host.current()
+            .complete_notification_presentation(NotificationPresentationCompletion {
+                client_id: notification_owner.client_id.clone(),
+                id: first_drift.id.clone(),
+                lease_generation: first_drift.lease_generation,
+                outcome: NotificationPresentationFoldReason::TimedOut,
+                revision: first_drift.revision,
+                session_id: notification_owner.session_id,
+            })
+            .accepted
+    );
+
+    assert_eq!(
+        host.current()
+            .audit_capture(CaptureAuditReason::Periodic)
+            .await
+            .unwrap_err()
+            .kind,
+        CaptureFailureKind::ConfirmationFailed
+    );
+    let repeated_drift = host.current().notification_snapshot();
+    let capture_failures = repeated_drift
+        .notifications
+        .iter()
+        .filter(|record| record.presentation.kind() == "capture.failure")
+        .collect::<Vec<_>>();
+    assert_eq!(capture_failures.len(), 1);
+    assert_eq!(capture_failures[0].id, first_drift.id);
+    assert_eq!(
+        capture_failures[0].presentation_state.phase,
+        NotificationPresentationPhase::Folded
+    );
+    assert!(
+        host.current()
+            .claim_next_notification_presentation(NotificationPresentationIdentity {
+                client_id: "desktop-webview".into(),
+                session_id: "same-degraded-tun".into(),
+            })
+            .claim
+            .is_none(),
+        "periodic audits of one unresolved drift must not create repeated toasts"
+    );
     tun_platform
         .fail_observation
         .store(false, Ordering::Relaxed);
@@ -1017,6 +1071,14 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         )
         .await
         .unwrap();
+    assert!(
+        host.notification_snapshot()
+            .notifications
+            .iter()
+            .find(|record| record.id == first_drift.id)
+            .is_some_and(|record| record.resolved),
+        "a confirmed Capture recovery must close the drift lifecycle before a future recurrence"
+    );
     let stopped_core = host.current();
     assert!(
         !tun_core.is_same_instance(&stopped_core),
