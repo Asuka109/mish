@@ -861,6 +861,7 @@ fn reduce_shutdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::MobileVpnCommandResult;
 
     fn facts(sequence: u64) -> PlatformFacts {
         PlatformFacts {
@@ -1090,6 +1091,39 @@ mod tests {
             LifecycleCommandKind::Start
         );
         assert!(starting.active.is_some());
+    }
+
+    #[test]
+    fn command_result_snapshot_stays_bound_to_the_requested_operation() {
+        let machine = LifecycleMachine;
+        let first = next_state(machine.reduce(
+            &state(),
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Stop,
+                correlation: correlation("stop-1", 2),
+                new_session_id: None,
+            },
+        ));
+        let second = next_state(machine.reduce(
+            &first,
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Stop,
+                correlation: correlation("stop-2", first.revision + 1),
+                new_session_id: None,
+            },
+        ));
+
+        let result = MobileVpnCommandResult::from_state(&second, "stop-1")
+            .expect("the earlier terminal operation must remain addressable");
+        assert_eq!(result.operation.operation_id, "stop-1");
+        assert_eq!(
+            result
+                .snapshot
+                .operation
+                .as_ref()
+                .map(|operation| operation.operation_id.as_str()),
+            Some("stop-1")
+        );
     }
 
     #[test]

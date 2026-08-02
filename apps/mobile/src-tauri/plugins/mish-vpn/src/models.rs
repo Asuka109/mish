@@ -170,11 +170,10 @@ impl MobileVpnCommandResult {
         if operation.outcome == LifecycleOperationOutcome::Pending {
             return None;
         }
-        Some(Self {
-            contract_version: CONTRACT_VERSION,
+        Some(Self::bind_operation(
             operation,
-            snapshot: MobileVpnSnapshot::from_lifecycle(state),
-        })
+            MobileVpnSnapshot::from_lifecycle(state),
+        ))
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -183,16 +182,15 @@ impl MobileVpnCommandResult {
         kind: crate::lifecycle::LifecycleCommandKind,
         snapshot: MobileVpnSnapshot,
     ) -> Self {
-        Self {
-            contract_version: CONTRACT_VERSION,
-            operation: LifecycleOperation {
+        Self::bind_operation(
+            LifecycleOperation {
                 failure: Some(LifecycleFailure::InvalidCommand),
                 kind,
                 operation_id,
                 outcome: LifecycleOperationOutcome::Rejected,
             },
             snapshot,
-        }
+        )
     }
 
     #[cfg(not(target_os = "android"))]
@@ -200,15 +198,23 @@ impl MobileVpnCommandResult {
         operation_id: String,
         kind: crate::lifecycle::LifecycleCommandKind,
     ) -> Self {
-        Self {
-            contract_version: CONTRACT_VERSION,
-            operation: LifecycleOperation {
+        Self::bind_operation(
+            LifecycleOperation {
                 failure: Some(LifecycleFailure::PlatformFailure),
                 kind,
                 operation_id,
                 outcome: LifecycleOperationOutcome::Unknown,
             },
-            snapshot: MobileVpnSnapshot::unsupported(),
+            MobileVpnSnapshot::unsupported(),
+        )
+    }
+
+    fn bind_operation(operation: LifecycleOperation, mut snapshot: MobileVpnSnapshot) -> Self {
+        snapshot.operation = Some(operation.clone());
+        Self {
+            contract_version: CONTRACT_VERSION,
+            operation,
+            snapshot,
         }
     }
 }
