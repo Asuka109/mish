@@ -31,6 +31,7 @@ const requiredMachines = [
   "bridge-connectivity",
   "platform-observation-adapters",
   "ephemeral-react-interactions",
+  "android-fixture-vpn-lifecycle",
 ] as const;
 
 const conformingSources = new Map([
@@ -38,6 +39,7 @@ const conformingSources = new Map([
   ["internal-tun-alpha-package", "impl Machine for PackageMachine"],
   ["tun-helper-core-network", "impl Machine for TunLifecycleMachine"],
   ["capture-system-proxy", "impl Machine for CaptureMachine"],
+  ["android-fixture-vpn-lifecycle", "impl Machine for LifecycleMachine"],
 ]);
 
 const failures: string[] = [];

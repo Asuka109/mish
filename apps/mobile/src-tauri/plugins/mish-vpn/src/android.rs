@@ -1,83 +1,489 @@
-use serde::Serialize;
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+
+use mish_state_machine::{
+    EffectExecutor, RunnerConfig, RunnerHandle, TransitionObserver, spawn_runner,
+};
+use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Runtime,
+    AppHandle, Emitter, Runtime,
+    ipc::{Channel, InvokeResponseBody},
     plugin::{PluginApi, PluginHandle},
 };
+use tokio::sync::{OnceCell, mpsc, watch};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::{
-    MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadRequest,
-    MobileConfigLoadResult, MobileConfigValidationRequest, MobileConfigValidationResult,
-    MobileVpnSnapshot, Result,
+    MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadCancellation,
+    MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
+    MobileConfigLoadResult, MobileConfigLoadTiming, MobileConfigRollback,
+    MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
+    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
+    lifecycle::{
+        LifecycleCommandKind, LifecycleEffect, LifecycleInput, LifecycleMachine, LifecycleState,
+        PlatformAction, PlatformFacts,
+    },
+    models::{MobileConfigValidationOutcome, MobileVpnEvent},
 };
 
 const PLUGIN_IDENTIFIER: &str = "com.asuka109.mish.vpn";
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
-pub struct MishVpn<R: Runtime>(PluginHandle<R>);
+pub struct MishVpn<R: Runtime> {
+    handle: PluginHandle<R>,
+    lifecycle: Arc<OnceCell<LifecycleRuntime>>,
+}
+
+struct LifecycleRuntime {
+    runner: RunnerHandle<LifecycleMachine>,
+    updates: watch::Receiver<LifecycleState>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeListenerPayload {
+    event: &'static str,
+    handler: Channel<serde_json::Value>,
+}
 
 #[derive(Serialize)]
 struct EmptyPayload {}
 
-pub fn init<R: Runtime>(_app: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishVpn<R>> {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformConfigValidationRequest {
+    config_bytes: Vec<u8>,
+    sequence: u64,
+    session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlatformConfigValidationResult {
+    contract_version: u8,
+    failure: Option<MobileConfigValidationFailure>,
+    message: String,
+    outcome: MobileConfigValidationOutcome,
+    sequence: u64,
+    session_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformConfigLoadRequest {
+    config_bytes: Vec<u8>,
+    digest: String,
+    inject_failure: bool,
+    operation_id: String,
+    revision: String,
+    sequence: u64,
+    session_id: String,
+    timeout_millis: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlatformConfigLoadResult {
+    cancellation: MobileConfigLoadCancellation,
+    contract_version: u8,
+    digest: String,
+    failure: Option<MobileConfigLoadFailure>,
+    facts: PlatformFacts,
+    message: String,
+    operation_id: String,
+    outcome: MobileConfigLoadOutcome,
+    revision: String,
+    rollback: MobileConfigRollback,
+    timing: MobileConfigLoadTiming,
+}
+
+pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishVpn<R>> {
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "MishVpnPlugin")?;
-    Ok(MishVpn(handle))
+    Ok(MishVpn {
+        handle,
+        lifecycle: Arc::new(OnceCell::new()),
+    })
 }
 
 impl<R: Runtime> MishVpn<R> {
-    pub fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
-        Ok(self.0.run_mobile_plugin("getSnapshot", EmptyPayload {})?)
+    async fn runtime(&self) -> Result<&LifecycleRuntime> {
+        self.lifecycle
+            .get_or_try_init(|| async { self.initialize_lifecycle().await })
+            .await
     }
 
-    pub fn request_notification_permission(&self) -> Result<MobileVpnSnapshot> {
-        Ok(self
-            .0
-            .run_mobile_plugin("requestNotificationPermission", EmptyPayload {})?)
+    async fn initialize_lifecycle(&self) -> Result<LifecycleRuntime> {
+        let (fact_sender, mut fact_receiver) = mpsc::channel::<PlatformFacts>(32);
+        let channel = Channel::new(move |body| {
+            let InvokeResponseBody::Json(json) = body else {
+                return Ok(());
+            };
+            if let Ok(facts) = serde_json::from_str::<PlatformFacts>(&json) {
+                let _ = fact_sender.try_send(facts);
+            }
+            Ok(())
+        });
+        self.handle
+            .run_mobile_plugin_async::<()>(
+                "registerListener",
+                NativeListenerPayload {
+                    event: "facts",
+                    handler: channel,
+                },
+            )
+            .await?;
+        let facts: PlatformFacts = self
+            .handle
+            .run_mobile_plugin_async("getPlatformFacts", EmptyPayload {})
+            .await?;
+        let initial = LifecycleState::initial(
+            Uuid::new_v4().to_string(),
+            Uuid::new_v4().to_string(),
+            facts,
+        );
+        let (updates, receiver) = watch::channel(initial.clone());
+        let observer = Arc::new(LifecycleObserver {
+            app: self.handle.app().clone(),
+            updates,
+        });
+        let executor = Arc::new(AndroidLifecycleExecutor {
+            handle: self.handle.clone(),
+        });
+        let runner = spawn_runner(
+            Arc::new(LifecycleMachine),
+            initial,
+            executor,
+            observer,
+            RunnerConfig::default(),
+        );
+        let event_runner = runner.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(facts) = fact_receiver.recv().await {
+                let _ = event_runner
+                    .admit(LifecycleInput::PlatformObserved(facts))
+                    .await;
+            }
+        });
+        Ok(LifecycleRuntime {
+            runner,
+            updates: receiver,
+        })
     }
 
-    pub fn request_vpn_consent(&self) -> Result<MobileVpnSnapshot> {
-        Ok(self
-            .0
-            .run_mobile_plugin("requestVpnConsent", EmptyPayload {})?)
+    pub async fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
+        let runtime = self.runtime().await?;
+        let facts: PlatformFacts = self
+            .handle
+            .run_mobile_plugin_async("getPlatformFacts", EmptyPayload {})
+            .await?;
+        let _ = runtime
+            .runner
+            .admit(LifecycleInput::PlatformObserved(facts))
+            .await;
+        Ok(MobileVpnSnapshot::from_lifecycle(
+            &runtime.runner.snapshot(),
+        ))
     }
 
-    pub fn start_fixture_lifecycle(&self) -> Result<MobileVpnSnapshot> {
-        Ok(self
-            .0
-            .run_mobile_plugin("startFixtureLifecycle", EmptyPayload {})?)
+    pub async fn request_notification_permission(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        self.execute_command(LifecycleCommandKind::RequestNotificationPermission, request)
+            .await
     }
 
-    pub fn stop(&self) -> Result<MobileVpnSnapshot> {
-        Ok(self.0.run_mobile_plugin("stop", EmptyPayload {})?)
+    pub async fn request_vpn_consent(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        self.execute_command(LifecycleCommandKind::RequestVpnConsent, request)
+            .await
     }
 
-    pub fn validate_config(
+    pub async fn start_fixture_lifecycle(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        self.execute_command(LifecycleCommandKind::Start, request)
+            .await
+    }
+
+    pub async fn stop(&self, request: MobileVpnCommandRequest) -> Result<MobileVpnCommandResult> {
+        self.execute_command(LifecycleCommandKind::Stop, request)
+            .await
+    }
+
+    pub async fn cancel_lifecycle_operation(
+        &self,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        let runtime = self.runtime().await?;
+        let current = runtime.runner.snapshot();
+        if !valid_operation_id(&request.operation_id) {
+            return Ok(MobileVpnCommandResult::invalid(
+                request.operation_id,
+                LifecycleCommandKind::Stop,
+                MobileVpnSnapshot::from_lifecycle(&current),
+            ));
+        }
+        let _ = runtime
+            .runner
+            .admit(LifecycleInput::Cancel {
+                operation_id: request.operation_id.clone(),
+                timed_out: false,
+            })
+            .await;
+        Ok(command_result_or_invalid(
+            &runtime.runner.snapshot(),
+            request.operation_id,
+        ))
+    }
+
+    async fn execute_command(
+        &self,
+        command: LifecycleCommandKind,
+        request: MobileVpnCommandRequest,
+    ) -> Result<MobileVpnCommandResult> {
+        let runtime = self.runtime().await?;
+        let initial = runtime.runner.snapshot();
+        if !valid_operation_id(&request.operation_id) {
+            return Ok(MobileVpnCommandResult::invalid(
+                request.operation_id,
+                command,
+                MobileVpnSnapshot::from_lifecycle(&initial),
+            ));
+        }
+        if initial
+            .operation(&request.operation_id)
+            .is_some_and(|operation| operation.kind != command)
+        {
+            return Ok(MobileVpnCommandResult::invalid(
+                request.operation_id,
+                command,
+                MobileVpnSnapshot::from_lifecycle(&initial),
+            ));
+        }
+        if let Some(result) = MobileVpnCommandResult::from_state(&initial, &request.operation_id) {
+            return Ok(result);
+        }
+        let admitted_revision = initial.revision.saturating_add(1);
+        let correlation = mish_state_machine::Correlation {
+            machine_authority: initial.authority_id.clone(),
+            scope_epoch: 1,
+            operation_id: request.operation_id.clone(),
+            admitted_revision,
+            effect_id: 1,
+        };
+        let _ = runtime
+            .runner
+            .admit(LifecycleInput::Command {
+                command,
+                correlation,
+                new_session_id: (command == LifecycleCommandKind::Start)
+                    .then(|| Uuid::new_v4().to_string()),
+            })
+            .await;
+        if let Some(result) =
+            MobileVpnCommandResult::from_state(&runtime.runner.snapshot(), &request.operation_id)
+        {
+            return Ok(result);
+        }
+
+        let mut updates = runtime.updates.clone();
+        let operation_id = request.operation_id.clone();
+        let terminal = async {
+            loop {
+                if let Some(result) =
+                    MobileVpnCommandResult::from_state(&updates.borrow(), &operation_id)
+                {
+                    return result;
+                }
+                if updates.changed().await.is_err() {
+                    return command_result_or_invalid(&runtime.runner.snapshot(), operation_id);
+                }
+            }
+        };
+        match tokio::time::timeout(COMMAND_TIMEOUT, terminal).await {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                let _ = runtime
+                    .runner
+                    .admit(LifecycleInput::Cancel {
+                        operation_id: request.operation_id.clone(),
+                        timed_out: true,
+                    })
+                    .await;
+                Ok(command_result_or_invalid(
+                    &runtime.runner.snapshot(),
+                    request.operation_id,
+                ))
+            }
+        }
+    }
+
+    pub async fn validate_config(
         &self,
         request: MobileConfigValidationRequest,
     ) -> MobileConfigValidationResult {
         if let Some(result) = MobileConfigValidationResult::preflight(&request) {
             return result;
         }
-        self.0
-            .run_mobile_plugin("validateConfig", &request)
-            .unwrap_or_else(|_| MobileConfigValidationResult::plugin_failure(&request))
+        let Ok(runtime) = self.runtime().await else {
+            return MobileConfigValidationResult::plugin_failure(&request);
+        };
+        let initial = runtime.runner.snapshot();
+        if request.sequence != initial.sequence || request.session_id != initial.session_id {
+            return MobileConfigValidationResult::failure(
+                MobileConfigValidationFailure::StaleAuthority,
+                "The mobile runtime authority is stale.",
+                initial.sequence,
+                &initial.session_id,
+            );
+        }
+        let platform_request = PlatformConfigValidationRequest {
+            config_bytes: request.config_bytes,
+            sequence: initial.facts.fact_sequence,
+            session_id: initial.facts.platform_session_id.clone(),
+        };
+        let result = self
+            .handle
+            .run_mobile_plugin_async::<PlatformConfigValidationResult>(
+                "validateConfig",
+                platform_request,
+            )
+            .await;
+        let current = runtime.runner.snapshot();
+        let Ok(result) = result else {
+            return MobileConfigValidationResult::failure(
+                MobileConfigValidationFailure::PluginFailure,
+                "The Android validation plugin failed safely.",
+                current.sequence,
+                &current.session_id,
+            );
+        };
+        if current.authority_id != initial.authority_id
+            || current.session_id != initial.session_id
+            || result.contract_version != 1
+            || result.sequence != initial.facts.fact_sequence
+            || result.session_id != initial.facts.platform_session_id
+            || result.message.len() > 256
+        {
+            return MobileConfigValidationResult::failure(
+                MobileConfigValidationFailure::StaleAuthority,
+                "The mobile runtime authority changed during configuration validation.",
+                current.sequence,
+                &current.session_id,
+            );
+        }
+        MobileConfigValidationResult {
+            contract_version: 1,
+            failure: result.failure,
+            message: result.message,
+            outcome: result.outcome,
+            sequence: Some(current.sequence),
+            session_id: Some(current.session_id),
+        }
     }
 
-    pub fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
+    pub async fn load_config(&self, request: MobileConfigLoadRequest) -> MobileConfigLoadResult {
         if let Some(result) = MobileConfigLoadResult::preflight(&request) {
             return result;
         }
-        self.0
-            .run_mobile_plugin("loadConfig", &request)
-            .unwrap_or_else(|_| {
-                MobileConfigLoadResult::plugin_failure(&request, self.get_snapshot().ok())
-            })
+        let Ok(runtime) = self.runtime().await else {
+            return MobileConfigLoadResult::plugin_failure(&request, None);
+        };
+        let initial = runtime.runner.snapshot();
+        if request.sequence != initial.sequence || request.session_id != initial.session_id {
+            return MobileConfigLoadResult::failure(
+                &request,
+                MobileConfigLoadFailure::StaleAuthority,
+                "The mobile runtime authority is stale.",
+                Some(MobileVpnSnapshot::from_lifecycle(&initial)),
+            );
+        }
+        let platform_request = PlatformConfigLoadRequest {
+            config_bytes: request.config_bytes.clone(),
+            digest: request.digest.clone(),
+            inject_failure: request.inject_failure,
+            operation_id: request.operation_id.clone(),
+            revision: request.revision.clone(),
+            sequence: initial.facts.fact_sequence,
+            session_id: initial.facts.platform_session_id.clone(),
+            timeout_millis: request.timeout_millis,
+        };
+        let result = self
+            .handle
+            .run_mobile_plugin_async::<PlatformConfigLoadResult>("loadConfig", platform_request)
+            .await;
+        let Ok(result) = result else {
+            return MobileConfigLoadResult::plugin_failure(
+                &request,
+                Some(MobileVpnSnapshot::from_lifecycle(
+                    &runtime.runner.snapshot(),
+                )),
+            );
+        };
+        if result.contract_version != 1
+            || result.message.len() > 256
+            || result.operation_id != request.operation_id
+            || result.revision != request.revision
+            || result.digest != request.digest
+        {
+            return MobileConfigLoadResult::plugin_failure(
+                &request,
+                Some(MobileVpnSnapshot::from_lifecycle(
+                    &runtime.runner.snapshot(),
+                )),
+            );
+        }
+        if result.facts.platform_session_id != initial.facts.platform_session_id
+            || result.facts.fact_sequence < initial.facts.fact_sequence
+        {
+            return MobileConfigLoadResult::failure(
+                &request,
+                MobileConfigLoadFailure::RuntimeReplaced,
+                "The Android platform authority was replaced during configuration loading.",
+                Some(MobileVpnSnapshot::from_lifecycle(
+                    &runtime.runner.snapshot(),
+                )),
+            );
+        }
+        let _ = runtime
+            .runner
+            .admit(LifecycleInput::PlatformObserved(result.facts))
+            .await;
+        let current = runtime.runner.snapshot();
+        if current.authority_id != initial.authority_id || current.session_id != initial.session_id
+        {
+            return MobileConfigLoadResult::failure(
+                &request,
+                MobileConfigLoadFailure::RuntimeReplaced,
+                "The mobile runtime was replaced during configuration loading.",
+                Some(MobileVpnSnapshot::from_lifecycle(&current)),
+            );
+        }
+        MobileConfigLoadResult {
+            cancellation: result.cancellation,
+            contract_version: 1,
+            digest: result.digest,
+            failure: result.failure,
+            message: result.message,
+            operation_id: result.operation_id,
+            outcome: result.outcome,
+            revision: result.revision,
+            rollback: result.rollback,
+            snapshot: Some(MobileVpnSnapshot::from_lifecycle(&current)),
+            timing: result.timing,
+        }
     }
 
     pub fn cancel_config_load(
         &self,
         request: MobileConfigCancelRequest,
     ) -> MobileConfigCancelResult {
-        self.0
+        self.handle
             .run_mobile_plugin("cancelConfigLoad", &request)
             .unwrap_or(MobileConfigCancelResult {
                 accepted: false,
@@ -85,4 +491,84 @@ impl<R: Runtime> MishVpn<R> {
                 operation_id: request.operation_id,
             })
     }
+}
+
+struct AndroidLifecycleExecutor<R: Runtime> {
+    handle: PluginHandle<R>,
+}
+
+impl<R: Runtime> EffectExecutor<LifecycleMachine> for AndroidLifecycleExecutor<R> {
+    fn execute(
+        &self,
+        effect: LifecycleEffect,
+        _cancellation: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = LifecycleInput> + Send + 'static>> {
+        let handle = self.handle.clone();
+        Box::pin(async move {
+            let command = match effect.action {
+                PlatformAction::RequestNotificationPermission => "requestNotificationPermission",
+                PlatformAction::RequestVpnConsent => "requestVpnConsent",
+                PlatformAction::StartForegroundService => "startPlatformLifecycle",
+                PlatformAction::StopForegroundService => "stopPlatformLifecycle",
+            };
+            match handle
+                .run_mobile_plugin_async::<PlatformFacts>(command, EmptyPayload {})
+                .await
+            {
+                Ok(facts) => LifecycleInput::EffectCompleted {
+                    action: effect.action,
+                    correlation: effect.correlation,
+                    facts,
+                },
+                Err(_) => LifecycleInput::EffectFailed {
+                    action: effect.action,
+                    correlation: effect.correlation,
+                },
+            }
+        })
+    }
+}
+
+struct LifecycleObserver<R: Runtime> {
+    app: AppHandle<R>,
+    updates: watch::Sender<LifecycleState>,
+}
+
+impl<R: Runtime> TransitionObserver<LifecycleMachine> for LifecycleObserver<R> {
+    fn transitioned(
+        &self,
+        previous: &LifecycleState,
+        _: &LifecycleInput,
+        current: &LifecycleState,
+        _: mish_state_machine::Disposition,
+    ) {
+        if current.sequence <= previous.sequence {
+            return;
+        }
+        self.updates.send_replace(current.clone());
+        let _ = self
+            .app
+            .emit("mish-vpn://snapshot", MobileVpnEvent::from_state(current));
+    }
+}
+
+fn valid_operation_id(operation_id: &str) -> bool {
+    !operation_id.is_empty()
+        && operation_id.len() <= 128
+        && operation_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn command_result_or_invalid(
+    state: &LifecycleState,
+    operation_id: String,
+) -> MobileVpnCommandResult {
+    MobileVpnCommandResult::from_state(state, &operation_id).unwrap_or_else(|| {
+        MobileVpnCommandResult::invalid(
+            operation_id,
+            LifecycleCommandKind::Stop,
+            MobileVpnSnapshot::from_lifecycle(state),
+        )
+    })
 }

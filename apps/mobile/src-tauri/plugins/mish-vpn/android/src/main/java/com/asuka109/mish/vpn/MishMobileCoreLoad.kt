@@ -14,7 +14,8 @@ internal data class MobileCoreProcessRuntime(
     val configExecutor: ExecutorService,
     val coreProbe: MishMobileCoreProbe,
     val loadCoordinator: MobileConfigLoadCoordinator,
-    val store: MishVpnStateStore,
+    val platformExecutor: ExecutorService,
+    val store: MishVpnPlatformStore,
     val validationCoordinator: MobileConfigValidationCoordinator,
 )
 
@@ -35,7 +36,7 @@ internal object MobileCoreProcessRuntimeRegistry {
         allowFailureInjection: Boolean,
     ): MobileCoreProcessRuntime {
         val coreProbe = MishMobileCoreProbe()
-        val store = MishVpnStateStore(context.applicationContext)
+        val store = MishVpnPlatformStore(context.applicationContext)
         return MobileCoreProcessRuntime(
             configExecutor = Executors.newSingleThreadExecutor { runnable ->
                 Thread(runnable, "mish-config-core").apply { isDaemon = true }
@@ -47,6 +48,9 @@ internal object MobileCoreProcessRuntimeRegistry {
                 loader = coreProbe,
                 allowFailureInjection = allowFailureInjection,
             ),
+            platformExecutor = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "mish-vpn-platform-await").apply { isDaemon = true }
+            },
             store = store,
             validationCoordinator = MobileConfigValidationCoordinator(store, coreProbe),
         )
@@ -135,7 +139,7 @@ internal data class MobileConfigLoadResult(
     val outcome: String,
     val revision: String,
     val rollback: String,
-    val snapshot: MobileVpnSnapshot,
+    val facts: MobilePlatformFacts,
     val timing: String,
 ) {
     fun toJson(): JSONObject = JSONObject()
@@ -148,7 +152,7 @@ internal data class MobileConfigLoadResult(
         .put("outcome", outcome)
         .put("revision", revision)
         .put("rollback", rollback)
-        .put("snapshot", snapshot.toJson())
+        .put("facts", facts.toJson())
         .put("timing", timing)
 }
 
@@ -158,7 +162,7 @@ private data class ActiveConfigLoad(
 )
 
 internal class MobileConfigLoadCoordinator(
-    private val repository: SnapshotRepository,
+    private val repository: PlatformFactRepository,
     private val validator: MobileCoreConfigValidator,
     private val loader: MobileCoreConfigLoader,
     private val allowFailureInjection: Boolean = false,
@@ -225,12 +229,11 @@ internal class MobileConfigLoadCoordinator(
 
             val validated = repository.update {
                 it.copy(
-                    message = "Configuration revision was validated by Mobile Core.",
                     validatedConfigDigest = args.digest,
                     validatedConfigRevision = args.revision,
                 )
             }
-            if (validated.sessionId != initial.sessionId) {
+            if (validated.platformSessionId != initial.platformSessionId) {
                 return runtimeReplaced(args, validated)
             }
             if (operation.cancelled.get()) {
@@ -243,7 +246,7 @@ internal class MobileConfigLoadCoordinator(
             ) {
                 return result(
                     args = args,
-                    snapshot = validated,
+                    facts = validated,
                     outcome = "no-op",
                     message = "The admitted configuration revision is already loaded.",
                 )
@@ -258,7 +261,7 @@ internal class MobileConfigLoadCoordinator(
             }
             val timedOut = clockMillis() - startedAt > args.timeoutMillis
             val current = repository.current()
-            if (current.sessionId != initial.sessionId) {
+            if (current.platformSessionId != initial.platformSessionId) {
                 return runtimeReplaced(args, markUnknown())
             }
             val cancellation = if (operation.cancelled.get()) "too-late" else "not-requested"
@@ -268,18 +271,17 @@ internal class MobileConfigLoadCoordinator(
                         coreConfigState = "loaded",
                         loadedConfigDigest = args.digest,
                         loadedConfigRevision = args.revision,
-                        message = if (timedOut) {
-                            "Configuration loaded after the operation deadline; authoritative state was reconciled."
-                        } else {
-                            "Configuration loaded. VPN and TUN remain unavailable."
-                        },
                     )
                 }
                 return result(
                     args = args,
-                    snapshot = loaded,
+                    facts = loaded,
                     outcome = if (previousLoaded) "replacement" else "first-load",
-                    message = loaded.message,
+                    message = if (timedOut) {
+                        "Configuration loaded after the operation deadline; authoritative state was reconciled."
+                    } else {
+                        "Configuration loaded. VPN and TUN remain unavailable."
+                    },
                     cancellation = cancellation,
                     failure = if (timedOut) "timeout" else null,
                     timing = if (timedOut) "timed-out" else "on-time",
@@ -288,14 +290,11 @@ internal class MobileConfigLoadCoordinator(
 
             val reconciled = if (native.rollbackGuaranteed) {
                 repository.update {
-                    if (previousLoaded) {
-                        it.copy(message = "Configuration replacement failed; the prior loaded revision was preserved.")
-                    } else {
+                    if (previousLoaded) it else {
                         it.copy(
                             coreConfigState = "unloaded",
                             loadedConfigDigest = null,
                             loadedConfigRevision = null,
-                            message = "Configuration load failed; Mobile Core remains unloaded.",
                         )
                     }
                 }
@@ -305,9 +304,15 @@ internal class MobileConfigLoadCoordinator(
             val failure = mapLoadFailure(native.code)
             return result(
                 args = args,
-                snapshot = reconciled,
+                facts = reconciled,
                 outcome = "failed",
-                message = reconciled.message,
+                message = if (previousLoaded && native.rollbackGuaranteed) {
+                    "Configuration replacement failed; the prior loaded revision was preserved."
+                } else if (native.rollbackGuaranteed) {
+                    "Configuration load failed; Mobile Core remains unloaded."
+                } else {
+                    "Loaded Core state is unknown and requires explicit recovery."
+                },
                 cancellation = cancellation,
                 failure = if (timedOut) "timeout" else failure,
                 timing = if (timedOut) "timed-out" else "on-time",
@@ -321,9 +326,12 @@ internal class MobileConfigLoadCoordinator(
 
     private fun preflightFailure(
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
     ): MobileConfigLoadResult? {
-        if (args.sequence != snapshot.sequence || args.sessionId != snapshot.sessionId) {
+        if (
+            args.sequence != snapshot.factSequence ||
+            args.sessionId != snapshot.platformSessionId
+        ) {
             return failure(args, snapshot, "stale-authority", "The mobile runtime authority is stale.")
         }
         if (
@@ -367,7 +375,7 @@ internal class MobileConfigLoadCoordinator(
     private fun validationFailure(
         validation: NativeConfigValidationResult,
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
     ): MobileConfigLoadResult? {
         val mapped = when (validation.code) {
             NativeValidationCode.VALID -> return null
@@ -390,11 +398,11 @@ internal class MobileConfigLoadCoordinator(
 
     private fun cancelledBeforeLoad(
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
     ): MobileConfigLoadResult =
         result(
             args = args,
-            snapshot = snapshot,
+            facts = snapshot,
             outcome = "cancelled",
             message = "Configuration loading was cancelled before the native load barrier.",
             cancellation = "before-load",
@@ -404,11 +412,11 @@ internal class MobileConfigLoadCoordinator(
 
     private fun runtimeReplaced(
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
     ): MobileConfigLoadResult =
         result(
             args = args,
-            snapshot = snapshot,
+            facts = snapshot,
             outcome = "failed",
             message = "The mobile runtime was replaced during configuration loading.",
             failure = "runtime-replaced",
@@ -417,13 +425,13 @@ internal class MobileConfigLoadCoordinator(
 
     private fun failure(
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        snapshot: MobilePlatformFacts,
         failure: String,
         message: String,
     ): MobileConfigLoadResult =
         result(
             args = args,
-            snapshot = snapshot,
+            facts = snapshot,
             outcome = "failed",
             message = message,
             failure = failure,
@@ -432,7 +440,7 @@ internal class MobileConfigLoadCoordinator(
 
     private fun result(
         args: LoadConfigArgs,
-        snapshot: MobileVpnSnapshot,
+        facts: MobilePlatformFacts,
         outcome: String,
         message: String,
         cancellation: String = "not-requested",
@@ -450,18 +458,17 @@ internal class MobileConfigLoadCoordinator(
             outcome = outcome,
             revision = args.revisionOrEmpty(),
             rollback = rollback,
-            snapshot = snapshot,
+            facts = facts,
             timing = timing,
         )
     }
 
-    private fun markUnknown(): MobileVpnSnapshot =
+    private fun markUnknown(): MobilePlatformFacts =
         repository.update {
             it.copy(
                 coreConfigState = "unknown",
                 loadedConfigDigest = null,
                 loadedConfigRevision = null,
-                message = "Loaded Core state is unknown and requires explicit recovery.",
             )
         }
 
@@ -487,7 +494,7 @@ internal class MobileConfigLoadCoordinator(
         -> "native-load-rejected"
     }
 
-    private fun rollbackFor(snapshot: MobileVpnSnapshot): String = when (snapshot.coreConfigState) {
+    private fun rollbackFor(snapshot: MobilePlatformFacts): String = when (snapshot.coreConfigState) {
         "loaded" -> "preserved"
         "unloaded" -> "unloaded"
         else -> "unknown"
@@ -506,14 +513,14 @@ private fun LoadConfigArgs.digestOrEmpty(): String =
 internal fun loadConfigSafely(
     coordinator: MobileConfigLoadCoordinator,
     args: LoadConfigArgs,
-    currentSnapshot: () -> MobileVpnSnapshot,
+    currentSnapshot: () -> MobilePlatformFacts,
 ): MobileConfigLoadResult =
     runCatching { coordinator.load(args) }
         .getOrElse { loadConfigFailure(args, currentSnapshot(), "kotlin-exception") }
 
 internal fun loadConfigFailure(
     args: LoadConfigArgs,
-    snapshot: MobileVpnSnapshot,
+    snapshot: MobilePlatformFacts,
     failure: String = "plugin-failure",
 ): MobileConfigLoadResult =
     MobileConfigLoadResult(
@@ -529,6 +536,6 @@ internal fun loadConfigFailure(
             "unloaded" -> "unloaded"
             else -> "unknown"
         },
-        snapshot = snapshot,
+        facts = snapshot,
         timing = "on-time",
     )

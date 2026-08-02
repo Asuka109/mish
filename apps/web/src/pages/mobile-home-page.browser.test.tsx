@@ -40,6 +40,7 @@ const fixture = {
 };
 
 const permissionSnapshot: MobileVpnSnapshotDto = {
+  authorityId: "mobile-browser-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
@@ -54,8 +55,10 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   loadedConfigRevision: null,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required",
+  operation: null,
   permission: "required",
   phase: "permission-required",
+  revision: 1,
   sequence: 1,
   sessionId: "browser-session",
   updatedAtMillis: 1,
