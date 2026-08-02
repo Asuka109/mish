@@ -23,14 +23,14 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
-    MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
-    RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
-    StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase,
-    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunHelperAvailability,
-    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
-    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
-    TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
+    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LocalProxyOwnership,
+    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState, NotificationPublication,
+    NotificationSeverity, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusDataSource, StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection,
+    TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
+    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -97,8 +97,11 @@ impl CoreRuntime for RunningCore {
         true
     }
 
-    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
-        Box::pin(ready(true))
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
+        Box::pin(ready(LocalProxyOwnership::Owned))
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {

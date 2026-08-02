@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-use mish_runtime::LoopbackProxyEndpoint;
+use mish_runtime::{LocalProxyOwnership, LoopbackProxyEndpoint};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -423,20 +423,34 @@ impl ManagedCoreOwnership {
         self.load_record().map(|record| record.is_some())
     }
 
-    pub fn process_owns_listener(
+    pub fn process_listener_ownership(
         &self,
         process: &ManagedCoreProcess,
         endpoint: &LoopbackProxyEndpoint,
-    ) -> bool {
-        let Ok(Some(current)) = self.platform.inspect(process.pid()) else {
-            return false;
+    ) -> LocalProxyOwnership {
+        let current = match self.platform.inspect(process.pid()) {
+            Ok(Some(current)) => current,
+            Ok(None) => return LocalProxyOwnership::Unowned,
+            Err(_) => return LocalProxyOwnership::Unknown,
         };
         if current != process.observation {
-            return false;
+            return LocalProxyOwnership::Unowned;
         }
-        self.platform
-            .owns_listener(&current, endpoint)
-            .unwrap_or(false)
+        let owns = match self.platform.owns_listener(&current, endpoint) {
+            Ok(owns) => owns,
+            Err(_) => return LocalProxyOwnership::Unknown,
+        };
+        match self.platform.inspect(process.pid()) {
+            Ok(Some(confirmed)) if confirmed == current => {
+                if owns {
+                    LocalProxyOwnership::Owned
+                } else {
+                    LocalProxyOwnership::Unowned
+                }
+            }
+            Ok(_) => LocalProxyOwnership::Unowned,
+            Err(_) => LocalProxyOwnership::Unknown,
+        }
     }
 
     pub async fn recover_startup(

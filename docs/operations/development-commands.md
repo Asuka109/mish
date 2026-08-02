@@ -106,7 +106,11 @@ exact acceptance opt-in. It adds only Tart DNS fixtures, failure injection, and
 the terminal-authorization transport; ordinary source development and every
 packaged layout cannot select them. The acceptance harness is
 `scripts/macos-tart-tun-rpc.ts`. It accepts only the repository-owned
-`fictional-tart.yaml` profile and emits bounded, redacted state.
+`fictional-tart.yaml` profile and emits bounded, redacted state. After
+`bootstrap`, use `activate-core` to establish the ordinary managed Core before
+`enable` when testing the local-listener handoff. Finish with `disable` and
+`stop-core`; neither command replaces the required Helper uninstall and
+network-residue checks.
 
 `pnpm demo` starts the fixture-backed production Web composition used for model,
 visual, and interaction validation without contacting a desktop backend.

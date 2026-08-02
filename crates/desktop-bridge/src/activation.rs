@@ -17,8 +17,9 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureFailureKind, CaptureReconciler, CaptureRequest, CaptureRuntimeTransition,
-    CaptureSelection, CorePhase, CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
-    PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason, StatusAdapterKind,
+    CaptureSelection, CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint,
+    MishRuntime, PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason,
+    StatusAdapterKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -1457,7 +1458,8 @@ async fn wait_for_candidate(
     loop {
         match source.initial_observation() {
             ControllerInitialObservation::Ready => {
-                if process.owns_local_proxy(proxy_endpoint).await {
+                if process.local_proxy_ownership(proxy_endpoint).await == LocalProxyOwnership::Owned
+                {
                     return Ok(());
                 }
             }
@@ -1512,7 +1514,7 @@ async fn unowned_managed_listener_conflict(
         }
         let listener =
             LoopbackProxyEndpoint::new(&endpoint.ip().to_string(), endpoint.port()).ok()?;
-        if !process.owns_local_proxy(&listener).await {
+        if process.local_proxy_ownership(&listener).await != LocalProxyOwnership::Owned {
             return Some(endpoint);
         }
     }
@@ -1530,7 +1532,7 @@ async fn unowned_proxy_listener_conflict(
 ) -> Option<SocketAddr> {
     let endpoint = SocketAddr::new(proxy_endpoint.host(), proxy_endpoint.port());
     if std::net::TcpListener::bind(endpoint).is_ok()
-        || process.owns_local_proxy(proxy_endpoint).await
+        || process.local_proxy_ownership(proxy_endpoint).await == LocalProxyOwnership::Owned
     {
         None
     } else {
@@ -1539,10 +1541,12 @@ async fn unowned_proxy_listener_conflict(
 }
 
 /// Reject a deterministic foreign managed-proxy conflict before staging,
-/// validating, or starting a candidate. An active Mish Core may retain that
-/// listener until the transactional handoff suspends it, so the exact endpoint
-/// is admitted only with live ownership proof. The Controller listener remains
-/// revalidated after Core start because readiness observes it concurrently.
+/// validating, or starting a candidate. An active Mish generation may retain
+/// that listener until the transactional handoff suspends it. If the active
+/// process is still live, retire that exact process first and let the serialized
+/// commit barrier decide whether the listener was released. The Controller
+/// listener remains revalidated after Core start because readiness observes it
+/// concurrently.
 async fn preflight_managed_proxy_listener_conflict(
     active: Option<&ActiveMihomo>,
     policy: &ManagedRuntimePolicy,
@@ -1563,7 +1567,7 @@ async fn preflight_managed_proxy_listener_conflict(
     if active_endpoint != endpoint {
         return Some(endpoint);
     }
-    if active_listener_remains_foreign(
+    if active_listener_blocks_preflight(
         active.process.as_ref(),
         policy.proxy_endpoint(),
         endpoint,
@@ -1576,18 +1580,26 @@ async fn preflight_managed_proxy_listener_conflict(
     None
 }
 
-async fn active_listener_remains_foreign(
+async fn active_listener_blocks_preflight(
     process: &impl CoreRuntime,
     proxy_endpoint: &LoopbackProxyEndpoint,
     endpoint: SocketAddr,
     release_timeout: Duration,
 ) -> bool {
-    if process.owns_local_proxy(proxy_endpoint).await {
-        return false;
+    match process.local_proxy_ownership(proxy_endpoint).await {
+        LocalProxyOwnership::Owned => return false,
+        LocalProxyOwnership::Unowned | LocalProxyOwnership::Unknown => {}
     }
     let status = process.status().await;
-    matches!(status.phase, CorePhase::Running | CorePhase::Starting)
-        || !wait_for_managed_listener_release(endpoint, release_timeout).await
+    if matches!(status.phase, CorePhase::Running | CorePhase::Starting) {
+        // The active object is the exact generation the transaction is about to retire. A
+        // negative or unavailable point-in-time listener observation does not make its process
+        // foreign. Defer the endpoint verdict until that process has stopped; the commit barrier
+        // below still rejects any listener that remains occupied, so incomplete evidence cannot
+        // become a successful activation.
+        return false;
+    }
+    !wait_for_managed_listener_release(endpoint, release_timeout).await
 }
 
 /// A confirmed prior Mish Core can disappear before its loopback listener is released by the
@@ -2936,12 +2948,14 @@ mod managed_listener_ownership_tests {
 
     struct CandidateOwnership {
         owned_endpoints: HashSet<SocketAddr>,
+        phase: CorePhase,
     }
 
     impl CandidateOwnership {
         fn owning(endpoints: impl IntoIterator<Item = SocketAddr>) -> Self {
             Self {
                 owned_endpoints: endpoints.into_iter().collect(),
+                phase: CorePhase::Stopped,
             }
         }
     }
@@ -2951,18 +2965,59 @@ mod managed_listener_ownership_tests {
             true
         }
 
-        fn owns_local_proxy(&self, endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
+        fn local_proxy_ownership(
+            &self,
+            endpoint: &LoopbackProxyEndpoint,
+        ) -> BoxFuture<'_, LocalProxyOwnership> {
             let owned = self
                 .owned_endpoints
                 .contains(&SocketAddr::new(endpoint.host(), endpoint.port()));
-            Box::pin(std::future::ready(owned))
+            Box::pin(std::future::ready(if owned {
+                LocalProxyOwnership::Owned
+            } else {
+                LocalProxyOwnership::Unowned
+            }))
         }
 
         fn status(&self) -> BoxFuture<'_, CoreStatus> {
             Box::pin(std::future::ready(CoreStatus {
                 error: None,
-                phase: CorePhase::Stopped,
+                phase: self.phase,
                 pid: None,
+                version: None,
+            }))
+        }
+
+        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(self.status().await) })
+        }
+
+        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(self.status().await) })
+        }
+    }
+
+    struct UnknownOwnership {
+        phase: CorePhase,
+    }
+
+    impl CoreRuntime for UnknownOwnership {
+        fn configured(&self) -> bool {
+            true
+        }
+
+        fn local_proxy_ownership(
+            &self,
+            _endpoint: &LoopbackProxyEndpoint,
+        ) -> BoxFuture<'_, LocalProxyOwnership> {
+            Box::pin(std::future::ready(LocalProxyOwnership::Unknown))
+        }
+
+        fn status(&self) -> BoxFuture<'_, CoreStatus> {
+            Box::pin(std::future::ready(CoreStatus {
+                error: None,
+                phase: self.phase,
+                pid: Some(42),
                 version: None,
             }))
         }
@@ -3049,6 +3104,21 @@ mod managed_listener_ownership_tests {
     }
 
     #[tokio::test]
+    async fn candidate_with_unknown_proxy_ownership_remains_a_conflict() {
+        let proxy_listener = occupied_loopback_listener();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
+        let candidate = UnknownOwnership {
+            phase: CorePhase::Running,
+        };
+
+        assert_eq!(
+            unowned_proxy_listener_conflict(&candidate, &proxy_endpoint).await,
+            Some(proxy_address)
+        );
+    }
+
+    #[tokio::test]
     async fn retired_mish_listener_is_admitted_only_after_bounded_release() {
         let listener = occupied_loopback_listener();
         let address = listener.local_addr().unwrap();
@@ -3060,7 +3130,7 @@ mod managed_listener_ownership_tests {
         });
 
         assert!(
-            !active_listener_remains_foreign(&stopped, &endpoint, address, Duration::from_secs(1),)
+            !active_listener_blocks_preflight(&stopped, &endpoint, address, Duration::from_secs(1),)
                 .await
         );
         release.await.unwrap();
@@ -3074,7 +3144,73 @@ mod managed_listener_ownership_tests {
         let stopped = CandidateOwnership::owning([]);
 
         assert!(
-            active_listener_remains_foreign(
+            active_listener_blocks_preflight(
+                &stopped,
+                &endpoint,
+                address,
+                Duration::from_millis(40),
+            )
+            .await
+        );
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn running_active_generation_with_unknown_ownership_defers_to_commit_barrier() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", address.port()).unwrap();
+        let active = UnknownOwnership {
+            phase: CorePhase::Running,
+        };
+
+        assert!(
+            !active_listener_blocks_preflight(
+                &active,
+                &endpoint,
+                address,
+                Duration::from_millis(40),
+            )
+            .await
+        );
+        assert!(!wait_for_managed_listener_release(address, Duration::from_millis(40)).await);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn running_active_generation_with_unowned_observation_defers_to_commit_barrier() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", address.port()).unwrap();
+        let active = CandidateOwnership {
+            owned_endpoints: HashSet::new(),
+            phase: CorePhase::Running,
+        };
+
+        assert!(
+            !active_listener_blocks_preflight(
+                &active,
+                &endpoint,
+                address,
+                Duration::from_millis(40),
+            )
+            .await
+        );
+        assert!(!wait_for_managed_listener_release(address, Duration::from_millis(40)).await);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn stopped_generation_with_unknown_ownership_remains_fail_closed() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", address.port()).unwrap();
+        let stopped = UnknownOwnership {
+            phase: CorePhase::Stopped,
+        };
+
+        assert!(
+            active_listener_blocks_preflight(
                 &stopped,
                 &endpoint,
                 address,
