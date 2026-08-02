@@ -23,7 +23,7 @@ const mobileShellStyles = tv({
   slots: {
     root: cx(
       "mobile-shell grid h-full min-h-0 w-full min-w-0",
-      "grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas",
+      "grid-rows-[auto_minmax(0,1fr)_auto] bg-canvas",
     ),
     chrome: "mobile-chrome z-10 border-b border-hairline bg-canvas",
     topBar: cx(
@@ -44,7 +44,7 @@ const mobileShellStyles = tv({
       "inline-flex min-h-11 min-w-max items-center rounded-full px-3 text-metadata font-medium",
       "text-muted-foreground no-underline",
     ),
-    main: "mobile-main min-h-0 min-w-0 overflow-hidden bg-canvas [&>*]:h-full",
+    main: "mobile-main min-h-0 min-w-0 bg-canvas [&>*]:h-full",
     bottomNavigation: cx(
       "mobile-bottom-navigation z-10 grid min-h-[calc(64px+env(safe-area-inset-bottom))]",
       "grid-cols-5 border-t border-hairline bg-surface-soft px-1 pt-1",
