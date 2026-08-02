@@ -773,6 +773,33 @@ impl MishRuntime {
         .await
     }
 
+    pub async fn set_capture_runtime_transition(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        transition: &CaptureRuntimeTransition,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let explicit_active = request.active;
+        let result = capture
+            .reconcile_runtime_transition(transition, request, healthy)
+            .await;
+        self.finish_capture_reconciliation(
+            result,
+            explicit_active,
+            &core,
+            adapter_kind,
+            CaptureNotificationMode::Deferred,
+        )
+    }
+
     async fn set_capture_with_notification_mode(
         &self,
         request: CaptureRequest,
@@ -1034,6 +1061,9 @@ impl MishRuntime {
         let Some(capture) = &self.capture else {
             return Ok(false);
         };
+        if capture.runtime_transition_pending() {
+            return Ok(false);
+        }
         let before = capture.status();
         let aggregate_transition_pending =
             matches!(before.system_proxy.phase, SystemProxyPhase::Pending)

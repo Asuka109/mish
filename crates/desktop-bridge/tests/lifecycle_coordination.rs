@@ -289,6 +289,7 @@ impl CapturePlatform for FakeCapturePlatform {
 }
 
 struct Fixture {
+    capture: Arc<CaptureReconciler>,
     coordinator: DesktopLifecycleCoordinator,
     core: Arc<TestCore>,
     platform: Arc<FakeCapturePlatform>,
@@ -308,16 +309,64 @@ fn fixture(source: Arc<RecordingSource>) -> Fixture {
         core.clone(),
         source.clone(),
         source.clone(),
-        Some(capture),
+        Some(capture.clone()),
     );
     let host = DesktopRuntimeHost::new(runtime.clone());
     Fixture {
+        capture,
         coordinator: DesktopLifecycleCoordinator::new(host),
         core,
         platform,
         runtime,
         source,
     }
+}
+
+#[tokio::test]
+async fn planned_runtime_handoff_does_not_restore_capture_before_the_owner_commits() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    enable_capture(&fixture.runtime).await;
+    let transition = fixture.capture.clone().begin_runtime_transition().unwrap();
+    fixture
+        .capture
+        .reconcile_runtime_transition(
+            &transition,
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    fixture
+        .coordinator
+        .handle_core_availability(true)
+        .await
+        .unwrap();
+
+    let status = fixture
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert_eq!(status.runtime.system_proxy.phase, SystemProxyPhase::Off);
+    assert!(!status.runtime.system_proxy.desired);
+    assert_eq!(
+        fixture.platform.service("service-a"),
+        disabled_service("service-a")
+    );
+    assert!(
+        fixture
+            .runtime
+            .notification_snapshot()
+            .notifications
+            .is_empty()
+    );
+    drop(transition);
 }
 
 async fn enable_capture(runtime: &MishRuntime) {

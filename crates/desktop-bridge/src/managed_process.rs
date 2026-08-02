@@ -969,9 +969,10 @@ impl CoreRuntime for DesktopMihomoProcess {
         let endpoint = endpoint.clone();
         Box::pin(async move {
             let inner = self.inner.lock().await;
-            if let (Some(host), Some(process)) =
-                (&self.privileged_host, inner.privileged_process.clone())
-            {
+            if let Some(host) = &self.privileged_host {
+                let Some(process) = inner.privileged_process.clone() else {
+                    return false;
+                };
                 drop(inner);
                 return host.owns_listener(process, endpoint).await.unwrap_or(false);
             }

@@ -873,7 +873,7 @@ export function SettingsPage() {
               ) : null}
               {snapshot.capabilities.tun === "supported" && helperAvailable ? (
                 <Button
-                  disabled={settings.pending || product?.runtime.phase !== "inactive"}
+                  disabled={settings.pending}
                   loading={loadingPromise("remove-helper")}
                   loadingText={LL.settingsPage.removeTunHelper()}
                   onClick={() => runPromiseButtonAction("remove-helper", settings.removeTunHelper)}

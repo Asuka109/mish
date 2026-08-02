@@ -12,7 +12,7 @@ use tokio::sync::Mutex as AsyncMutex;
 // network state is applied. v4 remains fail-closed, but it can reject a valid
 // first activation before the new Core has finished publishing its evidence,
 // so it must repair before Capture can admit Virtual Interface activation.
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "5";
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "6";
 pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 3;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const TUN_OBSERVATION_SCHEMA_VERSION: u16 = 1;

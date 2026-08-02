@@ -31,8 +31,13 @@ async function bootstrap() {
       /Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#mish-browser-launch=[A-Za-z0-9_-]{43})/gu,
     ),
   ];
+  const nativeOriginMatches = [
+    ...log.matchAll(/Mish desktop development origin: (http:\/\/127\.0\.0\.1:\d+)/gu),
+  ];
   const launchUrl = matches.at(-1)?.[1];
+  const nativeOrigin = nativeOriginMatches.at(-1)?.[1];
   if (!launchUrl) throw new Error("The desktop acceptance launch URL is unavailable");
+  if (!nativeOrigin) throw new Error("The desktop acceptance native origin is unavailable");
   const parsed = new URL(launchUrl);
   const launchToken = parsed.hash.replace("#mish-browser-launch=", "");
   const origin = parsed.origin;
@@ -57,7 +62,7 @@ async function bootstrap() {
   await mkdir(acceptanceRoot, { recursive: true, mode: 0o700 });
   await writeFile(
     rpcReceipt,
-    `${JSON.stringify({ authToken: payload.authToken, rpcUrl: payload.rpcUrl })}\n`,
+    `${JSON.stringify({ authToken: payload.authToken, nativeOrigin, rpcUrl: payload.rpcUrl })}\n`,
     { mode: 0o600 },
   );
   await chmod(rpcReceipt, 0o600);
@@ -104,18 +109,17 @@ class RpcConnection {
     if (
       typeof receipt.authToken !== "string" ||
       receipt.authToken.length < 32 ||
+      typeof receipt.nativeOrigin !== "string" ||
+      !/^http:\/\/127\.0\.0\.1:\d+$/u.test(receipt.nativeOrigin) ||
       typeof receipt.rpcUrl !== "string" ||
       !/^ws:\/\/127\.0\.0\.1:\d+\/rpc$/u.test(receipt.rpcUrl)
     ) {
       throw new Error("The private RPC receipt is invalid");
     }
-    const rpcOrigin = new URL(receipt.rpcUrl);
-    rpcOrigin.protocol = "http:";
-    rpcOrigin.pathname = "/";
-    rpcOrigin.search = "";
-    rpcOrigin.hash = "";
     const socket = new WebSocket(receipt.rpcUrl, {
-      headers: { Origin: rpcOrigin.origin },
+      // The exact Tart launcher publishes this development origin and the desktop bridge
+      // recognizes it as the native surface. A Browser origin must remain TUN-unavailable.
+      headers: { Origin: receipt.nativeOrigin },
     });
     await new Promise<void>((resolve, reject) => {
       socket.addEventListener("open", () => resolve(), { once: true });

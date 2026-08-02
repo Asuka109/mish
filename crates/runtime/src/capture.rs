@@ -2431,6 +2431,10 @@ impl CaptureReconciler {
         self.runner.snapshot().projection().clone()
     }
 
+    pub fn runtime_transition_pending(&self) -> bool {
+        self.runtime_transition.load(Ordering::Acquire)
+    }
+
     /// Returns the non-payload correlation values admitted by the real Capture machine.
     /// Test-only adapters can map these values to closed synthetic identities without
     /// exposing the machine authority UUID or introducing a parallel lifecycle.

@@ -369,6 +369,7 @@ impl ControllerStatusSource {
             task.cancellation.cancel();
             let _ = task.join.await;
         }
+        self.inner.client.quiesce().await;
         self.inner
             .observations_active
             .store(false, Ordering::Release);

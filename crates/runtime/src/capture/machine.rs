@@ -576,12 +576,24 @@ impl CaptureMachine {
             scope_epoch: self.machine_authority.clone(),
         };
         pending.capture_selection = request.selection.clone();
-        pending.system_proxy.desired = request.active && request.selection.system_proxy;
-        pending.system_proxy.failure = None;
-        pending.system_proxy.phase = super::SystemProxyPhase::Pending;
-        pending.tun.desired = request.active && request.selection.tun;
-        pending.tun.failure = None;
-        pending.tun.phase = super::TunPhase::Pending;
+        let system_proxy_involved = request.selection.system_proxy
+            || stable.projection.capture_selection.system_proxy
+            || stable.projection.system_proxy.desired
+            || stable.projection.system_proxy_enabled;
+        if system_proxy_involved {
+            pending.system_proxy.desired = request.active && request.selection.system_proxy;
+            pending.system_proxy.failure = None;
+            pending.system_proxy.phase = super::SystemProxyPhase::Pending;
+        }
+        let tun_involved = request.selection.tun
+            || stable.projection.capture_selection.tun
+            || stable.projection.tun.desired
+            || stable.projection.tun_enabled;
+        if tun_involved {
+            pending.tun.desired = request.active && request.selection.tun;
+            pending.tun.failure = None;
+            pending.tun.phase = super::TunPhase::Pending;
+        }
         let public_pending = pending.clone();
         Ok((
             StableCapture {
@@ -1465,7 +1477,7 @@ mod tests {
     use super::*;
     use crate::{
         CaptureFailureKind, CaptureOperationStatus, CaptureSelection, SystemProxyObservedState,
-        SystemProxyPhase, SystemProxyRuntimeStatus, TunRuntimeStatus,
+        SystemProxyPhase, SystemProxyRuntimeStatus, TunPhase, TunRuntimeStatus,
     };
 
     fn machine() -> CaptureMachine {
@@ -1545,6 +1557,7 @@ mod tests {
             transitioning.projection().capture_operation.phase,
             CaptureOperationPhase::Pending
         );
+        assert_eq!(transitioning.projection().tun.phase, TunPhase::Off);
 
         let operation = transitioning.active_operation().unwrap().clone();
         let reconciling = transition_state(machine.reduce(
@@ -1586,6 +1599,40 @@ mod tests {
             stable.projection().capture_operation.phase,
             CaptureOperationPhase::Applied
         );
+    }
+
+    #[test]
+    fn pending_projection_only_marks_capture_backends_involved_in_the_request() {
+        let machine = machine();
+        let tun_request = CaptureRequest {
+            active: true,
+            selection: CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            },
+        };
+        let transitioning = transition_state(machine.reduce(
+            &initial(),
+            &CaptureInput::Start {
+                core_healthy: true,
+                mode: TransitionMode::Ordinary,
+                preflight: None,
+                request: tun_request,
+            },
+        ));
+
+        assert_eq!(
+            transitioning.projection().capture_operation.phase,
+            CaptureOperationPhase::Pending
+        );
+        assert_eq!(
+            transitioning.projection().system_proxy.phase,
+            SystemProxyPhase::Off,
+            "a TUN-only transition must not present System Proxy as pending"
+        );
+        assert!(!transitioning.projection().system_proxy.desired);
+        assert_eq!(transitioning.projection().tun.phase, TunPhase::Pending);
+        assert!(transitioning.projection().tun.desired);
     }
 
     #[test]

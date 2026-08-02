@@ -124,6 +124,11 @@ async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
     let stopped = process.stop().await.unwrap();
     assert!(matches!(stopped.phase, CorePhase::Stopped));
     assert_eq!(stopped.pid, None);
+    assert!(
+        !process
+            .owns_local_proxy(&LoopbackProxyEndpoint::managed())
+            .await
+    );
 }
 
 #[tokio::test]

@@ -267,6 +267,43 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
+  it("announces pending state only for the requested Capture mode", () => {
+    render(
+      <MemoryRouter>
+        <TypesafeI18n locale="en">
+          <TooltipProvider>
+            <TrafficCaptureControl
+              adapterKind="rpc"
+              capabilities={{ systemProxy: "supported", tun: "supported" }}
+              commandSupported
+              onSystemProxyChange={vi.fn()}
+              onTunChange={vi.fn()}
+              pending
+              pendingMode="tun"
+              systemProxyEnabled={false}
+              systemProxySelected={false}
+              systemProxyStatus={{
+                desired: false,
+                failure: null,
+                observed: "disabled",
+                phase: "off",
+                recoveryActions: [],
+              }}
+              tunEnabled={false}
+              tunSelected
+              tunStatus={{ ...tunStatus, desired: true, phase: "pending" }}
+            />
+          </TooltipProvider>
+        </TypesafeI18n>
+      </MemoryRouter>,
+    );
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("System Proxy is off and confirmed by macOS.");
+    expect(status).toHaveTextContent("Virtual Interface is waiting for helper confirmation.");
+    expect(status).not.toHaveTextContent("System Proxy is pending macOS confirmation.");
+  });
+
   it("leaves System Proxy actionable", async () => {
     const user = userEvent.setup();
     const onSystemProxyChange = vi.fn();

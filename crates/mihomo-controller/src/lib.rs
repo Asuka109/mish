@@ -112,6 +112,10 @@ impl ControllerClient {
         self.shutdown.is_cancelled()
     }
 
+    pub async fn quiesce(&self) {
+        self.transport.quiesce().await;
+    }
+
     pub async fn version(&self) -> Result<VersionInfo, ControllerError> {
         self.read(Endpoint::Version).await
     }

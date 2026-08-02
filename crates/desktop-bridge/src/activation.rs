@@ -16,8 +16,9 @@ use mish_profile::{
     ValidationStatus, apply_runtime_policy,
 };
 use mish_runtime::{
-    CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
-    CoreRuntime, LoopbackProxyEndpoint, MishRuntime, PolicyGroupConnectionCleanupPreference,
+    CaptureFailureKind, CaptureReconciler, CaptureRequest, CaptureRuntimeTransition,
+    CaptureSelection, CorePhase, CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
+    PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason, StatusAdapterKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -33,6 +34,11 @@ use crate::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
     ManagedCoreRecoveryOutcome, PrivilegedCoreHost, PrivilegedCoreHostError, ProfileMappingContext,
 };
+
+// A retired Controller generation can still be releasing its loopback sessions when its owned
+// process exits. Mihomo binds the Controller only once at startup, so keep a bounded defensive
+// barrier after the explicit observation drain instead of accepting a half-listening Core.
+const MANAGED_LISTENER_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 
 enum ManagedBinaryLocation {
     PreparedDevelopment(PathBuf),
@@ -264,7 +270,7 @@ pub enum MihomoActivationError {
     #[error("managed Mihomo activation was cancelled")]
     Cancelled,
     #[error("System Proxy could not be reconciled during managed activation")]
-    CaptureFailed,
+    CaptureFailed(CaptureFailureKind),
     #[error("the prior managed Mihomo core could not be stopped safely")]
     PriorStopFailed,
     #[error("the managed active state could not be committed atomically")]
@@ -446,6 +452,7 @@ struct ActiveMihomo {
     runtime: MishRuntime,
     runtime_id: String,
     source: Arc<ControllerStatusSource>,
+    tun_enabled: bool,
 }
 
 #[derive(Default)]
@@ -607,21 +614,36 @@ impl MihomoActivationManager {
                 .await?;
             return Ok((ownership == ManagedListenerOwnership::Foreign).then_some(endpoint));
         }
-        Ok(preflight_managed_proxy_listener_conflict(active, policy).await)
+        Ok(preflight_managed_proxy_listener_conflict(
+            active,
+            policy,
+            MANAGED_LISTENER_RELEASE_TIMEOUT,
+        )
+        .await)
     }
 
     async fn commit_listener_conflict(
         &self,
-        endpoint: SocketAddr,
-    ) -> Result<bool, MihomoActivationError> {
+        proxy_endpoint: SocketAddr,
+        controller_endpoint: SocketAddr,
+    ) -> Result<Option<SocketAddr>, MihomoActivationError> {
         #[cfg(feature = "test-activation-host")]
         if let Some(host) = &self.listener_host {
             return host
-                .check(ManagedListenerCheckPhase::Commit, endpoint)
+                .check(ManagedListenerCheckPhase::Commit, proxy_endpoint)
                 .await
-                .map(|ownership| ownership != ManagedListenerOwnership::Free);
+                .map(|ownership| {
+                    (ownership != ManagedListenerOwnership::Free).then_some(proxy_endpoint)
+                });
         }
-        Ok(managed_proxy_listener_remains_occupied(endpoint).await)
+        let mut endpoints = vec![proxy_endpoint];
+        if self.ownership.is_some() {
+            endpoints.push(controller_endpoint);
+        }
+        Ok(
+            wait_for_activation_listener_release(&endpoints, MANAGED_LISTENER_RELEASE_TIMEOUT)
+                .await,
+        )
     }
 
     pub fn with_connection_cleanup_preference(
@@ -673,7 +695,7 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable_observed(record, policy, cancellation, None)
+        self.activate_cancellable_observed(record, policy, cancellation, None, None)
             .await
     }
 
@@ -683,6 +705,7 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
         progress: Option<&crate::ProfileActivationProgressObserver>,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
@@ -692,10 +715,10 @@ impl MihomoActivationManager {
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
         self.begin_listener_preparation()?;
-        let early_conflict = match self
-            .early_listener_conflict(state.active.as_ref(), policy)
-            .await
-        {
+        let early_conflict = match tokio::select! {
+            _ = cancellation.cancelled() => Err(MihomoActivationError::Cancelled),
+            result = self.early_listener_conflict(state.active.as_ref(), policy) => result,
+        } {
             Ok(conflict) => conflict,
             Err(error) => {
                 record_failed_attempt(&mut state.managed, record, error);
@@ -739,7 +762,8 @@ impl MihomoActivationManager {
                 Ok(transition) => Some(transition),
                 Err(_) => {
                     rollback_candidate(candidate).await;
-                    let error = MihomoActivationError::CaptureFailed;
+                    let error =
+                        MihomoActivationError::CaptureFailed(CaptureFailureKind::RuntimeTransition);
                     record_failed_attempt(&mut state.managed, record, error);
                     persist_managed_state(resolved.runtime_root(), &state.managed)?;
                     return Err(error);
@@ -748,10 +772,20 @@ impl MihomoActivationManager {
             None => None,
         };
 
+        if let Some(previous) = state.active.as_ref() {
+            previous
+                .runtime
+                .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
+                .await;
+        }
+
         let suspended_capture = if state.active.is_some() {
             match self.suspend_capture(capture_transition.as_ref()).await {
                 Ok(selection) => selection,
                 Err(error) => {
+                    if let Some(previous) = state.active.as_ref() {
+                        previous.runtime.resume_observations().await;
+                    }
                     rollback_candidate(candidate).await;
                     record_failed_attempt(&mut state.managed, record, error);
                     persist_managed_state(resolved.runtime_root(), &state.managed)?;
@@ -825,7 +859,10 @@ impl MihomoActivationManager {
             candidate.proxy_endpoint.host(),
             candidate.proxy_endpoint.port(),
         );
-        let commit_conflict = match self.commit_listener_conflict(proxy_endpoint).await {
+        let commit_conflict = match self
+            .commit_listener_conflict(proxy_endpoint, candidate.controller_address)
+            .await
+        {
             Ok(conflict) => conflict,
             Err(error) => {
                 rollback_candidate(candidate).await;
@@ -855,10 +892,10 @@ impl MihomoActivationManager {
                 return Err(error);
             }
         };
-        if commit_conflict {
+        if let Some(commit_conflict) = commit_conflict {
             if let Some(progress) = progress {
                 progress(crate::ProfileActivationProgress::ManagedListenerConflict(
-                    proxy_endpoint,
+                    commit_conflict,
                 ));
             }
             rollback_candidate(candidate).await;
@@ -869,7 +906,7 @@ impl MihomoActivationManager {
                     capture_transition.as_ref(),
                 )
                 .await;
-            let error = MihomoActivationError::ManagedListenerConflict(proxy_endpoint);
+            let error = MihomoActivationError::ManagedListenerConflict(commit_conflict);
             record_failed_attempt(&mut state.managed, record, error);
             if !restored {
                 if let Some(previous) = state.active.take() {
@@ -915,21 +952,38 @@ impl MihomoActivationManager {
             return Err(error);
         }
 
-        if let Some(selection) = suspended_capture.as_ref()
-            && self
-                .resume_capture(selection, capture_transition.as_ref())
-                .await
-                .is_err()
-        {
+        let capture_handoff_failure = match final_capture.as_ref() {
+            Some((request, adapter_kind)) => match capture_transition.as_ref() {
+                Some(transition) => candidate
+                    .runtime
+                    .set_capture_runtime_transition(request.clone(), *adapter_kind, transition)
+                    .await
+                    .err()
+                    .map(|error| error.kind),
+                None => Some(CaptureFailureKind::RuntimeTransition),
+            },
+            None => match suspended_capture.as_ref() {
+                Some(selection) => self
+                    .resume_capture(selection, capture_transition.as_ref())
+                    .await
+                    .err()
+                    .map(|error| match error {
+                        MihomoActivationError::CaptureFailed(kind) => kind,
+                        _ => CaptureFailureKind::RuntimeTransition,
+                    }),
+                None => None,
+            },
+        };
+        if let Some(capture_failure) = capture_handoff_failure {
             rollback_candidate(candidate).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
-                    Some(selection),
+                    suspended_capture.as_ref(),
                     capture_transition.as_ref(),
                 )
                 .await;
-            let error = MihomoActivationError::CaptureFailed;
+            let error = MihomoActivationError::CaptureFailed(capture_failure);
             record_failed_attempt(&mut state.managed, record, error);
             if !restored {
                 if let Some(previous) = state.active.take() {
@@ -948,7 +1002,7 @@ impl MihomoActivationManager {
         }
 
         if cancellation.is_cancelled() {
-            if suspended_capture.is_some() {
+            if suspended_capture.is_some() || final_capture.is_some() {
                 let _ = self.suspend_capture(capture_transition.as_ref()).await;
             }
             rollback_candidate(candidate).await;
@@ -992,7 +1046,7 @@ impl MihomoActivationManager {
             schema_version: 2,
         };
         if persist_managed_state(resolved.runtime_root(), &committed_state).is_err() {
-            if suspended_capture.is_some() {
+            if suspended_capture.is_some() || final_capture.is_some() {
                 let _ = self.suspend_capture(capture_transition.as_ref()).await;
             }
             rollback_candidate(candidate).await;
@@ -1022,7 +1076,8 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::StateCommitFailed);
         }
         let previous = state.active.replace(candidate);
-        state.capture_transition = capture_transition.take();
+        state.capture_transition = None;
+        drop(capture_transition.take());
         state.managed = committed_state;
         if let Some(previous) = previous {
             previous.source.close().await;
@@ -1048,6 +1103,23 @@ impl MihomoActivationManager {
         self.state.lock().await.managed.clone()
     }
 
+    pub async fn active_backend_matches(&self, tun_enabled: bool) -> Option<bool> {
+        let active = self
+            .state
+            .lock()
+            .await
+            .active
+            .as_ref()
+            .map(|active| (active.runtime.clone(), active.tun_enabled));
+        let Some((runtime, active_tun_enabled)) = active else {
+            return None;
+        };
+        Some(
+            active_tun_enabled == tun_enabled
+                && matches!(runtime.core_status().await.phase, CorePhase::Running),
+        )
+    }
+
     pub fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String> {
         if !mish_profile::profile_store_selected(record).unwrap_or(false) {
             return HashMap::new();
@@ -1061,7 +1133,8 @@ impl MihomoActivationManager {
     }
 
     pub async fn complete_runtime_handoff(&self) {
-        self.state.lock().await.capture_transition = None;
+        let mut state = self.state.lock().await;
+        state.capture_transition = None;
     }
 
     pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
@@ -1074,18 +1147,24 @@ impl MihomoActivationManager {
                     capture
                         .clone()
                         .begin_runtime_transition()
-                        .map_err(|_| MihomoActivationError::CaptureFailed)?,
+                        .map_err(|error| MihomoActivationError::CaptureFailed(error.kind))?,
                 ),
                 None => None,
             },
         };
         if let Some(active) = state.active.as_ref() {
-            self.suspend_capture(capture_transition.as_ref()).await?;
             active
                 .runtime
-                .stop_core()
-                .await
-                .map_err(|_| MihomoActivationError::ShutdownFailed)?;
+                .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
+                .await;
+            if let Err(error) = self.suspend_capture(capture_transition.as_ref()).await {
+                active.runtime.resume_observations().await;
+                return Err(error);
+            }
+            if active.runtime.stop_core().await.is_err() {
+                active.runtime.resume_observations().await;
+                return Err(MihomoActivationError::ShutdownFailed);
+            }
         }
         if let Some(active) = state.active.take() {
             active.source.close().await;
@@ -1124,12 +1203,9 @@ impl MihomoActivationManager {
             config_directory: Some(home.clone()),
             config_file: Some(config_file.clone()),
         };
+        let execution_backend = policy.execution_backend(self.privileged_host.is_some());
         let process = Arc::new(
-            match (
-                policy.execution_backend(self.privileged_host.is_some()),
-                &self.privileged_host,
-                &self.ownership,
-            ) {
+            match (execution_backend, &self.privileged_host, &self.ownership) {
                 (ManagedExecutionBackend::Privileged, Some(host), _) => {
                     DesktopMihomoProcess::new_pinned_privileged(
                         process_config,
@@ -1185,6 +1261,7 @@ impl MihomoActivationManager {
             runtime,
             runtime_id: generation_id,
             source,
+            tun_enabled: policy.tun_enabled,
         })
     }
 
@@ -1193,7 +1270,8 @@ impl MihomoActivationManager {
         candidate: &ActiveMihomo,
         cancellation: CancellationToken,
     ) -> Result<(), MihomoActivationError> {
-        if candidate.runtime.start_core().await.is_err() {
+        let start = candidate.runtime.start_core().await;
+        if start.is_err() {
             match candidate.process.privileged_start_failure().await {
                 Some(PrivilegedCoreHostError::Unavailable) => {
                     return Err(MihomoActivationError::TunHelperUnavailable);
@@ -1244,7 +1322,9 @@ impl MihomoActivationManager {
         if !status.system_proxy.desired && !status.tun.desired {
             return Ok(None);
         }
-        let transition = transition.ok_or(MihomoActivationError::CaptureFailed)?;
+        let transition = transition.ok_or(MihomoActivationError::CaptureFailed(
+            CaptureFailureKind::RuntimeTransition,
+        ))?;
         capture
             .reconcile_runtime_transition(
                 transition,
@@ -1255,7 +1335,7 @@ impl MihomoActivationManager {
                 false,
             )
             .await
-            .map_err(|_| MihomoActivationError::CaptureFailed)?;
+            .map_err(|error| MihomoActivationError::CaptureFailed(error.kind))?;
         Ok(Some(status.capture_selection))
     }
 
@@ -1267,7 +1347,9 @@ impl MihomoActivationManager {
         let Some(capture) = &self.capture else {
             return Ok(());
         };
-        let transition = transition.ok_or(MihomoActivationError::CaptureFailed)?;
+        let transition = transition.ok_or(MihomoActivationError::CaptureFailed(
+            CaptureFailureKind::RuntimeTransition,
+        ))?;
         capture
             .reconcile_runtime_transition(
                 transition,
@@ -1279,7 +1361,7 @@ impl MihomoActivationManager {
             )
             .await
             .map(|_| ())
-            .map_err(|_| MihomoActivationError::CaptureFailed)
+            .map_err(|error| MihomoActivationError::CaptureFailed(error.kind))
     }
 
     async fn restore_previous(
@@ -1297,11 +1379,41 @@ impl MihomoActivationManager {
             {
                 true
             }
-            Some(previous) => previous.runtime.start_core().await.is_ok(),
+            Some(previous) => {
+                let proxy_endpoint = SocketAddr::new(
+                    previous.proxy_endpoint.host(),
+                    previous.proxy_endpoint.port(),
+                );
+                let mut endpoints = vec![proxy_endpoint];
+                if self.ownership.is_some() {
+                    endpoints.push(previous.controller_address);
+                }
+                wait_for_activation_listener_release(&endpoints, MANAGED_LISTENER_RELEASE_TIMEOUT)
+                    .await
+                    .is_none()
+                    && previous.runtime.start_core().await.is_ok()
+            }
             None => true,
         };
         if !core_restored {
             return false;
+        }
+        if let Some(previous) = previous {
+            previous.runtime.resume_observations().await;
+            if wait_for_candidate(
+                &previous.runtime,
+                &previous.source,
+                &previous.process,
+                &previous.proxy_endpoint,
+                previous.controller_address,
+                candidate_readiness_timeout(&previous.home, &self.timing),
+                CancellationToken::new(),
+            )
+            .await
+            .is_err()
+            {
+                return false;
+            }
         }
         match capture {
             Some(selection) => self.resume_capture(selection, transition).await.is_ok(),
@@ -1358,9 +1470,7 @@ async fn wait_for_candidate(
             }
             ControllerInitialObservation::Pending => {}
         }
-        if let Some(endpoint) =
-            unowned_managed_listener_conflict(process, proxy_endpoint, controller_address).await
-        {
+        if let Some(endpoint) = unowned_proxy_listener_conflict(process, proxy_endpoint).await {
             return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
         }
         if !matches!(runtime.core_status().await.phase, CorePhase::Running) {
@@ -1410,6 +1520,25 @@ async fn unowned_managed_listener_conflict(
     None
 }
 
+/// During startup the authenticated Controller handshake is its ownership proof. The retiring
+/// generation can leave the Controller socket temporarily unbindable before the candidate has
+/// opened it, so only the proxy ingress is eligible for an immediate listener-conflict failure.
+/// Terminal readiness paths still inspect both endpoints through
+/// `unowned_managed_listener_conflict`.
+async fn unowned_proxy_listener_conflict(
+    process: &impl CoreRuntime,
+    proxy_endpoint: &LoopbackProxyEndpoint,
+) -> Option<SocketAddr> {
+    let endpoint = SocketAddr::new(proxy_endpoint.host(), proxy_endpoint.port());
+    if std::net::TcpListener::bind(endpoint).is_ok()
+        || process.owns_local_proxy(proxy_endpoint).await
+    {
+        None
+    } else {
+        Some(endpoint)
+    }
+}
+
 /// Reject a deterministic foreign managed-proxy conflict before staging,
 /// validating, or starting a candidate. An active Mish Core may retain that
 /// listener until the transactional handoff suspends it, so the exact endpoint
@@ -1418,6 +1547,7 @@ async fn unowned_managed_listener_conflict(
 async fn preflight_managed_proxy_listener_conflict(
     active: Option<&ActiveMihomo>,
     policy: &ManagedRuntimePolicy,
+    release_timeout: Duration,
 ) -> Option<SocketAddr> {
     let endpoint = SocketAddr::new(
         policy.proxy_endpoint().host(),
@@ -1434,14 +1564,71 @@ async fn preflight_managed_proxy_listener_conflict(
     if active_endpoint != endpoint {
         return Some(endpoint);
     }
-    if !active
-        .process
-        .owns_local_proxy(policy.proxy_endpoint())
-        .await
+    if active_listener_remains_foreign(
+        active.process.as_ref(),
+        policy.proxy_endpoint(),
+        endpoint,
+        release_timeout,
+    )
+    .await
     {
         return Some(endpoint);
     }
     None
+}
+
+async fn active_listener_remains_foreign(
+    process: &impl CoreRuntime,
+    proxy_endpoint: &LoopbackProxyEndpoint,
+    endpoint: SocketAddr,
+    release_timeout: Duration,
+) -> bool {
+    if process.owns_local_proxy(proxy_endpoint).await {
+        return false;
+    }
+    let status = process.status().await;
+    matches!(status.phase, CorePhase::Running | CorePhase::Starting)
+        || !wait_for_managed_listener_release(endpoint, release_timeout).await
+}
+
+/// A confirmed prior Mish Core can disappear before its loopback listener is released by the
+/// kernel. Admit only that bounded handoff window; a listener that remains occupied is still
+/// treated as foreign and activation stays fail-closed.
+async fn wait_for_managed_listener_release(endpoint: SocketAddr, timeout_after: Duration) -> bool {
+    let deadline = Instant::now() + timeout_after;
+    loop {
+        if std::net::TcpListener::bind(endpoint).is_ok() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A real managed process owns both the proxy ingress and authenticated Controller endpoints.
+/// A retired Core can leave either socket temporarily unavailable, and Mihomo does not retry a
+/// Controller bind after startup. Wait for the complete generation boundary before launching or
+/// restoring another Core so a half-listening process can never become the active generation.
+async fn wait_for_activation_listener_release(
+    endpoints: &[SocketAddr],
+    timeout_after: Duration,
+) -> Option<SocketAddr> {
+    let deadline = Instant::now() + timeout_after;
+    loop {
+        let occupied = endpoints
+            .iter()
+            .copied()
+            .find(|endpoint| std::net::TcpListener::bind(endpoint).is_err());
+        let Some(occupied) = occupied else {
+            return None;
+        };
+        if Instant::now() >= deadline {
+            return Some(occupied);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 async fn managed_proxy_listener_remains_occupied(endpoint: SocketAddr) -> bool {
@@ -2258,7 +2445,7 @@ impl MihomoActivationError {
             Self::ControllerFailure => ActivationFailureKind::Controller,
             Self::ReadinessTimeout => ActivationFailureKind::Timeout,
             Self::Cancelled => ActivationFailureKind::Cancelled,
-            Self::CaptureFailed => ActivationFailureKind::Capture,
+            Self::CaptureFailed(_) => ActivationFailureKind::Capture,
             Self::PriorStopFailed => ActivationFailureKind::PriorStop,
             Self::StateCommitFailed
             | Self::RollbackFailedSafeStopped
@@ -2840,5 +3027,126 @@ mod managed_listener_ownership_tests {
                 .await,
             None
         );
+    }
+
+    #[tokio::test]
+    async fn controller_handoff_is_deferred_to_authenticated_readiness() {
+        let proxy_listener = occupied_loopback_listener();
+        let controller_listener = occupied_loopback_listener();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let controller_address = controller_listener.local_addr().unwrap();
+        let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
+        let candidate = CandidateOwnership::owning([proxy_address]);
+
+        assert_eq!(
+            unowned_proxy_listener_conflict(&candidate, &proxy_endpoint).await,
+            None
+        );
+        assert_eq!(
+            unowned_managed_listener_conflict(&candidate, &proxy_endpoint, controller_address)
+                .await,
+            Some(controller_address)
+        );
+    }
+
+    #[tokio::test]
+    async fn retired_mish_listener_is_admitted_only_after_bounded_release() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", address.port()).unwrap();
+        let stopped = CandidateOwnership::owning([]);
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            drop(listener);
+        });
+
+        assert!(
+            !active_listener_remains_foreign(&stopped, &endpoint, address, Duration::from_secs(1),)
+                .await
+        );
+        release.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retired_mish_listener_that_stays_occupied_remains_a_conflict() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", address.port()).unwrap();
+        let stopped = CandidateOwnership::owning([]);
+
+        assert!(
+            active_listener_remains_foreign(
+                &stopped,
+                &endpoint,
+                address,
+                Duration::from_millis(40),
+            )
+            .await
+        );
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn commit_handoff_waits_for_the_retired_listener_to_release() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            drop(listener);
+        });
+
+        assert!(wait_for_managed_listener_release(address, Duration::from_secs(1)).await);
+        release.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn commit_handoff_keeps_a_persistent_listener_fail_closed() {
+        let listener = occupied_loopback_listener();
+        let address = listener.local_addr().unwrap();
+
+        assert!(!wait_for_managed_listener_release(address, Duration::from_millis(40)).await);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn generation_handoff_waits_for_proxy_and_controller_release() {
+        let proxy = occupied_loopback_listener();
+        let proxy_address = proxy.local_addr().unwrap();
+        let controller = occupied_loopback_listener();
+        let controller_address = controller.local_addr().unwrap();
+        let release = tokio::spawn(async move {
+            drop(proxy);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            drop(controller);
+        });
+
+        assert_eq!(
+            wait_for_activation_listener_release(
+                &[proxy_address, controller_address],
+                Duration::from_secs(1),
+            )
+            .await,
+            None
+        );
+        release.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn generation_handoff_reports_the_persistent_controller() {
+        let proxy = occupied_loopback_listener();
+        let proxy_address = proxy.local_addr().unwrap();
+        drop(proxy);
+        let controller = occupied_loopback_listener();
+        let controller_address = controller.local_addr().unwrap();
+
+        assert_eq!(
+            wait_for_activation_listener_release(
+                &[proxy_address, controller_address],
+                Duration::from_millis(40),
+            )
+            .await,
+            Some(controller_address)
+        );
+        drop(controller);
     }
 }

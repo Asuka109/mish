@@ -119,6 +119,8 @@ pub struct ProfileActivationSnapshot {
     pub attempted_at: Option<u64>,
     pub availability: ProfileActivationAvailability,
     pub command_id: Option<String>,
+    #[serde(skip)]
+    capture_failure_kind: Option<CaptureFailureKind>,
     pub evidence: Option<ProfileActivationEvidence>,
     pub failure: Option<ProfileActivationFailure>,
     pub failure_endpoint: Option<String>,
@@ -253,7 +255,7 @@ enum ProfileActivationFailureEvidence {
     VersionMismatch,
     Controller,
     Timeout,
-    Capture,
+    Capture(CaptureFailureKind),
     PriorStop,
     StateCommit,
 }
@@ -278,7 +280,7 @@ impl ProfileActivationFailureEvidence {
             Self::VersionMismatch => ProfileActivationFailure::VersionMismatch,
             Self::Controller => ProfileActivationFailure::Controller,
             Self::Timeout => ProfileActivationFailure::Timeout,
-            Self::Capture => ProfileActivationFailure::Capture,
+            Self::Capture(_) => ProfileActivationFailure::Capture,
             Self::PriorStop => ProfileActivationFailure::PriorStop,
             Self::StateCommit => ProfileActivationFailure::StateCommit,
         }
@@ -349,6 +351,7 @@ enum ProfileActivationState {
     },
     Pending(ProfileActivationPending),
     Succeeded {
+        capture_failure_kind: Option<CaptureFailureKind>,
         command: ProfileActivationCommand,
         runtime: ProfileActivationRuntime,
     },
@@ -562,7 +565,11 @@ impl ProfileActivationState {
                 if !success_matches_command(&command, &runtime) {
                     return false;
                 }
-                Self::Succeeded { command, runtime }
+                Self::Succeeded {
+                    capture_failure_kind: None,
+                    command,
+                    runtime,
+                }
             }
             ProfileActivationCompletion::Failed { evidence, runtime } => Self::Failed {
                 command,
@@ -570,6 +577,26 @@ impl ProfileActivationState {
                 runtime,
             },
             ProfileActivationCompletion::Cancelled(runtime) => Self::Cancelled { command, runtime },
+        };
+        true
+    }
+
+    fn complete_capture_failure(
+        &mut self,
+        expected: &ProfileActivationCommand,
+        kind: CaptureFailureKind,
+        runtime: ProfileActivationRuntime,
+    ) -> bool {
+        let Some(pending) = self.pending() else {
+            return false;
+        };
+        if pending.command != *expected || !success_matches_command(expected, &runtime) {
+            return false;
+        }
+        *self = Self::Succeeded {
+            capture_failure_kind: Some(kind),
+            command: expected.clone(),
+            runtime,
         };
         true
     }
@@ -582,6 +609,7 @@ impl ProfileActivationState {
         let Self::Succeeded {
             command,
             runtime: _,
+            ..
         } = self
         else {
             return false;
@@ -697,6 +725,7 @@ impl ProfileActivationState {
             attempted_at: None,
             availability,
             command_id: None,
+            capture_failure_kind: None,
             evidence: None,
             failure: None,
             failure_endpoint: None,
@@ -719,8 +748,13 @@ impl ProfileActivationState {
                 snapshot.evidence = pending.evidence;
                 snapshot.phase = ProfileActivationPhase::Pending;
             }
-            Self::Succeeded { command, .. } => {
+            Self::Succeeded {
+                capture_failure_kind,
+                command,
+                ..
+            } => {
                 project_command(&mut snapshot, command);
+                snapshot.capture_failure_kind = *capture_failure_kind;
                 snapshot.phase = ProfileActivationPhase::Success;
             }
             Self::Failed {
@@ -728,6 +762,10 @@ impl ProfileActivationState {
             } => {
                 project_command(&mut snapshot, command);
                 snapshot.evidence = evidence.evidence();
+                snapshot.capture_failure_kind = match evidence {
+                    ProfileActivationFailureEvidence::Capture(kind) => Some(*kind),
+                    _ => None,
+                };
                 snapshot.failure = Some(evidence.failure());
                 snapshot.failure_endpoint = evidence.failure_endpoint().map(str::to_owned);
                 snapshot.phase = ProfileActivationPhase::Failure;
@@ -871,9 +909,12 @@ pub trait ProfileActivationEffects: Send + Sync {
         policy: &'a ManagedRuntimePolicy,
         cancellation: CancellationToken,
         progress: ProfileActivationProgressObserver,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>>;
 
     fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>>;
+
+    fn active_backend_matches(&self, tun_enabled: bool) -> BoxFuture<'_, Option<bool>>;
 
     fn managed_state(&self) -> BoxFuture<'_, crate::ManagedActivationState>;
 
@@ -897,15 +938,29 @@ impl ProfileActivationEffects for MihomoActivationManager {
         policy: &'a ManagedRuntimePolicy,
         cancellation: CancellationToken,
         progress: ProfileActivationProgressObserver,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>> {
         Box::pin(async move {
-            self.activate_cancellable_observed(record, policy, cancellation, Some(&progress))
-                .await
+            self.activate_cancellable_observed(
+                record,
+                policy,
+                cancellation,
+                Some(&progress),
+                final_capture,
+            )
+            .await
         })
     }
 
     fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>> {
         Box::pin(MihomoActivationManager::active_runtime(self))
+    }
+
+    fn active_backend_matches(&self, tun_enabled: bool) -> BoxFuture<'_, Option<bool>> {
+        Box::pin(MihomoActivationManager::active_backend_matches(
+            self,
+            tun_enabled,
+        ))
     }
 
     fn managed_state(&self) -> BoxFuture<'_, crate::ManagedActivationState> {
@@ -1007,7 +1062,7 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(&permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        self.activate_inner(command_id, profile_id, Some(permit), None, false)
+        self.activate_inner(command_id, profile_id, Some(permit), None, false, None)
             .await
     }
 
@@ -1018,6 +1073,7 @@ impl ProfileActivationCoordinator {
         permit: Option<StateMutationPermit>,
         admitted_tun_selection: Option<bool>,
         suppress_capture_failure_notification: bool,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let availability = self.availability;
@@ -1117,12 +1173,32 @@ impl ProfileActivationCoordinator {
             }
         });
         tokio::spawn(async move {
+            let owns_final_capture = final_capture.is_some();
+            let final_capture_selection = final_capture
+                .as_ref()
+                .map(|(request, _)| request.selection.clone());
             let result = coordinator
                 .manager
-                .activate_cancellable(&record, &policy, cancellation, progress)
+                .activate_cancellable(&record, &policy, cancellation, progress, final_capture)
                 .await;
+            if let (Err(MihomoActivationError::CaptureFailed(kind)), Some(selection)) =
+                (&result, final_capture_selection.as_ref())
+            {
+                coordinator.host.record_capture_failure_for_selection(
+                    &CaptureTransitionError::new(
+                        *kind,
+                        "Capture could not be reconciled during the Mihomo runtime switch",
+                    ),
+                    selection,
+                );
+            }
             coordinator
-                .finish_activation(&command, result, suppress_capture_failure_notification)
+                .finish_activation(
+                    &command,
+                    result,
+                    suppress_capture_failure_notification,
+                    owns_final_capture,
+                )
                 .await;
             drop(permit);
         });
@@ -1233,10 +1309,53 @@ impl ProfileActivationCoordinator {
         }
     }
 
+    async fn reactivate_active_with_admitted_tun_selection(
+        self: &Arc<Self>,
+        admitted_tun_selection: bool,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
+    ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation_queued().await?;
+        self.authority
+            .validate(&permit)
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
+        let profile_id = self
+            .activation_snapshot()
+            .await
+            .active_profile_id
+            .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
+        let command_id = Uuid::new_v4().to_string();
+        let mut updates = self.subscribe();
+        let pending = self
+            .activate_inner(
+                &command_id,
+                &profile_id,
+                Some(permit),
+                Some(admitted_tun_selection),
+                true,
+                final_capture,
+            )
+            .await?;
+        if pending.phase != ProfileActivationPhase::Pending {
+            return Ok(pending);
+        }
+        loop {
+            let snapshot = updates
+                .recv()
+                .await
+                .map_err(|_| ProfileActivationCoordinatorError::Unavailable)?;
+            if snapshot.command_id.as_deref() == Some(command_id.as_str())
+                && snapshot.phase != ProfileActivationPhase::Pending
+            {
+                return Ok(snapshot);
+            }
+        }
+    }
+
     async fn reactivate_active_authorized(
         self: &Arc<Self>,
         permit: &StateMutationPermit,
         admitted_tun_selection: Option<bool>,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         self.authority
             .validate(permit)
@@ -1249,7 +1368,14 @@ impl ProfileActivationCoordinator {
         let command_id = Uuid::new_v4().to_string();
         let mut updates = self.subscribe();
         let pending = self
-            .activate_inner(&command_id, &profile_id, None, admitted_tun_selection, true)
+            .activate_inner(
+                &command_id,
+                &profile_id,
+                None,
+                admitted_tun_selection,
+                true,
+                final_capture,
+            )
             .await?;
         if pending.phase != ProfileActivationPhase::Pending {
             return Ok(pending);
@@ -1373,8 +1499,11 @@ impl ProfileActivationCoordinator {
             active: true,
             selection,
         };
-        let requires_tun_reactivation =
-            before.runtime.tun_enabled != (request.active && request.selection.tun);
+        let requires_tun_reactivation = self
+            .manager
+            .active_backend_matches(request.active && request.selection.tun)
+            .await
+            != Some(true);
         let capture_operation = self
             .host
             .current()
@@ -1420,6 +1549,7 @@ impl ProfileActivationCoordinator {
                     None,
                     Some(request.active && request.selection.tun),
                     true,
+                    None,
                 )
                 .await
                 .map_err(profile_launch_error);
@@ -1583,6 +1713,7 @@ impl ProfileActivationCoordinator {
                             .reactivate_active_authorized(
                                 &permit,
                                 Some(request.active && request.selection.tun),
+                                None,
                             )
                             .await
                         {
@@ -1638,8 +1769,8 @@ impl ProfileActivationCoordinator {
         }
         if switched_tun_backend && let Err(error) = &result {
             let original_error = error.clone();
-            if let Err(rollback_error) = self
-                .restore_after_failed_tun_backend_switch(
+            let final_error = self
+                .rollback_failed_tun_backend_switch(
                     &request,
                     original_active,
                     &original_selection,
@@ -1647,13 +1778,11 @@ impl ProfileActivationCoordinator {
                     Some(&permit),
                     &original_error,
                 )
-                .await
-            {
-                self.host
-                    .record_capture_failure_for_selection(&rollback_error, &request.selection);
-                result = Err(rollback_error);
+                .await;
+            if final_error.kind == CaptureFailureKind::RollbackFailed {
                 outcome = "rollback-failed";
             }
+            result = Err(final_error);
         }
         if result.is_err() && activation_started_for_launch {
             let activation = self.activation_snapshot().await;
@@ -1917,7 +2046,10 @@ impl ProfileActivationCoordinator {
             .status_snapshot_typed(adapter_kind)
             .await;
         let desired_tun = request.active && request.selection.tun;
-        if before.runtime.tun_enabled == desired_tun {
+        let active_backend_matches = self.manager.active_backend_matches(desired_tun).await;
+        if active_backend_matches == Some(true)
+            || (!request.active && active_backend_matches.is_none())
+        {
             if self.shutting_down.load(Ordering::Acquire) {
                 return Err(CaptureTransitionError::new(
                     CaptureFailureKind::RuntimeTransition,
@@ -1928,83 +2060,89 @@ impl ProfileActivationCoordinator {
         }
         let original_active = before.runtime.system_proxy.desired || before.runtime.tun.desired;
         let original_selection = before.runtime.capture_selection.clone();
-        let mut policy_selection = request.selection.clone();
-        policy_selection.tun = desired_tun;
-        if desired_tun {
-            policy_selection.system_proxy = false;
-        }
         if self.shutting_down.load(Ordering::Acquire) {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::RuntimeTransition,
                 "Mish is shutting down and cannot accept a new capture mutation",
             ));
         }
-        self.host
-            .set_capture(
-                CaptureRequest {
-                    active: false,
-                    selection: policy_selection,
-                },
-                adapter_kind,
-            )
-            .await?;
         let activation_result = match permit {
             Some(permit) => {
-                self.reactivate_active_authorized(permit, Some(desired_tun))
-                    .await
-            }
-            None => self.reactivate_active().await,
-        };
-        let reactivated = matches!(
-            activation_result,
-            Ok(ref snapshot) if snapshot.phase == ProfileActivationPhase::Success
-        );
-        if !reactivated {
-            let _ = self
-                .host
-                .set_capture(
-                    CaptureRequest {
-                        active: original_active,
-                        selection: original_selection,
-                    },
-                    adapter_kind,
+                self.reactivate_active_authorized(
+                    permit,
+                    Some(desired_tun),
+                    Some((request.clone(), adapter_kind)),
                 )
-                .await;
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Mihomo could not be reactivated with the requested TUN policy",
-            ));
+                .await
+            }
+            None => {
+                self.reactivate_active_with_admitted_tun_selection(
+                    desired_tun,
+                    Some((request.clone(), adapter_kind)),
+                )
+                .await
+            }
+        };
+        let activation_error = match &activation_result {
+            Ok(snapshot) if snapshot.capture_failure_kind.is_some() => {
+                Some(capture_error_from_activation_snapshot(snapshot))
+            }
+            Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => None,
+            Ok(snapshot) => Some(capture_error_from_activation_snapshot(snapshot)),
+            Err(error) => Some(profile_launch_error_ref(error)),
+        };
+        if let Some(error) = activation_error {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return Err(error);
+            }
+            if matches!(
+                &activation_result,
+                Ok(snapshot) if !snapshot.safe_stopped
+            ) {
+                return Err(error);
+            }
+            return Err(self
+                .rollback_failed_tun_backend_switch(
+                    &request,
+                    original_active,
+                    &original_selection,
+                    adapter_kind,
+                    permit,
+                    &error,
+                )
+                .await);
         }
+        self.host.resolve_notification("capture.failure");
+        Ok(self.host.status_snapshot(adapter_kind).await)
+    }
+
+    async fn rollback_failed_tun_backend_switch(
+        self: &Arc<Self>,
+        failed_request: &CaptureRequest,
+        original_active: bool,
+        original_selection: &CaptureSelection,
+        adapter_kind: StatusAdapterKind,
+        permit: Option<&StateMutationPermit>,
+        original_error: &CaptureTransitionError,
+    ) -> CaptureTransitionError {
         match self
-            .host
-            .set_capture_deferred(request.clone(), adapter_kind)
+            .restore_after_failed_tun_backend_switch(
+                failed_request,
+                original_active,
+                original_selection,
+                adapter_kind,
+                permit,
+                original_error,
+            )
             .await
         {
-            Ok(snapshot) => {
-                self.host.resolve_notification("capture.failure");
-                Ok(snapshot)
-            }
-            Err(error) => {
-                match self
-                    .restore_after_failed_tun_backend_switch(
-                        &request,
-                        original_active,
-                        &original_selection,
-                        adapter_kind,
-                        permit,
-                        &error,
-                    )
-                    .await
-                {
-                    Ok(()) => Err(error),
-                    Err(rollback_error) => {
-                        self.host.record_capture_failure_for_selection(
-                            &rollback_error,
-                            &request.selection,
-                        );
-                        Err(rollback_error)
-                    }
-                }
+            Ok(()) => original_error.clone(),
+            Err(rollback_error) => {
+                self.host.record_capture_failure_for_selection(
+                    &rollback_error,
+                    &failed_request.selection,
+                );
+                rollback_error
             }
         }
     }
@@ -2032,10 +2170,13 @@ impl ProfileActivationCoordinator {
             .map_err(|_| rollback_error("The failed TUN transition could not be disabled"))?;
         let reactivation = match permit {
             Some(permit) => {
-                self.reactivate_active_authorized(permit, Some(original_selection.tun))
+                self.reactivate_active_authorized(permit, Some(original_selection.tun), None)
                     .await
             }
-            None => self.reactivate_active().await,
+            None => {
+                self.reactivate_active_with_admitted_tun_selection(original_selection.tun, None)
+                    .await
+            }
         };
         if !matches!(
             reactivation,
@@ -2491,7 +2632,7 @@ impl ProfileActivationCoordinator {
             let _ = self.updates.send(snapshot);
             self.shutting_down.store(false, Ordering::Release);
             return Err(match error {
-                MihomoActivationError::CaptureFailed => {
+                MihomoActivationError::CaptureFailed(_) => {
                     ProfileActivationShutdownFailure::CaptureRestoration
                 }
                 MihomoActivationError::ShutdownFailed => ProfileActivationShutdownFailure::CoreStop,
@@ -2561,6 +2702,7 @@ impl ProfileActivationCoordinator {
         command: &ProfileActivationCommand,
         result: Result<crate::ActivationCommit, MihomoActivationError>,
         suppress_capture_failure_notification: bool,
+        owns_final_capture: bool,
     ) {
         let managed = self.manager.managed_state().await;
         let active_runtime = self.manager.active_runtime().await;
@@ -2625,6 +2767,21 @@ impl ProfileActivationCoordinator {
                     managed.active_profile_id(),
                     managed.active_fingerprint(),
                 );
+                if owns_final_capture
+                    && let MihomoActivationError::CaptureFailed(kind) = error
+                    && !runtime.is_safe_stopped()
+                {
+                    let completed = state
+                        .activation
+                        .complete_capture_failure(command, kind, runtime);
+                    debug_assert!(completed);
+                    let snapshot = state.activation.to_snapshot(self.availability);
+                    let _ = self.updates.send(snapshot);
+                    drop(state);
+                    self.host
+                        .record_application_event(activation_failure_event(error));
+                    return;
+                }
                 let completion = if error == MihomoActivationError::Cancelled {
                     ProfileActivationCompletion::Cancelled(runtime)
                 } else {
@@ -2717,6 +2874,10 @@ fn launch_duration_milliseconds(duration: Duration) -> u64 {
 }
 
 fn profile_launch_error(error: ProfileActivationCoordinatorError) -> CaptureTransitionError {
+    profile_launch_error_ref(&error)
+}
+
+fn profile_launch_error_ref(error: &ProfileActivationCoordinatorError) -> CaptureTransitionError {
     CaptureTransitionError::new(
         CaptureFailureKind::RuntimeTransition,
         match error {
@@ -2728,6 +2889,67 @@ fn profile_launch_error(error: ProfileActivationCoordinatorError) -> CaptureTran
             _ => "Profile activation could not be prepared",
         },
     )
+}
+
+fn capture_error_from_activation(
+    failure: Option<ProfileActivationFailure>,
+) -> CaptureTransitionError {
+    let (kind, message) = match failure {
+        Some(ProfileActivationFailure::TunHelperUnavailable) => (
+            CaptureFailureKind::CapabilityUnavailable,
+            "The system component required for Virtual Interface is unavailable",
+        ),
+        Some(ProfileActivationFailure::TunNetworkOwnershipConflict) => (
+            CaptureFailureKind::ObservationFailed,
+            "Virtual Interface network ownership could not be confirmed",
+        ),
+        Some(ProfileActivationFailure::ManagedListenerConflict) => (
+            CaptureFailureKind::ListenerUnavailable,
+            "Mihomo could not claim its configured local Controller endpoint",
+        ),
+        Some(ProfileActivationFailure::InvalidProfile)
+        | Some(ProfileActivationFailure::MissingBinary)
+        | Some(ProfileActivationFailure::UnsafeRuntime)
+        | Some(ProfileActivationFailure::Staging)
+        | Some(ProfileActivationFailure::Validation)
+        | Some(ProfileActivationFailure::GeodataFailed)
+        | Some(ProfileActivationFailure::GeodataTimeout) => (
+            CaptureFailureKind::ConfigurationRequired,
+            "The selected Profile could not prepare a safe Mihomo runtime",
+        ),
+        Some(ProfileActivationFailure::StateCommit) => (
+            CaptureFailureKind::PersistenceFailed,
+            "The Mihomo runtime switch could not be committed safely",
+        ),
+        Some(ProfileActivationFailure::Start)
+        | Some(ProfileActivationFailure::EarlyExit)
+        | Some(ProfileActivationFailure::VersionMismatch)
+        | Some(ProfileActivationFailure::Controller)
+        | Some(ProfileActivationFailure::Timeout)
+        | Some(ProfileActivationFailure::PriorStop) => (
+            CaptureFailureKind::CoreUnhealthy,
+            "Mihomo did not become healthy during the runtime switch",
+        ),
+        Some(ProfileActivationFailure::Cancelled)
+        | Some(ProfileActivationFailure::Capture)
+        | None => (
+            CaptureFailureKind::RuntimeTransition,
+            "The Mihomo runtime switch did not complete",
+        ),
+    };
+    CaptureTransitionError::new(kind, message)
+}
+
+fn capture_error_from_activation_snapshot(
+    snapshot: &ProfileActivationSnapshot,
+) -> CaptureTransitionError {
+    match snapshot.capture_failure_kind {
+        Some(kind) => CaptureTransitionError::new(
+            kind,
+            "Capture could not be reconciled during the Mihomo runtime switch",
+        ),
+        None => capture_error_from_activation(snapshot.failure),
+    }
 }
 
 fn usable_capture_selection(
@@ -2780,14 +3002,14 @@ mod capture_selection_tests {
     use std::time::Duration;
 
     use super::{
-        ProfileActivationFailure, activation_failure_evidence, launch_duration_milliseconds,
-        map_failure, profile_activation_failure_notification,
+        ProfileActivationFailure, activation_failure_evidence, capture_error_from_activation,
+        launch_duration_milliseconds, map_failure, profile_activation_failure_notification,
         should_publish_activation_failure_notification, usable_capture_selection,
     };
     use crate::MihomoActivationError;
     use mish_runtime::{
-        ApplicationActionId, CapabilityAvailability, CaptureSelection, PlatformCapabilities,
-        StatusAdapterKind,
+        ApplicationActionId, CapabilityAvailability, CaptureFailureKind, CaptureSelection,
+        PlatformCapabilities, StatusAdapterKind,
     };
 
     fn capabilities(
@@ -2795,6 +3017,24 @@ mod capture_selection_tests {
         tun: CapabilityAvailability,
     ) -> PlatformCapabilities {
         PlatformCapabilities { system_proxy, tun }
+    }
+
+    #[test]
+    fn backend_switch_preserves_actionable_activation_failure_kinds() {
+        assert_eq!(
+            capture_error_from_activation(Some(ProfileActivationFailure::ManagedListenerConflict,))
+                .kind,
+            CaptureFailureKind::ListenerUnavailable
+        );
+        assert_eq!(
+            capture_error_from_activation(Some(ProfileActivationFailure::TunHelperUnavailable))
+                .kind,
+            CaptureFailureKind::CapabilityUnavailable
+        );
+        assert_eq!(
+            capture_error_from_activation(Some(ProfileActivationFailure::StateCommit)).kind,
+            CaptureFailureKind::PersistenceFailed
+        );
     }
 
     #[test]
@@ -2958,11 +3198,11 @@ mod capture_selection_tests {
     #[test]
     fn aggregate_capture_failure_uses_the_canonical_capture_notification_only() {
         assert!(!should_publish_activation_failure_notification(
-            MihomoActivationError::CaptureFailed,
+            MihomoActivationError::CaptureFailed(CaptureFailureKind::RuntimeTransition),
             true,
         ));
         assert!(should_publish_activation_failure_notification(
-            MihomoActivationError::CaptureFailed,
+            MihomoActivationError::CaptureFailed(CaptureFailureKind::RuntimeTransition),
             false,
         ));
         assert!(should_publish_activation_failure_notification(
@@ -3698,7 +3938,9 @@ fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivatio
         MihomoActivationError::VersionMismatch => ProfileActivationFailureEvidence::VersionMismatch,
         MihomoActivationError::ControllerFailure => ProfileActivationFailureEvidence::Controller,
         MihomoActivationError::ReadinessTimeout => ProfileActivationFailureEvidence::Timeout,
-        MihomoActivationError::CaptureFailed => ProfileActivationFailureEvidence::Capture,
+        MihomoActivationError::CaptureFailed(kind) => {
+            ProfileActivationFailureEvidence::Capture(kind)
+        }
         MihomoActivationError::PriorStopFailed => ProfileActivationFailureEvidence::PriorStop,
         MihomoActivationError::Cancelled
         | MihomoActivationError::StateCommitFailed
@@ -3736,7 +3978,7 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::ControllerFailure => ProfileActivationFailure::Controller,
         MihomoActivationError::ReadinessTimeout => ProfileActivationFailure::Timeout,
         MihomoActivationError::Cancelled => ProfileActivationFailure::Cancelled,
-        MihomoActivationError::CaptureFailed => ProfileActivationFailure::Capture,
+        MihomoActivationError::CaptureFailed(_) => ProfileActivationFailure::Capture,
         MihomoActivationError::PriorStopFailed => ProfileActivationFailure::PriorStop,
         MihomoActivationError::StateCommitFailed
         | MihomoActivationError::RollbackFailedSafeStopped
@@ -3880,7 +4122,8 @@ fn should_publish_activation_failure_notification(
     error: MihomoActivationError,
     suppress_capture_failure_notification: bool,
 ) -> bool {
-    !suppress_capture_failure_notification || error != MihomoActivationError::CaptureFailed
+    !suppress_capture_failure_notification
+        || !matches!(error, MihomoActivationError::CaptureFailed(_))
 }
 
 fn publish_activation_failure_notification(

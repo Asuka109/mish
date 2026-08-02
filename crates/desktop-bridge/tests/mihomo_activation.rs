@@ -67,6 +67,7 @@ const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 struct InstallableTunPlatform {
     enabled: Mutex<bool>,
     fail_enable: AtomicBool,
+    fail_observation: AtomicBool,
     installed: AtomicBool,
 }
 
@@ -531,6 +532,14 @@ impl TunHelperPlatform for InstallableTunPlatform {
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        if self.fail_observation.load(Ordering::Relaxed) {
+            return Box::pin(async {
+                Err(TunHelperError::new(
+                    mish_runtime::TunHelperFailureKind::ObservationPartial,
+                    "Synthetic partial TUN observation",
+                ))
+            });
+        }
         let enabled = *self.enabled.lock().unwrap();
         Box::pin(async move {
             Ok(if enabled {
@@ -550,8 +559,10 @@ impl TunHelperPlatform for InstallableTunPlatform {
                 ))
             });
         }
-        *self.enabled.lock().unwrap() = enabled;
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            *self.enabled.lock().unwrap() = enabled;
+            Ok(())
+        })
     }
 }
 
@@ -853,7 +864,7 @@ async fn cold_tun_launch_reports_helper_setup_before_a_listener_conflict() {
 }
 
 #[tokio::test]
-async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun() {
+async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_cancellation() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
@@ -862,9 +873,8 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
     let controller = FakeController::start("v1.19.29").await;
-    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
-        InstallableTunPlatform::default(),
-    )));
+    let tun_platform = Arc::new(InstallableTunPlatform::default());
+    let tun_helper = Arc::new(TunHelperController::new(tun_platform.clone()));
     let capture = Arc::new(CaptureReconciler::new_with_tun(
         Arc::new(MemoryCapturePlatform::default()),
         Arc::new(MemoryCaptureJournal::default()),
@@ -889,8 +899,9 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
     );
     let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let address = controller.address;
-    let policy_capture = capture.clone();
     let policy_helper = tun_helper.clone();
+    let durable_tun_intent = Arc::new(AtomicBool::new(false));
+    let policy_tun_intent = durable_tun_intent.clone();
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
@@ -899,7 +910,7 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         move || {
             ManagedRuntimePolicy::new(address, "dual-capture-secret")?.with_tun_enabled(
                 &policy_helper.snapshot(),
-                policy_capture.status().capture_selection.tun,
+                policy_tun_intent.load(Ordering::Relaxed),
             )
         },
     ));
@@ -927,6 +938,7 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         .unwrap();
     let system_proxy_core = host.current();
     tun_helper.install().await.unwrap();
+    durable_tun_intent.store(true, Ordering::Relaxed);
 
     let tun = coordinator
         .set_capture(
@@ -951,6 +963,47 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
     assert_eq!(config["find-process-mode"].as_str(), Some("always"));
 
+    let exited_tun_core = host.current();
+    exited_tun_core.stop_core().await.unwrap();
+    let restarted_tun = coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !exited_tun_core.is_same_instance(&host.current()),
+        "a stopped Core must not satisfy an otherwise matching TUN backend"
+    );
+    assert_eq!(restarted_tun["runtime"]["tun"]["phase"], "applied");
+
+    tun_platform.fail_observation.store(true, Ordering::Relaxed);
+    assert_eq!(
+        host.current()
+            .audit_capture(CaptureAuditReason::Periodic)
+            .await
+            .unwrap_err()
+            .kind,
+        CaptureFailureKind::ConfirmationFailed
+    );
+    let degraded = host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert!(!degraded.runtime.tun_enabled);
+    assert_eq!(degraded.runtime.tun.phase, mish_runtime::TunPhase::Drift);
+    tun_platform
+        .fail_observation
+        .store(false, Ordering::Relaxed);
+    let tun_core = host.current();
+
     coordinator
         .set_capture(
             CaptureRequest {
@@ -965,6 +1018,10 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         .await
         .unwrap();
     let stopped_core = host.current();
+    assert!(
+        !tun_core.is_same_instance(&stopped_core),
+        "disabling degraded TUN must replace the privileged Core backend"
+    );
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(false));
 
@@ -985,6 +1042,72 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
     assert_eq!(relaunched["runtime"]["tun"]["phase"], "applied");
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    controller.block_next_version();
+    let switching = {
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator
+                .set_capture(
+                    CaptureRequest {
+                        active: true,
+                        selection: CaptureSelection {
+                            system_proxy: false,
+                            tun: true,
+                        },
+                    },
+                    StatusAdapterKind::Rpc,
+                )
+                .await
+        })
+    };
+    timeout(Duration::from_secs(5), controller.version_request_started())
+        .await
+        .expect("replacement Core activation did not reach the Controller barrier");
+    switching.abort();
+    assert!(switching.await.unwrap_err().is_cancelled());
+    controller.release_version_request();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let status = host
+                .current()
+                .status_snapshot_typed(StatusAdapterKind::Rpc)
+                .await;
+            if status.runtime.tun.phase == mish_runtime::TunPhase::Applied {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("background handoff owner did not finish after caller cancellation");
+    timeout(Duration::from_secs(5), async {
+        while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+    })
+    .await
+    .expect("background activation owner did not publish its terminal state");
+    drop(
+        capture
+            .clone()
+            .begin_runtime_transition()
+            .expect("completed background handoff leaked its Capture transition"),
+    );
 
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
@@ -5349,6 +5472,13 @@ struct FakeController {
     address: SocketAddr,
     join: JoinHandle<()>,
     shutdown: oneshot::Sender<()>,
+    version_gate: Arc<FakeControllerVersionGate>,
+}
+
+struct FakeControllerVersionGate {
+    block_next: AtomicBool,
+    release: Notify,
+    started: Notify,
 }
 
 #[derive(Clone)]
@@ -5434,10 +5564,25 @@ impl FakeController {
     }
 
     async fn start_with_catalog(version: &'static str, catalog: serde_json::Value) -> Self {
+        let version_gate = Arc::new(FakeControllerVersionGate {
+            block_next: AtomicBool::new(false),
+            release: Notify::new(),
+            started: Notify::new(),
+        });
+        let route_gate = version_gate.clone();
         let app = Router::new()
             .route(
                 "/version",
-                get(move || async move { Json(json!({"meta": true, "version": version})) }),
+                get(move || {
+                    let gate = route_gate.clone();
+                    async move {
+                        if gate.block_next.swap(false, Ordering::AcqRel) {
+                            gate.started.notify_one();
+                            gate.release.notified().await;
+                        }
+                        Json(json!({"meta": true, "version": version}))
+                    }
+                }),
             )
             .route("/configs", get(|| async { Json(runtime_config()) }))
             .route(
@@ -5466,7 +5611,20 @@ impl FakeController {
             address,
             join,
             shutdown,
+            version_gate,
         }
+    }
+
+    fn block_next_version(&self) {
+        self.version_gate.block_next.store(true, Ordering::Release);
+    }
+
+    async fn version_request_started(&self) {
+        self.version_gate.started.notified().await;
+    }
+
+    fn release_version_request(&self) {
+        self.version_gate.release.notify_waiters();
     }
 
     async fn shutdown(self) {

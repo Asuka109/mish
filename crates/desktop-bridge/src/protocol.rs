@@ -2455,17 +2455,15 @@ async fn disable_tun_for_helper_lifecycle_locked(
     }
     let mut selection = snapshot.runtime.capture_selection;
     selection.tun = false;
-    state
-        .runtime
-        .set_capture(
-            CaptureRequest {
-                active: snapshot.runtime.system_proxy_enabled,
-                selection,
-            },
-            StatusAdapterKind::Rpc,
-        )
-        .await
-        .map(|_| ())
+    set_capture_with_core_reactivation(
+        state,
+        CaptureRequest {
+            active: snapshot.runtime.system_proxy_enabled,
+            selection,
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn set_capture_with_core_reactivation(
