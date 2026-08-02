@@ -262,6 +262,14 @@ const zh: Translation = {
     rules: "规则",
     settings: "设置",
   },
+  mobileRoutes: {
+    actionsUnavailable: "当前运行环境可以显示路由，但暂时不能切换选择或执行延迟测试。",
+    back: "返回",
+    childDetails: "查看 {child} 的详情",
+    delayUnavailable: "当前运行环境可以显示路由，但暂时不能执行延迟测试。",
+    reconnecting: "正在重新连接。当前已确认的内容会保留，收到新的状态后可继续操作。",
+    selectionUnavailable: "当前运行环境可以显示路由，但暂时不能切换选择。",
+  },
   mobileHome: {
     authorityLabel: "VPN / 内核",
     configActionsLabel: "虚构 Mobile Core 配置操作",

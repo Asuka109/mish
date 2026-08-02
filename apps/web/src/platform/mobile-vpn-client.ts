@@ -2,6 +2,7 @@ import {
   MobileConfigCancelResultSchema,
   MobileConfigLoadResultSchema,
   MobileConfigValidationResultSchema,
+  MobileVpnCommandResultSchema,
   MobileVpnEventSchema,
   MobileVpnSnapshotSchema,
   type MobileConfigLoadFailure,
@@ -10,13 +11,18 @@ import {
   type MobileConfigValidationResultDto,
   type MobileVpnSnapshotDto,
 } from "@mish/contracts";
-import { addPluginListener, invoke, type PluginListener } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export const MOBILE_CORE_MAX_CONFIG_BYTES_V1 = 1_048_576;
 
 interface MobileVpnTransport {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
-  listen(handler: (payload: unknown) => void): Promise<PluginListener>;
+  listen(handler: (payload: unknown) => void): Promise<MobileVpnListener>;
+}
+
+interface MobileVpnListener {
+  unregister(): Promise<void>;
 }
 
 interface MobileConfigValidationOptions {
@@ -57,15 +63,22 @@ export interface MobileVpnClient {
 
 const defaultTransport: MobileVpnTransport = {
   invoke: (command, args) => invoke(`plugin:mish-vpn|${command}`, args),
-  listen: (handler) => addPluginListener("mish-vpn", "snapshot", handler),
+  listen: async (handler) => {
+    const unlisten = await listen("mish-vpn://snapshot", (event) => handler(event.payload));
+    return { unregister: async () => unlisten() };
+  },
 };
 
 export class MobileVpnFixtureClient implements MobileVpnClient {
   private validationPending = false;
   private loadPending = false;
   private loadSequence = 0;
-  private listener?: PluginListener;
+  private lifecycleOperationSequence = 0;
+  private listener?: MobileVpnListener;
+  private baselineAccepted = false;
+  private readonly pendingEvents: MobileVpnSnapshotDto[] = [];
   private snapshot?: MobileVpnSnapshotDto;
+  private readonly retiredAuthorityIds = new Set<string>();
   private readonly retiredSessionIds = new Set<string>();
   private readonly subscribers = new Set<(snapshot: MobileVpnSnapshotDto) => void>();
 
@@ -75,10 +88,17 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     if (!this.listener) {
       this.listener = await this.transport.listen((payload) => {
         const event = MobileVpnEventSchema.parse(payload);
+        if (!this.baselineAccepted) {
+          this.pendingEvents.push(event.snapshot);
+          if (this.pendingEvents.length > 16) this.pendingEvents.shift();
+          return;
+        }
         this.acceptSnapshot(event.snapshot);
       });
     }
-    return this.runCommand("get_snapshot");
+    const baseline = MobileVpnSnapshotSchema.parse(await this.transport.invoke("get_snapshot"));
+    this.acceptBaseline(baseline);
+    return this.snapshot ?? baseline;
   }
 
   getSnapshot(): MobileVpnSnapshotDto | undefined {
@@ -86,19 +106,22 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   }
 
   requestNotificationPermission(): Promise<MobileVpnSnapshotDto> {
-    return this.runCommand("request_notification_permission");
+    return this.runLifecycleCommand(
+      "request_notification_permission",
+      "request-notification-permission",
+    );
   }
 
   requestVpnConsent(): Promise<MobileVpnSnapshotDto> {
-    return this.runCommand("request_vpn_consent");
+    return this.runLifecycleCommand("request_vpn_consent", "request-vpn-consent");
   }
 
   startFixtureLifecycle(): Promise<MobileVpnSnapshotDto> {
-    return this.runCommand("start_fixture_lifecycle");
+    return this.runLifecycleCommand("start_fixture_lifecycle", "start");
   }
 
   stop(): Promise<MobileVpnSnapshotDto> {
-    return this.runCommand("stop");
+    return this.runLifecycleCommand("stop", "stop");
   }
 
   async validateConfig(
@@ -339,24 +362,57 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   dispose(): void {
     void this.listener?.unregister().catch(() => undefined);
     this.listener = undefined;
+    this.baselineAccepted = false;
+    this.pendingEvents.length = 0;
     this.subscribers.clear();
   }
 
-  private async runCommand(command: string): Promise<MobileVpnSnapshotDto> {
-    const snapshot = MobileVpnSnapshotSchema.parse(await this.transport.invoke(command));
-    this.acceptSnapshot(snapshot);
-    return this.snapshot ?? snapshot;
+  private async runLifecycleCommand(
+    command: string,
+    kind: "request-notification-permission" | "request-vpn-consent" | "start" | "stop",
+  ): Promise<MobileVpnSnapshotDto> {
+    const operationId = `mobile-vpn-${kind}-${Date.now()}-${++this.lifecycleOperationSequence}`;
+    const result = MobileVpnCommandResultSchema.parse(
+      await this.transport.invoke(command, { request: { operationId } }),
+    );
+    if (result.operation.operationId !== operationId || result.operation.kind !== kind) {
+      throw new Error("The mobile VPN lifecycle result identity was invalid.");
+    }
+    this.acceptSnapshot(result.snapshot);
+    return this.snapshot ?? result.snapshot;
+  }
+
+  private acceptBaseline(baseline: MobileVpnSnapshotDto): void {
+    this.snapshot = baseline;
+    this.baselineAccepted = true;
+    this.retiredAuthorityIds.clear();
+    this.retiredSessionIds.clear();
+    for (const subscriber of this.subscribers) subscriber(baseline);
+    const pending = this.pendingEvents
+      .splice(0)
+      .sort((left, right) => left.sequence - right.sequence);
+    for (const snapshot of pending) this.acceptSnapshot(snapshot);
   }
 
   private acceptSnapshot(snapshot: MobileVpnSnapshotDto): void {
+    if (!this.baselineAccepted) {
+      this.pendingEvents.push(snapshot);
+      if (this.pendingEvents.length > 16) this.pendingEvents.shift();
+      return;
+    }
+    if (this.retiredAuthorityIds.has(snapshot.authorityId)) return;
     if (this.retiredSessionIds.has(snapshot.sessionId)) return;
-    if (this.snapshot?.sessionId === snapshot.sessionId) {
-      if (snapshot.sequence <= this.snapshot.sequence) return;
-    } else if (this.snapshot) {
+    if (this.snapshot?.authorityId !== snapshot.authorityId) {
+      this.retiredAuthorityIds.add(snapshot.authorityId);
+      trimSet(this.retiredAuthorityIds);
+      return;
+    }
+    if (snapshot.sequence <= this.snapshot.sequence || snapshot.revision < this.snapshot.revision) {
+      return;
+    }
+    if (this.snapshot.sessionId !== snapshot.sessionId) {
       this.retiredSessionIds.add(this.snapshot.sessionId);
-      while (this.retiredSessionIds.size > 8) {
-        this.retiredSessionIds.delete(this.retiredSessionIds.values().next().value!);
-      }
+      trimSet(this.retiredSessionIds);
     }
     this.snapshot = snapshot;
     for (const subscriber of this.subscribers) subscriber(snapshot);
@@ -366,6 +422,10 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     if (!this.snapshot) return undefined;
     return { sequence: this.snapshot.sequence, sessionId: this.snapshot.sessionId };
   }
+}
+
+function trimSet(values: Set<string>): void {
+  while (values.size > 8) values.delete(values.values().next().value!);
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

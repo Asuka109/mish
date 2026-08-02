@@ -7,8 +7,10 @@ function snapshot(
   sequence: number,
   phase: MobileVpnSnapshotDto["phase"] = "stopped",
   sessionId = "session-1",
+  authorityId = "authority-1",
 ): MobileVpnSnapshotDto {
   return {
+    authorityId,
     backendKind: "fixture",
     contractVersion: 1,
     coreAbiVersion: null,
@@ -23,8 +25,10 @@ function snapshot(
     loadedConfigRevision: null,
     message: "Fixture only. No TUN or Core is available.",
     notificationPermission: "required",
+    operation: null,
     permission: "required",
     phase,
+    revision: sequence,
     sequence,
     sessionId,
     updatedAtMillis: sequence,
@@ -33,6 +37,19 @@ function snapshot(
     vpnActive: false,
     vpnAvailability: "unavailable",
     tunAvailability: "unavailable",
+  };
+}
+
+function lifecycleResult(
+  kind: "request-notification-permission" | "request-vpn-consent" | "start" | "stop",
+  operationId: string,
+  value: MobileVpnSnapshotDto,
+) {
+  const operation = { failure: null, kind, operationId, outcome: "completed" as const };
+  return {
+    contractVersion: 1,
+    operation,
+    snapshot: { ...value, operation },
   };
 }
 
@@ -87,7 +104,19 @@ function validationResult(sequence: number, overrides: Record<string, unknown> =
 describe("MobileVpnFixtureClient", () => {
   it("uses the closed plugin command set and validates snapshots", async () => {
     let sequence = 0;
-    const invoke = vi.fn(async (_command: string) => snapshot(++sequence));
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      const value = snapshot(++sequence);
+      if (command === "get_snapshot") return value;
+      const operationId = (args?.request as { operationId?: unknown } | undefined)?.operationId;
+      if (typeof operationId !== "string") throw new Error("Missing lifecycle operation ID.");
+      const kind = {
+        request_notification_permission: "request-notification-permission",
+        request_vpn_consent: "request-vpn-consent",
+        start_fixture_lifecycle: "start",
+        stop: "stop",
+      }[command] as "request-notification-permission" | "request-vpn-consent" | "start" | "stop";
+      return lifecycleResult(kind, operationId, value);
+    });
     const client = new MobileVpnFixtureClient({
       invoke,
       listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
@@ -123,15 +152,19 @@ describe("MobileVpnFixtureClient", () => {
     client.subscribe((value) => observed.push(value.sequence));
 
     handler?.({
+      authorityId: "authority-1",
       eventKind: "snapshot-changed",
-      eventVersion: 1,
+      eventVersion: 2,
+      revision: 6,
       sequence: 6,
       sessionId: "session-1",
       snapshot: snapshot(6, "unavailable"),
     });
     handler?.({
+      authorityId: "authority-1",
       eventKind: "snapshot-changed",
-      eventVersion: 1,
+      eventVersion: 2,
+      revision: 5,
       sequence: 5,
       sessionId: "session-1",
       snapshot: snapshot(5),
@@ -139,6 +172,55 @@ describe("MobileVpnFixtureClient", () => {
 
     expect(observed).toEqual([4, 6]);
     expect(client.getSnapshot()?.phase).toBe("unavailable");
+  });
+
+  it("requires a complete baseline before replaying only same-authority events", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    let resolveBaseline: ((value: MobileVpnSnapshotDto) => void) | undefined;
+    const baseline = new Promise<MobileVpnSnapshotDto>((resolve) => {
+      resolveBaseline = resolve;
+    });
+    const observed: number[] = [];
+    const client = new MobileVpnFixtureClient({
+      invoke: async () => baseline,
+      listen: async (nextHandler) => {
+        handler = nextHandler;
+        return { unregister: vi.fn() } as unknown as PluginListener;
+      },
+    });
+    client.subscribe((value) => observed.push(value.sequence));
+    const initialization = client.initialize();
+    await vi.waitFor(() => expect(handler).toBeDefined());
+
+    handler?.({
+      authorityId: "retired-authority",
+      eventKind: "snapshot-changed",
+      eventVersion: 2,
+      revision: 8,
+      sequence: 8,
+      sessionId: "retired-session",
+      snapshot: snapshot(8, "unavailable", "retired-session", "retired-authority"),
+    });
+    handler?.({
+      authorityId: "authority-1",
+      eventKind: "snapshot-changed",
+      eventVersion: 2,
+      revision: 6,
+      sequence: 6,
+      sessionId: "session-1",
+      snapshot: snapshot(6, "unavailable"),
+    });
+    expect(client.getSnapshot()).toBeUndefined();
+
+    resolveBaseline?.(snapshot(4));
+    await expect(initialization).resolves.toMatchObject({ sequence: 6 });
+
+    expect(observed).toEqual([4, 6]);
+    expect(client.getSnapshot()).toMatchObject({
+      authorityId: "authority-1",
+      phase: "unavailable",
+      sequence: 6,
+    });
   });
 
   it("accepts runtime replacement once and rejects late events from the retired session", async () => {
@@ -153,21 +235,25 @@ describe("MobileVpnFixtureClient", () => {
     await client.initialize();
 
     handler?.({
+      authorityId: "authority-1",
       eventKind: "snapshot-changed",
-      eventVersion: 1,
-      sequence: 1,
+      eventVersion: 2,
+      revision: 9,
+      sequence: 9,
       sessionId: "session-2",
-      snapshot: snapshot(1, "stopped", "session-2"),
+      snapshot: snapshot(9, "stopped", "session-2"),
     });
     handler?.({
+      authorityId: "authority-1",
       eventKind: "snapshot-changed",
-      eventVersion: 1,
-      sequence: 9,
+      eventVersion: 2,
+      revision: 10,
+      sequence: 10,
       sessionId: "session-1",
-      snapshot: snapshot(9),
+      snapshot: snapshot(10),
     });
 
-    expect(client.getSnapshot()).toMatchObject({ sequence: 1, sessionId: "session-2" });
+    expect(client.getSnapshot()).toMatchObject({ sequence: 9, sessionId: "session-2" });
   });
 
   it("rejects capability inflation", async () => {
@@ -461,8 +547,10 @@ describe("MobileVpnFixtureClient", () => {
     const pending = client.validateConfig(new Uint8Array([1]));
 
     handler?.({
+      authorityId: "authority-1",
       eventKind: "snapshot-changed",
-      eventVersion: 1,
+      eventVersion: 2,
+      revision: 13,
       sequence: 13,
       sessionId: "session-1",
       snapshot: snapshot(13),

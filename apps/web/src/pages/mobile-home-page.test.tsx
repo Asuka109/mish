@@ -5,6 +5,8 @@ import type {
 } from "@mish/contracts";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { FixtureNotificationClient } from "../data/fixture-notification-client";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";
@@ -23,6 +25,7 @@ const fixture = {
 };
 
 const initialSnapshot: MobileVpnSnapshotDto = {
+  authorityId: "mobile-home-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
@@ -37,8 +40,10 @@ const initialSnapshot: MobileVpnSnapshotDto = {
   loadedConfigRevision: null,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required",
+  operation: null,
   permission: "required",
   phase: "permission-required",
+  revision: 1,
   sequence: 1,
   sessionId: "session-1",
   updatedAtMillis: 1,
@@ -121,12 +126,19 @@ class TestMobileVpnClient implements MobileVpnClient {
   }
 }
 
-function renderHome(client = new TestMobileVpnClient(), locale: "en" | "zh" = "en") {
+function renderHome(
+  client = new TestMobileVpnClient(),
+  locale: "en" | "zh" = "en",
+  notificationClient = new FixtureNotificationClient(),
+) {
   return {
     client,
+    notificationClient,
     ...render(
       <TypesafeI18n locale={locale}>
-        <MobileHomePage fixture={fixture} initialSnapshot={initialSnapshot} vpnClient={client} />
+        <NotificationDeliveryProvider client={notificationClient}>
+          <MobileHomePage fixture={fixture} initialSnapshot={initialSnapshot} vpnClient={client} />
+        </NotificationDeliveryProvider>
       </TypesafeI18n>,
     ),
   };
@@ -252,13 +264,126 @@ describe("MobileHomePage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Loaded · fictional-a-v1")).toBeVisible();
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "Configuration loaded. VPN and TUN remain unavailable.",
-      );
     });
     expect(client.loadConfig).toHaveBeenCalledOnce();
     expect(screen.getByRole("heading", { name: "VPN permission required" })).toBeVisible();
     expect(screen.queryByText(/No configuration is loaded/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Configuration loaded\. VPN and TUN remain unavailable/)).toBeNull();
+  });
+
+  it("uses one semantic notification record for repeated and concurrent configuration failures", async () => {
+    const client = new TestMobileVpnClient({
+      ...initialSnapshot,
+      coreAbiVersion: 1,
+      coreAvailability: "available",
+      coreCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+      coreVersion: "v1.19.29",
+      coreWrapperRevision: "mish-mobile-core-v1",
+    });
+    const failedResult: MobileConfigLoadResultDto = {
+      cancellation: "not-requested",
+      contractVersion: 1,
+      digest: "b9692e9a47cdab4379c8125bcd83407a89d5290cbfa4c6218bb58e1d50bae686",
+      failure: "configuration-rejected",
+      message: "The test configuration was rejected.",
+      operationId: "test-load-failure",
+      outcome: "failed",
+      revision: "fictional-b-v1",
+      rollback: "unloaded",
+      snapshot: client.getSnapshot()!,
+      timing: "on-time",
+    };
+    let settleFirstLoad: ((result: MobileConfigLoadResultDto) => void) | undefined;
+    client.loadConfig.mockImplementationOnce(
+      () =>
+        new Promise<MobileConfigLoadResultDto>((resolve) => {
+          settleFirstLoad = resolve;
+        }),
+    );
+    client.loadConfig.mockResolvedValue(failedResult);
+    const { container, notificationClient } = renderHome(client);
+    const action = screen.getByRole("button", { name: "Load Fixture A" });
+
+    fireEvent.click(action);
+    fireEvent.click(action);
+    expect(client.loadConfig).toHaveBeenCalledOnce();
+    settleFirstLoad?.(failedResult);
+
+    await waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]).toMatchObject({
+        dedupeKey: "mobile-config-load",
+        presentation: { kind: "settings.operation-failed" },
+      });
+    });
+    const firstSnapshot = await notificationClient.getSnapshot();
+    const firstId = firstSnapshot.notifications[0]?.id;
+
+    fireEvent.click(screen.getByRole("button", { name: "Load Fixture A" }));
+    await waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]?.id).toBe(firstId);
+    });
+    expect(client.loadConfig).toHaveBeenCalledTimes(2);
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    expect(container.querySelector(".mobile-home-command-failure")).toBeNull();
+
+    client.loadConfig.mockResolvedValue({
+      ...failedResult,
+      failure: null,
+      outcome: "first-load",
+      rollback: "not-needed",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load Fixture A" }));
+    await waitFor(async () => {
+      expect((await notificationClient.getSnapshot()).notifications).toHaveLength(0);
+    });
+
+    client.loadConfig.mockResolvedValue(failedResult);
+    fireEvent.click(screen.getByRole("button", { name: "Load Fixture A" }));
+    await waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]?.id).not.toBe(firstId);
+    });
+  });
+
+  it("retires lifecycle failure notifications after the authoritative snapshot recovers", async () => {
+    const client = new TestMobileVpnClient();
+    const { container, notificationClient } = renderHome(client);
+
+    client.publish({
+      ...initialSnapshot,
+      notificationPermission: "granted",
+      permission: "granted",
+      phase: "failed",
+      sequence: 2,
+    });
+
+    await waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]).toMatchObject({
+        dedupeKey: "mobile-vpn-lifecycle",
+        presentation: { kind: "status.operation-failed" },
+      });
+    });
+    expect(container.querySelector("[role=alert]")).toBeNull();
+
+    client.publish({
+      ...initialSnapshot,
+      notificationPermission: "granted",
+      permission: "granted",
+      phase: "stopped",
+      sequence: 3,
+    });
+
+    await waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(0);
+    });
   });
 
   it("keeps the development fixture evidence bounded in Simplified Chinese", () => {

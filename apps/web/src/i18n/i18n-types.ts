@@ -910,6 +910,33 @@ type RootTranslation = {
 		 */
 		settings: string
 	}
+	mobileRoutes: {
+		/**
+		 * T​h​i​s​ ​r​u​n​t​i​m​e​ ​c​a​n​ ​s​h​o​w​ ​R​o​u​t​e​s​ ​b​u​t​ ​c​a​n​n​o​t​ ​c​h​a​n​g​e​ ​a​ ​s​e​l​e​c​t​i​o​n​ ​o​r​ ​r​u​n​ ​a​ ​d​e​l​a​y​ ​t​e​s​t​ ​y​e​t​.
+		 */
+		actionsUnavailable: string
+		/**
+		 * B​a​c​k
+		 */
+		back: string
+		/**
+		 * V​i​e​w​ ​D​e​t​a​i​l​s​ ​f​o​r​ ​{​c​h​i​l​d​}
+		 * @param {string} child
+		 */
+		childDetails: RequiredParams<'child'>
+		/**
+		 * T​h​i​s​ ​r​u​n​t​i​m​e​ ​c​a​n​ ​s​h​o​w​ ​R​o​u​t​e​s​ ​b​u​t​ ​c​a​n​n​o​t​ ​r​u​n​ ​a​ ​d​e​l​a​y​ ​t​e​s​t​ ​y​e​t​.
+		 */
+		delayUnavailable: string
+		/**
+		 * R​o​u​t​e​s​ ​a​r​e​ ​r​e​c​o​n​n​e​c​t​i​n​g​.​ ​C​o​n​f​i​r​m​e​d​ ​v​a​l​u​e​s​ ​s​t​a​y​ ​v​i​s​i​b​l​e​ ​u​n​t​i​l​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​s​n​a​p​s​h​o​t​ ​a​r​r​i​v​e​s​.
+		 */
+		reconnecting: string
+		/**
+		 * T​h​i​s​ ​r​u​n​t​i​m​e​ ​c​a​n​ ​s​h​o​w​ ​R​o​u​t​e​s​ ​b​u​t​ ​c​a​n​n​o​t​ ​c​h​a​n​g​e​ ​a​ ​s​e​l​e​c​t​i​o​n​ ​y​e​t​.
+		 */
+		selectionUnavailable: string
+	}
 	mobileHome: {
 		/**
 		 * V​P​N​ ​/​ ​C​o​r​e
@@ -5752,6 +5779,32 @@ export type TranslationFunctions = {
 		 * Settings
 		 */
 		settings: () => LocalizedString
+	}
+	mobileRoutes: {
+		/**
+		 * This runtime can show Routes but cannot change a selection or run a delay test yet.
+		 */
+		actionsUnavailable: () => LocalizedString
+		/**
+		 * Back
+		 */
+		back: () => LocalizedString
+		/**
+		 * View Details for {child}
+		 */
+		childDetails: (arg: { child: string }) => LocalizedString
+		/**
+		 * This runtime can show Routes but cannot run a delay test yet.
+		 */
+		delayUnavailable: () => LocalizedString
+		/**
+		 * Routes are reconnecting. Confirmed values stay visible until the current snapshot arrives.
+		 */
+		reconnecting: () => LocalizedString
+		/**
+		 * This runtime can show Routes but cannot change a selection yet.
+		 */
+		selectionUnavailable: () => LocalizedString
 	}
 	mobileHome: {
 		/**

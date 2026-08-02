@@ -1,7 +1,6 @@
 package com.asuka109.mish.vpn
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,11 +26,8 @@ class MishMobileCoreLoadTest {
         assertEquals(listOf("validate", "load"), calls)
         assertEquals("first-load", result.outcome)
         assertNull(result.failure)
-        assertEquals("loaded", result.snapshot.coreConfigState)
-        assertEquals("revision-a", result.snapshot.loadedConfigRevision)
-        assertFalse(result.snapshot.vpnActive)
-        assertEquals("unavailable", result.snapshot.vpnAvailability)
-        assertEquals("unavailable", result.snapshot.tunAvailability)
+        assertEquals("loaded", result.facts.coreConfigState)
+        assertEquals("revision-a", result.facts.loadedConfigRevision)
     }
 
     @Test
@@ -55,7 +51,7 @@ class MishMobileCoreLoadTest {
         assertEquals("replacement", replaced.outcome)
         assertEquals("failed", rejected.outcome)
         assertEquals("preserved", rejected.rollback)
-        assertEquals("revision-b", rejected.snapshot.loadedConfigRevision)
+        assertEquals("revision-b", rejected.facts.loadedConfigRevision)
         assertEquals(3, loader.calls.get())
     }
 
@@ -82,8 +78,8 @@ class MishMobileCoreLoadTest {
         assertEquals("first-load", first.outcome)
         assertEquals("malformed-native-response", malformed.failure)
         assertEquals("unknown", malformed.rollback)
-        assertEquals("unknown", malformed.snapshot.coreConfigState)
-        assertNull(malformed.snapshot.loadedConfigDigest)
+        assertEquals("unknown", malformed.facts.coreConfigState)
+        assertNull(malformed.facts.loadedConfigDigest)
     }
 
     @Test
@@ -124,7 +120,7 @@ class MishMobileCoreLoadTest {
 
         assertEquals("first-load", late.outcome)
         assertEquals("too-late", late.cancellation)
-        assertEquals("loaded", late.snapshot.coreConfigState)
+        assertEquals("loaded", late.facts.coreConfigState)
     }
 
     @Test
@@ -144,7 +140,7 @@ class MishMobileCoreLoadTest {
         assertEquals("timed-out", timed.timing)
         assertEquals("timeout", timed.failure)
         assertEquals("first-load", timed.outcome)
-        assertEquals("loaded", timed.snapshot.coreConfigState)
+        assertEquals("loaded", timed.facts.coreConfigState)
 
         val replacedRepository = LoadRepository()
         val runtimeReplaced = MobileConfigLoadCoordinator(
@@ -163,30 +159,30 @@ class MishMobileCoreLoadTest {
         ).load(args(replacedRepository.current(), CONFIG_A, "revision-a"))
 
         assertEquals("runtime-replaced", runtimeReplaced.failure)
-        assertEquals("unknown", runtimeReplaced.snapshot.coreConfigState)
+        assertEquals("unknown", runtimeReplaced.facts.coreConfigState)
         assertEquals("unknown", runtimeReplaced.rollback)
     }
 
     @Test
     fun `process recreation never restores loaded Core from persisted identity alone`() {
-        val persisted = MobileVpnSnapshot(
+        val persisted = MobilePlatformFacts(
             coreConfigState = "loaded",
             loadedConfigDigest = digest(CONFIG_A),
             loadedConfigRevision = "revision-a",
         )
 
-        val recreated = reconcileCoreConfigSnapshot(
+        val recreated = reconcileCoreConfigFacts(
             persisted,
             NativeConfigInspectionResult(
                 NativeInspectionCode.UNLOADED,
                 abiStatus = 2,
             ),
         )
-        val activityRecreated = reconcileCoreConfigSnapshot(
+        val activityRecreated = reconcileCoreConfigFacts(
             persisted,
             NativeConfigInspectionResult(NativeInspectionCode.LOADED_EXPECTED),
         )
-        val unexpected = reconcileCoreConfigSnapshot(
+        val unexpected = reconcileCoreConfigFacts(
             persisted,
             NativeConfigInspectionResult(NativeInspectionCode.LOADED_OTHER),
         )
@@ -206,7 +202,7 @@ private const val CONFIG_C = "mode: global\nproxies: []\nproxy-groups: []\nrules
 private fun digest(config: String): String = sha256Hex(config.toByteArray())
 
 private fun args(
-    snapshot: MobileVpnSnapshot,
+    snapshot: MobilePlatformFacts,
     config: String,
     revision: String,
     operationId: String = "operation-$revision",
@@ -217,34 +213,39 @@ private fun args(
         injectFailure = false
         this.operationId = operationId
         this.revision = revision
-        sequence = snapshot.sequence
-        sessionId = snapshot.sessionId
+        sequence = snapshot.factSequence
+        sessionId = snapshot.platformSessionId
         timeoutMillis = 5_000
     }
 
-private class LoadRepository : SnapshotRepository {
+private class LoadRepository : PlatformFactRepository {
     @Volatile
-    private var snapshot = MobileVpnSnapshot(
+    private var snapshot = MobilePlatformFacts(
         coreAbiVersion = 1,
         coreAvailability = "available",
         coreCommit = "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
         coreVersion = "v1.19.29",
         coreWrapperRevision = "mish-mobile-core-v1",
-        sequence = 11,
-        sessionId = "load-session",
+        factSequence = 11,
+        platformSessionId = "load-session",
     )
 
-    override fun current(): MobileVpnSnapshot = snapshot
+    override fun current(): MobilePlatformFacts = snapshot
 
-    override fun update(transform: (MobileVpnSnapshot) -> MobileVpnSnapshot): MobileVpnSnapshot =
+    override fun update(
+        transform: (MobilePlatformFacts) -> MobilePlatformFacts,
+    ): MobilePlatformFacts =
         synchronized(this) {
-            snapshot = transform(snapshot).copy(sequence = snapshot.sequence + 1)
+            snapshot = transform(snapshot).copy(factSequence = snapshot.factSequence + 1)
             snapshot
         }
 
     fun replaceSession() {
         synchronized(this) {
-            snapshot = snapshot.copy(sequence = 0, sessionId = "replacement-session")
+            snapshot = snapshot.copy(
+                factSequence = 0,
+                platformSessionId = "replacement-session",
+            )
         }
     }
 }

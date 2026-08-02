@@ -4,7 +4,7 @@ import type {
   PolicyGroupDto,
   PolicyGroupType,
 } from "@mish/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -36,6 +36,101 @@ export function usePolicyGroupBrowserSession() {
     sortFor(groupId: string) {
       return sortByGroupId.get(groupId) ?? "configuration";
     },
+  };
+}
+
+interface PolicyGroupSelectionOptions {
+  commandsDisabled?: boolean;
+  graph: RouteGraph;
+  group: PolicyGroupDto | null;
+  onSelectionConfirmed?(): void;
+}
+
+export function usePolicyGroupSelection({
+  commandsDisabled = false,
+  graph,
+  group,
+  onSelectionConfirmed,
+}: PolicyGroupSelectionOptions) {
+  const { isGroupCommandPending, isCommandSupported, selectGroupChild } = useProduct();
+  const { publish } = useNotificationDelivery();
+  const [pendingSelectionId, setPendingSelectionId] = useState<string | null>(null);
+  const selectionDisabled = !group || commandsDisabled || !isCommandSupported("group");
+  const selectionPending = group ? isGroupCommandPending(group.id) : false;
+
+  useEffect(() => {
+    setPendingSelectionId(null);
+  }, [group?.id]);
+
+  const selectChild = useCallback(
+    async (childId: string) => {
+      if (!group || selectionDisabled || isGroupCommandPending(group.id)) return;
+      setPendingSelectionId(childId);
+      const result = await selectGroupChild(group.id, childId);
+      setPendingSelectionId(null);
+      if (result.ok) {
+        const cleanup = result.snapshot?.groupSelectionOperation;
+        if (cleanup && cleanup.cleanupPhase !== "idle") {
+          publish(
+            notificationPublication("route.old-child-cleanup", {
+              data: {
+                catalogRevision: cleanup.catalogRevision,
+                closedCount: cleanup.closedCount,
+                controllerSessionRevision: cleanup.controllerSessionRevision,
+                failedCount: cleanup.failedCount,
+                failure: cleanup.cleanupFailure ?? undefined,
+                membershipRevision: cleanup.membershipRevision,
+                mode: cleanup.cleanupMode,
+                phase: cleanup.cleanupPhase,
+                targetCount: cleanup.targetCount,
+              },
+              dedupeKey: "route.old-child-cleanup",
+              severity:
+                cleanup.cleanupPhase === "completed"
+                  ? "success"
+                  : cleanup.cleanupPhase === "skipped"
+                    ? "info"
+                    : cleanup.cleanupPhase === "partial"
+                      ? "warning"
+                      : "error",
+            }),
+          );
+        }
+        onSelectionConfirmed?.();
+        return;
+      }
+      publish(
+        notificationPublication("route.selection-failed", {
+          data: {
+            child:
+              graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,
+          },
+          severity: "error",
+        }),
+      );
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>('[data-entity-id="' + CSS.escape(childId) + '"]')
+          ?.querySelector<HTMLElement>("[data-policy-row-primary]")
+          ?.focus({ preventScroll: true });
+      });
+    },
+    [
+      graph,
+      group,
+      isGroupCommandPending,
+      onSelectionConfirmed,
+      publish,
+      selectGroupChild,
+      selectionDisabled,
+    ],
+  );
+
+  return {
+    pendingSelectionId,
+    selectChild,
+    selectionDisabled,
+    selectionPending,
   };
 }
 
@@ -100,6 +195,8 @@ export function getPolicyGroupTypeLabel(LL: TranslationFunctions, group: PolicyG
 }
 
 interface PolicyGroupBrowserProps {
+  childBrowseLabel?(childId: string): string;
+  childBrowseTo?(childId: string): string | undefined;
   commandsDisabled?: boolean;
   density?: PolicyBrowserDensity;
   emptyClassName?: string;
@@ -107,6 +204,7 @@ interface PolicyGroupBrowserProps {
   graph: RouteGraph;
   group: PolicyGroupDto;
   listClassName?: string;
+  mobile?: boolean;
   onQueryChange(query: string): void;
   onSelectionConfirmed?(): void;
   onSortChange(sort: RouteSort): void;
@@ -117,6 +215,8 @@ interface PolicyGroupBrowserProps {
 }
 
 export function PolicyGroupBrowser({
+  childBrowseLabel,
+  childBrowseTo,
   commandsDisabled = false,
   density = "compact",
   emptyClassName,
@@ -124,6 +224,7 @@ export function PolicyGroupBrowser({
   graph,
   group,
   listClassName,
+  mobile = false,
   onQueryChange,
   onSelectionConfirmed,
   onSortChange,
@@ -136,14 +237,10 @@ export function PolicyGroupBrowser({
     cancelGroupDelayTest,
     isCommandPending,
     isCommandSupported,
-    isGroupCommandPending,
-    selectGroupChild,
     snapshot,
     startGroupDelayTest,
   } = useProduct();
-  const { publish } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
-  const [pendingSelectionId, setPendingSelectionId] = useState<string | null>(null);
   const [delayBusy, setDelayBusy] = useState(false);
   const [frozenDelayOrder, setFrozenDelayOrder] = useState<{
     childIds: readonly string[];
@@ -151,9 +248,14 @@ export function PolicyGroupBrowser({
   } | null>(null);
   const language = locale === "zh" ? "zh-CN" : "en";
   const delayTest = snapshot?.groupDelayTest;
+  const selection = usePolicyGroupSelection({
+    commandsDisabled,
+    graph,
+    group,
+    onSelectionConfirmed,
+  });
 
   useEffect(() => {
-    setPendingSelectionId(null);
     setFrozenDelayOrder(null);
   }, [group.id]);
 
@@ -186,8 +288,8 @@ export function PolicyGroupBrowser({
   const completedDelayChildren = delayMatchesGroup
     ? delayTest.children.filter((child) => child.phase !== "pending").length
     : 0;
-  const selectionDisabled = commandsDisabled || !isCommandSupported("group");
-  const selectionPending = isGroupCommandPending(group.id);
+  const selectionDisabled = selection.selectionDisabled;
+  const selectionPending = selection.selectionPending;
   const delayDisabled = commandsDisabled || !isCommandSupported("group-delay");
   const delayProgress =
     delayMatchesGroup && delayTest.phase !== "idle"
@@ -201,59 +303,6 @@ export function PolicyGroupBrowser({
         : snapshot.groupDelayPolicy.url
           ? LL.routes.delayPolicy({ url: snapshot.groupDelayPolicy.url })
           : null;
-
-  async function selectChild(childId: string) {
-    if (selectionDisabled || isGroupCommandPending(group.id)) return;
-    setPendingSelectionId(childId);
-    const result = await selectGroupChild(group.id, childId);
-    setPendingSelectionId(null);
-    if (result.ok) {
-      const cleanup = result.snapshot?.groupSelectionOperation;
-      if (cleanup && cleanup.cleanupPhase !== "idle") {
-        publish(
-          notificationPublication("route.old-child-cleanup", {
-            data: {
-              catalogRevision: cleanup.catalogRevision,
-              closedCount: cleanup.closedCount,
-              controllerSessionRevision: cleanup.controllerSessionRevision,
-              failedCount: cleanup.failedCount,
-              failure: cleanup.cleanupFailure ?? undefined,
-              membershipRevision: cleanup.membershipRevision,
-              mode: cleanup.cleanupMode,
-              phase: cleanup.cleanupPhase,
-              targetCount: cleanup.targetCount,
-            },
-            dedupeKey: "route.old-child-cleanup",
-            severity:
-              cleanup.cleanupPhase === "completed"
-                ? "success"
-                : cleanup.cleanupPhase === "skipped"
-                  ? "info"
-                  : cleanup.cleanupPhase === "partial"
-                    ? "warning"
-                    : "error",
-          }),
-        );
-      }
-      onSelectionConfirmed?.();
-      return;
-    }
-    publish(
-      notificationPublication("route.selection-failed", {
-        data: {
-          child:
-            graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,
-        },
-        severity: "error",
-      }),
-    );
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-entity-id="${CSS.escape(childId)}"]`)
-        ?.querySelector<HTMLElement>("[data-policy-row-primary]")
-        ?.focus({ preventScroll: true });
-    });
-  }
 
   async function startDelay() {
     setFrozenDelayOrder({
@@ -288,6 +337,7 @@ export function PolicyGroupBrowser({
         delayBusy={delayBusy || isCommandPending("group-delay")}
         delayDisabled={delayDisabled || delayIsActive || group.childIds.length === 0}
         delayProgress={delayProgress}
+        mobile={mobile}
         onCancel={() => void cancelDelay()}
         onQueryChange={onQueryChange}
         onSortChange={onSortChange}
@@ -326,6 +376,8 @@ export function PolicyGroupBrowser({
                 <li key={childId}>
                   <PolicyEntityRow
                     automaticLabel={LL.routes.automaticSelection()}
+                    browseLabel={childBrowseLabel?.(childId)}
+                    browseTo={childBrowseTo?.(childId)}
                     currentLabel={LL.routes.selected()}
                     density={density}
                     disabled={selectionDisabled || selectionPending}
@@ -351,14 +403,16 @@ export function PolicyGroupBrowser({
                     }
                     muted={selectionDisabled}
                     onSelect={
-                      canSelectNode || canSelectGroup ? () => void selectChild(childId) : undefined
+                      canSelectNode || canSelectGroup
+                        ? () => void selection.selectChild(childId)
+                        : undefined
                     }
                     pendingLabel={LL.routes.switching()}
                     readOnlyPresentation={group.type === "selector" ? "explicit" : "passive"}
                     readOnlyLabel={LL.routes.readOnly()}
                     selectLabel={LL.routes.selectChild({ child: entity.label, group: group.label })}
                     selected={group.selectedChildId === childId}
-                    selectionPending={pendingSelectionId === childId}
+                    selectionPending={selection.pendingSelectionId === childId}
                   />
                 </li>
               );

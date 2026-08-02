@@ -22,6 +22,7 @@ import {
 } from "./macos-updater-contract.ts";
 
 const fixtures = path.resolve(import.meta.dirname, "fixtures/macos-updater");
+const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const publicKey = readFileSync(path.join(fixtures, "updater-fixture.key.pub"), "utf8").trim();
 
 function completeFixture(channel: UpdaterChannel = "alpha") {
@@ -89,6 +90,41 @@ test("generates the exact signed Tauri updater artifact set without credentials 
     ),
   );
   assert.deepEqual(tauriContract, { bundle: { createUpdaterArtifacts: true } });
+});
+
+test("keeps the Tauri install seam compile-only and outside every shipped capability boundary", () => {
+  const updaterCargo = readFileSync(path.join(repositoryRoot, "crates/updater/Cargo.toml"), "utf8");
+  const normalDependencies = updaterCargo.match(
+    /\[dependencies\]([\s\S]*?)\[dev-dependencies\]/u,
+  )?.[1];
+  const devDependencies = updaterCargo.match(/\[dev-dependencies\]([\s\S]*)/u)?.[1];
+  assert.ok(normalDependencies);
+  assert.ok(devDependencies);
+  assert.doesNotMatch(normalDependencies, /tauri-plugin-updater/u);
+  assert.match(
+    devDependencies,
+    /tauri-plugin-updater = \{ version = "=2\.10\.1", default-features = false \}/u,
+  );
+
+  const shippedInputs = [
+    "apps/desktop/src-tauri/Cargo.toml",
+    "apps/desktop/src-tauri/src/lib.rs",
+    "apps/desktop/src-tauri/capabilities/main.json",
+    "crates/desktop-bridge/src/protocol.rs",
+    "apps/web/package.json",
+    "pnpm-lock.yaml",
+  ].map((file) => [file, readFileSync(path.join(repositoryRoot, file), "utf8")] as const);
+  for (const [file, source] of shippedInputs) {
+    assert.doesNotMatch(source, /tauri[_-]plugin[_-]updater|updater\.install/u, file);
+  }
+
+  const updaterSource = readFileSync(
+    path.join(repositoryRoot, "crates/updater/src/service/install_adapter.rs"),
+    "utf8",
+  );
+  assert.match(updaterSource, /tauri_plugin_updater::Update/u);
+  assert.match(updaterSource, /\.install\(bytes\)/u);
+  assert.doesNotMatch(updaterSource, /\.check\(\)|\.download\(|download_and_install/u);
 });
 
 test("rejects malformed, wrong-channel, or ambiguous versions", () => {

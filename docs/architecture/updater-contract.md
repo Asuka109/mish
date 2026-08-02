@@ -156,7 +156,9 @@ configured flag, typed `idle/checking/available/downloading/verifying/ready/
 failed/cancelled` phase, operation ID, selected channel, candidate identity,
 bounded byte progress, resumability, and one redacted terminal reason.
 Candidate identity includes version, channel, source SHA, metadata digest,
-payload name/digest/size, and payload-signature digest. It never includes an
+payload name/digest/size, and payload-signature digest. The private persisted
+binding and resume identity additionally include the digest of the normalized
+authenticated immutable GitHub Release record. Neither surface includes an
 endpoint, credential, signature body, or private path.
 
 Check, download, and cancel commands require a bounded operation key. A
@@ -278,6 +280,51 @@ and Minisign over the immutable payload. Foreign, corrupt, stale, overlong, or
 unrecognized managed state is removed within a bounded scan. Unrelated files
 outside the store remain untouched.
 
+## Stage 2B local installation adapter proof
+
+Stage 2B proves only the Rust installation boundary; it does not enable an
+installation capability. Discovery normalizes the security-relevant fields of
+the selected GitHub API Release object: Release ID, exact tag and version,
+channel, publication timestamp, and the complete sorted set of uploaded asset
+IDs and names. That record is persisted in the candidate manifest and its
+SHA-256 is part of the candidate and resume identity. Field, asset, tag,
+version, channel, or publication drift therefore changes the bound identity.
+
+After a process restart, a verified ready candidate remains visible as ready,
+but its installation context is unavailable. The Rust adapter may perform one
+bounded anonymous `GET /repos/Asuka109/mish/releases/tags/v<exact-version>`
+request. It accepts only the same fully validated normalized Release record.
+Network unavailability leaves ready state intact and returns
+`installation-context-unavailable`; any record or asset drift returns
+`release-drift`. This rebind never requests metadata sidecars or the payload.
+
+Immediately before handoff, the adapter reopens the immutable candidate
+directory with `O_NOFOLLOW`, opens the manifest and payload relative to that
+directory with `openat(..., O_NOFOLLOW)`, and confirms the opened directory is
+still the exact path identity. It then rechecks exact current-user ownership,
+`0500`/`0400` modes, single-link files, bounded manifest, exact payload size,
+the complete persisted metadata and Release binding, SHA-256, and Minisign.
+The payload file is read into one size-bounded byte buffer once. A consuming
+Rust seam receives that exact buffer once; redacted evidence records one file
+read, one handoff, and zero network payload downloads.
+
+The selected public seam is Tauri updater v2
+[`Update::install(bytes)`](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/src/updater.rs),
+which accepts caller-provided bytes synchronously. Only Tauri's separate
+`download` and `download_and_install` methods fetch a payload. A dev-only,
+exactly pinned `tauri-plugin-updater` dependency compile-checks the direct
+`update.install(bytes)` call. The normal `mish-updater` dependency graph,
+desktop host, Web package, capability manifest, RPC protocol, and application
+bundle contain no updater plugin or install command.
+
+The adapter's only shipped constructor is capability-disabled. Tests alone
+can construct the proof capability, and no test invokes Tauri's real installer.
+Duplicate, cancelled, replaced-operation, stale-revision, malformed,
+oversized, disabled-capability, store-tamper, Release-drift, offline, seam
+rejection, and task-finalization outcomes are stable redacted codes. None
+changes ready state, replaces the application, invokes an installer, exits,
+relaunches, or adds a WebView/Browser Client authority path.
+
 ## Provenance and diagnostics
 
 `VerifiedUpdate` contains only the signed channel, version, source SHA, payload
@@ -306,7 +353,13 @@ Alpha ordering and strict SemVer selection, idempotent rediscovery,
 same-version digest conflict, concurrent operation keys, monotonic replay
 high-water behavior, restart recovery,
 immutable ready recovery and removal, symlink/hard-link rejection, and bounded
-cleanup. Check-specific tests additionally cover its legal transition table,
+cleanup. Local-install tests additionally cover the pure handoff reducer,
+bounded out-of-order model exploration, the real public Tauri method signature,
+exact one-read/one-handoff/zero-payload-network instrumentation, exact-version
+restart rebind, offline retention, Release drift, cancellation, duplicates,
+replacement/stale correlation, malformed/oversized inputs, no-follow
+mode/link/store tampering, disabled capability, seam rejection, and panic
+finalization. Check-specific tests additionally cover its legal transition table,
 bounded model sequences and DTO invariants, duplicate and competing admission,
 all five correlation mismatches, equal-revision conflict, timeout, cancellation
 on both sides of the commit point, commit failure, panic, aborted and
@@ -324,7 +377,8 @@ acceptance:
 - updater signing-key custody and rotation;
 - production public-key and channel endpoint enablement;
 - pre-replacement System Proxy reconciliation and recovery authority;
-- application replacement, rollback, and prior-app preservation;
+- enabling the proven Rust seam for real application replacement, rollback,
+  and prior-app preservation;
 - relaunch and expected-version observation; and
 - two-version signed Alpha/stable upgrade and failure testing.
 

@@ -23,6 +23,15 @@ describe("responsive shell CSS", () => {
     expect(shell).not.toContain("min-h-[620px]");
   });
 
+  it("bounds the mobile root to the dynamic viewport", () => {
+    const mobileViewportRule = styles.match(
+      /:root\[data-runtime="mobile"\],[\s\S]*?:root\[data-runtime="mobile"\] #root \{[\s\S]*?\n\}/,
+    )?.[0];
+
+    expect(mobileViewportRule).toContain("height: 100dvh");
+    expect(mobileViewportRule).toContain("min-height: 0");
+  });
+
   it("keeps the notification icon aligned with the toolbar color states", () => {
     expect(notifications).toContain("notification-trigger relative inline-flex");
     expect(notifications).toContain("text-muted-foreground");

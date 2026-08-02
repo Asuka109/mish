@@ -22,14 +22,10 @@ import {
   PopoverTrigger,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
-import {
-  dismissNotificationToast,
-  presentNotificationToast,
-} from "../data/sonner-notification-adapter";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -42,6 +38,7 @@ import {
 } from "../platform/system-proxy-settings";
 import { WelcomeDialog } from "./welcome-dialog";
 import { NotificationPublicationController } from "./notification-publication-controller";
+import { NotificationToastPresenter } from "./notification-toast-presenter";
 
 const visibleNotificationLimit = 5;
 
@@ -103,8 +100,7 @@ export function NotificationBubble({
   const profiles = useOptionalProfiles();
   const { recoverSystemProxy, snapshot } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
-  const { completePresentation, entries, markRead, remove, toastEntries } =
-    useNotificationDelivery();
+  const { entries, markRead, remove } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -114,8 +110,6 @@ export function NotificationBubble({
   const [systemProxySettingsGuidance, setSystemProxySettingsGuidance] =
     useState<SystemProxySettingsGuidance | null>(null);
   const executingActions = useRef(new Set<string>());
-  const presented = useRef<ReadonlyMap<string, string>>(new Map());
-  const suppressedToastCompletions = useRef(new Set<string>());
 
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const execute = useCallback(
@@ -201,50 +195,6 @@ export function NotificationBubble({
     [entryById, remove, settings],
   );
 
-  useEffect(() => {
-    const nextPresented = new Map<string, string>();
-    for (const notification of toastEntries) {
-      if (notification.toast !== "present") {
-        suppressedToastCompletions.current.add(notification.id);
-        dismissNotificationToast(notification.id);
-        completePresentation(notification.id, "suppressed");
-        continue;
-      }
-      const pendingActionId = pendingActions.get(notification.id);
-      const presentedNotification = { ...notification, pendingActionId };
-      const signature = JSON.stringify({
-        actions: notification.actions.map(({ id }) => id),
-        detail: notification.detail,
-        level: notification.level,
-        message: notification.message,
-        pendingActionId,
-        presentationAttempt: notification.presentationAttempt,
-        title: notification.title,
-        toast: notification.toast,
-      });
-      nextPresented.set(notification.id, signature);
-      if (presented.current.get(notification.id) !== signature) {
-        presentNotificationToast(
-          presentedNotification,
-          (actionId) => execute(notification.id, actionId),
-          {
-            onAutoClose: () => completePresentation(notification.id, "timed-out"),
-            onDismiss: () => {
-              if (suppressedToastCompletions.current.delete(notification.id)) return;
-              completePresentation(notification.id, "dismissed");
-            },
-          },
-        );
-      }
-    }
-    for (const id of presented.current.keys()) {
-      if (nextPresented.has(id)) continue;
-      suppressedToastCompletions.current.add(id);
-      dismissNotificationToast(id);
-    }
-    presented.current = nextPresented;
-  }, [completePresentation, execute, pendingActions, toastEntries]);
-
   const retainedNotifications = entries;
   const unreadCount = retainedNotifications.filter(({ read }) => !read).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
@@ -256,6 +206,7 @@ export function NotificationBubble({
 
   return (
     <>
+      <NotificationToastPresenter execute={execute} pendingActions={pendingActions} />
       <NotificationPublicationController />
       <Popover onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger

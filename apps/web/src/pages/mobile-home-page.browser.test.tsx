@@ -9,6 +9,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { flushSync } from "react-dom";
 import { MobileShell } from "../components/mobile-shell";
+import { FixtureNotificationClient } from "../data/fixture-notification-client";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import TypesafeI18n from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -40,6 +42,7 @@ const fixture = {
 };
 
 const permissionSnapshot: MobileVpnSnapshotDto = {
+  authorityId: "mobile-browser-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
@@ -54,8 +57,10 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   loadedConfigRevision: null,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required",
+  operation: null,
   permission: "required",
   phase: "permission-required",
+  revision: 1,
   sequence: 1,
   sessionId: "browser-session",
   updatedAtMillis: 1,
@@ -140,6 +145,11 @@ class BrowserMobileVpnClient implements MobileVpnClient {
     handler(this.snapshot);
     return () => this.subscribers.delete(handler);
   }
+
+  publish(snapshot: MobileVpnSnapshotDto) {
+    this.snapshot = snapshot;
+    for (const subscriber of this.subscribers) subscriber(snapshot);
+  }
 }
 
 function DummyPage({ name }: { name: string }) {
@@ -157,30 +167,39 @@ function renderMobile(
   document.documentElement.dataset.theme = theme;
   window.history.replaceState({}, "", "/status");
   const client = new BrowserMobileVpnClient(snapshot);
+  const notificationClient = new FixtureNotificationClient();
 
   flushSync(() => {
     root.render(
       <TypesafeI18n locale={locale}>
-        <BrowserRouter>
-          <Routes>
-            <Route element={<MobileShell fixture={fixture} />}>
-              <Route
-                element={
-                  <MobileHomePage fixture={fixture} initialSnapshot={snapshot} vpnClient={client} />
-                }
-                path="status"
-              />
-              <Route element={<DummyPage name="Routes content" />} path="routes" />
-              <Route element={<DummyPage name="Profiles content" />} path="profiles" />
-              <Route element={<DummyPage name="Traffic content" />} path="traffic" />
-              <Route element={<DummyPage name="Events content" />} path="events" />
-              <Route element={<DummyPage name="Settings content" />} path="settings" />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <NotificationDeliveryProvider client={notificationClient}>
+          <BrowserRouter>
+            <Routes>
+              <Route element={<MobileShell fixture={fixture} />}>
+                <Route
+                  element={
+                    <MobileHomePage
+                      fixture={fixture}
+                      initialSnapshot={snapshot}
+                      vpnClient={client}
+                    />
+                  }
+                  path="status"
+                />
+                <Route element={<DummyPage name="Routes content" />} path="routes" />
+                <Route element={<DummyPage name="Profiles content" />} path="profiles" />
+                <Route element={<DummyPage name="Traffic content" />} path="traffic" />
+                <Route element={<DummyPage name="Events content" />} path="events" />
+                <Route element={<DummyPage name="Settings content" />} path="settings" />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </NotificationDeliveryProvider>
       </TypesafeI18n>,
     );
   });
+
+  return { client, notificationClient };
 }
 
 async function nextFrame() {
@@ -188,13 +207,23 @@ async function nextFrame() {
 }
 
 function expectHorizontalGeometry(context: string) {
+  const shell = document.querySelector<HTMLElement>(".mobile-shell");
+  const main = document.querySelector<HTMLElement>(".mobile-main");
   const pageScroller = document.querySelector<HTMLElement>(".mobile-home-page");
   const action = document.querySelector<HTMLElement>(".mobile-home-primary-action");
   const authority = document.querySelector<HTMLElement>(".mobile-home-authority");
   const bottomNavigation = document.querySelector<HTMLElement>(".mobile-bottom-navigation");
-  if (!pageScroller || !action || !authority || !bottomNavigation) {
+  if (!shell || !main || !pageScroller || !action || !authority || !bottomNavigation) {
     throw new Error(`${context}: mobile Home geometry is incomplete`);
   }
+
+  expect(getComputedStyle(shell).overflowY, `${context}: shell owns no page scroll`).toBe(
+    "visible",
+  );
+  expect(getComputedStyle(main).overflowY, `${context}: main owns no page scroll`).toBe("visible");
+  expect(getComputedStyle(pageScroller).overflowY, `${context}: Home owns body scroll`).toBe(
+    "auto",
+  );
 
   expect(
     document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -239,12 +268,16 @@ function expectHorizontalGeometry(context: string) {
   expect(bottomNavigation.getBoundingClientRect().bottom).toBeLessThanOrEqual(
     window.innerHeight + 0.5,
   );
+  expect(
+    document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    `${context}: document vertical overflow`,
+  ).toBeLessThanOrEqual(1);
 }
 
 beforeAll(() => {
   loadAllLocales();
-  document.body.innerHTML = '<div id="mobile-home-browser-root" style="height:100vh"></div>';
-  const container = document.getElementById("mobile-home-browser-root");
+  document.body.innerHTML = '<div id="root"></div>';
+  const container = document.getElementById("root");
   if (!container) throw new Error("Missing mobile Home browser root");
   root = createRoot(container);
 });
@@ -291,8 +324,143 @@ describe("Android mobile Home geometry", () => {
     const pageScroller = document.querySelector<HTMLElement>(".mobile-home-page");
     if (!pageScroller) throw new Error("Missing mobile Home scroller");
     expect(pageScroller.scrollHeight).toBeGreaterThan(pageScroller.clientHeight);
-    expect(getComputedStyle(pageScroller).overflowY).toBe("auto");
     expectHorizontalGeometry("software keyboard viewport");
+  });
+
+  test("keeps the final Home surface reachable within the one body scroller", async () => {
+    await page.viewport(320, 568);
+    renderMobile("en");
+    await nextFrame();
+
+    const pageScroller = document.querySelector<HTMLElement>(".mobile-home-page");
+    const finalSurface = document.querySelector<HTMLElement>(".mobile-home-fixture-notice");
+    const bottomNavigation = document.querySelector<HTMLElement>(".mobile-bottom-navigation");
+    if (!pageScroller || !finalSurface || !bottomNavigation) {
+      throw new Error("Missing the final Home surface or mobile navigation");
+    }
+
+    pageScroller.scrollTop = pageScroller.scrollHeight;
+    pageScroller.dispatchEvent(new Event("scroll"));
+    await nextFrame();
+
+    const pageRect = pageScroller.getBoundingClientRect();
+    const finalRect = finalSurface.getBoundingClientRect();
+    expect(pageScroller.scrollTop).toBeGreaterThan(0);
+    expect(finalRect.bottom).toBeLessThanOrEqual(pageRect.bottom - 31);
+    expect(finalRect.bottom).toBeLessThanOrEqual(bottomNavigation.getBoundingClientRect().top - 31);
+  });
+
+  test("keeps Home failure geometry bounded and deduplicates its notification lifecycle", async () => {
+    await page.viewport(360, 800);
+    const { client, notificationClient } = renderMobile("en");
+    await nextFrame();
+
+    const currentTitle = document.querySelector<HTMLElement>("#mobile-home-current-title");
+    if (!currentTitle) throw new Error("Missing the current Home section");
+    const initialTop = currentTitle.getBoundingClientRect().top;
+    const failedSnapshot = {
+      ...permissionSnapshot,
+      notificationPermission: "granted" as const,
+      permission: "granted" as const,
+      phase: "failed" as const,
+      sequence: 2,
+    };
+    client.publish(failedSnapshot);
+
+    await vi.waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]).toMatchObject({
+        dedupeKey: "mobile-vpn-lifecycle",
+        presentation: { kind: "status.operation-failed" },
+      });
+    });
+    const firstId = (await notificationClient.getSnapshot()).notifications[0]?.id;
+    const failedTop = currentTitle.getBoundingClientRect().top;
+    expect(Math.abs(failedTop - initialTop)).toBeLessThanOrEqual(1);
+    expect(document.querySelector("[role=alert]")).toBeNull();
+
+    client.publish({ ...failedSnapshot, sequence: 3 });
+    await vi.waitFor(async () => {
+      const snapshot = await notificationClient.getSnapshot();
+      expect(snapshot.notifications).toHaveLength(1);
+      expect(snapshot.notifications[0]?.id).toBe(firstId);
+    });
+
+    client.publish({
+      ...permissionSnapshot,
+      notificationPermission: "granted",
+      permission: "granted",
+      phase: "stopped",
+      sequence: 4,
+    });
+    await vi.waitFor(async () => {
+      expect((await notificationClient.getSnapshot()).notifications).toHaveLength(0);
+    });
+  });
+
+  test("keeps unavailable and concurrent failures out of Home flow", async () => {
+    await page.viewport(360, 800);
+    const unavailableSnapshot = {
+      ...permissionSnapshot,
+      coreAbiVersion: 1 as const,
+      coreAvailability: "available" as const,
+      coreCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+      coreVersion: "v1.19.29",
+      coreWrapperRevision: "mish-mobile-core-v1",
+      notificationPermission: "granted" as const,
+      permission: "granted" as const,
+      phase: "unavailable" as const,
+      sequence: 2,
+    };
+    const { client, notificationClient } = renderMobile("en", unavailableSnapshot);
+    await nextFrame();
+
+    const currentTitle = document.querySelector<HTMLElement>("#mobile-home-current-title");
+    if (!currentTitle) throw new Error("Missing the current Home section");
+    const initialTop = currentTitle.getBoundingClientRect().top;
+    await page.getByRole("button", { name: "Load Fixture A" }).click();
+    client.publish({ ...unavailableSnapshot, phase: "failed", sequence: 3 });
+
+    await vi.waitFor(async () => {
+      const notifications = (await notificationClient.getSnapshot()).notifications;
+      expect(notifications).toHaveLength(2);
+      expect(new Set(notifications.map(({ id }) => id)).size).toBe(2);
+      expect(notifications.map(({ dedupeKey }) => dedupeKey).sort()).toEqual([
+        "mobile-config-load",
+        "mobile-vpn-lifecycle",
+      ]);
+    });
+    expect(Math.abs(currentTitle.getBoundingClientRect().top - initialTop)).toBeLessThanOrEqual(1);
+    expect(document.querySelector("[role=alert]")).toBeNull();
+
+    client.publish({ ...unavailableSnapshot, sequence: 4 });
+    await vi.waitFor(async () => {
+      const notifications = (await notificationClient.getSnapshot()).notifications;
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0]?.dedupeKey).toBe("mobile-config-load");
+    });
+  });
+
+  test("preserves complete Home surface corners without structural clipping", async () => {
+    await page.viewport(412, 915);
+    renderMobile("zh", permissionSnapshot, "dark");
+    await nextFrame();
+
+    const firstGrid = document.querySelector<HTMLElement>(".mobile-home-page .section-grid");
+    const firstItem = firstGrid?.querySelector<HTMLElement>(".section-grid-item");
+    const lastItem = firstGrid?.querySelector<HTMLElement>(".section-grid-item:last-child");
+    const main = document.querySelector<HTMLElement>(".mobile-main");
+    if (!firstItem || !lastItem || !main) throw new Error("Missing Home surface geometry");
+
+    expect(getComputedStyle(main).overflowX).toBe("visible");
+    expect(getComputedStyle(firstItem).overflowX).toBe("visible");
+    expect(parseFloat(getComputedStyle(firstItem).borderTopLeftRadius)).toBeGreaterThan(0);
+    expect(parseFloat(getComputedStyle(lastItem).borderBottomRightRadius)).toBeGreaterThan(0);
+    const action = document.querySelector<HTMLElement>(".mobile-home-primary-action");
+    if (!action) throw new Error("Missing Home primary action");
+    action.focus();
+    expect(document.activeElement).toBe(action);
   });
 
   test("supports enlarged text without clipped actions, values, or navigation labels", async () => {

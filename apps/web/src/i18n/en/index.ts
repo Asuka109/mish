@@ -285,6 +285,16 @@ const en = {
     rules: "Rules",
     settings: "Settings",
   },
+  mobileRoutes: {
+    actionsUnavailable:
+      "This runtime can show Routes but cannot change a selection or run a delay test yet.",
+    back: "Back",
+    childDetails: "View Details for {child:string}",
+    delayUnavailable: "This runtime can show Routes but cannot run a delay test yet.",
+    reconnecting:
+      "Routes are reconnecting. Confirmed values stay visible until the current snapshot arrives.",
+    selectionUnavailable: "This runtime can show Routes but cannot change a selection yet.",
+  },
   mobileHome: {
     authorityLabel: "VPN / Core",
     configActionsLabel: "Fictional Mobile Core configuration actions",

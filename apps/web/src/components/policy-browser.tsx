@@ -518,6 +518,7 @@ interface PolicyBrowserToolbarProps<Sort extends string> {
   delayBusy: boolean;
   delayDisabled: boolean;
   delayProgress: ReactNode;
+  mobile?: boolean;
   onCancel(): void;
   onQueryChange(query: string): void;
   onSortChange(sort: Sort): void;
@@ -542,6 +543,7 @@ export function PolicyBrowserToolbar<Sort extends string>({
   delayBusy,
   delayDisabled,
   delayProgress,
+  mobile = false,
   onCancel,
   onQueryChange,
   onSortChange,
@@ -561,7 +563,13 @@ export function PolicyBrowserToolbar<Sort extends string>({
   const searchId = useId();
   const sortItems = sorts.map((option) => ({ label: sortOptionLabel(option), value: option }));
   return (
-    <div className="policy-browser-toolbar grid min-w-0 grid-cols-[minmax(180px,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-hairline-soft bg-surface-soft px-3 py-2.5 max-shell-mobile:grid-cols-1">
+    <div
+      className={
+        mobile
+          ? "mobile-policy-browser-toolbar grid min-w-0 grid-cols-1 gap-3"
+          : "policy-browser-toolbar grid min-w-0 grid-cols-[minmax(180px,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-hairline-soft bg-surface-soft px-3 py-2.5 max-shell-mobile:grid-cols-1"
+      }
+    >
       {showSearch ? (
         <Field className="policy-browser-search-field min-w-0">
           <FieldLabel className="sr-only" htmlFor={searchId}>
@@ -580,14 +588,17 @@ export function PolicyBrowserToolbar<Sort extends string>({
               spellCheck={false}
               type="search"
               value={query}
+              className={mobile ? "min-h-11 text-body" : undefined}
             />
           </span>
         </Field>
       ) : null}
       <div
         className={cx(
-          "policy-browser-toolbar-actions flex items-center justify-end gap-2 max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:justify-between",
-          !showSearch && "col-start-2 row-start-1",
+          mobile
+            ? "mobile-policy-browser-toolbar-actions flex min-w-0 items-center justify-between gap-2"
+            : "policy-browser-toolbar-actions flex items-center justify-end gap-2 max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:justify-between",
+          !mobile && !showSearch && "col-start-2 row-start-1",
         )}
       >
         <Select
@@ -602,7 +613,10 @@ export function PolicyBrowserToolbar<Sort extends string>({
         >
           <SelectTrigger
             aria-label={sortLabel}
-            className="policy-browser-sort h-8.5 min-w-37 max-w-44 flex-none max-shell-mobile:min-w-0 max-shell-mobile:flex-1"
+            className={cx(
+              "policy-browser-sort h-8.5 min-w-37 max-w-44 flex-none max-shell-mobile:min-w-0 max-shell-mobile:flex-1",
+              mobile && "h-11 min-w-0 max-w-none flex-1",
+            )}
           >
             <SortAscending
               aria-hidden="true"
@@ -623,6 +637,7 @@ export function PolicyBrowserToolbar<Sort extends string>({
         <Button
           aria-label={delayActive ? cancelAriaLabel : testAriaLabel}
           aria-busy={delayBusy || undefined}
+          className={mobile ? "h-11 shrink-0 px-3" : undefined}
           disabled={delayBusy || (!delayActive && delayDisabled)}
           onClick={delayActive ? onCancel : onTest}
           size="sm"
@@ -642,8 +657,11 @@ export function PolicyBrowserToolbar<Sort extends string>({
       <div
         aria-live="polite"
         className={cx(
-          "policy-browser-progress min-w-0 truncate text-caption text-muted-foreground max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:min-h-4.5 max-shell-mobile:whitespace-normal",
-          showSearch ? "col-span-2 max-shell-mobile:col-span-1" : "col-start-1 row-start-1",
+          mobile
+            ? "mobile-policy-browser-progress min-h-4.5 min-w-0 text-caption text-muted-foreground"
+            : "policy-browser-progress min-w-0 truncate text-caption text-muted-foreground max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:min-h-4.5 max-shell-mobile:whitespace-normal",
+          !mobile &&
+            (showSearch ? "col-span-2 max-shell-mobile:col-span-1" : "col-start-1 row-start-1"),
         )}
         role="status"
       >

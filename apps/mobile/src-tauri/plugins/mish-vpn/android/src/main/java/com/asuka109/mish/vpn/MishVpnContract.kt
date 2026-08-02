@@ -5,120 +5,67 @@ import java.util.UUID
 
 internal const val CONTRACT_VERSION = 1
 
-internal enum class VpnPhase(val wireName: String) {
-    STOPPED("stopped"),
-    PERMISSION_REQUIRED("permission-required"),
-    STARTING("starting"),
-    RUNNING("running"),
-    STOPPING("stopping"),
-    FAILED("failed"),
-    RECOVERY_REQUIRED("recovery-required"),
-    UNAVAILABLE("unavailable"),
+internal enum class PlatformEventKind(val wireName: String) {
+    OBSERVATION("observation"),
+    CONSENT_RESULT("consent-result"),
+    NOTIFICATION_RESULT("notification-result"),
+    START_COMPLETED("start-completed"),
+    STOP_COMPLETED("stop-completed"),
+    REVOKED("revoked"),
+    SERVICE_DESTROYED("service-destroyed"),
 }
 
-internal data class MobileVpnSnapshot(
-    val backendKind: String = "fixture",
-    val contractVersion: Int = CONTRACT_VERSION,
+internal enum class PlatformRecoveryEvidence(val wireName: String) {
+    NONE("none"),
+    FOREGROUND_EXPECTED("foreground-expected"),
+    INVALID("invalid"),
+}
+
+internal data class MobilePlatformFacts(
+    val configFailureInjectionAvailable: Boolean = false,
     val coreAbiVersion: Int? = null,
     val coreAvailability: String = "unavailable",
     val coreCommit: String? = null,
-    val configFailureInjectionAvailable: Boolean = false,
     val coreConfigState: String = "unloaded",
     val coreVersion: String? = null,
     val coreWrapperRevision: String? = null,
-    val foreground: Boolean = false,
+    val event: String = PlatformEventKind.OBSERVATION.wireName,
+    val factSequence: Long = 0,
     val loadedConfigDigest: String? = null,
     val loadedConfigRevision: String? = null,
-    val message: String = "Android VPN lifecycle fixture ready. No TUN or Core is available.",
     val notificationPermission: String = "not-required",
-    val permission: String = "unknown",
-    val phase: String = VpnPhase.STOPPED.wireName,
-    val sequence: Long = 0,
-    val sessionId: String = UUID.randomUUID().toString(),
-    val updatedAtMillis: Long = System.currentTimeMillis(),
+    val observedAtMillis: Long = System.currentTimeMillis(),
+    val platformSessionId: String = UUID.randomUUID().toString(),
+    val recoveryEvidence: String = PlatformRecoveryEvidence.NONE.wireName,
+    val serviceForeground: Boolean = false,
     val validatedConfigDigest: String? = null,
     val validatedConfigRevision: String? = null,
-    val vpnActive: Boolean = false,
-    val vpnAvailability: String = "unavailable",
-    val tunAvailability: String = "unavailable",
+    val vpnPermission: String = "unknown",
 ) {
     fun toJson(): JSONObject = JSONObject()
-        .put("backendKind", backendKind)
-        .put("contractVersion", contractVersion)
+        .put("configFailureInjectionAvailable", configFailureInjectionAvailable)
         .put("coreAbiVersion", coreAbiVersion)
         .put("coreAvailability", coreAvailability)
         .put("coreCommit", coreCommit)
-        .put("configFailureInjectionAvailable", configFailureInjectionAvailable)
         .put("coreConfigState", coreConfigState)
         .put("coreVersion", coreVersion)
         .put("coreWrapperRevision", coreWrapperRevision)
-        .put("foreground", foreground)
+        .put("event", event)
+        .put("factSequence", factSequence)
         .put("loadedConfigDigest", loadedConfigDigest)
         .put("loadedConfigRevision", loadedConfigRevision)
-        .put("message", message)
         .put("notificationPermission", notificationPermission)
-        .put("permission", permission)
-        .put("phase", phase)
-        .put("sequence", sequence)
-        .put("sessionId", sessionId)
-        .put("updatedAtMillis", updatedAtMillis)
+        .put("observedAtMillis", observedAtMillis)
+        .put("platformSessionId", platformSessionId)
+        .put("recoveryEvidence", recoveryEvidence)
+        .put("serviceForeground", serviceForeground)
         .put("validatedConfigDigest", validatedConfigDigest)
         .put("validatedConfigRevision", validatedConfigRevision)
-        .put("vpnActive", vpnActive)
-        .put("vpnAvailability", vpnAvailability)
-        .put("tunAvailability", tunAvailability)
-
-    companion object {
-        fun fromJson(value: JSONObject): MobileVpnSnapshot = MobileVpnSnapshot(
-            backendKind = value.optString("backendKind", "fixture"),
-            contractVersion = value.optInt("contractVersion", CONTRACT_VERSION),
-            coreAbiVersion = value.optIntOrNull("coreAbiVersion"),
-            coreAvailability = value.optString("coreAvailability", "unavailable"),
-            coreCommit = value.optStringOrNull("coreCommit"),
-            configFailureInjectionAvailable =
-                value.optBoolean("configFailureInjectionAvailable", false),
-            coreConfigState = value.optString("coreConfigState", "unloaded"),
-            coreVersion = value.optStringOrNull("coreVersion"),
-            coreWrapperRevision = value.optStringOrNull("coreWrapperRevision"),
-            foreground = value.optBoolean("foreground", false),
-            loadedConfigDigest = value.optStringOrNull("loadedConfigDigest"),
-            loadedConfigRevision = value.optStringOrNull("loadedConfigRevision"),
-            message = value.optString(
-                "message",
-                "Android VPN lifecycle fixture ready. No TUN or Core is available.",
-            ),
-            notificationPermission = value.optString("notificationPermission", "not-required"),
-            permission = value.optString("permission", "unknown"),
-            phase = value.optString("phase", VpnPhase.STOPPED.wireName),
-            sequence = value.optLong("sequence", 0),
-            sessionId = value.optString("sessionId").ifBlank { UUID.randomUUID().toString() },
-            updatedAtMillis = value.optLong("updatedAtMillis", System.currentTimeMillis()),
-            validatedConfigDigest = value.optStringOrNull("validatedConfigDigest"),
-            validatedConfigRevision = value.optStringOrNull("validatedConfigRevision"),
-            vpnActive = value.optBoolean("vpnActive", false),
-            vpnAvailability = "unavailable",
-            tunAvailability = "unavailable",
-        )
-    }
+        .put("vpnPermission", vpnPermission)
 }
 
-private fun JSONObject.optIntOrNull(name: String): Int? =
+internal fun JSONObject.optIntOrNull(name: String): Int? =
     if (isNull(name)) null else optInt(name).takeIf { it > 0 }
 
-private fun JSONObject.optStringOrNull(name: String): String? =
+internal fun JSONObject.optStringOrNull(name: String): String? =
     if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
-
-internal data class MobileVpnEvent(
-    val eventKind: String = "snapshot-changed",
-    val eventVersion: Int = 1,
-    val sequence: Long,
-    val sessionId: String,
-    val snapshot: MobileVpnSnapshot,
-) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("eventKind", eventKind)
-        .put("eventVersion", eventVersion)
-        .put("sequence", sequence)
-        .put("sessionId", sessionId)
-        .put("snapshot", snapshot.toJson())
-}

@@ -42,6 +42,10 @@ export interface RouteSearchState {
 
 export const POLICY_ENTITY_BATCH_SIZE = 100;
 
+export function isGlobalRouteGroup(group: PolicyGroupDto) {
+  return group.label === "GLOBAL";
+}
+
 function pushDuplicateErrors<T extends { id: string }>(
   entities: T[],
   seen: Set<string>,

@@ -45,12 +45,18 @@ use crate::{
 };
 
 mod check_machine;
+mod install_adapter;
 use check_machine::{
     CheckCompletion, CheckEffect, CheckEffectOutcome, CheckInput, CheckMachine, CheckOperation,
     CheckProjection, CheckState, CheckTaskFailure,
 };
+pub use install_adapter::{
+    LocalCandidateInstallAdapter, LocalInstallError, LocalInstallEvidence, LocalInstallRequest,
+    LocalInstallSeam, LocalInstallSeamError,
+};
 
 const STORE_SCHEMA_VERSION: u8 = 1;
+const CANDIDATE_SCHEMA_VERSION: u8 = 2;
 const STORE_ENTRY_LIMIT: usize = 64;
 const ACCEPTED_METADATA_LIMIT: usize = 32;
 const STATE_FILE: &str = "state.json";
@@ -70,6 +76,7 @@ const GITHUB_API_VERSION: &str = "2026-03-10";
 const GITHUB_USER_AGENT: &str = "Mish-Updater-Discovery/1";
 const GITHUB_REPOSITORY_RELEASE_PATH: &str = "/Asuka109/mish/releases/download/";
 const GITHUB_ALPHA_RELEASES_PATH: &str = "/repos/Asuka109/mish/releases";
+const GITHUB_EXACT_RELEASE_TAG_PATH: &str = "/repos/Asuka109/mish/releases/tags/";
 const GITHUB_STABLE_LATEST_API_PATH: &str = "/repos/Asuka109/mish/releases/latest";
 const GITHUB_STABLE_LATEST_PATH: &str = "/Asuka109/mish/releases/latest/download/";
 
@@ -120,7 +127,7 @@ impl UpdateCandidateIdentity {
         }
     }
 
-    fn resume_identity(&self) -> String {
+    fn resume_identity(&self, release: &AuthenticatedReleaseRecord) -> String {
         let mut hasher = Sha256::new();
         for value in [
             self.channel_name(),
@@ -131,6 +138,7 @@ impl UpdateCandidateIdentity {
             &self.artifact_size.to_string(),
             self.artifact_signature_sha256.as_str(),
             self.metadata_sha256.as_str(),
+            &release.digest(),
         ] {
             hasher.update((value.len() as u64).to_be_bytes());
             hasher.update(value.as_bytes());
@@ -278,6 +286,7 @@ struct AvailableCandidate {
     metadata: VerifiedMetadata,
     metadata_bytes: Vec<u8>,
     metadata_signature: String,
+    release: AuthenticatedReleaseRecord,
 }
 
 impl AvailableCandidate {
@@ -287,11 +296,12 @@ impl AvailableCandidate {
 
     fn persisted(&self, operation_id: &str) -> PersistedCandidate {
         PersistedCandidate {
-            schema_version: STORE_SCHEMA_VERSION,
+            schema_version: CANDIDATE_SCHEMA_VERSION,
             operation_id: operation_id.to_owned(),
             identity: self.identity(),
             metadata_base64: STANDARD.encode(&self.metadata_bytes),
             metadata_signature: self.metadata_signature.clone(),
+            release: self.release.clone(),
         }
     }
 }
@@ -300,6 +310,7 @@ struct RuntimeState {
     snapshot: UpdaterSnapshot,
     accepted: AcceptedMetadata,
     available: Option<AvailableCandidate>,
+    release_context_bound: bool,
     active_cancel: Option<CancellationToken>,
     check_admission_pending: bool,
 }
@@ -332,8 +343,56 @@ struct GitHubRelease {
     assets: Vec<GitHubReleaseAsset>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AuthenticatedReleaseAsset {
+    id: u64,
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AuthenticatedReleaseRecord {
+    assets: Vec<AuthenticatedReleaseAsset>,
+    channel: UpdateChannel,
+    id: u64,
+    published_at: String,
+    tag: String,
+    version: String,
+}
+
+impl AuthenticatedReleaseRecord {
+    fn digest(&self) -> String {
+        digest(
+            &serde_json::to_vec(self)
+                .expect("authenticated Release record serialization is infallible"),
+        )
+    }
+
+    fn validates(&self, channel: UpdateChannel, version: &str) -> bool {
+        if self.id == 0
+            || self.channel != channel
+            || self.version != version
+            || self.tag != format!("v{version}")
+            || self.published_at.is_empty()
+            || self.assets.len() > RELEASE_ASSET_LIST_LIMIT
+        {
+            return false;
+        }
+        let mut ids = BTreeSet::new();
+        let mut names = BTreeSet::new();
+        self.assets.iter().all(|asset| {
+            asset.id != 0
+                && !asset.name.is_empty()
+                && ids.insert(asset.id)
+                && names.insert(asset.name.as_str())
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ReleaseHint {
+    record: AuthenticatedReleaseRecord,
     tag: String,
     version: String,
     listed_assets: Option<BTreeSet<String>>,
@@ -615,6 +674,7 @@ fn project_check_state_locked(
             available: Some((_, candidate)),
         } => {
             state.available = Some(candidate.clone());
+            state.release_context_bound = true;
             state.active_cancel = None;
         }
         CheckState::Retired {
@@ -622,6 +682,7 @@ fn project_check_state_locked(
             ..
         } => {
             state.available = Some(candidate.as_ref().clone());
+            state.release_context_bound = true;
             state.active_cancel = None;
         }
         CheckState::NoUpdate { .. }
@@ -644,6 +705,7 @@ pub struct UpdaterService {
     configured: Option<Arc<ConfiguredUpdater>>,
     state: Arc<Mutex<RuntimeState>>,
     updates: broadcast::Sender<UpdaterSnapshot>,
+    install_admission: Arc<Mutex<install_adapter::InstallAdmissionState>>,
 }
 
 impl UpdaterService {
@@ -658,10 +720,14 @@ impl UpdaterService {
                 snapshot,
                 accepted: AcceptedMetadata::empty(),
                 available: None,
+                release_context_bound: false,
                 active_cancel: None,
                 check_admission_pending: false,
             })),
             updates,
+            install_admission: Arc::new(Mutex::new(
+                install_adapter::InstallAdmissionState::default(),
+            )),
         }
     }
 
@@ -725,6 +791,7 @@ impl UpdaterService {
             snapshot,
             accepted: recovered.accepted,
             available: recovered.available,
+            release_context_bound: false,
             active_cancel: None,
             check_admission_pending: false,
         }));
@@ -744,6 +811,9 @@ impl UpdaterService {
             configured: Some(configured),
             state,
             updates,
+            install_admission: Arc::new(Mutex::new(
+                install_adapter::InstallAdmissionState::default(),
+            )),
         })
     }
 
@@ -753,6 +823,15 @@ impl UpdaterService {
             .expect("updater state poisoned")
             .snapshot
             .clone()
+    }
+
+    pub fn local_candidate_install_adapter(self: &Arc<Self>) -> LocalCandidateInstallAdapter {
+        LocalCandidateInstallAdapter::disabled(self.clone())
+    }
+
+    #[cfg(test)]
+    fn proof_local_candidate_install_adapter(self: &Arc<Self>) -> LocalCandidateInstallAdapter {
+        LocalCandidateInstallAdapter::proof_only(self.clone())
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<UpdaterSnapshot> {
@@ -989,6 +1068,7 @@ async fn discover(
         metadata: verified,
         metadata_bytes: metadata,
         metadata_signature: metadata_signature.trim().to_owned(),
+        release: hint.record,
     };
     classify_discovery(state, candidate)
 }
@@ -1095,17 +1175,39 @@ fn release_hint(
     validate_channel_version(&parsed, channel).map_err(UpdateOperationError::Verification)?;
     let mut asset_ids = BTreeSet::new();
     let mut assets = BTreeSet::new();
+    let mut authenticated_assets = Vec::with_capacity(release.assets.len());
     for asset in release.assets {
         if asset.id == 0
             || asset.state != "uploaded"
             || !asset_ids.insert(asset.id)
-            || !assets.insert(asset.name)
+            || !assets.insert(asset.name.clone())
         {
             return Err(UpdateOperationError::InvalidResponse);
         }
+        authenticated_assets.push(AuthenticatedReleaseAsset {
+            id: asset.id,
+            name: asset.name,
+        });
     }
+    authenticated_assets.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let tag = release.tag_name;
+    let record = AuthenticatedReleaseRecord {
+        assets: authenticated_assets,
+        channel,
+        id: release.id,
+        published_at: release
+            .published_at
+            .expect("published Release timestamp was validated"),
+        tag: tag.clone(),
+        version: version.clone(),
+    };
     Ok(ReleaseHint {
-        tag: release.tag_name,
+        record,
+        tag,
         version,
         listed_assets: Some(assets),
     })
@@ -1179,7 +1281,10 @@ fn classify_discovery(
                     UpdaterError::DowngradeRejected,
                 ));
             }
-            Ordering::Equal if candidate.identity() == existing.identity() => {
+            Ordering::Equal
+                if candidate.identity() == existing.identity()
+                    && candidate.release == existing.release =>
+            {
                 return Ok(DiscoveryOutcome::Unchanged);
             }
             Ordering::Equal => {
@@ -1804,6 +1909,14 @@ fn request_url(
                 "api/releases/latest"
             } else if logical_url.path() == GITHUB_ALPHA_RELEASES_PATH {
                 "api/releases"
+            } else if let Some(tag) = logical_url
+                .path()
+                .strip_prefix(GITHUB_EXACT_RELEASE_TAG_PATH)
+                .filter(|tag| !tag.is_empty() && !tag.contains('/'))
+            {
+                return rewrite
+                    .join(&format!("api/releases/tags/{tag}"))
+                    .map_err(|_| UpdateOperationError::InvalidResponse);
             } else {
                 return Err(UpdateOperationError::InvalidResponse);
             };
@@ -1942,6 +2055,7 @@ struct PersistedCandidate {
     identity: UpdateCandidateIdentity,
     metadata_base64: String,
     metadata_signature: String,
+    release: AuthenticatedReleaseRecord,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2049,6 +2163,7 @@ impl AcceptedMetadata {
     }
 }
 
+#[derive(Clone)]
 struct CandidateStore {
     root: PathBuf,
 }
@@ -2217,7 +2332,7 @@ impl CandidateStore {
             .read_json::<PartialManifest>(&self.root.join(PARTIAL_DIRECTORY).join(PARTIAL_MANIFEST))
             .ok()
             .is_some_and(|manifest| {
-                manifest.resume_identity != persisted.identity.resume_identity()
+                manifest.resume_identity != persisted.identity.resume_identity(&persisted.release)
             })
         {
             self.discard_partial()?;
@@ -2239,7 +2354,7 @@ impl CandidateStore {
         operation_id: &str,
     ) -> Result<PartialInfo, UpdateOperationError> {
         let persisted = available.persisted(operation_id);
-        let expected_resume = persisted.identity.resume_identity();
+        let expected_resume = persisted.identity.resume_identity(&persisted.release);
         let directory = self.root.join(PARTIAL_DIRECTORY);
         if directory.exists() {
             let manifest = self
@@ -2281,7 +2396,7 @@ impl CandidateStore {
         ensure_private_directory(&directory)?;
         validate_exact_entries(&directory, &[PARTIAL_MANIFEST, PARTIAL_PAYLOAD])?;
         let manifest = self.read_json::<PartialManifest>(&directory.join(PARTIAL_MANIFEST))?;
-        if manifest.resume_identity != available.identity().resume_identity()
+        if manifest.resume_identity != available.identity().resume_identity(&available.release)
             || manifest.candidate != available.persisted(operation_id)
         {
             return Err(UpdateOperationError::StoreUnsafe);
@@ -2322,7 +2437,7 @@ impl CandidateStore {
         self.write_json_atomic(
             &directory.join(PARTIAL_MANIFEST),
             &PartialManifest {
-                resume_identity: persisted.identity.resume_identity(),
+                resume_identity: persisted.identity.resume_identity(&persisted.release),
                 candidate: persisted,
                 etag: etag.map(str::to_owned),
                 updated_at_seconds: now_seconds(),
@@ -2519,7 +2634,7 @@ fn decode_persisted_candidate(
     accepted: &[String],
     persisted: &PersistedCandidate,
 ) -> Result<AvailableCandidate, UpdateOperationError> {
-    if persisted.schema_version != STORE_SCHEMA_VERSION {
+    if persisted.schema_version != CANDIDATE_SCHEMA_VERSION {
         return Err(UpdateOperationError::StoreUnsafe);
     }
     validate_operation_id(&persisted.operation_id)?;
@@ -2532,13 +2647,18 @@ fn decode_persisted_candidate(
         metadata_signature: &persisted.metadata_signature,
         policy: policy.clone(),
     })?;
-    if UpdateCandidateIdentity::from_verified(&metadata) != persisted.identity {
+    if !persisted
+        .release
+        .validates(metadata.channel, &metadata.version)
+        || UpdateCandidateIdentity::from_verified(&metadata) != persisted.identity
+    {
         return Err(UpdateOperationError::StoreUnsafe);
     }
     Ok(AvailableCandidate {
         metadata,
         metadata_bytes,
         metadata_signature: persisted.metadata_signature.clone(),
+        release: persisted.release.clone(),
     })
 }
 
@@ -2874,6 +2994,17 @@ mod tests {
             },
             metadata_bytes: b"raw private metadata body".to_vec(),
             metadata_signature: "private metadata signature".into(),
+            release: AuthenticatedReleaseRecord {
+                assets: vec![AuthenticatedReleaseAsset {
+                    id: 11,
+                    name: "Mish-0.1.1-alpha.2-aarch64.app.tar.gz".into(),
+                }],
+                channel: UpdateChannel::Alpha,
+                id: 7,
+                published_at: "2026-07-27T00:00:00Z".into(),
+                tag: "v0.1.1-alpha.2".into(),
+                version: "0.1.1-alpha.2".into(),
+            },
         }
     }
 
@@ -2896,6 +3027,7 @@ mod tests {
             snapshot,
             accepted: AcceptedMetadata::empty(),
             available: None,
+            release_context_bound: false,
             active_cancel: None,
             check_admission_pending: false,
         }));
@@ -3213,6 +3345,11 @@ mod tests {
         let app = Router::new()
             .route("/api/releases", get(releases))
             .route("/api/releases/latest", get(stable_api_latest))
+            .route(
+                "/api/releases/tags/v0.1.1-alpha.2",
+                get(exact_alpha_release),
+            )
+            .route("/api/releases/tags/v0.1.1", get(exact_stable_release))
             .route("/latest/{asset}", get(stable_latest))
             .route("/release/v0.1.1-alpha.2/mish-alpha.json", get(metadata))
             .route(
@@ -3267,6 +3404,22 @@ mod tests {
         state
             .authorization_seen
             .store(headers.contains_key("authorization"), Ordering::SeqCst);
+        let release = alpha_release_json(&state);
+        axum::Json(serde_json::json!([release]))
+    }
+
+    async fn exact_alpha_release(
+        State(state): State<Arc<FixtureState>>,
+        headers: HeaderMap,
+    ) -> impl IntoResponse {
+        state.release_requests.fetch_add(1, Ordering::SeqCst);
+        state
+            .authorization_seen
+            .store(headers.contains_key("authorization"), Ordering::SeqCst);
+        axum::Json(alpha_release_json(&state))
+    }
+
+    fn alpha_release_json(state: &FixtureState) -> serde_json::Value {
         let mode = *state.release_mode.lock().unwrap();
         let mut assets = vec![
             serde_json::json!({"id": 1, "name": "mish-alpha.json", "state": "uploaded"}),
@@ -3277,7 +3430,7 @@ mod tests {
         if matches!(mode, ReleaseMode::Partial) {
             assets.pop();
         }
-        axum::Json(serde_json::json!([{
+        serde_json::json!({
             "id": 41,
             "tag_name": "v0.1.1-alpha.2",
             "draft": matches!(mode, ReleaseMode::Draft),
@@ -3289,7 +3442,7 @@ mod tests {
                 serde_json::Value::String("2026-08-01T00:00:00Z".into())
             },
             "assets": assets,
-        }]))
+        })
     }
 
     async fn stable_api_latest(
@@ -3307,7 +3460,33 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
         }
-        let body = serde_json::to_vec(&serde_json::json!({
+        let body = serde_json::to_vec(&stable_release_json(&state)).unwrap();
+        HttpResponse::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_LENGTH, body.len())
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    async fn exact_stable_release(
+        State(state): State<Arc<FixtureState>>,
+        headers: HeaderMap,
+    ) -> HttpResponse<Body> {
+        state.release_requests.fetch_add(1, Ordering::SeqCst);
+        state
+            .authorization_seen
+            .store(headers.contains_key("authorization"), Ordering::SeqCst);
+        let body = serde_json::to_vec(&stable_release_json(&state)).unwrap();
+        HttpResponse::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_LENGTH, body.len())
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    fn stable_release_json(state: &FixtureState) -> serde_json::Value {
+        let visibility = *state.stable_visibility.lock().unwrap();
+        serde_json::json!({
             "id": 51,
             "tag_name": "v0.1.1",
             "draft": false,
@@ -3320,13 +3499,7 @@ mod tests {
                 {"id": 13, "name": "Mish-0.1.1-aarch64.app.tar.gz", "state": "uploaded"},
                 {"id": 14, "name": "Mish-0.1.1-aarch64.app.tar.gz.sig", "state": "uploaded"},
             ],
-        }))
-        .unwrap();
-        HttpResponse::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_LENGTH, body.len())
-            .body(Body::from(body))
-            .unwrap()
+        })
     }
 
     async fn stable_latest(
@@ -3490,7 +3663,8 @@ mod tests {
         response.body(body).unwrap()
     }
 
-    async fn stable_artifact() -> HttpResponse<Body> {
+    async fn stable_artifact(State(state): State<Arc<FixtureState>>) -> HttpResponse<Body> {
+        state.artifact_requests.fetch_add(1, Ordering::SeqCst);
         HttpResponse::builder()
             .status(StatusCode::OK)
             .header(ETAG, "\"stable-fixture-v1\"")
@@ -3650,6 +3824,450 @@ mod tests {
                 .unwrap()
                 .contains("github.com")
         );
+    }
+
+    fn local_install_request(
+        snapshot: &UpdaterSnapshot,
+        operation_id: &str,
+    ) -> LocalInstallRequest {
+        LocalInstallRequest {
+            operation_id: operation_id.into(),
+            expected_authority_id: snapshot.authority_id.clone(),
+            expected_ready_operation_id: snapshot.operation_id.clone().unwrap(),
+            expected_revision: snapshot.revision,
+            expected_candidate: snapshot.candidate.clone().unwrap(),
+        }
+    }
+
+    fn accept_local_install(_: &[u8]) -> Result<(), LocalInstallSeamError> {
+        Ok(())
+    }
+
+    fn reject_malformed_local_install(_: &[u8]) -> Result<(), LocalInstallSeamError> {
+        Err(LocalInstallSeamError::MalformedPackage)
+    }
+
+    fn panic_local_install(_: &[u8]) -> Result<(), LocalInstallSeamError> {
+        panic!("injected seam panic")
+    }
+
+    async fn prepare_ready_candidate(
+        server: &FixtureServer,
+        root: &Path,
+    ) -> (Arc<UpdaterService>, UpdaterSnapshot) {
+        let service = configured_service(server, root, "install-process", limits()).await;
+        discover_available(&service, "download-operation").await;
+        service.start_download("download-operation").unwrap();
+        let ready = wait_phase(&service, UpdatePhase::Ready).await;
+        (service, ready)
+    }
+
+    async fn prepare_ready_stable_candidate(
+        server: &FixtureServer,
+        root: &Path,
+    ) -> (Arc<UpdaterService>, UpdaterSnapshot) {
+        let service = configured_stable_service(server, root).await;
+        service
+            .start_check("stable-download", UpdateChannel::Stable)
+            .await
+            .unwrap();
+        wait_phase(&service, UpdatePhase::Available).await;
+        service.start_download("stable-download").unwrap();
+        let ready = wait_phase(&service, UpdatePhase::Ready).await;
+        (service, ready)
+    }
+
+    #[tokio::test]
+    async fn local_install_proof_reads_and_hands_off_the_exact_candidate_once_without_payload_network()
+     {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let (service, ready) = prepare_ready_candidate(&server, &root).await;
+        let artifact_requests = server.state.artifact_requests.load(Ordering::SeqCst);
+        let release_requests = server.state.release_requests.load(Ordering::SeqCst);
+        let handoffs = Arc::new(AtomicUsize::new(0));
+        let observed = handoffs.clone();
+        let evidence = service
+            .proof_local_candidate_install_adapter()
+            .install(
+                local_install_request(&ready, "install-proof"),
+                CancellationToken::new(),
+                move |bytes: &[u8]| {
+                    assert_eq!(bytes, ARTIFACT);
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(handoffs.load(Ordering::SeqCst), 1);
+        assert_eq!(evidence.payload_reads, 1);
+        assert_eq!(evidence.payload_handoffs, 1);
+        assert_eq!(evidence.payload_network_downloads, 0);
+        assert_eq!(
+            evidence.candidate_sha256,
+            ready.candidate.unwrap().artifact_sha256
+        );
+        assert_eq!(
+            server.state.artifact_requests.load(Ordering::SeqCst),
+            artifact_requests
+        );
+        assert_eq!(
+            server.state.release_requests.load(Ordering::SeqCst),
+            release_requests
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_rebinds_one_exact_release_record_without_redownloading_payload() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let (original, _) = prepare_ready_candidate(&server, &root).await;
+        original.shutdown().await;
+        drop(original);
+        let recovered = configured_service(&server, &root, "restarted-process", limits()).await;
+        let ready = recovered.snapshot();
+        assert_eq!(ready.phase, UpdatePhase::Ready);
+        assert!(!recovered.state.lock().unwrap().release_context_bound);
+        let artifact_requests = server.state.artifact_requests.load(Ordering::SeqCst);
+        let release_requests = server.state.release_requests.load(Ordering::SeqCst);
+
+        let evidence = recovered
+            .proof_local_candidate_install_adapter()
+            .install(
+                local_install_request(&ready, "restart-install-proof"),
+                CancellationToken::new(),
+                |bytes: &[u8]| {
+                    assert_eq!(bytes, ARTIFACT);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(evidence.payload_network_downloads, 0);
+        assert!(recovered.state.lock().unwrap().release_context_bound);
+        assert_eq!(
+            server.state.release_requests.load(Ordering::SeqCst),
+            release_requests + 1
+        );
+        assert_eq!(
+            server.state.artifact_requests.load(Ordering::SeqCst),
+            artifact_requests
+        );
+    }
+
+    #[tokio::test]
+    async fn stable_restart_rebind_is_exact_version_and_never_downloads_the_payload_again() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("stable-updates");
+        let (original, _) = prepare_ready_stable_candidate(&server, &root).await;
+        original.shutdown().await;
+        drop(original);
+        let recovered = configured_stable_service(&server, &root).await;
+        let ready = recovered.snapshot();
+        assert_eq!(ready.phase, UpdatePhase::Ready);
+        let artifact_requests = server.state.artifact_requests.load(Ordering::SeqCst);
+        let release_requests = server.state.release_requests.load(Ordering::SeqCst);
+
+        recovered
+            .proof_local_candidate_install_adapter()
+            .install(
+                local_install_request(&ready, "stable-install-proof"),
+                CancellationToken::new(),
+                |bytes: &[u8]| {
+                    assert_eq!(bytes, STABLE_ARTIFACT);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            server.state.release_requests.load(Ordering::SeqCst),
+            release_requests + 1
+        );
+        assert_eq!(
+            server.state.artifact_requests.load(Ordering::SeqCst),
+            artifact_requests
+        );
+    }
+
+    #[tokio::test]
+    async fn local_install_negative_paths_are_deterministic_redacted_and_non_destructive() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let (service, ready) = prepare_ready_candidate(&server, &root).await;
+        let disabled = service
+            .local_candidate_install_adapter()
+            .install(
+                local_install_request(&ready, "disabled-proof"),
+                CancellationToken::new(),
+                panic_local_install,
+            )
+            .await;
+        assert_eq!(disabled, Err(LocalInstallError::CapabilityDisabled));
+
+        let adapter = service.proof_local_candidate_install_adapter();
+        let mut stale = local_install_request(&ready, "stale-proof");
+        stale.expected_revision = stale.expected_revision.saturating_add(1);
+        assert_eq!(
+            adapter
+                .install(stale, CancellationToken::new(), accept_local_install)
+                .await,
+            Err(LocalInstallError::StaleRevision)
+        );
+        let mut replaced = local_install_request(&ready, "replaced-proof");
+        replaced.expected_ready_operation_id = "other-download".into();
+        assert_eq!(
+            adapter
+                .install(replaced, CancellationToken::new(), accept_local_install)
+                .await,
+            Err(LocalInstallError::ReplacedOperation)
+        );
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        assert_eq!(
+            adapter
+                .install(
+                    local_install_request(&ready, "cancelled-proof"),
+                    cancellation,
+                    accept_local_install
+                )
+                .await,
+            Err(LocalInstallError::Cancelled)
+        );
+        assert_eq!(
+            adapter
+                .install(
+                    local_install_request(&ready, "malformed-proof"),
+                    CancellationToken::new(),
+                    reject_malformed_local_install
+                )
+                .await,
+            Err(LocalInstallError::MalformedPackage)
+        );
+        let task_failure = adapter
+            .install(
+                local_install_request(&ready, "panic-proof"),
+                CancellationToken::new(),
+                panic_local_install,
+            )
+            .await;
+        assert_eq!(task_failure, Err(LocalInstallError::TaskFinalization));
+
+        let duplicate_request = local_install_request(&ready, "duplicate-proof");
+        adapter
+            .install(
+                duplicate_request.clone(),
+                CancellationToken::new(),
+                accept_local_install,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            adapter
+                .install(
+                    duplicate_request,
+                    CancellationToken::new(),
+                    accept_local_install,
+                )
+                .await,
+            Err(LocalInstallError::Duplicate)
+        );
+
+        for error in [
+            LocalInstallError::CapabilityDisabled,
+            LocalInstallError::StaleRevision,
+            LocalInstallError::ReplacedOperation,
+            LocalInstallError::Cancelled,
+            LocalInstallError::MalformedPackage,
+            LocalInstallError::TaskFinalization,
+            LocalInstallError::Duplicate,
+        ] {
+            assert!(!error.code().contains('/'));
+            assert!(!error.code().contains("github"));
+            assert!(!error.code().contains("signature"));
+        }
+        assert_eq!(service.snapshot(), ready);
+    }
+
+    #[tokio::test]
+    async fn restart_offline_drift_oversize_and_store_tampering_fail_closed_while_ready_remains() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let offline_root = temporary.path().join("offline");
+        let (original, _) = prepare_ready_candidate(&server, &offline_root).await;
+        original.shutdown().await;
+        drop(original);
+        let recovered =
+            configured_service(&server, &offline_root, "offline-restart", limits()).await;
+        let offline_ready = recovered.snapshot();
+        drop(server);
+        assert_eq!(
+            recovered
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&offline_ready, "offline-proof"),
+                    CancellationToken::new(),
+                    accept_local_install
+                )
+                .await,
+            Err(LocalInstallError::ContextUnavailable)
+        );
+        assert_eq!(recovered.snapshot(), offline_ready);
+        assert!(!recovered.state.lock().unwrap().release_context_bound);
+
+        let server = fixture_server().await;
+        let drift_root = temporary.path().join("drift");
+        let (original, _) = prepare_ready_candidate(&server, &drift_root).await;
+        original.shutdown().await;
+        drop(original);
+        let drifted = configured_service(&server, &drift_root, "drift-restart", limits()).await;
+        let drift_ready = drifted.snapshot();
+        *server.state.release_mode.lock().unwrap() = ReleaseMode::Partial;
+        assert_eq!(
+            drifted
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&drift_ready, "drift-proof"),
+                    CancellationToken::new(),
+                    accept_local_install
+                )
+                .await,
+            Err(LocalInstallError::ReleaseDrift)
+        );
+        assert_eq!(drifted.snapshot(), drift_ready);
+
+        *server.state.release_mode.lock().unwrap() = ReleaseMode::Good;
+        let oversized_root = temporary.path().join("oversized");
+        let (original, _) = prepare_ready_candidate(&server, &oversized_root).await;
+        original.shutdown().await;
+        drop(original);
+        let mut small_limits = limits();
+        small_limits.max_artifact_bytes = ARTIFACT.len() as u64 - 1;
+        let oversized =
+            configured_service(&server, &oversized_root, "oversized-restart", small_limits).await;
+        let oversized_ready = oversized.snapshot();
+        assert_eq!(
+            oversized
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&oversized_ready, "oversized-proof"),
+                    CancellationToken::new(),
+                    accept_local_install
+                )
+                .await,
+            Err(LocalInstallError::OversizedPackage)
+        );
+
+        let tampered_root = temporary.path().join("tampered");
+        let (tampered, tampered_ready) = prepare_ready_candidate(&server, &tampered_root).await;
+        set_permissions(
+            &tampered_root
+                .join(CANDIDATE_DIRECTORY)
+                .join(CANDIDATE_PAYLOAD),
+            0o600,
+        )
+        .unwrap();
+        assert_eq!(
+            tampered
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&tampered_ready, "tampered-proof"),
+                    CancellationToken::new(),
+                    accept_local_install
+                )
+                .await,
+            Err(LocalInstallError::StoreUnsafe)
+        );
+        assert_eq!(tampered.snapshot(), tampered_ready);
+    }
+
+    #[tokio::test]
+    async fn local_install_rejects_every_persisted_candidate_binding_drift() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let (service, ready) = prepare_ready_candidate(&server, &root).await;
+        let configured = service.configured.as_ref().unwrap();
+        let available = service.state.lock().unwrap().available.clone().unwrap();
+        let original = available.persisted(ready.operation_id.as_deref().unwrap());
+        let candidate_directory = root.join(CANDIDATE_DIRECTORY);
+        let manifest_path = candidate_directory.join(CANDIDATE_MANIFEST);
+
+        for drift in [
+            "field",
+            "artifact",
+            "digest",
+            "signature",
+            "channel",
+            "version",
+            "source",
+            "release",
+            "release-artifact",
+        ] {
+            let mut tampered = original.clone();
+            match drift {
+                "field" => tampered.schema_version = tampered.schema_version.saturating_add(1),
+                "artifact" => tampered.identity.artifact_name.push_str(".substituted"),
+                "digest" => tampered.identity.artifact_sha256 = "00".repeat(32),
+                "signature" => tampered.metadata_signature.push('A'),
+                "channel" => tampered.identity.channel = UpdateChannel::Stable,
+                "version" => tampered.identity.version = "0.1.1-alpha.3".into(),
+                "source" => tampered.identity.source_sha = "11".repeat(32),
+                "release" => tampered.release.id = tampered.release.id.saturating_add(1),
+                "release-artifact" => {
+                    tampered.release.assets[0].id = tampered.release.assets[0].id.saturating_add(1);
+                }
+                _ => unreachable!(),
+            }
+            set_permissions(&candidate_directory, 0o700).unwrap();
+            configured
+                .store
+                .write_json_atomic(&manifest_path, &tampered, 0o400)
+                .unwrap();
+            set_permissions(&candidate_directory, 0o500).unwrap();
+
+            let result = service
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&ready, &format!("{drift}-drift-proof")),
+                    CancellationToken::new(),
+                    accept_local_install,
+                )
+                .await;
+            assert_eq!(result, Err(LocalInstallError::StoreUnsafe), "{drift}");
+        }
+
+        set_permissions(&candidate_directory, 0o700).unwrap();
+        configured
+            .store
+            .write_json_atomic(&manifest_path, &original, 0o400)
+            .unwrap();
+        set_permissions(&candidate_directory, 0o500).unwrap();
+
+        let payload_path = candidate_directory.join(CANDIDATE_PAYLOAD);
+        let mut substituted_payload = ARTIFACT.to_vec();
+        substituted_payload[0] ^= 1;
+        set_permissions(&payload_path, 0o600).unwrap();
+        fs::write(&payload_path, substituted_payload).unwrap();
+        set_permissions(&payload_path, 0o400).unwrap();
+        assert_eq!(
+            service
+                .proof_local_candidate_install_adapter()
+                .install(
+                    local_install_request(&ready, "payload-digest-drift-proof"),
+                    CancellationToken::new(),
+                    accept_local_install,
+                )
+                .await,
+            Err(LocalInstallError::VerificationFailed)
+        );
+        assert_eq!(service.snapshot(), ready);
     }
 
     #[tokio::test]
@@ -4202,12 +4820,22 @@ mod tests {
             snapshot: UpdaterSnapshot::idle("authority".into(), true),
             accepted: AcceptedMetadata::empty(),
             available: Some(existing.clone()),
+            release_context_bound: true,
             active_cancel: None,
             check_admission_pending: false,
         });
         assert_eq!(
             classify_discovery(&state, existing.clone()),
             Ok(DiscoveryOutcome::Unchanged)
+        );
+
+        let mut release_conflict = existing.clone();
+        release_conflict.release.id += 1;
+        assert_eq!(
+            classify_discovery(&state, release_conflict),
+            Err(UpdateOperationError::Verification(
+                UpdaterError::VersionDigestConflict
+            ))
         );
 
         let mut conflict = existing.clone();
