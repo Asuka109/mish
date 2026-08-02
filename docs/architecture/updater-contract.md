@@ -29,6 +29,26 @@ the typed `not-configured` reason. The signed-direct release probe therefore
 continues to report `updater: contract-only`. Configuring the service later is
 a release-signing/publication change; it is not an installation action.
 
+When a future protected build supplies configuration, Stable discovery starts
+with GitHub's canonical latest published Release API object and
+`/releases/latest/download/` paths. The API object must be non-draft,
+non-prerelease, published, and `immutable: true`. The metadata and
+metadata-signature paths must resolve to that same strict stable `v<version>`
+Release or directly to GitHub's allowlisted Release asset CDN. A direct CDN
+redirect is publication-visibility evidence only: after verifying the signed
+Mish metadata, all reads are still derived from the API object's exact strict
+stable `v<version>` Release. The payload and payload-signature latest paths must
+also be visible before any payload download is admitted.
+
+Alpha performs exactly one anonymous, bounded first-page Releases API read. It
+ignores list order, rejects duplicate versions, considers only non-draft,
+published immutable prereleases with strict
+`major.minor.patch-alpha.sequence` tags, and selects the greatest SemVer. API
+asset URLs, ordering, timestamps, uploaded state, immutable flag, and cache
+state are discovery gates and hints only. After selection, every metadata,
+signature, and payload identity is derived from the exact `v<version>` Release
+path and authorized by the existing signed Mish contract.
+
 ## Selected Tauri contract
 
 The repository selects the Tauri v2 static JSON contract documented in the
@@ -103,12 +123,14 @@ Tauri updater. It performs the following ordered checks before producing a
 candidate:
 
 1. require and verify the detached metadata signature over the raw JSON bytes;
-2. reject a metadata SHA-256 already recorded as accepted;
-3. parse the strict JSON schema and validate channel and SemVer policy;
-4. bind source SHA, platform, URL, payload name, size, and SHA-256;
-5. require the published payload signature sidecar to equal the signature
+2. parse the strict JSON schema and validate channel and SemVer policy;
+3. bind source SHA, platform, URL, payload name, size, and SHA-256;
+4. require the published payload signature sidecar to equal the signature
    embedded in the authenticated Tauri JSON; and
-6. verify that payload signature over the exact payload bytes.
+5. compare the authenticated candidate identity with the current candidate and
+   channel high-water before committing discovery; and
+6. verify the payload signature over the exact payload bytes before publishing
+   the private ready candidate.
 
 Parsing unsigned metadata is not an authorization boundary. Missing, invalid,
 mismatched, replayed, wrong-channel, wrong-version, renamed, truncated, or
@@ -116,7 +138,11 @@ substituted inputs return a typed error and no `VerifiedUpdate`.
 
 Stage 1 models replay state as the set of previously accepted metadata digests.
 Stage 2A stores a bounded set of accepted digests in the private candidate
-store and rechecks it before every discovery. Evicting an old digest never
+store and rechecks it after signature verification on every discovery. The
+same channel/version/metadata and payload identity is an idempotent no-change
+result that restores the pre-check outer snapshot. The same version with a
+different authenticated identity is a hard `version-digest-conflict`; an older
+version remains a downgrade. Evicting an old digest never
 weakens rollback defense because the store also retains a monotonic,
 channel-specific accepted-version high-water mark. The adapter now exposes the
 same ordered contract as authenticated metadata admission followed by
@@ -202,10 +228,15 @@ publication, or a generic state-machine framework.
 
 ## Bounded HTTP and resume
 
-One Rustls-backed HTTP client is reused per configured updater. At most one
-redirect is followed, only from an exact credential-free `github.com` Release
-asset URL to a known HTTPS GitHub release-asset CDN path; every other redirect
-is stopped and rejected. Response encoding must be identity, and connect,
+One Rustls-backed HTTP client is reused per configured updater. Stable latest
+discovery stops and validates GitHub's one-hop redirect to either the exact
+immutable Release path or a known GitHub Release asset CDN path. The CDN
+location is never fetched as an authorization source; a cross-version,
+untrusted-CDN, missing, or malformed location is rejected.
+For a subsequent immutable asset read, at most one redirect is followed, only
+from an exact credential-free `github.com` `v<version>` Release asset URL to a
+known HTTPS GitHub release-asset CDN path; every other redirect is stopped and
+rejected. Response encoding must be identity, and connect,
 whole-operation, and idle-body time are bounded. Metadata and signature bodies
 have independent caps. Signed payload size must be non-zero and below the
 configured disk/body cap before download admission; streamed bytes may never
@@ -221,11 +252,11 @@ range semantics, weak/missing validators, truncation, trailing bytes, changed
 identity, or overgrowth discard the partial or fail closed; no partial byte is
 ever called verified.
 
-Test-only URL rewriting maps the already-authenticated release asset basename
+Test-only URL rewriting maps canonical API, latest, and immutable Release paths
 to a loopback fixture server. Production configuration has no such adapter and
-accepts only the selected channel's exact credential-free application-owned
-GitHub Releases base:
-`https://github.com/Asuka109/mish/releases/download/updater-<channel>/`.
+accepts only the exact application-owned Stable latest base or bounded
+anonymous Alpha Releases API endpoint. No production endpoint overlay is
+present in the shipped application.
 
 ## Private candidate store and restart
 
@@ -255,18 +286,25 @@ surface exposes stable error codes only. It does not echo endpoint URLs,
 signatures, raw metadata, source content, credentials, local paths, or unrelated
 network data.
 
-Repository fixtures use a fixed public key, payload, JSON, and signatures. The
-fixture payload is plain text, not an application archive. Its private key is
-not stored, the key is not trusted by a shipped build, and fixture execution
-performs no Apple, GitHub, or third-party network action.
+Repository fixtures use one fixed fixture-only public key plus Alpha and Stable
+plain-text payloads, JSON, and signatures. The private key is not stored and
+the public key is not trusted by a shipped build. The credential-free lifecycle
+fixture models Draft creation, exact asset upload and digest read-back,
+interruption while still hidden, immutable publication, Stable latest
+visibility as the final step, Alpha list visibility, and replay/high-water
+classification. It performs no Apple, GitHub, or third-party network action and
+makes no live-publication claim.
 
 ## Deterministic verification
 
 `cargo test -p mish-updater` uses only the repository signing fixtures and a
 loopback fixture server. It covers success, exact Range resume, no-Range
 restart, cancellation, timeout, redirect rejection, metadata/body caps,
-truncated/corrupt payloads, signature and identity failure, replay, concurrent
-operation keys, monotonic replay high-water behavior, restart recovery,
+truncated/corrupt payloads, signature and identity failure, Draft/partial and
+delayed-asset visibility, Stable latest cross-version redirects, anonymous
+Alpha ordering and strict SemVer selection, idempotent rediscovery,
+same-version digest conflict, concurrent operation keys, monotonic replay
+high-water behavior, restart recovery,
 immutable ready recovery and removal, symlink/hard-link rejection, and bounded
 cleanup. Check-specific tests additionally cover its legal transition table,
 bounded model sequences and DTO invariants, duplicate and competing admission,
