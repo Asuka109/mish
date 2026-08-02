@@ -430,7 +430,7 @@ pub(super) fn reduce(
 ) -> Result<CheckDecision, UpdateOperationError> {
     match input {
         CheckInput::CheckRequested {
-            operation,
+            mut operation,
             outer_phase,
             outer_operation_id,
             outer_channel,
@@ -455,6 +455,14 @@ pub(super) fn reduce(
                 UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Verifying
             ) {
                 return Err(UpdateOperationError::Busy);
+            }
+            if matches!(
+                state,
+                CheckState::Failed { .. } | CheckState::Cancelled { .. }
+            ) && let Some(previous) = state.operation()
+                && previous.baseline.candidate.is_some()
+            {
+                operation.baseline = previous.baseline.clone();
             }
             let correlation = operation.correlation(DISCOVER_EFFECT_ID);
             Ok(CheckDecision::applied(
@@ -996,6 +1004,41 @@ mod tests {
         .next;
         assert!(matches!(unchanged, CheckState::Unchanged { .. }));
         assert_eq!(unchanged.projection(), baseline);
+    }
+
+    #[test]
+    fn retry_after_failure_keeps_the_retained_candidate_baseline() {
+        let mut first = operation_token("first", 9, 21);
+        *first.baseline = CheckProjection {
+            phase: UpdatePhase::Ready,
+            operation_id: Some("original".into()),
+            channel: Some(UpdateChannel::Alpha),
+            candidate: Some(candidate("1.0.1-alpha.1").identity()),
+            progress: Some(UpdateProgress {
+                downloaded_bytes: 42,
+                total_bytes: 42,
+            }),
+            resumable: false,
+            terminal_reason: None,
+        };
+        let expected = first.baseline.as_ref().clone();
+        let failed = CheckState::Failed {
+            operation: first,
+            failure: CheckFailure::Operation(UpdateOperationError::Network),
+        };
+        let mut retry = operation_token("retry", 10, 22);
+        *retry.baseline = CheckProjection::failed(&retry, "network");
+        let checking = request(&failed, retry.clone()).next;
+        let unchanged = reduce(
+            &checking,
+            CheckInput::EffectCompleted(CheckCompletion {
+                correlation: retry.correlation(DISCOVER_EFFECT_ID),
+                outcome: CheckEffectOutcome::Discovery(Ok(DiscoveryOutcome::Unchanged)),
+            }),
+        )
+        .unwrap()
+        .next;
+        assert_eq!(unchanged.projection(), expected);
     }
 
     #[test]
