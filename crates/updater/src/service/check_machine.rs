@@ -871,6 +871,7 @@ fn is_no_update(error: UpdateOperationError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::{AuthenticatedReleaseAsset, AuthenticatedReleaseRecord};
 
     fn operation_token(id: &str, scope_epoch: u64, revision: u64) -> CheckOperation {
         CheckOperation {
@@ -900,6 +901,17 @@ mod tests {
             },
             metadata_bytes: b"raw metadata body".to_vec(),
             metadata_signature: "metadata signature material".into(),
+            release: AuthenticatedReleaseRecord {
+                assets: vec![AuthenticatedReleaseAsset {
+                    id: 11,
+                    name: format!("Mish-{version}.app.tar.gz"),
+                }],
+                channel: UpdateChannel::Alpha,
+                id: 7,
+                published_at: "2026-07-27T00:00:00Z".into(),
+                tag: format!("v{version}"),
+                version: version.into(),
+            },
         }
     }
 
