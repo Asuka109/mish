@@ -2976,7 +2976,7 @@ async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
         .collect::<Vec<_>>();
     assert_eq!(capture.len(), 1);
     assert_eq!(capture[0]["id"], earlier_id);
-    assert_eq!(capture[0]["presentationState"]["phase"], "unpresented");
+    assert_eq!(capture[0]["presentationState"]["phase"], "folded");
     assert_eq!(capture[0]["presentation"]["data"]["captureMode"], "tun");
     assert_eq!(
         capture[0]["presentation"]["data"]["failure"],

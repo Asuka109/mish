@@ -22,13 +22,13 @@ use futures_util::{
     future::{BoxFuture, ready},
 };
 use mish_bridge::{
-    ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
-    DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedCoreOwnership, ManagedMihomoResolver,
-    ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager,
-    MihomoResolveError, PrivilegedCoreHost, PrivilegedCoreHostError, PrivilegedCoreLaunchRequest,
-    PrivilegedCoreProcess, ProfileActivationCoordinator, ProfileActivationEvidenceKind,
-    ProfileActivationFailure, ProfileActivationPhase, RealManagedProcessPlatform,
-    ReqwestHttpsSourceReader, RuntimeConfigGenerator,
+    ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopLifecycleCoordinator,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedCoreOwnership,
+    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationError,
+    MihomoActivationManager, MihomoResolveError, PrivilegedCoreHost, PrivilegedCoreHostError,
+    PrivilegedCoreLaunchRequest, PrivilegedCoreProcess, ProfileActivationCoordinator,
+    ProfileActivationEvidenceKind, ProfileActivationFailure, ProfileActivationPhase,
+    RealManagedProcessPlatform, ReqwestHttpsSourceReader, RuntimeConfigGenerator,
 };
 use mish_profile::{
     FileProfileRepository, Fingerprint, HttpsSourceReader, ImmutableRevision,
@@ -1057,6 +1057,23 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         .fail_observation
         .store(false, Ordering::Relaxed);
     let tun_core = host.current();
+    let lifecycle = DesktopLifecycleCoordinator::new(host.clone());
+    let lifecycle_after_handoff = lifecycle.clone();
+    let mut runtime_changes = host.subscribe_changes();
+    runtime_changes.borrow_and_update();
+    let runtime_replacement = tokio::spawn(async move {
+        timeout(Duration::from_secs(5), runtime_changes.changed())
+            .await
+            .expect("TUN disable did not replace the managed runtime")
+            .expect("runtime replacement authority closed unexpectedly");
+        let runtime = runtime_changes.borrow_and_update().clone();
+        lifecycle_after_handoff
+            .handle_runtime_replacement(matches!(
+                runtime.core_status().await.phase,
+                mish_runtime::CorePhase::Running
+            ))
+            .await
+    });
 
     coordinator
         .set_capture(
@@ -1071,6 +1088,10 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         )
         .await
         .unwrap();
+    runtime_replacement
+        .await
+        .expect("runtime replacement observer panicked")
+        .expect("runtime replacement replayed stale Capture intent");
     assert!(
         host.notification_snapshot()
             .notifications
@@ -1086,6 +1107,27 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
     );
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(false));
+    for _ in 0..2 {
+        lifecycle.periodic_audit().await.unwrap();
+    }
+    let disabled = host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert!(!disabled.runtime.tun.desired);
+    assert_eq!(disabled.runtime.tun.phase, mish_runtime::TunPhase::Off);
+    assert_eq!(
+        disabled.runtime.capture_operation.phase,
+        mish_runtime::CaptureOperationPhase::Applied
+    );
+    assert!(
+        host.notification_snapshot()
+            .notifications
+            .iter()
+            .filter(|record| record.dedupe_key == "capture.failure")
+            .all(|record| record.resolved),
+        "runtime replacement and periodic audits must not reopen a confirmed TUN disable"
+    );
 
     let relaunched = coordinator
         .launch_proxy(

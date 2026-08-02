@@ -1076,8 +1076,7 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::StateCommitFailed);
         }
         let previous = state.active.replace(candidate);
-        state.capture_transition = None;
-        drop(capture_transition.take());
+        state.capture_transition = capture_transition.take();
         state.managed = committed_state;
         if let Some(previous) = previous {
             previous.source.close().await;

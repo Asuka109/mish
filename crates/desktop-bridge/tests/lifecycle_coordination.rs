@@ -369,6 +369,44 @@ async fn planned_runtime_handoff_does_not_restore_capture_before_the_owner_commi
     drop(transition);
 }
 
+#[tokio::test]
+async fn runtime_replacement_does_not_restore_an_inactive_capture_selection() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    enable_capture(&fixture.runtime).await;
+    fixture
+        .runtime
+        .set_capture(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    fixture
+        .coordinator
+        .handle_runtime_replacement(true)
+        .await
+        .unwrap();
+
+    let status = fixture
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert_eq!(status.runtime.capture_selection.system_proxy, true);
+    assert_eq!(status.runtime.system_proxy.phase, SystemProxyPhase::Off);
+    assert!(!status.runtime.system_proxy.desired);
+    assert_eq!(
+        fixture.platform.service("service-a"),
+        disabled_service("service-a")
+    );
+}
+
 async fn enable_capture(runtime: &MishRuntime) {
     runtime
         .set_capture(

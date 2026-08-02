@@ -134,6 +134,42 @@ impl DesktopLifecycleCoordinator {
         Ok(())
     }
 
+    pub async fn handle_runtime_replacement(
+        &self,
+        running: bool,
+    ) -> Result<(), LifecycleCoordinationError> {
+        let _transition = self.transition.lock().await;
+        let runtime = self.host.current();
+        self.invalidate_network_dns();
+        if !running {
+            self.host.suspend_recent_traffic();
+            runtime
+                .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
+                .await;
+            return runtime
+                .audit_capture(CaptureAuditReason::CoreHealthChanged)
+                .await
+                .map(|_| ())
+                .map_err(capture_error);
+        }
+        if self.sleeping.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        // Managed activation already commits the requested Capture state before replacing the
+        // runtime. A replacement is not a Core restart: replaying the retained mode selection
+        // here would turn an intentionally inactive selection back into active capture.
+        runtime.resume_observations().await;
+        let recent_revision = runtime.recent_traffic().snapshot().revision;
+        self.host
+            .resume_recent_traffic(RecentTrafficContinuity::Continue);
+        if runtime.recent_traffic().snapshot().revision != recent_revision {
+            runtime.publish_current_status().await;
+        }
+        self.refresh_network_dns().await;
+        Ok(())
+    }
+
     pub async fn periodic_audit(&self) -> Result<(), LifecycleCoordinationError> {
         if self.sleeping.load(Ordering::Acquire) {
             return Ok(());
@@ -263,7 +299,7 @@ pub(crate) fn spawn_lifecycle_coordination(
                             service_probes.test_after_core_start();
                         }
                     }
-                    let _ = coordinator.handle_core_availability(running).await;
+                    let _ = coordinator.handle_runtime_replacement(running).await;
                 }
                 event = receive_platform_event(&mut platform_events), if platform_events.is_some() => {
                     match event {
