@@ -27,10 +27,18 @@ signing. See Tauri's [capability model](https://v2.tauri.app/security/capabiliti
 
 ## Development service
 
-Development uses the same runtime architecture as production: one privileged
-service owns the Mihomo process, and that process creates the Darwin `utun`
-interface and applies routes. The Tauri process remains unprivileged. The only
-difference is how the service is installed and trusted.
+Development uses the same runtime architecture as production: when TUN is
+selected, one privileged service owns the Mihomo process, and that process
+creates the Darwin `utun` interface and applies routes. The Tauri process
+remains unprivileged. The only difference is how the service is installed and
+trusted.
+
+The ordinary managed backend and the privileged TUN backend never share a
+mutable Core executable. The managed backend keeps using the Core owned by the
+App (the verified development pin or packaged resource). Only the privileged
+host substitutes the root-owned Core installed with the Helper. Helper install,
+repair, or uninstall may replace that privileged artifact without replacing a
+live user-owned Core or invalidating its persisted process identity.
 
 The ordinary developer service remains the Stage 1, TUN-disabled Core host.
 Run it from a trusted checkout:
