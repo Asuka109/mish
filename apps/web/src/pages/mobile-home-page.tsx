@@ -1,5 +1,4 @@
 import type {
-  MobileConfigLoadResultDto,
   MobileFixtureBootstrapDto,
   MobileVpnPhase,
   MobileVpnSnapshotDto,
@@ -11,6 +10,7 @@ import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx, tv } from "@mish/ui/tv";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";
@@ -18,42 +18,40 @@ import type { MobileVpnClient } from "../platform/mobile-vpn-client";
 const mobileHomeStyles = tv({
   slots: {
     page: cx(
-      "mobile-home-page h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain",
-      "px-4 pt-3 pb-[max(24px,env(safe-area-inset-bottom))]",
+      "mobile-home-page h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain scroll-pb-8",
+      "px-4 pt-4 pb-8",
     ),
-    content: "mx-auto grid w-full max-w-130 min-w-0 gap-3.5",
+    content: "mx-auto grid w-full max-w-130 min-w-0 gap-6",
     authority: cx(
-      "mobile-home-authority grid min-w-0 gap-4 rounded-lg border bg-canvas p-4",
+      "mobile-home-authority grid min-w-0 gap-5 rounded-lg border bg-canvas p-5",
       "shadow-panel",
     ),
-    authorityHeader: "flex min-w-0 items-start gap-3",
+    authorityHeader: "flex min-w-0 items-start gap-4",
     authorityIcon: cx(
       "grid size-12 shrink-0 place-items-center rounded-full border [&_svg]:size-6",
     ),
-    authorityCopy: "grid min-w-0 flex-1 gap-1",
+    authorityCopy: "grid min-w-0 flex-1 gap-1.5",
     eyebrow: "text-caption leading-4 font-medium text-muted-foreground",
-    state: "text-title leading-7 font-semibold tracking-tight text-ink",
-    description: "max-w-110 text-body leading-5 text-fg",
+    state: "min-h-14 text-title leading-7 font-semibold tracking-tight text-ink",
+    description: "min-h-20 max-w-110 text-body leading-5 text-fg",
     action: cx(
       "mobile-home-primary-action h-12 w-full rounded-compact border-brand bg-brand px-4",
       "text-body font-medium text-brand-foreground active:brightness-95",
       "disabled:border-hairline disabled:bg-surface-soft disabled:text-muted-foreground",
     ),
-    configActions: "flex flex-wrap gap-2",
+    configActions: "flex flex-wrap gap-3",
     configAction: cx(
       "h-11 min-w-36 flex-1 rounded-compact border border-hairline bg-canvas px-3",
       "text-metadata font-medium text-fg active:bg-surface-soft",
       "disabled:text-muted-foreground",
     ),
-    commandFailure: cx(
-      "rounded-md border border-feedback-error-border bg-badge-error-background px-3 py-2.5",
-      "text-metadata leading-4.5 text-error",
-    ),
-    section: "grid min-w-0 gap-2",
-    sectionHeading: "px-1 text-body font-semibold text-ink",
+    section: "grid min-w-0 gap-3",
+    sectionHeading: "px-1 text-body leading-5 font-semibold text-ink",
+    factsGrid:
+      "[&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
     factRow: cx(
-      "grid min-h-16 grid-cols-[minmax(0,1fr)_minmax(0,max-content)] items-center gap-3",
-      "px-3.5 py-2.5",
+      "grid min-h-18 grid-cols-[minmax(0,1fr)_minmax(0,max-content)] items-center gap-4 overflow-visible",
+      "px-4 py-3",
     ),
     factCopy: "grid min-w-0 gap-0.5",
     factLabel: "font-medium text-fg",
@@ -61,7 +59,7 @@ const mobileHomeStyles = tv({
     factValue: "max-w-38 text-end text-metadata font-medium text-muted-foreground",
     fixtureNotice: cx(
       "mobile-home-fixture-notice grid gap-1 rounded-md border border-feedback-warning-border",
-      "bg-mobile-fixture-background px-3 py-2.5 text-metadata leading-4.5",
+      "bg-mobile-fixture-background px-4 py-3 text-metadata leading-4.5",
     ),
     fixtureLabel: "font-medium text-warning",
   },
@@ -108,6 +106,9 @@ const fictionalConfigBIdentity = {
   digest: "b9692e9a47cdab4379c8125bcd83407a89d5290cbfa4c6218bb58e1d50bae686",
   revision: "fictional-b-v1",
 };
+
+const mobileConfigFailureNotificationKey = "mobile-config-load";
+const mobileLifecycleFailureNotificationKey = "mobile-vpn-lifecycle";
 
 interface MobileHomePageProps {
   fixture: MobileFixtureBootstrapDto;
@@ -278,13 +279,33 @@ function configEvidence(LL: TranslationFunctions, snapshot: MobileVpnSnapshotDto
   };
 }
 
+function lifecycleFailureNotification() {
+  return notificationPublication("status.operation-failed", {
+    data: { failure: "mobile-vpn-lifecycle" },
+    dedupeKey: mobileLifecycleFailureNotificationKey,
+    severity: "error",
+  });
+}
+
+function configFailureNotification() {
+  return notificationPublication("settings.operation-failed", {
+    data: { failure: "mobile-config-load" },
+    dedupeKey: mobileConfigFailureNotificationKey,
+    severity: "error",
+  });
+}
+
+function hasLifecycleFailure(snapshot: MobileVpnSnapshotDto) {
+  return snapshot.phase === "failed" || snapshot.phase === "recovery-required";
+}
+
 export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHomePageProps) {
   const { LL } = useI18nContext();
+  const { publish, retire } = useNotificationDelivery();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const [commandFailed, setCommandFailed] = useState(false);
-  const [loadFeedback, setLoadFeedback] = useState<MobileConfigLoadResultDto>();
   const [loadInFlight, setLoadInFlight] = useState(false);
   const commandInFlight = useRef(false);
+  const loadInFlightRef = useRef(false);
   const projection = projectMobileHome(LL, snapshot);
   const core = coreEvidence(LL, snapshot);
   const config = configEvidence(LL, snapshot);
@@ -293,49 +314,67 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
     () =>
       vpnClient.subscribe((nextSnapshot) => {
         setSnapshot(nextSnapshot);
-        setCommandFailed(false);
       }),
     [vpnClient],
   );
 
+  useEffect(() => {
+    if (hasLifecycleFailure(snapshot)) {
+      publish(lifecycleFailureNotification());
+      return;
+    }
+    retire(mobileLifecycleFailureNotificationKey);
+  }, [publish, retire, snapshot.phase]);
+
   async function runLifecycleAction() {
     if (commandInFlight.current || projection.busy) return;
     commandInFlight.current = true;
-    setCommandFailed(false);
     try {
+      let nextSnapshot: MobileVpnSnapshotDto;
       if (projection.action === "stop") {
-        await vpnClient.stop();
+        nextSnapshot = await vpnClient.stop();
       } else if (projection.action === "permission") {
-        await vpnClient.requestVpnConsent();
+        nextSnapshot = await vpnClient.requestVpnConsent();
       } else if (projection.action === "notification") {
-        await vpnClient.requestNotificationPermission();
+        nextSnapshot = await vpnClient.requestNotificationPermission();
       } else {
-        await vpnClient.startFixtureLifecycle();
+        nextSnapshot = await vpnClient.startFixtureLifecycle();
+      }
+      if (hasLifecycleFailure(nextSnapshot)) {
+        publish(lifecycleFailureNotification());
+      } else {
+        retire(mobileLifecycleFailureNotificationKey);
       }
     } catch {
-      setCommandFailed(true);
+      publish(lifecycleFailureNotification());
     } finally {
       commandInFlight.current = false;
     }
   }
 
   async function runConfigAction(action: "first" | "replace" | "reject") {
-    if (loadInFlight) return;
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
     setLoadInFlight(true);
-    setLoadFeedback(undefined);
     const useSecond =
       action === "replace" ||
       (action === "reject" && snapshot.loadedConfigRevision !== fictionalConfigBIdentity.revision);
     const bytes = useSecond ? fictionalConfigB : fictionalConfigA;
     const identity = useSecond ? fictionalConfigBIdentity : fictionalConfigAIdentity;
     try {
-      setLoadFeedback(
-        await vpnClient.loadConfig(bytes, identity, {
-          injectFailure: action === "reject",
-          timeoutMillis: 10_000,
-        }),
-      );
+      const result = await vpnClient.loadConfig(bytes, identity, {
+        injectFailure: action === "reject",
+        timeoutMillis: 10_000,
+      });
+      if (result.failure) {
+        publish(configFailureNotification());
+      } else {
+        retire(mobileConfigFailureNotificationKey);
+      }
+    } catch {
+      publish(configFailureNotification());
     } finally {
+      loadInFlightRef.current = false;
       setLoadInFlight(false);
     }
   }
@@ -376,18 +415,13 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
               {projection.busy ? LL.common.pending() : projection.actionLabel}
             </Button>
           ) : null}
-          {commandFailed ? (
-            <p className={styles.commandFailure()} role="alert">
-              {LL.mobileFixture.commandFailed()}
-            </p>
-          ) : null}
         </section>
 
         <section aria-labelledby="mobile-home-current-title" className={styles.section()}>
           <h2 className={styles.sectionHeading()} id="mobile-home-current-title">
             {LL.mobileHome.currentSection()}
           </h2>
-          <SectionGrid>
+          <SectionGrid className={styles.factsGrid()}>
             <SectionGridItem className={styles.factRow()}>
               <div className={styles.factCopy()}>
                 <strong className={styles.factLabel()}>{LL.mobileHome.profileLabel()}</strong>
@@ -413,7 +447,7 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
           <h2 className={styles.sectionHeading()} id="mobile-home-readiness-title">
             {LL.mobileHome.readinessSection()}
           </h2>
-          <SectionGrid>
+          <SectionGrid className={styles.factsGrid()}>
             <SectionGridItem className={styles.factRow()}>
               <div className={styles.factCopy()}>
                 <strong className={styles.factLabel()}>{LL.mobileHome.coreLabel()}</strong>
@@ -464,18 +498,6 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
                 </Button>
               ) : null}
             </div>
-          ) : null}
-          {loadFeedback ? (
-            <p
-              className={
-                loadFeedback.failure && loadFeedback.failure !== "timeout"
-                  ? styles.commandFailure()
-                  : styles.fixtureNotice()
-              }
-              role={loadFeedback.failure ? "alert" : "status"}
-            >
-              {loadFeedback.message}
-            </p>
           ) : null}
         </section>
 
