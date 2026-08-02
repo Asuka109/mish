@@ -259,6 +259,24 @@ impl NotificationCenter {
         &self,
         publication: NotificationPublication,
     ) -> Result<NotificationSnapshot, NotificationValidationError> {
+        self.publish_with_folded_requeue(publication, false)
+    }
+
+    /// Publishes a semantic occurrence under a stable dedupe key. A matching record that a
+    /// client already folded becomes presentable again, while an active presentation lease stays
+    /// intact and updates the current toast instead of creating a duplicate.
+    pub fn publish_occurrence(
+        &self,
+        publication: NotificationPublication,
+    ) -> Result<NotificationSnapshot, NotificationValidationError> {
+        self.publish_with_folded_requeue(publication, true)
+    }
+
+    fn publish_with_folded_requeue(
+        &self,
+        publication: NotificationPublication,
+        requeue_folded: bool,
+    ) -> Result<NotificationSnapshot, NotificationValidationError> {
         validate_publication(&publication)?;
         let mut state = self
             .inner
@@ -279,7 +297,9 @@ impl NotificationCenter {
         if !replacements_remove_something
             && existing_index.is_some_and(|index| {
                 let record = &state.records[index];
-                record.presentation == publication.presentation
+                !(requeue_folded
+                    && record.presentation_state.phase == NotificationPresentationPhase::Folded)
+                    && record.presentation == publication.presentation
                     && record.pinned == publication.pinned
                     && record.resolved == publication.resolved
                     && record.severity == publication.severity
@@ -309,6 +329,13 @@ impl NotificationCenter {
             record.resolved = publication.resolved;
             record.revision = revision;
             record.severity = publication.severity;
+            if requeue_folded
+                && record.presentation_state.phase == NotificationPresentationPhase::Folded
+            {
+                record.presentation_lease = None;
+                record.presentation_state = NotificationPresentationState::unpresented();
+                record.read = false;
+            }
             state.records.push_back(record);
         } else {
             state.next_id = state.next_id.saturating_add(1);
@@ -1151,6 +1178,43 @@ mod tests {
             .claim
             .expect("folding the active toast advances the global queue");
         assert_eq!(next.id, queued.notifications[0].id);
+    }
+
+    #[test]
+    fn repeated_occurrence_keeps_the_current_presentation_lease() {
+        let (center, _) = center_with_clock();
+        center
+            .publish_occurrence(publication("capture.failure", 1))
+            .unwrap();
+        let owner = identity("desktop-webview", "session-a");
+        let claim = center
+            .claim_next_presentation(owner.clone())
+            .claim
+            .expect("first occurrence is presentable");
+
+        let repeated = center
+            .publish_occurrence(publication("capture.failure", 2))
+            .unwrap();
+
+        assert_eq!(repeated.revision, claim.revision + 1);
+        assert_eq!(repeated.notifications.len(), 1);
+        assert_eq!(repeated.notifications[0].id, claim.id);
+        assert_eq!(
+            repeated.notifications[0].presentation_state.phase,
+            NotificationPresentationPhase::Presenting
+        );
+        assert_eq!(
+            repeated.notifications[0]
+                .presentation_state
+                .lease_generation,
+            Some(claim.lease_generation)
+        );
+        let refreshed = center
+            .claim_next_presentation(owner)
+            .claim
+            .expect("the current owner retains the updated occurrence");
+        assert_eq!(refreshed.id, claim.id);
+        assert_eq!(refreshed.lease_generation, claim.lease_generation);
     }
 
     #[test]

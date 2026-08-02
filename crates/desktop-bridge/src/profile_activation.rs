@@ -1336,6 +1336,8 @@ impl ProfileActivationCoordinator {
             .await;
         let selection =
             usable_capture_selection(before.adapter_kind, &before.capabilities, selection)?;
+        let original_active = before.runtime.system_proxy.desired || before.runtime.tun.desired;
+        let original_selection = before.runtime.capture_selection.clone();
         if before.runtime.system_proxy_enabled || before.runtime.tun_enabled {
             let capture_started = Instant::now();
             let result = self
@@ -1535,39 +1537,48 @@ impl ProfileActivationCoordinator {
             }
         };
         let preparation_wall = activation_started.elapsed();
-        let (mut result, activation_elapsed, preflight_elapsed, capture_elapsed, mut outcome) =
-            match prepared {
-                Err(error) => {
-                    let outcome = if error.kind == CaptureFailureKind::RuntimeTransition {
-                        "profile-failed"
-                    } else {
-                        "preflight-failed"
-                    };
-                    (
-                        Err(error),
-                        preparation_wall,
-                        preflight_started.elapsed(),
-                        Duration::ZERO,
-                        outcome,
-                    )
-                }
-                Ok((_, activation_elapsed, preflight_elapsed))
-                    if self.shutting_down.load(Ordering::Acquire) =>
-                {
-                    (
-                        Err(CaptureTransitionError::new(
-                            CaptureFailureKind::RuntimeTransition,
-                            "Mish is shutting down and cannot apply a prepared proxy launch",
-                        )),
-                        activation_elapsed,
-                        preflight_elapsed,
-                        Duration::ZERO,
-                        "cancelled",
-                    )
-                }
-                Ok((preflight, activation_elapsed, preflight_elapsed)) => {
-                    let capture_started = Instant::now();
-                    let result = if requires_tun_reactivation && !activation_started_for_launch {
+        let (
+            mut result,
+            activation_elapsed,
+            preflight_elapsed,
+            capture_elapsed,
+            mut outcome,
+            switched_tun_backend,
+        ) = match prepared {
+            Err(error) => {
+                let outcome = if error.kind == CaptureFailureKind::RuntimeTransition {
+                    "profile-failed"
+                } else {
+                    "preflight-failed"
+                };
+                (
+                    Err(error),
+                    preparation_wall,
+                    preflight_started.elapsed(),
+                    Duration::ZERO,
+                    outcome,
+                    false,
+                )
+            }
+            Ok((_, activation_elapsed, preflight_elapsed))
+                if self.shutting_down.load(Ordering::Acquire) =>
+            {
+                (
+                    Err(CaptureTransitionError::new(
+                        CaptureFailureKind::RuntimeTransition,
+                        "Mish is shutting down and cannot apply a prepared proxy launch",
+                    )),
+                    activation_elapsed,
+                    preflight_elapsed,
+                    Duration::ZERO,
+                    "cancelled",
+                    false,
+                )
+            }
+            Ok((preflight, activation_elapsed, preflight_elapsed)) => {
+                let capture_started = Instant::now();
+                let (result, switched_tun_backend) =
+                    if requires_tun_reactivation && !activation_started_for_launch {
                         match self
                             .reactivate_active_authorized(
                                 &permit,
@@ -1575,45 +1586,75 @@ impl ProfileActivationCoordinator {
                             )
                             .await
                         {
-                            Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => {
+                            Ok(snapshot) if snapshot.phase == ProfileActivationPhase::Success => (
                                 self.host
-                                    .set_capture_with_admitted_preflight(
-                                        request,
+                                    .set_capture_with_admitted_preflight_deferred(
+                                        request.clone(),
                                         adapter_kind,
                                         preflight,
                                         &capture_operation,
                                     )
-                                    .await
-                            }
-                            Ok(_) | Err(_) => Err(CaptureTransitionError::new(
-                                CaptureFailureKind::RuntimeTransition,
-                                "Mihomo could not be reactivated with the requested TUN policy",
-                            )),
+                                    .await,
+                                true,
+                            ),
+                            Ok(_) | Err(_) => (
+                                Err(CaptureTransitionError::new(
+                                    CaptureFailureKind::RuntimeTransition,
+                                    "Mihomo could not be reactivated with the requested TUN policy",
+                                )),
+                                false,
+                            ),
                         }
                     } else {
-                        self.host
-                            .set_capture_with_admitted_preflight(
-                                request,
-                                adapter_kind,
-                                preflight,
-                                &capture_operation,
-                            )
-                            .await
+                        (
+                            self.host
+                                .set_capture_with_admitted_preflight(
+                                    request.clone(),
+                                    adapter_kind,
+                                    preflight,
+                                    &capture_operation,
+                                )
+                                .await,
+                            false,
+                        )
                     };
-                    let outcome = if result.is_ok() {
-                        "success"
-                    } else {
-                        "capture-failed"
-                    };
-                    (
-                        result,
-                        activation_elapsed,
-                        preflight_elapsed,
-                        capture_started.elapsed(),
-                        outcome,
-                    )
-                }
-            };
+                let outcome = if result.is_ok() {
+                    "success"
+                } else {
+                    "capture-failed"
+                };
+                (
+                    result,
+                    activation_elapsed,
+                    preflight_elapsed,
+                    capture_started.elapsed(),
+                    outcome,
+                    switched_tun_backend,
+                )
+            }
+        };
+        if switched_tun_backend && result.is_ok() {
+            self.host.resolve_notification("capture.failure");
+        }
+        if switched_tun_backend && let Err(error) = &result {
+            let original_error = error.clone();
+            if let Err(rollback_error) = self
+                .restore_after_failed_tun_backend_switch(
+                    &request,
+                    original_active,
+                    &original_selection,
+                    adapter_kind,
+                    Some(&permit),
+                    &original_error,
+                )
+                .await
+            {
+                self.host
+                    .record_capture_failure_for_selection(&rollback_error, &request.selection);
+                result = Err(rollback_error);
+                outcome = "rollback-failed";
+            }
+        }
         if result.is_err() && activation_started_for_launch {
             let activation = self.activation_snapshot().await;
             if activation.command_id.as_deref() == Some(command_id)
@@ -1934,7 +1975,107 @@ impl ProfileActivationCoordinator {
                 "Mihomo could not be reactivated with the requested TUN policy",
             ));
         }
-        self.host.set_capture(request, adapter_kind).await
+        match self
+            .host
+            .set_capture_deferred(request.clone(), adapter_kind)
+            .await
+        {
+            Ok(snapshot) => {
+                self.host.resolve_notification("capture.failure");
+                Ok(snapshot)
+            }
+            Err(error) => {
+                match self
+                    .restore_after_failed_tun_backend_switch(
+                        &request,
+                        original_active,
+                        &original_selection,
+                        adapter_kind,
+                        permit,
+                        &error,
+                    )
+                    .await
+                {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => {
+                        self.host.record_capture_failure_for_selection(
+                            &rollback_error,
+                            &request.selection,
+                        );
+                        Err(rollback_error)
+                    }
+                }
+            }
+        }
+    }
+
+    async fn restore_after_failed_tun_backend_switch(
+        self: &Arc<Self>,
+        failed_request: &CaptureRequest,
+        original_active: bool,
+        original_selection: &CaptureSelection,
+        adapter_kind: StatusAdapterKind,
+        permit: Option<&StateMutationPermit>,
+        original_error: &CaptureTransitionError,
+    ) -> Result<(), CaptureTransitionError> {
+        let rollback_error =
+            |message| CaptureTransitionError::new(CaptureFailureKind::RollbackFailed, message);
+        self.host
+            .set_capture_deferred(
+                CaptureRequest {
+                    active: false,
+                    selection: original_selection.clone(),
+                },
+                adapter_kind,
+            )
+            .await
+            .map_err(|_| rollback_error("The failed TUN transition could not be disabled"))?;
+        let reactivation = match permit {
+            Some(permit) => {
+                self.reactivate_active_authorized(permit, Some(original_selection.tun))
+                    .await
+            }
+            None => self.reactivate_active().await,
+        };
+        if !matches!(
+            reactivation,
+            Ok(ref snapshot) if snapshot.phase == ProfileActivationPhase::Success
+        ) {
+            return Err(rollback_error(
+                "The prior Core backend could not be restored after a TUN transition",
+            ));
+        }
+        self.host
+            .set_capture_deferred(
+                CaptureRequest {
+                    active: original_active,
+                    selection: original_selection.clone(),
+                },
+                adapter_kind,
+            )
+            .await
+            .map_err(|_| {
+                rollback_error(
+                    "The prior Capture state could not be restored after a TUN transition",
+                )
+            })?;
+
+        // Rollback uses ordinary Capture operations to restore the confirmed platform state.
+        // Re-project the user's failed request only after that state is stable, so clients see
+        // one terminal failure without mistaking the compensating operation for success.
+        let runtime = self.host.current();
+        let operation = runtime
+            .publish_capture_pending(failed_request)
+            .await
+            .map_err(|_| {
+                rollback_error("The failed TUN transition could not be projected after rollback")
+            })?;
+        runtime
+            .finish_capture_operation_failure(&operation, original_error)
+            .await;
+        self.host
+            .record_capture_failure_for_selection(original_error, &failed_request.selection);
+        Ok(())
     }
 
     pub async fn stop(

@@ -1072,7 +1072,7 @@ impl MacOsTunServiceClient {
     }
 
     fn privileged_core_launch_binary(&self, requested: &Path) -> PathBuf {
-        if self.internal_tun_alpha_lifecycle().is_some() {
+        if self.lifecycle.is_some() {
             PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
         } else {
             requested.to_path_buf()
@@ -4920,14 +4920,17 @@ mod tests {
     }
 
     #[test]
-    fn internal_tun_alpha_launches_only_the_installed_fixed_core() {
+    fn lifecycle_managed_helpers_launch_only_the_installed_fixed_core() {
         let requested =
             Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
         let internal = MacOsTunServiceClient::internal_tun_alpha(
             PathBuf::from("/Volumes/Mish TUN Alpha"),
             "0.1.0-internal-tun-alpha.6",
         );
-        let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
+        let development = MacOsTunServiceClient::development_with_tun_lifecycle(PathBuf::from(
+            "/Users/fixture/mish",
+        ));
+        let raw_protocol_client = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
 
         assert_eq!(
             internal.privileged_core_launch_binary(requested),
@@ -4935,6 +4938,10 @@ mod tests {
         );
         assert_eq!(
             development.privileged_core_launch_binary(requested),
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        );
+        assert_eq!(
+            raw_protocol_client.privileged_core_launch_binary(requested),
             requested
         );
     }

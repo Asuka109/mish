@@ -157,6 +157,7 @@ struct FakeTunHelper {
     fail_enable: Mutex<bool>,
     enabled: Mutex<bool>,
     observation: Mutex<Option<TunNetworkObservation>>,
+    preserve_observation_on_disable: Mutex<bool>,
     set_count: Mutex<usize>,
 }
 
@@ -166,6 +167,7 @@ impl FakeTunHelper {
             fail_enable: Mutex::new(false),
             enabled: Mutex::new(false),
             observation: Mutex::new(None),
+            preserve_observation_on_disable: Mutex::new(false),
             set_count: Mutex::new(0),
         }
     }
@@ -180,6 +182,10 @@ impl FakeTunHelper {
 
     fn set_count(&self) -> usize {
         *self.set_count.lock().unwrap()
+    }
+
+    fn preserve_observation_on_disable(&self) {
+        *self.preserve_observation_on_disable.lock().unwrap() = true;
     }
 }
 
@@ -232,7 +238,7 @@ impl TunHelperPlatform for FakeTunHelper {
             });
         }
         *self.enabled.lock().unwrap() = enabled;
-        if !enabled {
+        if !enabled && !*self.preserve_observation_on_disable.lock().unwrap() {
             *self.observation.lock().unwrap() = None;
         }
         Box::pin(async { Ok(()) })
@@ -2786,6 +2792,121 @@ async fn failed_tun_addition_to_system_proxy_does_not_create_implicit_fallback_s
     assert_eq!(retained.system_proxy.phase, SystemProxyPhase::Applied);
     assert!(!retained.tun_enabled);
     assert_eq!(helper_platform.set_count(), 2);
+}
+
+#[tokio::test]
+async fn failed_tun_enable_can_be_explicitly_compensated_to_confirmed_off() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let helper_platform = Arc::new(FakeTunHelper::new());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let reconciler = CaptureReconciler::new_with_tun(
+        platform,
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    );
+
+    helper_platform.fail_next_enable();
+    let failure = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    assert_eq!(reconciler.status().tun.phase, TunPhase::Failed);
+    assert!(reconciler.status().tun.desired);
+    assert_eq!(reconciler.status().tun.observed, TunObservedState::Disabled);
+
+    let compensated = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .expect("an explicit disable must reconcile a locally failed enable");
+
+    assert!(!compensated.tun_enabled);
+    assert!(!compensated.tun.desired);
+    assert_eq!(compensated.tun.phase, TunPhase::Off);
+    assert_eq!(compensated.tun.observed, TunObservedState::Disabled);
+    assert_eq!(helper_platform.set_count(), 3);
+}
+
+#[tokio::test]
+async fn explicit_tun_compensation_remains_fail_closed_without_a_complete_observation() {
+    let helper_platform = Arc::new(FakeTunHelper::new());
+    helper_platform.set_observation(TunNetworkObservation::new(
+        TunObservationComponentState::Confirmed,
+        TunObservationComponentState::Confirmed,
+        TunObservationComponentState::Partial,
+        TunObservationComponentState::Confirmed,
+        tun_observation_now(),
+    ));
+    helper_platform.preserve_observation_on_disable();
+    let helper = Arc::new(TunHelperController::new(helper_platform));
+    let reconciler = CaptureReconciler::new_with_tun(
+        Arc::new(FakePlatform::new(disabled_service())),
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(helper),
+    );
+
+    let first = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(first.kind, mish_runtime::CaptureFailureKind::RollbackFailed);
+
+    let compensation = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        compensation.kind,
+        mish_runtime::CaptureFailureKind::ConfirmationFailed
+    );
+    let status = reconciler.status();
+    assert!(!status.tun_enabled);
+    assert_eq!(status.tun.phase, TunPhase::Failed);
+    assert_eq!(
+        status.tun.failure,
+        Some(mish_runtime::TunFailureKind::ObservationPartial)
+    );
+    assert_eq!(status.tun.observed, TunObservedState::Partial);
 }
 
 #[tokio::test]

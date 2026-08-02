@@ -2890,11 +2890,35 @@ async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
         repaired: Mutex::new(false),
     });
     let helper = Arc::new(TunHelperController::new(platform));
+    let runtime = capture_runtime_with_helper(helper.clone());
+    runtime.record_capture_failure(&CaptureTransitionError::new(
+        mish_runtime::CaptureFailureKind::ConfirmationFailed,
+        "Synthetic earlier capture confirmation failure",
+    ));
+    let earlier_identity = mish_runtime::NotificationPresentationIdentity {
+        client_id: "desktop-webview".into(),
+        session_id: "earlier-session".into(),
+    };
+    let earlier_claim = runtime
+        .claim_next_notification_presentation(earlier_identity.clone())
+        .claim
+        .expect("earlier capture failure is presentable");
+    let earlier_id = earlier_claim.id.clone();
+    assert!(
+        runtime
+            .complete_notification_presentation(mish_runtime::NotificationPresentationCompletion {
+                client_id: earlier_identity.client_id,
+                id: earlier_claim.id,
+                lease_generation: earlier_claim.lease_generation,
+                outcome: mish_runtime::NotificationPresentationFoldReason::Dismissed,
+                revision: earlier_claim.revision,
+                session_id: earlier_identity.session_id,
+            },)
+            .accepted
+    );
     let mut bridge_config = config();
     bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
-    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
-        .await
-        .unwrap();
+    let bridge = start_loopback_server(bridge_config, runtime).await.unwrap();
 
     let mut native = socket(bridge.address).await;
     authenticate(&mut native).await;
@@ -2951,6 +2975,8 @@ async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
         .filter(|record| record["presentation"]["kind"] == "capture.failure")
         .collect::<Vec<_>>();
     assert_eq!(capture.len(), 1);
+    assert_eq!(capture[0]["id"], earlier_id);
+    assert_eq!(capture[0]["presentationState"]["phase"], "unpresented");
     assert_eq!(capture[0]["presentation"]["data"]["captureMode"], "tun");
     assert_eq!(
         capture[0]["presentation"]["data"]["failure"],

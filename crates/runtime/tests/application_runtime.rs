@@ -8,9 +8,10 @@ use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
     CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LoopbackProxyEndpoint,
-    ManualProxyState, MishRuntime, NetworkServiceProxyState, ProfileSummary,
-    RecentTrafficObservation, RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource,
-    StatusSnapshot,
+    ManualProxyState, MishRuntime, NetworkServiceProxyState, NotificationPresentationCompletion,
+    NotificationPresentationFoldReason, NotificationPresentationIdentity,
+    NotificationPresentationPhase, ProfileSummary, RecentTrafficObservation,
+    RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::{
     sync::Notify,
@@ -705,4 +706,51 @@ fn capture_diagnostics_remain_independent_from_notification_state() {
         1
     );
     assert!(runtime.notification_snapshot().notifications.is_empty());
+}
+
+#[test]
+fn a_repeated_capture_failure_requeues_its_folded_notification_without_duplication() {
+    let runtime = MishRuntime::new(Arc::new(UnavailableCore));
+    let failure = CaptureTransitionError::new(
+        mish_runtime::CaptureFailureKind::ConfirmationFailed,
+        "Synthetic repeated TUN confirmation failure",
+    );
+    runtime.record_capture_failure(&failure);
+
+    let identity = NotificationPresentationIdentity {
+        client_id: "desktop-webview".into(),
+        session_id: "first-session".into(),
+    };
+    let first = runtime
+        .claim_next_notification_presentation(identity.clone())
+        .claim
+        .expect("first failure is presentable");
+    let completed =
+        runtime.complete_notification_presentation(NotificationPresentationCompletion {
+            client_id: identity.client_id.clone(),
+            id: first.id.clone(),
+            lease_generation: first.lease_generation,
+            outcome: NotificationPresentationFoldReason::Dismissed,
+            revision: first.revision,
+            session_id: identity.session_id.clone(),
+        });
+    assert!(completed.accepted);
+
+    runtime.record_capture_failure(&failure);
+
+    let snapshot = runtime.notification_snapshot();
+    assert_eq!(snapshot.notifications.len(), 1);
+    assert_eq!(snapshot.notifications[0].id, first.id);
+    assert_eq!(
+        snapshot.notifications[0].presentation_state.phase,
+        NotificationPresentationPhase::Unpresented
+    );
+    let repeated = runtime
+        .claim_next_notification_presentation(NotificationPresentationIdentity {
+            client_id: "desktop-webview".into(),
+            session_id: "second-session".into(),
+        })
+        .claim
+        .expect("repeated failure is presentable again");
+    assert!(repeated.lease_generation > first.lease_generation);
 }

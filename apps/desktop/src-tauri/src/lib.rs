@@ -1096,8 +1096,12 @@ fn initialize(
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
         initialize_onboarding_welcome_notification(&runtime_host, &settings_service)
             .map_err(io::Error::other)?;
+        // Keep the configured Helper transport attached even when startup admission is read-only.
+        // Non-TUN policies still use the ordinary managed Core. After an in-process install or
+        // repair, a fresh TUN policy can therefore select the now-healthy privileged backend
+        // without requiring an application restart.
         let privileged_host = internal_tun_service
-            .or_else(|| development_tun_service.filter(|_| development_service_ready))
+            .or(development_tun_service)
             .map(|service| service as Arc<dyn PrivilegedCoreHost>);
         let activation_manager = Arc::new(
             (match privileged_host {
