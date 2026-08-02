@@ -33,6 +33,7 @@ const fixture = {
 };
 
 const vpnSnapshot: MobileVpnSnapshotDto = {
+  authorityId: "mobile-routes-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
@@ -47,8 +48,10 @@ const vpnSnapshot: MobileVpnSnapshotDto = {
   loadedConfigRevision: null,
   message: "Fixture only.",
   notificationPermission: "required",
+  operation: null,
   permission: "required",
   phase: "permission-required",
+  revision: 1,
   sequence: 1,
   sessionId: "mobile-routes-test",
   tunAvailability: "unavailable",
