@@ -440,6 +440,11 @@ type RootTranslation = {
 			 */
 			unsupportedBuild: RequiredParams<'operation'>
 			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​t​h​i​s​ ​c​o​p​y​ ​o​f​ ​M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​m​e​e​t​ ​t​h​e​ ​m​a​c​O​S​ ​s​i​g​n​i​n​g​ ​r​e​q​u​i​r​e​m​e​n​t​.​ ​U​s​e​ ​a​ ​p​r​o​p​e​r​l​y​ ​s​i​g​n​e​d​ ​M​i​s​h​ ​b​u​i​l​d​ ​i​n​s​t​e​a​d​.
+			 * @param {string} operation
+			 */
+			unsignedApp: RequiredParams<'operation'>
+			/**
 			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​o​n​ ​t​h​i​s​ ​v​e​r​s​i​o​n​ ​o​f​ ​m​a​c​O​S​.​ ​U​s​e​ ​a​ ​s​u​p​p​o​r​t​e​d​ ​m​a​c​O​S​ ​v​e​r​s​i​o​n​ ​o​r​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​n​s​t​e​a​d​.
 			 * @param {string} operation
 			 */
@@ -5422,6 +5427,10 @@ export type TranslationFunctions = {
 			 * {operation} could not be completed because this build does not include the required system component. Use a supported Mish build instead.
 			 */
 			unsupportedBuild: (arg: { operation: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because this copy of Mish does not meet the macOS signing requirement. Use a properly signed Mish build instead.
+			 */
+			unsignedApp: (arg: { operation: string }) => LocalizedString
 			/**
 			 * {operation} could not be completed on this version of macOS. Use a supported macOS version or System Proxy instead.
 			 */

@@ -138,6 +138,8 @@ const en = {
         "{operation:string} could not be completed because Mish could not verify the system component. {recovery:string}",
       unsupportedBuild:
         "{operation:string} could not be completed because this build does not include the required system component. Use a supported Mish build instead.",
+      unsignedApp:
+        "{operation:string} could not be completed because this copy of Mish does not meet the macOS signing requirement. Use a properly signed Mish build instead.",
       unsupportedSystem:
         "{operation:string} could not be completed on this version of macOS. Use a supported macOS version or System Proxy instead.",
     },

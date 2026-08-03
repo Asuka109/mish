@@ -300,7 +300,7 @@ describe("notification presentation registry", () => {
     const locales = [
       {
         actionPattern:
-          /try |Restart Mish|Reopen Mish|Open (?:System )?Settings|Turn off Virtual Interface|Use a supported/,
+          /try |Restart Mish|Reopen Mish|Open (?:System )?Settings|Turn off Virtual Interface|Use a properly signed|Use a supported/,
         locale: "en",
         operations: {
           install: "Install Helper",
@@ -310,7 +310,7 @@ describe("notification presentation registry", () => {
       },
       {
         actionPattern:
-          /再次尝试|重新启动 Mish|重新打开 Mish|前往“设置”|打开“系统设置”|先关闭虚拟网卡|使用受支持/,
+          /再次尝试|重新启动 Mish|重新打开 Mish|前往“设置”|打开“系统设置”|先关闭虚拟网卡|使用经过正确签名|使用受支持/,
         locale: "zh",
         operations: {
           install: "安装系统组件",
@@ -398,6 +398,42 @@ describe("notification presentation registry", () => {
     expect(chinese.installation).toContain("已授权");
     expect(chinese.confirmation).toContain("无法确认最终状态");
     expect(new Set(Object.values(chinese)).size).toBe(4);
+  });
+
+  it("distinguishes a signing requirement from a missing system component", () => {
+    for (const [locale, expected] of [
+      [
+        "en",
+        {
+          unpackaged: "does not include the required system component",
+          unsignedApp: "does not meet the macOS signing requirement",
+        },
+      ],
+      [
+        "zh",
+        {
+          unpackaged: "安装系统组件未完成，因为此版本的 Mish 不包含所需的系统组件",
+          unsignedApp: "不符合 macOS 的签名要求",
+        },
+      ],
+    ] as const) {
+      const message = (failure: "unpackaged" | "unsigned-app") =>
+        presentNotification(
+          record("tun-helper.lifecycle", {
+            failure,
+            operation: "install",
+            outcome: "recovery-required",
+          }),
+          i18nObject(locale),
+        ).message;
+
+      const unpackaged = message("unpackaged");
+      const unsignedApp = message("unsigned-app");
+      expect(unpackaged).toContain(expected.unpackaged);
+      expect(unsignedApp).toContain(expected.unsignedApp);
+      expect(unsignedApp).not.toBe(unpackaged);
+      expect(unsignedApp).not.toContain("unsigned-app");
+    }
   });
 
   it("rejects legacy and incomplete transport shapes", () => {

@@ -26,6 +26,7 @@ type TunHelperFailureCategory =
   | "registration-requires-approval"
   | "repair-required"
   | "unsupported-build"
+  | "unsigned-app"
   | "unsupported-system";
 
 const tunHelperFailureCategories = {
@@ -47,7 +48,7 @@ const tunHelperFailureCategories = {
   "registration-failed": "registration-failed",
   "registration-requires-approval": "registration-requires-approval",
   unpackaged: "unsupported-build",
-  "unsigned-app": "unsupported-build",
+  "unsigned-app": "unsigned-app",
   "unsupported-system": "unsupported-system",
   "version-mismatch": "repair-required",
 } as const satisfies Record<TunHelperFailureKind, TunHelperFailureCategory>;
@@ -105,6 +106,8 @@ export function tunHelperLifecycleFailureMessage(
       return copy.repairRequired(args);
     case "unsupported-build":
       return copy.unsupportedBuild(args);
+    case "unsigned-app":
+      return copy.unsignedApp(args);
     case "unsupported-system":
       return copy.unsupportedSystem(args);
   }

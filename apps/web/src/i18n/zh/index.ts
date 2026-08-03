@@ -120,7 +120,9 @@ const zh: Translation = {
         "完成{operation}前需要在 macOS 中批准系统组件。请打开“系统设置”完成批准后{retry}",
       repairRequired: "{operation}未完成，因为 Mish 无法验证系统组件。{recovery}",
       unsupportedBuild:
-        "此版本的 Mish 不包含{operation}所需的系统组件，因此无法完成该操作。请使用受支持的 Mish 版本。",
+        "{operation}未完成，因为此版本的 Mish 不包含所需的系统组件。请使用受支持的 Mish 版本。",
+      unsignedApp:
+        "{operation}未完成，因为当前 Mish 不符合 macOS 的签名要求。请使用经过正确签名的 Mish 版本。",
       unsupportedSystem:
         "当前 macOS 版本无法完成{operation}。请使用受支持的 macOS 版本，或改用系统代理。",
     },
