@@ -46,7 +46,14 @@ const captureStyles = tv({
       "[&>svg]:text-muted-foreground [&_p]:mt-1 [&_p]:text-metadata [&_p]:leading-5",
       "[&_p]:text-muted-foreground",
     ),
+    guideExplanation: "grid grid-cols-[24px_minmax(0,1fr)] items-start gap-2.5 py-3.5",
+    guideIcon: "mt-px size-4.5 text-muted-foreground",
+    guideHeaderCopy: "flex w-full min-w-0 flex-col",
+    guideCopy: "flex min-w-0 flex-col items-start gap-1",
+    guideTitle: "m-0 text-body font-semibold text-fg",
+    guideDescription: "m-0 text-metadata leading-5 text-muted-foreground",
     dialogFooter: "border-0",
+    guideDialogFooter: "border-0 max-dialog-compact:flex-wrap",
   },
 });
 
@@ -352,21 +359,25 @@ export function TrafficCaptureControl({
       >
         <DialogContent closeLabel={LL.common.close()} showCloseButton={!tunSetupPending}>
           <DialogHeader className={captureStyles().dialogHeader()}>
-            <DialogTitle className="dialog-title">{LL.capture.tunGuide.title()}</DialogTitle>
-            <DialogDescription className="dialog-description">
-              {LL.capture.tunGuide.description()}
-            </DialogDescription>
+            <div className={captureStyles().guideHeaderCopy()} data-tun-setup-dialog-copy>
+              <DialogTitle className="dialog-title" data-tun-setup-dialog-title>
+                {LL.capture.tunGuide.title()}
+              </DialogTitle>
+              <DialogDescription className="dialog-description" data-tun-setup-dialog-description>
+                {LL.capture.tunGuide.description()}
+              </DialogDescription>
+            </div>
           </DialogHeader>
           <div className={captureStyles().explanations()}>
-            <section className={captureStyles().explanation()}>
-              <ShieldCheck aria-hidden="true" />
-              <div>
-                <h2>
+            <section className={captureStyles().guideExplanation()} data-tun-setup-explanation>
+              <ShieldCheck aria-hidden="true" className={captureStyles().guideIcon()} />
+              <div className={captureStyles().guideCopy()} data-tun-setup-copy>
+                <h2 className={captureStyles().guideTitle()} data-tun-setup-title>
                   {guideTunSetupOperation === "repair"
                     ? LL.capture.tunGuide.repairTitle()
                     : LL.capture.tunGuide.setupTitle()}
                 </h2>
-                <p>
+                <p className={captureStyles().guideDescription()} data-tun-setup-description>
                   {guideTunSetupOperation === "repair"
                     ? LL.capture.tunGuide.repairDescription()
                     : LL.capture.tunGuide.setupDescription()}
@@ -374,7 +385,7 @@ export function TrafficCaptureControl({
               </div>
             </section>
           </div>
-          <DialogFooter className={captureStyles().dialogFooter()}>
+          <DialogFooter className={captureStyles().guideDialogFooter()} data-tun-setup-actions>
             <DialogClose
               render={<Button disabled={tunSetupPending} type="button" variant="outline" />}
             >

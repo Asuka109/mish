@@ -505,7 +505,7 @@ const zh: Translation = {
       authorizationCancelled: "已取消管理员授权。系统组件和虚拟网卡都没有变化。",
       confirmationFailed:
         "系统组件可能已经安装，但 Mish 无法确认它是否可用。请到“设置”中选择“清理并重装”。",
-      description: "虚拟网卡可以接管不遵循 macOS 系统代理的流量。继续前请先了解会发生什么。",
+      description: "虚拟网卡需要系统组件。准备期间，Mish 会让它保持关闭。",
       enable: "启用虚拟网卡",
       helperDescription:
         "虚拟网卡需要安装 Mish 的系统组件。只有这个组件可以更改 macOS 网络设置，应用界面本身不会获得管理员权限。",
@@ -514,23 +514,23 @@ const zh: Translation = {
       installationFailed:
         "管理员授权已完成，但系统组件安装失败。原有组件仍保留，请到“设置”中选择“清理并重装”。",
       installHelper: "安装系统组件",
-      installingHelper: "等待 macOS 授权…",
+      installingHelper: "正在请求 macOS 授权…",
       installerUnavailable: "无法启动开发版安装工具。请用 pnpm 重新启动开发版应用后再试。",
       notNow: "暂不开启",
       preparationFailed:
         "Mish 无法准备或验证安装所需文件，因此没有请求管理员授权。请重新启动 Mish 后重试；若仍失败，请重新安装当前版本。",
-      reviewSetup: "查看系统组件",
+      reviewSetup: "前往设置",
       restartDescription:
         "Mish 会重启代理并暂时更改设备路由。关闭虚拟网卡后，这些路由会被移除，其他已选择的代理方式不受影响。",
       restartTitle: "代理会重启，设备路由会改变",
       repairDescription:
-        "Mish 会通过同一套 macOS 授权流程修复系统组件。Mish 确认修复后的组件可用且网络状态为关闭之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
+        "需要 macOS 管理员授权，Mish 才能修复虚拟网卡所需的系统组件。检查期间，虚拟网卡会保持关闭；确认组件准备就绪后，Mish 会继续这次启用请求。",
       repairHelper: "修复系统组件",
       repairingHelper: "正在修复系统组件…",
-      repairTitle: "需要修复系统组件",
+      repairTitle: "修复系统组件",
       setupDescription:
-        "Mish 会通过 macOS 授权安装系统组件。Mish 确认组件版本和状态正确，且网络状态为关闭之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
-      setupTitle: "先安装系统组件",
+        "需要 macOS 管理员授权，Mish 才能安装虚拟网卡所需的系统组件。检查期间，虚拟网卡会保持关闭；确认组件准备就绪后，Mish 会继续这次启用请求。",
+      setupTitle: "安装系统组件",
       title: "启用虚拟网卡之前",
     },
     tunOff: "虚拟网卡已关闭。",
