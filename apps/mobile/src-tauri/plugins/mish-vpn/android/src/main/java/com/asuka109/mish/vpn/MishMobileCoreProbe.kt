@@ -13,11 +13,41 @@ internal interface MobileCoreProbe {
     fun inspect(): MobileCoreIdentity?
 }
 
+internal enum class NativeRuntimeCode(val nativeCode: Int) {
+    RUNNING(0),
+    INACTIVE(1),
+    CONFLICT(2),
+    NOT_LOADED(3),
+    CORE_UNAVAILABLE(4),
+    PROTECTION_FAILED(5),
+    MALFORMED_RESPONSE(6),
+    NATIVE_FAILED(7),
+    JNI_EXCEPTION(8),
+}
+
+internal data class NativeRuntimeResult(
+    val code: NativeRuntimeCode,
+    val abiStatus: Int = -1,
+)
+
+internal interface MobileCoreRuntime {
+    fun start(
+        productSessionId: String,
+        tunFileDescriptor: Int,
+        vpnService: MishVpnService,
+    ): NativeRuntimeResult
+
+    fun stop(productSessionId: String?): NativeRuntimeResult
+
+    fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
+}
+
 internal class MishMobileCoreProbe :
     MobileCoreProbe,
     MobileCoreConfigValidator,
     MobileCoreConfigLoader,
-    MobileCoreConfigInspector {
+    MobileCoreConfigInspector,
+    MobileCoreRuntime {
     override fun inspect(): MobileCoreIdentity? {
         if (!shimLoaded) return null
         val abiVersion = runCatching { nativeAbiVersion() }.getOrDefault(0)
@@ -86,6 +116,42 @@ internal class MishMobileCoreProbe :
 
     private external fun nativeInspectLoadedConfig(expectedDigest: String?): IntArray?
 
+    override fun start(
+        productSessionId: String,
+        tunFileDescriptor: Int,
+        vpnService: MishVpnService,
+    ): NativeRuntimeResult = runtimeCall {
+        nativeStartCore(productSessionId, tunFileDescriptor, vpnService)
+    }
+
+    override fun stop(productSessionId: String?): NativeRuntimeResult = runtimeCall {
+        nativeStopCore(productSessionId)
+    }
+
+    override fun inspectRuntime(productSessionId: String?): NativeRuntimeResult = runtimeCall {
+        nativeInspectRuntime(productSessionId)
+    }
+
+    private fun runtimeCall(call: () -> IntArray?): NativeRuntimeResult {
+        if (!shimLoaded) return NativeRuntimeResult(NativeRuntimeCode.CORE_UNAVAILABLE)
+        val encoded = try {
+            call()
+        } catch (_: Throwable) {
+            return NativeRuntimeResult(NativeRuntimeCode.JNI_EXCEPTION)
+        } ?: return NativeRuntimeResult(NativeRuntimeCode.MALFORMED_RESPONSE)
+        return parseRuntime(encoded)
+    }
+
+    private external fun nativeStartCore(
+        productSessionId: String,
+        tunFileDescriptor: Int,
+        vpnService: MishVpnService,
+    ): IntArray?
+
+    private external fun nativeStopCore(productSessionId: String?): IntArray?
+
+    private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
+
     companion object {
         private val shimLoaded = runCatching { System.loadLibrary("mish_vpn_jni") }.isSuccess
 
@@ -136,6 +202,15 @@ internal class MishMobileCoreProbe :
             val code = NativeInspectionCode.entries.firstOrNull { it.nativeCode == encoded[0] }
                 ?: NativeInspectionCode.NATIVE_FAILED
             return NativeConfigInspectionResult(code, encoded[1])
+        }
+
+        internal fun parseRuntime(encoded: IntArray): NativeRuntimeResult {
+            if (encoded.size != 2) {
+                return NativeRuntimeResult(NativeRuntimeCode.MALFORMED_RESPONSE)
+            }
+            val code = NativeRuntimeCode.entries.firstOrNull { it.nativeCode == encoded[0] }
+                ?: NativeRuntimeCode.NATIVE_FAILED
+            return NativeRuntimeResult(code, encoded[1])
         }
     }
 }

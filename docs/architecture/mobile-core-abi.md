@@ -97,8 +97,8 @@ Start accepts one bounded DTO:
   "sessionId": "platform-authority-id",
   "tunFileDescriptor": 42,
   "stack": "mixed",
-  "addresses": ["172.19.0.1/30"],
-  "dnsHijack": ["172.19.0.2:53"],
+  "addresses": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+  "dnsHijack": ["1.1.1.1:53"],
   "mtu": 1500
 }
 ```

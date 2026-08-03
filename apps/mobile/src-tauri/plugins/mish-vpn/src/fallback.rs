@@ -40,10 +40,7 @@ impl<R: Runtime> MishVpn<R> {
         ))
     }
 
-    pub async fn start_fixture_lifecycle(
-        &self,
-        request: MobileVpnCommandRequest,
-    ) -> Result<MobileVpnCommandResult> {
+    pub async fn start(&self, request: MobileVpnCommandRequest) -> Result<MobileVpnCommandResult> {
         Ok(MobileVpnCommandResult::unsupported(
             request.operation_id,
             LifecycleCommandKind::Start,

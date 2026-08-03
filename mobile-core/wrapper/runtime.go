@@ -413,8 +413,17 @@ func (core *coreRuntime) start(input []byte) coreResult {
 		return protectError
 	}
 	executor.ApplyConfig(core.loaded, true)
+	ownedTunFileDescriptor, err := syscall.Dup(request.TunFileDescriptor)
+	if err != nil {
+		dialer.DefaultSocketHook = nil
+		executor.Shutdown()
+		return failureResult(statusFailure, "platform TUN descriptor duplication failed")
+	}
+	syscall.CloseOnExec(ownedTunFileDescriptor)
+	request.TunFileDescriptor = ownedTunFileDescriptor
 	listener, err := sing_tun.New(tunOptions(&request), tunnel.Tunnel)
 	if err != nil {
+		_ = syscall.Close(ownedTunFileDescriptor)
 		dialer.DefaultSocketHook = nil
 		executor.Shutdown()
 		return failureResult(statusFailure, "Mihomo rejected the platform TUN")

@@ -37,6 +37,15 @@ static MishVpnCoreInspectionResult inspection_result(int32_t code,
   return value;
 }
 
+static MishVpnCoreRuntimeResult runtime_result(int32_t code,
+                                               int32_t abi_status) {
+  MishVpnCoreRuntimeResult value = {
+      .code = code,
+      .abi_status = abi_status,
+  };
+  return value;
+}
+
 static int32_t reject_validation_socket(int32_t socket_fd, void *user_data) {
   (void)socket_fd;
   (void)user_data;
@@ -65,6 +74,27 @@ static int valid_digest(const char *digest) {
   for (index = 0; index < 64; index++) {
     char byte = digest[index];
     if (!((byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f'))) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int valid_identifier(const char *value) {
+  size_t index;
+  size_t length;
+  if (value == NULL) {
+    return 0;
+  }
+  length = strlen(value);
+  if (length == 0 || length > 128) {
+    return 0;
+  }
+  for (index = 0; index < length; index++) {
+    char byte = value[index];
+    if (!((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+          (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' ||
+          byte == '.')) {
       return 0;
     }
   }
@@ -184,6 +214,21 @@ static EnvelopeCheck initialization_envelope(const MishCoreBufferV1 *buffer,
   error_code = status_error_code(status);
   if (error_code == NULL || !contains(buffer, "\"error\":{") ||
       !contains(buffer, error_code) || contains(buffer, "\"data\":")) {
+    return ENVELOPE_MALFORMED;
+  }
+  return ENVELOPE_VALID;
+}
+
+static EnvelopeCheck runtime_initialization_envelope(
+    const MishCoreBufferV1 *buffer, int32_t status) {
+  EnvelopeCheck check = basic_envelope(buffer);
+  if (check != ENVELOPE_VALID) {
+    return check;
+  }
+  if (status != MISH_CORE_OK_V1 || !contains(buffer, "\"data\":{") ||
+      contains(buffer, "\"error\":") ||
+      !contains(buffer, "\"loaded\":true") ||
+      !contains(buffer, "\"phase\":\"inactive\"")) {
     return ENVELOPE_MALFORMED;
   }
   return ENVELOPE_VALID;
@@ -417,4 +462,163 @@ MishVpnCoreInspectionResult mish_vpn_inspect_loaded_config(
   }
   api->free_buffer(&response);
   return inspection_result(MISH_VPN_INSPECTION_LOADED_OTHER, status);
+}
+
+MishVpnCoreRuntimeResult mish_vpn_start_core(
+    const MishVpnCoreValidationApi *api, int *initialized,
+    MishCorePlatformV1 *platform, const char *session_id,
+    int32_t tun_file_descriptor) {
+  static uint8_t initialize_request[] = "{\"abiVersion\":1}";
+  char request[640];
+  MishCoreBufferV1 response = {0};
+  EnvelopeCheck check;
+  int32_t status;
+  int request_length;
+  char session_needle[160];
+
+  if (api == NULL || initialized == NULL || platform == NULL ||
+      api->initialize == NULL || api->start == NULL || api->free_buffer == NULL ||
+      api->abi_version == NULL ||
+      api->abi_version() != MISH_CORE_ABI_VERSION_V1 ||
+      platform->protect_socket == NULL || !valid_identifier(session_id) ||
+      tun_file_descriptor <= 0) {
+    return runtime_result(MISH_VPN_RUNTIME_CORE_UNAVAILABLE, -1);
+  }
+
+  status = api->initialize(platform, initialize_request,
+                           sizeof(initialize_request) - 1, &response);
+  check = runtime_initialization_envelope(&response, status);
+  api->free_buffer(&response);
+  if (check != ENVELOPE_VALID || status != MISH_CORE_OK_V1) {
+    *initialized = 0;
+    return runtime_result(check == ENVELOPE_VALID
+                              ? MISH_VPN_RUNTIME_NATIVE_FAILED
+                              : MISH_VPN_RUNTIME_MALFORMED_RESPONSE,
+                          status);
+  }
+  *initialized = 1;
+
+  request_length = snprintf(
+      request, sizeof(request),
+      "{\"sessionId\":\"%s\",\"tunFileDescriptor\":%d,\"stack\":\"mixed\","
+      "\"addresses\":[\"172.19.0.1/30\",\"fdfe:dcba:9876::1/126\"],"
+      "\"dnsHijack\":[\"1.1.1.1:53\"],"
+      "\"mtu\":1500}",
+      session_id, tun_file_descriptor);
+  if (request_length <= 0 || (size_t)request_length >= sizeof(request)) {
+    return runtime_result(MISH_VPN_RUNTIME_NATIVE_FAILED,
+                          MISH_CORE_INVALID_ARGUMENT_V1);
+  }
+  status = api->start((uint8_t *)request, (uint64_t)request_length, &response);
+  check = basic_envelope(&response);
+  snprintf(session_needle, sizeof(session_needle), "\"sessionId\":\"%s\"",
+           session_id);
+  if (check == ENVELOPE_VALID && status == MISH_CORE_OK_V1 &&
+      contains(&response, "\"data\":{") &&
+      contains(&response, "\"phase\":\"running\"") &&
+      contains(&response, session_needle) && !contains(&response, "\"error\":")) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_RUNNING, status);
+  }
+  if (check != ENVELOPE_VALID) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_MALFORMED_RESPONSE, status);
+  }
+  if (status == MISH_CORE_NOT_LOADED_V1) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_NOT_LOADED, status);
+  }
+  if (status == MISH_CORE_CONFLICT_V1) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_CONFLICT, status);
+  }
+  if (contains(&response, "platform rejected socket protection")) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_PROTECTION_FAILED, status);
+  }
+  api->free_buffer(&response);
+  return runtime_result(MISH_VPN_RUNTIME_NATIVE_FAILED, status);
+}
+
+MishVpnCoreRuntimeResult mish_vpn_stop_core(
+    const MishVpnCoreValidationApi *api, int initialized,
+    const char *session_id) {
+  char request[192];
+  MishCoreBufferV1 response = {0};
+  EnvelopeCheck check;
+  int request_length;
+  int32_t status;
+
+  if (!initialized) {
+    return runtime_result(MISH_VPN_RUNTIME_INACTIVE,
+                          MISH_CORE_NOT_INITIALIZED_V1);
+  }
+  if (api == NULL || api->stop == NULL || api->free_buffer == NULL ||
+      (session_id != NULL && !valid_identifier(session_id))) {
+    return runtime_result(MISH_VPN_RUNTIME_CORE_UNAVAILABLE, -1);
+  }
+  request_length = session_id == NULL
+                       ? snprintf(request, sizeof(request), "{}")
+                       : snprintf(request, sizeof(request),
+                                  "{\"sessionId\":\"%s\"}", session_id);
+  status = api->stop((uint8_t *)request, (uint64_t)request_length, &response);
+  check = basic_envelope(&response);
+  if (check == ENVELOPE_VALID && status == MISH_CORE_OK_V1 &&
+      contains(&response, "\"phase\":\"inactive\"") &&
+      !contains(&response, "\"error\":")) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_INACTIVE, status);
+  }
+  api->free_buffer(&response);
+  if (check != ENVELOPE_VALID) {
+    return runtime_result(MISH_VPN_RUNTIME_MALFORMED_RESPONSE, status);
+  }
+  if (status == MISH_CORE_CONFLICT_V1) {
+    return runtime_result(MISH_VPN_RUNTIME_CONFLICT, status);
+  }
+  return runtime_result(MISH_VPN_RUNTIME_NATIVE_FAILED, status);
+}
+
+MishVpnCoreRuntimeResult mish_vpn_inspect_runtime(
+    const MishVpnCoreValidationApi *api, int initialized,
+    const char *session_id) {
+  static uint8_t status_request[] = "{\"kind\":\"status\",\"limit\":1}";
+  MishCoreBufferV1 response = {0};
+  EnvelopeCheck check;
+  int32_t status;
+  char session_needle[160];
+
+  if (!initialized) {
+    return runtime_result(MISH_VPN_RUNTIME_INACTIVE,
+                          MISH_CORE_NOT_INITIALIZED_V1);
+  }
+  if (api == NULL || api->snapshot == NULL || api->free_buffer == NULL ||
+      (session_id != NULL && !valid_identifier(session_id))) {
+    return runtime_result(MISH_VPN_RUNTIME_CORE_UNAVAILABLE, -1);
+  }
+  status = api->snapshot(status_request, sizeof(status_request) - 1, &response);
+  check = basic_envelope(&response);
+  if (check != ENVELOPE_VALID || status != MISH_CORE_OK_V1 ||
+      contains(&response, "\"error\":")) {
+    api->free_buffer(&response);
+    return runtime_result(check == ENVELOPE_VALID
+                              ? MISH_VPN_RUNTIME_NATIVE_FAILED
+                              : MISH_VPN_RUNTIME_MALFORMED_RESPONSE,
+                          status);
+  }
+  if (contains(&response, "\"phase\":\"inactive\"")) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_INACTIVE, status);
+  }
+  if (session_id != NULL) {
+    snprintf(session_needle, sizeof(session_needle), "\"sessionId\":\"%s\"",
+             session_id);
+  }
+  if (contains(&response, "\"phase\":\"running\"") &&
+      (session_id == NULL || contains(&response, session_needle))) {
+    api->free_buffer(&response);
+    return runtime_result(MISH_VPN_RUNTIME_RUNNING, status);
+  }
+  api->free_buffer(&response);
+  return runtime_result(MISH_VPN_RUNTIME_CONFLICT, status);
 }

@@ -80,20 +80,13 @@ emulator where practical.
 - Prior-authority, retired-session, out-of-order, unknown, oversized, stale, or
   malformed native messages are rejected.
 
-For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
-boundary: consent, foreground notification, serialization, reconstruction, and
-recovery may be exercised, but every start must finish `unavailable` with
-`vpnActive=false`. A separately staged Core may report verified package identity
-as available. The bounded configuration-load slice may initialize that Core,
-validate exact fictional bytes, and call `mish_core_load_config_v1`. It
-publishes validated, loaded, unloaded, or unknown Core configuration state
-without starting Core, supplying a TUN descriptor, or changing VPN state. No
-fixture result satisfies any item in the VPN behavior subsection below.
-
-Shared Rust is the only product lifecycle authority for this fixture. Kotlin
-owns permission observations, foreground-service effects, Android callbacks,
-and fact publication. Kotlin persists only minimum platform recovery evidence;
-it does not persist or reconstruct product phase, message, authority/session,
+The retained Phase 0 fixture evidence predates the real VPN slice and remains
+historical only. Current Android acceptance uses the native backend and must not
+reuse a fixture `unavailable` result as device-VPN evidence. Shared Rust is the
+only product lifecycle authority. Kotlin owns permission observations,
+foreground-service effects, TUN/Core/network effects, Android callbacks, and
+fact publication. Kotlin persists only minimum platform recovery evidence; it
+does not persist or reconstruct product phase, message, authority/session,
 revision, sequence, or complete snapshots.
 
 Configuration loading carries only caller-owned fictional bytes plus bounded
@@ -111,6 +104,9 @@ tokens, and paths never enter results, logs, persistence, or fixture snapshots.
 - Permission denial leaves the application stopped and actionable.
 - Permission acceptance establishes the expected TUN and foreground
   notification before reporting healthy.
+- `running` requires same-session foreground, validated underlying network,
+  TUN, routes, DNS, Core, at least one protected socket, and a successful fixed
+  public request; no partial subset may be projected as healthy.
 - TCP, UDP, IPv4, IPv6 where supported, and DNS traverse the intended route.
 - Core sockets are protected from recursive VPN capture.
 - Rule, Global, and Direct modes remain truthful after switching.
@@ -127,6 +123,8 @@ tokens, and paths never enter results, logs, persistence, or fixture snapshots.
   owned descriptors and reach a safe typed state.
 - Explicit stop removes foreground state, stops the Core, closes the TUN, and
   leaves no traffic capture behind.
+- Cancellation and failed activation remain pending until that same cleanup is
+  observed; a late start completion cannot restore Running.
 - A representative 24-hour run remains within the agreed memory, wakeup, and
   battery budgets before Android beta.
 
@@ -228,6 +226,7 @@ Before a device milestone, manually review:
 
 ## References
 
+- [Android VPN service](../operations/android-vpn-service.md)
 - [Mobile runtime integration](../architecture/mobile-runtime-integration.md)
 - [Mobile navigation and layout](../design/mobile-navigation-and-layout.md)
 - [Mobile runtime reference review](../research/mobile-runtime-reference-review-2026-07-20.md)

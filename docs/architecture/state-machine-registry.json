@@ -36,7 +36,7 @@
       "id": "android-fixture-vpn-lifecycle",
       "classification": "conforming",
       "canonicalOwner": "apps/mobile/src-tauri/plugins/mish-vpn/src/lifecycle.rs",
-      "recoveryBoundary": "A minimal Kotlin-owned foreground-service recovery record plus fresh VPN permission and service facts; invalid, ambiguous, or prior-process evidence becomes safely stopped or recovery-required under the new Rust authority."
+      "recoveryBoundary": "A minimal Kotlin-owned foreground-service recovery record plus fresh VPN permission, foreground, TUN, route, DNS, Core, protected-socket, public-request, and validated-network facts; invalid, ambiguous, or prior-process evidence becomes safely stopped or recovery-required under the new Rust authority."
     },
     {
       "id": "application-core-lifecycle",

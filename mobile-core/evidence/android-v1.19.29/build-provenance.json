@@ -13,7 +13,7 @@
   },
   "wrapper": {
     "revision": "mish-mobile-core-v1",
-    "sha256": "06819438b9d719dfef576503b10b76cb39ec98cafb0f9152cd6e00c3e4017a89"
+    "sha256": "5c8b9ba211115f046163664849ca109f9ef807fa6bc077ca3e5ea11ffafde522"
   },
   "toolchains": {
     "go": {
@@ -64,8 +64,8 @@
         "mish_core_version_v1"
       ],
       "machine": "AArch64",
-      "sha256": "ef5db794bf29970d5f813d3147e27ada01ecd32aaed62b76779f6d1388386034",
-      "size": 42642328
+      "sha256": "6e3503e6f882de80d99231e4891864ca842a2dbe853a979da36afce681ef99a9",
+      "size": 42642616
     },
     {
       "abi": "x86_64",
@@ -87,8 +87,8 @@
         "mish_core_version_v1"
       ],
       "machine": "Advanced Micro Devices X86-64",
-      "sha256": "3c011331bbcc42ce421b160a3495227a3376836d16cbf2a009a2a4ca67cf4091",
-      "size": 46779544
+      "sha256": "48e2e1d03ca5470f1964ae8a6f79b2e3df1b6f366a362ac171ac177b7358c852",
+      "size": 46779928
     }
   ]
 }

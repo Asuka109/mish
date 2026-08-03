@@ -12,6 +12,8 @@ pub const MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS: u64 = 30_000;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileVpnSnapshot {
+    pub activation_session_id: Option<String>,
+    pub active_network: bool,
     pub authority_id: String,
     pub backend_kind: String,
     pub contract_version: u8,
@@ -22,6 +24,9 @@ pub struct MobileVpnSnapshot {
     pub core_version: Option<String>,
     pub core_wrapper_revision: Option<String>,
     pub core_config_state: String,
+    pub core_running: bool,
+    pub dns_applied: bool,
+    pub failure: Option<LifecycleFailure>,
     pub foreground: bool,
     pub loaded_config_digest: Option<String>,
     pub loaded_config_revision: Option<String>,
@@ -30,9 +35,13 @@ pub struct MobileVpnSnapshot {
     pub operation: Option<LifecycleOperation>,
     pub permission: String,
     pub phase: String,
+    pub protected_socket_count: u64,
+    pub public_request_observed: bool,
     pub revision: u64,
     pub sequence: u64,
     pub session_id: String,
+    pub routes_applied: bool,
+    pub tun_established: bool,
     pub updated_at_millis: u64,
     pub validated_config_digest: Option<String>,
     pub validated_config_revision: Option<String>,
@@ -52,13 +61,13 @@ impl MobileVpnSnapshot {
                 "Android VPN permission is required. No service or traffic capture was started."
             }
             LifecyclePhase::Starting => {
-                "Starting the Android foreground-service fixture. No TUN or Mobile Core will start."
+                "Android VPN activation is pending complete native observation."
             }
             LifecyclePhase::Running => {
-                "Android reported a running lifecycle that this fixture cannot authorize."
+                "Android VPN, TUN, Mobile Core, protected sockets, and public traffic are observed."
             }
             LifecyclePhase::Stopping => {
-                "Stopping the Android foreground-service fixture and cleaning up platform resources."
+                "Stopping Android VPN and cleaning up Mish-owned native resources."
             }
             LifecyclePhase::Failed => {
                 "The Android lifecycle failed safely without exposing platform details."
@@ -67,12 +76,14 @@ impl MobileVpnSnapshot {
                 "The previous Android lifecycle outcome is unknown. Stop and retry explicitly."
             }
             LifecyclePhase::Unavailable => {
-                "The foreground-service fixture completed without creating a TUN or starting Mobile Core."
+                "Android VPN is waiting for a usable underlying network."
             }
         };
         Self {
+            activation_session_id: state.facts.activation_session_id.clone(),
+            active_network: state.facts.active_network,
             authority_id: state.authority_id.clone(),
-            backend_kind: "fixture".into(),
+            backend_kind: "native".into(),
             contract_version: CONTRACT_VERSION,
             core_abi_version: state.facts.core_abi_version,
             core_availability: state.facts.core_availability.clone(),
@@ -81,6 +92,9 @@ impl MobileVpnSnapshot {
             core_version: state.facts.core_version.clone(),
             core_wrapper_revision: state.facts.core_wrapper_revision.clone(),
             core_config_state: state.facts.core_config_state.clone(),
+            core_running: state.facts.core_running,
+            dns_applied: state.facts.dns_applied,
+            failure: state.failure,
             foreground: state.facts.service_foreground,
             loaded_config_digest: state.facts.loaded_config_digest.clone(),
             loaded_config_revision: state.facts.loaded_config_revision.clone(),
@@ -89,21 +103,27 @@ impl MobileVpnSnapshot {
             operation: state.latest_operation(),
             permission: state.facts.vpn_permission.clone(),
             phase: phase_wire_name(state.phase).into(),
+            protected_socket_count: state.facts.protected_socket_count,
+            public_request_observed: state.facts.public_request_observed,
             revision: state.revision,
             sequence: state.sequence,
             session_id: state.session_id.clone(),
+            routes_applied: state.facts.routes_applied,
+            tun_established: state.facts.tun_established,
             updated_at_millis: state.facts.observed_at_millis,
             validated_config_digest: state.facts.validated_config_digest.clone(),
             validated_config_revision: state.facts.validated_config_revision.clone(),
-            vpn_active: false,
-            vpn_availability: "unavailable".into(),
-            tun_availability: "unavailable".into(),
+            vpn_active: state.facts.tun_established,
+            vpn_availability: "available".into(),
+            tun_availability: "available".into(),
         }
     }
 
     #[cfg(not(target_os = "android"))]
     pub(crate) fn unsupported() -> Self {
         Self {
+            activation_session_id: None,
+            active_network: false,
             authority_id: "non-android-authority".into(),
             backend_kind: "fixture".into(),
             contract_version: CONTRACT_VERSION,
@@ -114,6 +134,9 @@ impl MobileVpnSnapshot {
             core_version: None,
             core_wrapper_revision: None,
             core_config_state: "unloaded".into(),
+            core_running: false,
+            dns_applied: false,
+            failure: Some(LifecycleFailure::PlatformFailure),
             foreground: false,
             loaded_config_digest: None,
             loaded_config_revision: None,
@@ -122,9 +145,13 @@ impl MobileVpnSnapshot {
             operation: None,
             permission: "unknown".into(),
             phase: "unavailable".into(),
+            protected_socket_count: 0,
+            public_request_observed: false,
             revision: 0,
             sequence: 0,
             session_id: "non-android-fixture".into(),
+            routes_applied: false,
+            tun_established: false,
             updated_at_millis: 0,
             validated_config_digest: None,
             validated_config_revision: None,

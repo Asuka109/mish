@@ -8,29 +8,51 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.ParcelFileDescriptor
+import androidx.annotation.Keep
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MishVpnService : VpnService() {
-    private lateinit var executor: ExecutorService
+    private lateinit var connectivity: ConnectivityManager
+    private lateinit var core: MishMobileCoreProbe
+    private lateinit var executor: ScheduledExecutorService
     private lateinit var store: MishVpnPlatformStore
     private val serviceInstanceId = UUID.randomUUID().toString()
+    private val cleanupStarted = AtomicBoolean(false)
+    private val stopRequested = AtomicBoolean(false)
+    private val cleanup = MishVpnOwnedResourceCleanup()
+    private val protectedSocketFacts = ProtectedSocketFactGate()
+    private val underlyingNetworks = linkedSetOf<Network>()
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var productSessionId: String? = null
+    private var tunDescriptor: ParcelFileDescriptor? = null
     @Volatile
     private var explicitCleanup = false
 
     override fun onCreate() {
         super.onCreate()
         val allowFailureInjection = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        store = MobileCoreProcessRuntimeRegistry.acquire(
+        val runtime = MobileCoreProcessRuntimeRegistry.acquire(
             this,
             allowFailureInjection = allowFailureInjection,
-        ).store
+        )
+        core = runtime.coreProbe
+        store = runtime.store
+        connectivity = getSystemService(ConnectivityManager::class.java)
         ProcessRuntimeRegistry.serviceActive = true
-        executor = Executors.newSingleThreadExecutor { runnable ->
+        executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "mish-vpn-platform-effects").apply { isDaemon = true }
         }
     }
@@ -38,26 +60,292 @@ class MishVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                promoteToForeground()
-                executor.execute { store.serviceStarted(serviceInstanceId) }
+                stopRequested.set(false)
+                val request = ActivationRequest.fromIntent(intent)
+                if (request == null) {
+                    publishFailedActivation(PlatformFailureKind.CONFIGURATION_NOT_LOADED, startId)
+                } else {
+                    executor.execute { activate(request, startId) }
+                }
             }
-            ACTION_STOP -> executor.execute {
-                explicitCleanup = true
-                store.serviceStopped()
-                finishForeground(startId)
+            ACTION_STOP -> {
+                stopRequested.set(true)
+                executor.execute { stopExplicitly(startId) }
             }
             else -> executor.execute {
-                store.serviceDestroyed()
+                val cleaned = cleanupOwnedResources()
+                store.serviceDestroyed(cleaned)
                 finishForeground(startId)
             }
         }
         return START_NOT_STICKY
     }
 
+    private fun activate(request: ActivationRequest, startId: Int) {
+        val initial = store.current()
+        val preflightFailure = when {
+            VpnService.prepare(this) != null -> PlatformFailureKind.PERMISSION_REVOKED
+            initial.platformSessionId != request.platformSessionId ||
+                initial.factSequence != request.factSequence -> PlatformFailureKind.CONFIGURATION_NOT_LOADED
+            initial.coreAvailability != "available" -> PlatformFailureKind.CORE_UNAVAILABLE
+            initial.coreConfigState != "loaded" ||
+                initial.loadedConfigDigest != request.configDigest ||
+                initial.loadedConfigRevision != request.configRevision ->
+                PlatformFailureKind.CONFIGURATION_NOT_LOADED
+            else -> null
+        }
+        if (preflightFailure != null) {
+            publishFailedActivation(preflightFailure, startId, request.productSessionId)
+            return
+        }
+
+        productSessionId = request.productSessionId
+        promoteToForeground()
+        store.activationStarting(serviceInstanceId, request.productSessionId)
+
+        try {
+            registerUnderlyingNetworkObservation()
+            if (!awaitUnderlyingNetwork()) {
+                if (stopRequested.get()) return
+                failAfterCleanup(PlatformFailureKind.NETWORK_UNAVAILABLE, startId)
+                return
+            }
+            if (!activationAuthorityStillValid(request)) {
+                if (stopRequested.get()) return
+                failAfterCleanup(PlatformFailureKind.CONFIGURATION_NOT_LOADED, startId)
+                return
+            }
+
+            val descriptor = establishTun() ?: run {
+                failAfterCleanup(PlatformFailureKind.TUN_ESTABLISH_FAILED, startId)
+                return
+            }
+            tunDescriptor = descriptor
+            store.tunEstablished()
+
+            if (!activationAuthorityStillValid(request)) {
+                if (stopRequested.get()) return
+                failAfterCleanup(PlatformFailureKind.CONFIGURATION_NOT_LOADED, startId)
+                return
+            }
+            val started = core.start(request.productSessionId, descriptor.fd, this)
+            if (started.code != NativeRuntimeCode.RUNNING) {
+                failAfterCleanup(mapCoreStartFailure(started.code), startId)
+                return
+            }
+            store.coreStarted()
+
+            if (!awaitPublicRequest() || store.current().protectedSocketCount == 0L) {
+                if (stopRequested.get()) return
+                failAfterCleanup(PlatformFailureKind.PUBLIC_REQUEST_FAILED, startId)
+                return
+            }
+            if (stopRequested.get()) return
+            store.activationCompleted()
+            scheduleCoreWatchdog(request.productSessionId)
+        } catch (_: Throwable) {
+            failAfterCleanup(PlatformFailureKind.CORE_START_FAILED, startId)
+        }
+    }
+
+    private fun establishTun(): ParcelFileDescriptor? = runCatching {
+        val networks = usableUnderlyingNetworks()
+        val builder = Builder()
+            .setSession(getString(R.string.mish_vpn_notification_title))
+            .setMtu(TUN_MTU)
+            .addAddress(TUN_IPV4_ADDRESS, TUN_IPV4_PREFIX)
+            .addAddress(TUN_IPV6_ADDRESS, TUN_IPV6_PREFIX)
+            .addDnsServer(TUN_IPV4_DNS)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+            .setUnderlyingNetworks(networks)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
+        builder.establish()
+    }.getOrNull()
+
+    private fun registerUnderlyingNetworkObservation() {
+        if (networkCallback != null) return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val changed = synchronized(underlyingNetworks) { underlyingNetworks.add(network) }
+                if (changed) executor.execute { reconcileUnderlyingNetworks() }
+            }
+
+            override fun onLost(network: Network) {
+                val changed = synchronized(underlyingNetworks) { underlyingNetworks.remove(network) }
+                if (changed) executor.execute { reconcileUnderlyingNetworks() }
+            }
+        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .build()
+        connectivity.registerNetworkCallback(request, callback)
+        networkCallback = callback
+        val initial = connectivity.allNetworks.filter(::isUsableUnderlyingNetwork)
+        synchronized(underlyingNetworks) { underlyingNetworks.addAll(initial) }
+    }
+
+    private fun awaitUnderlyingNetwork(): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + NETWORK_WAIT_MILLIS
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (stopRequested.get()) return false
+            if (usableUnderlyingNetworks().isNotEmpty()) {
+                store.networkChanged(true)
+                return true
+            }
+            Thread.sleep(25)
+        }
+        store.networkChanged(false)
+        return false
+    }
+
+    private fun reconcileUnderlyingNetworks() {
+        if (cleanupStarted.get()) return
+        val networks = usableUnderlyingNetworks()
+        if (tunDescriptor != null) setUnderlyingNetworks(networks)
+        store.networkChanged(networks.isNotEmpty())
+        if (networks.isNotEmpty() && store.current().coreRunning) {
+            if (awaitPublicRequest()) store.activationCompleted()
+        }
+    }
+
+    private fun usableUnderlyingNetworks(): Array<Network> = synchronized(underlyingNetworks) {
+        underlyingNetworks.removeAll { network -> !isUsableUnderlyingNetwork(network) }
+        underlyingNetworks.toTypedArray()
+    }
+
+    private fun isUsableUnderlyingNetwork(network: Network): Boolean =
+        connectivity.getNetworkCapabilities(network)?.let { capabilities ->
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } == true
+
+    private fun awaitPublicRequest(): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + PUBLIC_PROBE_WAIT_MILLIS
+        do {
+            if (stopRequested.get()) return false
+            if (observePublicRequest()) return true
+            Thread.sleep(PUBLIC_PROBE_RETRY_MILLIS)
+        } while (android.os.SystemClock.elapsedRealtime() < deadline)
+        return false
+    }
+
+    private fun observePublicRequest(): Boolean = runCatching {
+        val connection = URL(PUBLIC_PROBE_URL).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = PUBLIC_PROBE_TIMEOUT_MILLIS
+            connection.readTimeout = PUBLIC_PROBE_TIMEOUT_MILLIS
+            connection.instanceFollowRedirects = false
+            connection.requestMethod = "GET"
+            connection.useCaches = false
+            connection.connect()
+            connection.responseCode in 200..399
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrDefault(false)
+
+    @Keep
+    fun protectSocket(fileDescriptor: Int): Boolean {
+        val protected = runCatching { protect(fileDescriptor) }.getOrDefault(false)
+        return protectedSocketFacts.record(protected) { store.protectedSocketObserved() }
+    }
+
+    private fun scheduleCoreWatchdog(sessionId: String) {
+        executor.scheduleWithFixedDelay(
+            {
+                if (cleanupStarted.get()) return@scheduleWithFixedDelay
+                if (core.inspectRuntime(sessionId).code != NativeRuntimeCode.RUNNING) {
+                    explicitCleanup = true
+                    val cleaned = cleanupOwnedResources()
+                    if (cleaned) store.coreExited() else store.serviceDestroyed(false)
+                    finishForeground()
+                }
+            },
+            CORE_WATCHDOG_MILLIS,
+            CORE_WATCHDOG_MILLIS,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun stopExplicitly(startId: Int) {
+        explicitCleanup = true
+        val cleaned = cleanupOwnedResources()
+        if (cleaned) store.serviceStopped() else store.serviceDestroyed(false)
+        finishForeground(startId)
+    }
+
+    private fun failAfterCleanup(failure: PlatformFailureKind, startId: Int) {
+        explicitCleanup = true
+        val cleaned = cleanupOwnedResources()
+        if (cleaned) {
+            store.activationFailed(failure)
+        } else {
+            store.serviceDestroyed(false)
+        }
+        finishForeground(startId)
+    }
+
+    private fun publishFailedActivation(
+        failure: PlatformFailureKind,
+        startId: Int,
+        productSessionId: String? = null,
+    ) {
+        explicitCleanup = true
+        store.activationFailed(failure, productSessionId)
+        finishForeground(startId)
+    }
+
+    private fun cleanupOwnedResources(): Boolean {
+        if (!cleanupStarted.compareAndSet(false, true)) {
+            return store.current().let { !it.coreRunning && !it.tunEstablished }
+        }
+        val session = productSessionId
+        return cleanup.cleanup(
+            stopCore = {
+                core.stop(session).code in setOf(
+                    NativeRuntimeCode.INACTIVE,
+                    NativeRuntimeCode.CORE_UNAVAILABLE,
+                )
+            },
+            closeTun = {
+                val descriptor = tunDescriptor
+                tunDescriptor = null
+                descriptor == null || runCatching { descriptor.close() }.isSuccess
+            },
+            unregisterNetwork = {
+                val callback = networkCallback
+                networkCallback = null
+                val released = callback == null ||
+                    runCatching { connectivity.unregisterNetworkCallback(callback) }.isSuccess
+                synchronized(underlyingNetworks) { underlyingNetworks.clear() }
+                productSessionId = null
+                protectedSocketFacts.reset()
+                released
+            },
+        )
+    }
+
+    private fun activationAuthorityStillValid(request: ActivationRequest): Boolean {
+        val current = store.current()
+        return VpnService.prepare(this) == null &&
+            !stopRequested.get() &&
+            current.activationSessionId == request.productSessionId &&
+            current.coreAvailability == "available" &&
+            current.coreConfigState == "loaded" &&
+            current.loadedConfigDigest == request.configDigest &&
+            current.loadedConfigRevision == request.configRevision &&
+            usableUnderlyingNetworks().isNotEmpty()
+    }
+
     override fun onRevoke() {
         executor.execute {
             explicitCleanup = true
-            store.revoked()
+            val cleaned = cleanupOwnedResources()
+            if (cleaned) store.revoked() else store.serviceDestroyed(false)
             finishForeground()
         }
         super.onRevoke()
@@ -65,13 +353,12 @@ class MishVpnService : VpnService() {
 
     override fun onDestroy() {
         if (::executor.isInitialized) {
-            executor.shutdown()
-            runCatching {
-                if (!executor.awaitTermination(750, TimeUnit.MILLISECONDS)) executor.shutdownNow()
-            }
-        }
-        if (::store.isInitialized && !explicitCleanup && store.current().serviceForeground) {
-            store.serviceDestroyed()
+            val cleaned = runCatching {
+                executor.submit<Boolean> { cleanupOwnedResources() }
+                    .get(DESTROY_CLEANUP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            }.getOrDefault(false)
+            if (::store.isInitialized && !explicitCleanup) store.serviceDestroyed(cleaned)
+            executor.shutdownNow()
         }
         ProcessRuntimeRegistry.serviceActive = false
         super.onDestroy()
@@ -109,7 +396,7 @@ class MishVpnService : VpnService() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mish_vpn_notification)
             .setContentTitle(getString(R.string.mish_vpn_notification_title))
-            .setContentText(getString(R.string.mish_vpn_fixture_notification))
+            .setContentText(getString(R.string.mish_vpn_running_notification))
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
@@ -142,12 +429,73 @@ class MishVpnService : VpnService() {
         if (startId == null) stopSelf() else stopSelfResult(startId)
     }
 
+    private fun mapCoreStartFailure(code: NativeRuntimeCode): PlatformFailureKind = when (code) {
+        NativeRuntimeCode.NOT_LOADED -> PlatformFailureKind.CONFIGURATION_NOT_LOADED
+        NativeRuntimeCode.CORE_UNAVAILABLE -> PlatformFailureKind.CORE_UNAVAILABLE
+        NativeRuntimeCode.PROTECTION_FAILED -> PlatformFailureKind.PUBLIC_REQUEST_FAILED
+        else -> PlatformFailureKind.CORE_START_FAILED
+    }
+
+    private data class ActivationRequest(
+        val configDigest: String,
+        val configRevision: String,
+        val factSequence: Long,
+        val platformSessionId: String,
+        val productSessionId: String,
+    ) {
+        companion object {
+            fun fromIntent(intent: Intent): ActivationRequest? {
+                val configDigest = intent.getStringExtra(EXTRA_CONFIG_DIGEST) ?: return null
+                val configRevision = intent.getStringExtra(EXTRA_CONFIG_REVISION) ?: return null
+                val platformSessionId = intent.getStringExtra(EXTRA_PLATFORM_SESSION_ID) ?: return null
+                val productSessionId = intent.getStringExtra(EXTRA_PRODUCT_SESSION_ID) ?: return null
+                val factSequence = intent.getLongExtra(EXTRA_FACT_SEQUENCE, -1)
+                if (
+                    !configDigest.matches(DIGEST_PATTERN) ||
+                    !configRevision.matches(IDENTIFIER_PATTERN) ||
+                    !platformSessionId.matches(IDENTIFIER_PATTERN) ||
+                    !productSessionId.matches(IDENTIFIER_PATTERN) ||
+                    factSequence < 0
+                ) {
+                    return null
+                }
+                return ActivationRequest(
+                    configDigest,
+                    configRevision,
+                    factSequence,
+                    platformSessionId,
+                    productSessionId,
+                )
+            }
+        }
+    }
+
     companion object {
         const val ACTION_START = "com.asuka109.mish.vpn.action.START"
         const val ACTION_STOP = "com.asuka109.mish.vpn.action.STOP"
+        const val EXTRA_CONFIG_DIGEST = "com.asuka109.mish.vpn.extra.CONFIG_DIGEST"
+        const val EXTRA_CONFIG_REVISION = "com.asuka109.mish.vpn.extra.CONFIG_REVISION"
+        const val EXTRA_FACT_SEQUENCE = "com.asuka109.mish.vpn.extra.FACT_SEQUENCE"
+        const val EXTRA_PLATFORM_SESSION_ID = "com.asuka109.mish.vpn.extra.PLATFORM_SESSION_ID"
+        const val EXTRA_PRODUCT_SESSION_ID = "com.asuka109.mish.vpn.extra.PRODUCT_SESSION_ID"
         private const val CHANNEL_ID = "mish-vpn-status-v1"
+        private const val CORE_WATCHDOG_MILLIS = 2_000L
+        private const val DESTROY_CLEANUP_TIMEOUT_MILLIS = 12_000L
+        private const val NETWORK_WAIT_MILLIS = 5_000L
         private const val NOTIFICATION_ID = 4107
+        private const val PUBLIC_PROBE_RETRY_MILLIS = 250L
+        private const val PUBLIC_PROBE_TIMEOUT_MILLIS = 4_000
+        private const val PUBLIC_PROBE_WAIT_MILLIS = 20_000L
+        private const val PUBLIC_PROBE_URL = "http://1.1.1.1/cdn-cgi/trace"
         private const val REQUEST_OPEN = 4108
         private const val REQUEST_STOP = 4109
+        private const val TUN_IPV4_ADDRESS = "172.19.0.1"
+        private const val TUN_IPV4_DNS = "1.1.1.1"
+        private const val TUN_IPV4_PREFIX = 30
+        private const val TUN_IPV6_ADDRESS = "fdfe:dcba:9876::1"
+        private const val TUN_IPV6_PREFIX = 126
+        private const val TUN_MTU = 1500
+        private val DIGEST_PATTERN = Regex("^[0-9a-f]{64}$")
+        private val IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
     }
 }

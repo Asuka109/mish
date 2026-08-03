@@ -20,16 +20,21 @@ const fixture = {
 };
 
 const snapshot: MobileVpnSnapshotDto = {
+  activationSessionId: null,
+  activeNetwork: false,
   authorityId: "mobile-app-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
   coreAvailability: "unavailable",
+  coreRunning: false,
   coreCommit: null,
   configFailureInjectionAvailable: false,
   coreConfigState: "unloaded",
   coreVersion: null,
   coreWrapperRevision: null,
+  dnsApplied: false,
+  failure: null,
   foreground: false,
   loadedConfigDigest: null,
   loadedConfigRevision: null,
@@ -38,7 +43,10 @@ const snapshot: MobileVpnSnapshotDto = {
   operation: null,
   permission: "required",
   phase: "permission-required",
+  protectedSocketCount: 0,
+  publicRequestObserved: false,
   revision: 1,
+  routesApplied: false,
   sequence: 1,
   sessionId: "mobile-app-test",
   updatedAtMillis: 1,
@@ -47,6 +55,7 @@ const snapshot: MobileVpnSnapshotDto = {
   vpnActive: false,
   vpnAvailability: "unavailable",
   tunAvailability: "unavailable",
+  tunEstablished: false,
 };
 
 const vpnClient: MobileVpnClient = {
@@ -68,7 +77,7 @@ const vpnClient: MobileVpnClient = {
   }),
   requestNotificationPermission: async () => snapshot,
   requestVpnConsent: async () => snapshot,
-  startFixtureLifecycle: async () => snapshot,
+  start: async () => snapshot,
   stop: async () => snapshot,
   subscribe: (handler) => {
     handler(snapshot);

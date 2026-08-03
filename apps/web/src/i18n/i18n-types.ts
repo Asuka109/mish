@@ -989,7 +989,7 @@ type RootTranslation = {
 		 */
 		coreLabel: string
 		/**
-		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​L​o​a​d​i​n​g​ ​d​o​e​s​ ​n​o​t​ ​i​n​i​t​i​a​l​i​z​e​ ​V​P​N​/​T​U​N​ ​o​r​ ​s​t​a​r​t​ ​t​r​a​f​f​i​c​ ​h​a​n​d​l​i​n​g​.
+		 * P​a​c​k​a​g​e​ ​i​d​e​n​t​i​t​y​ ​i​s​ ​v​e​r​i​f​i​e​d​.​ ​V​P​N​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​i​l​l​ ​r​e​q​u​i​r​e​s​ ​a​n​ ​e​x​a​c​t​ ​l​o​a​d​e​d​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
 		 */
 		corePackagedDescription: string
 		/**
@@ -1006,23 +1006,23 @@ type RootTranslation = {
 		 */
 		currentSection: string
 		/**
-		 * A​n​d​r​o​i​d​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​t​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k​.
+		 * A​n​d​r​o​i​d​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​V​P​N​ ​a​c​t​i​v​a​t​i​o​n​ ​o​r​ ​c​l​e​a​n​u​p​ ​s​a​f​e​l​y​.
 		 */
 		failedDescription: string
 		/**
-		 * L​i​f​e​c​y​c​l​e​ ​c​h​e​c​k​ ​f​a​i​l​e​d
+		 * V​P​N​ ​a​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d
 		 */
 		failedState: string
 		/**
-		 * T​h​i​s​ ​b​o​u​n​d​e​d​ ​f​i​x​t​u​r​e​ ​l​o​a​d​s​ ​o​n​l​y​ ​r​e​p​o​s​i​t​o​r​y​-​o​w​n​e​d​ ​f​i​c​t​i​o​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.​ ​I​t​ ​c​a​n​n​o​t​ ​s​t​a​r​t​ ​a​ ​p​r​o​x​y​,​ ​c​r​e​a​t​e​ ​a​ ​T​U​N​,​ ​o​r​ ​r​o​u​t​e​ ​t​r​a​f​f​i​c​.
+		 * O​n​l​y​ ​r​e​p​o​s​i​t​o​r​y​-​o​w​n​e​d​ ​b​o​u​n​d​e​d​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​i​s​ ​a​c​c​e​p​t​e​d​.​ ​P​a​t​h​s​,​ ​C​o​n​t​r​o​l​l​e​r​ ​a​c​c​e​s​s​,​ ​a​n​d​ ​a​r​b​i​t​r​a​r​y​ ​n​a​t​i​v​e​ ​c​o​m​m​a​n​d​s​ ​r​e​m​a​i​n​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		fixtureDescription: string
 		/**
-		 * D​e​v​e​l​o​p​m​e​n​t​ ​b​o​u​n​d​a​r​y
+		 * B​o​u​n​d​e​d​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
 		 */
 		fixtureLabel: string
 		/**
-		 * R​e​v​i​e​w​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​c​h​e​c​k​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​.
+		 * R​e​v​i​e​w​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​s​t​a​r​t​i​n​g​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c​ ​p​r​o​t​e​c​t​i​o​n​.
 		 */
 		permissionRequiredDescription: string
 		/**
@@ -1046,7 +1046,7 @@ type RootTranslation = {
 		 */
 		readinessSection: string
 		/**
-		 * T​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​m​u​s​t​ ​b​e​ ​r​e​s​e​t​ ​s​a​f​e​l​y​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​c​h​e​c​k​.
+		 * M​i​s​h​-​o​w​n​e​d​ ​V​P​N​ ​r​e​s​o​u​r​c​e​s​ ​m​u​s​t​ ​b​e​ ​c​l​e​a​n​e​d​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​a​c​t​i​v​a​t​i​o​n​.
 		 */
 		recoveryDescription: string
 		/**
@@ -1062,7 +1062,7 @@ type RootTranslation = {
 		 */
 		replaceConfigAction: string
 		/**
-		 * R​e​t​r​y​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
+		 * R​e​t​r​y​ ​V​P​N​ ​A​c​t​i​v​a​t​i​o​n
 		 */
 		retryAction: string
 		/**
@@ -1082,11 +1082,11 @@ type RootTranslation = {
 		 */
 		runningState: string
 		/**
-		 * A​n​d​r​o​i​d​ ​i​s​ ​c​h​e​c​k​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​f​i​x​t​u​r​e​ ​l​i​f​e​c​y​c​l​e​.
+		 * A​n​d​r​o​i​d​ ​i​s​ ​e​s​t​a​b​l​i​s​h​i​n​g​ ​t​h​e​ ​T​U​N​ ​a​n​d​ ​s​t​a​r​t​i​n​g​ ​t​h​e​ ​e​m​b​e​d​d​e​d​ ​M​o​b​i​l​e​ ​C​o​r​e​.
 		 */
 		startingDescription: string
 		/**
-		 * C​h​e​c​k​i​n​g​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e
+		 * S​t​a​r​t​i​n​g​ ​V​P​N
 		 */
 		startingState: string
 		/**
@@ -1098,11 +1098,11 @@ type RootTranslation = {
 		 */
 		stoppedState: string
 		/**
-		 * A​n​d​r​o​i​d​ ​i​s​ ​c​l​o​s​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​f​i​x​t​u​r​e​ ​l​i​f​e​c​y​c​l​e​ ​s​a​f​e​l​y​.
+		 * A​n​d​r​o​i​d​ ​i​s​ ​s​t​o​p​p​i​n​g​ ​C​o​r​e​ ​a​n​d​ ​r​e​l​e​a​s​i​n​g​ ​M​i​s​h​-​o​w​n​e​d​ ​V​P​N​ ​r​e​s​o​u​r​c​e​s​.
 		 */
 		stoppingDescription: string
 		/**
-		 * S​t​o​p​p​i​n​g​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 * S​t​o​p​p​i​n​g​ ​V​P​N
 		 */
 		stoppingState: string
 		/**
@@ -1114,11 +1114,11 @@ type RootTranslation = {
 		 */
 		throughputUnavailableDescription: string
 		/**
-		 * T​h​i​s​ ​b​u​i​l​d​ ​c​a​n​n​o​t​ ​a​c​t​i​v​a​t​e​ ​V​P​N​ ​t​r​a​f​f​i​c​.​ ​N​o​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c​ ​i​s​ ​b​e​i​n​g​ ​r​o​u​t​e​d​.
+		 * N​o​ ​u​s​a​b​l​e​ ​u​n​d​e​r​l​y​i​n​g​ ​n​e​t​w​o​r​k​ ​i​s​ ​a​v​a​i​l​a​b​l​e​.​ ​M​i​s​h​ ​i​s​ ​n​o​t​ ​r​o​u​t​i​n​g​ ​t​r​a​f​f​i​c​.
 		 */
 		unavailableDescription: string
 		/**
-		 * V​P​N​ ​u​n​a​v​a​i​l​a​b​l​e
+		 * W​a​i​t​i​n​g​ ​f​o​r​ ​n​e​t​w​o​r​k
 		 */
 		unavailableState: string
 		/**
@@ -1128,20 +1128,20 @@ type RootTranslation = {
 	}
 	mobileFixture: {
 		/**
-		 * M​i​h​o​m​o​ ​{​v​e​r​s​i​o​n​}​ ​i​s​ ​p​a​c​k​a​g​e​d​;​ ​V​P​N​ ​t​r​a​f​f​i​c​ ​c​a​p​t​u​r​e​ ​i​s​ ​n​o​t​ ​c​o​n​n​e​c​t​e​d​ ​y​e​t​.
+		 * M​i​h​o​m​o​ ​{​v​e​r​s​i​o​n​}​ ​i​s​ ​p​a​c​k​a​g​e​d​ ​f​o​r​ ​t​h​e​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​r​u​n​t​i​m​e​.
 		 * @param {string} version
 		 */
 		coreReady: RequiredParams<'version'>
 		/**
-		 * T​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​r​e​o​p​e​n​i​n​g​ ​t​h​e​ ​a​p​p​.
+		 * T​h​e​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​r​e​o​p​e​n​i​n​g​ ​t​h​e​ ​a​p​p​.
 		 */
 		commandFailed: string
 		/**
-		 * N​a​t​i​v​e​ ​f​i​x​t​u​r​e
+		 * A​n​d​r​o​i​d​ ​V​P​N
 		 */
 		label: string
 		/**
-		 * R​u​n​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
+		 * S​t​a​r​t​ ​V​P​N
 		 */
 		lifecycleAction: string
 		/**
@@ -1153,15 +1153,15 @@ type RootTranslation = {
 		 */
 		permissionAction: string
 		/**
-		 * R​e​s​e​t​ ​L​i​f​e​c​y​c​l​e​ ​S​t​a​t​e
+		 * C​l​e​a​n​ ​U​p​ ​V​P​N
 		 */
 		reconcileAction: string
 		/**
-		 * S​t​o​p​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
+		 * S​t​o​p​ ​V​P​N
 		 */
 		stopAction: string
 		/**
-		 * V​P​N​ ​a​n​d​ ​e​m​b​e​d​d​e​d​ ​C​o​r​e​ ​a​r​e​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​ ​i​n​ ​t​h​i​s​ ​t​e​s​t​ ​b​u​i​l​d​.
+		 * A​n​d​r​o​i​d​ ​V​P​N​ ​a​n​d​ ​e​m​b​e​d​d​e​d​ ​C​o​r​e​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
 		 */
 		unavailable: string
 	}
@@ -5856,7 +5856,7 @@ export type TranslationFunctions = {
 		 */
 		coreLabel: () => LocalizedString
 		/**
-		 * Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.
+		 * Package identity is verified. VPN activation still requires an exact loaded configuration.
 		 */
 		corePackagedDescription: () => LocalizedString
 		/**
@@ -5872,23 +5872,23 @@ export type TranslationFunctions = {
 		 */
 		currentSection: () => LocalizedString
 		/**
-		 * Android could not complete the native lifecycle check.
+		 * Android could not complete VPN activation or cleanup safely.
 		 */
 		failedDescription: () => LocalizedString
 		/**
-		 * Lifecycle check failed
+		 * VPN activation failed
 		 */
 		failedState: () => LocalizedString
 		/**
-		 * This bounded fixture loads only repository-owned fictional configuration. It cannot start a proxy, create a TUN, or route traffic.
+		 * Only repository-owned bounded configuration is accepted. Paths, Controller access, and arbitrary native commands remain unavailable.
 		 */
 		fixtureDescription: () => LocalizedString
 		/**
-		 * Development boundary
+		 * Bounded configuration
 		 */
 		fixtureLabel: () => LocalizedString
 		/**
-		 * Review Android VPN permission before checking the native lifecycle.
+		 * Review Android VPN permission before starting device traffic protection.
 		 */
 		permissionRequiredDescription: () => LocalizedString
 		/**
@@ -5912,7 +5912,7 @@ export type TranslationFunctions = {
 		 */
 		readinessSection: () => LocalizedString
 		/**
-		 * The native lifecycle must be reset safely before another check.
+		 * Mish-owned VPN resources must be cleaned before another activation.
 		 */
 		recoveryDescription: () => LocalizedString
 		/**
@@ -5928,7 +5928,7 @@ export type TranslationFunctions = {
 		 */
 		replaceConfigAction: () => LocalizedString
 		/**
-		 * Retry Lifecycle Check
+		 * Retry VPN Activation
 		 */
 		retryAction: () => LocalizedString
 		/**
@@ -5948,11 +5948,11 @@ export type TranslationFunctions = {
 		 */
 		runningState: () => LocalizedString
 		/**
-		 * Android is checking the native fixture lifecycle.
+		 * Android is establishing the TUN and starting the embedded Mobile Core.
 		 */
 		startingDescription: () => LocalizedString
 		/**
-		 * Checking native lifecycle
+		 * Starting VPN
 		 */
 		startingState: () => LocalizedString
 		/**
@@ -5964,11 +5964,11 @@ export type TranslationFunctions = {
 		 */
 		stoppedState: () => LocalizedString
 		/**
-		 * Android is closing the native fixture lifecycle safely.
+		 * Android is stopping Core and releasing Mish-owned VPN resources.
 		 */
 		stoppingDescription: () => LocalizedString
 		/**
-		 * Stopping lifecycle check
+		 * Stopping VPN
 		 */
 		stoppingState: () => LocalizedString
 		/**
@@ -5980,11 +5980,11 @@ export type TranslationFunctions = {
 		 */
 		throughputUnavailableDescription: () => LocalizedString
 		/**
-		 * This build cannot activate VPN traffic. No device traffic is being routed.
+		 * No usable underlying network is available. Mish is not routing traffic.
 		 */
 		unavailableDescription: () => LocalizedString
 		/**
-		 * VPN unavailable
+		 * Waiting for network
 		 */
 		unavailableState: () => LocalizedString
 		/**
@@ -5994,19 +5994,19 @@ export type TranslationFunctions = {
 	}
 	mobileFixture: {
 		/**
-		 * Mihomo {version} is packaged; VPN traffic capture is not connected yet.
+		 * Mihomo {version} is packaged for the Android VPN runtime.
 		 */
 		coreReady: (arg: { version: string }) => LocalizedString
 		/**
-		 * The native lifecycle command failed. Retry after reopening the app.
+		 * The Android VPN command failed. Retry after reopening the app.
 		 */
 		commandFailed: () => LocalizedString
 		/**
-		 * Native fixture
+		 * Android VPN
 		 */
 		label: () => LocalizedString
 		/**
-		 * Run Lifecycle Check
+		 * Start VPN
 		 */
 		lifecycleAction: () => LocalizedString
 		/**
@@ -6018,15 +6018,15 @@ export type TranslationFunctions = {
 		 */
 		permissionAction: () => LocalizedString
 		/**
-		 * Reset Lifecycle State
+		 * Clean Up VPN
 		 */
 		reconcileAction: () => LocalizedString
 		/**
-		 * Stop Lifecycle Check
+		 * Stop VPN
 		 */
 		stopAction: () => LocalizedString
 		/**
-		 * VPN and embedded Core are not implemented in this test build.
+		 * Android VPN and embedded Core are unavailable on this platform.
 		 */
 		unavailable: () => LocalizedString
 	}

@@ -33,4 +33,20 @@ class MishMobileCoreProbeTest {
             ),
         )
     }
+
+    @Test
+    fun `parses only the bounded runtime result tuple`() {
+        assertEquals(
+            NativeRuntimeResult(NativeRuntimeCode.RUNNING, 0),
+            MishMobileCoreProbe.parseRuntime(intArrayOf(0, 0)),
+        )
+        assertEquals(
+            NativeRuntimeCode.MALFORMED_RESPONSE,
+            MishMobileCoreProbe.parseRuntime(intArrayOf(0)).code,
+        )
+        assertEquals(
+            NativeRuntimeCode.NATIVE_FAILED,
+            MishMobileCoreProbe.parseRuntime(intArrayOf(99, -1)).code,
+        )
+    }
 }

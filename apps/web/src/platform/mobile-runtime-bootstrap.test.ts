@@ -13,16 +13,21 @@ const fixture = {
 };
 
 const vpnSnapshot = {
+  activationSessionId: null,
+  activeNetwork: false,
   authorityId: "bootstrap-authority",
   backendKind: "fixture" as const,
   contractVersion: 1 as const,
   coreAbiVersion: null,
   coreAvailability: "unavailable" as const,
+  coreRunning: false,
   coreCommit: null,
   configFailureInjectionAvailable: false,
   coreConfigState: "unloaded" as const,
   coreVersion: null,
   coreWrapperRevision: null,
+  dnsApplied: false,
+  failure: null,
   foreground: false,
   loadedConfigDigest: null,
   loadedConfigRevision: null,
@@ -31,7 +36,10 @@ const vpnSnapshot = {
   operation: null,
   permission: "required" as const,
   phase: "permission-required" as const,
+  protectedSocketCount: 0,
+  publicRequestObserved: false,
   revision: 1,
+  routesApplied: false,
   sequence: 1,
   sessionId: "session-1",
   updatedAtMillis: 1,
@@ -40,6 +48,7 @@ const vpnSnapshot = {
   vpnActive: false as const,
   vpnAvailability: "unavailable" as const,
   tunAvailability: "unavailable" as const,
+  tunEstablished: false,
 };
 
 function createVpnClient(): MobileVpnClient {
@@ -62,7 +71,7 @@ function createVpnClient(): MobileVpnClient {
     })),
     requestNotificationPermission: vi.fn(async () => vpnSnapshot),
     requestVpnConsent: vi.fn(async () => vpnSnapshot),
-    startFixtureLifecycle: vi.fn(async () => vpnSnapshot),
+    start: vi.fn(async () => vpnSnapshot),
     stop: vi.fn(async () => vpnSnapshot),
     subscribe: vi.fn(() => () => undefined),
     validateConfig: vi.fn(async () => ({

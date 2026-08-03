@@ -42,16 +42,21 @@ const fixture = {
 };
 
 const permissionSnapshot: MobileVpnSnapshotDto = {
+  activationSessionId: null,
+  activeNetwork: false,
   authorityId: "mobile-browser-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
   coreAvailability: "unavailable",
+  coreRunning: false,
   coreCommit: null,
   configFailureInjectionAvailable: false,
   coreConfigState: "unloaded",
   coreVersion: null,
   coreWrapperRevision: null,
+  dnsApplied: false,
+  failure: null,
   foreground: false,
   loadedConfigDigest: null,
   loadedConfigRevision: null,
@@ -60,7 +65,10 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   operation: null,
   permission: "required",
   phase: "permission-required",
+  protectedSocketCount: 0,
+  publicRequestObserved: false,
   revision: 1,
+  routesApplied: false,
   sequence: 1,
   sessionId: "browser-session",
   updatedAtMillis: 1,
@@ -69,6 +77,7 @@ const permissionSnapshot: MobileVpnSnapshotDto = {
   vpnActive: false,
   vpnAvailability: "unavailable",
   tunAvailability: "unavailable",
+  tunEstablished: false,
 };
 
 const viewports: Viewport[] = [
@@ -121,7 +130,7 @@ class BrowserMobileVpnClient implements MobileVpnClient {
     return this.snapshot;
   }
 
-  async startFixtureLifecycle() {
+  async start() {
     return this.snapshot;
   }
 
@@ -545,7 +554,7 @@ describe("Android mobile Home geometry", () => {
       const spinner = document.querySelector<HTMLElement>(".mobile-home-authority .ui-spinner");
       if (!spinner) throw new Error("Missing authoritative pending spinner");
       expect(parseFloat(getComputedStyle(spinner).animationDuration)).toBeLessThanOrEqual(0.01);
-      expect(page.getByRole("heading", { name: "Checking native lifecycle" })).toBeVisible();
+      expect(page.getByRole("heading", { name: "Starting VPN" })).toBeVisible();
       expect(page.getByRole("button", { name: "Pending" })).toBeDisabled();
     } finally {
       await session.send("Emulation.setEmulatedMedia", { features: [] });

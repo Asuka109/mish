@@ -10,16 +10,21 @@ function snapshot(
   authorityId = "authority-1",
 ): MobileVpnSnapshotDto {
   return {
+    activationSessionId: null,
+    activeNetwork: false,
     authorityId,
     backendKind: "fixture",
     contractVersion: 1,
     coreAbiVersion: null,
     coreAvailability: "unavailable",
+    coreRunning: false,
     coreCommit: null,
     configFailureInjectionAvailable: false,
     coreConfigState: "unloaded",
     coreVersion: null,
     coreWrapperRevision: null,
+    dnsApplied: false,
+    failure: null,
     foreground: false,
     loadedConfigDigest: null,
     loadedConfigRevision: null,
@@ -28,7 +33,10 @@ function snapshot(
     operation: null,
     permission: "required",
     phase,
+    protectedSocketCount: 0,
+    publicRequestObserved: false,
     revision: sequence,
+    routesApplied: false,
     sequence,
     sessionId,
     updatedAtMillis: sequence,
@@ -37,6 +45,7 @@ function snapshot(
     vpnActive: false,
     vpnAvailability: "unavailable",
     tunAvailability: "unavailable",
+    tunEstablished: false,
   };
 }
 
@@ -112,7 +121,7 @@ describe("MobileVpnFixtureClient", () => {
       const kind = {
         request_notification_permission: "request-notification-permission",
         request_vpn_consent: "request-vpn-consent",
-        start_fixture_lifecycle: "start",
+        start: "start",
         stop: "stop",
       }[command] as "request-notification-permission" | "request-vpn-consent" | "start" | "stop";
       return lifecycleResult(kind, operationId, value);
@@ -125,14 +134,14 @@ describe("MobileVpnFixtureClient", () => {
     await client.initialize();
     await client.requestVpnConsent();
     await client.requestNotificationPermission();
-    await client.startFixtureLifecycle();
+    await client.start();
     await client.stop();
 
     expect(invoke.mock.calls.map(([command]) => command)).toEqual([
       "get_snapshot",
       "request_vpn_consent",
       "request_notification_permission",
-      "start_fixture_lifecycle",
+      "start",
       "stop",
     ]);
     expect(client.getSnapshot()?.vpnActive).toBe(false);
@@ -172,6 +181,52 @@ describe("MobileVpnFixtureClient", () => {
 
     expect(observed).toEqual([4, 6]);
     expect(client.getSnapshot()?.phase).toBe("unavailable");
+  });
+
+  it("routes start cancellation through the typed native cleanup barrier", async () => {
+    let resolveStart: ((value: unknown) => void) | undefined;
+    const commands: string[] = [];
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command, args) => {
+        commands.push(command);
+        if (command === "get_snapshot") return snapshot(1);
+        const request = args?.request as { operationId: string } | undefined;
+        if (!request) throw new Error(`Missing request for command: ${command}`);
+        const { operationId } = request;
+        if (command === "start") {
+          return new Promise((resolve) => {
+            resolveStart = resolve;
+          });
+        }
+        if (command === "cancel_lifecycle_operation") {
+          const operation = {
+            failure: "cancelled",
+            kind: "start",
+            operationId,
+            outcome: "cancelled",
+          } as const;
+          const result = {
+            contractVersion: 1,
+            operation,
+            snapshot: { ...snapshot(2), operation },
+          };
+          resolveStart?.(result);
+          return result;
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+    const controller = new AbortController();
+
+    const starting = client.start({ signal: controller.signal });
+    controller.abort();
+    const terminal = await starting;
+
+    expect(commands).toEqual(["get_snapshot", "start", "cancel_lifecycle_operation"]);
+    expect(terminal.operation?.outcome).toBe("cancelled");
+    expect(terminal.phase).toBe("stopped");
   });
 
   it("requires a complete baseline before replaying only same-authority events", async () => {
