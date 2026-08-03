@@ -223,6 +223,17 @@ describe("Rust-authoritative notification browser projection", () => {
     await vi.waitFor(() =>
       expect(recoverSystemProxy).toHaveBeenCalledWith("repair", expect.any(Object)),
     );
+    center.resolveByDedupeKey("system-proxy.drift");
+    await vi.waitFor(async () =>
+      expect(
+        (await firstClient.getSnapshot()).notifications.find(
+          ({ dedupeKey }) => dedupeKey === "system-proxy.drift",
+        ),
+      ).toMatchObject({ resolved: true, severity: "warning" }),
+    );
+    await expect
+      .element(page.getByRole("dialog").getByRole("button", { exact: true, name: "修复系统代理" }))
+      .not.toBeInTheDocument();
     await secondClient.removeByDedupeKey("system-proxy.drift");
 
     const retainedMessage = page.getByText("已关闭 2 条活动连接", { exact: true });
@@ -234,7 +245,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-geosite-progress", {
         dedupeKey: "profile.activation-geodata:fixture:geo-site",
-        data: { asset: "geo-site" },
+        data: { asset: "geo-site", outcome: "preparing" },
         pinned: true,
         severity: "info",
       }),
@@ -245,7 +256,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-mmdb-progress", {
         dedupeKey: "profile.activation-geodata:fixture:mmdb",
-        data: { asset: "mmdb" },
+        data: { asset: "mmdb", outcome: "preparing" },
         pinned: true,
         severity: "info",
       }),
@@ -285,7 +296,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-geosite-progress", {
         dedupeKey: "profile.activation-geodata:fixture:geo-site",
-        data: { asset: "geo-site" },
+        data: { asset: "geo-site", outcome: "prepared" },
         pinned: false,
         resolved: true,
         severity: "success",
@@ -294,7 +305,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-mmdb-progress", {
         dedupeKey: "profile.activation-geodata:fixture:mmdb",
-        data: { asset: "mmdb" },
+        data: { asset: "mmdb", outcome: "prepared" },
         pinned: false,
         resolved: true,
         severity: "success",

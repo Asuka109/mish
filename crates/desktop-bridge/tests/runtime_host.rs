@@ -388,6 +388,62 @@ fn replacing_the_runtime_preserves_the_authoritative_notification_center() {
     assert_eq!(host.notification_snapshot(), published);
 }
 
+#[test]
+fn runtime_replacement_preserves_resolved_occurrence_severity_history() {
+    let host = DesktopRuntimeHost::new(runtime("profile-a"));
+    for (dedupe_key, severity) in [
+        ("resolved-error", NotificationSeverity::Error),
+        ("resolved-warning", NotificationSeverity::Warning),
+        ("resolved-info", NotificationSeverity::Info),
+        ("resolved-success", NotificationSeverity::Success),
+    ] {
+        host.publish_notification(NotificationPublication {
+            dedupe_key: dedupe_key.into(),
+            pinned: true,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::ProfileSaved(
+                    mish_runtime::ProfileSavedApplicationNotificationData {},
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity,
+        })
+        .unwrap();
+        let resolved = host.resolve_notification(dedupe_key);
+        assert!(
+            resolved
+                .notifications
+                .iter()
+                .find(|record| record.dedupe_key == dedupe_key)
+                .is_some_and(|record| {
+                    record.resolved && !record.pinned && record.severity == severity
+                })
+        );
+    }
+
+    host.replace(runtime("profile-b"));
+
+    let retained = host.notification_snapshot();
+    for (dedupe_key, severity) in [
+        ("resolved-error", NotificationSeverity::Error),
+        ("resolved-warning", NotificationSeverity::Warning),
+        ("resolved-info", NotificationSeverity::Info),
+        ("resolved-success", NotificationSeverity::Success),
+    ] {
+        assert!(
+            retained
+                .notifications
+                .iter()
+                .find(|record| record.dedupe_key == dedupe_key)
+                .is_some_and(|record| {
+                    record.resolved && !record.pinned && record.severity == severity
+                })
+        );
+    }
+}
+
 #[tokio::test]
 async fn same_profile_runtime_replacement_suspends_recent_traffic_for_coordinator_decision() {
     let host = DesktopRuntimeHost::new(runtime("profile-a"));

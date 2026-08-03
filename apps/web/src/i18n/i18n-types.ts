@@ -355,17 +355,130 @@ type RootTranslation = {
 		 * @param {string} operation
 		 */
 		tunHelperLifecycleApplied: RequiredParams<'operation'>
-		/**
-		 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​.​ ​{​f​a​i​l​u​r​e​}
-		 * @param {string} failure
-		 * @param {string} operation
-		 */
-		tunHelperLifecycleFailed: RequiredParams<'failure' | 'operation'>
+		tunHelperLifecycleFailure: {
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​ ​b​e​f​o​r​e​ ​m​a​c​O​S​ ​c​h​a​n​g​e​d​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​W​h​e​n​ ​y​o​u​ ​a​r​e​ ​r​e​a​d​y​,​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			authorizationCancelled: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​m​a​c​O​S​ ​d​i​d​ ​n​o​t​ ​a​u​t​h​o​r​i​z​e​ ​t​h​e​ ​r​e​q​u​e​s​t​.​ ​C​o​n​f​i​r​m​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​c​c​e​s​s​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			authorizationFailed: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​m​a​y​ ​h​a​v​e​ ​f​i​n​i​s​h​e​d​,​ ​b​u​t​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​f​i​n​a​l​ ​s​t​a​t​e​.​ ​{​r​e​c​o​v​e​r​y​}
+			 * @param {string} operation
+			 * @param {string} recovery
+			 */
+			confirmationFailed: RequiredParams<'operation' | 'recovery'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​l​o​s​t​ ​c​o​n​t​a​c​t​ ​w​i​t​h​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			connectionFailed: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​a​f​t​e​r​ ​m​a​c​O​S​ ​a​p​p​r​o​v​e​d​ ​t​h​e​ ​r​e​q​u​e​s​t​.​ ​{​r​e​c​o​v​e​r​y​}
+			 * @param {string} operation
+			 * @param {string} recovery
+			 */
+			installationFailed: RequiredParams<'operation' | 'recovery'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​l​a​u​n​c​h​ ​t​h​e​ ​r​e​q​u​i​r​e​d​ ​s​y​s​t​e​m​-​c​o​m​p​o​n​e​n​t​ ​t​o​o​l​.​ ​R​e​o​p​e​n​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			installerUnavailable: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​r​e​c​e​i​v​e​d​ ​a​n​ ​i​n​v​a​l​i​d​ ​r​e​s​p​o​n​s​e​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			invalidResponse: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​a​f​e​l​y​ ​v​e​r​i​f​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​.​ ​T​u​r​n​ ​o​f​f​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​o​r​ ​r​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			observationFailed: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			operationFailed: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​t​h​e​ ​r​e​q​u​i​r​e​d​ ​f​i​l​e​s​.​ ​m​a​c​O​S​ ​w​a​s​ ​n​o​t​ ​a​s​k​e​d​ ​f​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			preparationFailed: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​m​a​c​O​S​ ​c​o​u​l​d​ ​n​o​t​ ​r​e​g​i​s​t​e​r​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​{​r​e​c​o​v​e​r​y​}
+			 * @param {string} operation
+			 * @param {string} recovery
+			 */
+			registrationFailed: RequiredParams<'operation' | 'recovery'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​n​e​e​d​s​ ​y​o​u​r​ ​a​p​p​r​o​v​a​l​ ​i​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​f​i​n​i​s​h​.​ ​O​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​,​ ​a​p​p​r​o​v​e​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​,​ ​t​h​e​n​ ​{​r​e​t​r​y​}
+			 * @param {string} operation
+			 * @param {string} retry
+			 */
+			registrationRequiresApproval: RequiredParams<'operation' | 'retry'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​v​e​r​i​f​y​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​{​r​e​c​o​v​e​r​y​}
+			 * @param {string} operation
+			 * @param {string} recovery
+			 */
+			repairRequired: RequiredParams<'operation' | 'recovery'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​t​h​i​s​ ​b​u​i​l​d​ ​d​o​e​s​ ​n​o​t​ ​i​n​c​l​u​d​e​ ​t​h​e​ ​r​e​q​u​i​r​e​d​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​U​s​e​ ​a​ ​s​u​p​p​o​r​t​e​d​ ​M​i​s​h​ ​b​u​i​l​d​ ​i​n​s​t​e​a​d​.
+			 * @param {string} operation
+			 */
+			unsupportedBuild: RequiredParams<'operation'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​b​e​c​a​u​s​e​ ​t​h​i​s​ ​c​o​p​y​ ​o​f​ ​M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​m​e​e​t​ ​t​h​e​ ​m​a​c​O​S​ ​s​i​g​n​i​n​g​ ​r​e​q​u​i​r​e​m​e​n​t​.​ ​U​s​e​ ​a​ ​p​r​o​p​e​r​l​y​ ​s​i​g​n​e​d​ ​M​i​s​h​ ​b​u​i​l​d​ ​i​n​s​t​e​a​d​.
+			 * @param {string} operation
+			 */
+			unsignedApp: RequiredParams<'operation'>
+			/**
+			 * {​o​p​e​r​a​t​i​o​n​}​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​ ​o​n​ ​t​h​i​s​ ​v​e​r​s​i​o​n​ ​o​f​ ​m​a​c​O​S​.​ ​U​s​e​ ​a​ ​s​u​p​p​o​r​t​e​d​ ​m​a​c​O​S​ ​v​e​r​s​i​o​n​ ​o​r​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​n​s​t​e​a​d​.
+			 * @param {string} operation
+			 */
+			unsupportedSystem: RequiredParams<'operation'>
+		}
 		/**
 		 * {​o​p​e​r​a​t​i​o​n​}​ ​i​s​ ​a​w​a​i​t​i​n​g​ ​m​a​c​O​S​ ​c​o​n​f​i​r​m​a​t​i​o​n​.
 		 * @param {string} operation
 		 */
 		tunHelperLifecyclePending: RequiredParams<'operation'>
+		/**
+		 * O​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​c​h​o​o​s​e​ ​C​l​e​a​n​ ​R​e​i​n​s​t​a​l​l​.
+		 */
+		tunHelperLifecycleReinstallRecovery: string
+		/**
+		 * R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​t​r​y​ ​r​e​m​o​v​i​n​g​ ​i​t​ ​a​g​a​i​n​.
+		 */
+		tunHelperLifecycleRemoveRecovery: string
+		/**
+		 * t​r​y​ ​i​n​s​t​a​l​l​i​n​g​ ​i​t​ ​a​g​a​i​n​.
+		 */
+		tunHelperLifecycleRetryInstall: string
+		/**
+		 * t​r​y​ ​r​e​m​o​v​i​n​g​ ​i​t​ ​a​g​a​i​n​.
+		 */
+		tunHelperLifecycleRetryRemove: string
+		/**
+		 * t​r​y​ ​r​e​p​a​i​r​i​n​g​ ​i​t​ ​a​g​a​i​n​.
+		 */
+		tunHelperLifecycleRetryRepair: string
+		/**
+		 * A​ ​s​y​s​t​e​m​-​c​o​m​p​o​n​e​n​t​ ​o​p​e​r​a​t​i​o​n​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​m​p​l​e​t​e​d​.​ ​O​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		tunHelperLifecycleUnknownOperation: string
 		/**
 		 * A​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​T​h​e​ ​H​e​l​p​e​r​ ​r​e​m​a​i​n​s​ ​i​n​s​t​a​l​l​e​d​;​ ​t​r​y​ ​a​g​a​i​n​ ​w​h​e​n​ ​y​o​u​ ​a​r​e​ ​r​e​a​d​y​.
 		 */
@@ -5503,14 +5616,100 @@ export type TranslationFunctions = {
 		 * {operation} completed and was confirmed.
 		 */
 		tunHelperLifecycleApplied: (arg: { operation: string }) => LocalizedString
-		/**
-		 * {operation} could not be completed. {failure}
-		 */
-		tunHelperLifecycleFailed: (arg: { failure: string, operation: string }) => LocalizedString
+		tunHelperLifecycleFailure: {
+			/**
+			 * {operation} was cancelled before macOS changed the system component. When you are ready, {retry}
+			 */
+			authorizationCancelled: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because macOS did not authorize the request. Confirm administrator access, then {retry}
+			 */
+			authorizationFailed: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} may have finished, but Mish could not confirm the final state. {recovery}
+			 */
+			confirmationFailed: (arg: { operation: string, recovery: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because Mish lost contact with the system component. Restart Mish, then {retry}
+			 */
+			connectionFailed: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed after macOS approved the request. {recovery}
+			 */
+			installationFailed: (arg: { operation: string, recovery: string }) => LocalizedString
+			/**
+			 * {operation} could not start because Mish could not launch the required system-component tool. Reopen Mish, then {retry}
+			 */
+			installerUnavailable: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because Mish received an invalid response. Restart Mish, then {retry}
+			 */
+			invalidResponse: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because Mish could not safely verify the current network state. Turn off Virtual Interface or restart Mish, then {retry}
+			 */
+			observationFailed: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed. Restart Mish, then {retry}
+			 */
+			operationFailed: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not start because Mish could not prepare the required files. macOS was not asked for authorization. Restart Mish, then {retry}
+			 */
+			preparationFailed: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because macOS could not register the system component. {recovery}
+			 */
+			registrationFailed: (arg: { operation: string, recovery: string }) => LocalizedString
+			/**
+			 * {operation} needs your approval in System Settings before it can finish. Open System Settings, approve the system component, then {retry}
+			 */
+			registrationRequiresApproval: (arg: { operation: string, retry: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because Mish could not verify the system component. {recovery}
+			 */
+			repairRequired: (arg: { operation: string, recovery: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because this build does not include the required system component. Use a supported Mish build instead.
+			 */
+			unsupportedBuild: (arg: { operation: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed because this copy of Mish does not meet the macOS signing requirement. Use a properly signed Mish build instead.
+			 */
+			unsignedApp: (arg: { operation: string }) => LocalizedString
+			/**
+			 * {operation} could not be completed on this version of macOS. Use a supported macOS version or System Proxy instead.
+			 */
+			unsupportedSystem: (arg: { operation: string }) => LocalizedString
+		}
 		/**
 		 * {operation} is awaiting macOS confirmation.
 		 */
 		tunHelperLifecyclePending: (arg: { operation: string }) => LocalizedString
+		/**
+		 * Open Settings and choose Clean Reinstall.
+		 */
+		tunHelperLifecycleReinstallRecovery: () => LocalizedString
+		/**
+		 * Restart Mish, then try removing it again.
+		 */
+		tunHelperLifecycleRemoveRecovery: () => LocalizedString
+		/**
+		 * try installing it again.
+		 */
+		tunHelperLifecycleRetryInstall: () => LocalizedString
+		/**
+		 * try removing it again.
+		 */
+		tunHelperLifecycleRetryRemove: () => LocalizedString
+		/**
+		 * try repairing it again.
+		 */
+		tunHelperLifecycleRetryRepair: () => LocalizedString
+		/**
+		 * A system-component operation could not be completed. Open Settings and try again.
+		 */
+		tunHelperLifecycleUnknownOperation: () => LocalizedString
 		/**
 		 * Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.
 		 */

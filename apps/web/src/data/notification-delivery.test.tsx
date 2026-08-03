@@ -2,6 +2,7 @@ import { act, render } from "@testing-library/react";
 import type {
   NotificationPresentationClaimDto,
   NotificationPresentationFoldReason,
+  NotificationSeverity,
 } from "@mish/contracts";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -209,6 +210,88 @@ describe("Rust-authoritative notification delivery projection", () => {
     act(() => delivery?.remove(id));
     await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
     expect((await second.getSnapshot()).notifications).toEqual([]);
+  });
+
+  it("keeps every occurrence severity through resolve, read, fold, reconnect, and retention", async () => {
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    const first = new FixtureNotificationClient(center);
+    const second = new FixtureNotificationClient(center);
+    const severities: readonly NotificationSeverity[] = ["error", "warning", "info", "success"];
+    const retained: Array<{ id: string; severity: NotificationSeverity }> = [];
+
+    for (const [index, severity] of severities.entries()) {
+      const dedupeKey = `severity-history-${index}`;
+      await publisher.publish(
+        notificationPublication("profile.saved", {
+          dedupeKey,
+          pinned: true,
+          severity,
+        }),
+      );
+      const created = await publisher.getSnapshot();
+      const id = created.notifications[0]!.id;
+      center.markRead([id]);
+      const firstClaim = center.claimPresentation(first.presentationIdentity).claim;
+      expect(firstClaim?.id).toBe(id);
+
+      const resolved = center.resolveByDedupeKey(dedupeKey);
+      expect(resolved.notifications.find((record) => record.id === id)).toMatchObject({
+        pinned: false,
+        presentationState: { phase: "presenting" },
+        read: true,
+        resolved: true,
+        severity,
+      });
+
+      first.reconnect();
+      const reconnectClaim = center.claimPresentation(second.presentationIdentity).claim;
+      expect(reconnectClaim?.id).toBe(id);
+      const folded = center.completePresentation(
+        second.presentationIdentity,
+        reconnectClaim!,
+        "dismissed",
+      );
+      expect(folded.accepted).toBe(true);
+      expect(folded.snapshot.notifications.find((record) => record.id === id)).toMatchObject({
+        presentationState: { foldReason: "dismissed", phase: "folded" },
+        read: true,
+        resolved: true,
+        severity,
+      });
+      retained.push({ id, severity });
+    }
+
+    for (let index = 0; index < 128 - retained.length; index += 1) {
+      await publisher.publish(
+        notificationPublication("profile.saved", {
+          dedupeKey: `severity-retention-${index}`,
+          severity: "info",
+        }),
+      );
+    }
+    const withinBound = await publisher.getSnapshot();
+    expect(withinBound.notifications).toHaveLength(128);
+    for (const { id, severity } of retained) {
+      expect(withinBound.notifications.find((record) => record.id === id)?.severity).toBe(severity);
+    }
+
+    await publisher.publish(
+      notificationPublication("profile.saved", {
+        dedupeKey: "severity-retention-overflow",
+        severity: "info",
+      }),
+    );
+    const overflow = await publisher.getSnapshot();
+    expect(overflow.notifications).toHaveLength(128);
+    expect(overflow.notifications.some((record) => record.id === retained[0]!.id)).toBe(false);
+    for (const { id, severity } of retained.slice(1)) {
+      expect(overflow.notifications.find((record) => record.id === id)?.severity).toBe(severity);
+    }
+
+    publisher.dispose();
+    first.dispose();
+    second.dispose();
   });
 
   it("reprojects a toast when a stale completion leaves its lease active", async () => {

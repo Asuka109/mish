@@ -109,8 +109,48 @@ const en = {
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install Helper",
     tunHelperLifecycleApplied: "{operation:string} completed and was confirmed.",
-    tunHelperLifecycleFailed: "{operation:string} could not be completed. {failure:string}",
+    tunHelperLifecycleFailure: {
+      authorizationCancelled:
+        "{operation:string} was cancelled before macOS changed the system component. When you are ready, {retry:string}",
+      authorizationFailed:
+        "{operation:string} could not be completed because macOS did not authorize the request. Confirm administrator access, then {retry:string}",
+      confirmationFailed:
+        "{operation:string} may have finished, but Mish could not confirm the final state. {recovery:string}",
+      connectionFailed:
+        "{operation:string} could not be completed because Mish lost contact with the system component. Restart Mish, then {retry:string}",
+      installationFailed:
+        "{operation:string} could not be completed after macOS approved the request. {recovery:string}",
+      installerUnavailable:
+        "{operation:string} could not start because Mish could not launch the required system-component tool. Reopen Mish, then {retry:string}",
+      invalidResponse:
+        "{operation:string} could not be completed because Mish received an invalid response. Restart Mish, then {retry:string}",
+      observationFailed:
+        "{operation:string} could not be completed because Mish could not safely verify the current network state. Turn off Virtual Interface or restart Mish, then {retry:string}",
+      operationFailed:
+        "{operation:string} could not be completed. Restart Mish, then {retry:string}",
+      preparationFailed:
+        "{operation:string} could not start because Mish could not prepare the required files. macOS was not asked for authorization. Restart Mish, then {retry:string}",
+      registrationFailed:
+        "{operation:string} could not be completed because macOS could not register the system component. {recovery:string}",
+      registrationRequiresApproval:
+        "{operation:string} needs your approval in System Settings before it can finish. Open System Settings, approve the system component, then {retry:string}",
+      repairRequired:
+        "{operation:string} could not be completed because Mish could not verify the system component. {recovery:string}",
+      unsupportedBuild:
+        "{operation:string} could not be completed because this build does not include the required system component. Use a supported Mish build instead.",
+      unsignedApp:
+        "{operation:string} could not be completed because this copy of Mish does not meet the macOS signing requirement. Use a properly signed Mish build instead.",
+      unsupportedSystem:
+        "{operation:string} could not be completed on this version of macOS. Use a supported macOS version or System Proxy instead.",
+    },
     tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
+    tunHelperLifecycleReinstallRecovery: "Open Settings and choose Clean Reinstall.",
+    tunHelperLifecycleRemoveRecovery: "Restart Mish, then try removing it again.",
+    tunHelperLifecycleRetryInstall: "try installing it again.",
+    tunHelperLifecycleRetryRemove: "try removing it again.",
+    tunHelperLifecycleRetryRepair: "try repairing it again.",
+    tunHelperLifecycleUnknownOperation:
+      "A system-component operation could not be completed. Open Settings and try again.",
     tunHelperRemovalAuthorizationCancelled:
       "Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.",
     tunHelperRemovalAuthorizationFailed:
