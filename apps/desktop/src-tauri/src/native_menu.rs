@@ -3,10 +3,7 @@ use std::sync::Arc;
 use mish_native_i18n::{NativeMessage, translate};
 use mish_presentation_contract::{Locale, NativeActionId};
 use mish_settings::{LanguagePreference, SettingsAdapterKind, SettingsService};
-use tauri::{
-    Emitter,
-    menu::{MenuItemBuilder, MenuItemKind, PredefinedMenuItem},
-};
+use tauri::menu::{MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
 
 use crate::status_bar::show_main_window;
 
@@ -114,8 +111,7 @@ pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::Menu
     match event.id().as_ref() {
         SETTINGS_MENU_ID => show_main_window(app, Some("/settings")),
         FIND_MENU_ID => {
-            show_main_window(app, None);
-            let _ = app.emit_to("main", "mish:focus-search", ());
+            crate::show_main_window_with_intent(app, None, true);
         }
         _ => {}
     }

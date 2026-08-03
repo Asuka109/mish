@@ -72,6 +72,11 @@ pub use server::{
     initialize_onboarding_welcome_notification, start_loopback_server,
     start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
 };
+#[cfg(feature = "development-window-trigger")]
+pub use server::{
+    DevelopmentWindowTrigger, DevelopmentWindowTriggerConfig, DevelopmentWindowTriggerHandle,
+    start_loopback_server_with_runtime_host_lifecycle_and_development_window_trigger,
+};
 pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{
     PreparedSupportBundle, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,

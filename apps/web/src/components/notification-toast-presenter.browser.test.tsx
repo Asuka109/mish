@@ -85,4 +85,47 @@ describe("mobile notification toast presentation", () => {
     });
     expect(document.querySelector(".notification-trigger")).toBeNull();
   });
+
+  test("renders only the newest activation error after a retry resolves an unpresented failure", async () => {
+    renderMobilePresenter();
+    const firstKey = "profile.activation-failure:browser-attempt-1";
+    const latestKey = "profile.activation-failure:browser-attempt-2";
+
+    center.publish(
+      notificationPublication("profile.activation-failed", {
+        data: { failure: "validation" },
+        dedupeKey: firstKey,
+        severity: "error",
+      }),
+    );
+    center.resolveByDedupeKey(firstKey);
+    center.publish(
+      notificationPublication("profile.activation-failed", {
+        data: { failure: "managed-listener-conflict" },
+        dedupeKey: latestKey,
+        severity: "error",
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
+    );
+    const toast = document.querySelector("[data-sonner-toast]");
+    expect(toast?.textContent).toContain(
+      "Another process owns a loopback listener required by the managed Core.",
+    );
+    expect(toast?.textContent).not.toContain("Mihomo rejected the staged profile before launch.");
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.notifications.find(({ dedupeKey }) => dedupeKey === firstKey)).toMatchObject({
+      presentationState: { foldReason: "suppressed", phase: "folded" },
+      resolved: true,
+      severity: "error",
+    });
+    expect(snapshot.notifications.find(({ dedupeKey }) => dedupeKey === latestKey)).toMatchObject({
+      presentationState: { phase: "presenting" },
+      resolved: false,
+      severity: "error",
+    });
+  });
 });

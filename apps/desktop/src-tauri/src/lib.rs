@@ -25,6 +25,11 @@ use mish_bridge::{
     initialize_onboarding_welcome_notification,
     start_loopback_server_with_runtime_host_and_lifecycle,
 };
+#[cfg(feature = "development-window-trigger")]
+use mish_bridge::{
+    DevelopmentWindowTrigger, DevelopmentWindowTriggerConfig,
+    start_loopback_server_with_runtime_host_lifecycle_and_development_window_trigger,
+};
 use mish_platform_macos::{
     DevelopmentTunStartup, FileCaptureJournalStore, MacOsLifecycleEventSource,
     MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform, MacOsSystemProxyPlatform,
@@ -51,7 +56,7 @@ use mish_state_authority::StateMutationAuthority;
 use serde::Deserialize;
 use serde::Serialize;
 use tauri::{
-    Manager,
+    Emitter, Manager,
     window::{Effect, EffectState, EffectsBuilder},
 };
 use tauri_plugin_autostart::ManagerExt;
@@ -241,6 +246,205 @@ struct ReleaseProfileEvidence {
 
 struct MainWindowStartup {
     reveal_on_ready: bool,
+    #[cfg(feature = "development-window-trigger")]
+    development_controller: Option<DevelopmentMainWindowController>,
+}
+
+struct MainWebviewConfiguration {
+    development_window_on_demand: bool,
+    open_devtools: bool,
+    #[cfg(feature = "development-window-trigger")]
+    development_template: Option<tauri::utils::config::WindowConfig>,
+}
+
+#[cfg(feature = "development-window-trigger")]
+#[derive(Clone)]
+struct DevelopmentMainWindowController {
+    inner: Arc<DevelopmentMainWindowControllerInner>,
+}
+
+#[cfg(feature = "development-window-trigger")]
+struct DevelopmentMainWindowControllerInner {
+    app: tauri::AppHandle,
+    state: Mutex<DevelopmentMainWindowState>,
+    open_devtools: bool,
+    settings: Arc<SettingsService>,
+    template: tauri::utils::config::WindowConfig,
+}
+
+#[cfg(feature = "development-window-trigger")]
+#[derive(Default)]
+struct DevelopmentMainWindowState {
+    creating: bool,
+    pending_destination: Option<String>,
+    pending_focus_search: bool,
+    ready: bool,
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentMainWindowState {
+    fn cancel_creation(&mut self) {
+        self.creating = false;
+        self.pending_destination = None;
+        self.pending_focus_search = false;
+        self.ready = false;
+    }
+
+    fn finish_ready(&mut self) -> (Option<String>, bool) {
+        self.creating = false;
+        self.ready = true;
+        self.take_pending_intent()
+    }
+
+    fn intent_for_existing_window(&mut self) -> (Option<String>, bool) {
+        self.creating = false;
+        if self.ready {
+            self.take_pending_intent()
+        } else {
+            (None, false)
+        }
+    }
+
+    fn take_pending_intent(&mut self) -> (Option<String>, bool) {
+        (
+            self.pending_destination.take(),
+            std::mem::take(&mut self.pending_focus_search),
+        )
+    }
+
+    fn queue_native_intent(&mut self, destination: Option<&str>, focus_search: bool) {
+        if let Some(destination) = destination {
+            self.pending_destination = Some(destination.to_owned());
+        }
+        self.pending_focus_search |= focus_search;
+    }
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentMainWindowController {
+    fn new(
+        app: tauri::AppHandle,
+        open_devtools: bool,
+        settings: Arc<SettingsService>,
+        template: tauri::utils::config::WindowConfig,
+    ) -> Self {
+        Self {
+            inner: Arc::new(DevelopmentMainWindowControllerInner {
+                app,
+                state: Mutex::new(DevelopmentMainWindowState::default()),
+                open_devtools,
+                settings,
+                template,
+            }),
+        }
+    }
+
+    fn cancel_creation(&self) {
+        if let Ok(mut state) = self.inner.state.lock() {
+            state.cancel_creation();
+        }
+    }
+
+    fn finish_ready(&self) -> (Option<String>, bool) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return (None, false);
+        };
+        state.finish_ready()
+    }
+
+    fn intent_for_existing_window(&self) -> (Option<String>, bool) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return (None, false);
+        };
+        state.intent_for_existing_window()
+    }
+
+    fn trigger_with_native_intent(
+        &self,
+        destination: Option<&str>,
+        focus_search: bool,
+    ) -> Result<(), String> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "development window state is unavailable")?;
+        state.queue_native_intent(destination, focus_search);
+        drop(state);
+        self.trigger()
+    }
+
+    fn create_on_main_thread(&self) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        self.inner
+            .app
+            .set_activation_policy(tauri::ActivationPolicy::Regular)
+            .map_err(|error| error.to_string())?;
+        let window =
+            tauri::WebviewWindowBuilder::from_config(&self.inner.app, &self.inner.template)
+                .map_err(|error| error.to_string())?
+                .build()
+                .map_err(|error| error.to_string())?;
+        let surface = self
+            .inner
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .window_surface;
+        apply_window_surface(&window, surface).map_err(|error| error.to_string())?;
+        if self.inner.open_devtools {
+            window.open_devtools();
+            eprintln!("Mish desktop WebView Inspector requested for this process only.");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentWindowTrigger for DevelopmentMainWindowController {
+    fn trigger(&self) -> Result<(), String> {
+        if let Some(window) = self.inner.app.get_webview_window("main") {
+            let (destination, focus_search) = self.intent_for_existing_window();
+            #[cfg(target_os = "macos")]
+            self.inner
+                .app
+                .set_activation_policy(tauri::ActivationPolicy::Regular)
+                .map_err(|error| error.to_string())?;
+            return reveal_window(&window, destination.as_deref(), focus_search);
+        }
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "development window state is unavailable")?;
+        if state.creating {
+            return Ok(());
+        }
+        state.creating = true;
+        drop(state);
+
+        let controller = self.clone();
+        if self
+            .inner
+            .app
+            .run_on_main_thread(move || {
+                if controller.create_on_main_thread().is_err() {
+                    controller.cancel_creation();
+                    #[cfg(target_os = "macos")]
+                    let _ = controller
+                        .inner
+                        .app
+                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    eprintln!("Mish development desktop window could not be created.");
+                }
+            })
+            .is_err()
+        {
+            self.cancel_creation();
+            return Err("development window scheduling is unavailable".into());
+        }
+        Ok(())
+    }
 }
 
 struct TauriBrowserAssetSource(tauri::AppHandle);
@@ -340,23 +544,32 @@ impl StartupPlatform for TauriStartupPlatform {
     }
 }
 
-struct TauriWindowSurfacePlatform(tauri::WebviewWindow);
+struct TauriWindowSurfacePlatform(tauri::AppHandle);
 
 impl WindowSurfacePlatform for TauriWindowSurfacePlatform {
     fn set_surface(
         &self,
         surface: WindowSurfacePreference,
     ) -> Result<(), WindowSurfacePlatformError> {
-        match surface {
-            WindowSurfacePreference::Material => self.0.set_effects(
-                EffectsBuilder::new()
-                    .effect(Effect::Sidebar)
-                    .state(EffectState::FollowsWindowActiveState)
-                    .build(),
-            ),
-            WindowSurfacePreference::Opaque => self.0.set_effects(None),
-        }
-        .map_err(|_| WindowSurfacePlatformError)
+        let Some(window) = self.0.get_webview_window("main") else {
+            return Ok(());
+        };
+        apply_window_surface(&window, surface).map_err(|_| WindowSurfacePlatformError)
+    }
+}
+
+fn apply_window_surface(
+    window: &tauri::WebviewWindow,
+    surface: WindowSurfacePreference,
+) -> tauri::Result<()> {
+    match surface {
+        WindowSurfacePreference::Material => window.set_effects(
+            EffectsBuilder::new()
+                .effect(Effect::Sidebar)
+                .state(EffectState::FollowsWindowActiveState)
+                .build(),
+        ),
+        WindowSurfacePreference::Opaque => window.set_effects(None),
     }
 }
 
@@ -378,12 +591,62 @@ fn reveal_main_window(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, MainWindowStartup>,
 ) -> Result<(), String> {
+    #[cfg(feature = "development-window-trigger")]
+    let pending_intent = state
+        .development_controller
+        .as_ref()
+        .map(DevelopmentMainWindowController::finish_ready)
+        .unwrap_or_default();
+    #[cfg(not(feature = "development-window-trigger"))]
+    let pending_intent: (Option<String>, bool) = Default::default();
     if !state.reveal_on_ready {
         return Ok(());
     }
+    reveal_window(&window, pending_intent.0.as_deref(), pending_intent.1)
+}
+
+fn reveal_window(
+    window: &tauri::WebviewWindow,
+    destination: Option<&str>,
+    focus_search: bool,
+) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())?;
     window.unminimize().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())
+    window.set_focus().map_err(|error| error.to_string())?;
+    if let Some(destination) = destination {
+        window
+            .emit("mish:navigate", destination)
+            .map_err(|error| error.to_string())?;
+    }
+    if focus_search {
+        window
+            .emit("mish:focus-search", ())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn show_main_window_with_intent(
+    app: &tauri::AppHandle,
+    destination: Option<&str>,
+    focus_search: bool,
+) {
+    #[cfg(feature = "development-window-trigger")]
+    if let Some(controller) = app
+        .try_state::<MainWindowStartup>()
+        .and_then(|startup| startup.development_controller.clone())
+    {
+        if controller
+            .trigger_with_native_intent(destination, focus_search)
+            .is_err()
+        {
+            eprintln!("Mish development desktop window could not be requested.");
+        }
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = reveal_window(&window, destination, focus_search);
+    }
 }
 
 #[tauri::command]
@@ -701,14 +964,15 @@ pub fn run() -> Result<i32, String> {
         std::env::var_os(TART_TUN_ACCEPTANCE_ENV).as_deref(),
     )
     .map_err(|error| error.to_string())?;
-    let mut context = tauri::generate_context!();
-    let open_devtools = configure_main_webview(&mut context, startup_options)?;
-    let tart_tun_acceptance = startup_options.tart_tun_acceptance_enabled(tauri::is_dev());
-    if desktop_demo_requested(
+    let desktop_demo = desktop_demo_requested(
         tauri::is_dev(),
         std::env::var(DESKTOP_DEMO_ENV).ok().as_deref(),
-    ) {
-        return run_demo(context, open_devtools);
+    );
+    let mut context = tauri::generate_context!();
+    let main_webview = configure_main_webview(&mut context, startup_options, !desktop_demo)?;
+    let tart_tun_acceptance = startup_options.tart_tun_acceptance_enabled(tauri::is_dev());
+    if desktop_demo {
+        return run_demo(context, main_webview.open_devtools);
     }
 
     let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
@@ -718,6 +982,7 @@ pub fn run() -> Result<i32, String> {
         requested_mihomo.as_deref(),
         development_core_source.as_deref(),
     )?;
+    let development_window_on_demand = main_webview.development_window_on_demand;
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -737,7 +1002,7 @@ pub fn run() -> Result<i32, String> {
         )
         .manage(graceful_exit::GracefulExitCoordinator::new())
         .manage(bridge_state.clone())
-        .setup(move |app| initialize(app, requested_mihomo, open_devtools, tart_tun_acceptance))
+        .setup(move |app| initialize(app, requested_mihomo, main_webview, tart_tun_acceptance))
         .on_menu_event(native_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
@@ -753,7 +1018,7 @@ pub fn run() -> Result<i32, String> {
         ])
         .build(context)
         .map_err(|error| error.to_string())?;
-    let exit_code = app.run_return(|app, event| {
+    let exit_code = app.run_return(move |app, event| {
         if !cfg!(target_os = "macos") {
             return;
         }
@@ -772,17 +1037,26 @@ pub fn run() -> Result<i32, String> {
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
             } if label == "main" => {
-                let behavior = app
-                    .state::<SettingsState>()
-                    .0
-                    .snapshot(SettingsAdapterKind::Rpc)
-                    .preferences
-                    .window_close_behavior;
-                match main_window_close_action(behavior) {
+                let action = if development_window_on_demand {
+                    MainWindowCloseAction::Hide
+                } else {
+                    main_window_close_action(
+                        app.state::<SettingsState>()
+                            .0
+                            .snapshot(SettingsAdapterKind::Rpc)
+                            .preferences
+                            .window_close_behavior,
+                    )
+                };
+                match action {
                     MainWindowCloseAction::Hide => {
                         api.prevent_close();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.hide();
+                        }
+                        #[cfg(target_os = "macos")]
+                        if development_window_on_demand {
+                            let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                         }
                     }
                     MainWindowCloseAction::GracefulExit => {
@@ -823,6 +1097,8 @@ fn run_demo(context: tauri::Context<tauri::Wry>, open_devtools: bool) -> Result<
         .manage(BridgeState(Arc::new(Mutex::new(None))))
         .manage(MainWindowStartup {
             reveal_on_ready: true,
+            #[cfg(feature = "development-window-trigger")]
+            development_controller: None,
         })
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -831,7 +1107,7 @@ fn run_demo(context: tauri::Context<tauri::Wry>, open_devtools: bool) -> Result<
             if cfg!(target_os = "macos") {
                 native_menu::install_demo(app)?;
             }
-            open_main_webview_inspector(app, open_devtools)?;
+            open_main_webview_inspector(app, open_devtools, false)?;
             Ok(())
         })
         .on_menu_event(native_menu::handle_menu_event)
@@ -909,10 +1185,18 @@ pub(crate) fn request_graceful_exit(app: &tauri::AppHandle) {
 fn initialize(
     app: &mut tauri::App,
     requested_mihomo: Option<PathBuf>,
-    open_devtools: bool,
+    main_webview: MainWebviewConfiguration,
     tart_tun_acceptance: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let open_devtools = main_webview.open_devtools;
+    let development_window_on_demand = main_webview.development_window_on_demand;
+    #[cfg(feature = "development-window-trigger")]
+    let development_window_template = main_webview.development_template;
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
+    #[cfg(target_os = "macos")]
+    if development_window_on_demand {
+        app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
     let profile_root = app.path().app_data_dir()?;
     let (maintenance_capture_restore, maintenance_capture_recovery_required) =
         match internal_tun_capture_restore_marker(&profile_root) {
@@ -997,6 +1281,15 @@ fn initialize(
         )
         .map_err(settings_initialization_error)?,
     );
+    #[cfg(feature = "development-window-trigger")]
+    let development_window_controller = development_window_template.map(|template| {
+        DevelopmentMainWindowController::new(
+            app.handle().clone(),
+            open_devtools,
+            settings_service.clone(),
+            template,
+        )
+    });
     let profile_service = Arc::new(
         ReqwestHttpsSourceReader::profile_service_with_authority(
             profile_root.clone(),
@@ -1206,37 +1499,58 @@ fn initialize(
         ));
         activation.start_scheduler().await;
         activation.start_directory_reconciler().await;
-        let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
-            LoopbackServerConfig {
-                allowed_origins: allowed_origins(
-                    tauri::is_dev(),
-                    std::env::var(DEV_ORIGIN_ENV).ok().as_deref(),
+        let bridge_config = LoopbackServerConfig {
+            allowed_origins: allowed_origins(
+                tauri::is_dev(),
+                std::env::var(DEV_ORIGIN_ENV).ok().as_deref(),
+            )
+            .map_err(io::Error::other)?,
+            auth_token: auth_token.clone(),
+            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 6474)),
+            port_selection: LoopbackPortSelection::SequentialFallback,
+            browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
+            browser_pairing_prompt: Some(Arc::new(TauriBrowserPairingPrompt(app.handle().clone()))),
+            max_message_bytes: 1_048_576,
+            profile_activation: Some(activation.clone()),
+            profile_file_actions: Some(Arc::new(ProfileFileActions::system(
+                profile_root.join("profiles"),
+            ))),
+            profile_service: Some(profile_service.clone()),
+            process_icon_resolver: Some(Arc::new(
+                mish_platform_macos::MacOsProcessIconResolver::default(),
+            )),
+            service_probes: Some(mish_bridge::ServiceProbeConfig {
+                state_path: Some(profile_root.join("service-monitors.json")),
+            }),
+            settings_service: Some(settings_service.clone()),
+            updater_service: Some(Arc::new(mish_updater::UpdaterService::unconfigured(
+                format!("updater-{}", Uuid::new_v4()),
+            ))),
+        };
+        #[cfg(feature = "development-window-trigger")]
+        let bridge = match development_window_controller.clone() {
+            Some(controller) => {
+                start_loopback_server_with_runtime_host_lifecycle_and_development_window_trigger(
+                    bridge_config,
+                    runtime_host.clone(),
+                    lifecycle_source,
+                    DevelopmentWindowTriggerConfig::new(Arc::new(controller)),
                 )
-                .map_err(io::Error::other)?,
-                auth_token: auth_token.clone(),
-                bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 6474)),
-                port_selection: LoopbackPortSelection::SequentialFallback,
-                browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
-                browser_pairing_prompt: Some(Arc::new(TauriBrowserPairingPrompt(
-                    app.handle().clone(),
-                ))),
-                max_message_bytes: 1_048_576,
-                profile_activation: Some(activation.clone()),
-                profile_file_actions: Some(Arc::new(ProfileFileActions::system(
-                    profile_root.join("profiles"),
-                ))),
-                profile_service: Some(profile_service.clone()),
-                process_icon_resolver: Some(Arc::new(
-                    mish_platform_macos::MacOsProcessIconResolver::default(),
-                )),
-                service_probes: Some(mish_bridge::ServiceProbeConfig {
-                    state_path: Some(profile_root.join("service-monitors.json")),
-                }),
-                settings_service: Some(settings_service.clone()),
-                updater_service: Some(Arc::new(mish_updater::UpdaterService::unconfigured(
-                    format!("updater-{}", Uuid::new_v4()),
-                ))),
-            },
+                .await
+            }
+            None => {
+                start_loopback_server_with_runtime_host_and_lifecycle(
+                    bridge_config,
+                    runtime_host.clone(),
+                    lifecycle_source,
+                )
+                .await
+            }
+        }
+        .map_err(io::Error::other)?;
+        #[cfg(not(feature = "development-window-trigger"))]
+        let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
+            bridge_config,
             runtime_host.clone(),
             lifecycle_source,
         )
@@ -1245,21 +1559,42 @@ fn initialize(
         let browser_client = bridge
             .browser_client()
             .ok_or_else(|| io::Error::other("browser client host is unavailable"))?;
-        if tauri::is_dev() {
+        let development_readiness = if tauri::is_dev() {
             let launch_url = browser_client
                 .issue_launch_url()
                 .map_err(io::Error::other)?;
-            println!("Mish Browser Client URL: {launch_url}");
-        }
+            #[cfg(feature = "development-window-trigger")]
+            let trigger_url = if development_window_on_demand {
+                Some(
+                    bridge
+                        .development_window_trigger()
+                        .ok_or_else(|| io::Error::other("desktop window trigger is unavailable"))?
+                        .issue_url(),
+                )
+            } else {
+                None
+            };
+            #[cfg(not(feature = "development-window-trigger"))]
+            let trigger_url: Option<String> = None;
+            Some((launch_url, trigger_url))
+        } else {
+            None
+        };
         let status_bar_state = status_bar::StatusBarState::new(
             runtime_host,
             activation.clone(),
             browser_client,
             settings_service.clone(),
         );
-        Ok::<_, io::Error>((bridge, status_bar_state, support_bundle, activation))
+        Ok::<_, io::Error>((
+            bridge,
+            status_bar_state,
+            support_bundle,
+            activation,
+            development_readiness,
+        ))
     })?;
-    let (bridge, status_bar_state, support_bundle, activation) = bridge;
+    let (bridge, status_bar_state, support_bundle, activation, development_readiness) = bridge;
     app.manage(RuntimeBootstrap {
         auth_token,
         local_backup: true,
@@ -1268,14 +1603,17 @@ fn initialize(
         support_bundle_export: true,
     });
     app.manage(MainWindowStartup {
-        reveal_on_ready: should_show_main_window(
-            std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
-            settings_service
-                .snapshot(SettingsAdapterKind::Rpc)
-                .preferences
-                .startup
-                .login_launch_behavior,
-        ),
+        reveal_on_ready: development_window_on_demand
+            || should_show_main_window(
+                std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
+                settings_service
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences
+                    .startup
+                    .login_launch_behavior,
+            ),
+        #[cfg(feature = "development-window-trigger")]
+        development_controller: development_window_controller,
     });
     app.manage(ProfileState {
         service: profile_service,
@@ -1318,14 +1656,21 @@ fn initialize(
             tun_helper,
         );
     }
-    open_main_webview_inspector(app, open_devtools)?;
+    open_main_webview_inspector(app, open_devtools, development_window_on_demand)?;
+    if let Some((browser_url, trigger_url)) = development_readiness {
+        println!("Mish Browser Client URL: {browser_url}");
+        if let Some(trigger_url) = trigger_url {
+            println!("Mish Desktop Window Trigger URL: {trigger_url}");
+        }
+    }
     Ok(())
 }
 
 fn configure_main_webview(
     context: &mut tauri::Context<tauri::Wry>,
     startup_options: StartupOptions,
-) -> Result<bool, String> {
+    allow_development_window_on_demand: bool,
+) -> Result<MainWebviewConfiguration, String> {
     let open_devtools =
         resolve_devtools_behavior(startup_options, current_desktop_webview_inspector_support())?;
     let main_window = context
@@ -1335,8 +1680,33 @@ fn configure_main_webview(
         .iter_mut()
         .find(|window| window.label == "main")
         .ok_or_else(|| "the main desktop WebView configuration is unavailable".to_owned())?;
+    Ok(configure_main_window(
+        main_window,
+        open_devtools,
+        allow_development_window_on_demand,
+        tauri::is_dev(),
+    ))
+}
+
+fn configure_main_window(
+    main_window: &mut tauri::utils::config::WindowConfig,
+    open_devtools: bool,
+    allow_development_window_on_demand: bool,
+    is_dev: bool,
+) -> MainWebviewConfiguration {
     main_window.devtools = Some(open_devtools);
-    Ok(open_devtools)
+    let development_window_on_demand = cfg!(feature = "development-window-trigger")
+        && is_dev
+        && allow_development_window_on_demand;
+    if development_window_on_demand {
+        main_window.create = false;
+    }
+    MainWebviewConfiguration {
+        development_window_on_demand,
+        open_devtools,
+        #[cfg(feature = "development-window-trigger")]
+        development_template: development_window_on_demand.then(|| main_window.clone()),
+    }
 }
 
 fn resolve_devtools_behavior(
@@ -1366,8 +1736,9 @@ fn current_desktop_webview_inspector_support() -> DesktopWebviewInspectorSupport
 fn open_main_webview_inspector(
     app: &tauri::App,
     open_devtools: bool,
+    development_window_on_demand: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !open_devtools {
+    if !open_devtools || development_window_on_demand {
         return Ok(());
     }
     let window = app
@@ -1838,9 +2209,7 @@ fn startup_platform(app: &tauri::App) -> Option<Arc<dyn StartupPlatform>> {
 
 fn window_surface_platform(app: &tauri::App) -> Option<Arc<dyn WindowSurfacePlatform>> {
     if cfg!(target_os = "macos") {
-        app.get_webview_window("main").map(|window| {
-            Arc::new(TauriWindowSurfacePlatform(window)) as Arc<dyn WindowSurfacePlatform>
-        })
+        Some(Arc::new(TauriWindowSurfacePlatform(app.handle().clone())))
     } else {
         None
     }
@@ -2361,6 +2730,8 @@ mod tests {
         should_show_main_window, system_proxy_only_capture_selection,
         validate_development_mihomo_environment,
     };
+    #[cfg(feature = "development-window-trigger")]
+    use super::{DevelopmentMainWindowState, configure_main_window};
     use mish_bridge::MihomoResolveError;
     use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
@@ -2686,6 +3057,86 @@ mod tests {
             resolve_devtools_behavior(disabled, DesktopWebviewInspectorSupport::Supported),
             Ok(false)
         );
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn development_window_template_is_retained_without_creating_the_webview() {
+        let mut main = tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            visible: false,
+            ..Default::default()
+        };
+        let configured = configure_main_window(&mut main, true, true, true);
+
+        assert!(configured.development_window_on_demand);
+        assert!(!main.create);
+        assert_eq!(main.devtools, Some(true));
+        let template = configured.development_template.unwrap();
+        assert_eq!(template.label, "main");
+        assert!(!template.create);
+        assert!(!template.visible);
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn development_window_creation_retains_the_latest_native_intent_until_ready() {
+        let mut state = DevelopmentMainWindowState {
+            creating: true,
+            ..Default::default()
+        };
+        state.queue_native_intent(Some("/routes"), false);
+        state.queue_native_intent(Some("/settings"), true);
+
+        assert_eq!(state.intent_for_existing_window(), (None, false));
+        assert_eq!(state.finish_ready(), (Some("/settings".into()), true));
+        assert!(!state.creating);
+        assert!(state.ready);
+        assert_eq!(state.intent_for_existing_window(), (None, false));
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn development_window_creation_failure_discards_pending_native_intent() {
+        let mut state = DevelopmentMainWindowState {
+            creating: true,
+            ..Default::default()
+        };
+        state.queue_native_intent(Some("/settings"), true);
+
+        state.cancel_creation();
+
+        assert!(!state.creating);
+        assert!(!state.ready);
+        assert_eq!(state.finish_ready(), (None, false));
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn demo_configuration_still_creates_the_normal_window() {
+        let mut main = tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            ..Default::default()
+        };
+        let configured = configure_main_window(&mut main, true, false, true);
+
+        assert!(!configured.development_window_on_demand);
+        assert!(configured.development_template.is_none());
+        assert!(main.create);
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn packaged_configuration_cannot_enable_the_development_window_trigger() {
+        let mut main = tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            ..Default::default()
+        };
+        let configured = configure_main_window(&mut main, true, true, false);
+
+        assert!(!configured.development_window_on_demand);
+        assert!(configured.development_template.is_none());
+        assert!(main.create);
     }
 
     #[test]

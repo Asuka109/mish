@@ -19,7 +19,7 @@ use mish_settings::{
     SettingsSnapshot,
 };
 use tauri::{
-    Emitter, Manager,
+    Manager,
     menu::{
         CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder,
         PredefinedMenuItem,
@@ -498,16 +498,11 @@ fn retained_or_default_capture_selection(selection: &CaptureSelection) -> Captur
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
-    if let Some(destination) = destination.filter(|destination| is_status_destination(destination))
-    {
-        let _ = app.emit_to("main", "mish:navigate", destination);
-    }
+    crate::show_main_window_with_intent(
+        app,
+        destination.filter(|destination| is_status_destination(destination)),
+        false,
+    );
 }
 
 fn is_status_destination(destination: &str) -> bool {
