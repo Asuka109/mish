@@ -491,9 +491,9 @@ private enum class PrototypeTab(val menuId: Int, val rootPath: String) {
     fun fromPath(path: String): PrototypeTab? {
       val pathOnly = path.substringBefore('?')
       return when {
-        pathOnly == "/status" -> HOME
+        pathOnly == "/status" || pathOnly.startsWith("/status/") -> HOME
         pathOnly == "/routes" || pathOnly.startsWith("/routes/") -> ROUTES
-        pathOnly == "/profiles" -> PROFILES
+        pathOnly == "/profiles" || pathOnly.startsWith("/profiles/") -> PROFILES
         pathOnly == "/traffic" || pathOnly == "/events" -> ACTIVITY
         pathOnly == "/settings" || pathOnly.startsWith("/settings/") -> SETTINGS
         else -> null

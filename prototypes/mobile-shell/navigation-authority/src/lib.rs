@@ -214,9 +214,11 @@ pub fn tab_for_path(path: &str) -> Option<MobileTab> {
     let path_without_query = path.split('?').next()?;
     match path_without_query {
         "/status" => Some(MobileTab::Home),
+        value if value.starts_with("/status/") => Some(MobileTab::Home),
         "/routes" => Some(MobileTab::Routes),
         value if value.starts_with("/routes/") => Some(MobileTab::Routes),
         "/profiles" => Some(MobileTab::Profiles),
+        value if value.starts_with("/profiles/") => Some(MobileTab::Profiles),
         "/traffic" | "/events" => Some(MobileTab::Activity),
         "/settings" => Some(MobileTab::Settings),
         value if value.starts_with("/settings/") => Some(MobileTab::Settings),
@@ -369,5 +371,20 @@ mod tests {
             NavigationOutcome::RejectedPath { snapshot, .. } if snapshot == baseline
         ));
         assert_eq!(authority.snapshot(), baseline);
+    }
+
+    #[test]
+    fn every_prototype_tab_accepts_its_child_route() {
+        let cases = [
+            ("/status/session", MobileTab::Home),
+            ("/routes/streaming", MobileTab::Routes),
+            ("/profiles/import", MobileTab::Profiles),
+            ("/events", MobileTab::Activity),
+            ("/settings/network", MobileTab::Settings),
+        ];
+
+        for (path, expected_tab) in cases {
+            assert_eq!(tab_for_path(path), Some(expected_tab), "path {path}");
+        }
     }
 }

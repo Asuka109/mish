@@ -96,7 +96,7 @@ Unavailable evidence:
 
 ## Prototype execution evidence
 
-The Shared Rust authority candidate passed all five unit tests with
+The Shared Rust authority candidate passed all six unit tests with
 `cargo test -p mish-mobile-navigation-prototype`. The tests are state-contract
 evidence only; the prototype crate is not linked into either app.
 
@@ -106,8 +106,8 @@ untouched.
 
 - Artifact:
   `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
-- SHA-256: `144b3919162b598bedafca98ccb3b1b8debd6bdb7dcc7ae9942e11d5b2b4e49d`
-- Size: 204,771,778 bytes; the artifact contains the arm64 debug Rust library
+- SHA-256: `cb568eb9bd4cfcc9e45f7fb0b10cfe7a64c08f31042b60506dc31280aa1170dc`
+- Size: 392,209,370 bytes; the artifact contains the arm64 debug Rust library
   and is not release-size evidence.
 - Emulator fingerprint:
   `google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys`

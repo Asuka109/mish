@@ -46,9 +46,11 @@ private enum PrototypeTab: String, CaseIterable, Hashable {
         let pathOnly = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
         switch pathOnly {
         case "/status": .home
+        case let value where value.hasPrefix("/status/"): .home
         case "/routes": .routes
         case let value where value.hasPrefix("/routes/"): .routes
         case "/profiles": .profiles
+        case let value where value.hasPrefix("/profiles/"): .profiles
         case "/traffic", "/events": .activity
         case "/settings": .settings
         case let value where value.hasPrefix("/settings/"): .settings
