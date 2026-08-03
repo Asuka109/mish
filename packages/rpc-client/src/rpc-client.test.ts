@@ -98,6 +98,7 @@ function createSnapshot() {
       selectionConfirmed: false,
       targetCount: 0,
     },
+    groupSelectionAvailability: "available",
     groupUsage: [],
     metrics: {
       activeConnections: 0,

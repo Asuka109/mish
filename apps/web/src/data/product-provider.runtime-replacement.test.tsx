@@ -58,6 +58,32 @@ class ConfirmedGroupRuntimeReplacementClient extends FixtureStatusClient {
   }
 }
 
+class StoppedGroupClient extends FixtureStatusClient {
+  selectionAttempts = 0;
+
+  override async getSnapshot() {
+    const snapshot = await super.getSnapshot();
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+    return snapshot;
+  }
+
+  override async selectGroupChild(groupId: string, childId: string) {
+    this.selectionAttempts += 1;
+    return super.selectGroupChild(groupId, childId);
+  }
+}
+
+class StoppingDuringSelectionClient extends FixtureStatusClient {
+  override async selectGroupChild(_groupId: string, _childId: string): Promise<StatusSnapshotDto> {
+    const snapshot = await super.getSnapshot();
+    snapshot.applicationOrder.order += 1;
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+    throw new StatusClientError("core-not-running", "The proxy must be running", false, snapshot);
+  }
+}
+
 class ConfirmedGroupTimeoutClient extends FixtureStatusClient {
   private confirmationRefreshes = 0;
   private pendingSelection: { childId: string; groupId: string } | null = null;
@@ -218,6 +244,7 @@ function ConfirmedGroupRuntimeReplacementHarness() {
         Change proxy
       </button>
       <output data-testid="group-result">{result}</output>
+      <output data-testid="group-phase">{product.commandStates.group.phase}</output>
       <output data-testid="group-selection">
         {product.snapshot?.groups.find(({ id }) => id === "proxy")?.selectedChildId ?? "loading"}
       </output>
@@ -255,6 +282,43 @@ function ConcurrentGroupHarness() {
 }
 
 describe("ProductProvider runtime replacement reconciliation", () => {
+  it("rejects a stopped selection before command feedback or client dispatch", async () => {
+    const client = new StoppedGroupClient();
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={client}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => expect(screen.getByTestId("group-result")).toHaveTextContent("failed"));
+    expect(screen.getByTestId("group-phase")).toHaveTextContent("idle");
+    expect(client.selectionAttempts).toBe(0);
+  });
+
+  it("retires feedback without failure residue when Core stops at Rust admission", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={new StoppingDuringSelectionClient()}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-result")).toHaveTextContent("failed");
+      expect(screen.getByTestId("group-phase")).toHaveTextContent("idle");
+    });
+    expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02");
+  });
+
   it("applies the authoritative terminal snapshot without issuing a second refresh", async () => {
     const client = new RuntimeReplacementClient();
     render(
