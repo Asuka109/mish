@@ -132,6 +132,11 @@ Automated tests cover:
   overflow, navigation labels, viewport-clipped controls, completed deferred
   route loading, and table-local horizontal scrolling;
 - semantic sidebar links and accessible active destination state;
+- real Chromium focus geometry across browser, desktop-WebView, and mobile
+  compositions in both appearances and locales: only Tab or Shift+Tab marks a
+  visible actionable target, pointer/touch and imperative focus stay silent,
+  hidden/disabled/inert targets are rejected, and Base UI trap/return behavior
+  remains intact;
 - typed fixture snapshot isolation and fixture-only capability declarations;
 - legacy selector-contract compatibility plus all extended policy-group types;
 - nested group graph validation for cycles, missing children, duplicate or
@@ -235,7 +240,9 @@ Before a visible production change is accepted, verify:
 - direct load and browser refresh for every route;
 - keyboard traversal of navigation, routing, capture, profile, group picker,
   service management, and dialog close/cancel actions;
-- visible focus and no clipped focus rings;
+- visible focus and no clipped focus rings after Tab or Shift+Tab, with no ring
+  after pointer/touch activation, route-title announcements, reconnect, Profile
+  changes, notification actions, or overlay initial/return focus;
 - reduced-motion mode, WebGL unavailable fallback, and an inactive aggregate
   control;
 - long mixed-script, emoji, and no-emoji labels without semantic parsing;

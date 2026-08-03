@@ -10,6 +10,7 @@ import {
   MISH_BROWSER_DISCOVERY_SERVICE,
   probeMishBrowserBackend,
 } from "../platform/browser-backend-discovery";
+import { installFocusVisibility } from "../platform/focus-visibility";
 import { BrowserBackendRecovery } from "./browser-backend-recovery";
 import "../styles.css";
 
@@ -40,12 +41,14 @@ const marker = {
 };
 
 let root: Root;
+let disposeFocusVisibility: () => void;
 const monitor = new ConnectionMonitor();
 const visited: number[] = [];
 const navigate = vi.fn(() => new Promise<void>(() => undefined));
 
 beforeAll(async () => {
   loadAllLocales();
+  disposeFocusVisibility = installFocusVisibility();
   document.body.innerHTML = '<div id="browser-backend-recovery-root"></div>';
   const container = document.getElementById("browser-backend-recovery-root");
   if (!container) throw new Error("Missing browser recovery test root");
@@ -94,9 +97,21 @@ beforeAll(async () => {
   );
 });
 
-afterAll(() => root.unmount());
+afterAll(() => {
+  disposeFocusVisibility();
+  root.unmount();
+});
 
 describe("browser backend recovery in Chromium", () => {
+  test("keeps reconnect announcement focus visually silent", () => {
+    const heading = document.querySelector<HTMLElement>("#browser-backend-recovery-title");
+    if (!heading) throw new Error("Missing recovery heading");
+
+    expect(document.activeElement).toBe(heading);
+    expect(heading).not.toHaveAttribute("data-mish-focus-visible");
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
+  });
+
   test("keeps Connect and Scan readable in the narrow recovery card", () => {
     const connect = document.querySelector<HTMLButtonElement>("button[type='submit']");
     const scan = document.querySelector<HTMLButtonElement>("button[type='button']");

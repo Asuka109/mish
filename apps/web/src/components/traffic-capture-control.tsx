@@ -258,7 +258,7 @@ export function TrafficCaptureControl({
                 aria-describedby={tunDescriptionId}
                 aria-label={LL.capture.tun()}
                 aria-disabled="true"
-                className="inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-focus-accent focus-visible:outline-offset-2"
+                className="inline-flex rounded-md"
                 data-capture-unavailable-trigger="true"
                 render={<span tabIndex={0} />}
               >

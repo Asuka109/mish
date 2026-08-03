@@ -17,15 +17,18 @@ import { FixtureStatusClient } from "../data/fixture-status-client";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { RouteFocusManager } from "../platform/route-focus";
+import { installFocusVisibility } from "../platform/focus-visibility";
 import { NotificationBubble } from "./notification-bubble";
 import "../styles.css";
 
 let deliveryClient: FixtureNotificationClient;
 let publisher: FixtureNotificationClient;
 let root: Root;
+let disposeFocusVisibility: () => void;
 
 beforeAll(async () => {
   loadAllLocales();
+  disposeFocusVisibility = installFocusVisibility();
   document.body.innerHTML = '<div id="notification-profiles-navigation-root"></div>';
   const center = new FixtureNotificationCenter();
   deliveryClient = new FixtureNotificationClient(center);
@@ -72,6 +75,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  disposeFocusVisibility();
   root.unmount();
   deliveryClient.dispose();
   publisher.dispose();
@@ -108,6 +112,8 @@ describe("missing Profile notification navigation", () => {
     await vi.waitFor(() => {
       expect(document.activeElement?.textContent).toBe("Profiles");
     });
+    expect(heading.element()).not.toHaveAttribute("data-mish-focus-visible");
+    expect(getComputedStyle(heading.element()).outlineStyle).toBe("none");
     expect(
       (await publisher.getSnapshot()).notifications.some(
         ({ dedupeKey }) => dedupeKey === "capture.failure",

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
+import { installFocusVisibility } from "../platform/focus-visibility";
 import { TrafficCaptureControl } from "./traffic-capture-control";
 import "../styles.css";
 
@@ -27,6 +28,7 @@ const tunStatus = {
 };
 
 let root: Root;
+let disposeFocusVisibility: () => void;
 function renderHost(
   host: "Settings" | "Status",
   tun: "permission-required" | "repair-required" | "unavailable" = "unavailable",
@@ -72,13 +74,17 @@ function renderHost(
 
 beforeAll(async () => {
   loadAllLocales();
+  disposeFocusVisibility = installFocusVisibility();
   document.body.innerHTML = '<div id="traffic-capture-control-browser-root"></div>';
   const container = document.getElementById("traffic-capture-control-browser-root");
   if (!container) throw new Error("Missing browser-test root");
   root = createRoot(container);
 });
 
-afterAll(() => root.unmount());
+afterAll(() => {
+  disposeFocusVisibility();
+  root.unmount();
+});
 
 describe("Virtual Interface native setup boundary", () => {
   test("keeps an unsupported Virtual Interface unavailable in Status", async () => {
@@ -104,6 +110,8 @@ describe("Virtual Interface native setup boundary", () => {
     await userEvent.keyboard("{Tab}");
     await userEvent.keyboard("{Tab}");
     await expect.element(tun).toHaveFocus();
+    await expect.element(tun).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(tun.element()).outlineStyle).toBe("solid");
     await userEvent.keyboard("{Enter}");
     await expect
       .element(page.getByRole("dialog", { name: "Before enabling Virtual Interface" }))
@@ -111,6 +119,8 @@ describe("Virtual Interface native setup boundary", () => {
 
     await userEvent.keyboard("{Escape}");
     await expect.element(tun).toHaveFocus();
+    await expect.element(tun).not.toHaveAttribute("data-mish-focus-visible");
+    expect(getComputedStyle(tun.element()).outlineStyle).toBe("none");
     expect(onTunChange).not.toHaveBeenCalled();
   });
 

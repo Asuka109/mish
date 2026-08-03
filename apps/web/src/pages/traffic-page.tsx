@@ -133,8 +133,8 @@ const trafficStyles = tv({
       "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-25",
     ),
     connectionRow: cx(
-      "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-focus-accent",
-      "focus-visible:outline-offset-[-2px]",
+      "cursor-pointer outline-none",
+      "data-[mish-focus-visible=keyboard]:[--mish-focus-outline-offset:-2px]",
     ),
     connectionAction: "text-clip",
     rulesTable: cx(
