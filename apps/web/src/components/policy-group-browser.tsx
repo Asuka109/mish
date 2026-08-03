@@ -58,7 +58,8 @@ export function usePolicyGroupSelection({
   const [pendingSelectionId, setPendingSelectionId] = useState<string | null>(null);
   const selectionDisabled = !group || commandsDisabled || !isCommandSupported("group");
   const selectionDisabledReason =
-    snapshot?.groupSelectionAvailability === "core-not-running"
+    snapshot?.groupSelectionAvailability === "core-not-running" ||
+    (selectionDisabled && snapshot?.runtime.phase === "inactive")
       ? LL.routes.selectionRequiresRunningProxy()
       : undefined;
   const selectionPending = group ? isGroupCommandPending(group.id) : false;

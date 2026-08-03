@@ -471,7 +471,7 @@ describe("Routes workspace", () => {
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
-  it("shows the selected profile's configured groups while Mihomo is stopped", async () => {
+  it("explains stopped selection for a lifecycle-only configured Profile catalog", async () => {
     const user = userEvent.setup();
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.adapterKind = "rpc";
@@ -479,7 +479,6 @@ describe("Routes workspace", () => {
     snapshot.groups = [];
     snapshot.nodes = [];
     snapshot.runtime.phase = "inactive";
-    snapshot.groupSelectionAvailability = "core-not-running";
 
     render(
       <AppearanceProvider>
@@ -510,9 +509,14 @@ describe("Routes workspace", () => {
       name: "Select Zulu node in Z first",
     });
     expect(configuredSelection).toBeDisabled();
+    const explanationTrigger = configuredSelection.closest<HTMLElement>(
+      "[data-policy-selection-unavailable-trigger]",
+    );
+    expect(explanationTrigger).toHaveAttribute("tabindex", "0");
+    await user.hover(explanationTrigger!);
     expect(
-      configuredSelection.closest("[data-policy-selection-unavailable-trigger]"),
-    ).toHaveAttribute("tabindex", "0");
+      await screen.findByText("Start the proxy before changing this policy-group selection."),
+    ).toBeVisible();
     expect(configuredSelection).not.toHaveTextContent("Read-only");
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
     expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();

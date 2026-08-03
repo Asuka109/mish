@@ -112,7 +112,7 @@ class StoppedPolicySelectionClient extends FixtureStatusClient {
     const snapshot = await super.getSnapshot();
     snapshot.adapterKind = "rpc";
     snapshot.runtime.phase = "inactive";
-    snapshot.groupSelectionAvailability = "core-not-running";
+    snapshot.groupSelectionAvailability = "unavailable";
     return snapshot;
   }
 
