@@ -112,8 +112,8 @@ Android 16/API 36 emulator. The personal USB device remained untouched.
 
 - Artifact:
   `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
-- SHA-256: `4e747b3a4aa84326f5b4d90f59145783670ed36ce62687dc39403e0ea25dc349`
-- Size: 392,209,370 bytes; the artifact contains the arm64 debug Rust library
+- SHA-256: `abdafff9fe6026bd27c7e744102d3cd413a776f423dbf859b32c35c0402ce8ba`
+- Size: 392,215,122 bytes; the artifact contains the arm64 debug Rust library
   and is not release-size evidence.
 - Emulator fingerprint:
   `google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys`
