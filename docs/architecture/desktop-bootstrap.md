@@ -208,7 +208,10 @@ existing window is shown, unminimized, and focused. The normal WebView-ready
 handshake still prevents an empty frame. In this development mode a close
 request hides the window regardless of the stored production close preference,
 returns the process to Accessory activation, and leaves the backend and current
-trigger available. Process replacement discards
+trigger available. Status-bar navigation, application-menu navigation and Find,
+and Dock reopen requests queue their intent through the same controller when the
+window does not exist; the ready handshake delivers the queued action. Process
+replacement discards
 the capability, replay set, pending creation claim, and window together, so a
 hot restart remains hidden and earlier URLs fail closed.
 

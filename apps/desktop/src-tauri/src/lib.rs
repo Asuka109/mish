@@ -56,7 +56,7 @@ use mish_state_authority::StateMutationAuthority;
 use serde::Deserialize;
 use serde::Serialize;
 use tauri::{
-    Manager,
+    Emitter, Manager,
     window::{Effect, EffectState, EffectsBuilder},
 };
 use tauri_plugin_autostart::ManagerExt;
@@ -266,10 +266,58 @@ struct DevelopmentMainWindowController {
 #[cfg(feature = "development-window-trigger")]
 struct DevelopmentMainWindowControllerInner {
     app: tauri::AppHandle,
-    creating: Mutex<bool>,
+    state: Mutex<DevelopmentMainWindowState>,
     open_devtools: bool,
     settings: Arc<SettingsService>,
     template: tauri::utils::config::WindowConfig,
+}
+
+#[cfg(feature = "development-window-trigger")]
+#[derive(Default)]
+struct DevelopmentMainWindowState {
+    creating: bool,
+    pending_destination: Option<String>,
+    pending_focus_search: bool,
+    ready: bool,
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentMainWindowState {
+    fn cancel_creation(&mut self) {
+        self.creating = false;
+        self.pending_destination = None;
+        self.pending_focus_search = false;
+        self.ready = false;
+    }
+
+    fn finish_ready(&mut self) -> (Option<String>, bool) {
+        self.creating = false;
+        self.ready = true;
+        self.take_pending_intent()
+    }
+
+    fn intent_for_existing_window(&mut self) -> (Option<String>, bool) {
+        self.creating = false;
+        if self.ready {
+            self.take_pending_intent()
+        } else {
+            (None, false)
+        }
+    }
+
+    fn take_pending_intent(&mut self) -> (Option<String>, bool) {
+        (
+            self.pending_destination.take(),
+            std::mem::take(&mut self.pending_focus_search),
+        )
+    }
+
+    fn queue_native_intent(&mut self, destination: Option<&str>, focus_search: bool) {
+        if let Some(destination) = destination {
+            self.pending_destination = Some(destination.to_owned());
+        }
+        self.pending_focus_search |= focus_search;
+    }
 }
 
 #[cfg(feature = "development-window-trigger")]
@@ -283,7 +331,7 @@ impl DevelopmentMainWindowController {
         Self {
             inner: Arc::new(DevelopmentMainWindowControllerInner {
                 app,
-                creating: Mutex::new(false),
+                state: Mutex::new(DevelopmentMainWindowState::default()),
                 open_devtools,
                 settings,
                 template,
@@ -291,10 +339,39 @@ impl DevelopmentMainWindowController {
         }
     }
 
-    fn mark_ready(&self) {
-        if let Ok(mut creating) = self.inner.creating.lock() {
-            *creating = false;
+    fn cancel_creation(&self) {
+        if let Ok(mut state) = self.inner.state.lock() {
+            state.cancel_creation();
         }
+    }
+
+    fn finish_ready(&self) -> (Option<String>, bool) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return (None, false);
+        };
+        state.finish_ready()
+    }
+
+    fn intent_for_existing_window(&self) -> (Option<String>, bool) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return (None, false);
+        };
+        state.intent_for_existing_window()
+    }
+
+    fn trigger_with_native_intent(
+        &self,
+        destination: Option<&str>,
+        focus_search: bool,
+    ) -> Result<(), String> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "development window state is unavailable")?;
+        state.queue_native_intent(destination, focus_search);
+        drop(state);
+        self.trigger()
     }
 
     fn create_on_main_thread(&self) -> Result<(), String> {
@@ -326,26 +403,25 @@ impl DevelopmentMainWindowController {
 #[cfg(feature = "development-window-trigger")]
 impl DevelopmentWindowTrigger for DevelopmentMainWindowController {
     fn trigger(&self) -> Result<(), String> {
-        let mut creating = self
-            .inner
-            .creating
-            .lock()
-            .map_err(|_| "development window state is unavailable")?;
-        if *creating {
-            return Ok(());
-        }
         if let Some(window) = self.inner.app.get_webview_window("main") {
+            let (destination, focus_search) = self.intent_for_existing_window();
             #[cfg(target_os = "macos")]
             self.inner
                 .app
                 .set_activation_policy(tauri::ActivationPolicy::Regular)
                 .map_err(|error| error.to_string())?;
-            window.show().map_err(|error| error.to_string())?;
-            window.unminimize().map_err(|error| error.to_string())?;
-            return window.set_focus().map_err(|error| error.to_string());
+            return reveal_window(&window, destination.as_deref(), focus_search);
         }
-        *creating = true;
-        drop(creating);
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "development window state is unavailable")?;
+        if state.creating {
+            return Ok(());
+        }
+        state.creating = true;
+        drop(state);
 
         let controller = self.clone();
         if self
@@ -353,7 +429,7 @@ impl DevelopmentWindowTrigger for DevelopmentMainWindowController {
             .app
             .run_on_main_thread(move || {
                 if controller.create_on_main_thread().is_err() {
-                    controller.mark_ready();
+                    controller.cancel_creation();
                     #[cfg(target_os = "macos")]
                     let _ = controller
                         .inner
@@ -364,7 +440,7 @@ impl DevelopmentWindowTrigger for DevelopmentMainWindowController {
             })
             .is_err()
         {
-            self.mark_ready();
+            self.cancel_creation();
             return Err("development window scheduling is unavailable".into());
         }
         Ok(())
@@ -516,15 +592,61 @@ fn reveal_main_window(
     state: tauri::State<'_, MainWindowStartup>,
 ) -> Result<(), String> {
     #[cfg(feature = "development-window-trigger")]
-    if let Some(controller) = &state.development_controller {
-        controller.mark_ready();
-    }
+    let pending_intent = state
+        .development_controller
+        .as_ref()
+        .map(DevelopmentMainWindowController::finish_ready)
+        .unwrap_or_default();
+    #[cfg(not(feature = "development-window-trigger"))]
+    let pending_intent: (Option<String>, bool) = Default::default();
     if !state.reveal_on_ready {
         return Ok(());
     }
+    reveal_window(&window, pending_intent.0.as_deref(), pending_intent.1)
+}
+
+fn reveal_window(
+    window: &tauri::WebviewWindow,
+    destination: Option<&str>,
+    focus_search: bool,
+) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())?;
     window.unminimize().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())
+    window.set_focus().map_err(|error| error.to_string())?;
+    if let Some(destination) = destination {
+        window
+            .emit("mish:navigate", destination)
+            .map_err(|error| error.to_string())?;
+    }
+    if focus_search {
+        window
+            .emit("mish:focus-search", ())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn show_main_window_with_intent(
+    app: &tauri::AppHandle,
+    destination: Option<&str>,
+    focus_search: bool,
+) {
+    #[cfg(feature = "development-window-trigger")]
+    if let Some(controller) = app
+        .try_state::<MainWindowStartup>()
+        .and_then(|startup| startup.development_controller.clone())
+    {
+        if controller
+            .trigger_with_native_intent(destination, focus_search)
+            .is_err()
+        {
+            eprintln!("Mish development desktop window could not be requested.");
+        }
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = reveal_window(&window, destination, focus_search);
+    }
 }
 
 #[tauri::command]
@@ -2590,8 +2712,6 @@ mod tests {
         sync::Mutex,
     };
 
-    #[cfg(feature = "development-window-trigger")]
-    use super::configure_main_window;
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
         DevtoolsStartupSource, InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES,
@@ -2610,6 +2730,8 @@ mod tests {
         should_show_main_window, system_proxy_only_capture_selection,
         validate_development_mihomo_environment,
     };
+    #[cfg(feature = "development-window-trigger")]
+    use super::{DevelopmentMainWindowState, configure_main_window};
     use mish_bridge::MihomoResolveError;
     use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
@@ -2954,6 +3076,39 @@ mod tests {
         assert_eq!(template.label, "main");
         assert!(!template.create);
         assert!(!template.visible);
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn development_window_creation_retains_the_latest_native_intent_until_ready() {
+        let mut state = DevelopmentMainWindowState {
+            creating: true,
+            ..Default::default()
+        };
+        state.queue_native_intent(Some("/routes"), false);
+        state.queue_native_intent(Some("/settings"), true);
+
+        assert_eq!(state.intent_for_existing_window(), (None, false));
+        assert_eq!(state.finish_ready(), (Some("/settings".into()), true));
+        assert!(!state.creating);
+        assert!(state.ready);
+        assert_eq!(state.intent_for_existing_window(), (None, false));
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn development_window_creation_failure_discards_pending_native_intent() {
+        let mut state = DevelopmentMainWindowState {
+            creating: true,
+            ..Default::default()
+        };
+        state.queue_native_intent(Some("/settings"), true);
+
+        state.cancel_creation();
+
+        assert!(!state.creating);
+        assert!(!state.ready);
+        assert_eq!(state.finish_ready(), (None, false));
     }
 
     #[cfg(feature = "development-window-trigger")]

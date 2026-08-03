@@ -37,8 +37,10 @@ Open the Browser Client for the primary no-window development surface. Open the
 desktop-window trigger when the native WebView is needed. A current trigger
 creates, reveals, or focuses the single `main` window. Closing that development
 window hides it without stopping the backend, and a fresh request from the same
-unexpired trigger can reveal it again. A hot rebuild starts the replacement
-process without a window and prints new process-scoped links; old links fail.
+unexpired trigger can reveal it again. Native status-bar, application-menu, and
+Dock reopen actions use the same single-window controller. A hot rebuild starts
+the replacement process without a window and prints new process-scoped links;
+old links fail.
 
 Use `pnpm desktop:dev -- --open` to ask the host's standard URL opener to open
 the Browser Client after readiness. This option is off by default. Opener
