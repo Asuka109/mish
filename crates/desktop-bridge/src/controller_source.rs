@@ -63,6 +63,7 @@ pub struct ControllerObservationConfig {
     pub refresh_interval: Duration,
     pub reconnect_delay: Duration,
     pub confirmation_timeout: Duration,
+    pub group_confirmation_grace: Duration,
     pub connection_cleanup_preference: PolicyGroupConnectionCleanupPreference,
     pub cleanup_interval: Duration,
     pub cleanup_timeout: Duration,
@@ -81,6 +82,7 @@ impl ControllerObservationConfig {
             refresh_interval: Duration::from_secs(2),
             reconnect_delay: Duration::from_secs(1),
             confirmation_timeout: Duration::from_secs(5),
+            group_confirmation_grace: Duration::from_secs(2),
             connection_cleanup_preference: PolicyGroupConnectionCleanupPreference::default(),
             cleanup_interval: Duration::from_millis(100),
             cleanup_timeout: Duration::from_millis(900),
@@ -215,6 +217,7 @@ struct SourceInner {
     client: ControllerClient,
     command: AsyncMutex<()>,
     confirmation_timeout: Duration,
+    group_confirmation_grace: Duration,
     connection_cleanup_preference: PolicyGroupConnectionCleanupPreference,
     cleanup_control: Mutex<Option<(u64, CancellationToken)>>,
     cleanup_execution: AsyncMutex<()>,
@@ -269,6 +272,7 @@ impl ControllerStatusSource {
             || config.refresh_interval.is_zero()
             || config.reconnect_delay.is_zero()
             || config.confirmation_timeout.is_zero()
+            || config.group_confirmation_grace.is_zero()
             || config.cleanup_interval.is_zero()
             || config.cleanup_timeout.is_zero()
             || config.cleanup_quiet_scans == 0
@@ -293,6 +297,7 @@ impl ControllerStatusSource {
                 client,
                 command: AsyncMutex::new(()),
                 confirmation_timeout: config.confirmation_timeout,
+                group_confirmation_grace: config.group_confirmation_grace,
                 connection_cleanup_preference: config.connection_cleanup_preference,
                 cleanup_control: Mutex::new(None),
                 cleanup_execution: AsyncMutex::new(()),
@@ -1193,7 +1198,39 @@ impl ControllerStatusSource {
             .select_group_child(&group, &child)
             .await
             .map_err(map_command_error)?;
-        let deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
+        let primary_deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
+        let late_confirmation_deadline = primary_deadline + self.inner.group_confirmation_grace;
+        let confirmed = if self
+            .observe_group_selection_until(&mapper, group_id, child_id, primary_deadline)
+            .await?
+        {
+            true
+        } else {
+            self.observe_group_selection_until(
+                &mapper,
+                group_id,
+                child_id,
+                late_confirmation_deadline,
+            )
+            .await?
+        };
+        if confirmed {
+            clear_diagnostic(&self.inner, ObservationChannel::Command).await;
+            return Ok(Some(context));
+        }
+        Err(StatusCommandError::new(
+            StatusCommandErrorKind::Timeout,
+            "The Controller did not confirm the group selection before the deadline",
+        ))
+    }
+
+    async fn observe_group_selection_until(
+        &self,
+        mapper: &ControllerStatusMapper,
+        group_id: &str,
+        child_id: &str,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, StatusCommandError> {
         loop {
             self.inner
                 .client
@@ -1230,14 +1267,10 @@ impl ControllerStatusSource {
                 .and_then(|proxy| proxy.now.as_deref())
                 == Some(observed_child.as_str());
             if confirmed {
-                clear_diagnostic(&self.inner, ObservationChannel::Command).await;
-                return Ok(Some(context));
+                return Ok(true);
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(StatusCommandError::new(
-                    StatusCommandErrorKind::Timeout,
-                    "The Controller did not confirm the group selection before the deadline",
-                ));
+                return Ok(false);
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
