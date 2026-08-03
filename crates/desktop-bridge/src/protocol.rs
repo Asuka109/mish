@@ -198,15 +198,7 @@ impl ProtocolState {
     }
 
     fn settings_snapshot(&self, service: &SettingsService) -> mish_settings::SettingsSnapshot {
-        let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-        self.project_settings_snapshot(&mut snapshot);
-        snapshot
-    }
-
-    fn project_settings_snapshot(&self, snapshot: &mut mish_settings::SettingsSnapshot) {
-        if self.tun_helper_lifecycle_transaction.try_lock().is_err() {
-            snapshot.tun_helper.mark_removal_maintenance_pending();
-        }
+        service.snapshot(SettingsAdapterKind::Rpc)
     }
 
     fn record_onboarding_welcome_presentation(
@@ -871,8 +863,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
             }
             update = subscriptions.settings_updates.recv(), if authenticated && !subscriptions.settings_ids.is_empty() => {
-                let Ok(mut snapshot) = update else { continue };
-                state.project_settings_snapshot(&mut snapshot);
+                let Ok(snapshot) = update else { continue };
                 for subscription_id in &subscriptions.settings_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
@@ -1951,8 +1942,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let mut snapshot = service.refresh_network_dns().await;
-            state.project_settings_snapshot(&mut snapshot);
+            let snapshot = service.refresh_network_dns().await;
             serde_json::to_value(snapshot).expect("serializable settings snapshot")
         }
         "settings.installTunHelper" => {
@@ -1964,8 +1954,12 @@ async fn handle_message(
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Install) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
-            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Install);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
             match service.install_tun_helper().await {
@@ -1985,10 +1979,8 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
-                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -1999,8 +1991,6 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2016,8 +2006,12 @@ async fn handle_message(
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Repair) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
-            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Repair);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
             match service.repair_tun_helper().await {
@@ -2037,10 +2031,8 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
-                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -2051,8 +2043,6 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2064,11 +2054,15 @@ async fn handle_message(
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Remove) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
-            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Remove);
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "pending", None);
-            let admitted = match service.refresh_tun_helper().await {
-                Ok(snapshot) => snapshot,
+            let removal_available = match service.refresh_tun_helper_removal_available().await {
+                Ok(removal_available) => removal_available,
                 Err(error) => {
                     let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
                     publish_tun_helper_removal_outcome(
@@ -2077,14 +2071,12 @@ async fn handle_message(
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
                 }
             };
-            if !admitted.tun_helper.removal_available() {
+            if !removal_available {
                 let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
                 publish_tun_helper_removal_outcome(
                     state,
@@ -2092,8 +2084,6 @@ async fn handle_message(
                     outcome,
                     Some("helper-installation-unconfirmed".into()),
                 );
-                drop(helper_lifecycle_transaction);
-                service.publish_tun_helper_snapshot();
                 return Some(error_response(
                     id,
                     -32055,
@@ -2110,8 +2100,6 @@ async fn handle_message(
                     outcome,
                     Some(capture_failure_id(error.kind)),
                 );
-                drop(helper_lifecycle_transaction);
-                service.publish_tun_helper_snapshot();
                 return Some(tun_helper_removal_capture_error_response(
                     id, error, outcome,
                 ));
@@ -2124,24 +2112,21 @@ async fn handle_message(
                     outcome,
                     Some(settings_failure_id(&error)),
                 );
-                drop(helper_lifecycle_transaction);
-                service.publish_tun_helper_snapshot();
                 return Some(tun_helper_removal_settings_error_response(
                     state, id, error, outcome,
                 ));
             }
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "finalizing", None);
             match service.remove_tun_helper().await {
-                Ok(mut snapshot) => {
+                Ok(_) => {
                     publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
                         TunHelperRemovalOutcome::Removed,
                         None,
                     );
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -2152,8 +2137,6 @@ async fn handle_message(
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
-                    service.publish_tun_helper_snapshot();
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
@@ -2326,8 +2309,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let (updates, mut snapshot) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
-            state.project_settings_snapshot(&mut snapshot);
+            let (updates, snapshot) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
             subscriptions.settings_updates = updates;
             let subscription_id = format!(
                 "settings-{}",
