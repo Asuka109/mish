@@ -47,8 +47,9 @@ use mish_runtime::{
     CaptureJournalStore, CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection,
     CoreRuntime, LoopbackProxyEndpoint, MishRuntime, StatusAdapterKind, TunHelperAvailability,
     TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
-    TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
-    TunNetworkObservation, TunObservationComponentState, tun_observation_now,
+    TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
+    TunHelperRemovalCapability, TunHelperSnapshot, TunNetworkObservation,
+    TunObservationComponentState, tun_observation_now,
 };
 use mish_settings::{
     FileSettingsRepository, SettingsAvailability, SettingsCapabilities, SettingsService,
@@ -131,6 +132,7 @@ pub enum SyntheticMaintenanceInitial {
 pub enum SyntheticOwnership {
     Absent,
     Mish,
+    Partial,
     Unrelated,
 }
 
@@ -339,6 +341,7 @@ pub(crate) struct MaintenanceModel {
     socket: SyntheticOwnership,
     socket_generation: u64,
     tun: SyntheticOwnership,
+    tun_mutation_failure: Option<TunHelperFailureKind>,
     unrelated: SyntheticUnrelatedState,
 }
 
@@ -497,6 +500,7 @@ impl MaintenanceEngine {
             socket: SyntheticOwnership::Absent,
             socket_generation: 0,
             tun: SyntheticOwnership::Absent,
+            tun_mutation_failure: None,
             unrelated: SyntheticUnrelatedState::present(),
         };
         match initial {
@@ -608,6 +612,40 @@ impl MaintenanceEngine {
         self.host()
             .ok()
             .and_then(|host| host.maintenance_observation())
+    }
+
+    pub fn set_network_ownership(
+        &self,
+        core: SyntheticOwnership,
+        tun: SyntheticOwnership,
+        route: SyntheticOwnership,
+        dns: SyntheticOwnership,
+    ) -> Result<(), MaintenanceHarnessError> {
+        let host = self.host()?;
+        let mut model = host.model.lock().expect("simulated host lock poisoned");
+        let maintenance = model
+            .maintenance
+            .as_mut()
+            .ok_or(MaintenanceHarnessError::StateUnavailable)?;
+        maintenance.core_process = core;
+        maintenance.tun = tun;
+        maintenance.route = route;
+        maintenance.dns = dns;
+        Ok(())
+    }
+
+    pub fn fail_next_tun_mutation(
+        &self,
+        failure: TunHelperFailureKind,
+    ) -> Result<(), MaintenanceHarnessError> {
+        let host = self.host()?;
+        let mut model = host.model.lock().expect("simulated host lock poisoned");
+        let maintenance = model
+            .maintenance
+            .as_mut()
+            .ok_or(MaintenanceHarnessError::StateUnavailable)?;
+        maintenance.tun_mutation_failure = Some(failure);
+        Ok(())
     }
 
     pub async fn abort_active(&self) {
@@ -1007,7 +1045,9 @@ impl MaintenanceEngine {
         {
             let mut model = host.model.lock().expect("simulated host lock poisoned");
             model.core_phase = SimulatedCorePhase::Stopped;
-            model.endpoint_owner = ManagedEndpointOwner::Free;
+            if model.endpoint_owner == ManagedEndpointOwner::Mish {
+                model.endpoint_owner = ManagedEndpointOwner::Free;
+            }
         }
         self.commit_point(
             &host,
@@ -1471,7 +1511,9 @@ impl MaintenanceEngine {
         })?;
         let mut model = host.model.lock().expect("simulated host lock poisoned");
         model.core_phase = SimulatedCorePhase::Stopped;
-        model.endpoint_owner = ManagedEndpointOwner::Free;
+        if model.endpoint_owner == ManagedEndpointOwner::Mish {
+            model.endpoint_owner = ManagedEndpointOwner::Free;
+        }
         let _ = reason;
         Ok(())
     }
@@ -1968,7 +2010,9 @@ impl MaintenanceEngine {
                 maintenance.helper_process = SyntheticOwnership::Absent;
                 maintenance.socket = SyntheticOwnership::Absent;
                 model.core_phase = SimulatedCorePhase::Stopped;
-                model.endpoint_owner = ManagedEndpointOwner::Free;
+                if model.endpoint_owner == ManagedEndpointOwner::Mish {
+                    model.endpoint_owner = ManagedEndpointOwner::Free;
+                }
             }
         }
         Ok(decision)
@@ -2294,6 +2338,15 @@ impl SimulatedHost {
             installed_version,
             last_failure,
             phase: mish_runtime::TunHelperLifecyclePhase::Idle,
+            removal: match availability {
+                TunHelperAvailability::Available | TunHelperAvailability::RepairRequired => {
+                    TunHelperRemovalCapability::Available
+                }
+                TunHelperAvailability::PermissionRequired => {
+                    TunHelperRemovalCapability::NotInstalled
+                }
+                _ => TunHelperRemovalCapability::Unavailable,
+            },
         })
     }
 }
@@ -2372,9 +2425,9 @@ impl TunHelperPlatform for SimulatedHost {
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
         Box::pin(async move {
-            let (operation_id, revision) = {
-                let model = self.model.lock().expect("simulated host lock poisoned");
-                let maintenance = model.maintenance.as_ref().ok_or_else(|| {
+            let (operation_id, revision, failure) = {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                let maintenance = model.maintenance.as_mut().ok_or_else(|| {
                     TunHelperError::new(
                         TunHelperFailureKind::UnsupportedSystem,
                         "Internal TUN simulation was not configured",
@@ -2383,8 +2436,15 @@ impl TunHelperPlatform for SimulatedHost {
                 (
                     maintenance.active_operation.unwrap_or(0),
                     maintenance.active_operation.unwrap_or(0),
+                    maintenance.tun_mutation_failure.take(),
                 )
             };
+            if let Some(failure) = failure {
+                return Err(TunHelperError::new(
+                    failure,
+                    "The simulated Internal TUN mutation failed",
+                ));
+            }
             self.emit_maintenance(
                 EffectKind::MaintenanceObserve,
                 EffectResultKind::Applied,
@@ -2444,7 +2504,9 @@ impl TunHelperPlatform for SimulatedHost {
                     maintenance.core_process = SyntheticOwnership::Absent;
                 }
                 model.core_phase = SimulatedCorePhase::Stopped;
-                model.endpoint_owner = ManagedEndpointOwner::Free;
+                if model.endpoint_owner == ManagedEndpointOwner::Mish {
+                    model.endpoint_owner = ManagedEndpointOwner::Free;
+                }
             }
             Ok(())
         })
@@ -2682,6 +2744,7 @@ fn component(owner: SyntheticOwnership) -> TunObservationComponentState {
     match owner {
         SyntheticOwnership::Absent => TunObservationComponentState::Absent,
         SyntheticOwnership::Mish => TunObservationComponentState::Confirmed,
+        SyntheticOwnership::Partial => TunObservationComponentState::Partial,
         SyntheticOwnership::Unrelated => TunObservationComponentState::Foreign,
     }
 }

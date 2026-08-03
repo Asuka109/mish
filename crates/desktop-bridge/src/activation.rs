@@ -2690,6 +2690,7 @@ mod managed_execution_backend_tests {
             installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
             last_failure: None,
             phase: mish_runtime::TunHelperLifecyclePhase::Idle,
+            removal: mish_runtime::TunHelperRemovalCapability::Available,
         };
         let tun = ManagedRuntimePolicy::new(
             "127.0.0.1:43124".parse().unwrap(),
@@ -2739,6 +2740,7 @@ mod managed_execution_backend_tests {
             installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
             last_failure: None,
             phase: mish_runtime::TunHelperLifecyclePhase::Idle,
+            removal: mish_runtime::TunHelperRemovalCapability::Available,
         };
         let healthy_policy = ManagedRuntimePolicy::new(
             "127.0.0.1:43126".parse().unwrap(),

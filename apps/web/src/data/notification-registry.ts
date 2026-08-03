@@ -4,6 +4,7 @@ import {
   type NotificationRecordDto,
   type NotificationSeverity,
   TunHelperFailureKindSchema,
+  TunHelperRemovalOutcomeSchema,
 } from "@mish/contracts";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import { trafficFailureMessage } from "./traffic-failure-message";
@@ -215,6 +216,7 @@ function knownPresentation(
     case "traffic.operation-failed":
       return { message: trafficFailureMessage(LL, trafficFailure(string("failure"))) };
     case "tun-helper.lifecycle": {
+      const removalOutcome = TunHelperRemovalOutcomeSchema.safeParse(string("outcome"));
       const operation =
         string("operation") === "install"
           ? LL.settingsPage.installTunHelper()
@@ -226,6 +228,17 @@ function knownPresentation(
       }
       if (string("outcome") === "applied") {
         return { message: LL.settingsPage.tunHelperLifecycleApplied({ operation }) };
+      }
+      if (string("operation") === "remove" && removalOutcome.success) {
+        const message = {
+          "authorization-cancelled": LL.settingsPage.tunHelperRemovalAuthorizationCancelled,
+          "authorization-failed": LL.settingsPage.tunHelperRemovalAuthorizationFailed,
+          "observation-incomplete": LL.settingsPage.tunHelperRemovalObservationIncomplete,
+          "removal-failed": LL.settingsPage.tunHelperRemovalFailed,
+          removed: LL.settingsPage.tunHelperRemovalRemoved,
+          "shutdown-failed": LL.settingsPage.tunHelperRemovalShutdownFailed,
+        }[removalOutcome.data];
+        return { message: message() };
       }
       return {
         message: LL.settingsPage.tunHelperLifecycleFailed({

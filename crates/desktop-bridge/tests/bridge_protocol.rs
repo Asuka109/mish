@@ -439,6 +439,7 @@ impl TunHelperPlatform for HealthyTunHelperPlatform {
             installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
+            removal: mish_runtime::TunHelperRemovalCapability::Available,
         }
     }
 
@@ -2630,6 +2631,10 @@ async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle()
         native_snapshot["result"]["capabilities"]["tun"],
         "supported"
     );
+    assert_eq!(
+        native_snapshot["result"]["tunHelper"]["removal"],
+        "available"
+    );
 
     let browser_origin = format!("http://{}", bridge.address);
     let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
@@ -2641,6 +2646,10 @@ async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle()
     .await;
     assert_eq!(
         browser_snapshot["result"]["capabilities"]["tun"],
+        "unavailable"
+    );
+    assert_eq!(
+        browser_snapshot["result"]["tunHelper"]["removal"],
         "unavailable"
     );
     let lifecycle = request(
@@ -3002,7 +3011,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 31);
+    assert_eq!(info["result"]["protocolVersion"], 32);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],

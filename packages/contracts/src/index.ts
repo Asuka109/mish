@@ -1910,6 +1910,24 @@ export const TunHelperLifecyclePhaseSchema = z.enum([
 ]);
 export type TunHelperLifecyclePhase = z.infer<typeof TunHelperLifecyclePhaseSchema>;
 
+export const TunHelperRemovalCapabilitySchema = z.enum([
+  "available",
+  "maintenance-pending",
+  "not-installed",
+  "unavailable",
+]);
+export type TunHelperRemovalCapability = z.infer<typeof TunHelperRemovalCapabilitySchema>;
+
+export const TunHelperRemovalOutcomeSchema = z.enum([
+  "authorization-cancelled",
+  "authorization-failed",
+  "observation-incomplete",
+  "removal-failed",
+  "removed",
+  "shutdown-failed",
+]);
+export type TunHelperRemovalOutcome = z.infer<typeof TunHelperRemovalOutcomeSchema>;
+
 export const TunHelperFailureKindSchema = z.enum([
   "authorization-cancelled",
   "confirmation-failed",
@@ -1948,6 +1966,7 @@ export const TunHelperSnapshotSchema = z
     installedVersion: z.string().min(1).max(64).nullable(),
     lastFailure: TunHelperFailureKindSchema.nullable(),
     phase: TunHelperLifecyclePhaseSchema,
+    removal: TunHelperRemovalCapabilitySchema,
   })
   .strict();
 export interface TunHelperSnapshotDto extends z.infer<typeof TunHelperSnapshotSchema> {}
@@ -2326,7 +2345,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(31),
+    protocolVersion: z.literal(32),
     statusCommands: z
       .object({
         group: z.boolean(),

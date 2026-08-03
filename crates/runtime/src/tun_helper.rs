@@ -55,6 +55,26 @@ pub enum TunHelperLifecyclePhase {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum TunHelperRemovalCapability {
+    Available,
+    MaintenancePending,
+    NotInstalled,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TunHelperRemovalOutcome {
+    AuthorizationCancelled,
+    AuthorizationFailed,
+    ObservationIncomplete,
+    RemovalFailed,
+    Removed,
+    ShutdownFailed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TunHelperFailureKind {
     AuthorizationCancelled,
     ConfirmationFailed,
@@ -169,6 +189,10 @@ impl TunNetworkObservation {
             && self.dns == TunObservationComponentState::Absent
     }
 
+    pub fn confirms_removal_safe_at(&self, now: u64) -> bool {
+        self.confirms_disabled_at(now) && self.core == TunObservationComponentState::Absent
+    }
+
     pub fn failure_kind_at(&self, now: u64) -> TunHelperFailureKind {
         if !self.is_fresh_at(now) {
             return TunHelperFailureKind::ObservationStale;
@@ -200,6 +224,7 @@ pub struct TunHelperSnapshot {
     pub installed_version: Option<String>,
     pub last_failure: Option<TunHelperFailureKind>,
     pub phase: TunHelperLifecyclePhase,
+    pub removal: TunHelperRemovalCapability,
 }
 
 impl TunHelperSnapshot {
@@ -208,7 +233,7 @@ impl TunHelperSnapshot {
         health: TunHelperHealth,
         failure: TunHelperFailureKind,
     ) -> Self {
-        Self {
+        let mut snapshot = Self {
             availability,
             expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
             health,
@@ -216,7 +241,10 @@ impl TunHelperSnapshot {
             installed_version: None,
             last_failure: Some(failure),
             phase: TunHelperLifecyclePhase::Idle,
-        }
+            removal: TunHelperRemovalCapability::Unavailable,
+        };
+        snapshot.refresh_removal_capability();
+        snapshot
     }
 
     pub fn browser_unavailable() -> Self {
@@ -228,6 +256,7 @@ impl TunHelperSnapshot {
             installed_version: None,
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
+            removal: TunHelperRemovalCapability::Unavailable,
         }
     }
 
@@ -241,6 +270,43 @@ impl TunHelperSnapshot {
         self.availability == TunHelperAvailability::Available
             && self.health == TunHelperHealth::Healthy
             && self.installed_version.as_deref() == Some(self.expected_version.as_str())
+    }
+
+    pub fn removal_available(&self) -> bool {
+        self.removal == TunHelperRemovalCapability::Available
+    }
+
+    pub fn mark_removal_maintenance_pending(&mut self) {
+        if self.removal == TunHelperRemovalCapability::Available {
+            self.removal = TunHelperRemovalCapability::MaintenancePending;
+        }
+    }
+
+    fn refresh_removal_capability(&mut self) {
+        let authoritatively_installed = matches!(
+            self.availability,
+            TunHelperAvailability::Available | TunHelperAvailability::RepairRequired
+        ) || (self.health != TunHelperHealth::NotInstalled
+            && (self.installation_id.is_some() || self.installed_version.is_some()));
+        self.removal = if authoritatively_installed {
+            if matches!(
+                self.phase,
+                TunHelperLifecyclePhase::Installing
+                    | TunHelperLifecyclePhase::Removing
+                    | TunHelperLifecyclePhase::Repairing
+            ) {
+                TunHelperRemovalCapability::MaintenancePending
+            } else {
+                TunHelperRemovalCapability::Available
+            }
+        } else if self.health == TunHelperHealth::NotInstalled
+            && self.installation_id.is_none()
+            && self.installed_version.is_none()
+        {
+            TunHelperRemovalCapability::NotInstalled
+        } else {
+            TunHelperRemovalCapability::Unavailable
+        };
     }
 }
 
@@ -373,6 +439,7 @@ impl TunHelperController {
         snapshot.availability = TunHelperAvailability::Unavailable;
         snapshot.phase = TunHelperLifecyclePhase::Failed;
         snapshot.last_failure = Some(failure);
+        snapshot.refresh_removal_capability();
     }
 
     pub async fn install(&self) -> Result<TunHelperSnapshot, TunHelperError> {
@@ -388,6 +455,33 @@ impl TunHelperController {
     pub async fn remove(&self) -> Result<TunHelperSnapshot, TunHelperError> {
         self.run_lifecycle(TunHelperLifecycleOperation::Remove)
             .await
+    }
+
+    pub async fn confirm_removal_safe(&self) -> Result<TunNetworkObservation, TunHelperError> {
+        let _operation = self.operation.lock().await;
+        let admitted = self.refresh_locked(None).await;
+        if !admitted.removal_available() {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::ConfirmationFailed,
+                "The TUN helper installation is not available for removal",
+            ));
+        }
+        let observed = match self.platform.observe_tun().await {
+            Ok(observed) => observed,
+            Err(error) => {
+                self.record_failure(error.kind);
+                return Err(error);
+            }
+        };
+        if !observed.confirms_removal_safe_at(tun_observation_now()) {
+            let error = TunHelperError::new(
+                observed.failure_kind_at(tun_observation_now()),
+                "TUN cleanup could not be confirmed before helper removal",
+            );
+            self.record_failure(error.kind);
+            return Err(error);
+        }
+        Ok(observed)
     }
 
     pub async fn observe_tun(&self) -> Result<TunNetworkObservation, TunHelperError> {
@@ -439,14 +533,19 @@ impl TunHelperController {
         operation: TunHelperLifecycleOperation,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
+        let admitted = if operation == TunHelperLifecycleOperation::Remove {
+            self.refresh_locked(None).await
+        } else {
+            self.snapshot()
+        };
         // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
-        // It needs the same confirmed handoff as repair or removal before lifecycle work starts.
+        // It needs the same confirmed handoff as repair before lifecycle work starts. Removal is
+        // admitted only after the shared Capture authority has already stopped TUN; this boundary
+        // performs a second read-only observation and never creates a competing mutation path.
         if matches!(
             operation,
-            TunHelperLifecycleOperation::Install
-                | TunHelperLifecycleOperation::Repair
-                | TunHelperLifecycleOperation::Remove
-        ) && self.snapshot().has_healthy_identity()
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && admitted.has_healthy_identity()
         {
             if let Err(error) = self.platform.set_tun_enabled(false).await {
                 self.record_failure(error.kind);
@@ -464,6 +563,32 @@ impl TunHelperController {
                 let error = TunHelperError::new(
                     kind,
                     "TUN remained enabled before the helper lifecycle operation",
+                );
+                self.record_failure(error.kind);
+                return Err(error);
+            }
+        }
+        if operation == TunHelperLifecycleOperation::Remove {
+            if !admitted.removal_available() {
+                let error = TunHelperError::new(
+                    TunHelperFailureKind::ConfirmationFailed,
+                    "The TUN helper installation is not available for removal",
+                );
+                self.record_failure(error.kind);
+                return Err(error);
+            }
+            let observed = match self.platform.observe_tun().await {
+                Ok(observed) => observed,
+                Err(error) => {
+                    self.record_failure(error.kind);
+                    return Err(error);
+                }
+            };
+            if !observed.confirms_removal_safe_at(tun_observation_now()) {
+                let kind = observed.failure_kind_at(tun_observation_now());
+                let error = TunHelperError::new(
+                    kind,
+                    "TUN cleanup could not be confirmed before helper removal",
                 );
                 self.record_failure(error.kind);
                 return Err(error);
@@ -496,6 +621,7 @@ impl TunHelperController {
                 let unblocked = self.refresh_locked(None).await;
                 if unblocked.health != TunHelperHealth::NotInstalled
                     || unblocked.installed_version.is_some()
+                    || unblocked.installation_id.is_some()
                     || unblocked.availability == TunHelperAvailability::Unavailable
                 {
                     let error = TunHelperError::new(
@@ -573,6 +699,7 @@ impl TunHelperController {
                     snapshot.phase = TunHelperLifecyclePhase::Failed;
                     snapshot.last_failure = Some(failure);
                 }
+                snapshot.refresh_removal_capability();
                 *self
                     .snapshot
                     .lock()
@@ -593,6 +720,7 @@ impl TunHelperController {
             .expect("TUN helper snapshot lock poisoned");
         snapshot.phase = phase;
         snapshot.last_failure = None;
+        snapshot.refresh_removal_capability();
     }
 
     fn record_failure(&self, failure: TunHelperFailureKind) {
@@ -607,6 +735,7 @@ impl TunHelperController {
             .expect("TUN helper snapshot lock poisoned");
         snapshot.phase = TunHelperLifecyclePhase::Failed;
         snapshot.last_failure = Some(failure);
+        snapshot.refresh_removal_capability();
     }
 
     fn clear_failure(&self) {
@@ -616,6 +745,7 @@ impl TunHelperController {
             .expect("TUN helper snapshot lock poisoned");
         snapshot.phase = TunHelperLifecyclePhase::Idle;
         snapshot.last_failure = None;
+        snapshot.refresh_removal_capability();
     }
 }
 
@@ -630,6 +760,7 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
         installed_version: observation.installed_version,
         last_failure: observation.last_failure,
         phase: TunHelperLifecyclePhase::Idle,
+        removal: TunHelperRemovalCapability::Unavailable,
     };
     if snapshot.health == TunHelperHealth::Healthy && !version_matches {
         snapshot.availability = TunHelperAvailability::RepairRequired;
@@ -648,6 +779,7 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
             | TunHelperAvailability::Unavailable => None,
         };
     }
+    snapshot.refresh_removal_capability();
     snapshot
 }
 

@@ -111,6 +111,18 @@ const en = {
     tunHelperLifecycleApplied: "{operation:string} completed and was confirmed.",
     tunHelperLifecycleFailed: "{operation:string} could not be completed. {failure:string}",
     tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
+    tunHelperRemovalAuthorizationCancelled:
+      "Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.",
+    tunHelperRemovalAuthorizationFailed:
+      "macOS did not authorize Helper removal. Confirm administrator access and try again.",
+    tunHelperRemovalObservationIncomplete:
+      "Mish could not confirm that Core, the virtual interface, routes, and DNS were clean, so the Helper was not removed. Restore the network state or restart Mish, then try again.",
+    tunHelperRemovalFailed:
+      "The Helper could not be removed and remains installed. Restart Mish, then open Settings and try again.",
+    tunHelperRemovalRemoved:
+      "The Helper was removed after Mish confirmed that Core, the virtual interface, routes, and DNS were clean.",
+    tunHelperRemovalShutdownFailed:
+      "Mish could not stop the virtual interface safely, so the Helper was not removed. Turn off the virtual interface and try again.",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
     launchAtLogin: "When device starts",

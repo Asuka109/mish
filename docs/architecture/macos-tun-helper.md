@@ -489,7 +489,7 @@ outside this slice.
 The production transport-neutral lifecycle contract exposes only:
 
 - observed availability, installed and expected versions, health, lifecycle
-  phase, and last typed failure;
+  phase, last typed failure, and authoritative removal capability;
 - explicit `install`, `repair`, and `remove` lifecycle operations;
 - `health`, `enable-tun`, and `disable-tun` wire commands.
 
@@ -588,10 +588,18 @@ residual cleanup effects, an exited Core with residual effects, foreign
 interfaces, parser failures, and stale observations remain non-applied typed
 state.
 
-Repair and removal first disable and reobserve TUN. Every lifecycle operation
-is serialized and followed by a fresh observation. Permission refusal,
-registration approval, signature failure, version drift, connection failure,
-or an unconfirmed result remains a typed failure.
+Repair first disables and reobserves TUN. Removal is available whenever the
+Helper is authoritatively installed and no mutually exclusive Helper
+maintenance transaction is pending, independently of Core, listener, Capture,
+or network health. If TUN is active, removal first uses the shared serialized
+Capture transaction to turn off TUN and confirm its ordinary cleanup. A
+read-only check then requires fresh absence of Core, utun, routes, and DNS; the
+Helper controller repeats that check at the lifecycle boundary before any
+administrator authorization or uninstall work begins. Either incomplete check
+blocks uninstall and never writes foreign state. Every lifecycle operation is
+serialized and followed by a fresh observation. Shutdown failure,
+authorization cancellation, authorization failure, incomplete observation,
+removal failure, and confirmed removal remain distinct typed outcomes.
 
 ## Managed Mihomo policy
 
