@@ -283,6 +283,7 @@ async fn helper_removal_capability_is_authoritative_across_runtime_health_and_ca
 
     let mut core_failed_host = SimulatedHostScenario::internal_tun_maintenance();
     core_failed_host.failures = vec![InjectedFailure {
+        after_effect: None,
         effect: EffectKind::CoreObserve,
         kind: InjectedFailureKind::Observation,
         occurrence: 1,
