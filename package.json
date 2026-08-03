@@ -14,7 +14,7 @@
     "build": "pnpm web:build",
     "check": "pnpm check:pr",
     "check:all": "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types && pnpm test:unit && pnpm test:macos:bundle && pnpm check:rust:format && pnpm check:rust:clippy && pnpm test:rust && pnpm web:build && pnpm check:design && pnpm check:tokens && pnpm check:docs",
-    "check:android": "node scripts/check-android-project.ts",
+    "check:android": "node scripts/check-android-project.ts && node scripts/check-mobile-shell-boundary.ts",
     "check:ci": "node scripts/check-ci-workflow.ts && node scripts/check-trusted-ci-policy.ts && pnpm check:macos:release-workflow",
     "check:design": "pnpm dlx @google/design.md lint DESIGN.md",
     "check:docs": "node scripts/check-markdown-links.ts && node scripts/check-runtime-state-ownership.ts && node scripts/check-state-machine-registry.ts && node scripts/check-cross-platform-authority.ts && pnpm check:simulated-host-exclusion && pnpm check:macos:transcript-exclusion && pnpm check:public-release",

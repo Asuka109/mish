@@ -2788,6 +2788,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mish-mobile-navigation-prototype"
+version = "0.1.0"
+
+[[package]]
 name = "mish-native-i18n"
 version = "0.1.0"
 dependencies = [
