@@ -180,8 +180,10 @@ The candidate is a Swift Playgrounds/Xcode package:
 
 Open it in Xcode 26 or later and run on exact iOS 26 and iPadOS 26 simulators.
 This research host cannot perform that step because Xcode, iOS SDKs, and
-Simulator are unavailable. Until another authorized host runs the matrix below,
-the Apple candidate is **source-ready, uncompiled, and unaccepted**.
+Simulator are unavailable. The maintainer accepted the architectural direction
+on 2026-08-04, but the Apple candidate remains **source-ready, uncompiled, and
+unrun**; no runtime behavior is accepted as evidence until an authorized host
+runs the matrix below.
 
 ## iOS and iPadOS hands-on matrix
 

@@ -2,11 +2,12 @@
 
 ## Decision status
 
-This report is the Issue #343 architecture candidate. It does not authorize a
-mobile-shell rewrite. No product shell, runtime dependency, or product behavior
-changes in this pull request. The Android and Apple candidates are research-only
-prototypes, and the exact follow-up slices remain drafts until a maintainer
-accepts or rejects this matrix through the required hands-on review.
+This report is the Issue #343 architecture decision. The maintainer accepted the
+Android and Apple platform directions and the strict Native-to-Rust-to-Web
+boundary on 2026-08-04. The decision authorizes only the bounded follow-up slices
+below; it does not itself authorize a mobile-shell rewrite. No product shell,
+runtime dependency, or product behavior changes in this pull request. The
+Android and Apple candidates remain research-only prototypes.
 
 The recommended installed-mobile boundary is:
 
@@ -38,9 +39,9 @@ The recommended installed-mobile boundary is:
 
 This proposal preserves the existing React Router authority for Web content and
 adds a disjoint outer-shell authority in Shared Rust. Each state domain has one
-writer; neither layer mirrors or commits the other's history. It must not replace
-the product contract until the maintainer accepts this report and a bounded
-implementation Issue changes the architecture and validation documents together.
+writer; neither layer mirrors or commits the other's history. The accepted
+direction becomes a product contract only through bounded implementation Issues
+that change the architecture and validation documents together.
 
 ## Evidence baseline and limits
 
@@ -467,18 +468,24 @@ Each slice has one observable platform outcome and preserves desktop/browser
 behavior. Follow-up Issues may be created only for the accepted slices and must
 retain explicit platform dependencies.
 
+After the 2026-08-04 acceptance, the bounded next slices were published as
+#372 (Shared Rust shell contract), #373 (Android installed-mobile cutover), and
+#374 (Apple single-WebView host/runtime comparison). The Apple production
+cutover remains intentionally uncreated until #374 supplies exact Xcode/runtime
+evidence and receives its own hands-on acceptance.
+
 ## Acceptance decision
 
 The maintainer must accept or reject Android and Apple independently.
 
 | Platform   | Hands-on decision surface                                                                                                                                                                                    | Acceptance signal                                                                                                       | Current state                                                                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Android    | Exact debug APK: native vs current React bars, strict one-way boundary, ripple clipping, selected/pressed/disabled, delegated Web back/root exit, insets/IME, TalkBack, light/dark, reduced motion, native-origin sheet | Explicitly accept selective Material Views plus disjoint shell/Web writers and no Web-to-Native bridge, or reject with the observed mismatch | Revised candidate rebuilt and core boundary path passed on isolated API 36; residual hands-on gates remain |
-| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system shell tabs/navigation, one WKWebView, no Web backchannel, Liquid Glass, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/Web-back | Explicitly accept UIKit/SwiftUI host direction plus the strict one-way boundary, or reject with the observed mismatch | Blocked on unavailable Xcode/iOS host; no runtime claim |
+| Android    | Exact debug APK: native vs current React bars, strict one-way boundary, ripple clipping, selected/pressed/disabled, delegated Web back/root exit, insets/IME, TalkBack, light/dark, reduced motion, native-origin sheet | Explicitly accept selective Material Views plus disjoint shell/Web writers and no Web-to-Native bridge, or reject with the observed mismatch | Accepted 2026-08-04; residual exact-candidate hands-on gates transfer to the Android implementation Issue |
+| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system shell tabs/navigation, one WKWebView, no Web backchannel, Liquid Glass, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/Web-back | Explicitly accept UIKit/SwiftUI host direction plus the strict one-way boundary, or reject with the observed mismatch | Architecture direction accepted 2026-08-04; Xcode/runtime evidence remains unavailable and must precede any production cutover |
 
-The research pull request must remain unmerged and Issue #343 must remain open
-until both required platform decisions are explicit or the maintainer explicitly
-narrows acceptance to one platform and records the other as deferred.
+The maintainer's 2026-08-04 acceptance satisfies the research decision gate for
+both platforms. It does not waive the unavailable Apple runtime evidence or the
+hands-on gates attached to the bounded follow-up Issues.
 
 ## Official sources
 
