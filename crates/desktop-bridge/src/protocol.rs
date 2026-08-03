@@ -24,15 +24,14 @@ use mish_runtime::{
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
-    TunHelperLifecycleApplicationNotificationData, TunHelperRemovalCapability,
-    TunHelperRemovalOutcome, valid_notification_presentation_completion,
-    valid_notification_presentation_identity,
+    TunHelperLifecycleApplicationNotificationData, TunHelperRemovalOutcome,
+    valid_notification_presentation_completion, valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
     ManagedPortPreferences, OnboardingWelcomeAction, ProcessDiscoveryMode, SettingsAdapterKind,
-    SettingsAvailability, SettingsService, SettingsServiceError, StartupPreferences,
-    WindowCloseBehavior, WindowSurfacePreference,
+    SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
+    WindowSurfacePreference,
 };
 use mish_updater::{UpdateChannel, UpdateOperationError, UpdaterService, UpdaterSnapshot};
 use tokio::{
@@ -47,12 +46,6 @@ static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_NOTIFICATION_PRESENTATION_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 const PROCESS_ICON_MAX_BYTES: usize = 262_144;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RpcClientSurface {
-    Native,
-    Browser,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,7 +84,6 @@ pub(crate) struct ProtocolState {
     // command race the Capture transaction and publish a stale terminal lifecycle notification.
     pub tun_helper_lifecycle_transaction: std::sync::Arc<Mutex<()>>,
     pub updater: std::sync::Arc<UpdaterService>,
-    pub client_surface: RpcClientSurface,
 }
 
 /// Tracks which live WebSocket owns each client-provided presentation identity. The identity is
@@ -157,7 +149,6 @@ impl ProtocolState {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
-        self.project_status_snapshot(&mut snapshot);
         self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
@@ -174,7 +165,6 @@ impl ProtocolState {
             service_probes.overlay(snapshot);
         }
         if let Some(snapshot) = error.reconciliation.as_mut() {
-            self.project_status_snapshot(snapshot);
             self.runtime.stamp_status_snapshot(ticket, snapshot);
         }
         status_command_error_response(id, error)
@@ -202,15 +192,8 @@ impl ProtocolState {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
-        self.project_status_snapshot(&mut snapshot);
         self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
-    }
-
-    fn project_status_snapshot(&self, snapshot: &mut StatusSnapshot) {
-        if self.client_surface == RpcClientSurface::Browser {
-            snapshot.capabilities.tun = CapabilityAvailability::Unavailable;
-        }
     }
 
     fn settings_snapshot(&self, service: &SettingsService) -> mish_settings::SettingsSnapshot {
@@ -223,14 +206,6 @@ impl ProtocolState {
         if self.tun_helper_lifecycle_transaction.try_lock().is_err() {
             snapshot.tun_helper.mark_removal_maintenance_pending();
         }
-        if self.client_surface == RpcClientSurface::Browser {
-            snapshot.capabilities.tun = SettingsAvailability::Unavailable;
-            snapshot.tun_helper.removal = TunHelperRemovalCapability::Unavailable;
-        }
-    }
-
-    fn permits_tun_lifecycle(&self) -> bool {
-        self.client_surface == RpcClientSurface::Native
     }
 
     fn record_onboarding_welcome_presentation(
@@ -1005,8 +980,7 @@ async fn handle_message(
         return Some(error_response(id, -32602, "Invalid params", None));
     }
 
-    let is_settings_request = request.method.starts_with("settings.");
-    let mut result = match request.method.as_str() {
+    let result = match request.method.as_str() {
         "rpc.authenticate" => {
             *authenticated = false;
             let auth: Authentication = match serde_json::from_value(request.params) {
@@ -1985,9 +1959,6 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
@@ -2037,9 +2008,6 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
@@ -2085,9 +2053,6 @@ async fn handle_message(
             }
         }
         "settings.removeTunHelper" => {
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
@@ -2472,28 +2437,7 @@ async fn handle_message(
         }
         _ => return Some(error_response(id, -32601, "Method not found", None)),
     };
-    if is_settings_request && state.client_surface == RpcClientSurface::Browser {
-        project_browser_settings_value(&mut result);
-    }
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
-}
-
-fn project_browser_settings_value(value: &mut Value) {
-    if let Some(tun) = value
-        .get_mut("capabilities")
-        .and_then(|capabilities| capabilities.get_mut("tun"))
-    {
-        *tun = json!("unavailable");
-    }
-    if let Some(removal) = value
-        .get_mut("tunHelper")
-        .and_then(|tun_helper| tun_helper.get_mut("removal"))
-    {
-        *removal = json!("unavailable");
-    }
-    if let Some(snapshot) = value.get_mut("snapshot") {
-        project_browser_settings_value(snapshot);
-    }
 }
 
 fn try_capture_transaction(
@@ -2567,14 +2511,6 @@ async fn set_aggregate_capture_locked(
     state: &ProtocolState,
     params: SetCaptureParams,
 ) -> Result<Value, CaptureTransitionError> {
-    ensure_capture_surface_authority(
-        state,
-        &CaptureRequest {
-            active: params.active,
-            selection: params.selection.clone(),
-        },
-    )
-    .await?;
     if !params.active {
         return set_capture_with_core_reactivation(
             state,
@@ -2662,31 +2598,6 @@ async fn requested_capture_selection(
         Err(CaptureTransitionError::new(
             CaptureFailureKind::UnsupportedSelection,
             "No available Capture mode can be launched on this system",
-        ))
-    }
-}
-
-async fn ensure_capture_surface_authority(
-    state: &ProtocolState,
-    request: &CaptureRequest,
-) -> Result<(), CaptureTransitionError> {
-    if state.client_surface == RpcClientSurface::Native {
-        return Ok(());
-    }
-    let snapshot = state
-        .runtime
-        .status_snapshot_typed(StatusAdapterKind::Rpc)
-        .await;
-    let requested_tun = request.active && request.selection.tun;
-    let current_tun = &snapshot.runtime.tun;
-    let preserves_off = !requested_tun && !current_tun.desired;
-    let preserves_applied = requested_tun && current_tun.desired && snapshot.runtime.tun_enabled;
-    if preserves_off || preserves_applied {
-        Ok(())
-    } else {
-        Err(CaptureTransitionError::new(
-            CaptureFailureKind::CapabilityUnavailable,
-            "Virtual Interface can only be changed by the packaged desktop application",
         ))
     }
 }

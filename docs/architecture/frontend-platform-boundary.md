@@ -104,6 +104,18 @@ it never falls through to fixture clients. The Tauri WebView obtains a validated
 its narrow bootstrap IPC surface, then composes the adapters over one
 authenticated RPC client.
 
+The paired Browser Client is a transport peer of that WebView for the same
+running desktop composition, not a backend-free browser fixture. Once its
+loopback, Host, Origin, pairing/session, and RPC authentication checks pass, it
+receives the same Rust-derived Virtual Interface and Helper lifecycle state and
+may request the same bounded Capture, install, repair, and removal operations.
+React and browser JavaScript remain requesters and renderers: Helper discovery,
+package and identity checks, authorization, lifecycle serialization, Capture
+transition, rollback, recovery, cancellation, runtime replacement, and terminal
+read-back remain inside the existing Rust authorities. A fixture, mobile shell,
+unsupported platform, or desktop runtime without a valid backend remains
+unavailable and cannot synthesize success.
+
 ## Implemented desktop local bridge slice
 
 `crates/runtime` contains the transport-neutral `MishRuntime` module and the
@@ -192,8 +204,10 @@ only the reconciled routing-mode and group-selection commands. Missing-core and
 lifecycle-only compositions advertise neither Controller command.
 Profile import, persistence, refresh, and inactive deletion use the separate
 Profile application service. Activation uses its own typed, cancellable command
-seam from Profiles and the Status selector. Browser and lifecycle-only
-compositions keep native service and TUN controls unavailable. Active deletion
+seam from Profiles and the Status selector. Backend-free browser fixtures and
+lifecycle-only compositions keep native service and TUN controls unavailable.
+The paired authenticated loopback Browser Client uses the same desktop
+composition and Rust authority as the WebView. Active deletion
 requires successful replacement activation or an explicit safe stop. Profile
 activation never implicitly enables System Proxy.
 

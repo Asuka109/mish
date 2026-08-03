@@ -244,9 +244,14 @@ control is unavailable and has no switch.
 
 Capability values come from the desktop composition, not the user agent or Web
 feature detection. The macOS composition advertises status-bar and window
-lifecycle support; browser and unsupported desktop compositions do not. TUN is
-supported only when the signed helper is observed healthy; the current
-development build reports its unsigned or unpackaged boundary. macOS Network
+lifecycle support; browser and unsupported desktop compositions do not. The
+paired authenticated loopback Browser Client receives the same Rust-derived TUN
+and Helper lifecycle capability as the WebView for that composition; only
+Tauri-specific window and file capabilities are projected away. TUN is
+actionable only through the existing Rust authority when the Helper observation
+permits setup, repair, removal, or Capture; backend-free fixtures and runtimes
+without a valid TUN backend remain unavailable. The current development build
+reports its unsigned or unpackaged boundary. macOS Network
 and DNS observation is supported as a read-only, non-persistent snapshot;
 browsers and non-macOS compositions report it unavailable. Network and DNS
 configuration, signed updates, and expert configuration remain non-interactive

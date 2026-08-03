@@ -421,6 +421,8 @@ struct MemoryNetworkDnsPlatform;
 struct HealthyTunHelperPlatform {
     enabled: Mutex<bool>,
     set_count: AtomicUsize,
+    set_release: Option<Arc<Notify>>,
+    set_started: Option<Arc<Notify>>,
 }
 
 impl HealthyTunHelperPlatform {
@@ -467,8 +469,16 @@ impl TunHelperPlatform for HealthyTunHelperPlatform {
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
         self.set_count.fetch_add(1, Ordering::SeqCst);
-        *self.enabled.lock().unwrap() = enabled;
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            if let Some(started) = &self.set_started {
+                started.notify_one();
+            }
+            if let Some(release) = &self.set_release {
+                release.notified().await;
+            }
+            *self.enabled.lock().unwrap() = enabled;
+            Ok(())
+        })
     }
 }
 
@@ -1700,11 +1710,14 @@ async fn socket_loss_requeues_a_presentation_lease_for_the_next_authenticated_cl
 
 #[tokio::test]
 async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
+    let helper = Arc::new(TunHelperController::new(Arc::new(
+        HealthyTunHelperPlatform::default(),
+    )));
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
     bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
-    bridge_config.settings_service = Some(settings_service());
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
         .await
         .unwrap();
     let browser = bridge.browser_client().expect("browser client handle");
@@ -1826,6 +1839,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     assert_eq!(
         payload["settingsSnapshot"]["capabilities"]["nativeSidebarMaterial"],
         "unavailable"
+    );
+    assert_eq!(
+        payload["settingsSnapshot"]["capabilities"]["tun"],
+        "supported"
     );
     assert_eq!(payload["localBackup"], false);
     assert_eq!(payload["supportBundleExport"], false);
@@ -1973,7 +1990,8 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
     let restarted = start_loopback_server(restarted_config, runtime(no_core()))
         .await
         .unwrap();
-    let rejected = client
+    let restarted_client = reqwest::Client::new();
+    let rejected = restarted_client
         .post(format!("{origin}/browser-bootstrap"))
         .header("Cookie", prior_session)
         .header("Origin", &origin)
@@ -2140,7 +2158,11 @@ async fn browser_pairing_locks_after_five_failed_pin_attempts() {
 
 #[tokio::test]
 async fn rejects_unauthenticated_and_malformed_requests() {
-    let bridge = start_loopback_server(config(), runtime(no_core()))
+    let platform = Arc::new(InstallingTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
         .await
         .unwrap();
     let mut ws = socket(bridge.address).await;
@@ -2216,6 +2238,26 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     )
     .await;
     assert_eq!(unauthenticated_patch_mutation["error"]["code"], -32001);
+
+    for (id, method, params) in [
+        (6, "settings.installTunHelper", json!({})),
+        (7, "settings.repairTunHelper", json!({})),
+        (8, "settings.removeTunHelper", json!({})),
+        (
+            9,
+            "status.setCapture",
+            json!({"active":true,"selection":{"systemProxy":false,"tun":true}}),
+        ),
+    ] {
+        let rejected = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(rejected["error"]["code"], -32001);
+    }
+    assert!(platform.operations().is_empty());
+    assert!(!*platform.enabled.lock().unwrap());
 
     ws.send(Message::Text("{".into())).await.unwrap();
     let Message::Text(response) = ws.next().await.unwrap().unwrap() else {
@@ -2714,53 +2756,122 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
 }
 
 #[tokio::test]
-async fn browser_rpc_projects_tun_unavailable_and_rejects_privileged_lifecycle() {
+async fn paired_browser_rpc_shares_tun_capability_and_helper_lifecycle_with_native_rpc() {
+    let platform = Arc::new(InstallingTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
     let mut bridge_config = config();
-    bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
-        TunHelperController::new(Arc::new(HealthyTunHelperPlatform::default())),
-    ))));
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
         .await
         .unwrap();
 
     let mut native = socket(bridge.address).await;
     authenticate(&mut native).await;
-    let native_snapshot = request(
+    let native_settings = request(
         &mut native,
         json!({"jsonrpc":"2.0", "id":1, "method":"settings.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
-        native_snapshot["result"]["capabilities"]["tun"],
+        native_settings["result"]["capabilities"]["tun"],
         "supported"
     );
     assert_eq!(
-        native_snapshot["result"]["tunHelper"]["removal"],
-        "available"
+        native_settings["result"]["tunHelper"]["removal"],
+        "not-installed"
     );
 
     let browser_origin = format!("http://{}", bridge.address);
     let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
     authenticate(&mut browser).await;
-    let browser_snapshot = request(
+    let browser_settings = request(
         &mut browser,
         json!({"jsonrpc":"2.0", "id":2, "method":"settings.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
-        browser_snapshot["result"]["capabilities"]["tun"],
-        "unavailable"
+        browser_settings["result"]["capabilities"]["tun"],
+        native_settings["result"]["capabilities"]["tun"]
     );
     assert_eq!(
-        browser_snapshot["result"]["tunHelper"]["removal"],
-        "unavailable"
+        browser_settings["result"]["tunHelper"]["removal"],
+        native_settings["result"]["tunHelper"]["removal"]
     );
-    let lifecycle = request(
-        &mut browser,
-        json!({"jsonrpc":"2.0", "id":3, "method":"settings.installTunHelper", "params":{}}),
+    let native_status = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
-    assert_eq!(lifecycle["error"]["code"], -32020);
+    let browser_status = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        browser_status["result"]["capabilities"]["tun"],
+        native_status["result"]["capabilities"]["tun"]
+    );
+
+    let installed = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":4, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert!(installed.get("error").is_none(), "{installed}");
+    assert_eq!(
+        installed["result"]["tunHelper"]["availability"],
+        "available"
+    );
+    assert_eq!(installed["result"]["tunHelper"]["removal"], "available");
+
+    let repaired = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":5, "method":"settings.repairTunHelper", "params":{}}),
+    )
+    .await;
+    assert!(repaired.get("error").is_none(), "{repaired}");
+    assert_eq!(repaired["result"]["tunHelper"]["health"], "healthy");
+
+    let removed = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":6, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert!(removed.get("error").is_none(), "{removed}");
+    assert_eq!(removed["result"]["tunHelper"]["removal"], "not-installed");
+    assert_eq!(
+        platform.operations(),
+        vec![
+            TunHelperLifecycleOperation::Install,
+            TunHelperLifecycleOperation::Repair,
+            TunHelperLifecycleOperation::Remove,
+        ]
+    );
+
+    let native_terminal = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let browser_terminal = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":7, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(browser_terminal["result"], native_terminal["result"]);
+    let lifecycle = browser_terminal["result"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|record| record["presentation"]["kind"] == "tun-helper.lifecycle")
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle.len(), 3);
+    assert!(lifecycle.iter().all(|record| {
+        matches!(
+            record["presentation"]["data"]["outcome"].as_str(),
+            Some("applied" | "removed")
+        )
+    }));
 
     bridge.shutdown().await;
 }
@@ -2852,7 +2963,7 @@ async fn native_healthy_helper_reinstall_reconciles_capture_after_success() {
 }
 
 #[tokio::test]
-async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
+async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_capture_selection() {
     let lifecycle_release = Arc::new(Notify::new());
     let lifecycle_started = Arc::new(Notify::new());
     let platform = Arc::new(InstallingTunHelperPlatform {
@@ -2867,9 +2978,12 @@ async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
         .await
         .unwrap();
 
-    let mut setup_client = socket(bridge.address).await;
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut setup_client = socket_with_origin(bridge.address, &browser_origin).await;
+    let mut duplicate_client = socket(bridge.address).await;
     let mut capture_client = socket(bridge.address).await;
     authenticate(&mut setup_client).await;
+    authenticate(&mut duplicate_client).await;
     authenticate(&mut capture_client).await;
 
     setup_client
@@ -2887,10 +3001,54 @@ async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
         .await
         .expect("helper lifecycle did not begin");
 
+    let pending_settings = request(
+        &mut capture_client,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        pending_settings["result"]["tunHelper"]["phase"],
+        "installing"
+    );
+    let pending_notifications = request(
+        &mut capture_client,
+        json!({"jsonrpc":"2.0", "id":4, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        pending_notifications["result"]["notifications"][0]["presentation"]["data"]["outcome"],
+        "finalizing"
+    );
+    assert_eq!(
+        pending_notifications["result"]["notifications"][0]["pinned"],
+        true
+    );
+    duplicate_client
+        .send(Message::Text(
+            json!({
+                "jsonrpc":"2.0", "id":5, "method":"settings.repairTunHelper",
+                "params":{"resumeCapture":true}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    assert!(
+        timeout(Duration::from_millis(100), next_json(&mut duplicate_client))
+            .await
+            .is_err(),
+        "the duplicate lifecycle command must wait for the live finalizer"
+    );
+    assert_eq!(
+        platform.operations(),
+        vec![TunHelperLifecycleOperation::Install]
+    );
+
     let system_proxy = request(
         &mut capture_client,
         json!({
-            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
         }),
     )
@@ -2904,10 +3062,23 @@ async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
         installed["result"]["tunHelper"]["availability"],
         "available"
     );
+    timeout(Duration::from_secs(2), lifecycle_started.notified())
+        .await
+        .expect("serialized helper lifecycle did not begin");
+    assert_eq!(
+        platform.operations(),
+        vec![
+            TunHelperLifecycleOperation::Install,
+            TunHelperLifecycleOperation::Repair
+        ]
+    );
+    lifecycle_release.notify_one();
+    let repaired = next_json(&mut duplicate_client).await;
+    assert!(repaired.get("error").is_none(), "{repaired}");
 
     let after = request(
         &mut capture_client,
-        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
@@ -2920,7 +3091,7 @@ async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
 }
 
 #[tokio::test]
-async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchanged() {
+async fn cancelled_browser_helper_repair_leaves_existing_capture_intent_unchanged() {
     let (runtime, _) = capture_runtime_with_tun();
     let mut bridge_config = config();
     bridge_config.settings_service = Some(settings_service_with_tun(Some(Arc::new(
@@ -2928,10 +3099,11 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     ))));
     let bridge = start_loopback_server(bridge_config, runtime).await.unwrap();
 
-    let mut native = socket(bridge.address).await;
-    authenticate(&mut native).await;
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut browser).await;
     let enabled = request(
-        &mut native,
+        &mut browser,
         json!({
             "jsonrpc":"2.0", "id":1, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
@@ -2942,7 +3114,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(enabled["result"]["runtime"]["tunEnabled"], true);
 
     let repair = request(
-        &mut native,
+        &mut browser,
         json!({"jsonrpc":"2.0", "id":2, "method":"settings.repairTunHelper", "params":{}}),
     )
     .await;
@@ -2950,7 +3122,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(repair["error"]["data"]["kind"], "authorization-cancelled");
 
     let settings = request(
-        &mut native,
+        &mut browser,
         json!({"jsonrpc":"2.0", "id":3, "method":"settings.getSnapshot", "params":{}}),
     )
     .await;
@@ -2965,7 +3137,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     );
 
     let after = request(
-        &mut native,
+        &mut browser,
         json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
@@ -2976,7 +3148,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(after["result"]["runtime"]["tunEnabled"], true);
 
     let notifications = request(
-        &mut native,
+        &mut browser,
         json!({"jsonrpc":"2.0", "id":5, "method":"notifications.getSnapshot", "params":{}}),
     )
     .await;
@@ -4264,11 +4436,12 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
 }
 
 #[tokio::test]
-async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
+async fn authenticated_browser_capture_without_a_tun_backend_stays_unavailable() {
     let bridge = start_loopback_server(config(), capture_runtime())
         .await
         .unwrap();
-    let mut ws = socket(bridge.address).await;
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut ws = socket_with_origin(bridge.address, &browser_origin).await;
     authenticate(&mut ws).await;
 
     let before = request(
@@ -4355,7 +4528,7 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
 }
 
 #[tokio::test]
-async fn native_capture_rpc_supports_combined_capture_without_reissuing_applied_tun() {
+async fn paired_browser_capture_enables_and_disables_the_shared_native_tun() {
     let (runtime, helper) = capture_runtime_with_tun();
     let bridge = start_loopback_server(config(), runtime).await.unwrap();
     let mut native = socket(bridge.address).await;
@@ -4434,25 +4607,160 @@ async fn native_capture_rpc_supports_combined_capture_without_reissuing_applied_
         }),
     )
     .await;
-    assert_eq!(browser_stop["error"]["code"], -32050);
+    assert!(browser_stop.get("error").is_none(), "{browser_stop}");
     assert_eq!(
-        browser_stop["error"]["data"]["kind"],
-        "capability-unavailable"
+        browser_stop["result"]["runtime"]["systemProxyEnabled"],
+        false
     );
-    assert_eq!(helper.set_count(), 1);
+    assert_eq!(browser_stop["result"]["runtime"]["tunEnabled"], false);
+    assert_eq!(helper.set_count(), 2);
 
-    let stopped = request(
+    let native_terminal = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        native_terminal["result"]["capabilities"],
+        browser_stop["result"]["capabilities"]
+    );
+    assert_eq!(
+        native_terminal["result"]["runtime"],
+        browser_stop["result"]["runtime"]
+    );
+    assert_eq!(helper.set_count(), 2);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_tun_pending_survives_requester_disconnect_and_reconnects_to_one_terminal_operation()
+ {
+    let set_release = Arc::new(Notify::new());
+    let set_started = Arc::new(Notify::new());
+    let platform = Arc::new(HealthyTunHelperPlatform {
+        set_release: Some(set_release.clone()),
+        set_started: Some(set_started.clone()),
+        ..HealthyTunHelperPlatform::default()
+    });
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
+        .await
+        .unwrap();
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut browser).await;
+    authenticate(&mut native).await;
+
+    let browser_subscription = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    let native_subscription = request(
+        &mut native,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    assert!(browser_subscription["result"]["subscriptionId"].is_string());
+    assert!(native_subscription["result"]["subscriptionId"].is_string());
+
+    browser
+        .send(Message::Text(
+            json!({
+                "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+                "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(2), set_started.notified())
+        .await
+        .expect("Browser TUN transition did not begin");
+
+    let browser_pending = next_json(&mut browser).await;
+    let native_pending = next_json(&mut native).await;
+    for pending in [&browser_pending, &native_pending] {
+        assert_eq!(
+            pending["params"]["snapshot"]["runtime"]["tun"]["phase"],
+            "pending"
+        );
+        assert_eq!(
+            pending["params"]["snapshot"]["capabilities"]["tun"],
+            "supported"
+        );
+    }
+    assert_eq!(
+        browser_pending["params"]["snapshot"]["runtime"]["captureOperation"],
+        native_pending["params"]["snapshot"]["runtime"]["captureOperation"]
+    );
+    let operation_id =
+        browser_pending["params"]["snapshot"]["runtime"]["captureOperation"]["operationId"].clone();
+
+    let duplicate = request(
         &mut native,
         json!({
-            "jsonrpc":"2.0", "id":7, "method":"status.setCapture",
-            "params":{"active":false,"selection":{"systemProxy":true,"tun":true}}
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":false,"tun":true}}
         }),
     )
     .await;
-    assert!(stopped.get("error").is_none());
-    assert_eq!(stopped["result"]["runtime"]["systemProxyEnabled"], false);
+    assert_eq!(duplicate["error"]["code"], -32050);
+    assert_eq!(duplicate["error"]["data"]["kind"], "runtime-transition");
+
+    drop(browser);
+    set_release.notify_one();
+    let native_terminal = loop {
+        let value = next_json(&mut native).await;
+        if value["method"] == "status.snapshot"
+            && value["params"]["snapshot"]["runtime"]["tun"]["phase"] == "applied"
+        {
+            break value["params"]["snapshot"].clone();
+        }
+    };
+    assert_eq!(native_terminal["runtime"]["tunEnabled"], true);
+    assert_eq!(
+        native_terminal["runtime"]["captureOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        native_terminal["runtime"]["captureOperation"]["phase"],
+        "applied"
+    );
+
+    let mut reconnected = socket_with_origin(bridge.address, &browser_origin).await;
+    authenticate(&mut reconnected).await;
+    let reconnected_terminal = request(
+        &mut reconnected,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.getSnapshot","params":{}}),
+    )
+    .await;
+    assert_eq!(
+        reconnected_terminal["result"]["runtime"],
+        native_terminal["runtime"]
+    );
+    assert_eq!(
+        reconnected_terminal["result"]["capabilities"]["tun"],
+        "supported"
+    );
+
+    set_release.notify_one();
+    let stopped = request(
+        &mut reconnected,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(stopped.get("error").is_none(), "{stopped}");
     assert_eq!(stopped["result"]["runtime"]["tunEnabled"], false);
-    assert_eq!(helper.set_count(), 2);
+    assert_eq!(platform.set_count(), 2);
 
     bridge.shutdown().await;
 }
@@ -4804,7 +5112,11 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
 
 #[tokio::test]
 async fn rejects_an_untrusted_websocket_origin() {
-    let bridge = start_loopback_server(config(), runtime(no_core()))
+    let platform = Arc::new(InstallingTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
         .await
         .unwrap();
     let mut request = format!("ws://{}/rpc", bridge.address)
@@ -4815,6 +5127,8 @@ async fn rejects_an_untrusted_websocket_origin() {
         .insert("Origin", "https://attacker.example".parse().unwrap());
     let error = tokio_tungstenite::connect_async(request).await.unwrap_err();
     assert!(error.to_string().contains("403"));
+    assert!(platform.operations().is_empty());
+    assert!(!*platform.enabled.lock().unwrap());
     bridge.shutdown().await;
 }
 
