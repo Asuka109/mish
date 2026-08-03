@@ -92,6 +92,10 @@ function isRoutesPath(pathname: string) {
   return pathname === "/routes" || pathname.startsWith("/routes/");
 }
 
+function isSettingsPath(pathname: string) {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 function mobileBackTarget(pathname: string, search: string) {
   const segments = pathname.split("/");
   if (segments[1] === "routes" && segments.length >= 3) {
@@ -194,13 +198,15 @@ export function MobileShell({ fixture }: MobileShellProps) {
               ? activity
               : key === "routes"
                 ? isRoutesPath(location.pathname)
-                : location.pathname === path;
+                : key === "settings"
+                  ? isSettingsPath(location.pathname)
+                  : location.pathname === path;
           return (
             <NavLink
               aria-current={selected ? "page" : undefined}
               aria-label={label}
               className={mobileShellStyles({ selected }).destination()}
-              end={key !== "activity" && key !== "routes"}
+              end={key !== "activity" && key !== "routes" && key !== "settings"}
               key={path}
               to={path}
             >

@@ -780,18 +780,28 @@ impl SettingsService {
             | TunHelperAvailability::UnsupportedSystem
             | TunHelperAvailability::Unavailable => SettingsAvailability::Unavailable,
         };
+        let privacy = match adapter_kind {
+            SettingsAdapterKind::Rpc => PrivacyAccessSnapshot {
+                authenticated: ConfirmationState::Confirmed,
+                lan_control: SettingsAvailability::Unavailable,
+                loopback_only: ConfirmationState::Confirmed,
+                origin_validated: ConfirmationState::Confirmed,
+            },
+            SettingsAdapterKind::Fixture | SettingsAdapterKind::Native => PrivacyAccessSnapshot {
+                authenticated: ConfirmationState::Unavailable,
+                lan_control: SettingsAvailability::Unavailable,
+                loopback_only: ConfirmationState::Unavailable,
+                origin_validated: ConfirmationState::Unavailable,
+            },
+        };
+
         SettingsSnapshot {
             adapter_kind,
             build: self.build.clone(),
             capabilities,
             network_dns: self.network_dns.snapshot(),
             preferences: state.preferences,
-            privacy: PrivacyAccessSnapshot {
-                authenticated: ConfirmationState::Confirmed,
-                lan_control: SettingsAvailability::Unavailable,
-                loopback_only: ConfirmationState::Confirmed,
-                origin_validated: ConfirmationState::Confirmed,
-            },
+            privacy,
             revision: state.revision,
             startup_registration,
             storage_recovered: state.storage_recovered,
@@ -1941,6 +1951,28 @@ mod tests {
         assert_eq!(snapshot.adapter_kind, SettingsAdapterKind::Native);
         assert_eq!(snapshot.preferences.appearance, AppearancePreference::Dark);
         assert_eq!(snapshot.preferences.language, LanguagePreference::Zh);
+    }
+
+    #[test]
+    fn native_settings_snapshot_does_not_claim_desktop_rpc_confirmations() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::android())
+                .expect("Android settings service");
+
+        let snapshot = service.snapshot(SettingsAdapterKind::Native);
+        assert_eq!(
+            snapshot.privacy.authenticated,
+            ConfirmationState::Unavailable
+        );
+        assert_eq!(
+            snapshot.privacy.loopback_only,
+            ConfirmationState::Unavailable
+        );
+        assert_eq!(
+            snapshot.privacy.origin_validated,
+            ConfirmationState::Unavailable
+        );
     }
 
     #[test]

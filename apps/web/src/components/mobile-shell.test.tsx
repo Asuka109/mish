@@ -81,4 +81,12 @@ describe("MobileShell", () => {
     );
     expect(screen.getByRole("link", { name: "Routes" })).toHaveAttribute("aria-current", "page");
   });
+
+  it("keeps Settings selected on an Android Settings child route", () => {
+    renderShell("/settings/application");
+
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveClass("is-active");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/settings");
+  });
 });
