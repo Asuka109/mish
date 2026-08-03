@@ -91,7 +91,7 @@ impl SyntheticPackageVersion {
     fn package_version(self) -> &'static str {
         match self {
             Self::V1 => "0.1.0-internal-tun-alpha.5",
-            Self::V2 => "0.1.0-internal-tun-alpha.6",
+            Self::V2 => "0.1.0-internal-tun-alpha.7",
         }
     }
 

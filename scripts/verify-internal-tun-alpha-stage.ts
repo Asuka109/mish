@@ -4,15 +4,10 @@ import {
   chmodSync,
   existsSync,
   lstatSync,
-  mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
-  realpathSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -21,8 +16,13 @@ import {
   type CandidateManifest,
   type DispatchIdentity,
 } from "./trusted-release-policy.ts";
+import {
+  internalTunAlphaManifestRelativePath,
+  internalTunAlphaPackageVersion,
+} from "./internal-tun-alpha-package.ts";
+import { verifyMacOsDmgPresentation } from "./macos-dmg-presentation.ts";
 
-const packageVersion = "0.1.0-internal-tun-alpha.6";
+const packageVersion = internalTunAlphaPackageVersion;
 const dmgName = `Mish-Internal-TUN-Alpha-${packageVersion}-arm64.dmg`;
 const packageManifestName = "internal-tun-alpha-package-manifest.json";
 const sbomName = "internal-tun-alpha-sbom.spdx.json";
@@ -36,6 +36,7 @@ const candidateKind = "internal-tun-alpha-dmg-candidate";
 const finalKind = "internal-tun-alpha-immutable-stage";
 const sha256Digest = /^[0-9a-f]{64}$/u;
 const numericId = /^[1-9][0-9]*$/u;
+const applicationMainExecutableRelativePath = "Contents/MacOS/mish-desktop";
 const sourceInputPaths = [
   "Cargo.lock",
   "Cargo.toml",
@@ -47,33 +48,30 @@ const sourceInputPaths = [
   "package.json",
   "pnpm-lock.yaml",
   "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
+  "resources/macos-dmg/mish-install.png",
+  "resources/macos-dmg/mish-install.svg",
+  "resources/macos-dmg/mish-installer-template.dmg",
+  "resources/macos-dmg/presentation.json",
   "resources/mihomo/macos-arm64.json",
   "scripts/development-mihomo.ts",
   "scripts/internal-tun-alpha-package.ts",
+  "scripts/macos-dmg-presentation.ts",
   "scripts/prepare-mihomo.ts",
   "skills-lock.json",
 ] as const;
 const expectedPackageFiles = [
-  { mode: 0o755, path: "Health Internal TUN Alpha.command", role: "health" },
-  { mode: 0o755, path: "Install Internal TUN Alpha.command", role: "install" },
-  { mode: 0o644, path: "LICENSE", role: "license" },
-  { mode: 0o644, path: "README.txt", role: "notice" },
-  { mode: 0o755, path: "Repair Internal TUN Alpha.command", role: "repair" },
   {
     mode: 0o755,
-    path: "Resources/mish-internal-tun-alpha-ctl",
+    path: "Contents/Resources/internal-tun-alpha/mish-internal-tun-alpha-ctl",
     role: "controller",
   },
   {
     mode: 0o644,
-    path: "Resources/com.asuka109.mish.tun-helper.dev.plist.template",
+    path: "Contents/Resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
     role: "launch-daemon-template",
   },
-  { mode: 0o755, path: "Resources/mihomo", role: "core" },
-  { mode: 0o755, path: "Resources/mish-tun-helper", role: "helper" },
-  { mode: 0o755, path: "Status Internal TUN Alpha.command", role: "status" },
-  { mode: 0o644, path: "THIRD_PARTY_NOTICES.md", role: "notices" },
-  { mode: 0o755, path: "Uninstall Internal TUN Alpha.command", role: "uninstall" },
+  { mode: 0o755, path: "Contents/Resources/internal-tun-alpha/mihomo", role: "core" },
+  { mode: 0o755, path: "Contents/Resources/internal-tun-alpha/mish-tun-helper", role: "helper" },
 ] as const;
 const candidateRoles = {
   [checksumsName]: "sha256sums",
@@ -123,7 +121,7 @@ export type InternalTunAlphaVerificationEvidence = {
   };
   checks: string[];
   dmg: {
-    format: "read-only-hfs-iso9660-hybrid-disk-image";
+    format: "read-only-macos-installer-disk-image";
     name: string;
     sha256: string;
   };
@@ -286,12 +284,16 @@ function assertPackageManifest(value: unknown): asserts value is PackageManifest
       JSON.stringify(expectedPackageFiles.map(({ path: file }) => declared.get(file))) ===
         JSON.stringify(expectedPackageFiles) &&
       manifest.files.length === expectedPackageFiles.length + applicationFiles.length &&
-      applicationFiles.some((file) => file.path === "Mish.app/Contents/Info.plist") &&
-      applicationFiles.some((file) => file.path === "Mish.app/Contents/MacOS/mish-desktop") &&
+      applicationFiles.some((file) => file.path === "Contents/Info.plist") &&
       applicationFiles.some(
-        (file) => file.path === "Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin",
+        (file) => file.path === "Contents/Resources/mihomo-aarch64-apple-darwin",
       ) &&
-      applicationFiles.every((file) => file.path.startsWith("Mish.app/")),
+      applicationFiles.every(
+        (file) =>
+          file.path.startsWith("Contents/") &&
+          file.path !== "Contents/MacOS/mish-desktop" &&
+          !file.path.startsWith("Contents/Resources/internal-tun-alpha/"),
+      ),
     "Internal TUN Alpha package application or fixed layout is incomplete.",
   );
   for (const file of manifest.files) {
@@ -477,7 +479,12 @@ function assertProvenance(
   );
 }
 
-function assertSbom(value: unknown, directory: string, manifest: PackageManifest): void {
+function assertSbom(
+  value: unknown,
+  directory: string,
+  manifest: PackageManifest,
+  applicationExecutableSha256: string,
+): void {
   const document = recordValue(value, "Internal TUN Alpha SBOM");
   assertExactObjectKeys(
     document,
@@ -503,7 +510,7 @@ function assertSbom(value: unknown, directory: string, manifest: PackageManifest
     "Internal TUN Alpha SBOM document identity changed.",
   );
   invariant(
-    Array.isArray(document.files) && document.files.length === manifest.files.length + 1,
+    Array.isArray(document.files) && document.files.length === manifest.files.length + 2,
     "Internal TUN Alpha SBOM file inventory is partial or duplicated.",
   );
   const sbomFiles = document.files as Array<Record<string, unknown>>;
@@ -516,9 +523,16 @@ function assertSbom(value: unknown, directory: string, manifest: PackageManifest
       `Internal TUN Alpha SBOM differs for ${file.path}.`,
     );
   }
+  const applicationExecutable = sbomFiles.at(-2);
+  invariant(
+    applicationExecutable?.fileName === applicationMainExecutableRelativePath &&
+      JSON.stringify(applicationExecutable.checksums) ===
+        JSON.stringify([{ algorithm: "SHA256", checksumValue: applicationExecutableSha256 }]),
+    "Internal TUN Alpha SBOM omits the exact app executable sealed by the app signature.",
+  );
   const packageManifestFile = sbomFiles.at(-1);
   invariant(
-    packageManifestFile?.fileName === "internal-tun-alpha-manifest.json" &&
+    packageManifestFile?.fileName === internalTunAlphaManifestRelativePath &&
       JSON.stringify(packageManifestFile.checksums) ===
         JSON.stringify([
           {
@@ -602,199 +616,31 @@ function walk(root: string, directory = root): string[] {
     .sort();
 }
 
-function detach(mountpoint: string): void {
-  const failures: string[] = [];
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const result = spawnSync("/usr/bin/hdiutil", ["detach", mountpoint], {
-      encoding: "utf8",
-    });
-    if (result.status === 0) return;
-    failures.push(String(result.stderr).trim());
-  }
-  throw new Error(`Internal TUN Alpha DMG detach failed: ${failures.join(" | ")}`);
-}
-
-function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: PackageManifest): void {
+function verifyMountedPackage(
+  dmg: string,
+  sourceRoot: string,
+  manifest: PackageManifest,
+): { applicationExecutableSha256: string } {
   invariant(
     process.platform === "darwin" && process.arch === "arm64",
     "Internal TUN Alpha independent verification requires Apple Silicon macOS.",
   );
-  const imageBytes = readFileSync(dmg);
-  const sectorBytes = 2048;
-  const fixedIsoDate = Buffer.concat([Buffer.from("2020010100000000", "ascii"), Buffer.from([0])]);
-  const fixedIsoRecordDate = Buffer.from([120, 1, 1, 0, 0, 0, 0]);
-  let foundPrimaryIso = false;
-  let isoRecordDateFields = 0;
-  let isoSuspDateFields = 0;
-  const verifyIsoDirectory = (extent: number, size: number, visited: Set<number>): void => {
-    const start = extent * sectorBytes;
-    const end = start + size;
+  const stagedManifest = path.join(path.dirname(dmg), packageManifestName);
+  let mounted: { applicationExecutableSha256: string } | undefined;
+  verifyMacOsDmgPresentation(dmg, (application) => {
+    const ownerUid = process.getuid?.();
+    const ownerGid = process.getgid?.();
     invariant(
-      extent > 0 && size > 0 && end <= imageBytes.length && !visited.has(extent),
-      "Internal TUN Alpha ISO9660 directory graph is invalid.",
+      ownerUid !== undefined && ownerGid !== undefined,
+      "Internal TUN Alpha verifier cannot observe its UID/GID.",
     );
-    visited.add(extent);
-    let cursor = start;
-    while (cursor < end) {
-      const recordLength = imageBytes[cursor];
-      if (recordLength === 0) {
-        cursor = Math.min(end, Math.ceil((cursor + 1) / sectorBytes) * sectorBytes);
-        continue;
-      }
-      invariant(
-        recordLength >= 34 &&
-          cursor + recordLength <= end &&
-          cursor + recordLength <= imageBytes.length &&
-          imageBytes.subarray(cursor + 18, cursor + 25).equals(fixedIsoRecordDate),
-        "Internal TUN Alpha ISO9660 directory record is mutable or invalid.",
-      );
-      isoRecordDateFields += 1;
-      const nameLength = imageBytes[cursor + 32];
-      invariant(
-        nameLength > 0 && 33 + nameLength <= recordLength,
-        "Internal TUN Alpha ISO9660 directory name is invalid.",
-      );
-      let systemUse = cursor + 33 + nameLength + (nameLength % 2 === 0 ? 1 : 0);
-      while (systemUse + 4 <= cursor + recordLength) {
-        const entryLength = imageBytes[systemUse + 2];
-        if (entryLength === 0) break;
-        invariant(
-          entryLength >= 4 && systemUse + entryLength <= cursor + recordLength,
-          "Internal TUN Alpha ISO9660 system-use entry is invalid.",
-        );
-        if (imageBytes.subarray(systemUse, systemUse + 2).toString("ascii") === "TF") {
-          const flags = imageBytes[systemUse + 4];
-          invariant(
-            (flags & 0x80) === 0,
-            "Internal TUN Alpha ISO9660 uses an unexpected long timestamp.",
-          );
-          const timestampCount = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40].filter(
-            (flag) => (flags & flag) !== 0,
-          ).length;
-          invariant(
-            entryLength === 5 + timestampCount * fixedIsoRecordDate.length,
-            "Internal TUN Alpha ISO9660 timestamp entry is malformed.",
-          );
-          for (let index = 0; index < timestampCount; index += 1) {
-            invariant(
-              imageBytes
-                .subarray(
-                  systemUse + 5 + index * fixedIsoRecordDate.length,
-                  systemUse + 5 + (index + 1) * fixedIsoRecordDate.length,
-                )
-                .equals(fixedIsoRecordDate),
-              "Internal TUN Alpha ISO9660 system-use timestamp is mutable.",
-            );
-            isoSuspDateFields += 1;
-          }
-        }
-        systemUse += entryLength;
-      }
-      const isDotEntry =
-        nameLength === 1 && (imageBytes[cursor + 33] === 0 || imageBytes[cursor + 33] === 1);
-      if ((imageBytes[cursor + 25] & 0x02) !== 0 && !isDotEntry) {
-        verifyIsoDirectory(
-          imageBytes.readUInt32LE(cursor + 2),
-          imageBytes.readUInt32LE(cursor + 10),
-          visited,
-        );
-      }
-      cursor += recordLength;
-    }
-  };
-  for (let sector = 16; sector * sectorBytes + sectorBytes <= imageBytes.length; sector += 1) {
-    const descriptor = sector * sectorBytes;
-    const type = imageBytes[descriptor];
-    invariant(
-      imageBytes.subarray(descriptor + 1, descriptor + 6).toString("ascii") === "CD001" &&
-        imageBytes[descriptor + 6] === 1,
-      "Internal TUN Alpha ISO9660 descriptor is invalid.",
-    );
-    if (type === 1 || type === 2) {
-      if (type === 1) foundPrimaryIso = true;
-      invariant(
-        [813, 830, 864].every((offset) =>
-          imageBytes
-            .subarray(descriptor + offset, descriptor + offset + fixedIsoDate.length)
-            .equals(fixedIsoDate),
-        ),
-        "Internal TUN Alpha ISO9660 descriptor date is mutable.",
-      );
-      const rootDirectoryRecord = descriptor + 156;
-      invariant(
-        imageBytes[rootDirectoryRecord] >= 34 &&
-          imageBytes
-            .subarray(rootDirectoryRecord + 18, rootDirectoryRecord + 25)
-            .equals(fixedIsoRecordDate),
-        "Internal TUN Alpha ISO9660 root directory record is invalid.",
-      );
-      isoRecordDateFields += 1;
-      verifyIsoDirectory(
-        imageBytes.readUInt32LE(rootDirectoryRecord + 2),
-        imageBytes.readUInt32LE(rootDirectoryRecord + 10),
-        new Set(),
-      );
-    }
-    if (type === 255) break;
-  }
-  invariant(
-    foundPrimaryIso && isoRecordDateFields === 38 && isoSuspDateFields === 112,
-    "Internal TUN Alpha ISO9660 timestamp inventory is incomplete.",
-  );
-  const fixedHfsVolumeId = createHash("sha256")
-    .update("Mish Internal TUN Alpha HFS volume v1")
-    .digest()
-    .subarray(0, 8);
-  const fixedHfsTime = Buffer.alloc(4);
-  fixedHfsTime.writeUInt32BE(
-    Math.floor(new Date("2020-01-01T00:00:00.000Z").getTime() / 1000) + 2_082_844_800,
-  );
-  let hfsHeaders = 0;
-  for (let offset = 0; offset + 112 <= imageBytes.length; offset += 512) {
-    if (
-      imageBytes[offset] === 0x48 &&
-      imageBytes[offset + 1] === 0x2b &&
-      imageBytes.readUInt16BE(offset + 2) === 4
-    ) {
-      invariant(
-        imageBytes.subarray(offset + 104, offset + 112).equals(fixedHfsVolumeId) &&
-          [16, 20, 24, 28].every((dateOffset) =>
-            imageBytes.subarray(offset + dateOffset, offset + dateOffset + 4).equals(fixedHfsTime),
-          ),
-        "Internal TUN Alpha HFS+ volume identity or time is mutable.",
-      );
-      hfsHeaders += 1;
-    }
-  }
-  invariant(
-    hfsHeaders === 2,
-    "Internal TUN Alpha DMG is not the deterministic HFS+/ISO9660 hybrid profile.",
-  );
-  const temporary = mkdtempSync(path.join(tmpdir(), "mish-internal-tun-alpha-verify-"));
-  const mountpoint = path.join(temporary, "mount");
-  mkdirSync(mountpoint, { mode: 0o700 });
-  let attached = false;
-  try {
-    execFileSync(
-      "/usr/bin/hdiutil",
-      ["attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mountpoint, dmg],
-      { stdio: "pipe" },
-    );
-    attached = true;
-    const mountEvidence = execFileSync("/sbin/mount", [], { encoding: "utf8" });
-    const canonicalMountpoint = realpathSync(mountpoint);
-    invariant(
-      mountEvidence
-        .split("\n")
-        .some(
-          (line) =>
-            line.includes(` on ${canonicalMountpoint} `) &&
-            line.includes("(hfs,") &&
-            line.includes("read-only"),
-        ),
-      "Internal TUN Alpha verification did not mount the DMG read-only.",
-    );
-    const expectedEntries = new Set(["internal-tun-alpha-manifest.json"]);
+    const expectedEntries = new Set<string>([
+      "Contents/_CodeSignature",
+      "Contents/_CodeSignature/CodeResources",
+      "Contents/MacOS",
+      applicationMainExecutableRelativePath,
+      internalTunAlphaManifestRelativePath,
+    ]);
     for (const file of manifest.files) {
       expectedEntries.add(file.path);
       let parent = path.posix.dirname(file.path);
@@ -803,23 +649,17 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
         parent = path.posix.dirname(parent);
       }
     }
+    const observedEntries = walk(application);
     invariant(
-      JSON.stringify(walk(mountpoint)) === JSON.stringify([...expectedEntries].sort()),
-      "Internal TUN Alpha DMG layout is partial, duplicated, substituted, or unexpected.",
+      JSON.stringify(observedEntries) === JSON.stringify([...expectedEntries].sort()),
+      "Internal TUN Alpha embedded application layout is partial, duplicated, substituted, or unexpected.",
     );
-    const ownerUid = process.getuid?.();
-    const ownerGid = process.getgid?.();
-    invariant(
-      ownerUid !== undefined && ownerGid !== undefined,
-      "Internal TUN Alpha verifier cannot observe its UID/GID.",
-    );
-    for (const relative of ["", ...walk(mountpoint)]) {
-      const directory = path.join(mountpoint, relative);
+    for (const relative of ["", ...observedEntries]) {
+      const directory = path.join(application, relative);
       const metadata = lstatSync(directory);
       if (!metadata.isDirectory()) continue;
       invariant(
-        metadata.isDirectory() &&
-          !metadata.isSymbolicLink() &&
+        !metadata.isSymbolicLink() &&
           metadata.uid === ownerUid &&
           metadata.gid === ownerGid &&
           (metadata.mode & 0o777) === 0o755,
@@ -827,31 +667,53 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
       );
     }
     for (const file of manifest.files) {
-      validateMountedFile(mountpoint, ownerUid, ownerGid, file);
+      validateMountedFile(application, ownerUid, ownerGid, file);
     }
-    const mountedManifest = path.join(mountpoint, "internal-tun-alpha-manifest.json");
+    const mountedManifest = path.join(application, internalTunAlphaManifestRelativePath);
     const manifestMetadata = lstatSync(mountedManifest);
     invariant(
       manifestMetadata.isFile() &&
+        !manifestMetadata.isSymbolicLink() &&
         manifestMetadata.uid === ownerUid &&
         manifestMetadata.gid === ownerGid &&
         manifestMetadata.nlink === 1 &&
         (manifestMetadata.mode & 0o777) === 0o644 &&
-        readFileSync(mountedManifest).equals(
-          readFileSync(path.join(path.dirname(dmg), packageManifestName)),
-        ),
+        readFileSync(mountedManifest).equals(readFileSync(stagedManifest)),
       "Internal TUN Alpha mounted package manifest differs from staged evidence.",
     );
-
+    const codeResources = path.join(application, "Contents/_CodeSignature/CodeResources");
+    const signatureMetadata = lstatSync(codeResources);
+    invariant(
+      signatureMetadata.isFile() &&
+        !signatureMetadata.isSymbolicLink() &&
+        signatureMetadata.uid === ownerUid &&
+        signatureMetadata.gid === ownerGid &&
+        signatureMetadata.nlink === 1 &&
+        (signatureMetadata.mode & 0o777) === 0o644 &&
+        signatureMetadata.size > 0,
+      "Internal TUN Alpha application signature metadata differs.",
+    );
     for (const role of ["controller", "helper", "core"]) {
-      verifyArm64(path.join(mountpoint, packageFileByRole(manifest, role).path));
+      verifyArm64(path.join(application, packageFileByRole(manifest, role).path));
     }
-    verifyAdHocSignature(path.join(mountpoint, packageFileByRole(manifest, "controller").path));
-    verifyAdHocSignature(path.join(mountpoint, packageFileByRole(manifest, "helper").path));
-    const app = path.join(mountpoint, "Mish.app");
-    const appExecutable = path.join(app, "Contents/MacOS/mish-desktop");
+    verifyAdHocSignature(path.join(application, packageFileByRole(manifest, "controller").path));
+    verifyAdHocSignature(path.join(application, packageFileByRole(manifest, "helper").path));
+    const appExecutable = path.join(application, applicationMainExecutableRelativePath);
+    const executableMetadata = lstatSync(appExecutable);
+    invariant(
+      executableMetadata.isFile() &&
+        !executableMetadata.isSymbolicLink() &&
+        executableMetadata.uid === ownerUid &&
+        executableMetadata.gid === ownerGid &&
+        executableMetadata.nlink === 1 &&
+        (executableMetadata.mode & 0o777) === 0o755,
+      "Internal TUN Alpha app executable metadata differs.",
+    );
     verifyArm64(appExecutable);
-    verifyAdHocSignature(app);
+    verifyAdHocSignature(application);
+    execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", application], {
+      stdio: "pipe",
+    });
     const releaseEvidence = JSON.parse(
       execFileSync(appExecutable, ["--release-profile-evidence"], {
         encoding: "utf8",
@@ -862,54 +724,33 @@ function verifyMountedPackage(dmg: string, sourceRoot: string, manifest: Package
       releaseEvidence.profile === "internal-tun-alpha" && releaseEvidence.tun === "supported",
       "Internal TUN Alpha app does not expose the exact packaged TUN profile.",
     );
-
-    for (const [role, source] of [
-      ["license", "LICENSE"],
-      ["notices", "THIRD_PARTY_NOTICES.md"],
-      [
-        "launch-daemon-template",
-        "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
-      ],
-    ] as const) {
-      invariant(
-        readFileSync(path.join(mountpoint, packageFileByRole(manifest, role).path)).equals(
-          readFileSync(path.join(sourceRoot, source)),
-        ),
-        `Internal TUN Alpha ${role} resource differs from frozen source.`,
-      );
-    }
-    const readme = readFileSync(path.join(mountpoint, "README.txt"), "utf8");
-    for (const requirement of [
-      "explicitly trusted internal distribution",
-      "not a public release",
-      "Open Anyway",
-      "administrator",
-      "Apple Silicon",
-      "macOS 13",
-      "Repair Internal TUN Alpha.command",
-      "Uninstall Internal TUN Alpha.command",
-      "same user",
-    ]) {
-      invariant(
-        readme.includes(requirement),
-        `Internal TUN Alpha README is missing the ${requirement} boundary.`,
-      );
-    }
-    const plist = readFileSync(
-      path.join(mountpoint, packageFileByRole(manifest, "launch-daemon-template").path),
-      "utf8",
+    const plist = path.join(
+      application,
+      packageFileByRole(manifest, "launch-daemon-template").path,
     );
     invariant(
-      plist.includes("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>") &&
-        !plist.includes("SMAppService") &&
-        !plist.includes("MachServices") &&
-        !plist.includes("BundleProgram"),
+      readFileSync(plist).equals(
+        readFileSync(
+          path.join(
+            sourceRoot,
+            "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
+          ),
+        ),
+      ),
+      "Internal TUN Alpha LaunchDaemon template differs from frozen source.",
+    );
+    const plistContents = readFileSync(plist, "utf8");
+    invariant(
+      plistContents.includes("<key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>1</string>") &&
+        !plistContents.includes("SMAppService") &&
+        !plistContents.includes("MachServices") &&
+        !plistContents.includes("BundleProgram"),
       "Internal TUN Alpha plist leaks a production or variable privileged profile.",
     );
-  } finally {
-    if (attached) detach(mountpoint);
-    rmSync(temporary, { force: true, recursive: true });
-  }
+    mounted = { applicationExecutableSha256: fileSha256(appExecutable) };
+  });
+  invariant(mounted, "Internal TUN Alpha mounted app executable evidence is unavailable.");
+  return mounted;
 }
 
 function assertSourceProtocol(sourceRoot: string, manifest: PackageManifest): void {
@@ -970,19 +811,19 @@ function verificationEvidence(
       name: options.artifactName,
     },
     checks: [
-      "archive-layout",
+      "focused-install-surface",
+      "embedded-package-layout",
       "ownership-mode-link-policy",
       "helper-core-exact-digests-and-versions",
       "closed-protocol",
       "enrollment-boundary",
       "profile-isolation",
-      "legal-resources",
       "source-tooling-lockfiles",
       "sbom-provenance",
       "sha256",
     ],
     dmg: {
-      format: "read-only-hfs-iso9660-hybrid-disk-image",
+      format: "read-only-macos-installer-disk-image",
       name: dmgName,
       sha256: fileSha256(path.join(options.directory, dmgName)),
     },
@@ -1034,7 +875,7 @@ export function verifyInternalTunAlphaVerificationEvidence(options: {
           name: options.candidateArtifactName,
         }) &&
       evidence.dmg.name === dmgName &&
-      evidence.dmg.format === "read-only-hfs-iso9660-hybrid-disk-image" &&
+      evidence.dmg.format === "read-only-macos-installer-disk-image" &&
       sha256Digest.test(evidence.dmg.sha256),
     "Internal TUN Alpha verification evidence is partial, stale, or mismatched.",
   );
@@ -1069,13 +910,13 @@ export function verifyInternalTunAlphaVerificationEvidence(options: {
   invariant(
     JSON.stringify(evidence.checks) ===
       JSON.stringify([
-        "archive-layout",
+        "focused-install-surface",
+        "embedded-package-layout",
         "ownership-mode-link-policy",
         "helper-core-exact-digests-and-versions",
         "closed-protocol",
         "enrollment-boundary",
         "profile-isolation",
-        "legal-resources",
         "source-tooling-lockfiles",
         "sbom-provenance",
         "sha256",
@@ -1127,10 +968,19 @@ export function verifyInternalTunAlphaCandidate(
     options.identity,
     manifest,
   );
-  assertSbom(readJson(path.join(options.directory, sbomName)), options.directory, manifest);
   assertSourceProtocol(options.sourceRoot, manifest);
   assertNoDevelopmentPathOrSecret(path.join(options.directory, dmgName), options.sourceRoot);
-  verifyMountedPackage(path.join(options.directory, dmgName), options.sourceRoot, manifest);
+  const mounted = verifyMountedPackage(
+    path.join(options.directory, dmgName),
+    options.sourceRoot,
+    manifest,
+  );
+  assertSbom(
+    readJson(path.join(options.directory, sbomName)),
+    options.directory,
+    manifest,
+    mounted.applicationExecutableSha256,
+  );
   const evidence = verificationEvidence(options, candidate, manifest);
   if (options.evidenceOutput) {
     invariant(

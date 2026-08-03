@@ -16,23 +16,21 @@ import test from "node:test";
 
 import {
   createInternalTunAlphaManifest,
-  internalTunAlphaManifestName,
+  internalTunAlphaManifestRelativePath,
+  internalTunAlphaPackageVersion,
   verifyInternalTunAlphaPackage,
 } from "./internal-tun-alpha-package.ts";
 
+const payload = "Contents/Resources/internal-tun-alpha";
 const fixtureFiles = [
-  ["Health Internal TUN Alpha.command", 0o755],
-  ["Install Internal TUN Alpha.command", 0o755],
-  ["LICENSE", 0o644],
-  ["README.txt", 0o644],
-  ["Repair Internal TUN Alpha.command", 0o755],
-  ["Resources/mish-internal-tun-alpha-ctl", 0o755],
-  ["Resources/com.asuka109.mish.tun-helper.dev.plist.template", 0o644],
-  ["Resources/mihomo", 0o755],
-  ["Resources/mish-tun-helper", 0o755],
-  ["Status Internal TUN Alpha.command", 0o755],
-  ["THIRD_PARTY_NOTICES.md", 0o644],
-  ["Uninstall Internal TUN Alpha.command", 0o755],
+  [`${payload}/mish-internal-tun-alpha-ctl`, 0o755],
+  [`${payload}/com.asuka109.mish.tun-helper.dev.plist.template`, 0o644],
+  [`${payload}/mihomo`, 0o755],
+  [`${payload}/mish-tun-helper`, 0o755],
+  ["Contents/Info.plist", 0o644],
+  ["Contents/MacOS/mish-desktop", 0o755],
+  ["Contents/Resources/mihomo-aarch64-apple-darwin", 0o755],
+  ["Contents/_CodeSignature/CodeResources", 0o644],
 ] as const;
 
 const template = `<?xml version="1.0" encoding="UTF-8"?>
@@ -54,40 +52,28 @@ async function fixture() {
   const temporary = await mkdtemp(path.join(tmpdir(), "mish-internal-tun-alpha-"));
   const parent = await realpath(temporary);
   const root = path.join(parent, "Mish-Internal-TUN-Alpha-fixture-arm64");
-  await mkdir(path.join(root, "Resources"), { recursive: true, mode: 0o755 });
-  await mkdir(path.join(root, "Mish.app/Contents/MacOS"), { recursive: true, mode: 0o755 });
-  await mkdir(path.join(root, "Mish.app/Contents/Resources"), { recursive: true, mode: 0o755 });
+  const application = path.join(root, "Mish.app");
+  await mkdir(path.join(application, payload), { recursive: true, mode: 0o755 });
+  await mkdir(path.join(application, "Contents/MacOS"), { recursive: true, mode: 0o755 });
+  await mkdir(path.join(application, "Contents/_CodeSignature"), { recursive: true, mode: 0o755 });
   await chmod(root, 0o755);
-  await chmod(path.join(root, "Resources"), 0o755);
   for (const [relative, mode] of fixtureFiles) {
-    const content = relative.endsWith(".plist.template")
-      ? template
-      : relative.endsWith(".command")
-        ? "#!/bin/sh\nexit 0\n"
-        : `fixture:${relative}\n`;
-    await writeFile(path.join(root, relative), content, { mode });
-    await chmod(path.join(root, relative), mode);
+    const content = relative.endsWith(".plist.template") ? template : `fixture:${relative}\n`;
+    const file = path.join(application, relative);
+    await writeFile(file, content, { mode });
+    await chmod(file, mode);
   }
-  for (const [relative, mode] of [
-    ["Mish.app/Contents/Info.plist", 0o644],
-    ["Mish.app/Contents/MacOS/mish-desktop", 0o755],
-    ["Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin", 0o755],
-  ] as const) {
-    await writeFile(path.join(root, relative), `fixture:${relative}\n`, { mode });
-    await chmod(path.join(root, relative), mode);
-  }
-  const manifest = await createInternalTunAlphaManifest(root, {
+  const manifest = await createInternalTunAlphaManifest(application, {
     coreVersion: "v1.19.29",
     helperVersion: "3",
   });
-  await writeFile(
-    path.join(root, internalTunAlphaManifestName),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    { mode: 0o644 },
-  );
-  await chmod(path.join(root, internalTunAlphaManifestName), 0o644);
+  const manifestFile = path.join(application, internalTunAlphaManifestRelativePath);
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
+  await chmod(manifestFile, 0o644);
   return {
+    application,
     manifest,
+    manifestFile,
     parent,
     root,
     verify: () =>
@@ -109,19 +95,29 @@ async function withFixture(
   }
 }
 
-test("accepts only the closed operational Internal TUN Alpha package", async () => {
-  await withFixture(async ({ verify }) => {
+test("accepts the closed embedded Internal TUN Alpha application package", async () => {
+  await withFixture(async ({ application, verify }) => {
     const manifest = await verify();
+    assert.equal(manifest.packageVersion, internalTunAlphaPackageVersion);
     assert.equal(manifest.profile, "internal-tun-alpha");
     assert.equal(manifest.allowTun, true);
     assert.equal(manifest.networkMutationEnabled, true);
     assert.equal(manifest.developerIdRequired, false);
     assert.equal(manifest.protocolVersion, 3);
-    assert.equal(manifest.files.length, 15);
+    assert.equal(manifest.files.length, 6);
+    assert.equal(
+      manifest.files.some((file) => file.path === "Contents/MacOS/mish-desktop"),
+      false,
+    );
+    const direct = await verifyInternalTunAlphaPackage(application, {
+      expectedOwnerUid: process.getuid!(),
+      validateMacOsBinaries: false,
+    });
+    assert.equal(direct.packageVersion, internalTunAlphaPackageVersion);
   });
 });
 
-test("package build removes checkout paths and preserves the complete internal-only README", async () => {
+test("package build embeds the operational payload and signs the enclosing application", async () => {
   const source = await readFile(
     path.resolve(import.meta.dirname, "internal-tun-alpha-package.ts"),
     "utf8",
@@ -132,22 +128,38 @@ test("package build removes checkout paths and preserves the complete internal-o
     "--remap-path-prefix=${repositoryRoot}=.",
     "--remap-path-prefix=${process.env.HOME}=~",
     "SOURCE_DATE_EPOCH",
-    "Apple Silicon (arm64)",
-    "macOS 13 or newer",
-    "Open Anyway",
-    "administrator prompt",
-    "journaled transaction",
-    "active Virtual Interface",
-    "identical reinstall",
-    "older package is rejected",
-    "Recovery Required",
-    "same-user key limitation",
-    "not a public release",
-    "Repair Internal TUN Alpha.command",
-    "Uninstall Internal TUN Alpha.command",
+    "Contents/Resources/internal-tun-alpha",
+    "Contents/_CodeSignature/CodeResources",
+    "await mkdir(packageRoot, { recursive: true, mode: 0o755 })",
+    "MISH_MACOS_APP_PATH: application",
+    'signAdHoc(application, "com.asuka109.mish")',
+    "package root contains unexpected installation items",
   ]) {
     assert.ok(normalizedSource.includes(requirement), `Missing package boundary: ${requirement}`);
   }
+  for (const removedRootItem of [
+    "Install Internal TUN Alpha.command",
+    "Repair Internal TUN Alpha.command",
+    "Uninstall Internal TUN Alpha.command",
+  ]) {
+    assert.equal(
+      source.includes(removedRootItem),
+      false,
+      `Unexpected root item: ${removedRootItem}`,
+    );
+  }
+  const firstApplicationSeal = source.indexOf('signAdHoc(application, "com.asuka109.mish")');
+  const manifestCreation = source.indexOf("const manifest = await createInternalTunAlphaManifest");
+  const finalApplicationSeal = source.indexOf(
+    'signAdHoc(application, "com.asuka109.mish")',
+    firstApplicationSeal + 1,
+  );
+  assert.ok(
+    firstApplicationSeal >= 0 &&
+      firstApplicationSeal < manifestCreation &&
+      manifestCreation < finalApplicationSeal,
+    "The manifest must hash the first sealed app and be included in the final app seal",
+  );
   const downloadSource = await readFile(
     path.resolve(import.meta.dirname, "development-mihomo.ts"),
     "utf8",
@@ -200,57 +212,61 @@ test("rejects profile drift, unknown fields, mutable policy, and stale hashes", 
       files[0].sha256 = "0".repeat(64);
     },
   ]) {
-    await withFixture(async ({ manifest, root, verify }) => {
+    await withFixture(async ({ manifest, manifestFile, verify }) => {
       mutate(manifest as unknown as Record<string, unknown>);
-      await writeFile(
-        path.join(root, internalTunAlphaManifestName),
-        `${JSON.stringify(manifest)}\n`,
-      );
+      await writeFile(manifestFile, `${JSON.stringify(manifest)}\n`);
       await assert.rejects(verify());
     });
   }
 });
 
-test("rejects symlinks, hard links, loose modes, and unexpected profile artifacts", async () => {
+test("rejects root clutter, links, loose modes, and unexpected payload artifacts", async () => {
   await withFixture(async ({ root, verify }) => {
-    await symlink("mihomo", path.join(root, "Resources/foreign-link"));
+    await writeFile(path.join(root, "README.txt"), "forbidden\n");
+    await assert.rejects(verify(), /root contains unexpected installation items/iu);
+  });
+  await withFixture(async ({ application, verify }) => {
+    await symlink("mihomo", path.join(application, payload, "foreign-link"));
     await assert.rejects(verify(), /symlink|unexpected/iu);
   });
-  await withFixture(async ({ root, verify }) => {
-    await link(path.join(root, "Resources/mihomo"), path.join(root, "Resources/duplicate-core"));
+  await withFixture(async ({ application, verify }) => {
+    await link(
+      path.join(application, payload, "mihomo"),
+      path.join(application, payload, "duplicate-core"),
+    );
     await assert.rejects(verify(), /metadata|unexpected/iu);
   });
-  await withFixture(async ({ root, verify }) => {
-    await chmod(path.join(root, "Install Internal TUN Alpha.command"), 0o777);
+  await withFixture(async ({ application, verify }) => {
+    await chmod(path.join(application, payload, "mish-tun-helper"), 0o777);
     await assert.rejects(verify(), /metadata/iu);
   });
-  await withFixture(async ({ root, verify }) => {
-    await chmod(path.join(root, "Resources"), 0o775);
+  await withFixture(async ({ application, verify }) => {
+    await chmod(path.join(application, payload), 0o775);
     await assert.rejects(verify(), /metadata/iu);
   });
   for (const relative of [
-    "Mish.app/Contents/Resources/foreign",
+    "Contents/Resources/foreign",
+    `${payload}/foreign`,
     "Contents/Library/LaunchDaemons/production.plist",
-    "Resources/tun-client-key.json",
   ]) {
-    await withFixture(async ({ root, verify }) => {
-      await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
-      await writeFile(path.join(root, relative), "forbidden\n");
+    await withFixture(async ({ application, verify }) => {
+      await mkdir(path.dirname(path.join(application, relative)), { recursive: true });
+      await writeFile(path.join(application, relative), "forbidden\n");
       await assert.rejects(verify(), /unexpected/iu);
     });
   }
 });
 
 test("rejects duplicate manifest entries and unbounded manifest input", async () => {
-  await withFixture(async ({ manifest, root, verify }) => {
+  await withFixture(async ({ manifest, manifestFile, verify }) => {
     manifest.files[1] = { ...manifest.files[0] };
-    await writeFile(path.join(root, internalTunAlphaManifestName), `${JSON.stringify(manifest)}\n`);
+    await writeFile(manifestFile, `${JSON.stringify(manifest)}\n`);
     await assert.rejects(verify(), /contract|duplicate/iu);
   });
-  await withFixture(async ({ manifest, root, verify }) => {
+  await withFixture(async ({ manifest, manifestFile, verify }) => {
     const bytes = `${JSON.stringify(manifest)}${" ".repeat(1024 * 1024)}\n`;
-    await writeFile(path.join(root, internalTunAlphaManifestName), bytes);
-    assert.ok((await readFile(path.join(root, internalTunAlphaManifestName))).length > 1024 * 1024);
+    await writeFile(manifestFile, bytes);
+    assert.ok((await readFile(manifestFile)).length > 1024 * 1024);
     await assert.rejects(verify(), /size/iu);
   });
 });

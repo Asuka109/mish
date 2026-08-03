@@ -4,6 +4,9 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  internalTunAlphaControllerRelativePath,
+  internalTunAlphaCoreRelativePath,
+  internalTunAlphaHelperRelativePath,
   productionHelperRelativePath,
   verifyMacOsPrivilegedBundle,
 } from "./macos-privileged-bundle.ts";
@@ -33,6 +36,12 @@ const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
 const bundledGeodata = path.join(resources, "geodata/snapshot");
 const sourceGeodata = path.resolve("resources/geodata/snapshot");
+const tunHelperContract = await readFile(path.resolve("crates/runtime/src/tun_helper.rs"), "utf8");
+const expectedProductionHelperVersion =
+  /pub const TUN_HELPER_EXPECTED_VERSION: &str = "([1-9][0-9]*)";/u.exec(tunHelperContract)?.[1];
+if (!expectedProductionHelperVersion) {
+  throw new Error("The production TUN helper version contract is invalid");
+}
 const legalResources = [
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
@@ -42,13 +51,20 @@ const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6
 const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
 const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";
 const alphaAdHoc = process.env.MISH_MACOS_PACKAGE_MODE === "alpha-ad-hoc";
+const internalTunAlpha = process.env.MISH_MACOS_PACKAGE_MODE === "internal-tun-alpha";
 const signedDirect = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct";
 const signedDirectFixture = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct-fixture";
 const productionLayout = production || productionFixture;
 
 if (
-  [production, productionFixture, alphaAdHoc, signedDirect, signedDirectFixture].filter(Boolean)
-    .length !== 1
+  [
+    production,
+    productionFixture,
+    alphaAdHoc,
+    internalTunAlpha,
+    signedDirect,
+    signedDirectFixture,
+  ].filter(Boolean).length !== 1
 ) {
   throw new Error("Bundle verification requires exactly one explicit macOS package mode");
 }
@@ -102,8 +118,21 @@ const executableName = command("plutil", [
 ]);
 const executable = path.join(contents, "MacOS", executableName);
 const productionHelper = path.join(application, productionHelperRelativePath);
-await verifyMacOsPrivilegedBundle(application, productionLayout ? "production" : "ad-hoc");
-for (const binary of [executable, bundledMihomo, ...(productionLayout ? [productionHelper] : [])]) {
+const internalTunAlphaBinaries = [
+  path.join(application, internalTunAlphaControllerRelativePath),
+  path.join(application, internalTunAlphaHelperRelativePath),
+  path.join(application, internalTunAlphaCoreRelativePath),
+];
+await verifyMacOsPrivilegedBundle(
+  application,
+  internalTunAlpha ? "internal-tun-alpha" : productionLayout ? "production" : "ad-hoc",
+);
+for (const binary of [
+  executable,
+  bundledMihomo,
+  ...(productionLayout ? [productionHelper] : []),
+  ...(internalTunAlpha ? internalTunAlphaBinaries : []),
+]) {
   const description = command("file", [binary]);
   if (!description.includes("Mach-O 64-bit executable arm64")) {
     throw new Error(`Bundle contains a non-ARM64 executable: ${description}`);
@@ -122,10 +151,17 @@ if (pinnedMihomoDigest !== mihomoManifest.binarySha256) {
     `Pinned Mihomo checksum mismatch after bundle staging: expected ${mihomoManifest.binarySha256}, received ${pinnedMihomoDigest}`,
   );
 }
-if (mihomoDigest !== preparedMihomoDigest) {
+const expectedBundledMihomoDigest = internalTunAlpha ? pinnedMihomoDigest : preparedMihomoDigest;
+if (mihomoDigest !== expectedBundledMihomoDigest) {
   throw new Error(
-    `Bundled Mihomo checksum mismatch: expected ${preparedMihomoDigest}, received ${mihomoDigest}`,
+    `Bundled Mihomo checksum mismatch: expected ${expectedBundledMihomoDigest}, received ${mihomoDigest}`,
   );
+}
+if (
+  internalTunAlpha &&
+  (await sha256(path.join(application, internalTunAlphaCoreRelativePath))) !== pinnedMihomoDigest
+) {
+  throw new Error("Internal TUN Alpha payload Core checksum differs from the pinned Core");
 }
 const mihomoVersion = command(bundledMihomo, ["-v"]);
 if (!mihomoVersion.includes("v1.19.29 darwin arm64")) {
@@ -235,11 +271,21 @@ if (productionLayout) {
       throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
     }
   }
-  if (command(productionHelper, ["--version"]) !== "5") {
+  if (command(productionHelper, ["--version"]) !== expectedProductionHelperVersion) {
     throw new Error("The production TUN helper reports an unexpected version");
   }
   if (command(productionHelper, ["--protocol-version"]) !== "3") {
     throw new Error("The production TUN helper reports an unexpected protocol version");
+  }
+}
+
+if (internalTunAlpha) {
+  const runtimeEvidence = JSON.parse(command(executable, ["--release-profile-evidence"])) as {
+    profile?: string;
+    tun?: string;
+  };
+  if (runtimeEvidence.profile !== "internal-tun-alpha" || runtimeEvidence.tun !== "supported") {
+    throw new Error("Internal TUN Alpha executable reports an unexpected release profile");
   }
 }
 
@@ -317,5 +363,5 @@ execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : signedDirectFixture ? "credential-free signed-direct identity/layout fixture" : "signed-direct Developer ID System Proxy-only"}`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : internalTunAlpha ? "embedded Internal TUN Alpha payload" : signedDirectFixture ? "credential-free signed-direct identity/layout fixture" : "signed-direct Developer ID System Proxy-only"}`,
 );

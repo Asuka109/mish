@@ -16,6 +16,11 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
+  internalTunAlphaControllerRelativePath,
+  internalTunAlphaCoreRelativePath,
+  internalTunAlphaHelperRelativePath,
+  internalTunAlphaManifestRelativePath,
+  internalTunAlphaPlistRelativePath,
   productionHelperRelativePath,
   productionPlistRelativePath,
   verifyMacOsPrivilegedBundle,
@@ -40,6 +45,31 @@ function fixture(production = true) {
   return { application, temporary };
 }
 
+function internalTunAlphaFixture() {
+  const value = fixture(false);
+  const payload = path.dirname(
+    path.join(value.application, internalTunAlphaControllerRelativePath),
+  );
+  mkdirSync(payload, { recursive: true });
+  for (const relative of [
+    internalTunAlphaControllerRelativePath,
+    internalTunAlphaCoreRelativePath,
+    internalTunAlphaHelperRelativePath,
+  ]) {
+    const file = path.join(value.application, relative);
+    writeFileSync(file, `fixture:${relative}`);
+    chmodSync(file, 0o555);
+  }
+  copyFileSync(
+    path.resolve("resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template"),
+    path.join(value.application, internalTunAlphaPlistRelativePath),
+  );
+  writeFileSync(path.join(value.application, internalTunAlphaManifestRelativePath), "{}\n");
+  chmodSync(path.join(value.application, internalTunAlphaPlistRelativePath), 0o444);
+  chmodSync(path.join(value.application, internalTunAlphaManifestRelativePath), 0o444);
+  return value;
+}
+
 test("accepts the exact production layout and an empty ad-hoc layout", async () => {
   using production = fixture().temporary;
   const productionApplication = path.join(production.path, "Mish.app");
@@ -48,6 +78,21 @@ test("accepts the exact production layout and an empty ad-hoc layout", async () 
   const adHocFixture = fixture(false);
   using adHoc = adHocFixture.temporary;
   await verifyMacOsPrivilegedBundle(adHocFixture.application, "ad-hoc");
+});
+
+test("accepts only the closed embedded Internal TUN Alpha payload", async () => {
+  const internal = internalTunAlphaFixture();
+  using temporary = internal.temporary;
+  await verifyMacOsPrivilegedBundle(internal.application, "internal-tun-alpha");
+
+  writeFileSync(
+    path.join(internal.application, "Contents/Resources/foreign-tun-helper"),
+    "unexpected",
+  );
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(internal.application, "internal-tun-alpha"),
+    /unexpected privileged artifacts/u,
+  );
 });
 
 test("rejects missing and misplaced privileged artifacts", async () => {

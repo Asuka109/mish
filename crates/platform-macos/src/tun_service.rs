@@ -1057,7 +1057,9 @@ impl MacOsTunServiceClient {
         client.lifecycle = Some(TunServiceLifecycle::InternalTunAlpha(
             InternalTunAlphaLifecycle {
                 controller_path: package_root
+                    .join("Contents")
                     .join("Resources")
+                    .join("internal-tun-alpha")
                     .join("mish-internal-tun-alpha-ctl"),
                 expected_package_version: expected_package_version.into(),
                 package_root,
@@ -1593,9 +1595,10 @@ impl InternalTunAlphaLifecycle {
         })?;
         if root_metadata.file_type().is_symlink()
             || !root_metadata.is_dir()
-            || root_metadata.uid() != current_uid
+            || (root_metadata.uid() != current_uid && root_metadata.uid() != 0)
             || root_metadata.permissions().mode() & 0o022 != 0
             || package_root != self.package_root
+            || package_root.file_name().and_then(OsStr::to_str) != Some("Mish.app")
         {
             return Err(TunHelperError::new(
                 TunHelperFailureKind::IdentityRejected,
@@ -1617,10 +1620,15 @@ impl InternalTunAlphaLifecycle {
         })?;
         if controller_metadata.file_type().is_symlink()
             || !controller_metadata.is_file()
-            || controller_metadata.uid() != current_uid
+            || controller_metadata.uid() != root_metadata.uid()
             || controller_metadata.nlink() != 1
             || controller_metadata.permissions().mode() & 0o777 != 0o755
-            || !controller.starts_with(&package_root)
+            || controller
+                != package_root
+                    .join("Contents")
+                    .join("Resources")
+                    .join("internal-tun-alpha")
+                    .join("mish-internal-tun-alpha-ctl")
             || controller.file_name().and_then(|name| name.to_str())
                 != Some("mish-internal-tun-alpha-ctl")
         {
@@ -5190,8 +5198,8 @@ mod tests {
         let requested =
             Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
         let internal = MacOsTunServiceClient::internal_tun_alpha(
-            PathBuf::from("/Volumes/Mish TUN Alpha"),
-            "0.1.0-internal-tun-alpha.6",
+            PathBuf::from("/Applications/Mish.app"),
+            "0.1.0-internal-tun-alpha.7",
         );
         let development = MacOsTunServiceClient::development_with_tun_lifecycle(PathBuf::from(
             "/Users/fixture/mish",
@@ -5210,6 +5218,35 @@ mod tests {
             raw_protocol_client.privileged_core_launch_binary(requested),
             requested
         );
+    }
+
+    #[test]
+    fn internal_tun_alpha_lifecycle_accepts_only_the_embedded_application_controller() {
+        let temporary = tempfile::tempdir().unwrap();
+        let temporary_root = temporary.path().canonicalize().unwrap();
+        let package_root = temporary_root.join("Mish.app");
+        let controller =
+            package_root.join("Contents/Resources/internal-tun-alpha/mish-internal-tun-alpha-ctl");
+        fs::create_dir_all(controller.parent().unwrap()).unwrap();
+        fs::write(&controller, "fixture-controller").unwrap();
+        fs::set_permissions(&controller, fs::Permissions::from_mode(0o755)).unwrap();
+        let lifecycle = InternalTunAlphaLifecycle {
+            controller_path: controller.clone(),
+            expected_package_version: "0.1.0-internal-tun-alpha.7".into(),
+            package_root: package_root.clone(),
+        };
+
+        assert_eq!(
+            lifecycle.validated_paths().unwrap(),
+            (package_root, controller)
+        );
+
+        let misplaced = InternalTunAlphaLifecycle {
+            controller_path: temporary_root.join("mish-internal-tun-alpha-ctl"),
+            expected_package_version: "0.1.0-internal-tun-alpha.7".into(),
+            package_root: temporary_root.join("Mish.app"),
+        };
+        assert!(misplaced.validated_paths().is_err());
     }
 
     #[test]

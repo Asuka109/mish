@@ -109,18 +109,22 @@ runtime receipt; shared system directories are never removed.
 
 The `internal-tun-alpha` package productizes this accepted development service
 for a trusted Mac without requiring a repository checkout, Node.js, Rust,
-Homebrew, compilation, or a runtime download. It is a separate service archive,
-not a `Mish.app` layout and not a release-profile variant selected by signing
-inputs.
+Homebrew, compilation, or a runtime download. It is a separate service archive
+whose closed payload is embedded in `Mish.app`, not a release-profile variant
+selected by signing inputs. Its Finder DMG presents only `Mish.app` and the
+`Applications` alias; the app remains the package root after drag-install.
 
-The package includes only one native lifecycle controller, the feature-gated
-development Helper, the exact pinned Core, a closed LaunchDaemon template, one
-versioned manifest, license/notices, and fixed user-facing install, health,
-status, repair, and uninstall resources. The manifest records every allowed
-relative path, role, mode, size, and SHA-256 digest. Package and installed-layout
-verification reject symlinks, hard links, writable paths, unexpected or
-duplicate files, unbounded records, wrong versions or hashes, mutable
-identities, and profile leakage.
+The sealed payload at `Contents/Resources/internal-tun-alpha/` contains only
+one native lifecycle controller, the feature-gated development Helper, the
+exact pinned Core, a closed LaunchDaemon template, and one versioned manifest.
+The enclosing app signature seals that payload and the self-signing main
+executable. The manifest records every payload and non-self-signing app path,
+role, mode, size, and SHA-256 digest; the staged SBOM records the final main
+executable digest. Package and installed-layout verification reject symlinks,
+hard links, writable paths, unexpected or duplicate files, unbounded records,
+wrong versions or hashes, mutable identities, and profile leakage. No
+controller, manifest, payload, or lifecycle command is an independently
+selectable DMG-root item.
 
 Installation retains the accepted trust contract: the controller generates or
 reuses the user-owned mode-`0600` P-256 private record, stages only its public
@@ -205,9 +209,9 @@ generation. A partial, foreign, or unowned global layout fails closed; a clean
 not-installed layout permits only the private user-state cleanup.
 
 The package controller deliberately exposes no Core start, TUN enable/disable,
-arbitrary path/command, or parameterized network-mutation action. The `.4`
-package includes `Mish.app` and fixes `MISH_TUN_SERVICE_ALLOW_TUN=1`, but
-post-install remains healthy and disabled. Only the app's shared Rust Capture
+arbitrary path/command, or parameterized network-mutation action. The `.7`
+delivery layout fixes `MISH_TUN_SERVICE_ALLOW_TUN=1`, but post-install remains
+healthy and disabled. Only the app's shared Rust Capture
 authority can stage the bounded candidate and invoke the existing authenticated
 typed Helper commands. `alpha-ad-hoc`, `signed-direct`, Browser Client, and
 future production layouts remain free of Internal TUN Alpha authority and fail
