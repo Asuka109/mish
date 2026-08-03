@@ -12,10 +12,10 @@ use mish_runtime::{
     CaptureFailureKind, CaptureJournal, CaptureJournalStore, CaptureOperationPhase,
     CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError,
     CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint, ManualProxyState,
-    MishRuntime, NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
-    PlatformLifecycleEventSource, RuntimeObservationPauseReason, StatusAdapterKind,
-    StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource,
+    MishRuntime, NetworkServiceProxyState, NotificationSeverity, PlatformLifecycleEvent,
+    PlatformLifecycleEventKind, PlatformLifecycleEventSource, RuntimeObservationPauseReason,
+    StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource,
 };
 use mish_settings::{
     DnsObservation, FileSettingsRepository, NetworkDnsObservation, NetworkDnsObservationError,
@@ -810,6 +810,10 @@ async fn terminal_capture_failure_is_resolved_without_deleting_history_after_ret
     let failed = fixture.runtime.notification_snapshot();
     assert_eq!(failed.notifications.len(), 1);
     assert!(!failed.notifications[0].resolved);
+    assert_eq!(
+        failed.notifications[0].severity,
+        NotificationSeverity::Error
+    );
 
     fixture.platform.set_listener_ready(true);
     fixture
@@ -822,6 +826,10 @@ async fn terminal_capture_failure_is_resolved_without_deleting_history_after_ret
     assert_eq!(resolved.notifications.len(), 1);
     assert_eq!(resolved.notifications[0].id, failed.notifications[0].id);
     assert!(resolved.notifications[0].resolved);
+    assert_eq!(
+        resolved.notifications[0].severity,
+        NotificationSeverity::Error
+    );
 }
 
 #[tokio::test]

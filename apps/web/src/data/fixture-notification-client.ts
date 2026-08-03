@@ -47,9 +47,15 @@ export class FixtureNotificationCenter {
       ({ dedupeKey, resolved }) =>
         dedupeKey === publication.dedupeKey && (!resolved || publication.resolved),
     );
+    const effectiveSeverity =
+      existing &&
+      publication.resolved &&
+      sameSemanticContent(existing.presentation, publication.presentation)
+        ? existing.severity
+        : publication.severity;
     if (
       existing &&
-      existing.severity === publication.severity &&
+      existing.severity === effectiveSeverity &&
       existing.pinned === publication.pinned &&
       existing.resolved === publication.resolved &&
       JSON.stringify(existing.presentation) === JSON.stringify(publication.presentation) &&
@@ -68,7 +74,7 @@ export class FixtureNotificationCenter {
           presentation: structuredClone(publication.presentation),
           resolved: publication.resolved,
           revision,
-          severity: publication.severity,
+          severity: effectiveSeverity,
         }
       : {
           createdRevision: revision,
@@ -81,7 +87,7 @@ export class FixtureNotificationCenter {
           read: false,
           resolved: publication.resolved,
           revision,
-          severity: publication.severity,
+          severity: effectiveSeverity,
         };
     this.snapshot = {
       notifications: [
@@ -199,6 +205,23 @@ export class FixtureNotificationCenter {
 
   removeByDedupeKey(dedupeKey: string) {
     return this.removeMatching(({ dedupeKey: candidate }) => candidate === dedupeKey);
+  }
+
+  resolveByDedupeKey(dedupeKey: string) {
+    const record = this.snapshot.notifications.find(
+      ({ dedupeKey: candidate, resolved }) => candidate === dedupeKey && !resolved,
+    );
+    if (!record) return this.getSnapshot();
+    const revision = this.snapshot.revision + 1;
+    this.snapshot = {
+      notifications: this.snapshot.notifications.map((current) =>
+        current.id === record.id
+          ? { ...current, pinned: false, resolved: true, revision }
+          : current,
+      ),
+      revision,
+    };
+    return this.commit();
   }
 
   subscribe(client: FixtureNotificationClient): NotificationSnapshotDelivery {
@@ -383,4 +406,11 @@ function sameIdentity(
   right: NotificationPresentationIdentityDto,
 ) {
   return left.clientId === right.clientId && left.sessionId === right.sessionId;
+}
+
+function sameSemanticContent(
+  left: NotificationRecordDto["presentation"],
+  right: NotificationPublicationDto["presentation"],
+) {
+  return left.kind === right.kind && JSON.stringify(left.data) === JSON.stringify(right.data);
 }

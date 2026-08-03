@@ -279,10 +279,16 @@ impl NotificationCenter {
         if !replacements_remove_something
             && existing_index.is_some_and(|index| {
                 let record = &state.records[index];
+                let effective_severity =
+                    if resolution_preserves_occurrence_severity(record, &publication) {
+                        record.severity
+                    } else {
+                        publication.severity
+                    };
                 record.presentation == publication.presentation
                     && record.pinned == publication.pinned
                     && record.resolved == publication.resolved
-                    && record.severity == publication.severity
+                    && record.severity == effective_severity
             })
         {
             return Ok(snapshot(&state));
@@ -303,12 +309,16 @@ impl NotificationCenter {
                 && (!record.resolved || publication.resolved)
         }) {
             let mut record = state.records.remove(index).expect("existing notification");
+            let preserves_occurrence_severity =
+                resolution_preserves_occurrence_severity(&record, &publication);
             record.observed_at = self.now();
             record.pinned = publication.pinned;
             record.presentation = publication.presentation;
             record.resolved = publication.resolved;
             record.revision = revision;
-            record.severity = publication.severity;
+            if !preserves_occurrence_severity {
+                record.severity = publication.severity;
+            }
             state.records.push_back(record);
         } else {
             state.next_id = state.next_id.saturating_add(1);
@@ -386,7 +396,6 @@ impl NotificationCenter {
         record.pinned = false;
         record.resolved = true;
         record.revision = revision;
-        record.severity = NotificationSeverity::Success;
         self.publish_snapshot(&state)
     }
 
@@ -688,6 +697,16 @@ fn snapshot(state: &NotificationState) -> NotificationSnapshot {
     }
 }
 
+/// Resolution may retire recovery actions or pinning, but it is not a semantic success outcome.
+/// A producer must change the typed semantic content (or publish a new occurrence) before it can
+/// change the severity of an existing resolved record.
+fn resolution_preserves_occurrence_severity(
+    record: &NotificationRecord,
+    publication: &NotificationPublication,
+) -> bool {
+    publication.resolved && record.presentation.content == publication.presentation.content
+}
+
 fn validate_publication(
     publication: &NotificationPublication,
 ) -> Result<(), NotificationValidationError> {
@@ -981,7 +1000,7 @@ mod tests {
         assert!(resolved.notifications[0].resolved);
         assert_eq!(
             resolved.notifications[0].severity,
-            NotificationSeverity::Success
+            NotificationSeverity::Info
         );
         assert_eq!(first.try_recv().unwrap(), resolved);
         assert_eq!(second.try_recv().unwrap(), resolved);
@@ -994,6 +1013,165 @@ mod tests {
         assert!(removed.notifications.is_empty());
         assert_eq!(first.try_recv().unwrap(), removed);
         assert_eq!(second.try_recv().unwrap(), removed);
+    }
+
+    #[test]
+    fn resolution_only_publication_cannot_rewrite_occurrence_severity() {
+        let center = NotificationCenter::new();
+        let mut failure = publication("resolution-only", 1);
+        failure.severity = NotificationSeverity::Error;
+        let created = center.publish(failure.clone()).unwrap();
+        let id = created.notifications[0].id.clone();
+
+        let mut resolution = failure;
+        resolution.resolved = true;
+        resolution.severity = NotificationSeverity::Success;
+        let resolved = center.publish(resolution.clone()).unwrap();
+        let record = &resolved.notifications[0];
+        assert_eq!(record.id, id);
+        assert!(record.resolved);
+        assert_eq!(record.severity, NotificationSeverity::Error);
+
+        let repeated = center.publish(resolution).unwrap();
+        assert_eq!(repeated.revision, resolved.revision);
+        assert_eq!(
+            repeated.notifications[0].severity,
+            NotificationSeverity::Error
+        );
+    }
+
+    #[test]
+    fn resolution_preserves_all_occurrence_severities_across_read_fold_reconnect_and_retention() {
+        let (center, _) = center_with_clock();
+        let severities = [
+            NotificationSeverity::Error,
+            NotificationSeverity::Warning,
+            NotificationSeverity::Info,
+            NotificationSeverity::Success,
+        ];
+        let mut retained = Vec::new();
+
+        for (index, severity) in severities.into_iter().enumerate() {
+            let key = format!("severity-{index}");
+            let mut publication = publication(&key, index as u64);
+            publication.pinned = true;
+            publication.severity = severity;
+            let created = center.publish(publication).unwrap();
+            let id = created.notifications[0].id.clone();
+
+            let read = center.mark_read(&[id.clone()]);
+            assert!(
+                read.notifications
+                    .iter()
+                    .find(|record| record.id == id)
+                    .is_some_and(|record| record.read && record.severity == severity)
+            );
+
+            let owner = identity(&format!("owner-{index}"), &format!("session-{index}"));
+            let claim = center
+                .claim_next_presentation(owner.clone())
+                .claim
+                .expect("the retained occurrence is eligible for presentation");
+            let resolved = center.resolve_by_dedupe_key(&key);
+            assert!(
+                resolved
+                    .notifications
+                    .iter()
+                    .find(|record| record.id == id)
+                    .is_some_and(|record| {
+                        record.read
+                            && record.resolved
+                            && !record.pinned
+                            && record.severity == severity
+                            && record.presentation_state.phase
+                                == NotificationPresentationPhase::Presenting
+                    })
+            );
+
+            let requeued = center.release_presentation_leases(&owner);
+            assert!(
+                requeued
+                    .notifications
+                    .iter()
+                    .find(|record| record.id == id)
+                    .is_some_and(|record| {
+                        record.severity == severity
+                            && record.presentation_state.phase
+                                == NotificationPresentationPhase::Unpresented
+                    })
+            );
+
+            let reconnect = identity(
+                &format!("reconnected-owner-{index}"),
+                &format!("reconnected-session-{index}"),
+            );
+            let reconnect_claim = center
+                .claim_next_presentation(reconnect.clone())
+                .claim
+                .expect("a reconnect receives a fresh lease for the retained occurrence");
+            assert_eq!(reconnect_claim.id, claim.id);
+            let folded = center.complete_presentation(completion(
+                &reconnect,
+                &reconnect_claim,
+                NotificationPresentationFoldReason::Dismissed,
+            ));
+            assert!(folded.accepted);
+            assert!(
+                folded
+                    .snapshot
+                    .notifications
+                    .iter()
+                    .find(|record| record.id == id)
+                    .is_some_and(|record| {
+                        record.read
+                            && record.resolved
+                            && record.severity == severity
+                            && record.presentation_state.phase
+                                == NotificationPresentationPhase::Folded
+                    })
+            );
+            retained.push((id, severity));
+        }
+
+        for index in 0..(NOTIFICATION_RETENTION_LIMIT - retained.len()) {
+            center
+                .publish(publication(&format!("retention-{index}"), index as u64))
+                .unwrap();
+        }
+        let within_bound = center.snapshot();
+        assert_eq!(
+            within_bound.notifications.len(),
+            NOTIFICATION_RETENTION_LIMIT
+        );
+        for (id, severity) in &retained {
+            assert!(
+                within_bound
+                    .notifications
+                    .iter()
+                    .find(|record| &record.id == id)
+                    .is_some_and(|record| record.severity == *severity)
+            );
+        }
+
+        let overflow = center
+            .publish(publication("retention-overflow", 0))
+            .unwrap();
+        assert_eq!(overflow.notifications.len(), NOTIFICATION_RETENTION_LIMIT);
+        assert!(
+            overflow
+                .notifications
+                .iter()
+                .all(|record| record.id != retained[0].0)
+        );
+        for (id, severity) in retained.iter().skip(1) {
+            assert!(
+                overflow
+                    .notifications
+                    .iter()
+                    .find(|record| &record.id == id)
+                    .is_some_and(|record| record.severity == *severity)
+            );
+        }
     }
 
     #[test]

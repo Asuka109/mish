@@ -67,6 +67,19 @@ maps transported stable action IDs to localized labels and existing typed
 commands while keeping pending state client-local. There is no unknown-kind
 fallback, dual reader, or legacy localized-field adapter.
 
+Occurrence severity is a historical fact owned by the Rust record. `resolved`,
+shared `read`, and the presentation phase are independent transitions: resolving
+an Error or Warning may clear stale recovery actions, release pinning, or
+suppress a live toast, but it never changes that record into `Success`. A
+genuine completion must arrive as an explicit semantic publication or typed
+projection, with a different semantic payload when it updates one lifecycle;
+the Web registry must never infer success from `resolved` alone. The optional
+`outcome` on GeoData progress is the compatibility boundary for pre-existing
+in-memory records: absence remains progress, while `prepared` is the explicit
+success outcome. Notification retention is process memory rather than disk, so
+a process restart begins empty; desktop runtime replacement transfers the same
+Rust Module and therefore preserves each retained record unchanged.
+
 System Proxy takeover refusals use a closed, redacted Rust reason only. The presentation maps a
 recognized reason to a zero-argument native action; it never renders host names, PAC URLs,
 credentials, service identities, or raw platform observations. The macOS Adapter owns one fixed
