@@ -5,8 +5,14 @@ import path from "node:path";
 export const productionHelperRelativePath = "Contents/Resources/mish-tun-helper";
 export const productionPlistRelativePath =
   "Contents/Library/LaunchDaemons/com.asuka109.mish.tun-helper.plist";
+export const internalTunAlphaPayloadRelativePath = "Contents/Resources/internal-tun-alpha";
+export const internalTunAlphaControllerRelativePath = `${internalTunAlphaPayloadRelativePath}/mish-internal-tun-alpha-ctl`;
+export const internalTunAlphaHelperRelativePath = `${internalTunAlphaPayloadRelativePath}/mish-tun-helper`;
+export const internalTunAlphaCoreRelativePath = `${internalTunAlphaPayloadRelativePath}/mihomo`;
+export const internalTunAlphaPlistRelativePath = `${internalTunAlphaPayloadRelativePath}/com.asuka109.mish.tun-helper.dev.plist.template`;
+export const internalTunAlphaManifestRelativePath = `${internalTunAlphaPayloadRelativePath}/internal-tun-alpha-manifest.json`;
 
-export type MacOsPrivilegedBundleMode = "ad-hoc" | "production";
+export type MacOsPrivilegedBundleMode = "ad-hoc" | "internal-tun-alpha" | "production";
 
 async function digest(file: string) {
   return createHash("sha256")
@@ -79,7 +85,6 @@ export async function verifyMacOsPrivilegedBundle(
   application: string,
   mode: MacOsPrivilegedBundleMode,
 ) {
-  const expected = new Set([productionHelperRelativePath, productionPlistRelativePath]);
   const discovered = await walk(application);
   const privileged = discovered.filter(isPrivilegedPath);
 
@@ -90,6 +95,45 @@ export async function verifyMacOsPrivilegedBundle(
     return;
   }
 
+  if (mode === "internal-tun-alpha") {
+    const expected = new Set([
+      internalTunAlphaPayloadRelativePath,
+      internalTunAlphaControllerRelativePath,
+      internalTunAlphaHelperRelativePath,
+      internalTunAlphaCoreRelativePath,
+      internalTunAlphaPlistRelativePath,
+      internalTunAlphaManifestRelativePath,
+    ]);
+    for (const required of expected) {
+      if (!discovered.includes(required)) {
+        throw new Error(`Internal TUN Alpha bundle is missing privileged artifact: ${required}`);
+      }
+    }
+    const unexpected = privileged.filter((relative) => !expected.has(relative));
+    if (unexpected.length > 0) {
+      throw new Error(
+        `Internal TUN Alpha bundle contains unexpected privileged artifacts: ${unexpected.join(", ")}`,
+      );
+    }
+    await requireDirectory(path.join(application, internalTunAlphaPayloadRelativePath));
+    await requireRegularFile(path.join(application, internalTunAlphaControllerRelativePath), true);
+    await requireRegularFile(path.join(application, internalTunAlphaHelperRelativePath), true);
+    await requireRegularFile(path.join(application, internalTunAlphaCoreRelativePath), true);
+    const plist = path.join(application, internalTunAlphaPlistRelativePath);
+    await requireRegularFile(plist, false);
+    await requireRegularFile(path.join(application, internalTunAlphaManifestRelativePath), false);
+    const sourcePlist = path.resolve(
+      "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
+    );
+    if ((await digest(plist)) !== (await digest(sourcePlist))) {
+      throw new Error(
+        "Internal TUN Alpha bundled LaunchDaemon property list does not match the repository contract",
+      );
+    }
+    return;
+  }
+
+  const expected = new Set([productionHelperRelativePath, productionPlistRelativePath]);
   for (const required of expected) {
     if (!discovered.includes(required)) {
       throw new Error(`Production bundle is missing privileged artifact: ${required}`);

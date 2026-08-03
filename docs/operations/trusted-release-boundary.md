@@ -69,7 +69,7 @@ attestation command, tag/Release mutation, or deployment command.
 The `internal-tun-alpha` branch is a credential-free private artifact staging
 lane, not protected signing or release publication. It requires source, frozen
 `main`, workflow, and tooling to be the same full SHA. One isolated
-GitHub-hosted Apple Silicon job builds the ad-hoc package, deterministic DMG,
+GitHub-hosted Apple Silicon job builds the ad-hoc package, reviewed Finder DMG,
 SPDX SBOM, in-toto/SLSA provenance, and complete candidate manifest. A separate
 Apple Silicon job downloads only that immutable artifact ID and mounts the DMG
 read-only for independent verification. A secretless Ubuntu job binds the

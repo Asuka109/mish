@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -11,10 +10,8 @@ import {
   readdirSync,
   renameSync,
   rmSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -24,11 +21,16 @@ import {
   type CandidateManifest,
   type DispatchIdentity,
 } from "./trusted-release-policy.ts";
+import {
+  internalTunAlphaManifestRelativePath,
+  internalTunAlphaPackageVersion as embeddedInternalTunAlphaPackageVersion,
+} from "./internal-tun-alpha-package.ts";
+import { createMacOsDmg } from "./macos-dmg-presentation.ts";
 import { verifyInternalTunAlphaVerificationEvidence } from "./verify-internal-tun-alpha-stage.ts";
 
 export const internalTunAlphaStageKind = "internal-tun-alpha-immutable-stage";
 export const internalTunAlphaCandidateKind = "internal-tun-alpha-dmg-candidate";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.6";
+export const internalTunAlphaPackageVersion = embeddedInternalTunAlphaPackageVersion;
 export const internalTunAlphaDmgName = `Mish-Internal-TUN-Alpha-${internalTunAlphaPackageVersion}-arm64.dmg`;
 export const internalTunAlphaPackageManifestName = "internal-tun-alpha-package-manifest.json";
 export const internalTunAlphaSbomName = "internal-tun-alpha-sbom.spdx.json";
@@ -39,6 +41,7 @@ export const internalTunAlphaFinalManifestName = "internal-tun-alpha-stage-manif
 export const internalTunAlphaStageInputsName = "internal-tun-alpha-stage-inputs.json";
 
 const fixedTimestamp = new Date("2020-01-01T00:00:00.000Z");
+const applicationMainExecutableRelativePath = "Contents/MacOS/mish-desktop";
 const fullSha = /^[0-9a-f]{40}$/u;
 const numericId = /^[1-9][0-9]*$/u;
 const safeArtifactName = /^[A-Za-z0-9._-]+$/u;
@@ -54,9 +57,14 @@ const sourceInputPaths = [
   "package.json",
   "pnpm-lock.yaml",
   "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
+  "resources/macos-dmg/mish-install.png",
+  "resources/macos-dmg/mish-install.svg",
+  "resources/macos-dmg/mish-installer-template.dmg",
+  "resources/macos-dmg/presentation.json",
   "resources/mihomo/macos-arm64.json",
   "scripts/development-mihomo.ts",
   "scripts/internal-tun-alpha-package.ts",
+  "scripts/macos-dmg-presentation.ts",
   "scripts/prepare-mihomo.ts",
   "skills-lock.json",
 ] as const;
@@ -222,11 +230,8 @@ function assertPackageManifest(value: PackageManifest): void {
   );
   invariant(
     Array.isArray(value.files) &&
-      value.files.length > 12 &&
-      value.files.some(
-        (file) =>
-          file.role === "application" && file.path === "Mish.app/Contents/MacOS/mish-desktop",
-      ) &&
+      value.files.length > 4 &&
+      !value.files.some((file) => file.path === "Contents/MacOS/mish-desktop") &&
       value.files.every(
         (file) =>
           file &&
@@ -260,239 +265,24 @@ function sourceInputs(sourceRoot: string): Array<{
   });
 }
 
-function normalizeHybridDiskImageMetadata(file: string): void {
-  const bytes = readFileSync(file);
-  const sectorBytes = 2048;
-  const fixedIsoDate = Buffer.concat([Buffer.from("2020010100000000", "ascii"), Buffer.from([0])]);
-  const fixedIsoRecordDate = Buffer.from([120, 1, 1, 0, 0, 0, 0]);
-  let foundPrimary = false;
-  let isoRecordDateFields = 0;
-  let isoSuspDateFields = 0;
-  const normalizeIsoDirectory = (extent: number, size: number, visited: Set<number>): void => {
-    const start = extent * sectorBytes;
-    const end = start + size;
-    invariant(
-      extent > 0 && size > 0 && end <= bytes.length,
-      "Internal TUN Alpha ISO9660 directory extent is invalid.",
-    );
-    invariant(!visited.has(extent), "Internal TUN Alpha ISO9660 directory graph is cyclic.");
-    visited.add(extent);
-    let cursor = start;
-    while (cursor < end) {
-      const recordLength = bytes[cursor];
-      if (recordLength === 0) {
-        cursor = Math.min(end, Math.ceil((cursor + 1) / sectorBytes) * sectorBytes);
-        continue;
-      }
-      invariant(
-        recordLength >= 34 && cursor + recordLength <= end && cursor + recordLength <= bytes.length,
-        "Internal TUN Alpha ISO9660 directory record is invalid.",
-      );
-      fixedIsoRecordDate.copy(bytes, cursor + 18);
-      isoRecordDateFields += 1;
-      const nameLength = bytes[cursor + 32];
-      invariant(
-        nameLength > 0 && 33 + nameLength <= recordLength,
-        "Internal TUN Alpha ISO9660 directory name is invalid.",
-      );
-      let systemUse = cursor + 33 + nameLength + (nameLength % 2 === 0 ? 1 : 0);
-      while (systemUse + 4 <= cursor + recordLength) {
-        const entryLength = bytes[systemUse + 2];
-        if (entryLength === 0) break;
-        invariant(
-          entryLength >= 4 && systemUse + entryLength <= cursor + recordLength,
-          "Internal TUN Alpha ISO9660 system-use entry is invalid.",
-        );
-        if (bytes.subarray(systemUse, systemUse + 2).toString("ascii") === "TF") {
-          const flags = bytes[systemUse + 4];
-          invariant(
-            (flags & 0x80) === 0,
-            "Internal TUN Alpha ISO9660 uses an unexpected long timestamp.",
-          );
-          const timestampCount = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40].filter(
-            (flag) => (flags & flag) !== 0,
-          ).length;
-          invariant(
-            entryLength === 5 + timestampCount * fixedIsoRecordDate.length,
-            "Internal TUN Alpha ISO9660 timestamp entry is malformed.",
-          );
-          for (let index = 0; index < timestampCount; index += 1) {
-            fixedIsoRecordDate.copy(bytes, systemUse + 5 + index * fixedIsoRecordDate.length);
-            isoSuspDateFields += 1;
-          }
-        }
-        systemUse += entryLength;
-      }
-      const isDotEntry = nameLength === 1 && (bytes[cursor + 33] === 0 || bytes[cursor + 33] === 1);
-      if ((bytes[cursor + 25] & 0x02) !== 0 && !isDotEntry) {
-        normalizeIsoDirectory(
-          bytes.readUInt32LE(cursor + 2),
-          bytes.readUInt32LE(cursor + 10),
-          visited,
-        );
-      }
-      cursor += recordLength;
-    }
-  };
-  for (let sector = 16; sector * sectorBytes + sectorBytes <= bytes.length; sector += 1) {
-    const descriptor = sector * sectorBytes;
-    const type = bytes[descriptor];
-    invariant(
-      bytes.subarray(descriptor + 1, descriptor + 6).toString("ascii") === "CD001" &&
-        bytes[descriptor + 6] === 1,
-      "Internal TUN Alpha disk image has an invalid ISO9660 descriptor.",
-    );
-    if (type === 1 || type === 2) {
-      if (type === 1) foundPrimary = true;
-      for (const offset of [813, 830, 864]) {
-        fixedIsoDate.copy(bytes, descriptor + offset);
-      }
-      const rootDirectoryRecord = descriptor + 156;
-      invariant(
-        bytes[rootDirectoryRecord] >= 34,
-        "Internal TUN Alpha ISO9660 root directory record is invalid.",
-      );
-      fixedIsoRecordDate.copy(bytes, rootDirectoryRecord + 18);
-      isoRecordDateFields += 1;
-      normalizeIsoDirectory(
-        bytes.readUInt32LE(rootDirectoryRecord + 2),
-        bytes.readUInt32LE(rootDirectoryRecord + 10),
-        new Set(),
-      );
-    }
-    if (type === 255) break;
-  }
-  invariant(foundPrimary, "Internal TUN Alpha disk image has no ISO9660 primary descriptor.");
-  invariant(isoRecordDateFields > 0, "Internal TUN Alpha ISO9660 record-date inventory is empty.");
-  invariant(
-    isoSuspDateFields > 0,
-    "Internal TUN Alpha ISO9660 system-use date inventory is empty.",
-  );
-  const hfsHeaderOffsets: number[] = [];
-  for (let offset = 0; offset + 112 <= bytes.length; offset += 512) {
-    if (
-      bytes[offset] === 0x48 &&
-      bytes[offset + 1] === 0x2b &&
-      bytes.readUInt16BE(offset + 2) === 4
-    ) {
-      hfsHeaderOffsets.push(offset);
-    }
-  }
-  invariant(
-    hfsHeaderOffsets.length === 2,
-    "Internal TUN Alpha disk image must contain primary and alternate HFS+ headers.",
-  );
-  const observedHfsBuildTime = Buffer.from(
-    bytes.subarray(hfsHeaderOffsets[0] + 16, hfsHeaderOffsets[0] + 20),
-  );
-  invariant(
-    hfsHeaderOffsets.every(
-      (offset) =>
-        bytes.subarray(offset + 16, offset + 20).equals(observedHfsBuildTime) &&
-        bytes.subarray(offset + 20, offset + 24).equals(observedHfsBuildTime),
-    ),
-    "Internal TUN Alpha HFS+ build time is inconsistent.",
-  );
-  const fixedHfsTime = Buffer.alloc(4);
-  fixedHfsTime.writeUInt32BE(Math.floor(fixedTimestamp.getTime() / 1000) + 2_082_844_800);
-  invariant(
-    !observedHfsBuildTime.equals(fixedHfsTime),
-    "Internal TUN Alpha HFS+ build time is not independently observable.",
-  );
-  let hfsBuildTimeFields = 0;
-  for (
-    let offset = bytes.indexOf(observedHfsBuildTime);
-    offset >= 0;
-    offset = bytes.indexOf(observedHfsBuildTime, offset + fixedHfsTime.length)
-  ) {
-    fixedHfsTime.copy(bytes, offset);
-    hfsBuildTimeFields += 1;
-  }
-  invariant(hfsBuildTimeFields > 0, "Internal TUN Alpha HFS+ build-time field inventory is empty.");
-  const fixedHfsVolumeId = createHash("sha256")
-    .update("Mish Internal TUN Alpha HFS volume v1")
-    .digest()
-    .subarray(0, 8);
-  for (const offset of hfsHeaderOffsets) {
-    for (const dateOffset of [16, 20, 24, 28]) {
-      fixedHfsTime.copy(bytes, offset + dateOffset);
-    }
-    fixedHfsVolumeId.copy(bytes, offset + 104);
-  }
-  writeFileSync(file, bytes);
-}
-
-function normalizePackageSnapshot(root: string, directory = root): void {
-  const entries = readdirSync(directory, { withFileTypes: true });
-  for (const entry of entries) {
-    const absolute = path.join(directory, entry.name);
-    const metadata = lstatSync(absolute);
-    invariant(
-      !metadata.isSymbolicLink(),
-      `Internal TUN Alpha DMG input contains a symlink: ${path.relative(root, absolute)}`,
-    );
-    if (metadata.isDirectory()) {
-      normalizePackageSnapshot(root, absolute);
-    } else {
-      invariant(
-        metadata.isFile() && metadata.nlink === 1,
-        `Internal TUN Alpha DMG input contains a hard link or special file: ${path.relative(root, absolute)}`,
-      );
-    }
-    utimesSync(absolute, fixedTimestamp, fixedTimestamp);
-  }
-  utimesSync(directory, fixedTimestamp, fixedTimestamp);
-}
-
 function writeDmg(packageRoot: string, destination: string): void {
   invariant(process.platform === "darwin", "Internal TUN Alpha DMG creation requires macOS.");
-  const temporary = mkdtempSync(path.join(tmpdir(), "mish-internal-tun-alpha-dmg-"));
-  const outputBase = path.join(temporary, "Mish-Internal-TUN-Alpha");
-  const normalizedPackageRoot = path.join(temporary, "package");
-  try {
-    execFileSync("/bin/cp", ["-pR", packageRoot, normalizedPackageRoot], {
-      env: {
-        COPYFILE_DISABLE: "1",
-        PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-      },
-      stdio: "pipe",
-    });
-    normalizePackageSnapshot(normalizedPackageRoot);
-    execFileSync(
-      "/usr/bin/hdiutil",
-      [
-        "makehybrid",
-        "-hfs",
-        "-iso",
-        "-joliet",
-        "-default-volume-name",
-        "Mish TUN Alpha",
-        "-o",
-        outputBase,
-        normalizedPackageRoot,
-      ],
-      {
-        env: {
-          COPYFILE_DISABLE: "1",
-          PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-          SOURCE_DATE_EPOCH: String(Math.floor(fixedTimestamp.getTime() / 1000)),
-          TZ: "UTC",
-        },
-        stdio: "inherit",
-      },
-    );
-    const iso = `${outputBase}.iso`;
-    invariant(existsSync(iso), "Internal TUN Alpha deterministic disk image was not created.");
-    renameSync(iso, destination);
-    normalizeHybridDiskImageMetadata(destination);
-    chmodSync(destination, 0o644);
-  } finally {
-    rmSync(temporary, { force: true, recursive: true });
-  }
+  invariant(
+    JSON.stringify(readdirSync(packageRoot).sort()) === JSON.stringify(["Mish.app"]),
+    "Internal TUN Alpha package root contains unexpected installation items.",
+  );
+  const application = path.join(packageRoot, "Mish.app");
+  invariant(
+    lstatSync(application).isDirectory() && !lstatSync(application).isSymbolicLink(),
+    "Internal TUN Alpha package root does not contain a real Mish.app bundle.",
+  );
+  createMacOsDmg(application, destination);
+  chmodSync(destination, 0o644);
 }
 
 function createSbom(
   manifest: PackageManifest,
+  applicationExecutableSha256: string,
   manifestSha256: string,
   identity: DispatchIdentity,
   dmgSha256: string,
@@ -514,9 +304,17 @@ function createSbom(
     })),
     {
       SPDXID: `SPDXRef-File-${String(manifest.files.length + 1)}`,
+      checksums: [{ algorithm: "SHA256", checksumValue: applicationExecutableSha256 }],
+      copyrightText: "NOASSERTION",
+      fileName: applicationMainExecutableRelativePath,
+      fileTypes: ["BINARY"],
+      licenseConcluded: "NOASSERTION",
+    },
+    {
+      SPDXID: `SPDXRef-File-${String(manifest.files.length + 2)}`,
       checksums: [{ algorithm: "SHA256", checksumValue: manifestSha256 }],
       copyrightText: "NOASSERTION",
-      fileName: "internal-tun-alpha-manifest.json",
+      fileName: internalTunAlphaManifestRelativePath,
       fileTypes: ["TEXT"],
       licenseConcluded: "NOASSERTION",
     },
@@ -665,7 +463,11 @@ export function prepareInternalTunAlphaCandidate(options: PrepareOptions): Candi
     !existsSync(options.outputDirectory),
     "Internal TUN Alpha candidate output already exists and cannot be replaced.",
   );
-  const packageManifestPath = path.join(options.packageRoot, "internal-tun-alpha-manifest.json");
+  const packageManifestPath = path.join(
+    options.packageRoot,
+    "Mish.app",
+    internalTunAlphaManifestRelativePath,
+  );
   const packageManifest = readJson<PackageManifest>(packageManifestPath);
   assertPackageManifest(packageManifest);
   const packageManifestBytes = readFileSync(packageManifestPath);
@@ -681,9 +483,20 @@ export function prepareInternalTunAlphaCandidate(options: PrepareOptions): Candi
     const copiedManifest = path.join(staging, internalTunAlphaPackageManifestName);
     writeFileSync(copiedManifest, packageManifestBytes, { mode: 0o644 });
     const manifestSha256 = sha256(packageManifestBytes);
+    const applicationExecutableSha256 = fileSha256(
+      path.join(options.packageRoot, "Mish.app", applicationMainExecutableRelativePath),
+    );
     writeFileSync(
       path.join(staging, internalTunAlphaSbomName),
-      stableJson(createSbom(packageManifest, manifestSha256, options.identity, dmgSha256)),
+      stableJson(
+        createSbom(
+          packageManifest,
+          applicationExecutableSha256,
+          manifestSha256,
+          options.identity,
+          dmgSha256,
+        ),
+      ),
       { mode: 0o644 },
     );
     writeFileSync(

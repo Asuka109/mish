@@ -70,7 +70,7 @@ test("alpha-ad-hoc fails after bounded ordinary DMG detach retries", async () =>
   assert.equal(calls, 5);
 });
 
-test("routine Alpha packaging is headless and Finder styling is explicit", () => {
+test("routine Alpha packaging is headless and opening is an explicit hands-on action", () => {
   const rootPackage = JSON.parse(
     readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
   ) as { scripts?: Record<string, string> };
@@ -81,10 +81,12 @@ test("routine Alpha packaging is headless and Finder styling is explicit", () =>
     "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc",
   );
   assert.equal(
-    rootPackage.scripts?.["desktop:bundle:macos:styled"],
-    "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc --styled-dmg",
+    rootPackage.scripts?.["desktop:bundle:macos:open"],
+    "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc --open-dmg",
   );
   assert.match(builder, /packageEnvironment\.CI = "true"/u);
   assert.match(builder, /delete packageEnvironment\.TAURI_BUNDLER_DMG_IGNORE_CI/u);
-  assert.match(builder, /packageEnvironment\.TAURI_BUNDLER_DMG_IGNORE_CI = "true"/u);
+  assert.match(builder, /createMacOsDmg\(application, dmg\)/u);
+  assert.match(builder, /if \(openDmg\) execFileSync\("\/usr\/bin\/open"/u);
+  assert.doesNotMatch(builder, /styledDmg|TAURI_BUNDLER_DMG_IGNORE_CI =/u);
 });

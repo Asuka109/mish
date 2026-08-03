@@ -8,6 +8,7 @@ import {
   resolveMacOsReleaseProfile,
   signedDirectMihomoIdentifier,
 } from "./macos-signed-direct-policy.ts";
+import { createMacOsDmg, verifyMacOsDmgPresentation } from "./macos-dmg-presentation.ts";
 
 if (process.platform !== "darwin" || process.arch !== "arm64") {
   throw new Error("macOS bundles must be built on Apple Silicon macOS");
@@ -22,7 +23,7 @@ const release =
     : resolveMacOsReleaseProfile(arguments_, process.env);
 const alphaAdHoc = release?.profile === "alpha-ad-hoc";
 const signedDirect = release?.profile === "signed-direct" || signedDirectFixture;
-const styledDmg = alphaAdHoc && arguments_.includes("--styled-dmg");
+const openDmg = alphaAdHoc && arguments_.includes("--open-dmg");
 const identity = release?.identity ?? "-";
 const mihomoRelease = JSON.parse(
   readFileSync(path.resolve("resources/mihomo/macos-arm64.json"), "utf8"),
@@ -112,13 +113,10 @@ if (signedDirectFixture) {
   packageEnvironment.MISH_MACOS_RELEASE_PROFILE = "signed-direct";
 }
 if (alphaAdHoc) {
-  // Tauri maps CI=true to create-dmg's --skip-jenkins flag. Routine local and automated
-  // verification must stay headless even when the caller inherited the escape hatch.
+  // Alpha builds create an app first. The checked-in Finder template is mounted with
+  // -nobrowse/-noautoopen only, so routine packaging never invokes Finder or open.
   packageEnvironment.CI = "true";
   delete packageEnvironment.TAURI_BUNDLER_DMG_IGNORE_CI;
-  if (styledDmg) {
-    packageEnvironment.TAURI_BUNDLER_DMG_IGNORE_CI = "true";
-  }
 }
 let bundleCommand = "bundle:macos";
 if (productionFixture) {
@@ -171,14 +169,28 @@ execFileSync("pnpm", ["--filter", "@mish/desktop", bundleCommand], {
   env: packageEnvironment,
   stdio: "inherit",
 });
+const application = path.resolve("target/release/bundle/macos/Mish.app");
+const dmgName = alphaAdHoc
+  ? "Mish_0.1.0_aarch64.dmg"
+  : productionFixture
+    ? "Mish-production-fixture_0.1.0_aarch64.dmg"
+    : signedDirectFixture
+      ? "Mish-signed-direct-fixture_0.1.0_aarch64.dmg"
+      : "Mish-signed-direct_0.1.0_aarch64.dmg";
+const dmg = path.resolve("target/release/bundle/dmg", dmgName);
+mkdirSync(path.dirname(dmg), { recursive: true });
+createMacOsDmg(application, dmg);
 if (alphaAdHoc) {
   execFileSync("pnpm", ["desktop:bundle:verify:alpha-ad-hoc:macos"], {
     env: packageEnvironment,
     stdio: "inherit",
   });
+  if (openDmg) execFileSync("/usr/bin/open", [dmg], { stdio: "inherit" });
 } else {
-  execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
-    env: packageEnvironment,
-    stdio: "inherit",
+  verifyMacOsDmgPresentation(dmg, (mountedApplication) => {
+    execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
+      env: { ...packageEnvironment, MISH_MACOS_APP_PATH: mountedApplication },
+      stdio: "inherit",
+    });
   });
 }

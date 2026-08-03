@@ -54,18 +54,23 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 const PROFILE: &str = "internal-tun-alpha";
-const MANIFEST_NAME: &str = "internal-tun-alpha-manifest.json";
+const PAYLOAD_RELATIVE_PATH: &str = "Contents/Resources/internal-tun-alpha";
+const MANIFEST_RELATIVE_PATH: &str =
+    "Contents/Resources/internal-tun-alpha/internal-tun-alpha-manifest.json";
+const APPLICATION_SIGNATURE_RELATIVE_PATH: &str = "Contents/_CodeSignature/CodeResources";
+const APPLICATION_MAIN_EXECUTABLE_RELATIVE_PATH: &str = "Contents/MacOS/mish-desktop";
 const MANIFEST_MAX_BYTES: u64 = 1024 * 1024;
 const INSTALLER_FILE_MAX_BYTES: u64 = 64 * 1024;
 const PACKAGE_FILE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const SEALED_CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const PROTOCOL_VERSION: u16 = 3;
 const IDENTITY_SCHEME: &str = "sha256-helper-core-rendered-plist-v1";
-const CONTROLLER_RELATIVE_PATH: &str = "Resources/mish-internal-tun-alpha-ctl";
-const HELPER_RELATIVE_PATH: &str = "Resources/mish-tun-helper";
-const CORE_RELATIVE_PATH: &str = "Resources/mihomo";
+const CONTROLLER_RELATIVE_PATH: &str =
+    "Contents/Resources/internal-tun-alpha/mish-internal-tun-alpha-ctl";
+const HELPER_RELATIVE_PATH: &str = "Contents/Resources/internal-tun-alpha/mish-tun-helper";
+const CORE_RELATIVE_PATH: &str = "Contents/Resources/internal-tun-alpha/mihomo";
 const PLIST_TEMPLATE_RELATIVE_PATH: &str =
-    "Resources/com.asuka109.mish.tun-helper.dev.plist.template";
+    "Contents/Resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template";
 const ROOT_RECEIPT_DIRECTORY: &str =
     "/Library/Application Support/com.asuka109.mish/internal-tun-alpha";
 const ROOT_RECEIPT_PATH: &str =
@@ -101,11 +106,6 @@ const AUTHORIZATION_READY_TIMEOUT: Duration = Duration::from_secs(300);
 const AUTHORIZATION_POLL_DELAY: Duration = Duration::from_millis(50);
 
 const EXPECTED_PACKAGE_FILES: &[(&str, u32, &str)] = &[
-    ("Health Internal TUN Alpha.command", 0o755, "health"),
-    ("Install Internal TUN Alpha.command", 0o755, "install"),
-    ("LICENSE", 0o644, "license"),
-    ("README.txt", 0o644, "notice"),
-    ("Repair Internal TUN Alpha.command", 0o755, "repair"),
     (CONTROLLER_RELATIVE_PATH, 0o755, "controller"),
     (
         PLIST_TEMPLATE_RELATIVE_PATH,
@@ -114,9 +114,6 @@ const EXPECTED_PACKAGE_FILES: &[(&str, u32, &str)] = &[
     ),
     (CORE_RELATIVE_PATH, 0o755, "core"),
     (HELPER_RELATIVE_PATH, 0o755, "helper"),
-    ("Status Internal TUN Alpha.command", 0o755, "status"),
-    ("THIRD_PARTY_NOTICES.md", 0o644, "notices"),
-    ("Uninstall Internal TUN Alpha.command", 0o755, "uninstall"),
 ];
 
 #[derive(Clone, Debug, Deserialize)]
@@ -649,7 +646,7 @@ fn process_is_running(pid: u32) -> bool {
 }
 
 fn manifest_path(root: &Path) -> PathBuf {
-    root.join(MANIFEST_NAME)
+    root.join(MANIFEST_RELATIVE_PATH)
 }
 
 fn valid_digest(value: &str) -> bool {
@@ -659,19 +656,40 @@ fn valid_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+fn verify_application_signature(application: &Path) -> Result<(), String> {
+    let application = application
+        .to_str()
+        .ok_or_else(|| "application-signature-path-invalid".to_string())?;
+    let output = command_output(
+        "/usr/bin/codesign",
+        &["--verify", "--deep", "--strict", application],
+    )?;
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(|| "application-signature-invalid".into())
+}
+
 fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String> {
-    if !root.is_absolute() {
+    if !root.is_absolute() || root.file_name() != Some(OsStr::new("Mish.app")) {
         return Err("package-root-must-be-absolute".into());
     }
-    validate_directory(root, owner_uid, false)?;
+    let root_metadata = fs::symlink_metadata(root).map_err(|_| "package-root-unavailable")?;
+    let package_owner = root_metadata.uid();
+    if package_owner != owner_uid && package_owner != 0 {
+        return Err("package-root-owner-rejected".into());
+    }
+    validate_directory(root, package_owner, false)?;
     if fs::canonicalize(root).map_err(|_| "package-root-unavailable")? != root {
         return Err("package-root-must-be-canonical".into());
     }
-    let resources = root.join("Resources");
-    validate_directory(&resources, owner_uid, false)?;
+    validate_directory(&root.join("Contents"), package_owner, false)?;
+    validate_directory(&root.join("Contents/Resources"), package_owner, false)?;
+    validate_directory(&root.join(PAYLOAD_RELATIVE_PATH), package_owner, false)?;
 
     let manifest_file = manifest_path(root);
-    validate_bounded_regular_file(&manifest_file, owner_uid, 0o644, MANIFEST_MAX_BYTES)?;
+    validate_bounded_regular_file(&manifest_file, package_owner, 0o644, MANIFEST_MAX_BYTES)?;
     let manifest_bytes = read_bounded_file(
         &manifest_file,
         MANIFEST_MAX_BYTES,
@@ -716,18 +734,18 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
         || !expected.is_subset(&declared)
         || manifest.files.len() != expected.len() + application_files.len()
         || application_files.is_empty()
-        || application_files
-            .iter()
-            .any(|file| !file.path.starts_with("Mish.app/"))
+        || application_files.iter().any(|file| {
+            !file.path.starts_with("Contents/")
+                || file.path.starts_with(&format!("{PAYLOAD_RELATIVE_PATH}/"))
+                || file.path == APPLICATION_SIGNATURE_RELATIVE_PATH
+                || file.path == APPLICATION_MAIN_EXECUTABLE_RELATIVE_PATH
+        })
         || !application_files
             .iter()
-            .any(|file| file.path == "Mish.app/Contents/Info.plist")
+            .any(|file| file.path == "Contents/Info.plist")
         || !application_files
             .iter()
-            .any(|file| file.path == "Mish.app/Contents/MacOS/mish-desktop")
-        || !application_files
-            .iter()
-            .any(|file| file.path == "Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin")
+            .any(|file| file.path == "Contents/Resources/mihomo-aarch64-apple-darwin")
     {
         return Err("package-file-contract-invalid".into());
     }
@@ -746,7 +764,7 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
             return Err("package-file-entry-invalid".into());
         }
         let absolute = root.join(&file.path);
-        validate_regular_file(&absolute, owner_uid, file.mode, Some(file.size))?;
+        validate_regular_file(&absolute, package_owner, file.mode, Some(file.size))?;
         if sha256_file(&absolute)? != file.sha256 {
             return Err(format!("package-file-digest-mismatch:{}", file.path));
         }
@@ -759,10 +777,25 @@ fn verify_package(root: &Path, owner_uid: u32) -> Result<VerifiedPackage, String
             .map_err(|_| "package-entry-unavailable")?
             .is_dir()
         {
-            validate_directory(&path, owner_uid, false)?;
+            validate_directory(&path, package_owner, false)?;
         }
     }
-    let mut expected_paths = BTreeSet::from([MANIFEST_NAME.to_string()]);
+    let signature = root.join(APPLICATION_SIGNATURE_RELATIVE_PATH);
+    validate_regular_file(&signature, package_owner, 0o644, None)?;
+    validate_regular_file(
+        &root.join(APPLICATION_MAIN_EXECUTABLE_RELATIVE_PATH),
+        package_owner,
+        0o755,
+        None,
+    )?;
+    verify_application_signature(root)?;
+    let mut expected_paths = BTreeSet::from([
+        APPLICATION_SIGNATURE_RELATIVE_PATH.to_string(),
+        APPLICATION_MAIN_EXECUTABLE_RELATIVE_PATH.to_string(),
+        "Contents/MacOS".to_string(),
+        "Contents/_CodeSignature".to_string(),
+        MANIFEST_RELATIVE_PATH.to_string(),
+    ]);
     for file in &manifest.files {
         expected_paths.insert(file.path.clone());
         let mut parent = Path::new(&file.path).parent();
@@ -1918,12 +1951,9 @@ fn terminate_running_mish_app(
             .and_then(Path::parent)
             .filter(|path| path.file_name() == Some(OsStr::new("Mish.app")))
             .ok_or_else(|| "maintenance-app-process-identity-rejected".to_string())?;
-        let package_root = application
-            .parent()
-            .ok_or_else(|| "maintenance-app-package-identity-rejected".to_string())?;
-        let verified = verify_package(package_root, uid)
+        let verified = verify_package(application, uid)
             .map_err(|_| "maintenance-app-package-identity-rejected".to_string())?;
-        if verified.root.join("Mish.app/Contents/MacOS/mish-desktop") != executable
+        if verified.root.join("Contents/MacOS/mish-desktop") != executable
             || verified.manifest_digest != receipt.manifest_sha256
             || verified.manifest.package_version != receipt.package_version
         {
@@ -2008,8 +2038,7 @@ fn launch_candidate_application(package: &VerifiedPackage) -> Result<(), String>
     if reverified.manifest_digest != package.manifest_digest {
         return Err("maintenance-app-package-identity-mismatch".into());
     }
-    let application = package.root.join("Mish.app");
-    validate_directory(&application, unsafe { libc::getuid() }, false)?;
+    let application = package.root.clone();
     Command::new("/usr/bin/open")
         .arg("-n")
         .arg(&application)
@@ -4267,7 +4296,7 @@ mod tests {
     use super::*;
 
     fn controller_package(root: &Path, bytes: &[u8]) -> VerifiedPackage {
-        let resources = root.join("Resources");
+        let resources = root.join(PAYLOAD_RELATIVE_PATH);
         fs::create_dir_all(&resources).unwrap();
         let controller = resources.join("mish-internal-tun-alpha-ctl");
         fs::write(&controller, bytes).unwrap();

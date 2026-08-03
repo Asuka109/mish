@@ -213,7 +213,7 @@ export function resolveMacOsReleaseProfile(
   const trailing = arguments_.slice(2);
   invariant(
     trailing.length === 0 ||
-      (profile === alphaAdHocProfile && trailing.length === 1 && trailing[0] === "--styled-dmg"),
+      (profile === alphaAdHocProfile && trailing.length === 1 && trailing[0] === "--open-dmg"),
     "The selected macOS release profile received unsupported arguments",
   );
   invariant(

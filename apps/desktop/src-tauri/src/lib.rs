@@ -1778,13 +1778,7 @@ fn internal_tun_alpha_package_root_from_executable(
         .and_then(Path::parent)
         .filter(|path| path.file_name().and_then(OsStr::to_str) == Some("Mish.app"))
         .ok_or_else(|| io::Error::other("Internal TUN Alpha application bundle is malformed"))?;
-    if app_bundle == Path::new("/Applications/Mish.app") {
-        return Ok(PathBuf::from("/Volumes/Mish TUN Alpha"));
-    }
-    app_bundle
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| io::Error::other("Internal TUN Alpha package root is unavailable"))
+    Ok(app_bundle.to_path_buf())
 }
 
 fn release_profile_evidence() -> ReleaseProfileEvidence {
@@ -2462,7 +2456,7 @@ mod tests {
         let marker = runtime.join("internal-tun-capture-restore.json");
         fs::write(
             &marker,
-            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.6","schemaVersion":2,"systemProxy":true,"tun":true}"#,
+            br#"{"operationId":"4d65a5e7-5c21-4d4d-a5b1-95bf4ecdf747","packageVersion":"0.1.0-internal-tun-alpha.7","schemaVersion":2,"systemProxy":true,"tun":true}"#,
         )
         .unwrap();
         fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
@@ -2470,7 +2464,7 @@ mod tests {
         assert_eq!(
             internal_tun_capture_restore_marker_for_profile(
                 temporary.path(),
-                Some("0.1.0-internal-tun-alpha.6"),
+                Some("0.1.0-internal-tun-alpha.7"),
                 uid,
             )
             .unwrap(),
@@ -2494,7 +2488,7 @@ mod tests {
         assert!(
             internal_tun_capture_restore_marker_for_profile(
                 temporary.path(),
-                Some("0.1.0-internal-tun-alpha.6"),
+                Some("0.1.0-internal-tun-alpha.7"),
                 uid,
             )
             .is_err()
@@ -2774,20 +2768,20 @@ mod tests {
     }
 
     #[test]
-    fn internal_tun_alpha_uses_the_package_or_exact_mounted_installer_root() {
+    fn internal_tun_alpha_uses_the_enclosing_application_bundle() {
         assert_eq!(
             internal_tun_alpha_package_root_from_executable(Path::new(
                 "/Volumes/Mish TUN Alpha/Mish.app/Contents/MacOS/mish-desktop"
             ))
             .unwrap(),
-            PathBuf::from("/Volumes/Mish TUN Alpha")
+            PathBuf::from("/Volumes/Mish TUN Alpha/Mish.app")
         );
         assert_eq!(
             internal_tun_alpha_package_root_from_executable(Path::new(
                 "/Applications/Mish.app/Contents/MacOS/mish-desktop"
             ))
             .unwrap(),
-            PathBuf::from("/Volumes/Mish TUN Alpha")
+            PathBuf::from("/Applications/Mish.app")
         );
         assert!(
             internal_tun_alpha_package_root_from_executable(Path::new(

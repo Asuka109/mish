@@ -1,7 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
+
+import { verifyMacOsDmgPresentation } from "./macos-dmg-presentation.ts";
 
 type DetachRunner = (
   command: string,
@@ -34,34 +36,7 @@ export async function verifyMacOsAlphaAdHocDmg(): Promise<void> {
     throw new Error(`Alpha DMG is missing: ${dmg}`);
   }
 
-  let mountpoint = "";
-  let attached = false;
-  try {
-    const attachment = execFileSync(
-      "hdiutil",
-      ["attach", "-readonly", "-nobrowse", "-noautoopen", dmg],
-      {
-        encoding: "utf8",
-      },
-    );
-    mountpoint = attachment.trim().split("\n").at(-1)?.split("\t").at(-1)?.trim() ?? "";
-    if (!mountpoint.startsWith("/")) {
-      throw new Error(`Alpha DMG did not expose a mount point: ${attachment}`);
-    }
-    attached = true;
-
-    const application = path.join(mountpoint, "Mish.app");
-    const applications = path.join(mountpoint, "Applications");
-    if (!lstatSync(application).isDirectory()) {
-      throw new Error("Alpha DMG does not contain Mish.app");
-    }
-    if (
-      !lstatSync(applications).isSymbolicLink() ||
-      readlinkSync(applications) !== "/Applications"
-    ) {
-      throw new Error("Alpha DMG Applications shortcut must be the /Applications symlink");
-    }
-
+  verifyMacOsDmgPresentation(dmg, (application) => {
     execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
       env: {
         ...process.env,
@@ -70,10 +45,8 @@ export async function verifyMacOsAlphaAdHocDmg(): Promise<void> {
       },
       stdio: "inherit",
     });
-    console.log(`Verified read-only alpha-ad-hoc DMG: ${dmg}`);
-  } finally {
-    if (attached) await detachMacOsDiskImage(mountpoint);
-  }
+  });
+  console.log(`Verified read-only alpha-ad-hoc DMG: ${dmg}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
