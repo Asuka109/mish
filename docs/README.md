@@ -118,6 +118,7 @@ of treating an implementation accident as intent.
 - [`quality/production-web-validation.md`](quality/production-web-validation.md),
   [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md),
   [`quality/tailwind-variants-acceptance.md`](quality/tailwind-variants-acceptance.md),
+  [`quality/mobile-native-shell-prototype.md`](quality/mobile-native-shell-prototype.md),
   and [`quality/demo-validation.md`](quality/demo-validation.md) — production
   Web, native visual, styling migration, and fixture-backed model/visual gates
   respectively.
@@ -140,6 +141,9 @@ of treating an implementation accident as intent.
   implementation status.
 - [`research/`](research/) preserves source-backed investigations. Load a study
   only when its upstream evidence or rationale is needed.
+- [`research/mobile-native-shell-ownership-2026-08-03.md`](research/mobile-native-shell-ownership-2026-08-03.md)
+  records the pending per-platform native shell ownership matrix and Issue #343
+  prototype evidence; it is not an accepted implementation contract.
 - [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)
   is a superseded high-level plan retained as a short historical record.
 - `pnpm demo` is the shared fixture-backed interaction reference; its data is
