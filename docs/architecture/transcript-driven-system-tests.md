@@ -31,7 +31,26 @@ uses authenticated loopback RPC and real Chromium for cross-surface evidence.
 Pending remains authoritative while modeled propagation is incomplete;
 native/RPC snapshots, semantic notifications, RPC results, and React loading
 all settle from the matching real Capture terminal operation. Browser control
-routes only advance logical time or start this fixed synthetic transaction.
+routes only advance logical time or request the closed cancellation, audit, and
+replacement controls required by those scenarios.
+
+`pnpm test:application:simulated-host` is the bounded repository entry point.
+It runs every simulator model and authenticated-RPC test with one Rust test
+thread, then starts the feature-gated harnesses and runs the React journey in
+Vitest Browser Mode. The browser journey covers early managed-port notification
+with delayed cleanup, commit-time ownership drift, confirmed rollback,
+Recovery Required, Helper install and repair projection, cancellation, and
+Runtime replacement. Rust and client acceptance tests retain the wider stale,
+equal, duplicate, reconnect, and replacement matrices; the browser journey also
+unmounts and remounts during Pending and proves an old equal-target completion
+cannot replace the new authority.
+
+The harness selector is a closed environment enum. Its control server accepts
+only the fixed synthetic control key and scenario-specific logical-time,
+cancellation, audit, or replacement actions. Evidence reads the already-recorded
+host observation and real Capture projection without issuing a new Runtime audit,
+so collecting evidence cannot consume a failure occurrence or alter lifecycle
+state.
 
 ## Model, scenarios, and logical time
 
@@ -164,6 +183,13 @@ The harness authentication token and control key are fixed synthetic test
 values used only by the Browser scenario. They are intentionally excluded from
 the transcript and from all production package graphs.
 
+On a browser assertion failure, the test emits one bounded semantic report: the
+assertion context, selected scenario and logical time, at most the final 32
+semantic transcript events, and a terminal authority projection containing only
+closed synthetic identity, Capture/Core phase, System Proxy/TUN/Helper state,
+and the final eight semantic notifications. It contains no raw host observation,
+profile/configuration data, path, credential, test key, or real authority UUID.
+
 ## Production exclusion
 
 The simulator package is `publish = false`, and its control-server binary
@@ -180,6 +206,12 @@ authentication, transcript implementation, and simulated adapters absent from
 production, alpha, Internal TUN, signed, updater, desktop/mobile, and public
 packages. Adding a simulator dependency to a product target is a contract
 change, not a convenient reuse.
+
+The build-policy test also rejects scenario controls, test keys, synthetic
+identity/transcript internals, harness features, and test correlation seams from
+desktop/mobile inputs, Internal Alpha packaging, signed and updater scripts,
+public-release checks, and CI artifact workflows. The dedicated Browser config
+is not imported by any production Vite entry.
 
 ## Evidence boundary
 

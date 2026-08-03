@@ -1,4 +1,4 @@
-import { mishRpcMethods, statusRpcNotifications } from "@mish/contracts";
+import { mishRpcMethods } from "@mish/contracts";
 import { RpcClient, type WebSocketLike } from "@mish/rpc-client";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -28,67 +28,130 @@ function client(url: string) {
   });
 }
 
+function connectRaw(url: string, origin = ORIGIN) {
+  return new Promise<WebSocket>((resolve, reject) => {
+    const socket = new WebSocket(url, { origin });
+    socket.once("open", () => resolve(socket));
+    socket.once("error", reject);
+  });
+}
+
+function rawRequest(socket: WebSocket, payload: unknown) {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    socket.once("error", reject);
+    socket.once("message", (data) => {
+      try {
+        resolve(JSON.parse(data.toString()) as Record<string, unknown>);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.send(JSON.stringify(payload));
+  });
+}
+
+function expectHandshakeRejected(url: string, origin: string) {
+  return new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(url, { origin });
+    socket.once("open", () => reject(new Error("Unexpected WebSocket connection")));
+    socket.once("error", () => resolve());
+  });
+}
+
 describe("mock bridge", () => {
-  it("drives snapshots, subscriptions, commands, and core state through the real client", async () => {
+  it("serves static contract snapshots and subscription framing through the real client", async () => {
     const handle = await bridge();
     const rpc = client(handle.rpcUrl);
-    const initial = await rpc.request("status.getSnapshot", {});
-    expect(initial.groups[0]?.label).toBe("🌐 Proxy 代理");
 
-    const notification = new Promise<string>((resolve) => {
-      rpc.onNotification(
-        "status.snapshot",
-        statusRpcNotifications["status.snapshot"],
-        ({ snapshot }) => resolve(snapshot.routingMode),
-      );
+    const initial = await rpc.request("status.getSnapshot", {});
+    expect(initial).toMatchObject({
+      adapterKind: "rpc",
+      capabilities: { systemProxy: "fixture-only", tun: "fixture-only" },
+      routingMode: "rule",
+      runtime: { phase: "inactive", systemProxyEnabled: false, tunEnabled: false },
     });
     const subscription = await rpc.request("status.subscribe", {});
-    expect(subscription.snapshot.routingMode).toBe("rule");
-    const changed = await rpc.request("status.setRoutingMode", { mode: "direct" });
-    expect(changed.routingMode).toBe("direct");
-    await expect(notification).resolves.toBe("direct");
-
-    const selection = { systemProxy: false, tun: true };
-    const paused = await rpc.request("status.setCapture", { active: false, selection });
-    expect(paused.runtime).toMatchObject({
-      captureSelection: selection,
-      phase: "inactive",
-      systemProxyEnabled: false,
-      tunEnabled: false,
+    expect(subscription.snapshot).toEqual(initial);
+    await expect(
+      rpc.request("status.unsubscribe", { subscriptionId: subscription.subscriptionId }),
+    ).resolves.toBe(true);
+    await expect(
+      rpc.request("status.unsubscribe", { subscriptionId: subscription.subscriptionId }),
+    ).resolves.toBe(false);
+    await expect(rpc.request("core.getStatus", {})).resolves.toMatchObject({
+      phase: "stopped",
+      pid: null,
     });
-    const resumed = await rpc.request("status.setCapture", { active: true, selection });
-    expect(resumed.runtime).toMatchObject({
-      captureSelection: selection,
-      phase: "healthy",
-      systemProxyEnabled: false,
-      tunEnabled: true,
-    });
-    expect(resumed.recentTraffic).toMatchObject({
-      authorityId: "mock-status-authority",
-      phase: "active",
-      profileId: "home",
-      sessionId: "mock-status-session-1",
-    });
-    expect(resumed.traffic.downloadedBytes).toBe(4096);
-    expect(resumed.recentTraffic.downloadedBytes).toBe(0);
-
-    const core = await rpc.request("core.start", {});
-    expect(core).toMatchObject({ phase: "running", pid: 4242 });
     rpc.dispose();
   });
 
-  it("returns typed failures without mutating command state", async () => {
+  it("fails lifecycle commands explicitly without inventing Core or Capture state", async () => {
+    const handle = await bridge();
+    const rpc = client(handle.rpcUrl);
+
+    await expect(rpc.request("status.setRoutingMode", { mode: "global" })).rejects.toMatchObject({
+      code: -32020,
+      message: "The transport-only mock does not implement application lifecycle commands",
+    });
+    await expect(rpc.request("core.start", {})).rejects.toMatchObject({ code: -32020 });
+    const snapshot = await rpc.request("status.getSnapshot", {});
+    expect(snapshot.routingMode).toBe("rule");
+    expect(snapshot.runtime.captureOperation.phase).toBe("idle");
+    rpc.dispose();
+  });
+
+  it("preserves explicit per-method failure injection", async () => {
     const handle = await bridge({
       authToken: TOKEN,
-      failMethods: { "status.setRoutingMode": { code: -32040, message: "Injected failure" } },
+      failMethods: { "status.getSnapshot": { code: -32040, message: "Injected failure" } },
     });
     const rpc = client(handle.rpcUrl);
-    await expect(rpc.request("status.setRoutingMode", { mode: "global" })).rejects.toMatchObject({
+    await expect(rpc.request("status.getSnapshot", {})).rejects.toMatchObject({
       code: -32040,
       message: "Injected failure",
     });
-    const snapshot = await rpc.request("status.getSnapshot", {});
-    expect(snapshot.routingMode).toBe("rule");
     rpc.dispose();
+  });
+
+  it("enforces authentication and schema framing and records valid cancellation notifications", async () => {
+    const handle = await bridge();
+    const socket = await connectRaw(handle.rpcUrl);
+
+    await expect(
+      rawRequest(socket, { id: 1, jsonrpc: "2.0", method: "status.getSnapshot", params: {} }),
+    ).resolves.toMatchObject({ error: { code: -32001 }, id: 1 });
+    await expect(
+      rawRequest(socket, {
+        id: 2,
+        jsonrpc: "2.0",
+        method: "rpc.authenticate",
+        params: { clientName: "raw", clientVersion: "1", token: "wrong" },
+      }),
+    ).resolves.toMatchObject({ error: { code: -32002 }, id: 2 });
+    await expect(
+      rawRequest(socket, {
+        id: 3,
+        jsonrpc: "2.0",
+        method: "rpc.authenticate",
+        params: { clientName: "raw", clientVersion: "1", token: TOKEN },
+      }),
+    ).resolves.toMatchObject({ result: { authenticated: true }, id: 3 });
+    await expect(
+      rawRequest(socket, { id: 4, jsonrpc: "2.0", method: "status.unsubscribe", params: {} }),
+    ).resolves.toMatchObject({ error: { code: -32602 }, id: 4 });
+
+    socket.send(JSON.stringify({ jsonrpc: "2.0", method: "rpc.cancel", params: { requestId: 4 } }));
+    await expect.poll(() => handle.cancellationCount).toBe(1);
+    socket.close();
+  });
+
+  it("rejects untrusted origins and non-RPC paths during the WebSocket handshake", async () => {
+    const handle = await bridge();
+    await expect(expectHandshakeRejected(handle.rpcUrl, "http://untrusted.test")).resolves.toBe(
+      undefined,
+    );
+    await expect(
+      expectHandshakeRejected(handle.rpcUrl.replace(/\/rpc$/, "/other"), ORIGIN),
+    ).resolves.toBe(undefined);
   });
 });

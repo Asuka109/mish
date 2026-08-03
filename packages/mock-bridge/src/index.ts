@@ -17,15 +17,21 @@ export interface MockBridgeOptions {
   host?: string;
   maxMessageBytes?: number;
   port?: number;
+  statusSnapshot?: RpcStatusSnapshotDto;
 }
 
 export interface MockBridgeHandle {
+  readonly cancellationCount: number;
   close(): Promise<void>;
   readonly rpcUrl: string;
 }
 
 type MethodDefinition = { params: z.ZodType; result: z.ZodType };
 const methods: Record<string, MethodDefinition> = mishRpcMethods;
+const unavailableFailure: RpcFailure = {
+  code: -32020,
+  message: "The transport-only mock does not implement application lifecycle commands",
+};
 
 const defaultService: ServiceMonitorDto = {
   icon: SERVICE_ICON_URLS.cloudflare,
@@ -123,7 +129,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
         scopeEpoch: "mock-capture-scope",
       },
       captureSelection: { systemProxy: false, tun: false },
-      message: "Mock transport is connected",
+      message: "Transport fixture; no Core or Capture lifecycle is running",
       phase: "inactive",
       systemProxy: {
         desired: false,
@@ -162,16 +168,18 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
   }
   if (options.authToken.length < 16) throw new Error("The mock token must contain 16 characters");
 
-  let snapshot = createMockStatusSnapshot();
-  let recentTrafficSession = 0;
-  let core: CoreStatusDto = {
+  const snapshot = structuredClone(options.statusSnapshot ?? createMockStatusSnapshot());
+  const core: CoreStatusDto = {
     error: null,
     phase: "stopped",
     pid: null,
-    version: "Mihomo Meta mock",
+    version: "Transport fixture",
   };
   const subscriptions = new WeakMap<WebSocket, Set<string>>();
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
+  let cancellationCount = 0;
+  let sessionId = 0;
+  let subscriptionId = 0;
   const server = new WebSocketServer({
     host,
     maxPayload: options.maxMessageBytes ?? 1_048_576,
@@ -185,7 +193,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         allowedOrigins.size === 0
           ? origin === `http://${host}:${port}` || origin === `http://localhost:${port}`
           : allowedOrigins.has(origin);
-      done(Boolean(validHost && validOrigin), 403, "Forbidden");
+      done(Boolean(req.url === "/rpc" && validHost && validOrigin), 403, "Forbidden");
     },
   });
 
@@ -194,23 +202,9 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
     server.once("error", reject);
   });
   const address = server.address();
-  if (!address || typeof address === "string")
+  if (!address || typeof address === "string") {
     throw new Error("The mock bridge has no TCP address");
-
-  const broadcastSnapshot = () => {
-    for (const client of server.clients) {
-      if (client.readyState !== WebSocket.OPEN) continue;
-      for (const subscriptionId of subscriptions.get(client) ?? []) {
-        client.send(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            method: "status.snapshot",
-            params: { snapshot, subscriptionId },
-          }),
-        );
-      }
-    }
-  };
+  }
 
   server.on("connection", (socket) => {
     let authenticated = false;
@@ -220,8 +214,9 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
       let request: Record<string, unknown>;
       try {
         const parsed: unknown = JSON.parse(data.toString());
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
           throw new Error("Expected an object");
+        }
         request = parsed as Record<string, unknown>;
       } catch (error) {
         return sendError(socket, null, -32700, "Parse error", { detail: String(error) });
@@ -230,12 +225,17 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         typeof request.id === "string" || typeof request.id === "number" || request.id === null
           ? request.id
           : null;
-      if (
-        !("id" in request) &&
-        request.jsonrpc === "2.0" &&
-        request.method === "rpc.cancel" &&
-        authenticated
-      ) {
+      if (!("id" in request) && request.jsonrpc === "2.0" && request.method === "rpc.cancel") {
+        const params = request.params;
+        if (
+          authenticated &&
+          params &&
+          typeof params === "object" &&
+          !Array.isArray(params) &&
+          Number.isSafeInteger((params as Record<string, unknown>).requestId)
+        ) {
+          cancellationCount += 1;
+        }
         return;
       }
       if (request.jsonrpc !== "2.0" || typeof request.method !== "string" || !("id" in request)) {
@@ -258,219 +258,88 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           return sendError(socket, id, -32002, "Authentication failed");
         }
         authenticated = true;
+        sessionId += 1;
         return sendResult(socket, id, {
           authenticated: true,
-          sessionId: `mock-${crypto.randomUUID()}`,
+          sessionId: `mock-session-${sessionId}`,
         });
       }
 
       const definition = methods[request.method];
       if (!definition) return sendError(socket, id, -32601, "Method not found");
       const params = definition.params.safeParse(request.params ?? {});
-      if (!params.success)
+      if (!params.success) {
         return sendError(socket, id, -32602, "Invalid params", params.error.flatten());
-      const failure = options.failMethods?.[request.method as keyof typeof mishRpcMethods];
-      if (failure) return sendError(socket, id, failure.code, failure.message, failure.data);
+      }
+      const configuredFailure =
+        options.failMethods?.[request.method as keyof typeof mishRpcMethods];
+      if (configuredFailure) {
+        return sendError(
+          socket,
+          id,
+          configuredFailure.code,
+          configuredFailure.message,
+          configuredFailure.data,
+        );
+      }
 
       try {
-        const result = dispatch(request.method, params.data);
+        const values = params.data as Record<string, unknown>;
+        const result = (() => {
+          switch (request.method) {
+            case "bridge.getInfo":
+              return {
+                bridgeVersion: "transport-only-mock",
+                coreConfigured: false,
+                protocolVersion: 32,
+                statusCommands: {
+                  group: false,
+                  groupDelay: false,
+                  routing: false,
+                  services: false,
+                },
+                trafficCommands: {
+                  closeAllActive: false,
+                  closeConnection: false,
+                  closeFilteredVisible: false,
+                },
+                updaterConfigured: false,
+              };
+            case "core.getStatus":
+              return core;
+            case "status.getSnapshot":
+              return structuredClone(snapshot);
+            case "status.subscribe": {
+              subscriptionId += 1;
+              const id = `status-subscription-${subscriptionId}`;
+              subscriptions.get(socket)?.add(id);
+              return { snapshot: structuredClone(snapshot), subscriptionId: id };
+            }
+            case "status.unsubscribe":
+              return subscriptions.get(socket)?.delete(String(values.subscriptionId)) ?? false;
+            case "traffic.getProcessIcon":
+              return { dataUrl: null };
+            default:
+              throw new MockRpcError(unavailableFailure.code, unavailableFailure.message);
+          }
+        })();
         const validated = definition.result.safeParse(result);
-        if (!validated.success) return sendError(socket, id, -32603, "Internal contract violation");
+        if (!validated.success) {
+          return sendError(socket, id, -32603, "Internal contract violation");
+        }
         sendResult(socket, id, validated.data);
-        if (
-          request.method.startsWith("status.") &&
-          !request.method.includes("Snapshot") &&
-          request.method !== "status.testLocalProxy" &&
-          !request.method.includes("subscribe")
-        )
-          broadcastSnapshot();
       } catch (error) {
         const failure =
           error instanceof MockRpcError ? error : new MockRpcError(-32603, String(error));
         sendError(socket, id, failure.code, failure.message);
       }
-
-      function dispatch(method: string, params: unknown): unknown {
-        const values = params as Record<string, unknown>;
-        switch (method) {
-          case "bridge.getInfo":
-            return {
-              bridgeVersion: "mock",
-              coreConfigured: true,
-              protocolVersion: 32,
-              statusCommands: { group: true, groupDelay: false, routing: true, services: true },
-              trafficCommands: {
-                closeAllActive: false,
-                closeConnection: false,
-                closeFilteredVisible: false,
-              },
-              updaterConfigured: false,
-            };
-          case "core.getStatus":
-            return core;
-          case "core.start":
-            core = { ...core, phase: "running", pid: 4242 };
-            return core;
-          case "core.stop":
-            core = { ...core, phase: "stopped", pid: null };
-            return core;
-          case "status.getSnapshot":
-            return structuredClone(snapshot);
-          case "status.setRoutingMode":
-            snapshot.routingMode = values.mode as RpcStatusSnapshotDto["routingMode"];
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          case "status.setServiceProbeInterval":
-            snapshot.serviceProbePolicy.intervalSeconds = Number(
-              values.intervalSeconds,
-            ) as RpcStatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"];
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          case "status.testServiceMonitor": {
-            const monitorId = String(values.monitorId);
-            const result = snapshot.probeResults.find(
-              (candidate) => candidate.monitorId === monitorId,
-            );
-            if (!result) throw new MockRpcError(-32004, "Service monitor not found");
-            result.observedAt = new Date().toISOString();
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.setCapture": {
-            const active = Boolean(values.active);
-            const selection =
-              values.selection as RpcStatusSnapshotDto["runtime"]["captureSelection"];
-            const systemProxyEnabled = active && selection.systemProxy;
-            const tunEnabled = active && selection.tun;
-            const captureActive = systemProxyEnabled || tunEnabled;
-            const previousOperationId = snapshot.runtime.captureOperation.operationId;
-            const operationId = (
-              previousOperationId === null ? 1n : BigInt(previousOperationId) + 1n
-            ).toString();
-            snapshot.runtime = {
-              captureOperation: {
-                operationId,
-                phase: "applied",
-                scopeEpoch: "mock-capture-scope",
-              },
-              captureSelection: { ...selection },
-              message: captureActive ? "Mock capture is active" : "Mock capture is inactive",
-              phase: captureActive ? "healthy" : "inactive",
-              systemProxy: {
-                desired: systemProxyEnabled,
-                failure: null,
-                observed: systemProxyEnabled ? "mish" : "disabled",
-                phase: systemProxyEnabled ? "applied" : "off",
-                recoveryActions: [],
-              },
-              systemProxyEnabled,
-              tun: {
-                desired: tunEnabled,
-                failure: null,
-                observation: tunEnabled
-                  ? {
-                      core: "confirmed",
-                      dns: "confirmed",
-                      interface: "confirmed",
-                      observedAt: Date.now(),
-                      routes: "confirmed",
-                      schemaVersion: 1,
-                    }
-                  : null,
-                observed: tunEnabled ? "enabled" : "disabled",
-                phase: tunEnabled ? "applied" : "off",
-              },
-              tunEnabled,
-            };
-            snapshot.recentTraffic.revision += 1;
-            if (captureActive) {
-              if (snapshot.recentTraffic.phase === "idle") {
-                recentTrafficSession += 1;
-                snapshot.recentTraffic.sessionId = `mock-status-session-${recentTrafficSession}`;
-              }
-              snapshot.recentTraffic.phase = "active";
-              snapshot.recentTraffic.profileId = snapshot.activeProfileId;
-            } else {
-              snapshot.recentTraffic = {
-                ...snapshot.recentTraffic,
-                phase: "idle",
-                sessionId: null,
-                profileId: null,
-                downloadedBytes: 0,
-                uploadedBytes: 0,
-                downloadBytesPerSecond: 0,
-                uploadBytesPerSecond: 0,
-                samples: [],
-              };
-            }
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.recoverSystemProxy":
-            throw new MockRpcError(-32050, "Mock System Proxy has no observed drift");
-          case "status.testLocalProxy":
-            return { host: "127.0.0.1", phase: "listener-unavailable", port: 7890 };
-          case "status.setActiveProfile": {
-            const profileId = String(values.profileId);
-            if (!snapshot.profiles.some((profile) => profile.id === profileId))
-              throw new MockRpcError(-32004, "Profile not found");
-            snapshot.activeProfileId = profileId;
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.selectGroupChild": {
-            const group = snapshot.groups.find((candidate) => candidate.id === values.groupId);
-            if (
-              !group ||
-              group.type !== "selector" ||
-              !group.childIds.includes(String(values.childId))
-            )
-              throw new MockRpcError(-32602, "Invalid group child");
-            group.selectedChildId = String(values.childId);
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.upsertServiceMonitor": {
-            const draft = values.draft as ServiceMonitorDto;
-            const monitor = { ...draft, id: draft.id ?? crypto.randomUUID() };
-            const index = snapshot.services.findIndex((service) => service.id === monitor.id);
-            if (index === -1) snapshot.services.push(monitor);
-            else snapshot.services[index] = monitor;
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.removeServiceMonitor": {
-            snapshot.services = snapshot.services.filter(
-              (service) => service.id !== values.monitorId,
-            );
-            snapshot.probeResults = snapshot.probeResults.filter(
-              (probe) => probe.monitorId !== values.monitorId,
-            );
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          }
-          case "status.restoreDefaultServices":
-            snapshot.services = [structuredClone(defaultService)];
-            snapshot.serviceProbePolicy.intervalSeconds = 5;
-            snapshot.applicationOrder.order += 1;
-            return structuredClone(snapshot);
-          case "traffic.getProcessIcon":
-            return { dataUrl: null };
-          case "status.subscribe": {
-            const subscriptionId = `status-${crypto.randomUUID()}`;
-            subscriptions.get(socket)?.add(subscriptionId);
-            return { snapshot: structuredClone(snapshot), subscriptionId };
-          }
-          case "status.unsubscribe":
-            return subscriptions.get(socket)?.delete(String(values.subscriptionId)) ?? false;
-          default:
-            throw new MockRpcError(-32601, "Method not found");
-        }
-      }
     });
   });
 
   return {
+    get cancellationCount() {
+      return cancellationCount;
+    },
     close: () => closeServer(server),
     rpcUrl: `ws://${host}:${address.port}/rpc`,
   };

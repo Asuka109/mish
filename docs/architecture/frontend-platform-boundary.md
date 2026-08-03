@@ -291,9 +291,12 @@ order are specified in
 [`mobile-runtime-integration.md`](mobile-runtime-integration.md).
 
 `packages/mock-bridge` implements the same shared contracts in TypeScript over a
-real loopback WebSocket server. It supports deterministic snapshots,
-subscriptions, commands, injected typed failures, and mock core state for test
-and adapter development. It is manually started and never selected by default.
+real loopback WebSocket server. It owns only loopback Host/Origin checks,
+authentication, JSON-RPC and schema framing, static snapshot/subscription
+fixtures, cancellation framing, and explicit method failures. Lifecycle commands
+fail closed; the package does not mutate a TypeScript Core or Capture state
+machine. Application lifecycle journeys use the Rust-authoritative SimulatedHost
+path instead. The mock is manually started and never selected by default.
 
 ## Offline asset policy
 
