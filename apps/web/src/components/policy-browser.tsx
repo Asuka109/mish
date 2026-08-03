@@ -455,6 +455,21 @@ export function PolicyEntityRow({
       </span>
     </>
   );
+  const selectionControl = onSelect ? (
+    <Button
+      aria-label={selectLabel}
+      aria-busy={selectionPending || undefined}
+      aria-pressed={selected}
+      className="policy-browser-entity-primary"
+      data-policy-row-primary
+      disabled={disabled || selectionPending}
+      onClick={onSelect}
+      type="button"
+      variant="ghost"
+    >
+      {content}
+    </Button>
+  ) : null;
   return (
     <div
       className={policyEntityRowRecipe({
@@ -468,20 +483,8 @@ export function PolicyEntityRow({
       data-entity-id={entity.id}
       data-muted={muted || undefined}
     >
-      {onSelect ? (
-        <Button
-          aria-label={selectLabel}
-          aria-busy={selectionPending || undefined}
-          aria-pressed={selected}
-          className="policy-browser-entity-primary"
-          data-policy-row-primary
-          disabled={disabled || selectionPending}
-          onClick={onSelect}
-          type="button"
-          variant="ghost"
-        >
-          {content}
-        </Button>
+      {selectionControl ? (
+        selectionControl
       ) : (
         <div className="policy-browser-entity-primary policy-browser-entity-primary--static">
           {content}

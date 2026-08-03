@@ -214,6 +214,7 @@ const initialSnapshot: StatusSnapshotDto = {
     selectionConfirmed: false,
     targetCount: 0,
   },
+  groupSelectionAvailability: "available",
   groupUsage: [
     { groupId: "proxy", observedConnectionCount: 12_842 },
     { groupId: "streaming", observedConnectionCount: 4_906 },

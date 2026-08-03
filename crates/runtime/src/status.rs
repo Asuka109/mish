@@ -48,6 +48,14 @@ pub enum CapabilityAvailability {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupSelectionAvailability {
+    Available,
+    CoreNotRunning,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProbeStatus {
     Pending,
@@ -391,6 +399,7 @@ pub struct StatusSnapshot {
     pub group_delay_policy: GroupDelayPolicy,
     pub group_delay_test: GroupDelayTest,
     pub group_selection_operation: GroupSelectionOperation,
+    pub group_selection_availability: GroupSelectionAvailability,
     pub metrics: RuntimeMetrics,
     pub nodes: Vec<ProxyNode>,
     pub probe_results: Vec<ServiceProbeResult>,
@@ -419,6 +428,7 @@ impl StatusSnapshot {
             },
             group_delay_test: GroupDelayTest::idle(),
             group_selection_operation: GroupSelectionOperation::idle(),
+            group_selection_availability: GroupSelectionAvailability::Unavailable,
             metrics: RuntimeMetrics::default(),
             nodes: Vec::new(),
             probe_results: Vec::new(),

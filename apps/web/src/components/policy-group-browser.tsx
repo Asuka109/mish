@@ -99,6 +99,7 @@ export function usePolicyGroupSelection({
         onSelectionConfirmed?.();
         return;
       }
+      if (result.error.code === "core-not-running") return;
       publish(
         notificationPublication("route.selection-failed", {
           data: {
