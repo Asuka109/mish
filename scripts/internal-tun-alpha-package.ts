@@ -20,32 +20,28 @@ import path from "node:path";
 
 export const internalTunAlphaProfile = "internal-tun-alpha" as const;
 export const internalTunAlphaManifestName = "internal-tun-alpha-manifest.json";
-export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.6";
+export const internalTunAlphaPackageVersion = "0.1.0-internal-tun-alpha.7";
 export const internalTunAlphaIdentityScheme = "sha256-helper-core-rendered-plist-v1" as const;
+export const internalTunAlphaPayloadRelativePath = "Contents/Resources/internal-tun-alpha";
+export const internalTunAlphaManifestRelativePath = `${internalTunAlphaPayloadRelativePath}/${internalTunAlphaManifestName}`;
+export const internalTunAlphaControllerRelativePath = `${internalTunAlphaPayloadRelativePath}/mish-internal-tun-alpha-ctl`;
+export const internalTunAlphaHelperRelativePath = `${internalTunAlphaPayloadRelativePath}/mish-tun-helper`;
+export const internalTunAlphaCoreRelativePath = `${internalTunAlphaPayloadRelativePath}/mihomo`;
+export const internalTunAlphaPlistTemplateRelativePath = `${internalTunAlphaPayloadRelativePath}/com.asuka109.mish.tun-helper.dev.plist.template`;
 
 const fixedTimestamp = new Date("2020-01-01T00:00:00.000Z");
 const manifestMaximumBytes = 1024 * 1024;
 const packageFileMaximumBytes = 256 * 1024 * 1024;
 const packageRootName = `Mish-Internal-TUN-Alpha-${internalTunAlphaPackageVersion}-arm64`;
-const controllerRelativePath = "Resources/mish-internal-tun-alpha-ctl";
-const helperRelativePath = "Resources/mish-tun-helper";
-const coreRelativePath = "Resources/mihomo";
-const plistTemplateRelativePath = "Resources/com.asuka109.mish.tun-helper.dev.plist.template";
+const applicationSignatureRelativePath = "Contents/_CodeSignature/CodeResources";
+const applicationMainExecutableRelativePath = "Contents/MacOS/mish-desktop";
 
 type InternalTunAlphaRole =
   | "application"
   | "controller"
   | "core"
-  | "health"
   | "helper"
-  | "install"
-  | "launch-daemon-template"
-  | "license"
-  | "notice"
-  | "notices"
-  | "repair"
-  | "status"
-  | "uninstall";
+  | "launch-daemon-template";
 
 export type InternalTunAlphaManifestFile = {
   mode: number;
@@ -81,22 +77,14 @@ const expectedFiles: ReadonlyArray<{
   path: string;
   role: InternalTunAlphaRole;
 }> = [
-  { mode: 0o755, path: "Health Internal TUN Alpha.command", role: "health" },
-  { mode: 0o755, path: "Install Internal TUN Alpha.command", role: "install" },
-  { mode: 0o644, path: "LICENSE", role: "license" },
-  { mode: 0o644, path: "README.txt", role: "notice" },
-  { mode: 0o755, path: "Repair Internal TUN Alpha.command", role: "repair" },
-  { mode: 0o755, path: controllerRelativePath, role: "controller" },
+  { mode: 0o755, path: internalTunAlphaControllerRelativePath, role: "controller" },
   {
     mode: 0o644,
-    path: plistTemplateRelativePath,
+    path: internalTunAlphaPlistTemplateRelativePath,
     role: "launch-daemon-template",
   },
-  { mode: 0o755, path: coreRelativePath, role: "core" },
-  { mode: 0o755, path: helperRelativePath, role: "helper" },
-  { mode: 0o755, path: "Status Internal TUN Alpha.command", role: "status" },
-  { mode: 0o644, path: "THIRD_PARTY_NOTICES.md", role: "notices" },
-  { mode: 0o755, path: "Uninstall Internal TUN Alpha.command", role: "uninstall" },
+  { mode: 0o755, path: internalTunAlphaCoreRelativePath, role: "core" },
+  { mode: 0o755, path: internalTunAlphaHelperRelativePath, role: "helper" },
 ] as const;
 
 function invariant(condition: unknown, message: string): asserts condition {
@@ -176,12 +164,12 @@ function expectedContract(): string {
 }
 
 export async function createInternalTunAlphaManifest(
-  root: string,
+  application: string,
   versions: { coreVersion: string; helperVersion: string },
 ): Promise<InternalTunAlphaManifest> {
   const fixedFiles = await Promise.all(
     expectedFiles.map(async ({ mode, path: relative, role }) => {
-      const absolute = path.join(root, relative);
+      const absolute = path.join(application, relative);
       const metadata = await stat(absolute);
       return {
         mode,
@@ -193,13 +181,21 @@ export async function createInternalTunAlphaManifest(
     }),
   );
   const applicationFiles = await Promise.all(
-    (await walk(path.join(root, "Mish.app"))).map(async (relative) => {
-      const absolute = path.join(root, "Mish.app", relative);
+    (await walk(application)).map(async (relative) => {
+      if (
+        relative === applicationSignatureRelativePath ||
+        relative === applicationMainExecutableRelativePath ||
+        relative === internalTunAlphaManifestRelativePath ||
+        relative.startsWith(`${internalTunAlphaPayloadRelativePath}/`)
+      ) {
+        return null;
+      }
+      const absolute = path.join(application, relative);
       const metadata = await stat(absolute);
       if (!metadata.isFile()) return null;
       return {
         mode: metadata.mode & 0o777,
-        path: `Mish.app/${relative}`,
+        path: relative,
         role: "application" as const,
         sha256: await digestFile(absolute),
         size: metadata.size,
@@ -300,11 +296,16 @@ function validateManifestShape(value: unknown): asserts value is InternalTunAlph
   invariant(
     applicationFiles.length > 0 &&
       manifest.files.length === expectedFiles.length + applicationFiles.length &&
-      applicationFiles.every(({ path: file }) => file.startsWith("Mish.app/")) &&
-      applicationFiles.some(({ path: file }) => file === "Mish.app/Contents/Info.plist") &&
-      applicationFiles.some(({ path: file }) => file === "Mish.app/Contents/MacOS/mish-desktop") &&
+      applicationFiles.every(
+        ({ path: file }) =>
+          file.startsWith("Contents/") &&
+          file !== applicationSignatureRelativePath &&
+          file !== applicationMainExecutableRelativePath &&
+          !file.startsWith(`${internalTunAlphaPayloadRelativePath}/`),
+      ) &&
+      applicationFiles.some(({ path: file }) => file === "Contents/Info.plist") &&
       applicationFiles.some(
-        ({ path: file }) => file === "Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin",
+        ({ path: file }) => file === "Contents/Resources/mihomo-aarch64-apple-darwin",
       ),
     "Internal TUN Alpha application contract is incomplete",
   );
@@ -332,19 +333,58 @@ function verifyAdHocSignature(file: string): void {
   );
 }
 
+function verifyAdHocBundleSignature(application: string): void {
+  const result = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", application], {
+    encoding: "utf8",
+  });
+  invariant(
+    result.status === 0,
+    `Internal TUN Alpha application signature is invalid: ${application}`,
+  );
+}
+
+async function applicationRootFromPackageRoot(root: string): Promise<string> {
+  invariant(path.isAbsolute(root), "Internal TUN Alpha package root must be absolute");
+  invariant(path.resolve(root) === root, "Internal TUN Alpha package root must be canonical");
+  invariant((await realpath(root)) === root, "Internal TUN Alpha package root contains symlinks");
+  const application = path.basename(root) === "Mish.app" ? root : path.join(root, "Mish.app");
+  invariant(
+    (await realpath(application)) === application,
+    "Internal TUN Alpha application bundle contains symlinks",
+  );
+  return application;
+}
+
 export async function verifyInternalTunAlphaPackage(
   root: string,
   options: InternalTunAlphaVerificationOptions = {},
 ): Promise<InternalTunAlphaManifest> {
-  invariant(path.isAbsolute(root), "Internal TUN Alpha package root must be absolute");
-  invariant(path.resolve(root) === root, "Internal TUN Alpha package root must be canonical");
-  invariant((await realpath(root)) === root, "Internal TUN Alpha package root contains symlinks");
-  const ownerUid = options.expectedOwnerUid ?? process.getuid?.();
+  const application = await applicationRootFromPackageRoot(root);
+  const applicationMetadata = await lstat(application);
+  const currentUid = process.getuid?.();
+  const ownerUid = options.expectedOwnerUid ?? applicationMetadata.uid;
   invariant(ownerUid !== undefined, "Internal TUN Alpha package owner is unavailable");
-  await validateDirectory(root, ownerUid);
-  await validateDirectory(path.join(root, "Resources"), ownerUid);
+  invariant(
+    options.expectedOwnerUid !== undefined || ownerUid === currentUid || ownerUid === 0,
+    "Internal TUN Alpha package owner is not the current user or root",
+  );
+  if (root !== application) {
+    await validateDirectory(root, ownerUid);
+    invariant(
+      JSON.stringify((await readdir(root)).sort()) === JSON.stringify(["Mish.app"]),
+      "Internal TUN Alpha package root contains unexpected installation items",
+    );
+  }
+  await validateDirectory(application, ownerUid);
+  await validateDirectory(path.join(application, "Contents"), ownerUid);
+  await validateDirectory(path.join(application, internalTunAlphaPayloadRelativePath), ownerUid);
+  await validateFile(
+    path.join(application, applicationMainExecutableRelativePath),
+    ownerUid,
+    0o755,
+  );
 
-  const manifestFile = path.join(root, internalTunAlphaManifestName);
+  const manifestFile = path.join(application, internalTunAlphaManifestRelativePath);
   const manifestMetadata = await lstat(manifestFile);
   invariant(
     manifestMetadata.size > 0 && manifestMetadata.size <= manifestMaximumBytes,
@@ -361,21 +401,29 @@ export async function verifyInternalTunAlphaPackage(
   validateManifestShape(parsed);
 
   for (const file of parsed.files) {
-    const absolute = path.join(root, file.path);
+    const absolute = path.join(application, file.path);
     await validateFile(absolute, ownerUid, file.mode, file.size);
     invariant(
       (await digestFile(absolute)) === file.sha256,
       `Internal TUN Alpha digest differs: ${file.path}`,
     );
   }
-  const discovered = await walk(root);
+  const signature = path.join(application, applicationSignatureRelativePath);
+  await validateFile(signature, ownerUid, 0o644);
+  const discovered = await walk(application);
   for (const relative of discovered) {
-    const absolute = path.join(root, relative);
+    const absolute = path.join(application, relative);
     if ((await lstat(absolute)).isDirectory()) {
       await validateDirectory(absolute, ownerUid);
     }
   }
-  const expected = new Set<string>([internalTunAlphaManifestName]);
+  const expected = new Set<string>([
+    applicationSignatureRelativePath,
+    applicationMainExecutableRelativePath,
+    path.posix.dirname(applicationMainExecutableRelativePath),
+    path.posix.dirname(applicationSignatureRelativePath),
+    internalTunAlphaManifestRelativePath,
+  ]);
   for (const file of parsed.files) {
     expected.add(file.path);
     let parent = path.posix.dirname(file.path);
@@ -384,12 +432,16 @@ export async function verifyInternalTunAlphaPackage(
       parent = path.posix.dirname(parent);
     }
   }
+  const expectedPaths = [...expected].sort();
   invariant(
-    JSON.stringify(discovered) === JSON.stringify([...expected].sort()),
+    JSON.stringify(discovered) === JSON.stringify(expectedPaths),
     "Internal TUN Alpha package contains unexpected, duplicate, or missing files",
   );
 
-  const template = await readFile(path.join(root, plistTemplateRelativePath), "utf8");
+  const template = await readFile(
+    path.join(application, internalTunAlphaPlistTemplateRelativePath),
+    "utf8",
+  );
   for (const placeholder of [
     "__MISH_ALLOWED_UID__",
     "__MISH_INSTALLATION_ID__",
@@ -417,17 +469,18 @@ export async function verifyInternalTunAlphaPackage(
       "Live Internal TUN Alpha verification requires Apple Silicon macOS",
     );
     for (const relative of [
-      controllerRelativePath,
-      helperRelativePath,
-      coreRelativePath,
-      "Mish.app/Contents/MacOS/mish-desktop",
+      internalTunAlphaControllerRelativePath,
+      internalTunAlphaHelperRelativePath,
+      internalTunAlphaCoreRelativePath,
+      applicationMainExecutableRelativePath,
     ]) {
-      verifyMachOArchitecture(path.join(root, relative));
+      verifyMachOArchitecture(path.join(application, relative));
     }
-    verifyAdHocSignature(path.join(root, controllerRelativePath));
-    verifyAdHocSignature(path.join(root, helperRelativePath));
-    verifyAdHocSignature(path.join(root, "Mish.app"));
-    const core = path.join(root, coreRelativePath);
+    verifyAdHocSignature(path.join(application, internalTunAlphaControllerRelativePath));
+    verifyAdHocSignature(path.join(application, internalTunAlphaHelperRelativePath));
+    verifyAdHocSignature(application);
+    verifyAdHocBundleSignature(application);
+    const core = path.join(application, internalTunAlphaCoreRelativePath);
     const coreVersion = execFileSync(core, ["-v"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -440,55 +493,6 @@ export async function verifyInternalTunAlphaPackage(
   }
   return parsed;
 }
-
-function commandResource(action: "health" | "install" | "repair" | "status" | "uninstall") {
-  return `#!/bin/sh
-set -eu
-PACKAGE_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
-exec "$PACKAGE_ROOT/Resources/mish-internal-tun-alpha-ctl" ${action} "$PACKAGE_ROOT"
-`;
-}
-
-const readme = `Mish Internal TUN Alpha
-
-This Developer-ID-free package is for explicitly trusted internal distribution.
-It is ad-hoc signed, not Apple-trusted, not notarized, and not a public release.
-It supports Apple Silicon (arm64) on macOS 13 or newer. It is not for Intel Macs
-or public redistribution.
-
-Gatekeeper may require one package-scoped Open Anyway confirmation. After
-verifying the published SHA-256 and immutable run identity, Control-click the
-command, choose Open, or use System Settings > Privacy & Security > Open Anyway
-for this package only. Never disable Gatekeeper globally.
-
-Double-click Install Internal TUN Alpha.command and approve the visible macOS
-administrator prompt. Installation starts healthy and disabled. It does not
-change routes, DNS, System Proxy, or other network state. Open Mish.app to
-enable Virtual Interface through the shared Rust Capture controls.
-
-Installing a newer package is one journaled transaction. Mish first reconciles
-an active Virtual Interface through the authenticated Helper operation, stops
-the prior app, backs up the last verified Helper/Core/enrollment/receipt, and
-then commits the replacement. A successful active-Capture upgrade opens the
-new app and restores the retained Virtual Interface intent once. An identical
-reinstall changes nothing, and an older package is rejected before mutation.
-
-Use Health Internal TUN Alpha.command to verify the exact package manifest,
-installed Helper/Core/LaunchDaemon/receipts, P-256 enrollment, protocol, and a
-fresh disabled observation. If health fails, Repair Internal TUN Alpha.command
-is the bounded recovery path: it completes or compensates an interrupted
-journal before replacing only fixed Mish-owned artifacts. Recovery Required is
-never guessed or replayed; run Repair with the admitted package, or Uninstall.
-Uninstall Internal TUN Alpha.command removes the service, Core, socket,
-maintenance journal/backup, receipts, enrollment, client key, and only
-Mish-owned network effects while preserving unrelated system and user state.
-A foreign installation still fails closed.
-
-The private P-256 key is a user-owned mode-0600 file. This blocks clients that
-cannot read it, but it cannot resist malware or another process already running
-as the same user. This same-user key limitation is not application identity.
-Do not treat this package as production trust.
-`;
 
 async function copyWithMode(source: string, destination: string, mode: number): Promise<void> {
   await copyFile(source, destination);
@@ -506,6 +510,16 @@ async function setFixedTimes(root: string): Promise<void> {
     await utimes(path.join(root, relative), fixedTimestamp, fixedTimestamp);
   }
   await utimes(root, fixedTimestamp, fixedTimestamp);
+}
+
+async function moveStagingToTrash(directory: string): Promise<void> {
+  try {
+    await lstat(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  execFileSync("trash", [directory], { stdio: "ignore" });
 }
 
 function pinnedCoreSource(release: { asset: string; version: string }): string {
@@ -621,72 +635,90 @@ export async function buildInternalTunAlphaPackage(): Promise<{
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const staging = await mkdtemp(path.join(outputParent, ".staging-"));
-  const packageRoot = path.join(staging, packageRootName);
-  const resources = path.join(packageRoot, "Resources");
-  await mkdir(resources, { recursive: true, mode: 0o755 });
-  await cp(
-    path.join(repositoryRoot, "target/release/bundle/macos/Mish.app"),
-    path.join(packageRoot, "Mish.app"),
-    { recursive: true, preserveTimestamps: false },
-  );
+  try {
+    const packageRoot = path.join(staging, packageRootName);
+    const application = path.join(packageRoot, "Mish.app");
+    const payload = path.join(application, internalTunAlphaPayloadRelativePath);
+    await mkdir(packageRoot, { recursive: true, mode: 0o755 });
+    await cp(path.join(repositoryRoot, "target/release/bundle/macos/Mish.app"), application, {
+      recursive: true,
+      preserveTimestamps: false,
+    });
+    await mkdir(payload, { recursive: true, mode: 0o755 });
 
-  await copyWithMode(
-    path.join(repositoryRoot, "target/release/mish-internal-tun-alpha-ctl"),
-    path.join(packageRoot, controllerRelativePath),
-    0o755,
-  );
-  await copyWithMode(
-    path.join(repositoryRoot, "target/release/mish-tun-helper"),
-    path.join(packageRoot, helperRelativePath),
-    0o755,
-  );
-  await copyWithMode(coreSource, path.join(packageRoot, coreRelativePath), 0o755);
-  await copyWithMode(
-    path.join(
-      repositoryRoot,
-      "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
-    ),
-    path.join(packageRoot, plistTemplateRelativePath),
-    0o644,
-  );
-  await copyWithMode(
-    path.join(repositoryRoot, "LICENSE"),
-    path.join(packageRoot, "LICENSE"),
-    0o644,
-  );
-  await copyWithMode(
-    path.join(repositoryRoot, "THIRD_PARTY_NOTICES.md"),
-    path.join(packageRoot, "THIRD_PARTY_NOTICES.md"),
-    0o644,
-  );
-  await writeFile(path.join(packageRoot, "README.txt"), readme, { mode: 0o644 });
-  for (const action of ["health", "install", "repair", "status", "uninstall"] as const) {
-    const title = `${action[0].toUpperCase()}${action.slice(1)} Internal TUN Alpha.command`;
-    await writeFile(path.join(packageRoot, title), commandResource(action), { mode: 0o755 });
-    await chmod(path.join(packageRoot, title), 0o755);
+    await copyWithMode(
+      path.join(repositoryRoot, "target/release/mish-internal-tun-alpha-ctl"),
+      path.join(application, internalTunAlphaControllerRelativePath),
+      0o755,
+    );
+    await copyWithMode(
+      path.join(repositoryRoot, "target/release/mish-tun-helper"),
+      path.join(application, internalTunAlphaHelperRelativePath),
+      0o755,
+    );
+    await copyWithMode(coreSource, path.join(application, internalTunAlphaCoreRelativePath), 0o755);
+    await copyWithMode(
+      path.join(
+        repositoryRoot,
+        "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
+      ),
+      path.join(application, internalTunAlphaPlistTemplateRelativePath),
+      0o644,
+    );
+
+    signAdHoc(
+      path.join(application, internalTunAlphaControllerRelativePath),
+      "com.asuka109.mish.internal-tun-alpha",
+    );
+    signAdHoc(
+      path.join(application, internalTunAlphaHelperRelativePath),
+      "com.asuka109.mish.tun-helper.dev",
+    );
+    invariant(
+      (await digestFile(path.join(application, internalTunAlphaCoreRelativePath))) ===
+        release.binarySha256,
+      "Packaging changed the exact pinned Core",
+    );
+
+    await setFixedTimes(application);
+    // The app seal owns the self-signing main executable. The manifest hashes the
+    // remaining application resources and fixed payload before the final seal.
+    signAdHoc(application, "com.asuka109.mish");
+    await setFixedTimes(application);
+    const manifest = await createInternalTunAlphaManifest(application, {
+      coreVersion: release.version,
+      helperVersion,
+    });
+    await writeFile(
+      path.join(application, internalTunAlphaManifestRelativePath),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      { mode: 0o644 },
+    );
+    await chmod(path.join(application, internalTunAlphaManifestRelativePath), 0o644);
+    signAdHoc(application, "com.asuka109.mish");
+    await setFixedTimes(application);
+    await verifyInternalTunAlphaPackage(packageRoot);
+    execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
+      env: {
+        ...process.env,
+        MISH_MACOS_APP_PATH: application,
+        MISH_MACOS_PACKAGE_MODE: internalTunAlphaProfile,
+      },
+      stdio: "inherit",
+    });
+    await rename(packageRoot, outputRoot);
+    await rmdir(staging);
+  } catch (error) {
+    try {
+      await moveStagingToTrash(staging);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Internal TUN Alpha packaging failed and its staging directory could not be cleaned",
+      );
+    }
+    throw error;
   }
-
-  signAdHoc(path.join(packageRoot, controllerRelativePath), "com.asuka109.mish.internal-tun-alpha");
-  signAdHoc(path.join(packageRoot, helperRelativePath), "com.asuka109.mish.tun-helper.dev");
-  invariant(
-    (await digestFile(path.join(packageRoot, coreRelativePath))) === release.binarySha256,
-    "Packaging changed the exact pinned Core",
-  );
-
-  const manifest = await createInternalTunAlphaManifest(packageRoot, {
-    coreVersion: release.version,
-    helperVersion,
-  });
-  await writeFile(
-    path.join(packageRoot, internalTunAlphaManifestName),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    { mode: 0o644 },
-  );
-  await chmod(path.join(packageRoot, internalTunAlphaManifestName), 0o644);
-  await setFixedTimes(packageRoot);
-  await verifyInternalTunAlphaPackage(packageRoot);
-  await rename(packageRoot, outputRoot);
-  await rmdir(staging);
 
   const archive = path.join(outputParent, `${packageRootName}.tar.gz`);
   try {
@@ -741,7 +773,9 @@ export async function buildInternalTunAlphaPackage(): Promise<{
   );
   return {
     archive,
-    manifestSha256: await digestFile(path.join(outputRoot, internalTunAlphaManifestName)),
+    manifestSha256: await digestFile(
+      path.join(outputRoot, "Mish.app", internalTunAlphaManifestRelativePath),
+    ),
     packageRoot: outputRoot,
   };
 }
@@ -759,9 +793,12 @@ async function main() {
   if (action === "verify" && argument) {
     const root = path.resolve(argument);
     const manifest = await verifyInternalTunAlphaPackage(root);
+    const application = await applicationRootFromPackageRoot(root);
     console.log(
       JSON.stringify({
-        manifestSha256: await digestFile(path.join(root, internalTunAlphaManifestName)),
+        manifestSha256: await digestFile(
+          path.join(application, internalTunAlphaManifestRelativePath),
+        ),
         ok: true,
         packageVersion: manifest.packageVersion,
         profile: manifest.profile,

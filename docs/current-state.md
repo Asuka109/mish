@@ -131,9 +131,11 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
 - `alpha-ad-hoc` builds a credential-free Apple Silicon System Proxy-only DMG.
 - `internal-tun-alpha` builds the accepted Apple Silicon, macOS 13+,
   Developer-ID-free Helper/Core service package for explicitly trusted internal
-  Macs. It installs only through visible administrator authorization, remains
-  healthy-disabled, exposes no network-mutation command, and retains the
-  file-backed same-user-key limitation.
+  Macs. Its Finder DMG exposes only `Mish.app` and `Applications`; the sealed
+  Helper/Core/controller/manifest payload remains inside `Mish.app` after
+  drag-install. It installs only through visible administrator authorization,
+  remains healthy-disabled, exposes no network-mutation command, and retains
+  the file-backed same-user-key limitation.
 - The manual reviewed-main workflow has a separate credential-free Internal TUN
   staging lane. It binds the exact frozen source/workflow/tooling revision,
   package inputs, lockfiles, SBOM, provenance, DMG digest, and run identity,

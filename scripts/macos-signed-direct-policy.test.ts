@@ -115,7 +115,7 @@ test("release profile selection is explicit and independent from signing inputs"
     teamIdentifier: null,
   });
   assert.deepEqual(
-    resolveMacOsReleaseProfile(["--profile", alphaAdHocProfile, "--styled-dmg"], {
+    resolveMacOsReleaseProfile(["--profile", alphaAdHocProfile, "--open-dmg"], {
       APPLE_SIGNING_IDENTITY: "-",
     }),
     {

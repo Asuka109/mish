@@ -384,7 +384,7 @@ async fn healthy_v1_repair_uses_real_capture_helper_and_package_machines() {
     assert_eq!(after.dns, SyntheticOwnership::Absent);
     let journal = scenario.maintenance.journal_snapshot().unwrap();
     let artifacts = after.artifacts.as_ref().unwrap();
-    assert_eq!(artifacts.package_version, "0.1.0-internal-tun-alpha.6");
+    assert_eq!(artifacts.package_version, "0.1.0-internal-tun-alpha.7");
     assert_eq!(artifacts.application_sha256, "b".repeat(64));
     assert_eq!(artifacts.core_sha256, "c".repeat(64));
     assert_eq!(artifacts.helper_sha256, "d".repeat(64));

@@ -30,14 +30,21 @@ pnpm desktop:bundle:macos
 This credential-free profile rejects Apple signing and notarization credentials,
 builds an ARM64 `Mish` DMG without opening or foregrounding Finder, and mounts it
 read-only for verification. This headless command is the default for CI and
-ordinary repeated local verification. The mounted image contains only `Mish.app`
-and an `Applications` shortcut for drag-to-install.
+ordinary repeated local verification. After a successful rebuild, it moves a
+prior generated DMG to Trash before placing the completed image at the stable
+output path. The checked-in Finder-native template fixes
+the 720 × 410 window, 112 px icons, `Mish.app` and `Applications` positions, and
+the `Drag Mish to Applications` gradient, arrow, and instruction. Finder exposes
+only `Mish.app` and the `/Applications` alias; `.DS_Store` and `.background` are
+presentation metadata, not installation choices. The named app and alias remain
+individually reachable by keyboard and VoiceOver without relying on the background.
 It seals the application and Mihomo with an ad-hoc signature, packages no TUN
 helper, LaunchDaemon, SMAppService payload, development helper, or other
 privileged content, and compiles the packaged TUN capability as unavailable.
 The verifier checks the application identifier, version, architecture, pinned
 Mihomo digest and version, offline Web resources, legal resources, signature
-structure, DMG layout, and clean detach.
+structure, the exact visible Finder root, presentation asset hashes, read-only
+mounting, and clean detach.
 
 ## Internal TUN Alpha service package
 
@@ -50,93 +57,70 @@ pnpm macos:internal-tun-alpha:package
 
 The deterministic command builds the existing `development-core-host` Helper
 and native lifecycle controller, copies the exact pinned Mihomo v1.19.29 Core,
-ad-hoc signs only the Mish executables, and emits
-`target/internal-tun-alpha/Mish-Internal-TUN-Alpha-<version>-arm64/` plus a
-timestamp-normalized `.tar.gz`. The target package contains no source checkout,
-JavaScript runtime, Rust toolchain, Homebrew dependency, or download step. Its
-versioned manifest fixes every allowed file, role, mode, size, SHA-256 digest,
-ARM64 architecture, Helper/Core version, protocol version, disabled policy,
-and installation-identity scheme.
+and emits `target/internal-tun-alpha/Mish-Internal-TUN-Alpha-<version>-arm64/`
+plus a timestamp-normalized `.tar.gz`. Its enclosing directory contains only
+`Mish.app`. The controller, Helper, Core, LaunchDaemon template, and versioned
+manifest are embedded at
+`Mish.app/Contents/Resources/internal-tun-alpha/`; the app signature seals that
+payload. The target package contains no source checkout, JavaScript runtime,
+Rust toolchain, Homebrew dependency, or download step.
+
+The same app is assembled into the focused drag-to-install DMG. Finder exposes
+only `Mish.app` and the `Applications` alias; no controller, manifest,
+payload, lifecycle script, notice, or TUN choice appears at the DMG root. After
+copying Mish to `/Applications`, use Mish's shared Rust Capture controls for
+install, health, repair, and uninstall. The controller is not a user-facing
+installer entry point.
 
 This is an explicitly trusted internal distribution, not an application
 release. It is ad-hoc signed, not Apple-trusted or notarized, and may require
-one package-scoped **Open Anyway** confirmation. The mode-`0600` client key
-cannot resist malware or another process already running as the same user.
+one app-scoped **Open Anyway** confirmation. The mode-`0600` client key cannot
+resist malware or another process already running as the same user.
 
-After extracting the archive on the target Mac, use only its visible resources:
+The package controller implements the typed lifecycle through the repository
+state-machine kernel. Install and repair cannot publish `healthy-disabled`
+from administrator approval or launchd acknowledgement alone: fixed artifacts,
+receipts, enrollment, protocol, Helper health, Core absence, and disabled
+network observation must all verify. A post-mutation failure rolls back or
+reports `repair-required`; uninstall retains its pre-mutation ownership check
+and fails closed for foreign or partial state.
 
-1. Double-click **Install Internal TUN Alpha.command** and approve the native
-   administrator dialog. A cold first launch may take up to 15 seconds while
-   launchd and Gatekeeper make the private Helper socket ready.
-2. Run **Health Internal TUN Alpha.command**. It must report
-   `"state":"healthy-disabled"` with protocol version `3`, the exact package
-   installation identity, and matching P-256 key identifier and generation.
-3. Use **Repair Internal TUN Alpha.command** only to replace the fixed
-   Mish-owned Helper, Core, LaunchDaemon, and receipts from the same verified
-   package.
-4. Run **Uninstall Internal TUN Alpha.command** to remove the service, Core,
-   socket/state, enrollment, receipts, and active/pending client key.
-
-The package controller implements these commands as one typed lifecycle using
-the repository state-machine kernel. Install and repair cannot publish
-`healthy-disabled` from administrator approval or launchd acknowledgement
-alone: fixed artifacts, receipts, enrollment, protocol, Helper health, Core
-absence, and disabled network observation must all verify. A post-mutation
-failure rolls back or reports `repair-required`; uninstall retains its
-pre-mutation ownership check and fails closed for foreign or partial state.
-
-An isolated Tart guest may exercise the same fixed native controller through
-its explicit `--tart-terminal-authorization` option. That option replaces only
-the macOS dialog with a visible `sudo` password prompt, is accepted only for
-install, repair, and uninstall, and does not add a Helper or network command.
-It is an acceptance transport, not the friend-machine workflow.
-
-Every lifecycle invocation revalidates the canonical package directory,
+Every lifecycle invocation revalidates the canonical `Mish.app` bundle, its
 closed file set, regular single-link ownership/modes, manifest and artifact
-digests, fixed LaunchDaemon template, pinned Core version, root-owned installed
-layout, receipts, installation identity, enrollment, protocol, and fresh
-authenticated health. Before the administrator prompt, the verified controller
-is copied to a private mode-`0500` staging file with its manifest size and
-SHA-256 digest fixed in the authorization request. The root shell copies it
-again into a new root-only temporary directory and independently checks root
-ownership, mode, single link, size, and digest before execution. Administrator
-cancellation runs no privileged command. An install failure stops and removes
-the incomplete fixed service and its private receipt/key state instead of
-advertising partial trust. Uninstall validates matching root enrollment and
-receipt ownership before stopping launchd or removing a global path; partial
-or foreign state fails closed. Identical reinstall preserves the same key and
-generation.
+digests, application signature, fixed LaunchDaemon template, pinned Core
+version, receipts, installation identity, enrollment, protocol, and fresh
+authenticated health. A copied app owned either by the invoking user or root is
+accepted; all sealed package files must share that owner. Before administrator
+authorization, the verified controller is copied to a private mode-`0500`
+staging file whose size and SHA-256 are fixed in the authorization request.
+Administrator cancellation runs no privileged command.
 
 The package controller has no enable, disable, Core-run, arbitrary-command, or
-arbitrary-path action. `MISH_TUN_SERVICE_ALLOW_TUN` is fixed to `1` in the
-`.5` package, but a successful install is still healthy and disabled. The
-packaged `Mish.app` is the only UI that receives a supported TUN projection; it
-uses the shared Rust Capture transaction and the existing authenticated typed
-Helper commands. Browser Client remains observation-only for this capability.
-
-The `.5` lifecycle is the private Internal TUN Alpha transactional maintenance
-contract documented in `docs/architecture/macos-tun-helper.md`: it adds no
-network updater, public release path, Developer ID/notarization, SMAppService,
-XPC, or Helper wire capability.
+arbitrary-path action. `MISH_TUN_SERVICE_ALLOW_TUN` remains fixed to `1`, but
+a successful install is healthy and disabled. The packaged `Mish.app` is the
+only UI that receives a supported TUN projection; it uses the shared Rust
+Capture transaction and the existing authenticated typed Helper commands.
+Browser Client remains observation-only. The delivery layout adds no network
+updater, public release path, Developer ID/notarization, SMAppService, XPC, or
+new Helper wire capability.
 
 Only a disposable Tart run using the exact terminal-authorization boundary may
 append one closed `--tart-fail-after=<commit-point>` or
 `--tart-abort-after=<commit-point>` option to an install or repair controller
-invocation. The package's user-facing commands never emit either option, other
-actions reject them, and the admitted value can only return an error or abort
-at one named maintenance commit boundary.
+invocation. The app never emits either option, other actions reject them, and
+the admitted value can only return an error or abort at one named maintenance
+commit boundary.
 
 `alpha-ad-hoc`, `signed-direct`, the embedded Browser Client, legacy
-credential-free production fixtures, and future production application
-layouts reject Internal TUN Alpha manifests, controllers, command resources,
-installation keys, and development Helper artifacts. Signing input never
-selects this package profile.
+credential-free production fixtures, and future production application layouts
+reject Internal TUN Alpha manifests, controllers, installation keys, and
+development Helper artifacts. Signing input never selects this package profile.
 
 ### Immutable Internal TUN Alpha staging
 
 The manual **Validate macOS Release Candidate** workflow accepts the explicit
 `internal-tun-alpha` profile only at version
-`0.1.0-internal-tun-alpha.6`. Unlike the other credential-free validation
+`0.1.0-internal-tun-alpha.7`. Unlike the other credential-free validation
 profiles, this path requires the selected source to equal the frozen reviewed
 `main` workflow SHA exactly; an older ancestor, pull-request or merge ref, fork,
 arbitrary workflow revision, or mismatched tooling tree fails before packaging.
@@ -146,15 +130,15 @@ self-hosted runner, Developer ID identity, or publication permission.
 Staging uses four fail-closed phases:
 
 1. An isolated GitHub-hosted Apple Silicon runner builds the accepted package,
-   copies it into a link-rejecting fixed-time snapshot, creates a deterministic
-   read-only HFS+/ISO9660 hybrid disk image with a `.dmg` name,
+   creates a read-only Finder DMG from the checked-in presentation template,
    generates SPDX 2.3 SBOM and SLSA v1/in-toto provenance, records exact
    SHA-256 values, and uploads the candidate once.
 2. A separate Apple Silicon job downloads only that immutable candidate artifact
    ID. The independent verifier mounts the DMG read-only and checks its complete
-   layout, owner/mode/link policy, Mish.app/Helper/Core/plist digests and versions,
+   visible root, template and background hashes, closed `Mish.app` payload,
+   owner/mode/link policy, signature, Helper/Core/plist digests and versions,
    controller command set, protocol and enrollment boundaries, profile
-   isolation, legal resources, lockfiles, SBOM, provenance, and SHA-256 set.
+   isolation, lockfiles, SBOM, provenance, and SHA-256 set.
 3. A secretless Ubuntu job downloads the candidate and verification evidence by
    their immutable IDs, binds them into one final manifest, and uploads the
    final non-overwriting stage for 14 days.
@@ -164,7 +148,7 @@ Staging uses four fail-closed phases:
 
 The final private artifact contains one exact `candidate/` directory with:
 
-- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.6-arm64.dmg`;
+- `Mish-Internal-TUN-Alpha-0.1.0-internal-tun-alpha.7-arm64.dmg`;
 - the exact copied package manifest;
 - `internal-tun-alpha-sbom.spdx.json`;
 - `internal-tun-alpha-provenance.intoto.json`;
@@ -198,9 +182,9 @@ summary; local reproduction remains evidence of implementation only, not a
 substitute hosted stage.
 
 For a local, credential-free reproduction on Apple Silicon, first build the
-package, then run the staging tool twice with the same explicit fixture
-identity and compare the DMG, SBOM, provenance, checksums, and candidate
-manifest byte-for-byte. Independently run
+package, then run the staging tool with an explicit fixture identity and retain
+its recorded DMG, SBOM, provenance, checksums, and candidate manifest digests.
+Independently run
 `scripts/verify-internal-tun-alpha-stage.ts verify` against each candidate.
 These commands require only synthetic numeric artifact/run IDs; they must not
 use a real Developer ID identity, notary input, secret, or publication token.
@@ -245,15 +229,16 @@ After an Inspector session, quit Mish and launch it normally:
 The later process must start with the Inspector closed because the opt-in is
 never persisted in Settings or application storage.
 
-Use the Finder-styled path only when intentionally preparing a delivery image:
+Open a completed Alpha DMG only for an explicit hands-on Finder walkthrough:
 
 ```sh
-pnpm desktop:bundle:macos:styled
+pnpm desktop:bundle:macos:open
 ```
 
-That explicit command permits Tauri's Finder AppleScript to arrange the mounted
-image. Both commands still use bounded ordinary detach and never force-detach or
-leave a verifier mount behind.
+Routine packaging never opens Finder. The explicit command opens the already
+verified DMG; the template, not Finder AppleScript, owns the layout. All
+automated paths use bounded ordinary detach and never force-detach or leave a
+verifier mount behind.
 
 An ad-hoc signature is neither an Apple identity nor notarization. Gatekeeper
 rejection or **Open Anyway** is the expected Alpha boundary; do not describe the
@@ -432,11 +417,13 @@ code-signing structure. Ad-hoc packages must contain no privileged artifact.
 
 Run `pnpm test:macos:bundle` for fast synthetic negative layouts. Run
 `pnpm desktop:bundle:fixture:macos` to produce and inspect the complete
-legacy privileged-layout fixture without credentials. That fixture remains only
-to prevent accidental weakening of the production TUN gate: it signs the app
-and helper ad hoc, proves the structure and closed version probes, and proves
-that both artifacts fail the required Developer ID team checks. It is not a
-release profile and never registers or launches the LaunchDaemon.
+legacy privileged-layout fixture without credentials. It writes
+`Mish-production-fixture_0.1.0_aarch64.dmg` through the same headless Finder
+template and verifies its mounted app read-only. That fixture remains only to
+prevent accidental weakening of the production TUN gate: it signs the app and
+helper ad hoc, proves the structure and closed version probes, and proves that
+both artifacts fail the required Developer ID team checks. It is not a release
+profile and never registers or launches the LaunchDaemon.
 
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
