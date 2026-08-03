@@ -54,6 +54,17 @@ type MacOsDmgPresentation = {
   };
 };
 
+type DetachRunner = (
+  command: string,
+  arguments_: string[],
+) => { status: number | null; stderr?: string | Buffer | null };
+
+type DetachPause = (milliseconds: number) => void;
+
+export type CreateMacOsDmgOptions = {
+  replaceExistingOutput?: boolean;
+};
+
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -187,12 +198,23 @@ function imageSizeMiB(application: string): number {
   return Math.max(minimumImageMiB, Math.ceil(kibibytes / 1024) + imageOverheadMiB);
 }
 
-function detachDiskImage(mountpoint: string): void {
+function pauseDetachRetry(milliseconds: number): void {
+  const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(signal, 0, 0, milliseconds);
+}
+
+export function detachMacOsDiskImage(
+  mountpoint: string,
+  runner: DetachRunner = (command, arguments_) =>
+    spawnSync(command, arguments_, { encoding: "utf8" }),
+  pause: DetachPause = pauseDetachRetry,
+): void {
   const failures: string[] = [];
   for (let attempt = 1; attempt <= 5; attempt += 1) {
-    const result = spawnSync("/usr/bin/hdiutil", ["detach", mountpoint], { encoding: "utf8" });
+    const result = runner("/usr/bin/hdiutil", ["detach", mountpoint]);
     if (result.status === 0) return;
     failures.push(String(result.stderr ?? "").trim() || `exit ${String(result.status)}`);
+    if (attempt < 5) pause(attempt * 250);
   }
   throw new Error(`Could not cleanly detach macOS DMG after 5 attempts: ${failures.join(" | ")}`);
 }
@@ -219,12 +241,19 @@ function attachImage(image: string, mountpoint: string, writable: boolean): void
   execFileSync("/usr/bin/hdiutil", arguments_, { stdio: "pipe" });
 }
 
-export function createMacOsDmg(application: string, output: string): void {
+export function createMacOsDmg(
+  application: string,
+  output: string,
+  options: CreateMacOsDmgOptions = {},
+): void {
   requireDarwin();
   const presentation = loadPresentation();
   const resolvedApplication = path.resolve(application);
   const resolvedOutput = path.resolve(output);
-  invariant(!existsSync(resolvedOutput), `macOS DMG output already exists: ${resolvedOutput}`);
+  if (existsSync(resolvedOutput)) {
+    requireRegularFile(resolvedOutput, "existing output");
+    invariant(options.replaceExistingOutput, `macOS DMG output already exists: ${resolvedOutput}`);
+  }
   verifyTemplateFile(presentation);
 
   const temporary = mkdtempSync(path.join(tmpdir(), "mish-macos-dmg-"));
@@ -251,7 +280,7 @@ export function createMacOsDmg(application: string, output: string): void {
     attached = true;
     assertTemplateRoot(mountpoint, presentation);
     copyApplicationContents(resolvedApplication, path.join(mountpoint, "Mish.app"));
-    detachDiskImage(mountpoint);
+    detachMacOsDiskImage(mountpoint);
     attached = false;
 
     execFileSync(
@@ -268,9 +297,12 @@ export function createMacOsDmg(application: string, output: string): void {
       ],
       { stdio: "pipe" },
     );
-    copyFileSync(outputFromBase(compressedBase), resolvedOutput);
+    const assembledOutput = outputFromBase(compressedBase);
+    requireRegularFile(assembledOutput, "assembled delivery image");
+    moveToTrash(resolvedOutput);
+    copyFileSync(assembledOutput, resolvedOutput);
   } finally {
-    if (attached) detachDiskImage(mountpoint);
+    if (attached) detachMacOsDiskImage(mountpoint);
     moveToTrash(temporary);
   }
 }
@@ -339,7 +371,7 @@ export function verifyMacOsDmgPresentation(
     );
     verifyApplication?.(realpathSync(application));
   } finally {
-    if (attached) detachDiskImage(mountpoint);
+    if (attached) detachMacOsDiskImage(mountpoint);
     moveToTrash(temporary);
   }
 }

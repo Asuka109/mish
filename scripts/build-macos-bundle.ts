@@ -179,7 +179,7 @@ const dmgName = alphaAdHoc
       : "Mish-signed-direct_0.1.0_aarch64.dmg";
 const dmg = path.resolve("target/release/bundle/dmg", dmgName);
 mkdirSync(path.dirname(dmg), { recursive: true });
-createMacOsDmg(application, dmg);
+createMacOsDmg(application, dmg, { replaceExistingOutput: true });
 if (alphaAdHoc) {
   execFileSync("pnpm", ["desktop:bundle:verify:alpha-ad-hoc:macos"], {
     env: packageEnvironment,

@@ -91,6 +91,11 @@ test(
     const dmg = path.join(temporary.path, "Mish-standard.dmg");
 
     createMacOsDmg(fixture.application, dmg);
+    assert.throws(
+      () => createMacOsDmg(fixture.application, dmg),
+      /macOS DMG output already exists/u,
+    );
+    createMacOsDmg(fixture.application, dmg, { replaceExistingOutput: true });
     verifyMacOsDmgPresentation(dmg, (application) => {
       assert.equal(path.basename(application), "Mish.app");
       assert.ok(readFileSync(path.join(application, "Contents", "Info.plist")).byteLength > 0);
@@ -138,6 +143,8 @@ test("routine DMG assembly has no Finder or open invocation", () => {
   assert.doesNotMatch(assembler, /"\/usr\/bin\/open"/u);
   assert.match(assembler, /"-nobrowse", "-noautoopen"/u);
   assert.match(assembler, /arguments_\.push\("-readonly"/u);
+  assert.match(assembler, /moveToTrash\(resolvedOutput\);/u);
+  assert.match(builder, /replaceExistingOutput: true/u);
   assert.match(builder, /if \(openDmg\) execFileSync\("\/usr\/bin\/open"/u);
   assert.match(builder, /Mish-production-fixture_0\.1\.0_aarch64\.dmg/u);
   assert.match(builder, /verifyMacOsDmgPresentation\(dmg, \(mountedApplication\)/u);

@@ -30,7 +30,9 @@ pnpm desktop:bundle:macos
 This credential-free profile rejects Apple signing and notarization credentials,
 builds an ARM64 `Mish` DMG without opening or foregrounding Finder, and mounts it
 read-only for verification. This headless command is the default for CI and
-ordinary repeated local verification. The checked-in Finder-native template fixes
+ordinary repeated local verification. After a successful rebuild, it moves a
+prior generated DMG to Trash before placing the completed image at the stable
+output path. The checked-in Finder-native template fixes
 the 720 × 410 window, 112 px icons, `Mish.app` and `Applications` positions, and
 the `Drag Mish to Applications` gradient, arrow, and instruction. Finder exposes
 only `Mish.app` and the `/Applications` alias; `.DS_Store` and `.background` are

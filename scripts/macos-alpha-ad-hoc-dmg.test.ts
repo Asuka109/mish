@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { detachMacOsDiskImage } from "./macos-dmg-presentation.ts";
 import { verifyMacOsPrivilegedBundle } from "./macos-privileged-bundle.ts";
-import { detachMacOsDiskImage } from "./verify-macos-alpha-ad-hoc-dmg.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
@@ -31,40 +31,41 @@ test("alpha-ad-hoc rejects linked privileged directories", async () => {
   await assert.rejects(verifyMacOsPrivilegedBundle(application, "ad-hoc"), /privileged artifacts/u);
 });
 
-test("alpha-ad-hoc retries ordinary DMG detach without forcing it", async () => {
+test("macOS DMG retries ordinary detach with bounded backoff and no force", () => {
   const calls: string[][] = [];
   const statuses = [16, 16, 0];
   const pauses: number[] = [];
-  await detachMacOsDiskImage(
+  detachMacOsDiskImage(
     "/Volumes/Mish",
     (command, arguments_) => {
       calls.push([command, ...arguments_]);
       return { status: statuses.shift() ?? 1, stderr: "resource busy" };
     },
-    async (milliseconds) => {
+    (milliseconds) => {
       pauses.push(milliseconds);
     },
   );
   assert.deepEqual(calls, [
-    ["hdiutil", "detach", "/Volumes/Mish"],
-    ["hdiutil", "detach", "/Volumes/Mish"],
-    ["hdiutil", "detach", "/Volumes/Mish"],
+    ["/usr/bin/hdiutil", "detach", "/Volumes/Mish"],
+    ["/usr/bin/hdiutil", "detach", "/Volumes/Mish"],
+    ["/usr/bin/hdiutil", "detach", "/Volumes/Mish"],
   ]);
   assert.equal(calls.flat().includes("-force"), false);
   assert.deepEqual(pauses, [250, 500]);
 });
 
-test("alpha-ad-hoc fails after bounded ordinary DMG detach retries", async () => {
+test("macOS DMG fails after bounded ordinary detach retries", () => {
   let calls = 0;
-  await assert.rejects(
-    detachMacOsDiskImage(
-      "/Volumes/Mish",
-      () => {
-        calls += 1;
-        return { status: 16, stderr: "resource busy" };
-      },
-      async () => {},
-    ),
+  assert.throws(
+    () =>
+      detachMacOsDiskImage(
+        "/Volumes/Mish",
+        () => {
+          calls += 1;
+          return { status: 16, stderr: "resource busy" };
+        },
+        () => {},
+      ),
     /after 5 attempts/u,
   );
   assert.equal(calls, 5);
@@ -86,7 +87,7 @@ test("routine Alpha packaging is headless and opening is an explicit hands-on ac
   );
   assert.match(builder, /packageEnvironment\.CI = "true"/u);
   assert.match(builder, /delete packageEnvironment\.TAURI_BUNDLER_DMG_IGNORE_CI/u);
-  assert.match(builder, /createMacOsDmg\(application, dmg\)/u);
+  assert.match(builder, /createMacOsDmg\(application, dmg, \{ replaceExistingOutput: true \}\)/u);
   assert.match(builder, /if \(openDmg\) execFileSync\("\/usr\/bin\/open"/u);
   assert.doesNotMatch(builder, /styledDmg|TAURI_BUNDLER_DMG_IGNORE_CI =/u);
 });
