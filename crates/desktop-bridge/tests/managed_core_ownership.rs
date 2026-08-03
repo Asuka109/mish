@@ -13,7 +13,7 @@ use mish_bridge::{
     ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
     ManagedRuntimeLease,
 };
-use mish_runtime::{CorePhase, CoreRuntime, LoopbackProxyEndpoint};
+use mish_runtime::{CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint};
 
 #[derive(Clone)]
 struct FakeProcess {
@@ -27,6 +27,7 @@ struct FakeProcessPlatform {
     processes: Mutex<HashMap<u32, FakeProcess>>,
     next_pid: Mutex<u32>,
     terminations: Mutex<Vec<u32>>,
+    listener_inspection_fails: AtomicBool,
     listener_owned: AtomicBool,
 }
 
@@ -72,6 +73,11 @@ impl FakeProcessPlatform {
 
     fn set_listener_owned(&self, owned: bool) {
         self.listener_owned.store(owned, Ordering::Relaxed);
+    }
+
+    fn fail_listener_inspection(&self) {
+        self.listener_inspection_fails
+            .store(true, Ordering::Relaxed);
     }
 }
 
@@ -151,6 +157,9 @@ impl ManagedProcessPlatform for FakeProcessPlatform {
         process: &ManagedProcessObservation,
         _endpoint: &LoopbackProxyEndpoint,
     ) -> Result<bool, ManagedProcessPlatformError> {
+        if self.listener_inspection_fails.load(Ordering::Relaxed) {
+            return Err(ManagedProcessPlatformError::ListenerInspectionFailed);
+        }
         Ok(self.running(process.pid()) && self.listener_owned.load(Ordering::Relaxed))
     }
 }
@@ -404,10 +413,46 @@ async fn managed_process_does_not_claim_an_external_listener() {
 
     process.start().await.unwrap();
 
-    assert!(
-        !process
-            .owns_local_proxy(&LoopbackProxyEndpoint::managed())
-            .await
+    assert_eq!(
+        process
+            .local_proxy_ownership(&LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Unowned
+    );
+    process.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn managed_process_preserves_unknown_listener_inspection() {
+    let fixture = OwnershipFixture::new();
+    fixture.platform.set_listener_owned(true);
+    fixture.platform.fail_listener_inspection();
+    let lease = ManagedRuntimeLease::acquire(&fixture.runtime_root).unwrap();
+    let ownership = Arc::new(
+        ManagedCoreOwnership::new(
+            fixture.runtime_root.clone(),
+            fixture.platform.clone(),
+            lease,
+        )
+        .unwrap(),
+    );
+    let process = DesktopMihomoProcess::new_pinned_owned(
+        DesktopMihomoProcessConfig {
+            binary: Some(test_fixture("fake-activation-mihomo.sh")),
+            config_directory: Some(fixture.config_directory.clone()),
+            config_file: Some(fixture.config_file.clone()),
+        },
+        "v1.19.29",
+        ownership,
+    );
+
+    process.start().await.unwrap();
+
+    assert_eq!(
+        process
+            .local_proxy_ownership(&LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Unknown
     );
     process.stop().await.unwrap();
 }

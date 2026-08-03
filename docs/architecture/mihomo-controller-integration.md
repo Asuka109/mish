@@ -303,6 +303,12 @@ the managed runtime root. Validation runs `mihomo -d <candidate-home> -f
 version. Because active and candidate cores cannot own the same managed proxy
 port concurrently, switching first restores any confirmed Mish-owned System
 Proxy state, stops the prior core, and then starts the validated candidate.
+Listener ownership is a three-state observation: owned, unowned, or unknown. A
+live active generation with an incomplete point-in-time listener observation is
+retired through the serialized handoff, then both managed ports must become
+bindable before the candidate can start. Candidate readiness still requires
+positive process-and-listener ownership, so an unknown observation or a socket
+that remains occupied after retirement cannot become activation success.
 Commit requires all of the following:
 
 1. the child remains alive;

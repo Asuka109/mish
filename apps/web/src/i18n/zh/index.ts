@@ -100,7 +100,7 @@ const zh: Translation = {
     hideToStatusBar: "隐藏到状态栏",
     installTunHelper: "安装系统组件",
     tunHelperLifecycleApplied: "{operation}已完成并确认。",
-    tunHelperLifecycleFailed: "{operation}需要恢复：{failure}。",
+    tunHelperLifecycleFailed: "{operation}未完成。{failure}",
     tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
     launchAtLogin: "设备启动时",
@@ -518,18 +518,18 @@ const zh: Translation = {
       installerUnavailable: "无法启动开发版安装工具。请用 pnpm 重新启动开发版应用后再试。",
       notNow: "暂不开启",
       preparationFailed:
-        "系统组件准备失败，尚未请求管理员授权。请检查 Mihomo 文件和 Rust 工具链，再重新启动开发版应用。",
+        "Mish 无法准备或验证安装所需文件，因此没有请求管理员授权。请重新启动 Mish 后重试；若仍失败，请重新安装当前版本。",
       reviewSetup: "查看系统组件",
       restartDescription:
         "Mish 会重启代理并暂时更改设备路由。关闭虚拟网卡后，这些路由会被移除，其他已选择的代理方式不受影响。",
       restartTitle: "代理会重启，设备路由会改变",
       repairDescription:
-        "Mish 会通过同一套 macOS 授权流程修复系统组件。Rust 确认修复后的组件健康且网络观察结果为新鲜的关闭状态之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
+        "Mish 会通过同一套 macOS 授权流程修复系统组件。Mish 确认修复后的组件可用且网络状态为关闭之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
       repairHelper: "修复系统组件",
       repairingHelper: "正在修复系统组件…",
       repairTitle: "需要修复系统组件",
       setupDescription:
-        "Mish 会通过 macOS 授权安装系统组件。Rust 确认组件版本和健康状态正确，且网络观察结果为新鲜的关闭状态之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
+        "Mish 会通过 macOS 授权安装系统组件。Mish 确认组件版本和状态正确，且网络状态为关闭之前，虚拟网卡不会开启；确认后才会继续这次开启请求。",
       setupTitle: "先安装系统组件",
       title: "启用虚拟网卡之前",
     },

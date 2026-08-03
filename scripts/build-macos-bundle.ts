@@ -36,6 +36,7 @@ const mihomo = path.resolve(
   mihomoRelease.version,
   mihomoRelease.asset.slice(0, -3),
 );
+const bundleMihomo = path.resolve(".scratch/macos-bundle/mihomo-aarch64-apple-darwin");
 const expectedMihomoSha256 = mihomoRelease.binarySha256;
 const productionRoot = path.resolve(".scratch/macos-production");
 
@@ -68,6 +69,15 @@ if (mihomoSha256 !== expectedMihomoSha256) {
     `Prepared Mihomo checksum mismatch: expected ${expectedMihomoSha256}, received ${mihomoSha256}`,
   );
 }
+mkdirSync(path.dirname(bundleMihomo), { recursive: true });
+copyFileSync(mihomo, bundleMihomo);
+chmodSync(bundleMihomo, 0o755);
+const stagedMihomoSha256 = createHash("sha256").update(readFileSync(bundleMihomo)).digest("hex");
+if (stagedMihomoSha256 !== expectedMihomoSha256) {
+  throw new Error(
+    `Staged Mihomo checksum mismatch: expected ${expectedMihomoSha256}, received ${stagedMihomoSha256}`,
+  );
+}
 
 const signingArguments = ["--force", "--options", "runtime"];
 if (identity === "-") {
@@ -78,8 +88,14 @@ if (identity === "-") {
 if (signedDirect) {
   signingArguments.push("--identifier", signedDirectMihomoIdentifier);
 }
-signingArguments.push("--sign", identity, mihomo);
+signingArguments.push("--sign", identity, bundleMihomo);
 execFileSync("codesign", signingArguments, { stdio: "inherit" });
+const pinnedMihomoSha256 = createHash("sha256").update(readFileSync(mihomo)).digest("hex");
+if (pinnedMihomoSha256 !== expectedMihomoSha256) {
+  throw new Error(
+    `Pinned Mihomo changed while staging the signed bundle resource: expected ${expectedMihomoSha256}, received ${pinnedMihomoSha256}`,
+  );
+}
 
 const packageEnvironment = { ...process.env, APPLE_SIGNING_IDENTITY: identity };
 delete packageEnvironment.MISH_MIHOMO_BIN;

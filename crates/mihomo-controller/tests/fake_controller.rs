@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -20,7 +23,11 @@ use mish_mihomo_controller::{
     ProviderKind, ROUTE_DELAY_TEST_URL,
 };
 use serde_json::{Value, json};
-use tokio::{net::TcpListener, sync::oneshot};
+use tokio::{
+    net::TcpListener,
+    sync::{Notify, oneshot},
+    time::timeout,
+};
 use url::Url;
 
 const AUTHORIZATION: &str = "Bearer synthetic-controller-token";
@@ -38,6 +45,13 @@ type DelayRequest = (String, String, HashMap<String, String>);
 #[derive(Default)]
 struct DelayState {
     request: Mutex<Option<DelayRequest>>,
+}
+
+#[derive(Default)]
+struct StreamCloseState {
+    close_frame_observed: AtomicBool,
+    disconnected: AtomicBool,
+    updated: Notify,
 }
 
 #[tokio::test]
@@ -502,6 +516,87 @@ async fn reads_pinned_controller_dtos_and_cancels_websocket_streams() {
 
     let _ = shutdown_tx.send(());
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn aborts_websockets_before_the_controller_listener_stops() {
+    async fn tracked_traffic(
+        headers: HeaderMap,
+        websocket: WebSocketUpgrade,
+        State(state): State<Arc<StreamCloseState>>,
+    ) -> Response {
+        if !authorized(&headers) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        websocket
+            .on_upgrade(move |mut socket| async move {
+                for _ in 0..64 {
+                    let _ = socket
+                        .send(Message::Text(
+                            json!({"up": 1, "down": 2, "upTotal": 3, "downTotal": 4})
+                                .to_string()
+                                .into(),
+                        ))
+                        .await;
+                }
+                while let Some(message) = socket.next().await {
+                    if matches!(message, Ok(Message::Close(_))) {
+                        state.close_frame_observed.store(true, Ordering::Release);
+                    }
+                }
+                state.disconnected.store(true, Ordering::Release);
+                state.updated.notify_waiters();
+            })
+            .into_response()
+    }
+
+    let state = Arc::new(StreamCloseState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/traffic", get(tracked_traffic))
+        .with_state(state.clone());
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    let mut config = HttpTransportConfig::new(Url::parse(&format!("http://{address}/")).unwrap());
+    config.secret = Some("synthetic-controller-token".into());
+    let client = ControllerClient::new(
+        Arc::new(HttpTransport::new(config).unwrap()),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+    let mut traffic = client.traffic_stream().await.unwrap();
+    assert_eq!(traffic.next().await.unwrap().unwrap().up_total, 3);
+
+    client.quiesce().await;
+    if !state.disconnected.load(Ordering::Acquire) {
+        timeout(Duration::from_secs(1), state.updated.notified())
+            .await
+            .unwrap();
+    }
+    assert!(!state.close_frame_observed.load(Ordering::Acquire));
+    assert!(state.disconnected.load(Ordering::Acquire));
+    timeout(Duration::from_secs(1), async {
+        while traffic.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+
+    let _ = shutdown_tx.send(());
+    timeout(Duration::from_secs(1), server)
+        .await
+        .unwrap()
+        .unwrap();
+    let rebound = TcpListener::bind(address).await.unwrap();
+    drop(rebound);
 }
 
 #[tokio::test]

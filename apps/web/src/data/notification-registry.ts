@@ -3,9 +3,11 @@ import {
   type ApplicationNotification,
   type NotificationRecordDto,
   type NotificationSeverity,
+  TunHelperFailureKindSchema,
 } from "@mish/contracts";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import { trafficFailureMessage } from "./traffic-failure-message";
+import { tunHelperFailureMessage } from "./tun-helper-failure-message";
 
 export type NotificationActionTone = "primary" | "secondary" | "destructive";
 
@@ -227,7 +229,7 @@ function knownPresentation(
       }
       return {
         message: LL.settingsPage.tunHelperLifecycleFailed({
-          failure: string("failure") ?? "unknown",
+          failure: tunHelperFailureMessage(LL, tunHelperFailure(string("failure"))),
           operation,
         }),
       };
@@ -273,6 +275,7 @@ function captureFailurePresentation(
     if (captureMode === "tun") return { message: LL.capture.tunDrift() };
     return { message: LL.capture.systemProxyDrift() };
   }
+  if (captureMode === "tun") return { message: LL.capture.tunFailure() };
   return { message: LL.capture.systemProxyFailure() };
 }
 
@@ -411,4 +414,9 @@ function trafficFailure(value: string | undefined) {
     return value;
   }
   return null;
+}
+
+function tunHelperFailure(value: string | undefined) {
+  const parsed = TunHelperFailureKindSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }

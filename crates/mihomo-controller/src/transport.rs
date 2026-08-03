@@ -1,22 +1,47 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use bytes::{Bytes, BytesMut};
-use futures_util::{StreamExt, TryStreamExt, future::BoxFuture, stream::BoxStream};
+use futures_util::{
+    StreamExt, TryStreamExt,
+    future::BoxFuture,
+    stream::{self, BoxStream},
+};
 use reqwest::StatusCode;
-use tokio::time::timeout;
+use tokio::{
+    sync::{Notify, mpsc},
+    time::{sleep, timeout},
+};
 use tokio_tungstenite::{
     connect_async_with_config,
     tungstenite::{
         self, client::IntoClientRequest, http::header::AUTHORIZATION, protocol::WebSocketConfig,
     },
 };
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::{ControllerError, Endpoint};
 
 pub type RawMessageStream = BoxStream<'static, Result<Bytes, ControllerError>>;
 
+const WEBSOCKET_ABORT_SETTLE: Duration = Duration::from_millis(100);
+const WEBSOCKET_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
+const WEBSOCKET_MESSAGE_BUFFER: usize = 16;
+const HTTP_POOL_ABORT_SETTLE: Duration = Duration::from_millis(250);
+const HTTP_POOL_IDLE_TIMEOUT: Duration = Duration::from_millis(100);
+
 pub trait ControllerTransport: Send + Sync {
+    fn quiesce(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
     fn delete(
         &self,
         endpoint: Endpoint,
@@ -94,9 +119,87 @@ impl HttpTransportConfig {
 pub struct HttpTransport {
     base_url: Url,
     authorization: Option<String>,
-    client: reqwest::Client,
+    client: RwLock<reqwest::Client>,
     connect_timeout: Duration,
     request_timeout: Duration,
+    websocket_sessions: Arc<WebSocketSessionRegistry>,
+}
+
+#[derive(Default)]
+struct WebSocketSessionRegistry {
+    drained: Notify,
+    next_id: AtomicU64,
+    sessions: Mutex<HashMap<u64, CancellationToken>>,
+}
+
+impl WebSocketSessionRegistry {
+    fn register(self: &Arc<Self>) -> (CancellationToken, WebSocketSessionRegistration) {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let cancellation = CancellationToken::new();
+        self.sessions
+            .lock()
+            .expect("Controller WebSocket session registry poisoned")
+            .insert(id, cancellation.clone());
+        (
+            cancellation,
+            WebSocketSessionRegistration {
+                id,
+                registry: self.clone(),
+            },
+        )
+    }
+
+    async fn quiesce(&self) {
+        let sessions = self
+            .sessions
+            .lock()
+            .expect("Controller WebSocket session registry poisoned")
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for cancellation in sessions {
+            cancellation.cancel();
+        }
+        let _ = timeout(WEBSOCKET_DRAIN_TIMEOUT, async {
+            loop {
+                let drained = self.drained.notified();
+                if self
+                    .sessions
+                    .lock()
+                    .expect("Controller WebSocket session registry poisoned")
+                    .is_empty()
+                {
+                    return;
+                }
+                drained.await;
+            }
+        })
+        .await;
+    }
+}
+
+struct WebSocketSessionRegistration {
+    id: u64,
+    registry: Arc<WebSocketSessionRegistry>,
+}
+
+impl Drop for WebSocketSessionRegistration {
+    fn drop(&mut self) {
+        self.registry
+            .sessions
+            .lock()
+            .expect("Controller WebSocket session registry poisoned")
+            .remove(&self.id);
+        self.registry.drained.notify_waiters();
+    }
+}
+
+struct WebSocketStreamCancellation(CancellationToken);
+
+impl Drop for WebSocketStreamCancellation {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 impl std::fmt::Debug for HttpTransport {
@@ -151,20 +254,33 @@ impl HttpTransport {
             }
             None => None,
         };
-        let client = reqwest::Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .build()
-            .map_err(|_| ControllerError::InvalidConfiguration {
-                detail: "HTTP client could not be constructed".into(),
-            })?;
+        let client = Self::build_client(config.connect_timeout)?;
 
         Ok(Self {
             base_url: config.base_url,
             authorization,
-            client,
+            client: RwLock::new(client),
             connect_timeout: config.connect_timeout,
             request_timeout: config.request_timeout,
+            websocket_sessions: Arc::new(WebSocketSessionRegistry::default()),
         })
+    }
+
+    fn build_client(connect_timeout: Duration) -> Result<reqwest::Client, ControllerError> {
+        reqwest::Client::builder()
+            .connect_timeout(connect_timeout)
+            .pool_idle_timeout(HTTP_POOL_IDLE_TIMEOUT)
+            .build()
+            .map_err(|_| ControllerError::InvalidConfiguration {
+                detail: "HTTP client could not be constructed".into(),
+            })
+    }
+
+    fn client(&self) -> reqwest::Client {
+        self.client
+            .read()
+            .expect("Controller HTTP client lock poisoned")
+            .clone()
     }
 
     fn endpoint_url(&self, endpoint: Endpoint) -> Result<Url, ControllerError> {
@@ -176,7 +292,7 @@ impl HttpTransport {
     }
 
     fn request(&self, endpoint: Endpoint) -> Result<reqwest::RequestBuilder, ControllerError> {
-        let mut request = self.client.get(self.endpoint_url(endpoint)?);
+        let mut request = self.client().get(self.endpoint_url(endpoint)?);
         if let Some(authorization) = &self.authorization {
             request = request.header(reqwest::header::AUTHORIZATION, authorization);
         }
@@ -224,7 +340,7 @@ impl HttpTransport {
             .append_pair("url", test_url)
             .append_pair("timeout", &timeout_milliseconds.to_string())
             .append_pair("expected", expected_status);
-        let mut request = self.client.get(url);
+        let mut request = self.client().get(url);
         if let Some(authorization) = &self.authorization {
             request = request.header(reqwest::header::AUTHORIZATION, authorization);
         }
@@ -260,6 +376,23 @@ impl HttpTransport {
 }
 
 impl ControllerTransport for HttpTransport {
+    fn quiesce(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if let Ok(replacement) = Self::build_client(self.connect_timeout) {
+                let retired = std::mem::replace(
+                    &mut *self
+                        .client
+                        .write()
+                        .expect("Controller HTTP client lock poisoned"),
+                    replacement,
+                );
+                drop(retired);
+            }
+            self.websocket_sessions.quiesce().await;
+            sleep(HTTP_POOL_ABORT_SETTLE).await;
+        })
+    }
+
     fn delete(
         &self,
         endpoint: Endpoint,
@@ -268,7 +401,7 @@ impl ControllerTransport for HttpTransport {
         Box::pin(async move {
             let operation = async {
                 let request = self
-                    .client
+                    .client()
                     .delete(self.mutation_url(endpoint, path_segment.as_deref())?);
                 let response = self.authorize(request).send().await.map_err(|error| {
                     ControllerError::transport(endpoint, error.without_url().to_string())
@@ -334,28 +467,75 @@ impl ControllerTransport for HttpTransport {
             let mut websocket_config = WebSocketConfig::default();
             websocket_config.max_message_size = Some(max_message_bytes);
             websocket_config.max_frame_size = Some(max_message_bytes);
-            let (socket, _) = timeout(
+            let (mut socket, _) = timeout(
                 self.connect_timeout,
                 connect_async_with_config(request, Some(websocket_config), false),
             )
             .await
             .map_err(|_| ControllerError::Timeout { endpoint })?
             .map_err(|error| websocket_error(endpoint, error))?;
-
-            let messages = socket.filter_map(move |message| async move {
-                match message {
-                    Ok(tungstenite::Message::Text(text)) => {
-                        let bytes = Bytes::copy_from_slice(text.as_bytes());
-                        Some(check_message_size(endpoint, bytes, max_message_bytes))
+            let (session_cancellation, registration) = self.websocket_sessions.register();
+            let stream_cancellation = session_cancellation.clone();
+            let (sender, receiver) = mpsc::channel(WEBSOCKET_MESSAGE_BUFFER);
+            tokio::spawn(async move {
+                let _registration = registration;
+                'messages: loop {
+                    tokio::select! {
+                        biased;
+                        _ = session_cancellation.cancelled() => {
+                            let _ = socket.get_mut().get_ref().set_zero_linger();
+                            drop(socket);
+                            sleep(WEBSOCKET_ABORT_SETTLE).await;
+                            break;
+                        }
+                        message = socket.next() => {
+                            let item = match message {
+                                Some(Ok(tungstenite::Message::Text(text))) => {
+                                    Some(check_message_size(
+                                        endpoint,
+                                        Bytes::copy_from_slice(text.as_bytes()),
+                                        max_message_bytes,
+                                    ))
+                                }
+                                Some(Ok(tungstenite::Message::Binary(bytes))) => {
+                                    Some(check_message_size(endpoint, bytes, max_message_bytes))
+                                }
+                                Some(Ok(tungstenite::Message::Close(_))) | None => break,
+                                Some(Ok(_)) => None,
+                                Some(Err(error)) => Some(Err(websocket_error(endpoint, error))),
+                            };
+                            if let Some(item) = item {
+                                tokio::select! {
+                                    biased;
+                                    _ = session_cancellation.cancelled() => {
+                                        let _ = socket.get_mut().get_ref().set_zero_linger();
+                                        drop(socket);
+                                        sleep(WEBSOCKET_ABORT_SETTLE).await;
+                                        break 'messages;
+                                    }
+                                    sent = sender.send(item) => {
+                                        if sent.is_err() {
+                                            let _ = socket.get_mut().get_ref().set_zero_linger();
+                                            drop(socket);
+                                            sleep(WEBSOCKET_ABORT_SETTLE).await;
+                                            break 'messages;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    Ok(tungstenite::Message::Binary(bytes)) => {
-                        Some(check_message_size(endpoint, bytes, max_message_bytes))
-                    }
-                    Ok(tungstenite::Message::Close(_)) => None,
-                    Ok(_) => None,
-                    Err(error) => Some(Err(websocket_error(endpoint, error))),
                 }
             });
+            let messages = stream::unfold(
+                (receiver, WebSocketStreamCancellation(stream_cancellation)),
+                |(mut receiver, cancellation)| async move {
+                    receiver
+                        .recv()
+                        .await
+                        .map(|message| (message, (receiver, cancellation)))
+                },
+            );
             Ok(Box::pin(messages) as RawMessageStream)
         })
     }
@@ -375,7 +555,7 @@ impl ControllerTransport for HttpTransport {
                     });
                 }
                 let request = self
-                    .client
+                    .client()
                     .patch(self.mutation_url(endpoint, None)?)
                     .body(body)
                     .header(reqwest::header::CONTENT_TYPE, "application/json");
@@ -406,7 +586,7 @@ impl ControllerTransport for HttpTransport {
                     });
                 }
                 let request = self
-                    .client
+                    .client()
                     .put(self.mutation_url(endpoint, path_segment.as_deref())?)
                     .body(body)
                     .header(reqwest::header::CONTENT_TYPE, "application/json");

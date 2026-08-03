@@ -219,12 +219,22 @@ impl std::error::Error for CoreError {}
 pub trait CoreRuntime: Send + Sync {
     fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn configured(&self) -> bool;
-    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
-        Box::pin(std::future::ready(false))
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
+        Box::pin(std::future::ready(LocalProxyOwnership::Unowned))
     }
     fn status(&self) -> BoxFuture<'_, CoreStatus>;
     fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
     fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalProxyOwnership {
+    Owned,
+    Unowned,
+    Unknown,
 }
 
 pub trait StatusDataSource: Send + Sync {
@@ -493,6 +503,12 @@ pub struct MishRuntime {
     identity: Arc<()>,
 }
 
+#[derive(Clone, Copy)]
+enum CaptureNotificationMode {
+    Immediate,
+    Deferred,
+}
+
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
         let source = Arc::new(LifecycleStatusDataSource::new());
@@ -744,6 +760,62 @@ impl MishRuntime {
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        self.set_capture_with_notification_mode(
+            request,
+            adapter_kind,
+            CaptureNotificationMode::Immediate,
+        )
+        .await
+    }
+
+    /// Reconciles Capture as one step of a larger backend transition. The coordinator must
+    /// publish or resolve the single user-visible outcome after the transaction is terminal.
+    pub async fn set_capture_deferred(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.set_capture_with_notification_mode(
+            request,
+            adapter_kind,
+            CaptureNotificationMode::Deferred,
+        )
+        .await
+    }
+
+    pub async fn set_capture_runtime_transition(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        transition: &CaptureRuntimeTransition,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let explicit_active = request.active;
+        let result = capture
+            .reconcile_runtime_transition(transition, request, healthy)
+            .await;
+        self.finish_capture_reconciliation(
+            result,
+            explicit_active,
+            &core,
+            adapter_kind,
+            CaptureNotificationMode::Deferred,
+        )
+    }
+
+    async fn set_capture_with_notification_mode(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        notification_mode: CaptureNotificationMode,
+    ) -> Result<Value, CaptureTransitionError> {
         let Some(capture) = &self.capture else {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::CapabilityUnavailable,
@@ -754,17 +826,13 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let explicit_active = request.active;
         let result = capture.reconcile(request, healthy).await;
-        if let Err(error) = result {
-            self.record_capture_failure(&error);
-            return Err(error);
-        }
-        let recent_revision = self.recent_traffic.snapshot().revision;
-        self.reconcile_recent_traffic_after_capture(explicit_active);
-        if self.recent_traffic.snapshot().revision != recent_revision {
-            self.publish_status(&core);
-        }
-        self.notifications.resolve_by_dedupe_key("capture.failure");
-        Ok(self.snapshot_from_status(&core, adapter_kind))
+        self.finish_capture_reconciliation(
+            result,
+            explicit_active,
+            &core,
+            adapter_kind,
+            notification_mode,
+        )
     }
 
     pub async fn preflight_capture(
@@ -831,6 +899,43 @@ impl MishRuntime {
         preflight: CapturePreflight,
         operation: &CaptureOperation,
     ) -> Result<Value, CaptureTransitionError> {
+        self.set_capture_with_admitted_preflight_notification_mode(
+            request,
+            adapter_kind,
+            preflight,
+            operation,
+            CaptureNotificationMode::Immediate,
+        )
+        .await
+    }
+
+    /// Executes an already-admitted Capture operation without publishing an intermediate
+    /// notification. The aggregate launch coordinator owns the final transaction outcome.
+    pub async fn set_capture_with_admitted_preflight_deferred(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.set_capture_with_admitted_preflight_notification_mode(
+            request,
+            adapter_kind,
+            preflight,
+            operation,
+            CaptureNotificationMode::Deferred,
+        )
+        .await
+    }
+
+    async fn set_capture_with_admitted_preflight_notification_mode(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+        notification_mode: CaptureNotificationMode,
+    ) -> Result<Value, CaptureTransitionError> {
         let Some(capture) = &self.capture else {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::CapabilityUnavailable,
@@ -843,17 +948,38 @@ impl MishRuntime {
         let result = capture
             .reconcile_admitted_with_preflight(request, healthy, preflight, operation)
             .await;
+        self.finish_capture_reconciliation(
+            result,
+            explicit_active,
+            &core,
+            adapter_kind,
+            notification_mode,
+        )
+    }
+
+    fn finish_capture_reconciliation(
+        &self,
+        result: Result<CaptureRuntimeStatus, CaptureTransitionError>,
+        explicit_active: bool,
+        core: &CoreStatus,
+        adapter_kind: StatusAdapterKind,
+        notification_mode: CaptureNotificationMode,
+    ) -> Result<Value, CaptureTransitionError> {
         if let Err(error) = result {
-            self.record_capture_failure(&error);
+            if matches!(notification_mode, CaptureNotificationMode::Immediate) {
+                self.record_capture_failure(&error);
+            }
             return Err(error);
         }
         let recent_revision = self.recent_traffic.snapshot().revision;
         self.reconcile_recent_traffic_after_capture(explicit_active);
         if self.recent_traffic.snapshot().revision != recent_revision {
-            self.publish_status(&core);
+            self.publish_status(core);
         }
-        self.notifications.resolve_by_dedupe_key("capture.failure");
-        Ok(self.snapshot_from_status(&core, adapter_kind))
+        if matches!(notification_mode, CaptureNotificationMode::Immediate) {
+            self.notifications.resolve_by_dedupe_key("capture.failure");
+        }
+        Ok(self.snapshot_from_status(core, adapter_kind))
     }
 
     pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
@@ -879,8 +1005,9 @@ impl MishRuntime {
         let owns_listener = healthy
             && self
                 .core
-                .owns_local_proxy(capture.local_proxy_endpoint())
-                .await;
+                .local_proxy_ownership(capture.local_proxy_endpoint())
+                .await
+                == LocalProxyOwnership::Owned;
         Ok(capture.test_local_proxy(healthy, owns_listener).await)
     }
 
@@ -945,6 +1072,9 @@ impl MishRuntime {
         let Some(capture) = &self.capture else {
             return Ok(false);
         };
+        if capture.runtime_transition_pending() {
+            return Ok(false);
+        }
         let before = capture.status();
         let aggregate_transition_pending =
             matches!(before.system_proxy.phase, SystemProxyPhase::Pending)
@@ -1235,7 +1365,25 @@ impl MishRuntime {
         self.notifications.resolve_by_dedupe_key(dedupe_key)
     }
 
-    fn record_capture_failure(&self, error: &CaptureTransitionError) {
+    pub fn record_capture_failure(&self, error: &CaptureTransitionError) {
+        self.record_capture_failure_with_selection(error, None);
+    }
+
+    /// Records the terminal failure of a coordinator-owned Capture transaction. The explicit
+    /// selection keeps the attempted mode actionable even after rollback restored an `Off` state.
+    pub fn record_capture_failure_for_selection(
+        &self,
+        error: &CaptureTransitionError,
+        selection: &CaptureSelection,
+    ) {
+        self.record_capture_failure_with_selection(error, Some(selection));
+    }
+
+    fn record_capture_failure_with_selection(
+        &self,
+        error: &CaptureTransitionError,
+        attempted_selection: Option<&CaptureSelection>,
+    ) {
         let failure = error.kind;
         let capture_status = self.capture.as_ref().map(|capture| capture.status());
         let action_ids = capture_failure_action_ids(
@@ -1253,15 +1401,33 @@ impl MishRuntime {
             presentation: ApplicationNotification::new(
                 ApplicationNotificationContent::CaptureFailure(
                     CaptureFailureApplicationNotificationData {
-                        capture_mode: capture_status.as_ref().and_then(|status| {
-                            if status.tun.phase == TunPhase::Drift {
-                                Some("tun".into())
-                            } else if status.system_proxy.phase == SystemProxyPhase::Drift {
-                                Some("system-proxy".into())
-                            } else {
-                                None
-                            }
-                        }),
+                        capture_mode: attempted_selection
+                            .and_then(|selection| {
+                                if selection.tun {
+                                    Some("tun".into())
+                                } else if selection.system_proxy {
+                                    Some("system-proxy".into())
+                                } else {
+                                    None
+                                }
+                            })
+                            .or_else(|| {
+                                capture_status.as_ref().and_then(|status| {
+                                    if matches!(
+                                        status.tun.phase,
+                                        TunPhase::Failed | TunPhase::Drift
+                                    ) {
+                                        Some("tun".into())
+                                    } else if matches!(
+                                        status.system_proxy.phase,
+                                        SystemProxyPhase::Failed | SystemProxyPhase::Drift
+                                    ) {
+                                        Some("system-proxy".into())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }),
                         failure: capture_failure_presentation_id(failure).into(),
                         observation_stage: error
                             .observation_stage

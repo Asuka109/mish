@@ -15,7 +15,8 @@ use mish_bridge::{
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime,
-    CoreStatus, LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
+    CoreStatus, LocalProxyOwnership, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
+    NetworkServiceProxyState,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -1312,10 +1313,17 @@ impl CoreRuntime for SimulatedHost {
         true
     }
 
-    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
         let owner = self.endpoint_owner();
         let result = self.emit(EffectKind::CoreOwnsListener, Self::endpoint_result(owner));
-        Box::pin(ready(result.is_ok() && owner == ManagedEndpointOwner::Mish))
+        Box::pin(ready(match (result, owner) {
+            (Ok(()), ManagedEndpointOwner::Mish) => LocalProxyOwnership::Owned,
+            (Ok(()), _) => LocalProxyOwnership::Unowned,
+            (Err(_), _) => LocalProxyOwnership::Unknown,
+        }))
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {

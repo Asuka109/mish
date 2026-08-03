@@ -26,11 +26,11 @@ use mish_bridge::{
     start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
-    DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
-    MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform,
-    MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
-    MacOsTunServiceClient, dismiss_browser_pairing_pin, show_browser_pairing_pin,
-    verify_development_core_file, verify_development_pinned_core,
+    DevelopmentTunStartup, FileCaptureJournalStore, MacOsLifecycleEventSource,
+    MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform, MacOsSystemProxyPlatform,
+    MacOsTunHelperBoundary, MacOsTunHelperPlatform, MacOsTunServiceClient,
+    dismiss_browser_pairing_pin, show_browser_pairing_pin, verify_development_core_file,
+    verify_development_pinned_core,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -1022,15 +1022,20 @@ fn initialize(
                 }
                 ready
             }
-            _ => false,
+            None => false,
         };
-        let internal_tun_profile = internal_tun_service.is_some();
-        let startup_mihomo = (development_service_ready || internal_tun_profile)
-            .then(|| PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
-            .or(requested_mihomo);
+        // The managed backend must retain an App-owned Core executable. The privileged host
+        // independently substitutes the pinned Helper installation for TUN launches. Sharing
+        // that mutable installation with the managed backend would let Helper maintenance
+        // replace a live user process and invalidate its persisted ownership identity.
+        let managed_core_binary = managed_core_startup_binary(
+            requested_mihomo,
+            development_service_ready,
+            internal_tun_service.is_some(),
+        );
         let resolver = managed_mihomo_resolver(
             tauri::is_dev(),
-            startup_mihomo,
+            managed_core_binary,
             &profile_root,
             &resource_directory,
         );
@@ -1096,8 +1101,12 @@ fn initialize(
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
         initialize_onboarding_welcome_notification(&runtime_host, &settings_service)
             .map_err(io::Error::other)?;
+        // Keep the configured Helper transport attached even when startup admission is read-only.
+        // Non-TUN policies still use the ordinary managed Core. After an in-process install or
+        // repair, a fresh TUN policy can therefore select the now-healthy privileged backend
+        // without requiring an application restart.
         let privileged_host = internal_tun_service
-            .or_else(|| development_tun_service.filter(|_| development_service_ready))
+            .or(development_tun_service)
             .map(|service| service as Arc<dyn PrivilegedCoreHost>);
         let activation_manager = Arc::new(
             (match privileged_host {
@@ -1549,7 +1558,11 @@ fn development_tun_startup_admission(
     startup: DevelopmentTunStartup,
 ) -> (bool, Option<TunHelperFailureKind>) {
     match startup {
-        DevelopmentTunStartup::Ready => (true, None),
+        DevelopmentTunStartup::Ready if snapshot.is_healthy() => (true, None),
+        // Preserve a confirmed install/repair requirement for the guided UI. Marking this
+        // as a transient runtime failure would collapse RepairRequired into Unavailable and
+        // prevent the next Virtual Interface click from offering the serial Rust repair flow.
+        DevelopmentTunStartup::Ready => (false, None),
         DevelopmentTunStartup::ReadOnly(_failure)
             if development_tun_service_not_installed(snapshot) =>
         {
@@ -1913,6 +1926,14 @@ fn managed_mihomo_resolver(
         );
     }
     ManagedMihomoResolver::production(resource_directory.to_path_buf(), runtime_root)
+}
+
+fn managed_core_startup_binary(
+    app_owned_binary: Option<PathBuf>,
+    _privileged_development_ready: bool,
+    _privileged_package_configured: bool,
+) -> Option<PathBuf> {
+    app_owned_binary
 }
 
 fn validate_development_mihomo_environment(
@@ -2334,17 +2355,18 @@ mod tests {
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
         main_window_close_action, maintenance_capture_observation_restored,
         maintenance_capture_observation_retryable, maintenance_capture_restore_retryable,
-        managed_mihomo_resolver, production_team_identifier_for_profile, read_local_backup,
-        release_profile_evidence, resolve_devtools_behavior, save_support_bundle_selection,
-        should_intercept_exit_request, should_show_main_window,
-        system_proxy_only_capture_selection, validate_development_mihomo_environment,
+        managed_core_startup_binary, managed_mihomo_resolver,
+        production_team_identifier_for_profile, read_local_backup, release_profile_evidence,
+        resolve_devtools_behavior, save_support_bundle_selection, should_intercept_exit_request,
+        should_show_main_window, system_proxy_only_capture_selection,
+        validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
-        CaptureFailureKind, CaptureSelection, TunHelperAvailability, TunHelperFailureKind,
-        TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot, TunNetworkObservation,
-        tun_observation_now,
+        CaptureFailureKind, CaptureSelection, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
+        TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot,
+        TunNetworkObservation, tun_observation_now,
     };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
 
@@ -2387,6 +2409,43 @@ mod tests {
             ),
             (true, None)
         );
+    }
+
+    #[test]
+    fn development_tun_does_not_admit_a_helper_that_requires_repair() {
+        let snapshot = TunHelperSnapshot {
+            availability: TunHelperAvailability::RepairRequired,
+            expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+            health: TunHelperHealth::VersionMismatch,
+            installation_id: Some("immediate-tun-observation-installation".to_owned()),
+            installed_version: Some("4".to_owned()),
+            last_failure: Some(TunHelperFailureKind::VersionMismatch),
+            phase: TunHelperLifecyclePhase::Idle,
+        };
+
+        assert_eq!(
+            development_tun_startup_admission(&snapshot, DevelopmentTunStartup::Ready),
+            (false, None)
+        );
+    }
+
+    #[test]
+    fn privileged_tun_availability_never_replaces_the_managed_core_binary() {
+        let app_owned = PathBuf::from("/Applications/Mish.app/Contents/Resources/mihomo");
+
+        for development_ready in [false, true] {
+            for package_configured in [false, true] {
+                assert_eq!(
+                    managed_core_startup_binary(
+                        Some(app_owned.clone()),
+                        development_ready,
+                        package_configured,
+                    ),
+                    Some(app_owned.clone())
+                );
+            }
+        }
+        assert_eq!(managed_core_startup_binary(None, true, true), None);
     }
 
     #[cfg(unix)]

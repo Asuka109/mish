@@ -1752,6 +1752,17 @@ impl TunReconciler {
             .clone()
     }
 
+    fn is_converged(&self, desired: bool) -> bool {
+        let current = self.status();
+        if desired {
+            current.desired
+                && current.phase == TunPhase::Applied
+                && current.observed == TunObservedState::Enabled
+        } else {
+            !current.desired && current.phase == TunPhase::Off
+        }
+    }
+
     async fn reconcile(
         &self,
         desired: bool,
@@ -2045,8 +2056,13 @@ impl CaptureEffectAdapter {
             return Err(capture_error_from_tun_failure(failure));
         }
 
-        let tun_was_disabled = previous.tun_enabled && !tun_desired;
-        if tun_was_disabled {
+        let tun_was_enabled = previous.tun_enabled;
+        let tun_needs_disabling = !tun_desired
+            && self
+                .tun
+                .as_ref()
+                .is_some_and(|tun| !tun.is_converged(false));
+        if tun_needs_disabling {
             self.set_tun(false, core_healthy).await?;
         }
 
@@ -2059,7 +2075,7 @@ impl CaptureEffectAdapter {
             )
             .await
         {
-            if tun_was_disabled && self.set_tun(true, core_healthy).await.is_err() {
+            if tun_was_enabled && !tun_desired && self.set_tun(true, core_healthy).await.is_err() {
                 if let Some(tun) = &self.tun {
                     tun.record_drift(TunFailureKind::RollbackFailed);
                 }
@@ -2413,6 +2429,10 @@ impl CaptureReconciler {
 
     pub fn status(&self) -> CaptureRuntimeStatus {
         self.runner.snapshot().projection().clone()
+    }
+
+    pub fn runtime_transition_pending(&self) -> bool {
+        self.runtime_transition.load(Ordering::Acquire)
     }
 
     /// Returns the non-payload correlation values admitted by the real Capture machine.

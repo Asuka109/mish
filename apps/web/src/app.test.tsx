@@ -342,6 +342,14 @@ class InactiveDesktopStatusClient extends FixtureStatusClient {
   }
 }
 
+class ActiveDesktopStatusClient extends InactiveDesktopStatusClient {
+  override async getSnapshot(options?: { signal?: AbortSignal }) {
+    const snapshot = await super.getSnapshot(options);
+    snapshot.runtime.phase = "healthy";
+    return snapshot;
+  }
+}
+
 class FailingSettingsClient extends DesktopSettingsClient {
   override setStartup = vi.fn(
     async (_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> => {
@@ -1558,6 +1566,36 @@ describe("production routes", () => {
     await user.click(reinstall);
 
     expect(settingsClient.repairTunHelper).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Helper removal available while the desktop core is active", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "available",
+      expectedVersion: "3",
+      health: "healthy",
+      installationId: "a".repeat(64),
+      installedVersion: "3",
+      lastFailure: null,
+      phase: "idle",
+    };
+    renderRoute(
+      "/settings",
+      "en",
+      new ActiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByRole("button", { name: "Clean Reinstall" })).toBeDisabled();
+    const remove = screen.getByRole("button", { name: "Remove Helper" });
+    expect(remove).toBeEnabled();
+    await user.click(remove);
+
+    expect(settingsClient.removeTunHelper).toHaveBeenCalledOnce();
   });
 
   it("installs the development TUN helper from native Settings", async () => {

@@ -78,6 +78,8 @@ pub const DEV_TUN_SERVICE_PLIST_PATH: &str =
     "/Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist";
 pub const DEV_TUN_SERVICE_SOCKET_PREFIX: &str = "/var/run/com.asuka109.mish.tun-helper";
 const CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
+const RUNTIME_HOME_MAX_DEPTH: usize = 32;
+const RUNTIME_HOME_MAX_ENTRIES: usize = 8_192;
 const DEV_CORE_HOST_REQUEST_MAX_AGE_MILLISECONDS: u64 = 10_000;
 const DEV_CORE_HOST_REQUEST_FUTURE_SKEW_MILLISECONDS: u64 = 1_000;
 const DEV_CORE_HOST_REPLAY_WINDOW: usize = 256;
@@ -1072,7 +1074,7 @@ impl MacOsTunServiceClient {
     }
 
     fn privileged_core_launch_binary(&self, requested: &Path) -> PathBuf {
-        if self.internal_tun_alpha_lifecycle().is_some() {
+        if self.lifecycle.is_some() {
             PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
         } else {
             requested.to_path_buf()
@@ -2158,7 +2160,9 @@ fn required_path(name: &str) -> Result<PathBuf, &'static str> {
 
 struct ServiceProcess {
     child: Child,
+    config_directory: PathBuf,
     launch_token: String,
+    owner_uid: u32,
     owner_pid: u32,
     pid: u32,
     sealed_config: PathBuf,
@@ -2183,9 +2187,16 @@ struct ServiceTunOwnership {
     routes: Option<Vec<TunSystemRoute>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RuntimeHomeRecovery {
+    owner_uid: u32,
+    root: PathBuf,
+}
+
 #[derive(Default)]
 struct ServiceState {
     pending_network_recovery: Option<Result<ManagedDnsState, ()>>,
+    pending_runtime_home_recovery: Option<RuntimeHomeRecovery>,
     process: Option<ServiceProcess>,
     tun: Option<ServiceTunOwnership>,
 }
@@ -2403,6 +2414,12 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         config.require_root,
         &config.installation_id,
     )?;
+    let pending_runtime_home_recovery =
+        canonical_runtime_home_recovery(&runtime_root, config.allowed_uid)?.and_then(|recovery| {
+            restore_runtime_home_ownership(&recovery.root, recovery.owner_uid)
+                .is_err()
+                .then_some(recovery)
+        });
     let sealed_root = PathBuf::from(format!("{}.state", config.socket_path.display()));
     reset_sealed_root(&sealed_root, config.allowed_uid, config.require_root)?;
     if let Ok(metadata) = fs::symlink_metadata(&config.socket_path) {
@@ -2423,6 +2440,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
     }
     let state = Arc::new(Mutex::new(ServiceState {
         pending_network_recovery,
+        pending_runtime_home_recovery,
         process: None,
         tun: None,
     }));
@@ -2443,7 +2461,10 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         spawn_watchdog: config.spawn_watchdog,
         state: state.clone(),
     };
-    let recovery_required = state.lock().await.pending_network_recovery.is_some();
+    let recovery_required = {
+        let state = state.lock().await;
+        state.pending_network_recovery.is_some() || state.pending_runtime_home_recovery.is_some()
+    };
     let lifecycle = spawn_runner(
         Arc::new(TunLifecycleMachine),
         TunLifecycleState::initial(recovery_required),
@@ -2967,7 +2988,9 @@ async fn execute_request_effect(
                 network_recovery,
             )
             .await;
-            let recovery_pending = service_state.pending_network_recovery.is_some();
+            let _ = restore_pending_runtime_home_recovery(&mut service_state);
+            let recovery_pending = service_state.pending_network_recovery.is_some()
+                || service_state.pending_runtime_home_recovery.is_some();
             drop(service_state);
             if recovery_pending {
                 return ServiceResponse::error(
@@ -3075,6 +3098,14 @@ async fn execute_request_effect(
                 network_recovery,
             )
             .await;
+            if restore_pending_runtime_home_recovery(&mut service_state).is_err() {
+                return ServiceResponse::error(
+                    ServiceDiagnosticCode::SpawnFailed,
+                    service_state.status(),
+                    unknown_tun_observation(),
+                    installation_id,
+                );
+            }
             let correlation = current_tun_correlation(&service_state, observer.as_ref());
             if let Ok(system) = &baseline {
                 let observation =
@@ -3178,7 +3209,9 @@ async fn execute_request_effect(
             };
             service_state.process = Some(ServiceProcess {
                 child,
+                config_directory,
                 launch_token,
+                owner_uid: allowed_uid,
                 owner_pid: peer_pid,
                 pid,
                 sealed_config,
@@ -3238,30 +3271,25 @@ async fn execute_request_effect(
                 .filter(|tun| !tun.dns_applied)
                 .and_then(|tun| tun.network.clone());
             if let Some(network) = pending_network.as_ref() {
-                let correlation_before = current_tun_correlation(&service_state, observer.as_ref());
-                let system = match observer.observe().await {
+                let system = match wait_for_network_apply_precondition(
+                    &mut service_state,
+                    observer.as_ref(),
+                    network_controller.as_ref(),
+                    network_recovery,
+                    TUN_CONFIRMATION_TIMEOUT,
+                )
+                .await
+                {
                     Ok(system) => system,
-                    Err(()) => {
+                    Err(observation) => {
                         return ServiceResponse::error(
                             ServiceDiagnosticCode::SpawnFailed,
                             service_state.status(),
-                            unknown_tun_observation(),
+                            observation,
                             installation_id,
                         );
                     }
                 };
-                let correlation_after = current_tun_correlation(&service_state, observer.as_ref());
-                let correlation = stable_tun_correlation(correlation_before, correlation_after);
-                let precondition =
-                    service_state.tun_observation(&system, correlation_result(&correlation));
-                if !confirms_network_apply_precondition(&precondition) {
-                    return ServiceResponse::error(
-                        ServiceDiagnosticCode::SpawnFailed,
-                        service_state.status(),
-                        precondition,
-                        installation_id,
-                    );
-                }
                 match apply_network_transaction(
                     network_controller.as_ref(),
                     network_recovery,
@@ -3310,6 +3338,14 @@ async fn execute_request_effect(
                 network_recovery,
             )
             .await;
+            if restore_pending_runtime_home_recovery(&mut service_state).is_err() {
+                return ServiceResponse::error(
+                    ServiceDiagnosticCode::StopFailed,
+                    service_state.status(),
+                    unknown_tun_observation(),
+                    installation_id,
+                );
+            }
             if service_state.process.as_ref().is_some_and(|process| {
                 process.launch_token != launch_token || process.owner_pid != peer_pid
             }) {
@@ -3364,6 +3400,7 @@ async fn execute_request_effect(
             )
             .await
             .is_err()
+                || restore_pending_runtime_home_recovery(&mut service_state).is_err()
                 || stop_process(
                     &mut service_state,
                     network_controller.as_ref(),
@@ -3702,6 +3739,49 @@ fn confirms_network_apply_precondition(observation: &TunNetworkObservation) -> b
         && observation.routes == TunObservationComponentState::Confirmed
 }
 
+async fn wait_for_network_apply_precondition(
+    state: &mut ServiceState,
+    observer: &dyn TunSystemObserver,
+    network_controller: &dyn TunNetworkController,
+    network_recovery: &NetworkRecoveryJournal,
+    confirmation_timeout: Duration,
+) -> Result<TunSystemSnapshot, TunNetworkObservation> {
+    let deadline = tokio::time::Instant::now() + confirmation_timeout;
+    loop {
+        reap_if_exited(state, network_controller, network_recovery).await;
+        if state.process.is_none() || state.tun.is_none() {
+            return Err(unknown_tun_observation());
+        }
+        let correlation_before = current_tun_correlation(state, observer);
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let system = match timeout(remaining, observer.observe()).await {
+            Ok(Ok(system)) => Some(system),
+            Ok(Err(())) => None,
+            Err(_) => return Err(unknown_tun_observation()),
+        };
+        let correlation_after = current_tun_correlation(state, observer);
+        let correlation = stable_tun_correlation(correlation_before, correlation_after);
+        let observation = system.as_ref().map_or_else(
+            || {
+                let mut observation = unknown_tun_observation();
+                observation.core = TunObservationComponentState::Confirmed;
+                observation
+            },
+            |system| state.tun_observation(system, correlation_result(&correlation)),
+        );
+        if confirms_network_apply_precondition(&observation) {
+            return Ok(system.expect("confirmed precondition requires a system observation"));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(observation);
+        }
+        tokio::time::sleep_until(
+            (tokio::time::Instant::now() + Duration::from_millis(200)).min(deadline),
+        )
+        .await;
+    }
+}
+
 const REQUIRED_IPV4_ROUTES: &[&[&str]] = &[
     &["1", "1/8", "1.0.0.0/8"],
     &["2/7", "2.0.0.0/7"],
@@ -3847,6 +3927,7 @@ async fn status_response(
     let _ =
         restore_pending_network_recovery(&mut state, network_controller.as_ref(), network_recovery)
             .await;
+    let _ = restore_pending_runtime_home_recovery(&mut state);
     let pending_recovery_dns = match state.pending_network_recovery.as_ref() {
         Some(Ok(recovery)) => Some(
             network_controller
@@ -3906,9 +3987,20 @@ async fn status_response(
             recovery_dns
         };
     }
+    if state.pending_runtime_home_recovery.is_some() {
+        observation.core = TunObservationComponentState::Unknown;
+        // Disabled intentionally permits an ordinary Core to remain running, so Core alone
+        // cannot carry this Helper cleanup failure. Until the retained recovery succeeds the
+        // Helper cannot certify that its TUN generation is fully absent; preserve stronger
+        // residual observations, but keep an otherwise-absent interface fail-closed.
+        if observation.interface == TunObservationComponentState::Absent {
+            observation.interface = TunObservationComponentState::Unknown;
+        }
+    }
     if observation.confirms_disabled_at(tun_observation_now())
         && state.process.is_none()
         && state.pending_network_recovery.is_none()
+        && state.pending_runtime_home_recovery.is_none()
         && state
             .tun
             .as_ref()
@@ -3982,6 +4074,19 @@ async fn reap_if_exited(
         }
         if network_restored && let Some(watchdog) = process.watchdog.as_ref() {
             remove_core_watchdog(watchdog);
+        }
+        let runtime_home_recovery = RuntimeHomeRecovery {
+            owner_uid: process.owner_uid,
+            root: process.config_directory.clone(),
+        };
+        if restore_runtime_home_ownership(
+            &runtime_home_recovery.root,
+            runtime_home_recovery.owner_uid,
+        )
+        .is_err()
+            && state.pending_runtime_home_recovery.is_none()
+        {
+            state.pending_runtime_home_recovery = Some(runtime_home_recovery);
         }
         if let Some(recovery) = pending_network_recovery
             && state.pending_network_recovery.is_none()
@@ -4149,6 +4254,15 @@ async fn restore_pending_network_recovery(
     Ok(())
 }
 
+fn restore_pending_runtime_home_recovery(state: &mut ServiceState) -> Result<(), ()> {
+    let Some(recovery) = state.pending_runtime_home_recovery.as_ref() else {
+        return Ok(());
+    };
+    restore_runtime_home_ownership(&recovery.root, recovery.owner_uid)?;
+    state.pending_runtime_home_recovery = None;
+    Ok(())
+}
+
 async fn stop_process_with_timeouts(
     state: &mut ServiceState,
     network_controller: &dyn TunNetworkController,
@@ -4156,6 +4270,7 @@ async fn stop_process_with_timeouts(
     graceful_timeout: Duration,
     forced_timeout: Duration,
 ) -> Result<(), ()> {
+    restore_pending_runtime_home_recovery(state)?;
     let mut cleanup_failed = false;
     let mut pending_network_recovery = None;
     if let Some(ownership) = state.tun.as_mut()
@@ -4196,6 +4311,18 @@ async fn stop_process_with_timeouts(
     if !cleanup_failed && let Some(watchdog) = process.watchdog.take() {
         remove_core_watchdog(&watchdog);
     }
+    let runtime_home_recovery = RuntimeHomeRecovery {
+        owner_uid: process.owner_uid,
+        root: process.config_directory.clone(),
+    };
+    if restore_runtime_home_ownership(&runtime_home_recovery.root, runtime_home_recovery.owner_uid)
+        .is_err()
+    {
+        cleanup_failed = true;
+        if state.pending_runtime_home_recovery.is_none() {
+            state.pending_runtime_home_recovery = Some(runtime_home_recovery);
+        }
+    }
     if let Some(recovery) = pending_network_recovery
         && state.pending_network_recovery.is_none()
     {
@@ -4207,6 +4334,72 @@ async fn stop_process_with_timeouts(
         Err(_) => return Err(()),
     }
     if cleanup_failed { Err(()) } else { Ok(()) }
+}
+
+/// The pinned privileged Core and the ordinary managed Core intentionally share one persistent
+/// Mihomo home. Files created by the root generation must return to the enrolled desktop user
+/// before the next ordinary generation starts. The Core is already reaped at this boundary, and
+/// every entry is reopened without following links before ownership or mode changes.
+fn restore_runtime_home_ownership(root: &Path, owner_uid: u32) -> Result<(), ()> {
+    let mut entries = 0;
+    restore_runtime_home_entry(root, owner_uid, 0, &mut entries)
+}
+
+fn restore_runtime_home_entry(
+    path: &Path,
+    owner_uid: u32,
+    depth: usize,
+    entries: &mut usize,
+) -> Result<(), ()> {
+    if depth > RUNTIME_HOME_MAX_DEPTH || *entries >= RUNTIME_HOME_MAX_ENTRIES {
+        return Err(());
+    }
+    *entries += 1;
+    let metadata = fs::symlink_metadata(path).map_err(|_| ())?;
+    if metadata.file_type().is_symlink() {
+        return Err(());
+    }
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path).map_err(|_| ())? {
+            let entry = entry.map_err(|_| ())?;
+            restore_runtime_home_entry(&entry.path(), owner_uid, depth + 1, entries)?;
+        }
+        let directory = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+            .open(path)
+            .map_err(|_| ())?;
+        if !directory.metadata().map_err(|_| ())?.is_dir() {
+            return Err(());
+        }
+        // SAFETY: the descriptor is an O_NOFOLLOW directory opened above; owner_uid is the
+        // enrolled desktop UID and -1 preserves the validated group.
+        if unsafe { libc::fchown(directory.as_raw_fd(), owner_uid, libc::gid_t::MAX) } != 0
+            || unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0
+        {
+            return Err(());
+        }
+        return Ok(());
+    }
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return Err(());
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| ())?;
+    let opened = file.metadata().map_err(|_| ())?;
+    if !opened.is_file() || opened.nlink() != 1 {
+        return Err(());
+    }
+    // SAFETY: the descriptor is an O_NOFOLLOW single-link regular file opened above.
+    if unsafe { libc::fchown(file.as_raw_fd(), owner_uid, libc::gid_t::MAX) } != 0
+        || unsafe { libc::fchmod(file.as_raw_fd(), 0o600) } != 0
+    {
+        return Err(());
+    }
+    Ok(())
 }
 
 async fn restore_managed_dns_with_retry(
@@ -4254,6 +4447,41 @@ fn validate_runtime_root(path: &Path, allowed_uid: u32) -> Result<PathBuf, &'sta
         return Err("runtime root metadata is unsafe");
     }
     path.canonicalize().map_err(|_| "runtime root is invalid")
+}
+
+/// A restarted Helper has no trustworthy record of the last caller-provided candidate home.
+/// Recovery is therefore limited to the one persistent managed home beneath the already
+/// validated runtime root. Candidate homes remain request-scoped and must pass normal launch-path
+/// validation again; this function never scans or repairs them.
+fn canonical_runtime_home_recovery(
+    runtime_root: &Path,
+    allowed_uid: u32,
+) -> Result<Option<RuntimeHomeRecovery>, &'static str> {
+    let mihomo_path = runtime_root.join("mihomo");
+    match fs::symlink_metadata(&mihomo_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("managed runtime parent is unavailable"),
+    }
+    let mihomo = validate_owned_private_path(&mihomo_path, allowed_uid, true)
+        .map_err(|_| "managed runtime parent is unsafe")?;
+    if mihomo.parent() != Some(runtime_root)
+        || mihomo.file_name().and_then(|name| name.to_str()) != Some("mihomo")
+    {
+        return Err("managed runtime parent is invalid");
+    }
+    let root = mihomo.join("home");
+    match fs::symlink_metadata(&root) {
+        Ok(metadata) if metadata.is_dir() || metadata.file_type().is_symlink() => {
+            Ok(Some(RuntimeHomeRecovery {
+                owner_uid: allowed_uid,
+                root,
+            }))
+        }
+        Ok(_) => Err("managed runtime home is unsafe"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("managed runtime home is unavailable"),
+    }
 }
 
 fn validate_launch_paths(
@@ -4709,6 +4937,53 @@ mod tests {
         }
     }
 
+    struct AppliedNetworkController {
+        applied: Arc<AtomicBool>,
+    }
+
+    impl TunNetworkController for AppliedNetworkController {
+        fn snapshot<'a>(
+            &'a self,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipSnapshot, ()>> {
+            Box::pin(async { Ok(network_ownership::test_network_snapshot()) })
+        }
+
+        fn apply<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+        ) -> BoxFuture<'a, Result<(), network_ownership::NetworkControllerApplyFailure>> {
+            self.applied.store(true, Ordering::SeqCst);
+            Box::pin(async { Ok(()) })
+        }
+
+        fn restore<'a>(&'a self, _state: &'a ManagedDnsState) -> BoxFuture<'a, Result<(), ()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn observe<'a>(
+            &'a self,
+            _snapshot: &'a NetworkOwnershipSnapshot,
+            _system: &'a TunSystemSnapshot,
+            _dns_applied: bool,
+        ) -> BoxFuture<'a, Result<NetworkOwnershipObservation, ()>> {
+            Box::pin(async {
+                Ok(NetworkOwnershipObservation {
+                    dns: TunObservationComponentState::Confirmed,
+                    routes: TunObservationComponentState::Confirmed,
+                })
+            })
+        }
+
+        fn observe_recovery<'a>(
+            &'a self,
+            _state: &'a ManagedDnsState,
+        ) -> BoxFuture<'a, Result<TunObservationComponentState, ()>> {
+            Box::pin(async { Ok(TunObservationComponentState::Confirmed) })
+        }
+    }
+
     struct ColdBootRecoveryController {
         restored: Arc<AtomicBool>,
     }
@@ -4791,6 +5066,82 @@ mod tests {
         assert_eq!(network_recovery.load(), Ok(None));
     }
 
+    #[tokio::test]
+    async fn helper_restart_retains_canonical_home_recovery_until_obstruction_is_removed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let binary = write_fixture_binary(temporary.path());
+        let runtime_root = temporary.path().join("runtime");
+        let mihomo = runtime_root.join("mihomo");
+        let home = mihomo.join("home");
+        let configs = mihomo.join("configs");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&configs).unwrap();
+        for directory in [&runtime_root, &mihomo, &home, &configs] {
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let cache = home.join("cache.db");
+        let obstruction = home.join("rejected-link");
+        fs::write(&cache, b"cache").unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o644)).unwrap();
+        std::os::unix::fs::symlink(&cache, &obstruction).unwrap();
+        let socket_path = temporary.path().join("helper.sock");
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let uid = unsafe { libc::getuid() };
+        let installation_id = "c".repeat(64);
+        let (enrollment_record, client_keys, _) =
+            write_fixture_installation_keys(temporary.path(), &runtime_root, uid, &installation_id);
+        let pinned_binary_sha256 = format!("{:x}", Sha256::digest(fs::read(&binary).unwrap()));
+        let server = tokio::spawn(run_tun_service(TunServiceConfig {
+            allowed_binary: binary,
+            allowed_uid: uid,
+            allow_tun: true,
+            enrollment_record,
+            installation_id,
+            pinned_binary_sha256,
+            pinned_version: "v1.19.29".into(),
+            require_root: false,
+            runtime_root,
+            socket_path: socket_path.clone(),
+            spawn_watchdog: false,
+            network_controller: Arc::new(MacOsTunNetworkController::new()),
+            observer: Arc::new(SequenceObserver::new(
+                vec![baseline_snapshot(), baseline_snapshot()],
+                Ok(Vec::new()),
+            )),
+        }));
+        for _ in 0..100 {
+            if socket_path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let client = MacOsTunServiceClient::new_with_installation_keys(socket_path, client_keys);
+
+        let blocked = client.core_host_status().await.unwrap();
+        assert!(
+            !blocked
+                .observation
+                .confirms_disabled_at(tun_observation_now())
+        );
+        assert!(obstruction.exists());
+
+        fs::remove_file(obstruction).unwrap();
+        let recovered = client.core_host_status().await.unwrap();
+        assert!(
+            recovered
+                .observation
+                .confirms_disabled_at(tun_observation_now()),
+            "{:?}",
+            recovered.observation
+        );
+        assert_eq!(
+            fs::metadata(cache).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        server.abort();
+    }
+
     #[test]
     fn foreign_network_evidence_is_not_collapsed_into_a_core_start_failure() {
         let response = ServiceResponse {
@@ -4835,14 +5186,17 @@ mod tests {
     }
 
     #[test]
-    fn internal_tun_alpha_launches_only_the_installed_fixed_core() {
+    fn lifecycle_managed_helpers_launch_only_the_installed_fixed_core() {
         let requested =
             Path::new("/Applications/Mish.app/Contents/Resources/mihomo-aarch64-apple-darwin");
         let internal = MacOsTunServiceClient::internal_tun_alpha(
             PathBuf::from("/Volumes/Mish TUN Alpha"),
             "0.1.0-internal-tun-alpha.6",
         );
-        let development = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
+        let development = MacOsTunServiceClient::development_with_tun_lifecycle(PathBuf::from(
+            "/Users/fixture/mish",
+        ));
+        let raw_protocol_client = MacOsTunServiceClient::new(PathBuf::from("/tmp/helper.sock"));
 
         assert_eq!(
             internal.privileged_core_launch_binary(requested),
@@ -4850,6 +5204,10 @@ mod tests {
         );
         assert_eq!(
             development.privileged_core_launch_binary(requested),
+            PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)
+        );
+        assert_eq!(
+            raw_protocol_client.privileged_core_launch_binary(requested),
             requested
         );
     }
@@ -4882,6 +5240,34 @@ mod tests {
         assert!(
             validate_launch_paths(&binary, &home, &config, &binary, &runtime_root, uid, false,)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn restart_recovery_never_scans_request_scoped_candidate_homes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        let candidates = runtime_root.join("candidates");
+        let candidate = candidates.join("11111111-1111-4111-8111-111111111111");
+        let candidate_home = candidate.join("home");
+        fs::create_dir_all(&candidate_home).unwrap();
+        for directory in [&runtime_root, &candidates, &candidate, &candidate_home] {
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let candidate_cache = candidate_home.join("cache.db");
+        fs::write(&candidate_cache, b"cache").unwrap();
+        fs::set_permissions(&candidate_cache, fs::Permissions::from_mode(0o644)).unwrap();
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let uid = unsafe { libc::getuid() };
+        let runtime_root = runtime_root.canonicalize().unwrap();
+
+        assert_eq!(
+            canonical_runtime_home_recovery(&runtime_root, uid).unwrap(),
+            None
+        );
+        assert_eq!(
+            fs::metadata(candidate_cache).unwrap().permissions().mode() & 0o777,
+            0o644
         );
     }
 
@@ -4943,6 +5329,7 @@ mod tests {
     fn tracked_state() -> ServiceState {
         ServiceState {
             pending_network_recovery: None,
+            pending_runtime_home_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
@@ -5210,6 +5597,7 @@ mod tests {
 
         let mut foreign_state = ServiceState {
             pending_network_recovery: None,
+            pending_runtime_home_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
@@ -5285,6 +5673,7 @@ mod tests {
     async fn invalid_restart_recovery_state_never_reports_disabled() {
         let state = Mutex::new(ServiceState {
             pending_network_recovery: Some(Err(())),
+            pending_runtime_home_recovery: None,
             process: None,
             tun: None,
         });
@@ -5320,6 +5709,7 @@ mod tests {
     fn sole_foreign_utun_racing_launch_is_never_claimed() {
         let mut state = ServiceState {
             pending_network_recovery: None,
+            pending_runtime_home_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
@@ -6149,11 +6539,19 @@ mod tests {
         let pid = child.id().unwrap();
         let sealed_config = root.join("sealed-config.yaml");
         fs::write(&sealed_config, "tun:\n  enable: false\n").unwrap();
+        let config_directory = root.join("home");
+        fs::create_dir(&config_directory).unwrap();
+        fs::set_permissions(&config_directory, fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let owner_uid = unsafe { libc::getuid() };
         ServiceState {
             pending_network_recovery: None,
+            pending_runtime_home_recovery: None,
             process: Some(ServiceProcess {
                 child,
+                config_directory,
                 launch_token: uuid::Uuid::new_v4().to_string(),
+                owner_uid,
                 owner_pid: std::process::id(),
                 pid,
                 sealed_config,
@@ -6167,6 +6565,299 @@ mod tests {
         // SAFETY: getuid has no preconditions and only returns the real user ID.
         let owner_uid = unsafe { libc::getuid() };
         NetworkRecoveryJournal::for_enrollment(&root.join("enrollment.json"), owner_uid).unwrap()
+    }
+
+    #[test]
+    fn runtime_home_ownership_repair_is_recursive_private_and_link_closed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("home");
+        let providers = home.join("providers");
+        fs::create_dir_all(&providers).unwrap();
+        let cache = home.join("cache.db");
+        let provider = providers.join("fixture.yaml");
+        fs::write(&cache, b"cache").unwrap();
+        fs::write(&provider, b"provider").unwrap();
+        fs::set_permissions(&home, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&providers, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&provider, fs::Permissions::from_mode(0o644)).unwrap();
+        let owner_uid = unsafe { libc::getuid() };
+
+        restore_runtime_home_ownership(&home, owner_uid).unwrap();
+
+        assert_eq!(
+            fs::metadata(&home).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&providers).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&cache).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&provider).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        let link = home.join("rejected-link");
+        std::os::unix::fs::symlink(&cache, &link).unwrap();
+        assert!(restore_runtime_home_ownership(&home, owner_uid).is_err());
+    }
+
+    #[tokio::test]
+    async fn stop_retries_pending_runtime_home_recovery_after_obstruction_is_removed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut state = child_service_state(
+            temporary.path(),
+            "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.2; done",
+        );
+        let home = state
+            .process
+            .as_ref()
+            .expect("fixture process")
+            .config_directory
+            .clone();
+        let owner_uid = state.process.as_ref().expect("fixture process").owner_uid;
+        let regular = home.join("cache.db");
+        let obstruction = home.join("rejected-link");
+        fs::write(&regular, b"cache").unwrap();
+        std::os::unix::fs::symlink(&regular, &obstruction).unwrap();
+        let recovery = test_network_recovery(temporary.path());
+
+        assert!(
+            stop_process(&mut state, &MacOsTunNetworkController::new(), &recovery)
+                .await
+                .is_err()
+        );
+        assert!(state.process.is_none());
+        assert_eq!(
+            state.pending_runtime_home_recovery,
+            Some(RuntimeHomeRecovery {
+                owner_uid,
+                root: home.clone(),
+            })
+        );
+
+        fs::remove_file(obstruction).unwrap();
+        stop_process(&mut state, &MacOsTunNetworkController::new(), &recovery)
+            .await
+            .unwrap();
+
+        assert!(state.pending_runtime_home_recovery.is_none());
+        assert_eq!(
+            fs::metadata(home).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(regular).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[tokio::test]
+    async fn status_retries_runtime_home_recovery_retained_by_reap() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut state = child_service_state(temporary.path(), "exit 0");
+        let home = state
+            .process
+            .as_ref()
+            .expect("fixture process")
+            .config_directory
+            .clone();
+        let regular = home.join("cache.db");
+        let obstruction = home.join("rejected-link");
+        fs::write(&regular, b"cache").unwrap();
+        std::os::unix::fs::symlink(&regular, &obstruction).unwrap();
+        state
+            .process
+            .as_mut()
+            .expect("fixture process")
+            .child
+            .wait()
+            .await
+            .unwrap();
+        let recovery = test_network_recovery(temporary.path());
+
+        reap_if_exited(&mut state, &MacOsTunNetworkController::new(), &recovery).await;
+        assert!(state.process.is_none());
+        assert!(state.pending_runtime_home_recovery.is_some());
+
+        let state = Mutex::new(state);
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![baseline_snapshot(), baseline_snapshot()],
+            Ok(Vec::new()),
+        ));
+        let controller: Arc<dyn TunNetworkController> = Arc::new(MacOsTunNetworkController::new());
+        let blocked = status_response(&state, "fixture", &observer, &controller, &recovery).await;
+        assert!(
+            !blocked
+                .status
+                .observation
+                .confirms_disabled_at(tun_observation_now())
+        );
+        assert!(state.lock().await.pending_runtime_home_recovery.is_some());
+
+        fs::remove_file(obstruction).unwrap();
+        let response = status_response(&state, "fixture", &observer, &controller, &recovery).await;
+
+        assert!(
+            response
+                .status
+                .observation
+                .confirms_disabled_at(tun_observation_now()),
+            "{:?}",
+            response.status.observation
+        );
+        assert!(state.lock().await.pending_runtime_home_recovery.is_none());
+        assert_eq!(
+            fs::metadata(regular).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[tokio::test]
+    async fn enable_waits_for_owned_tun_before_applying_managed_network() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let mut service_state = child_service_state(
+            temporary.path(),
+            "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.2; done",
+        );
+        service_state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: vec!["utun0".into()],
+            dns_applied: false,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        let mut managed = healthy_snapshot();
+        managed.dns_resolvers[0].nameservers = vec!["198.18.0.1".parse().unwrap()];
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![baseline_snapshot(), healthy_snapshot(), managed],
+            Ok(vec!["utun1".into()]),
+        ));
+        let applied = Arc::new(AtomicBool::new(false));
+        let network_controller: Arc<dyn TunNetworkController> =
+            Arc::new(AppliedNetworkController {
+                applied: applied.clone(),
+            });
+        let network_recovery = test_network_recovery(temporary.path());
+        let state = Arc::new(Mutex::new(service_state));
+        let context = ServiceOperationContext {
+            allowed_binary: temporary.path().join("mihomo"),
+            allowed_uid: unsafe { libc::getuid() },
+            allow_tun: true,
+            installation_id: Arc::from("fixture"),
+            manage_network: true,
+            network_controller: network_controller.clone(),
+            network_recovery: network_recovery.clone(),
+            observer,
+            pinned_binary_sha256: String::new(),
+            pinned_version: "v1.19.29".into(),
+            runtime_root: temporary.path().join("runtime"),
+            sealed_root: temporary.path().join("sealed"),
+            spawn_watchdog: false,
+            state: state.clone(),
+        };
+
+        let response = execute_request_effect(
+            ServiceCommand::Enable,
+            std::process::id(),
+            &uuid::Uuid::new_v4().to_string(),
+            &context,
+        )
+        .await;
+        let mut service_state = state.lock().await;
+        stop_process(
+            &mut service_state,
+            network_controller.as_ref(),
+            &network_recovery,
+        )
+        .await
+        .unwrap();
+
+        assert!(response.ok, "{response:?}");
+        assert!(
+            response
+                .status
+                .observation
+                .confirms_enabled_at(tun_observation_now()),
+            "{:?}",
+            response.status.observation
+        );
+        assert!(applied.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enable_never_applies_managed_network_for_persistent_foreign_tun() {
+        let temporary = tempfile::tempdir().unwrap();
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let mut service_state = child_service_state(
+            temporary.path(),
+            "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.2; done",
+        );
+        service_state.tun = Some(ServiceTunOwnership {
+            baseline_interfaces: vec!["utun0".into()],
+            dns_applied: false,
+            interface: None,
+            network: Some(network_ownership::test_network_snapshot()),
+            routes: None,
+        });
+        let observer: Arc<dyn TunSystemObserver> = Arc::new(SequenceObserver::new(
+            vec![healthy_snapshot()],
+            Ok(Vec::new()),
+        ));
+        let applied = Arc::new(AtomicBool::new(false));
+        let network_controller: Arc<dyn TunNetworkController> =
+            Arc::new(AppliedNetworkController {
+                applied: applied.clone(),
+            });
+        let network_recovery = test_network_recovery(temporary.path());
+        let state = Arc::new(Mutex::new(service_state));
+        let context = ServiceOperationContext {
+            allowed_binary: temporary.path().join("mihomo"),
+            allowed_uid: unsafe { libc::getuid() },
+            allow_tun: true,
+            installation_id: Arc::from("fixture"),
+            manage_network: true,
+            network_controller: network_controller.clone(),
+            network_recovery: network_recovery.clone(),
+            observer,
+            pinned_binary_sha256: String::new(),
+            pinned_version: "v1.19.29".into(),
+            runtime_root: temporary.path().join("runtime"),
+            sealed_root: temporary.path().join("sealed"),
+            spawn_watchdog: false,
+            state: state.clone(),
+        };
+
+        let response = execute_request_effect(
+            ServiceCommand::Enable,
+            std::process::id(),
+            &uuid::Uuid::new_v4().to_string(),
+            &context,
+        )
+        .await;
+        let mut service_state = state.lock().await;
+        // This test uses Tokio's paused clock to exercise the full confirmation timeout.
+        // Reap its real fixture process directly so the mocked timeout cannot outrun SIGTERM.
+        let mut process = service_state.process.take().expect("fixture process");
+        process.child.start_kill().unwrap();
+        process.child.wait().await.unwrap();
+
+        assert!(!response.ok);
+        assert_eq!(
+            response.diagnostic,
+            Some(ServiceDiagnosticCode::SpawnFailed)
+        );
+        assert_eq!(
+            response.status.observation.interface,
+            TunObservationComponentState::Foreign
+        );
+        assert!(!applied.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -6308,6 +6999,7 @@ mod tests {
         let recovery = network.dns.clone();
         let state = Mutex::new(ServiceState {
             pending_network_recovery: Some(Ok(recovery)),
+            pending_runtime_home_recovery: None,
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],

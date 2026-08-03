@@ -14,7 +14,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
+use mish_runtime::{
+    CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LocalProxyOwnership,
+};
 use serde::Serialize;
 use thiserror::Error;
 use uuid::Uuid;
@@ -962,25 +964,39 @@ impl CoreRuntime for DesktopMihomoProcess {
         DesktopMihomoProcess::configured(self)
     }
 
-    fn owns_local_proxy(
+    fn local_proxy_ownership(
         &self,
         endpoint: &mish_runtime::LoopbackProxyEndpoint,
-    ) -> BoxFuture<'_, bool> {
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
         let endpoint = endpoint.clone();
         Box::pin(async move {
             let inner = self.inner.lock().await;
-            if let (Some(host), Some(process)) =
-                (&self.privileged_host, inner.privileged_process.clone())
-            {
+            if let Some(host) = &self.privileged_host {
+                let Some(process) = inner.privileged_process.clone() else {
+                    return LocalProxyOwnership::Unowned;
+                };
                 drop(inner);
-                return host.owns_listener(process, endpoint).await.unwrap_or(false);
+                return match host.owns_listener(process, endpoint).await {
+                    Ok(true) => LocalProxyOwnership::Owned,
+                    Ok(false) => LocalProxyOwnership::Unowned,
+                    Err(_) => LocalProxyOwnership::Unknown,
+                };
             }
             match (&self.ownership, inner.owned_process.as_ref()) {
                 (Some(ownership), Some(process)) => {
-                    ownership.process_owns_listener(process, &endpoint)
+                    ownership.process_listener_ownership(process, &endpoint)
                 }
-                (Some(_), None) => false,
-                (None, _) => true,
+                (Some(_), None)
+                    if matches!(inner.status.phase, CorePhase::Running | CorePhase::Starting) =>
+                {
+                    // A live status without its retained ownership handle is incomplete evidence,
+                    // not proof that a listener belongs to another process. Candidate readiness
+                    // still requires positive ownership, while an active generation can be
+                    // retired and rechecked at the serialized handoff barrier.
+                    LocalProxyOwnership::Unknown
+                }
+                (Some(_), None) => LocalProxyOwnership::Unowned,
+                (None, _) => LocalProxyOwnership::Owned,
             }
         })
     }
@@ -1014,6 +1030,7 @@ impl CoreRuntime for DesktopMihomoProcess {
 #[cfg(test)]
 mod validation_output_tests {
     use super::*;
+    use crate::{ManagedRuntimeLease, RealManagedProcessPlatform};
     use std::sync::{
         Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
@@ -1116,10 +1133,55 @@ mod validation_output_tests {
         let observed = process.status().await;
         assert!(matches!(observed.phase, CorePhase::Running));
         assert_eq!(observed.pid, Some(42));
+        assert_eq!(
+            process
+                .local_proxy_ownership(&mish_runtime::LoopbackProxyEndpoint::managed())
+                .await,
+            LocalProxyOwnership::Unknown
+        );
 
         let stopped = process.stop().await.unwrap();
         assert!(matches!(stopped.phase, CorePhase::Stopped));
         assert_eq!(host.stops.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn running_managed_status_without_a_retained_handle_is_unknown() {
+        let root = tempfile::tempdir().unwrap();
+        let lease = ManagedRuntimeLease::acquire(root.path()).unwrap();
+        let ownership = Arc::new(
+            ManagedCoreOwnership::new(
+                root.path().to_path_buf(),
+                Arc::new(RealManagedProcessPlatform),
+                lease,
+            )
+            .unwrap(),
+        );
+        let process = DesktopMihomoProcess::new_pinned_owned(
+            DesktopMihomoProcessConfig {
+                binary: Some(PathBuf::from("/fixture/mihomo")),
+                config_directory: Some(PathBuf::from("/fixture/home")),
+                config_file: Some(PathBuf::from("/fixture/config.yaml")),
+            },
+            "v1.19.29",
+            ownership,
+        );
+        {
+            let mut inner = process.inner.lock().await;
+            inner.status = CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(42),
+                version: Some("v1.19.29".into()),
+            };
+        }
+
+        assert_eq!(
+            process
+                .local_proxy_ownership(&mish_runtime::LoopbackProxyEndpoint::managed())
+                .await,
+            LocalProxyOwnership::Unknown
+        );
     }
 
     #[tokio::test]

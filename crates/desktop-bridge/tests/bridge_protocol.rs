@@ -23,14 +23,14 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
-    MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
-    RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource,
-    StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase,
-    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunHelperAvailability,
-    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
-    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
-    TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
+    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LocalProxyOwnership,
+    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState, NotificationPublication,
+    NotificationSeverity, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusDataSource, StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection,
+    TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
+    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -97,8 +97,11 @@ impl CoreRuntime for RunningCore {
         true
     }
 
-    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
-        Box::pin(ready(true))
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
+        Box::pin(ready(LocalProxyOwnership::Owned))
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
@@ -575,6 +578,60 @@ impl TunHelperPlatform for FailingRepairTunHelperPlatform {
 
     fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
         Box::pin(async { Ok(()) })
+    }
+}
+
+struct RepairedHelperWithFailingTunResume {
+    repaired: Mutex<bool>,
+}
+
+impl TunHelperPlatform for RepairedHelperWithFailingTunResume {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot::unavailable(
+            TunHelperAvailability::RepairRequired,
+            TunHelperHealth::VersionMismatch,
+            TunHelperFailureKind::VersionMismatch,
+        )
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        let repaired = *self.repaired.lock().unwrap();
+        Box::pin(async move {
+            Ok(if repaired {
+                TunHelperObservation::healthy_installation(
+                    TUN_HELPER_EXPECTED_VERSION,
+                    "repaired-test-installation",
+                )
+            } else {
+                TunHelperObservation::healthy("3")
+            })
+        })
+    }
+
+    fn run_lifecycle(
+        &self,
+        operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        assert_eq!(operation, TunHelperLifecycleOperation::Repair);
+        *self.repaired.lock().unwrap() = true;
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunNetworkObservation::disabled(tun_observation_now())) })
+    }
+
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async move {
+            if enabled {
+                Err(TunHelperError::new(
+                    TunHelperFailureKind::ObservationPartial,
+                    "Synthetic post-repair TUN convergence failure",
+                ))
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 
@@ -2639,6 +2696,50 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
 }
 
 #[tokio::test]
+async fn native_healthy_helper_reinstall_reconciles_capture_after_success() {
+    let platform = Arc::new(HealthyTunHelperPlatform::default());
+    let helper = Arc::new(TunHelperController::new(platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, capture_runtime_with_helper(helper))
+        .await
+        .unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let enabled = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":1, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":false,"tun":true}}
+        }),
+    )
+    .await;
+    assert!(enabled.get("error").is_none(), "{enabled}");
+
+    let installed = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.installTunHelper", "params":{}}),
+    )
+    .await;
+    assert!(installed.get("error").is_none(), "{installed}");
+
+    let after = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":false,"tun":false})
+    );
+    assert_eq!(after["result"]["runtime"]["tunEnabled"], false);
+    assert!(!*platform.enabled.lock().unwrap());
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn native_helper_setup_resume_merges_the_latest_capture_selection() {
     let lifecycle_release = Arc::new(Notify::new());
     let lifecycle_started = Arc::new(Notify::new());
@@ -2736,9 +2837,24 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(repair["error"]["code"], -32055);
     assert_eq!(repair["error"]["data"]["kind"], "authorization-cancelled");
 
+    let settings = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        settings["result"]["tunHelper"]["availability"],
+        "repair-required"
+    );
+    assert_eq!(settings["result"]["tunHelper"]["phase"], "failed");
+    assert_eq!(
+        settings["result"]["tunHelper"]["lastFailure"],
+        "authorization-cancelled"
+    );
+
     let after = request(
         &mut native,
-        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
@@ -2749,7 +2865,7 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
 
     let notifications = request(
         &mut native,
-        json!({"jsonrpc":"2.0", "id":4, "method":"notifications.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":5, "method":"notifications.getSnapshot", "params":{}}),
     )
     .await;
     let lifecycle = notifications["result"]["notifications"]
@@ -2766,6 +2882,108 @@ async fn failed_native_helper_repair_leaves_the_existing_capture_intent_unchange
     assert_eq!(
         lifecycle[0]["presentation"]["data"]["failure"],
         "authorization-cancelled"
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
+    let platform = Arc::new(RepairedHelperWithFailingTunResume {
+        repaired: Mutex::new(false),
+    });
+    let helper = Arc::new(TunHelperController::new(platform));
+    let runtime = capture_runtime_with_helper(helper.clone());
+    runtime.record_capture_failure(&CaptureTransitionError::new(
+        mish_runtime::CaptureFailureKind::ConfirmationFailed,
+        "Synthetic earlier capture confirmation failure",
+    ));
+    let earlier_identity = mish_runtime::NotificationPresentationIdentity {
+        client_id: "desktop-webview".into(),
+        session_id: "earlier-session".into(),
+    };
+    let earlier_claim = runtime
+        .claim_next_notification_presentation(earlier_identity.clone())
+        .claim
+        .expect("earlier capture failure is presentable");
+    let earlier_id = earlier_claim.id.clone();
+    assert!(
+        runtime
+            .complete_notification_presentation(mish_runtime::NotificationPresentationCompletion {
+                client_id: earlier_identity.client_id,
+                id: earlier_claim.id,
+                lease_generation: earlier_claim.lease_generation,
+                outcome: mish_runtime::NotificationPresentationFoldReason::Dismissed,
+                revision: earlier_claim.revision,
+                session_id: earlier_identity.session_id,
+            },)
+            .accepted
+    );
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service_with_tun(Some(helper.clone())));
+    let bridge = start_loopback_server(bridge_config, runtime).await.unwrap();
+
+    let mut native = socket(bridge.address).await;
+    authenticate(&mut native).await;
+    let repair = request(
+        &mut native,
+        json!({
+            "jsonrpc":"2.0", "id":1, "method":"settings.repairTunHelper",
+            "params":{"resumeCapture":true}
+        }),
+    )
+    .await;
+    assert!(repair.get("error").is_none(), "{repair}");
+    assert_eq!(repair["result"]["tunHelper"]["availability"], "available");
+    assert_eq!(repair["result"]["tunHelper"]["health"], "healthy");
+    assert_eq!(repair["result"]["tunHelper"]["phase"], "idle");
+    assert!(repair["result"]["tunHelper"]["lastFailure"].is_null());
+    assert_eq!(
+        repair["result"]["preferences"]["captureSelection"],
+        json!({"systemProxy":false,"tun":true})
+    );
+
+    let after = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy":false,"tun":false})
+    );
+    assert_eq!(after["result"]["runtime"]["tunEnabled"], false);
+
+    let notifications = request(
+        &mut native,
+        json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let records = notifications["result"]["notifications"].as_array().unwrap();
+    assert_eq!(records.len(), 2, "{notifications}");
+    assert!(
+        records
+            .iter()
+            .all(|record| record["presentation"]["kind"] != "profile.activation-failed")
+    );
+    let lifecycle = records
+        .iter()
+        .filter(|record| record["presentation"]["kind"] == "tun-helper.lifecycle")
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle.len(), 1);
+    assert_eq!(lifecycle[0]["presentation"]["data"]["outcome"], "applied");
+    assert!(lifecycle[0]["presentation"]["data"]["failure"].is_null());
+    let capture = records
+        .iter()
+        .filter(|record| record["presentation"]["kind"] == "capture.failure")
+        .collect::<Vec<_>>();
+    assert_eq!(capture.len(), 1);
+    assert_eq!(capture[0]["id"], earlier_id);
+    assert_eq!(capture[0]["presentationState"]["phase"], "folded");
+    assert_eq!(capture[0]["presentation"]["data"]["captureMode"], "tun");
+    assert_eq!(
+        capture[0]["presentation"]["data"]["failure"],
+        "confirmation-failed"
     );
 
     bridge.shutdown().await;

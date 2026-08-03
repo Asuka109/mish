@@ -22,13 +22,13 @@ use futures_util::{
     future::{BoxFuture, ready},
 };
 use mish_bridge::{
-    ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
-    DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedCoreOwnership, ManagedMihomoResolver,
-    ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager,
-    MihomoResolveError, PrivilegedCoreHost, PrivilegedCoreHostError, PrivilegedCoreLaunchRequest,
-    PrivilegedCoreProcess, ProfileActivationCoordinator, ProfileActivationEvidenceKind,
-    ProfileActivationFailure, ProfileActivationPhase, RealManagedProcessPlatform,
-    ReqwestHttpsSourceReader, RuntimeConfigGenerator,
+    ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopLifecycleCoordinator,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedCoreOwnership,
+    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationError,
+    MihomoActivationManager, MihomoResolveError, PrivilegedCoreHost, PrivilegedCoreHostError,
+    PrivilegedCoreLaunchRequest, PrivilegedCoreProcess, ProfileActivationCoordinator,
+    ProfileActivationEvidenceKind, ProfileActivationFailure, ProfileActivationPhase,
+    RealManagedProcessPlatform, ReqwestHttpsSourceReader, RuntimeConfigGenerator,
 };
 use mish_profile::{
     FileProfileRepository, Fingerprint, HttpsSourceReader, ImmutableRevision,
@@ -43,7 +43,9 @@ use mish_runtime::{
     CaptureAuditReason, CaptureFailureKind, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
     CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState, RoutingMode, StatusAdapterKind, SystemProxyPhase,
+    NetworkServiceProxyState, NotificationPresentationCompletion,
+    NotificationPresentationFoldReason, NotificationPresentationIdentity,
+    NotificationPresentationPhase, RoutingMode, StatusAdapterKind, SystemProxyPhase,
     TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
     TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
@@ -66,6 +68,8 @@ const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 #[derive(Default)]
 struct InstallableTunPlatform {
     enabled: Mutex<bool>,
+    fail_enable: AtomicBool,
+    fail_observation: AtomicBool,
     installed: AtomicBool,
 }
 
@@ -530,6 +534,14 @@ impl TunHelperPlatform for InstallableTunPlatform {
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        if self.fail_observation.load(Ordering::Relaxed) {
+            return Box::pin(async {
+                Err(TunHelperError::new(
+                    mish_runtime::TunHelperFailureKind::ObservationPartial,
+                    "Synthetic partial TUN observation",
+                ))
+            });
+        }
         let enabled = *self.enabled.lock().unwrap();
         Box::pin(async move {
             Ok(if enabled {
@@ -541,8 +553,18 @@ impl TunHelperPlatform for InstallableTunPlatform {
     }
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
-        *self.enabled.lock().unwrap() = enabled;
-        Box::pin(async { Ok(()) })
+        if enabled && self.fail_enable.load(Ordering::Relaxed) {
+            return Box::pin(async {
+                Err(TunHelperError::new(
+                    mish_runtime::TunHelperFailureKind::ObservationPartial,
+                    "Synthetic TUN convergence failure",
+                ))
+            });
+        }
+        Box::pin(async move {
+            *self.enabled.lock().unwrap() = enabled;
+            Ok(())
+        })
     }
 }
 
@@ -844,7 +866,7 @@ async fn cold_tun_launch_reports_helper_setup_before_a_listener_conflict() {
 }
 
 #[tokio::test]
-async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun() {
+async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_cancellation() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
@@ -853,9 +875,360 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
     let controller = FakeController::start("v1.19.29").await;
-    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
-        InstallableTunPlatform::default(),
-    )));
+    let tun_platform = Arc::new(InstallableTunPlatform::default());
+    let tun_helper = Arc::new(TunHelperController::new(tun_platform.clone()));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        Arc::new(MemoryCapturePlatform::default()),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(tun_helper.clone()),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture.clone(),
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let policy_helper = tun_helper.clone();
+    let durable_tun_intent = Arc::new(AtomicBool::new(false));
+    let policy_tun_intent = durable_tun_intent.clone();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            ManagedRuntimePolicy::new(address, "dual-capture-secret")?.with_tun_enabled(
+                &policy_helper.snapshot(),
+                policy_tun_intent.load(Ordering::Relaxed),
+            )
+        },
+    ));
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_activation(&coordinator, &mut updates).await.phase,
+        ProfileActivationPhase::Success
+    );
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    let system_proxy_core = host.current();
+    tun_helper.install().await.unwrap();
+    durable_tun_intent.store(true, Ordering::Relaxed);
+
+    let tun = coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    assert!(!system_proxy_core.is_same_instance(&host.current()));
+    assert_eq!(tun["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(tun["runtime"]["tun"]["phase"], "applied");
+    assert_eq!(tun["runtime"]["captureSelection"]["systemProxy"], false);
+    assert_eq!(tun["runtime"]["captureSelection"]["tun"], true);
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+    assert_eq!(config["find-process-mode"].as_str(), Some("always"));
+
+    let exited_tun_core = host.current();
+    exited_tun_core.stop_core().await.unwrap();
+    let restarted_tun = coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !exited_tun_core.is_same_instance(&host.current()),
+        "a stopped Core must not satisfy an otherwise matching TUN backend"
+    );
+    assert_eq!(restarted_tun["runtime"]["tun"]["phase"], "applied");
+
+    tun_platform.fail_observation.store(true, Ordering::Relaxed);
+    assert_eq!(
+        host.current()
+            .audit_capture(CaptureAuditReason::Periodic)
+            .await
+            .unwrap_err()
+            .kind,
+        CaptureFailureKind::ConfirmationFailed
+    );
+    let degraded = host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert!(!degraded.runtime.tun_enabled);
+    assert_eq!(degraded.runtime.tun.phase, mish_runtime::TunPhase::Drift);
+    let notification_owner = NotificationPresentationIdentity {
+        client_id: "desktop-webview".into(),
+        session_id: "degraded-tun".into(),
+    };
+    let first_drift = host
+        .current()
+        .claim_next_notification_presentation(notification_owner.clone())
+        .claim
+        .expect("the first degraded TUN observation is presentable");
+    assert!(
+        host.current()
+            .complete_notification_presentation(NotificationPresentationCompletion {
+                client_id: notification_owner.client_id.clone(),
+                id: first_drift.id.clone(),
+                lease_generation: first_drift.lease_generation,
+                outcome: NotificationPresentationFoldReason::TimedOut,
+                revision: first_drift.revision,
+                session_id: notification_owner.session_id,
+            })
+            .accepted
+    );
+
+    assert_eq!(
+        host.current()
+            .audit_capture(CaptureAuditReason::Periodic)
+            .await
+            .unwrap_err()
+            .kind,
+        CaptureFailureKind::ConfirmationFailed
+    );
+    let repeated_drift = host.current().notification_snapshot();
+    let capture_failures = repeated_drift
+        .notifications
+        .iter()
+        .filter(|record| record.presentation.kind() == "capture.failure")
+        .collect::<Vec<_>>();
+    assert_eq!(capture_failures.len(), 1);
+    assert_eq!(capture_failures[0].id, first_drift.id);
+    assert_eq!(
+        capture_failures[0].presentation_state.phase,
+        NotificationPresentationPhase::Folded
+    );
+    assert!(
+        host.current()
+            .claim_next_notification_presentation(NotificationPresentationIdentity {
+                client_id: "desktop-webview".into(),
+                session_id: "same-degraded-tun".into(),
+            })
+            .claim
+            .is_none(),
+        "periodic audits of one unresolved drift must not create repeated toasts"
+    );
+    tun_platform
+        .fail_observation
+        .store(false, Ordering::Relaxed);
+    let tun_core = host.current();
+    let lifecycle = DesktopLifecycleCoordinator::new(host.clone());
+    let lifecycle_after_handoff = lifecycle.clone();
+    let mut runtime_changes = host.subscribe_changes();
+    runtime_changes.borrow_and_update();
+    let runtime_replacement = tokio::spawn(async move {
+        timeout(Duration::from_secs(5), runtime_changes.changed())
+            .await
+            .expect("TUN disable did not replace the managed runtime")
+            .expect("runtime replacement authority closed unexpectedly");
+        let runtime = runtime_changes.borrow_and_update().clone();
+        lifecycle_after_handoff
+            .handle_runtime_replacement(matches!(
+                runtime.core_status().await.phase,
+                mish_runtime::CorePhase::Running
+            ))
+            .await
+    });
+
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    runtime_replacement
+        .await
+        .expect("runtime replacement observer panicked")
+        .expect("runtime replacement replayed stale Capture intent");
+    assert!(
+        host.notification_snapshot()
+            .notifications
+            .iter()
+            .find(|record| record.id == first_drift.id)
+            .is_some_and(|record| record.resolved),
+        "a confirmed Capture recovery must close the drift lifecycle before a future recurrence"
+    );
+    let stopped_core = host.current();
+    assert!(
+        !tun_core.is_same_instance(&stopped_core),
+        "disabling degraded TUN must replace the privileged Core backend"
+    );
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(false));
+    for _ in 0..2 {
+        lifecycle.periodic_audit().await.unwrap();
+    }
+    let disabled = host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert!(!disabled.runtime.tun.desired);
+    assert_eq!(disabled.runtime.tun.phase, mish_runtime::TunPhase::Off);
+    assert_eq!(
+        disabled.runtime.capture_operation.phase,
+        mish_runtime::CaptureOperationPhase::Applied
+    );
+    assert!(
+        host.notification_snapshot()
+            .notifications
+            .iter()
+            .filter(|record| record.dedupe_key == "capture.failure")
+            .all(|record| record.resolved),
+        "runtime replacement and periodic audits must not reopen a confirmed TUN disable"
+    );
+
+    let relaunched = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    assert!(!stopped_core.is_same_instance(&host.current()));
+    assert_eq!(relaunched["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(relaunched["runtime"]["tun"]["phase"], "applied");
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    controller.block_next_version();
+    let switching = {
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move {
+            coordinator
+                .set_capture(
+                    CaptureRequest {
+                        active: true,
+                        selection: CaptureSelection {
+                            system_proxy: false,
+                            tun: true,
+                        },
+                    },
+                    StatusAdapterKind::Rpc,
+                )
+                .await
+        })
+    };
+    timeout(Duration::from_secs(5), controller.version_request_started())
+        .await
+        .expect("replacement Core activation did not reach the Controller barrier");
+    switching.abort();
+    assert!(switching.await.unwrap_err().is_cancelled());
+    controller.release_version_request();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let status = host
+                .current()
+                .status_snapshot_typed(StatusAdapterKind::Rpc)
+                .await;
+            if status.runtime.tun.phase == mish_runtime::TunPhase::Applied {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("background handoff owner did not finish after caller cancellation");
+    timeout(Duration::from_secs(5), async {
+        while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+    })
+    .await
+    .expect("background activation owner did not publish its terminal state");
+    drop(
+        capture
+            .clone()
+            .begin_runtime_transition()
+            .expect("completed background handoff leaked its Capture transition"),
+    );
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn failed_tun_backend_switches_restore_the_prior_core_and_capture_state() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let controller = FakeController::start("v1.19.29").await;
+    let tun_platform = Arc::new(InstallableTunPlatform::default());
+    let tun_helper = Arc::new(TunHelperController::new(tun_platform.clone()));
     let capture = Arc::new(CaptureReconciler::new_with_tun(
         Arc::new(MemoryCapturePlatform::default()),
         Arc::new(MemoryCaptureJournal::default()),
@@ -888,7 +1261,7 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         host.clone(),
         safe_runtime,
         move || {
-            ManagedRuntimePolicy::new(address, "dual-capture-secret")?.with_tun_enabled(
+            ManagedRuntimePolicy::new(address, "failed-tun-switch-secret")?.with_tun_enabled(
                 &policy_helper.snapshot(),
                 policy_capture.status().capture_selection.tun,
             )
@@ -916,10 +1289,10 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
         )
         .await
         .unwrap();
-    let system_proxy_core = host.current();
     tun_helper.install().await.unwrap();
+    tun_platform.fail_enable.store(true, Ordering::Relaxed);
 
-    let tun = coordinator
+    let error = coordinator
         .set_capture(
             CaptureRequest {
                 active: true,
@@ -931,35 +1304,51 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
             StatusAdapterKind::Rpc,
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
-    assert!(!system_proxy_core.is_same_instance(&host.current()));
-    assert_eq!(tun["runtime"]["systemProxy"]["phase"], "off");
-    assert_eq!(tun["runtime"]["tun"]["phase"], "applied");
-    assert_eq!(tun["runtime"]["captureSelection"]["systemProxy"], false);
-    assert_eq!(tun["runtime"]["captureSelection"]["tun"], true);
-    let config = only_candidate_config(root.path());
-    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
-    assert_eq!(config["find-process-mode"].as_str(), Some("always"));
+    assert_eq!(error.kind, CaptureFailureKind::ConfirmationFailed);
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(status["runtime"]["phase"], "healthy");
+    assert_eq!(status["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(status["runtime"]["tun"]["phase"], "off");
+    assert_eq!(
+        status["runtime"]["captureSelection"],
+        json!({"systemProxy":true,"tun":false})
+    );
+    assert_eq!(only_candidate_config(root.path())["tun"]["enable"], false);
+    assert!(!coordinator.activation_snapshot().await.safe_stopped);
+    assert_eq!(candidate_count(root.path()), 1);
+    let failures = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .filter(|notification| {
+            notification.dedupe_key == "capture.failure" && !notification.resolved
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(failures.len(), 1);
+    let failure_presentation = serde_json::to_value(&failures[0].presentation).unwrap();
+    assert_eq!(failure_presentation["data"]["captureMode"], "tun");
+    assert_eq!(
+        failure_presentation["data"]["failure"],
+        "confirmation-failed"
+    );
 
     coordinator
         .set_capture(
             CaptureRequest {
                 active: false,
                 selection: CaptureSelection {
-                    system_proxy: false,
-                    tun: true,
+                    system_proxy: true,
+                    tun: false,
                 },
             },
             StatusAdapterKind::Rpc,
         )
         .await
         .unwrap();
-    let stopped_core = host.current();
-    let config = only_candidate_config(root.path());
-    assert_eq!(config["tun"]["enable"].as_bool(), Some(false));
-
-    let relaunched = coordinator
+    let before_launch = host.current();
+    let launch_error = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
             CaptureSelection {
@@ -969,13 +1358,36 @@ async fn installing_helper_while_system_proxy_runs_allows_atomic_switch_to_tun()
             StatusAdapterKind::Rpc,
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
-    assert!(!stopped_core.is_same_instance(&host.current()));
-    assert_eq!(relaunched["runtime"]["systemProxy"]["phase"], "off");
-    assert_eq!(relaunched["runtime"]["tun"]["phase"], "applied");
-    let config = only_candidate_config(root.path());
-    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+    assert_eq!(launch_error.kind, CaptureFailureKind::ConfirmationFailed);
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(status["runtime"]["phase"], "healthy");
+    assert_eq!(status["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(status["runtime"]["tun"]["phase"], "off");
+    assert_eq!(
+        status["runtime"]["captureSelection"],
+        json!({"systemProxy":true,"tun":false})
+    );
+    assert!(!before_launch.is_same_instance(&host.current()));
+    assert_eq!(only_candidate_config(root.path())["tun"]["enable"], false);
+    assert!(!coordinator.activation_snapshot().await.safe_stopped);
+    assert_eq!(candidate_count(root.path()), 1);
+    let failures = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .filter(|notification| {
+            notification.dedupe_key == "capture.failure" && !notification.resolved
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(failures.len(), 1);
+    let failure_presentation = serde_json::to_value(&failures[0].presentation).unwrap();
+    assert_eq!(failure_presentation["data"]["captureMode"], "tun");
+    assert_eq!(
+        failure_presentation["data"]["failure"],
+        "confirmation-failed"
+    );
 
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
@@ -5164,6 +5576,13 @@ struct FakeController {
     address: SocketAddr,
     join: JoinHandle<()>,
     shutdown: oneshot::Sender<()>,
+    version_gate: Arc<FakeControllerVersionGate>,
+}
+
+struct FakeControllerVersionGate {
+    block_next: AtomicBool,
+    release: Notify,
+    started: Notify,
 }
 
 #[derive(Clone)]
@@ -5249,10 +5668,25 @@ impl FakeController {
     }
 
     async fn start_with_catalog(version: &'static str, catalog: serde_json::Value) -> Self {
+        let version_gate = Arc::new(FakeControllerVersionGate {
+            block_next: AtomicBool::new(false),
+            release: Notify::new(),
+            started: Notify::new(),
+        });
+        let route_gate = version_gate.clone();
         let app = Router::new()
             .route(
                 "/version",
-                get(move || async move { Json(json!({"meta": true, "version": version})) }),
+                get(move || {
+                    let gate = route_gate.clone();
+                    async move {
+                        if gate.block_next.swap(false, Ordering::AcqRel) {
+                            gate.started.notify_one();
+                            gate.release.notified().await;
+                        }
+                        Json(json!({"meta": true, "version": version}))
+                    }
+                }),
             )
             .route("/configs", get(|| async { Json(runtime_config()) }))
             .route(
@@ -5281,7 +5715,20 @@ impl FakeController {
             address,
             join,
             shutdown,
+            version_gate,
         }
+    }
+
+    fn block_next_version(&self) {
+        self.version_gate.block_next.store(true, Ordering::Release);
+    }
+
+    async fn version_request_started(&self) {
+        self.version_gate.started.notified().await;
+    }
+
+    fn release_version_request(&self) {
+        self.version_gate.release.notify_waiters();
     }
 
     async fn shutdown(self) {

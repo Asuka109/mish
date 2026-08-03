@@ -11,6 +11,24 @@ interface Evidence {
 
 const evidence: readonly Evidence[] = [
   {
+    file: "apps/desktop/src-tauri/src/lib.rs",
+    includes: [
+      "The managed backend must retain an App-owned Core executable.",
+      "fn managed_core_startup_binary(",
+      "privileged_tun_availability_never_replaces_the_managed_core_binary",
+      "managed_core_binary,",
+    ],
+    meaning: "Helper maintenance cannot replace the executable owned by the ordinary managed Core",
+  },
+  {
+    file: "crates/platform-macos/src/tun_service.rs",
+    includes: [
+      "fn privileged_core_launch_binary(&self, requested: &Path) -> PathBuf",
+      "PathBuf::from(DEV_TUN_SERVICE_CORE_PATH)",
+    ],
+    meaning: "only the privileged TUN host substitutes the installed pinned Core",
+  },
+  {
     file: "crates/runtime/src/recent_traffic.rs",
     includes: [
       "pub struct RecentTrafficSnapshot",

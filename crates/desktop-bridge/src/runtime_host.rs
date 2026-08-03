@@ -138,6 +138,16 @@ impl DesktopRuntimeHost {
         self.current().set_capture(request, adapter_kind).await
     }
 
+    pub async fn set_capture_deferred(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current()
+            .set_capture_deferred(request, adapter_kind)
+            .await
+    }
+
     pub async fn preflight_capture(
         &self,
         request: &CaptureRequest,
@@ -175,6 +185,23 @@ impl DesktopRuntimeHost {
     ) -> Result<Value, CaptureTransitionError> {
         self.current()
             .set_capture_with_admitted_preflight(request, adapter_kind, preflight, operation)
+            .await
+    }
+
+    pub async fn set_capture_with_admitted_preflight_deferred(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current()
+            .set_capture_with_admitted_preflight_deferred(
+                request,
+                adapter_kind,
+                preflight,
+                operation,
+            )
             .await
     }
 
@@ -495,6 +522,19 @@ impl DesktopRuntimeHost {
 
     pub fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
         self.current().record_application_event(event);
+    }
+
+    pub fn record_capture_failure(&self, error: &CaptureTransitionError) {
+        self.current().record_capture_failure(error);
+    }
+
+    pub fn record_capture_failure_for_selection(
+        &self,
+        error: &CaptureTransitionError,
+        selection: &mish_runtime::CaptureSelection,
+    ) {
+        self.current()
+            .record_capture_failure_for_selection(error, selection);
     }
 
     pub fn publish_notification(

@@ -867,6 +867,11 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
         .await
     });
     settle_until(|| scenario.maintenance.journal_snapshot().is_some()).await;
+    let during_lifecycle = scenario.capture.status();
+    assert!(
+        during_lifecycle.capture_selection.tun && during_lifecycle.tun_enabled,
+        "the Helper lifecycle must not pre-apply or discard the prior Capture intent"
+    );
 
     let mut outcomes = Vec::new();
     let mut finalizing_pinned = false;
@@ -937,6 +942,11 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
         .expect("first repair must settle")
         .unwrap();
     assert!(repaired["result"].is_object());
+    let after_first_repair = scenario.capture.status();
+    assert!(
+        !after_first_repair.capture_selection.tun && !after_first_repair.tun_enabled,
+        "a successful maintenance lifecycle must hand off through Capture before reporting success"
+    );
     let duplicate = tokio::time::timeout(Duration::from_secs(2), duplicate)
         .await
         .expect("serialized identical repair must settle")

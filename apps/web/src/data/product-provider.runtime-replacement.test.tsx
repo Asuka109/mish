@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StatusClientError, type RoutingMode, type StatusSnapshotDto } from "@mish/contracts";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -29,6 +30,68 @@ class RuntimeReplacementClient extends FixtureStatusClient {
       "The Status runtime was replaced before the command completed",
       true,
       snapshot,
+    );
+  }
+}
+
+class ConfirmedGroupRuntimeReplacementClient extends FixtureStatusClient {
+  constructor(
+    private readonly observedChildId = "hkg-01",
+    private readonly replacementProfileId: string | null = null,
+  ) {
+    super();
+  }
+
+  override async selectGroupChild(groupId: string, _childId: string): Promise<StatusSnapshotDto> {
+    const snapshot = await super.getSnapshot();
+    const group = snapshot.groups.find(({ id }) => id === groupId);
+    if (!group) throw new Error(`Missing group ${groupId}`);
+    group.selectedChildId = this.observedChildId;
+    if (this.replacementProfileId) snapshot.activeProfileId = this.replacementProfileId;
+    snapshot.applicationOrder.order += 1;
+    throw new StatusClientError(
+      "runtime-replaced",
+      "The Status runtime was replaced before the command completed",
+      true,
+      snapshot,
+    );
+  }
+}
+
+class ConfirmedGroupTimeoutClient extends FixtureStatusClient {
+  private confirmationRefreshes = 0;
+  private pendingSelection: { childId: string; groupId: string } | null = null;
+  private snapshotState: StatusSnapshotDto | null = null;
+
+  constructor(private readonly confirmAfterRefreshes: number | null = 3) {
+    super();
+  }
+
+  override async getSnapshot() {
+    this.snapshotState ??= await super.getSnapshot();
+    if (this.pendingSelection && this.confirmAfterRefreshes !== null) {
+      this.confirmationRefreshes += 1;
+      if (this.confirmationRefreshes >= this.confirmAfterRefreshes) {
+        const pendingSelection = this.pendingSelection;
+        const group = this.snapshotState.groups.find(({ id }) => id === pendingSelection.groupId);
+        if (!group) throw new Error(`Missing group ${pendingSelection.groupId}`);
+        group.selectedChildId = pendingSelection.childId;
+        this.snapshotState.applicationOrder.order += 1;
+        this.pendingSelection = null;
+      }
+    }
+    return structuredClone(this.snapshotState);
+  }
+
+  override async selectGroupChild(groupId: string, childId: string): Promise<StatusSnapshotDto> {
+    const snapshot = await this.getSnapshot();
+    const group = snapshot.groups.find(({ id }) => id === groupId);
+    if (!group) throw new Error(`Missing group ${groupId}`);
+    this.pendingSelection = { childId, groupId };
+    throw new StatusClientError(
+      "timeout",
+      "The Controller did not confirm the group selection before the deadline",
+      true,
     );
   }
 }
@@ -139,6 +202,29 @@ function RuntimeReplacementHarness() {
   );
 }
 
+function ConfirmedGroupRuntimeReplacementHarness() {
+  const product = useProduct();
+  const [result, setResult] = useState("idle");
+  return (
+    <>
+      <button
+        onClick={() => {
+          void product
+            .selectGroupChild("proxy", "hkg-01")
+            .then((next) => setResult(next.ok ? "confirmed" : "failed"));
+        }}
+        type="button"
+      >
+        Change proxy
+      </button>
+      <output data-testid="group-result">{result}</output>
+      <output data-testid="group-selection">
+        {product.snapshot?.groups.find(({ id }) => id === "proxy")?.selectedChildId ?? "loading"}
+      </output>
+    </>
+  );
+}
+
 function DelayedRoutingHarness() {
   const product = useProduct();
   return (
@@ -189,6 +275,101 @@ describe("ProductProvider runtime replacement reconciliation", () => {
       expect(screen.getByTestId("routing")).toHaveTextContent("rule");
     });
     expect(client.snapshotRequests).toBe(1);
+  });
+
+  it("accepts a group selection confirmed by the replacement snapshot", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={new ConfirmedGroupRuntimeReplacementClient()}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-01");
+      expect(screen.getByTestId("group-result")).toHaveTextContent("confirmed");
+    });
+  });
+
+  it("accepts a timed-out group selection confirmed by the bounded refresh", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={new ConfirmedGroupTimeoutClient()}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-01");
+      expect(screen.getByTestId("group-result")).toHaveTextContent("confirmed");
+    });
+  });
+
+  it("keeps a timed-out group selection failed when bounded refreshes never confirm it", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={new ConfirmedGroupTimeoutClient(null)}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02");
+        expect(screen.getByTestId("group-result")).toHaveTextContent("failed");
+      },
+      { timeout: 4_000 },
+    );
+  });
+
+  it("keeps a runtime replacement failed when the observed child differs", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={new ConfirmedGroupRuntimeReplacementClient("sin-01")}>
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-selection")).toHaveTextContent("sin-01");
+      expect(screen.getByTestId("group-result")).toHaveTextContent("failed");
+    });
+  });
+
+  it("keeps a runtime replacement failed when the active Profile differs", async () => {
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider
+          client={new ConfirmedGroupRuntimeReplacementClient("hkg-01", "profile-replacement")}
+        >
+          <ConfirmedGroupRuntimeReplacementHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-02"));
+    fireEvent.click(screen.getByRole("button", { name: "Change proxy" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-selection")).toHaveTextContent("hkg-01");
+      expect(screen.getByTestId("group-result")).toHaveTextContent("failed");
+    });
   });
 
   it("rejects a duplicate and keeps replacement work pending through an old completion and finally", async () => {

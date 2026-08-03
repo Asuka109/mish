@@ -149,11 +149,17 @@ invariant(
   step(prGate, "Run fast pull-request gate").run === "pnpm check:pr",
   "Pull requests must use the bounded validation command.",
 );
+const internalTunMaintenanceContract =
+  "cargo test -p mish-simulated-host --test internal_tun_maintenance -- --test-threads=1";
 const expectedPrValidation =
-  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:tokens && pnpm check:docs";
+  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm test:rust:internal-tun-maintenance && pnpm check:tokens && pnpm check:docs";
 invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
-  "check:pr must stay bounded to fast static, style-source, TypeScript, unit, format, token, and documentation checks.",
+  "check:pr must stay bounded to its fast static, unit, format, exact Internal TUN maintenance, token, and documentation checks.",
+);
+invariant(
+  packageJson.scripts?.["test:rust:internal-tun-maintenance"] === internalTunMaintenanceContract,
+  "The Fast PR gate must run the exact bounded Internal TUN maintenance contract.",
 );
 invariant(
   packageJson.scripts?.["test:unit"]?.includes("pnpm test:scripts") &&

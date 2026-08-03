@@ -88,6 +88,7 @@ struct FakeControllerState {
     configs: RwLock<Value>,
     connections: RwLock<Value>,
     connection_close_delay_milliseconds: AtomicUsize,
+    group_selection_delay_milliseconds: AtomicUsize,
     close_limit: AtomicUsize,
     close_all_count: AtomicUsize,
     closed_connection_ids: Mutex<Vec<String>>,
@@ -131,6 +132,7 @@ impl FakeController {
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
             connection_close_delay_milliseconds: AtomicUsize::new(0),
+            group_selection_delay_milliseconds: AtomicUsize::new(0),
             close_limit: AtomicUsize::new(usize::MAX),
             close_all_count: AtomicUsize::new(0),
             closed_connection_ids: Mutex::new(Vec::new()),
@@ -311,8 +313,21 @@ async fn select_group_endpoint(
     };
     state.mutation_count.fetch_add(1, Ordering::AcqRel);
     if state.apply_mutations.load(Ordering::Acquire) {
-        let mut proxies = state.proxies.write().await;
-        proxies["proxies"][group]["now"] = json!(child);
+        let delay = state
+            .group_selection_delay_milliseconds
+            .load(Ordering::Acquire);
+        if delay == 0 {
+            let mut proxies = state.proxies.write().await;
+            proxies["proxies"][group]["now"] = json!(child);
+        } else {
+            let state = state.clone();
+            let child = child.to_owned();
+            tokio::spawn(async move {
+                sleep(Duration::from_millis(delay as u64)).await;
+                let mut proxies = state.proxies.write().await;
+                proxies["proxies"][group]["now"] = json!(child);
+            });
+        }
     }
     StatusCode::from_u16(state.mutation_status.load(Ordering::Acquire) as u16)
         .unwrap()
@@ -1413,6 +1428,74 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
 
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_accepts_an_exact_controller_update_after_the_primary_deadline() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let mut config = source_config(&fake);
+    config.group_confirmation_grace = Duration::from_millis(150);
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+    fake.state
+        .group_selection_delay_milliseconds
+        .store(225, Ordering::Release);
+
+    let selected = runtime
+        .select_group_child_typed(group_id, new_child_id.clone(), StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(
+        selected
+            .groups
+            .iter()
+            .find(|group| group.label == "SELECT")
+            .and_then(|group| group.selected_child_id.as_ref()),
+        Some(&new_child_id)
+    );
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_selection_still_times_out_without_an_exact_confirmation_during_the_grace_period() {
+    let fake = FakeController::start().await;
+    fake.state.apply_mutations.store(false, Ordering::Release);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let mut config = source_config(&fake);
+    config.confirmation_timeout = Duration::from_millis(50);
+    config.group_confirmation_grace = Duration::from_millis(100);
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Group)
+    })
+    .await;
+    let (group_id, _, new_child_id) = selector_target_ids(&runtime).await;
+
+    let error = runtime
+        .select_group_child_typed(group_id, new_child_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, StatusCommandErrorKind::Timeout);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
+
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

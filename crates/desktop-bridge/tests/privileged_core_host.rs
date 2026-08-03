@@ -8,7 +8,7 @@ use mish_bridge::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, PrivilegedCoreHost, PrivilegedCoreHostError,
     PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
 };
-use mish_runtime::{CorePhase, CoreRuntime, LoopbackProxyEndpoint};
+use mish_runtime::{CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint};
 
 #[derive(Default)]
 struct FakePrivilegedHost {
@@ -116,14 +116,21 @@ async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
     let started = process.start().await.unwrap();
     assert!(matches!(started.phase, CorePhase::Running));
     assert_eq!(started.pid, Some(4242));
-    assert!(
+    assert_eq!(
         process
-            .owns_local_proxy(&LoopbackProxyEndpoint::managed())
-            .await
+            .local_proxy_ownership(&LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Owned
     );
     let stopped = process.stop().await.unwrap();
     assert!(matches!(stopped.phase, CorePhase::Stopped));
     assert_eq!(stopped.pid, None);
+    assert_eq!(
+        process
+            .local_proxy_ownership(&LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Unowned
+    );
 }
 
 #[tokio::test]

@@ -48,6 +48,19 @@ export type ProductCommandResult =
   | { ok: true; snapshot?: StatusSnapshotDto }
   | { error: StatusClientError; ok: false };
 
+type ProductCommandFailureReconciler = (
+  error: StatusClientError,
+  before: StatusSnapshotDto | null,
+  current: StatusSnapshotDto | null,
+) => boolean;
+
+interface ProductCommandFailureReconciliation {
+  confirm: ProductCommandFailureReconciler;
+  refreshAttempts: number;
+  refreshIntervalMilliseconds: number;
+  retry(error: StatusClientError): boolean;
+}
+
 export type LocalProxyTestState =
   | { phase: "idle" }
   | { phase: "pending" }
@@ -146,6 +159,36 @@ function localProxyCommandScope(snapshot: StatusSnapshotDto | null) {
         snapshot.runtime.phase,
       )
     : "local-proxy:unconfirmed";
+}
+
+function groupSelectionConfirmedAfterAmbiguousCompletion(
+  error: StatusClientError,
+  before: StatusSnapshotDto | null,
+  current: StatusSnapshotDto | null,
+  groupId: string,
+  childId: string,
+) {
+  return (
+    (error.code === "runtime-replaced" || error.code === "timeout") &&
+    before !== null &&
+    current !== null &&
+    current.activeProfileId === before.activeProfileId &&
+    current.groups.some((group) => group.id === groupId && group.selectedChildId === childId)
+  );
+}
+
+function waitForReconciliationRefresh(milliseconds: number, signal: AbortSignal) {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    const finish = (elapsed: boolean) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      resolve(elapsed);
+    };
+    const abort = () => finish(false);
+    const timer = setTimeout(() => finish(true), milliseconds);
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function toStatusClientError(error: unknown) {
@@ -369,6 +412,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       command: ProductCommand,
       execute: (signal: AbortSignal) => Promise<StatusSnapshotDto>,
       deduplicationKey: string = command,
+      failureReconciliation?: ProductCommandFailureReconciliation,
     ) => {
       if (!resolvedClient.supportsCommand(command)) {
         return {
@@ -429,19 +473,67 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         return { ok: true, snapshot: nextSnapshot } satisfies ProductCommandResult;
       } catch (error) {
         const typedError = toStatusClientError(error);
-        if (!isCurrentCommandFeedback(feedbackOperation, "pending")) {
+        const isCurrent = isCurrentCommandFeedback(feedbackOperation, "pending");
+        if (!isCurrent && !failureReconciliation) {
           return { error: typedError, ok: false } satisfies ProductCommandResult;
         }
         if (typedError.snapshot !== null) {
           snapshotAcceptance.current.clear();
           acceptSnapshot(typedError.snapshot, "baseline");
-        } else {
+        } else if (isCurrent) {
           try {
             const nextSnapshot = await resolvedClient.getSnapshot();
             acceptSnapshot(nextSnapshot, "request");
           } catch {
             // Keep the last confirmed snapshot stale when refresh also fails.
           }
+        }
+        let reconciled =
+          failureReconciliation?.confirm(typedError, currentSnapshot, snapshotRef.current) ?? false;
+        if (failureReconciliation?.retry(typedError)) {
+          for (
+            let attempt = 0;
+            !reconciled && attempt < failureReconciliation.refreshAttempts;
+            attempt += 1
+          ) {
+            if (
+              !(await waitForReconciliationRefresh(
+                failureReconciliation.refreshIntervalMilliseconds,
+                controller.signal,
+              ))
+            ) {
+              break;
+            }
+            reconciled = failureReconciliation.confirm(
+              typedError,
+              currentSnapshot,
+              snapshotRef.current,
+            );
+            if (reconciled) break;
+            try {
+              const nextSnapshot = await resolvedClient.getSnapshot({ signal: controller.signal });
+              acceptSnapshot(nextSnapshot, "request");
+            } catch {
+              break;
+            }
+            reconciled = failureReconciliation.confirm(
+              typedError,
+              currentSnapshot,
+              snapshotRef.current,
+            );
+          }
+        }
+        if (reconciled) {
+          if (isCurrentCommandFeedback(feedbackOperation, "pending")) {
+            transitionCommandFeedback(feedbackOperation, "success");
+          }
+          return {
+            ok: true,
+            snapshot: snapshotRef.current ?? undefined,
+          } satisfies ProductCommandResult;
+        }
+        if (!isCurrent) {
+          return { error: typedError, ok: false } satisfies ProductCommandResult;
         }
         if (isCurrentCommandFeedback(feedbackOperation, "pending")) {
           setCommandFailures((current) => ({
@@ -754,6 +846,19 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           "group",
           (signal) => resolvedClient.selectGroupChild(groupId, childId, { signal }),
           `group:${groupId}`,
+          {
+            confirm: (error, before, current) =>
+              groupSelectionConfirmedAfterAmbiguousCompletion(
+                error,
+                before,
+                current,
+                groupId,
+                childId,
+              ),
+            refreshAttempts: 8,
+            refreshIntervalMilliseconds: 250,
+            retry: (error) => error.code === "timeout",
+          },
         ),
       startGroupDelayTest: (groupId) =>
         runCommand(

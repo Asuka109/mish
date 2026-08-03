@@ -8,7 +8,11 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "3";
+// v5 bounds the privileged Core/utun/route convergence window before managed
+// network state is applied. v4 remains fail-closed, but it can reject a valid
+// first activation before the new Core has finished publishing its evidence,
+// so it must repair before Capture can admit Virtual Interface activation.
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "6";
 pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 3;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const TUN_OBSERVATION_SCHEMA_VERSION: u16 = 1;
@@ -398,13 +402,7 @@ impl TunHelperController {
                 "The TUN helper is not healthy",
             ));
         }
-        match self.platform.observe_tun().await {
-            Ok(observed) => Ok(observed),
-            Err(error) => {
-                self.record_failure(error.kind);
-                Err(error)
-            }
-        }
+        self.platform.observe_tun().await
     }
 
     pub async fn set_tun_enabled(
@@ -418,10 +416,7 @@ impl TunHelperController {
                 "The TUN helper is not healthy",
             ));
         }
-        if let Err(error) = self.platform.set_tun_enabled(enabled).await {
-            self.record_failure(error.kind);
-            return Err(error);
-        }
+        self.platform.set_tun_enabled(enabled).await?;
         let observed = self.observe_tun_locked().await?;
         let confirmed = if enabled {
             observed.confirms_enabled_at(tun_observation_now())
@@ -444,9 +439,13 @@ impl TunHelperController {
         operation: TunHelperLifecycleOperation,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
+        // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
+        // It needs the same confirmed handoff as repair or removal before lifecycle work starts.
         if matches!(
             operation,
-            TunHelperLifecycleOperation::Repair | TunHelperLifecycleOperation::Remove
+            TunHelperLifecycleOperation::Install
+                | TunHelperLifecycleOperation::Repair
+                | TunHelperLifecycleOperation::Remove
         ) && self.snapshot().has_healthy_identity()
         {
             if let Err(error) = self.platform.set_tun_enabled(false).await {
@@ -512,7 +511,13 @@ impl TunHelperController {
             // A helper acknowledgement is not enough to resume a first-click Capture request.
             // Re-observe utun, routes, and DNS after the lifecycle completes so callers only
             // receive success while the previous TUN intent is freshly and authoritatively off.
-            let network = self.observe_tun_locked().await?;
+            let network = match self.observe_tun_locked().await {
+                Ok(network) => network,
+                Err(error) => {
+                    self.record_failure(error.kind);
+                    return Err(error);
+                }
+            };
             if !network.confirms_disabled_at(tun_observation_now()) {
                 let error = TunHelperError::new(
                     network.failure_kind_at(tun_observation_now()),
@@ -557,8 +562,14 @@ impl TunHelperController {
                     .runtime_failure
                     .lock()
                     .expect("TUN helper runtime failure lock poisoned");
-                if let Some(failure) = (*runtime_failure).or(operation_failure) {
+                if let Some(failure) = *runtime_failure {
                     snapshot.availability = TunHelperAvailability::Unavailable;
+                    snapshot.phase = TunHelperLifecyclePhase::Failed;
+                    snapshot.last_failure = Some(failure);
+                } else if let Some(failure) = operation_failure {
+                    // The fresh Helper observation remains authoritative after a bounded
+                    // lifecycle attempt fails. Preserve PermissionRequired or RepairRequired
+                    // so the user can retry, while the failed phase keeps the result fail-closed.
                     snapshot.phase = TunHelperLifecyclePhase::Failed;
                     snapshot.last_failure = Some(failure);
                 }

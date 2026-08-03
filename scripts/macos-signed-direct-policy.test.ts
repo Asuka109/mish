@@ -297,6 +297,46 @@ test("signed-direct Tauri configuration pins hardened runtime and empty entitlem
   assert.ok(nestedSigning >= 0 && applicationBundling > nestedSigning);
   assert.match(builder, /resolveMacOsReleaseProfile\(arguments_, process\.env\)/u);
   assert.match(builder, /delete packageEnvironment\.MISH_MIHOMO_BIN/u);
+  assert.match(
+    builder,
+    /const bundleMihomo = path\.resolve\("\.scratch\/macos-bundle\/mihomo-aarch64-apple-darwin"\)/u,
+  );
+  assert.match(builder, /copyFileSync\(mihomo, bundleMihomo\)/u);
+  assert.match(builder, /signingArguments\.push\("--sign", identity, bundleMihomo\)/u);
+  assert.match(builder, /Pinned Mihomo changed while staging the signed bundle resource/u);
+  assert.doesNotMatch(builder, /signingArguments\.push\("--sign", identity, mihomo\)/u);
+
+  const desktopRoot = path.resolve(import.meta.dirname, "../apps/desktop");
+  const baseBundle = readFileSync(
+    path.join(desktopRoot, "src-tauri/tauri.bundle.conf.json"),
+    "utf8",
+  );
+  const pinnedCoreBundle = readFileSync(
+    path.join(desktopRoot, "src-tauri/tauri.bundle.pinned-core.conf.json"),
+    "utf8",
+  );
+  const signedCoreBundle = readFileSync(
+    path.join(desktopRoot, "src-tauri/tauri.bundle.signed-core.conf.json"),
+    "utf8",
+  );
+  const desktopPackage = JSON.parse(
+    readFileSync(path.join(desktopRoot, "package.json"), "utf8"),
+  ) as { scripts: Record<string, string> };
+  assert.doesNotMatch(baseBundle, /\.scratch\/mihomo/u);
+  assert.match(pinnedCoreBundle, /\.scratch\/mihomo\/v1\.19\.29/u);
+  assert.match(signedCoreBundle, /\.scratch\/macos-bundle\/mihomo-aarch64-apple-darwin/u);
+  assert.match(
+    desktopPackage.scripts["bundle:macos:internal-tun-alpha"] ?? "",
+    /tauri\.bundle\.pinned-core\.conf\.json/u,
+  );
+  for (const script of [
+    "bundle:macos",
+    "bundle:macos:alpha-ad-hoc",
+    "bundle:macos:production",
+    "bundle:macos:signed-direct",
+  ]) {
+    assert.match(desktopPackage.scripts[script] ?? "", /tauri\.bundle\.signed-core\.conf\.json/u);
+  }
   assert.doesNotMatch(builder, /const production\s*=\s*identity/u);
 });
 

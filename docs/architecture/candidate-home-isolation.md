@@ -58,6 +58,18 @@ The global home contains ordinary private files. Mish does not introduce
 symlinks, hard links, APFS clones, a template cache, or a filesystem-specific
 fallback state machine.
 
+### Cross-privilege Core handoff
+
+Internal TUN runs the pinned Core as root, while ordinary Capture runs the same
+Core as the enrolled desktop user. Both execution backends retain the one
+global Mihomo home. After a privileged Core has been reaped, the versioned
+Helper recursively returns regular single-link files and directories in that
+validated home to the enrolled UID with private modes before it confirms Stop.
+Links, special files, excessive depth, or excessive entry counts fail the Stop
+closed. This preserves Mihomo-native cache and provider continuity without
+letting a root-created `cache.db` or provider artifact block the next ordinary
+Core generation.
+
 ### Identity rules
 
 | Identity              | Purpose                                                         | Does not control                 |

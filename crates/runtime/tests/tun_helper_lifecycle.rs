@@ -32,35 +32,101 @@ fn unsupported_and_unsigned_builds_never_report_helper_availability() {
 }
 
 struct FakeHelperPlatform {
+    initially_healthy: bool,
     lifecycle_failure: Mutex<Option<TunHelperFailureKind>>,
     observation: Mutex<TunHelperObservation>,
     tun_enabled: Mutex<bool>,
+    tun_failure: Mutex<Option<TunHelperFailureKind>>,
+    tun_observation_failure: Mutex<Option<TunHelperFailureKind>>,
 }
 
 impl FakeHelperPlatform {
     fn not_installed() -> Self {
         Self {
+            initially_healthy: false,
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::not_installed()),
             tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
         }
     }
 
     fn version_mismatch() -> Self {
         Self {
+            initially_healthy: false,
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy("0")),
             tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
+        }
+    }
+
+    fn legacy_tun_policy_generation() -> Self {
+        Self {
+            initially_healthy: false,
+            lifecycle_failure: Mutex::new(None),
+            // Helper v3 was the generation that could persist a fail-closed
+            // MISH_TUN_SERVICE_ALLOW_TUN=0 policy. A policy-semantic migration must
+            // force repair before Capture can try to start a TUN Core.
+            observation: Mutex::new(TunHelperObservation::healthy("3")),
+            tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
+        }
+    }
+
+    fn immediate_tun_observation_generation() -> Self {
+        Self {
+            initially_healthy: false,
+            lifecycle_failure: Mutex::new(None),
+            // Helper v4 rejected Enable before a newly started Core had a bounded
+            // opportunity to publish its owned utun and route observations.
+            observation: Mutex::new(TunHelperObservation::healthy("4")),
+            tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
+        }
+    }
+
+    fn healthy() -> Self {
+        Self {
+            initially_healthy: true,
+            lifecycle_failure: Mutex::new(None),
+            observation: Mutex::new(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)),
+            tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
         }
     }
 
     fn fail_next_lifecycle(&self, failure: TunHelperFailureKind) {
         *self.lifecycle_failure.lock().unwrap() = Some(failure);
     }
+
+    fn fail_next_tun_mutation(&self, failure: TunHelperFailureKind) {
+        *self.tun_failure.lock().unwrap() = Some(failure);
+    }
+
+    fn fail_next_tun_observation(&self, failure: TunHelperFailureKind) {
+        *self.tun_observation_failure.lock().unwrap() = Some(failure);
+    }
 }
 
 impl TunHelperPlatform for FakeHelperPlatform {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
+        if self.initially_healthy {
+            return TunHelperSnapshot {
+                availability: TunHelperAvailability::Available,
+                expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                health: TunHelperHealth::Healthy,
+                installation_id: None,
+                installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
+                last_failure: None,
+                phase: TunHelperLifecyclePhase::Idle,
+            };
+        }
         TunHelperSnapshot::unavailable(
             TunHelperAvailability::PermissionRequired,
             TunHelperHealth::NotInstalled,
@@ -93,6 +159,14 @@ impl TunHelperPlatform for FakeHelperPlatform {
     }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        if let Some(failure) = self.tun_observation_failure.lock().unwrap().take() {
+            return Box::pin(async move {
+                Err(TunHelperError::new(
+                    failure,
+                    "Synthetic TUN observation failure",
+                ))
+            });
+        }
         let enabled = *self.tun_enabled.lock().unwrap();
         Box::pin(async move {
             Ok(if enabled {
@@ -104,6 +178,14 @@ impl TunHelperPlatform for FakeHelperPlatform {
     }
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        if let Some(failure) = self.tun_failure.lock().unwrap().take() {
+            return Box::pin(async move {
+                Err(TunHelperError::new(
+                    failure,
+                    "Synthetic TUN mutation failure",
+                ))
+            });
+        }
         *self.tun_enabled.lock().unwrap() = enabled;
         Box::pin(async { Ok(()) })
     }
@@ -140,6 +222,48 @@ async fn install_requires_a_fresh_disabled_network_observation_before_succeeding
 }
 
 #[tokio::test]
+async fn healthy_reinstall_hands_off_active_tun_before_confirming_completion() {
+    let platform = Arc::new(FakeHelperPlatform::healthy());
+    *platform.tun_enabled.lock().unwrap() = true;
+    let helper = TunHelperController::new(platform.clone());
+
+    let snapshot = helper.install().await.unwrap();
+
+    assert!(snapshot.is_healthy());
+    assert!(!*platform.tun_enabled.lock().unwrap());
+}
+
+#[tokio::test]
+async fn failed_tun_mutation_does_not_invalidate_confirmed_helper_identity() {
+    let platform = Arc::new(FakeHelperPlatform::healthy());
+    platform.fail_next_tun_mutation(TunHelperFailureKind::ObservationPartial);
+    let helper = TunHelperController::new(platform);
+
+    let error = helper.set_tun_enabled(true).await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ObservationPartial);
+    let snapshot = helper.snapshot();
+    assert!(snapshot.is_healthy());
+    assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Idle);
+    assert_eq!(snapshot.last_failure, None);
+}
+
+#[tokio::test]
+async fn failed_tun_observation_does_not_invalidate_confirmed_helper_identity() {
+    let platform = Arc::new(FakeHelperPlatform::healthy());
+    platform.fail_next_tun_observation(TunHelperFailureKind::ConnectionFailed);
+    let helper = TunHelperController::new(platform);
+
+    let error = helper.observe_tun().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ConnectionFailed);
+    let snapshot = helper.snapshot();
+    assert!(snapshot.is_healthy());
+    assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Idle);
+    assert_eq!(snapshot.last_failure, None);
+}
+
+#[tokio::test]
 async fn repair_requires_a_fresh_disabled_network_observation_before_succeeding() {
     let platform = Arc::new(FakeHelperPlatform::version_mismatch());
     *platform.tun_enabled.lock().unwrap() = true;
@@ -170,6 +294,32 @@ async fn permission_refusal_remains_a_typed_failed_state() {
         helper.snapshot().last_failure,
         Some(TunHelperFailureKind::PermissionDenied)
     );
+    assert_eq!(
+        helper.snapshot().availability,
+        TunHelperAvailability::PermissionRequired
+    );
+}
+
+#[tokio::test]
+async fn failed_repair_preserves_authoritative_repair_required_for_retry() {
+    let platform = Arc::new(FakeHelperPlatform::version_mismatch());
+    let helper = TunHelperController::new(platform.clone());
+    helper.refresh().await;
+    platform.fail_next_lifecycle(TunHelperFailureKind::PreparationFailed);
+
+    let error = helper.repair().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::PreparationFailed);
+    let failed = helper.snapshot();
+    assert_eq!(failed.availability, TunHelperAvailability::RepairRequired);
+    assert_eq!(failed.phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(
+        failed.last_failure,
+        Some(TunHelperFailureKind::PreparationFailed)
+    );
+
+    let repaired = helper.repair().await.unwrap();
+    assert!(repaired.is_healthy());
 }
 
 #[tokio::test]
@@ -182,6 +332,39 @@ async fn version_drift_requires_repair_and_repair_reobserves_health() {
 
     let repaired = helper.repair().await.unwrap();
     assert!(repaired.is_healthy());
+}
+
+#[tokio::test]
+async fn legacy_tun_policy_generation_requires_repair_before_tun_is_admitted() {
+    let helper =
+        TunHelperController::new(Arc::new(FakeHelperPlatform::legacy_tun_policy_generation()));
+
+    let snapshot = helper.refresh().await;
+
+    assert_eq!(snapshot.availability, TunHelperAvailability::RepairRequired);
+    assert_eq!(snapshot.health, TunHelperHealth::VersionMismatch);
+    assert_eq!(
+        snapshot.last_failure,
+        Some(TunHelperFailureKind::VersionMismatch)
+    );
+    assert!(!snapshot.is_healthy());
+}
+
+#[tokio::test]
+async fn immediate_tun_observation_generation_requires_repair_before_tun_is_admitted() {
+    let helper = TunHelperController::new(Arc::new(
+        FakeHelperPlatform::immediate_tun_observation_generation(),
+    ));
+
+    let snapshot = helper.refresh().await;
+
+    assert_eq!(snapshot.availability, TunHelperAvailability::RepairRequired);
+    assert_eq!(snapshot.health, TunHelperHealth::VersionMismatch);
+    assert_eq!(
+        snapshot.last_failure,
+        Some(TunHelperFailureKind::VersionMismatch)
+    );
+    assert!(!snapshot.is_healthy());
 }
 
 #[tokio::test]

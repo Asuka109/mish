@@ -119,6 +119,11 @@ export function TrafficCaptureControl({
   const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
     : statusDescriptionIds.tunUnavailable;
+  const systemProxyPending =
+    pending &&
+    (pendingMode === "systemProxy" ||
+      (pendingMode === null && systemProxySelected && !tunSelected));
+  const tunPending = pending && (pendingMode === "tun" || (pendingMode === null && tunSelected));
 
   useEffect(() => {
     if (tunGuideOpen || !tunGuideReturnFocus.current) return;
@@ -291,8 +296,8 @@ export function TrafficCaptureControl({
         </div>
         {adapterKind === "fixture" ? null : (
           <span aria-live="polite" className="sr-only" role="status">
-            {systemProxyStatusMessage(LL, systemProxyStatus, pending)}{" "}
-            {tunStatusMessage(LL, tunStatus, pending)}
+            {systemProxyStatusMessage(LL, systemProxyStatus, systemProxyPending)}{" "}
+            {tunStatusMessage(LL, tunStatus, tunPending)}
           </span>
         )}
       </div>

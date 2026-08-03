@@ -421,12 +421,12 @@ async fn run_actor<M: Machine>(
             _ = shutdown.cancelled() => {
                 apply_shutdown(
                     machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                    &evidence, config.evidence_limit, &mut tasks, &mut owned,
+                    &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                 );
                 drain(
                     machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                     &evidence, config.evidence_limit, config.shutdown_grace,
-                    &mut tasks, &mut owned,
+                    &snapshot, &mut tasks, &mut owned,
                 ).await;
                 *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                 return;
@@ -436,7 +436,7 @@ async fn run_actor<M: Machine>(
                     finish_effect(
                         joined, machine.as_ref(), &mut state, executor.as_ref(),
                         observer.as_ref(), &evidence, config.evidence_limit,
-                        &mut tasks, &mut owned,
+                        &snapshot, &mut tasks, &mut owned,
                     );
                     *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                 }
@@ -445,12 +445,12 @@ async fn run_actor<M: Machine>(
                 let Some(command) = command else {
                     apply_shutdown(
                         machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                        &evidence, config.evidence_limit, &mut tasks, &mut owned,
+                        &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                     );
                     drain(
                         machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                         &evidence, config.evidence_limit, config.shutdown_grace,
-                        &mut tasks, &mut owned,
+                        &snapshot, &mut tasks, &mut owned,
                     ).await;
                     *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                     return;
@@ -460,7 +460,7 @@ async fn run_actor<M: Machine>(
                         let result = apply_input(
                             machine.as_ref(), &mut state, input, executor.as_ref(),
                             observer.as_ref(), &evidence, config.evidence_limit,
-                            &mut tasks, &mut owned,
+                            &snapshot, &mut tasks, &mut owned,
                         );
                         *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                         let _ = reply.send(result);
@@ -468,12 +468,12 @@ async fn run_actor<M: Machine>(
                     Command::Shutdown { reply } => {
                         let disposition = apply_shutdown(
                             machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                            &evidence, config.evidence_limit, &mut tasks, &mut owned,
+                            &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                         );
                         drain(
                             machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                             &evidence, config.evidence_limit, config.shutdown_grace,
-                            &mut tasks, &mut owned,
+                            &snapshot, &mut tasks, &mut owned,
                         ).await;
                         *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                         let _ = reply.send(Admission { state, disposition });
@@ -494,6 +494,7 @@ fn apply_input<M: Machine>(
     observer: &dyn TransitionObserver<M>,
     evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
     evidence_limit: usize,
+    snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) -> Result<Admission<M::State>, M::Error> {
@@ -529,6 +530,7 @@ fn apply_input<M: Machine>(
                 disposition,
                 correlation.as_ref(),
             );
+            *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
             observer.transitioned(&previous, &input, state, disposition);
             return Err(error);
         }
@@ -543,6 +545,10 @@ fn apply_input<M: Machine>(
         disposition,
         correlation.as_ref(),
     );
+    // Publish the state before notifying observers. Consumers commonly use an observer signal
+    // as the readiness edge for `snapshot()`: reversing this order can strand them on an old
+    // pending snapshot with no later notification.
+    *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
     observer.transitioned(&previous, &input, state, disposition);
     if let Some(effects) = effects {
         for effect in effects.into_iter() {
@@ -585,6 +591,7 @@ fn finish_effect<M: Machine>(
     observer: &dyn TransitionObserver<M>,
     evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
     evidence_limit: usize,
+    snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) {
@@ -607,6 +614,7 @@ fn finish_effect<M: Machine>(
                     observer,
                     evidence,
                     evidence_limit,
+                    snapshot,
                     tasks,
                     owned,
                 );
@@ -620,6 +628,7 @@ fn finish_effect<M: Machine>(
                     observer,
                     evidence,
                     evidence_limit,
+                    snapshot,
                     tasks,
                     owned,
                 );
@@ -632,6 +641,7 @@ fn finish_effect<M: Machine>(
                     observer,
                     evidence,
                     evidence_limit,
+                    snapshot,
                     tasks,
                     owned,
                 );
@@ -652,6 +662,7 @@ fn finish_effect<M: Machine>(
                 observer,
                 evidence,
                 evidence_limit,
+                snapshot,
                 tasks,
                 owned,
             );
@@ -667,6 +678,7 @@ fn apply_shutdown<M: Machine>(
     observer: &dyn TransitionObserver<M>,
     evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
     evidence_limit: usize,
+    snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) -> Disposition {
@@ -679,6 +691,7 @@ fn apply_shutdown<M: Machine>(
         observer,
         evidence,
         evidence_limit,
+        snapshot,
         tasks,
         owned,
     ) {
@@ -696,6 +709,7 @@ async fn drain<M: Machine>(
     evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
     evidence_limit: usize,
     grace: Duration,
+    snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) {
@@ -709,6 +723,7 @@ async fn drain<M: Machine>(
                 observer,
                 evidence,
                 evidence_limit,
+                snapshot,
                 tasks,
                 owned,
             );
@@ -725,6 +740,7 @@ async fn drain<M: Machine>(
                 observer,
                 evidence,
                 evidence_limit,
+                snapshot,
                 tasks,
                 owned,
             );
@@ -919,6 +935,32 @@ mod tests {
         executions: Arc<AtomicUsize>,
     }
 
+    struct SnapshotObserver {
+        published_before_notification: Arc<AtomicBool>,
+        runner: Arc<Mutex<Option<RunnerHandle<TestMachine>>>>,
+    }
+
+    impl TransitionObserver<TestMachine> for SnapshotObserver {
+        fn transitioned(
+            &self,
+            _previous: &TestState,
+            _input: &TestInput,
+            current: &TestState,
+            _disposition: Disposition,
+        ) {
+            let runner = self
+                .runner
+                .lock()
+                .expect("test runner lock poisoned")
+                .clone()
+                .expect("runner must be published before admitting input");
+            if runner.snapshot() != *current {
+                self.published_before_notification
+                    .store(false, AtomicOrdering::Release);
+            }
+        }
+    }
+
     impl EffectExecutor<TestMachine> for TestExecutor {
         fn execute(
             &self,
@@ -960,6 +1002,48 @@ mod tests {
             admitted_revision: 11,
             effect_id: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn snapshot_is_published_before_transition_observers_are_notified() {
+        let release = Arc::new(Notify::new());
+        let started = Arc::new(Notify::new());
+        let published_before_notification = Arc::new(AtomicBool::new(true));
+        let runner_slot = Arc::new(Mutex::new(None));
+        let runner = spawn_runner(
+            Arc::new(TestMachine),
+            TestState::Idle,
+            Arc::new(TestExecutor {
+                mode: ExecutorMode::Barrier {
+                    release: release.clone(),
+                    started: started.clone(),
+                },
+                executions: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(SnapshotObserver {
+                published_before_notification: published_before_notification.clone(),
+                runner: runner_slot.clone(),
+            }),
+            RunnerConfig::default(),
+        );
+        *runner_slot.lock().expect("test runner lock poisoned") = Some(runner.clone());
+
+        runner
+            .admit(TestInput::Start(correlation("snapshot-order")))
+            .await
+            .unwrap();
+        started.notified().await;
+        release.notify_one();
+        for _ in 0..100 {
+            if runner.snapshot() == TestState::Done {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(runner.snapshot(), TestState::Done);
+        assert!(published_before_notification.load(AtomicOrdering::Acquire));
+        let _ = runner.shutdown().await;
     }
 
     #[tokio::test]

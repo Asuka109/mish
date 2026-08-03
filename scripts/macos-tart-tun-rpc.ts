@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import path from "node:path";
@@ -31,8 +31,13 @@ async function bootstrap() {
       /Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#mish-browser-launch=[A-Za-z0-9_-]{43})/gu,
     ),
   ];
+  const nativeOriginMatches = [
+    ...log.matchAll(/Mish desktop development origin: (http:\/\/127\.0\.0\.1:\d+)/gu),
+  ];
   const launchUrl = matches.at(-1)?.[1];
+  const nativeOrigin = nativeOriginMatches.at(-1)?.[1];
   if (!launchUrl) throw new Error("The desktop acceptance launch URL is unavailable");
+  if (!nativeOrigin) throw new Error("The desktop acceptance native origin is unavailable");
   const parsed = new URL(launchUrl);
   const launchToken = parsed.hash.replace("#mish-browser-launch=", "");
   const origin = parsed.origin;
@@ -57,7 +62,7 @@ async function bootstrap() {
   await mkdir(acceptanceRoot, { recursive: true, mode: 0o700 });
   await writeFile(
     rpcReceipt,
-    `${JSON.stringify({ authToken: payload.authToken, rpcUrl: payload.rpcUrl })}\n`,
+    `${JSON.stringify({ authToken: payload.authToken, nativeOrigin, rpcUrl: payload.rpcUrl })}\n`,
     { mode: 0o600 },
   );
   await chmod(rpcReceipt, 0o600);
@@ -104,18 +109,17 @@ class RpcConnection {
     if (
       typeof receipt.authToken !== "string" ||
       receipt.authToken.length < 32 ||
+      typeof receipt.nativeOrigin !== "string" ||
+      !/^http:\/\/127\.0\.0\.1:\d+$/u.test(receipt.nativeOrigin) ||
       typeof receipt.rpcUrl !== "string" ||
       !/^ws:\/\/127\.0\.0\.1:\d+\/rpc$/u.test(receipt.rpcUrl)
     ) {
       throw new Error("The private RPC receipt is invalid");
     }
-    const rpcOrigin = new URL(receipt.rpcUrl);
-    rpcOrigin.protocol = "http:";
-    rpcOrigin.pathname = "/";
-    rpcOrigin.search = "";
-    rpcOrigin.hash = "";
     const socket = new WebSocket(receipt.rpcUrl, {
-      headers: { Origin: rpcOrigin.origin },
+      // The exact Tart launcher publishes this development origin and the desktop bridge
+      // recognizes it as the native surface. A Browser origin must remain TUN-unavailable.
+      headers: { Origin: receipt.nativeOrigin },
     });
     await new Promise<void>((resolve, reject) => {
       socket.addEventListener("open", () => resolve(), { once: true });
@@ -210,10 +214,80 @@ async function selectFictionalProfile(connection: RpcConnection) {
   }
 }
 
+async function waitForProfileOperation(
+  connection: RpcConnection,
+  commandId: string,
+  initial: JsonObject,
+  operation: string,
+) {
+  let activation = initial;
+  for (let attempt = 0; activation.phase === "pending" && attempt < 80; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const current = await connection.request("profiles.getSnapshot", {});
+    if (current.activation?.commandId === commandId) activation = current.activation;
+  }
+  if (activation.phase === "pending") {
+    throw new Error(`The ordinary Core ${operation} did not reach a bounded terminal state`);
+  }
+  return activation;
+}
+
 async function completedPublicHttpRequest() {
   const response = await fetch(publicHttpUrl, { redirect: "manual" });
   await response.arrayBuffer();
   return response.status;
+}
+
+async function activateOrdinaryCore() {
+  const connection = await RpcConnection.connect();
+  try {
+    await selectFictionalProfile(connection);
+    const profiles = await connection.request("profiles.getSnapshot", {});
+    const profile = profiles.profiles?.find(
+      (candidate: JsonObject) => candidate.fileName === fictionalProfileFileName,
+    );
+    if (!profile) throw new Error("The repository-owned fictional Tart Profile is unavailable");
+    const commandId = randomUUID();
+    const pending = await connection.request("profiles.activate", {
+      commandId,
+      profileId: profile.id,
+    });
+    const activation = await waitForProfileOperation(connection, commandId, pending, "activation");
+    const status = await connection.request("status.getSnapshot", {});
+    return {
+      activationFailure: activation.failure ?? null,
+      activationPhase: activation.phase ?? null,
+      activationSafeStopped: activation.safeStopped ?? null,
+      corePhase: status.runtime?.core?.phase ?? null,
+      profile: "repository-fictional",
+      systemProxyEnabled: status.runtime?.systemProxyEnabled === true,
+      tunDesired: status.runtime?.tun?.desired === true,
+      tunPhase: status.runtime?.tun?.phase ?? null,
+    };
+  } finally {
+    connection.close();
+  }
+}
+
+async function stopCore() {
+  const connection = await RpcConnection.connect();
+  try {
+    const commandId = randomUUID();
+    const pending = await connection.request("profiles.stop", { commandId });
+    const activation = await waitForProfileOperation(connection, commandId, pending, "stop");
+    const status = await connection.request("status.getSnapshot", {});
+    return {
+      activationFailure: activation.failure ?? null,
+      activationPhase: activation.phase ?? null,
+      activationSafeStopped: activation.safeStopped ?? null,
+      corePhase: status.runtime?.core?.phase ?? null,
+      systemProxyEnabled: status.runtime?.systemProxyEnabled === true,
+      tunDesired: status.runtime?.tun?.desired === true,
+      tunPhase: status.runtime?.tun?.phase ?? null,
+    };
+  } finally {
+    connection.close();
+  }
 }
 
 function startObservableHttpRequest() {
@@ -355,16 +429,20 @@ async function main() {
   const result =
     action === "bootstrap"
       ? await bootstrap()
-      : action === "enable"
-        ? await enable()
-        : action === "snapshot"
-          ? await snapshot()
-          : action === "disable"
-            ? await disable()
-            : undefined;
+      : action === "activate-core"
+        ? await activateOrdinaryCore()
+        : action === "stop-core"
+          ? await stopCore()
+          : action === "enable"
+            ? await enable()
+            : action === "snapshot"
+              ? await snapshot()
+              : action === "disable"
+                ? await disable()
+                : undefined;
   if (!result) {
     throw new Error(
-      "Usage: node scripts/macos-tart-tun-rpc.ts <bootstrap|enable|snapshot|disable>",
+      "Usage: node scripts/macos-tart-tun-rpc.ts <bootstrap|activate-core|enable|snapshot|disable|stop-core>",
     );
   }
   process.stdout.write(`${JSON.stringify(result)}\n`);
