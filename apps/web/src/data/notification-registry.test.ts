@@ -6,6 +6,7 @@ import {
   type ApplicationNotification,
   type ApplicationNotificationDataByKind,
   type ApplicationNotificationKind,
+  type NotificationSeverity,
 } from "@mish/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { i18nObject } from "../i18n/i18n-util";
@@ -20,15 +21,15 @@ const sampleData = {
   "local-proxy.feedback": { outcome: "ready" },
   "onboarding.welcome": { prompt: true },
   "profile.activation-asn-failed": { asset: "asn", outcome: "failed" },
-  "profile.activation-asn-progress": { asset: "asn" },
+  "profile.activation-asn-progress": { asset: "asn", outcome: "preparing" },
   "profile.activation-failed": { failure: "missing-binary" },
   "profile.activation-geoip-failed": { asset: "geo-ip", outcome: "failed" },
-  "profile.activation-geoip-progress": { asset: "geo-ip" },
+  "profile.activation-geoip-progress": { asset: "geo-ip", outcome: "preparing" },
   "profile.activation-geosite-failed": { asset: "geo-site", outcome: "failed" },
-  "profile.activation-geosite-progress": { asset: "geo-site" },
+  "profile.activation-geosite-progress": { asset: "geo-site", outcome: "preparing" },
   "profile.activation-listener-conflict": { endpoint: "127.0.0.1:7890" },
   "profile.activation-mmdb-failed": { asset: "mmdb", outcome: "failed" },
-  "profile.activation-mmdb-progress": { asset: "mmdb" },
+  "profile.activation-mmdb-progress": { asset: "mmdb", outcome: "preparing" },
   "profile.create-failed": {},
   "profile.created": {},
   "profile.detach-failed": {},
@@ -78,13 +79,14 @@ function record<K extends ApplicationNotificationKind>(
   kind: K,
   data: ApplicationNotificationDataByKind[K],
   actionIds: readonly ApplicationActionId[] = [],
-  overrides: { pinned?: boolean; resolved?: boolean } = {},
+  overrides: { pinned?: boolean; resolved?: boolean; severity?: NotificationSeverity } = {},
 ) {
   return notificationRecord({
     id: `record:${kind}`,
     pinned: overrides.pinned,
     presentation: { actionIds: [...actionIds], data, kind } as ApplicationNotification,
     resolved: overrides.resolved,
+    ...(overrides.severity ? { severity: overrides.severity } : {}),
   });
 }
 
@@ -215,20 +217,70 @@ describe("notification presentation registry", () => {
 
   it("derives lifecycle without storing localized copy", () => {
     const progress = presentNotification(
-      record("profile.activation-geosite-progress", { asset: "geo-site" }, [], { pinned: true }),
+      record(
+        "profile.activation-geosite-progress",
+        { asset: "geo-site", outcome: "preparing" },
+        [],
+        { pinned: true },
+      ),
       i18nObject("en"),
     );
     expect(progress.duration).toBe(Number.POSITIVE_INFINITY);
     expect(progress.removable).toBe(false);
 
     const completed = presentNotification(
+      record(
+        "profile.activation-geosite-progress",
+        { asset: "geo-site", outcome: "prepared" },
+        [],
+        { resolved: true, severity: "success" },
+      ),
+      i18nObject("en"),
+    );
+    expect(completed.message).toBe("GeoSite is ready for activation.");
+    expect(completed.toast).toBe("dismiss");
+    expect(completed.removable).toBe(true);
+
+    const legacyResolved = presentNotification(
       record("profile.activation-geosite-progress", { asset: "geo-site" }, [], {
         resolved: true,
+        severity: "info",
       }),
       i18nObject("en"),
     );
-    expect(completed.toast).toBe("dismiss");
-    expect(completed.removable).toBe(true);
+    expect(legacyResolved.message).toBe("Preparing GeoSite before activation…");
+    expect(legacyResolved.level).toBe("info");
+    expect(legacyResolved.toast).toBe("dismiss");
+  });
+
+  it("keeps resolved history separate from explicit success outcomes", () => {
+    const LL = i18nObject("en");
+    for (const severity of ["error", "warning", "info", "success"] as const) {
+      const resolved = presentNotification(
+        record("capture.failure", { failure: "core-unhealthy" }, ["repair"], {
+          resolved: true,
+          severity,
+        }),
+        LL,
+      );
+      expect(resolved.level).toBe(severity);
+      expect(resolved.message).toBe(LL.capture.systemProxyCoreFailure());
+      expect(resolved.message).not.toBe(LL.capture.systemProxyApplied());
+      expect(resolved.actions).toEqual([]);
+      expect(resolved.toast).toBe("dismiss");
+    }
+
+    const explicitSuccess = presentNotification(
+      record(
+        "profile.activation-geosite-progress",
+        { asset: "geo-site", outcome: "prepared" },
+        [],
+        { resolved: true, severity: "success" },
+      ),
+      LL,
+    );
+    expect(explicitSuccess.level).toBe("success");
+    expect(explicitSuccess.message).toBe("GeoSite is ready for activation.");
   });
 
   it("keeps Internal TUN finalization in the same pending presentation", () => {

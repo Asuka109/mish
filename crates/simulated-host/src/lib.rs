@@ -154,6 +154,9 @@ pub enum InjectedFailureKind {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InjectedFailure {
+    /// Counts this effect only after the most recent occurrence of the prerequisite effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_effect: Option<EffectKind>,
     pub effect: EffectKind,
     pub kind: InjectedFailureKind,
     pub occurrence: u8,
@@ -945,7 +948,9 @@ impl SimulatedHost {
         } else {
             self.failures
                 .iter()
-                .find(|failure| failure.effect == effect_kind && failure.occurrence == occurrence)
+                .find(|failure| {
+                    failure_matches(failure, effect_kind, occurrence, &model.transcript)
+                })
                 .map(|failure| SimulatedHostFailure::InjectedFailure(effect_kind, failure.kind))
         };
         if model.transcript.len() == self.scenario.transcript_limit {
@@ -1098,6 +1103,34 @@ impl SimulatedHost {
         };
         CaptureTransitionError::new(kind, "The simulated host rejected an undeclared effect")
     }
+}
+
+fn failure_matches(
+    failure: &InjectedFailure,
+    effect_kind: EffectKind,
+    occurrence: u8,
+    transcript: &VecDeque<TranscriptEvent>,
+) -> bool {
+    if failure.effect != effect_kind {
+        return false;
+    }
+    let scoped_occurrence = if let Some(after_effect) = failure.after_effect {
+        let Some(after_index) = transcript
+            .iter()
+            .rposition(|event| event.effect_kind == after_effect)
+        else {
+            return false;
+        };
+        transcript
+            .iter()
+            .skip(after_index.saturating_add(1))
+            .filter(|event| event.effect_kind == effect_kind)
+            .count()
+            .saturating_add(1)
+    } else {
+        usize::from(occurrence)
+    };
+    usize::from(failure.occurrence) == scoped_occurrence
 }
 
 impl ManagedListenerHost for SimulatedHost {
@@ -1857,6 +1890,7 @@ mod tests {
     async fn bounded_injected_cleanup_failure_still_runs_authority_and_finalizer() {
         let mut definition = SimulatedHostScenario::initial_foreign_listener();
         definition.failures.push(InjectedFailure {
+            after_effect: None,
             effect: EffectKind::CleanupCandidate,
             kind: InjectedFailureKind::Operation,
             occurrence: 1,
@@ -1897,6 +1931,7 @@ mod tests {
     async fn injected_ownership_failure_fails_closed_and_still_finalizes() {
         let mut definition = SimulatedHostScenario::initial_foreign_listener();
         definition.failures.push(InjectedFailure {
+            after_effect: None,
             effect: EffectKind::ManagedEndpointOwnershipCheckEarly,
             kind: InjectedFailureKind::Observation,
             occurrence: 1,
@@ -2117,6 +2152,7 @@ mod tests {
     fn bounded_failure_injection_is_typed_and_occurrence_scoped() {
         let mut definition = SimulatedHostScenario::initial_foreign_listener();
         definition.failures.push(InjectedFailure {
+            after_effect: None,
             effect: EffectKind::CaptureObserve,
             kind: InjectedFailureKind::Observation,
             occurrence: 2,
@@ -2145,6 +2181,29 @@ mod tests {
                 EffectResultKind::InjectedFailure,
                 EffectResultKind::Completed
             ]
+        );
+    }
+
+    #[test]
+    fn failure_injection_can_begin_after_a_prerequisite_effect() {
+        let mut definition = SimulatedHostScenario::initial_foreign_listener();
+        definition.declared_effects =
+            vec![EffectKind::CaptureObserve, EffectKind::CaptureWriteHttps];
+        definition.failures.push(InjectedFailure {
+            after_effect: Some(EffectKind::CaptureWriteHttps),
+            effect: EffectKind::CaptureObserve,
+            kind: InjectedFailureKind::Observation,
+            occurrence: 1,
+        });
+        let host = SimulatedHost::new(definition).unwrap();
+        host.exercise_effect(EffectKind::CaptureObserve).unwrap();
+        host.exercise_effect(EffectKind::CaptureWriteHttps).unwrap();
+        assert_eq!(
+            host.exercise_effect(EffectKind::CaptureObserve),
+            Err(SimulatedHostFailure::InjectedFailure(
+                EffectKind::CaptureObserve,
+                InjectedFailureKind::Observation
+            ))
         );
     }
 

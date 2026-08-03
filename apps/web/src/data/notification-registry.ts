@@ -123,9 +123,10 @@ function knownPresentation(
     case "profile.activation-mmdb-progress":
       return {
         detail: LL.profiles.geodataPreparingDetail(),
-        message: resolved
-          ? LL.profiles.geodataPrepared({ asset: geodataAssetName(string("asset")) })
-          : LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
+        message:
+          string("outcome") === "prepared"
+            ? LL.profiles.geodataPrepared({ asset: geodataAssetName(string("asset")) })
+            : LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
         toast: resolved ? "dismiss" : undefined,
       };
     case "profile.activation-listener-conflict":
@@ -289,33 +290,32 @@ function captureFailurePresentation(
   resolved: boolean,
   LL: TranslationFunctions,
 ): PresentationCopy {
-  if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
+  let presentation: PresentationCopy;
   if (failure === "configuration-required") {
-    return {
+    presentation = {
       message: LL.capture.configurationRequired(),
       title: LL.capture.configurationRequiredTitle(),
     };
-  }
-  if (isTakeoverRejection(takeoverReason)) {
-    return {
+  } else if (isTakeoverRejection(takeoverReason)) {
+    presentation = {
       message: LL.settingsPage.systemProxyTakeoverRejected(),
     };
+  } else if (failure === "invalid-recovery") {
+    presentation = { message: LL.capture.systemProxyInvalidRecovery() };
+  } else if (failure === "persistence-failed") {
+    presentation = { message: LL.capture.systemProxyPersistenceFailure() };
+  } else if (failure === "core-unhealthy") {
+    presentation = { message: LL.capture.systemProxyCoreFailure() };
+  } else if (failure === "external-drift") {
+    presentation = {
+      message: captureMode === "tun" ? LL.capture.tunDrift() : LL.capture.systemProxyDrift(),
+    };
+  } else {
+    presentation = {
+      message: captureMode === "tun" ? LL.capture.tunFailure() : LL.capture.systemProxyFailure(),
+    };
   }
-  if (failure === "invalid-recovery") {
-    return { message: LL.capture.systemProxyInvalidRecovery() };
-  }
-  if (failure === "persistence-failed") {
-    return { message: LL.capture.systemProxyPersistenceFailure() };
-  }
-  if (failure === "core-unhealthy") {
-    return { message: LL.capture.systemProxyCoreFailure() };
-  }
-  if (failure === "external-drift") {
-    if (captureMode === "tun") return { message: LL.capture.tunDrift() };
-    return { message: LL.capture.systemProxyDrift() };
-  }
-  if (captureMode === "tun") return { message: LL.capture.tunFailure() };
-  return { message: LL.capture.systemProxyFailure() };
+  return resolved ? { ...presentation, toast: "dismiss" } : presentation;
 }
 
 function isTakeoverRejection(value: string | undefined) {

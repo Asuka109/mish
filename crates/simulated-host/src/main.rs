@@ -365,15 +365,17 @@ async fn replace_runtime(State(state): State<HarnessState>, Path(key): Path<Stri
 fn rollback_scenario(recovery_required: bool) -> SimulatedHostScenario {
     let mut scenario = SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Manual);
     scenario.failures.push(InjectedFailure {
+        after_effect: None,
         effect: EffectKind::CaptureWriteHttps,
         kind: InjectedFailureKind::Operation,
         occurrence: 1,
     });
     if recovery_required {
         scenario.failures.push(InjectedFailure {
+            after_effect: Some(EffectKind::CaptureWriteHttps),
             effect: EffectKind::CaptureObserve,
             kind: InjectedFailureKind::Observation,
-            occurrence: 4,
+            occurrence: 1,
         });
     }
     scenario

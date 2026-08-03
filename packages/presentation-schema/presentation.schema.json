@@ -77,7 +77,9 @@
     "profile.activation-asn-failed": {
       "data": { "asset": "string", "outcome": "string" }
     },
-    "profile.activation-asn-progress": { "data": { "asset": "string" } },
+    "profile.activation-asn-progress": {
+      "data": { "asset": "string", "outcome": { "type": "string", "optional": true } }
+    },
     "profile.activation-failed": {
       "data": { "failure": "string" },
       "actions": ["retry-profile-activation"]
@@ -85,11 +87,15 @@
     "profile.activation-geoip-failed": {
       "data": { "asset": "string", "outcome": "string" }
     },
-    "profile.activation-geoip-progress": { "data": { "asset": "string" } },
+    "profile.activation-geoip-progress": {
+      "data": { "asset": "string", "outcome": { "type": "string", "optional": true } }
+    },
     "profile.activation-geosite-failed": {
       "data": { "asset": "string", "outcome": "string" }
     },
-    "profile.activation-geosite-progress": { "data": { "asset": "string" } },
+    "profile.activation-geosite-progress": {
+      "data": { "asset": "string", "outcome": { "type": "string", "optional": true } }
+    },
     "profile.activation-listener-conflict": {
       "data": { "endpoint": "string" },
       "actions": ["find-ports-and-retry"]
@@ -97,7 +103,9 @@
     "profile.activation-mmdb-failed": {
       "data": { "asset": "string", "outcome": "string" }
     },
-    "profile.activation-mmdb-progress": { "data": { "asset": "string" } },
+    "profile.activation-mmdb-progress": {
+      "data": { "asset": "string", "outcome": { "type": "string", "optional": true } }
+    },
     "profile.create-failed": { "data": {} },
     "profile.created": { "data": {} },
     "profile.detach-failed": { "data": {} },

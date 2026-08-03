@@ -221,6 +221,8 @@ pub struct ProfileActivationAsnFailedApplicationNotificationData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileActivationAsnProgressApplicationNotificationData {
     pub asset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -240,6 +242,8 @@ pub struct ProfileActivationGeoipFailedApplicationNotificationData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileActivationGeoipProgressApplicationNotificationData {
     pub asset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -253,6 +257,8 @@ pub struct ProfileActivationGeositeFailedApplicationNotificationData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileActivationGeositeProgressApplicationNotificationData {
     pub asset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -272,6 +278,8 @@ pub struct ProfileActivationMmdbFailedApplicationNotificationData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileActivationMmdbProgressApplicationNotificationData {
     pub asset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]

@@ -83,7 +83,7 @@ export function NotificationPublicationController() {
         }
         publish(
           notificationPublication(progress.type, {
-            data: { asset },
+            data: { asset, outcome: "prepared" },
             dedupeKey: progress.key,
             pinned: false,
             resolved: true,
@@ -100,7 +100,7 @@ export function NotificationPublicationController() {
     geodataProgress.current.set(asset, { key, type });
     publish(
       notificationPublication(type, {
-        data: { asset },
+        data: { asset, outcome: "preparing" },
         dedupeKey: key,
         pinned: true,
         severity: "info",

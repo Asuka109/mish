@@ -240,6 +240,7 @@ async fn every_ordered_write_failure_runs_real_compensation_and_restores_the_exa
         let mut definition =
             SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Manual);
         definition.failures.push(InjectedFailure {
+            after_effect: None,
             effect: boundary,
             kind: InjectedFailureKind::Operation,
             occurrence: 1,
@@ -286,14 +287,16 @@ async fn unconfirmed_compensation_is_recovery_required_and_never_false_idle_or_a
         SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Manual);
     definition.failures.extend([
         InjectedFailure {
+            after_effect: None,
             effect: EffectKind::CaptureWriteHttps,
             kind: InjectedFailureKind::Operation,
             occurrence: 1,
         },
         InjectedFailure {
+            after_effect: Some(EffectKind::CaptureWriteHttps),
             effect: EffectKind::CaptureObserve,
             kind: InjectedFailureKind::Observation,
-            occurrence: 3,
+            occurrence: 1,
         },
     ]);
     let scenario = ScenarioRuntime::build(definition).await.unwrap();
