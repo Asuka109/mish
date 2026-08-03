@@ -24,8 +24,9 @@ use mish_runtime::{
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
-    TunHelperLifecycleApplicationNotificationData, TunHelperRemovalOutcome,
-    valid_notification_presentation_completion, valid_notification_presentation_identity,
+    TunHelperLifecycleApplicationNotificationData, TunHelperLifecycleOperation,
+    TunHelperRemovalOutcome, valid_notification_presentation_completion,
+    valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
@@ -1964,6 +1965,7 @@ async fn handle_message(
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
+            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Install);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
             match service.install_tun_helper().await {
@@ -1984,6 +1986,7 @@ async fn handle_message(
                         state.runtime.record_capture_failure(&error);
                     }
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
@@ -1997,6 +2000,7 @@ async fn handle_message(
                         Some(settings_failure_id(&error)),
                     );
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2013,6 +2017,7 @@ async fn handle_message(
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
+            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Repair);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
             match service.repair_tun_helper().await {
@@ -2033,6 +2038,7 @@ async fn handle_message(
                         state.runtime.record_capture_failure(&error);
                     }
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
@@ -2046,6 +2052,7 @@ async fn handle_message(
                         Some(settings_failure_id(&error)),
                     );
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2058,6 +2065,7 @@ async fn handle_message(
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
+            service.publish_tun_helper_pending(TunHelperLifecycleOperation::Remove);
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "pending", None);
             let admitted = match service.refresh_tun_helper().await {
                 Ok(snapshot) => snapshot,
@@ -2070,6 +2078,7 @@ async fn handle_message(
                         Some(settings_failure_id(&error)),
                     );
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
@@ -2084,6 +2093,7 @@ async fn handle_message(
                     Some("helper-installation-unconfirmed".into()),
                 );
                 drop(helper_lifecycle_transaction);
+                service.publish_tun_helper_snapshot();
                 return Some(error_response(
                     id,
                     -32055,
@@ -2101,6 +2111,7 @@ async fn handle_message(
                     Some(capture_failure_id(error.kind)),
                 );
                 drop(helper_lifecycle_transaction);
+                service.publish_tun_helper_snapshot();
                 return Some(tun_helper_removal_capture_error_response(
                     id, error, outcome,
                 ));
@@ -2114,6 +2125,7 @@ async fn handle_message(
                     Some(settings_failure_id(&error)),
                 );
                 drop(helper_lifecycle_transaction);
+                service.publish_tun_helper_snapshot();
                 return Some(tun_helper_removal_settings_error_response(
                     state, id, error, outcome,
                 ));
@@ -2128,6 +2140,7 @@ async fn handle_message(
                         None,
                     );
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
@@ -2140,6 +2153,7 @@ async fn handle_message(
                         Some(settings_failure_id(&error)),
                     );
                     drop(helper_lifecycle_transaction);
+                    service.publish_tun_helper_snapshot();
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));

@@ -1011,6 +1011,22 @@ async fn next_json(
     serde_json::from_str(&message).unwrap()
 }
 
+async fn next_settings_snapshot_with_tun_helper_phase(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    phase: &str,
+) -> Value {
+    loop {
+        let value = next_json(socket).await;
+        if value["method"] == "settings.snapshot"
+            && value["params"]["snapshot"]["tunHelper"]["phase"] == phase
+        {
+            return value;
+        }
+    }
+}
+
 async fn request_matching_response(
     socket: &mut tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
@@ -2982,9 +2998,17 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
     let mut setup_client = socket_with_origin(bridge.address, &browser_origin).await;
     let mut duplicate_client = socket(bridge.address).await;
     let mut capture_client = socket(bridge.address).await;
+    let mut command_client = socket(bridge.address).await;
     authenticate(&mut setup_client).await;
     authenticate(&mut duplicate_client).await;
     authenticate(&mut capture_client).await;
+    authenticate(&mut command_client).await;
+    let settings_subscription = request(
+        &mut capture_client,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    let settings_subscription_id = settings_subscription["result"]["subscriptionId"].clone();
 
     setup_client
         .send(Message::Text(
@@ -3000,9 +3024,20 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
     timeout(Duration::from_secs(2), lifecycle_started.notified())
         .await
         .expect("helper lifecycle did not begin");
+    let subscriber_pending =
+        next_settings_snapshot_with_tun_helper_phase(&mut capture_client, "installing").await;
+    assert_eq!(subscriber_pending["method"], "settings.snapshot");
+    assert_eq!(
+        subscriber_pending["params"]["subscriptionId"],
+        settings_subscription_id
+    );
+    assert_eq!(
+        subscriber_pending["params"]["snapshot"]["tunHelper"]["phase"],
+        "installing"
+    );
 
     let pending_settings = request(
-        &mut capture_client,
+        &mut command_client,
         json!({"jsonrpc":"2.0", "id":3, "method":"settings.getSnapshot", "params":{}}),
     )
     .await;
@@ -3011,7 +3046,7 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
         "installing"
     );
     let pending_notifications = request(
-        &mut capture_client,
+        &mut command_client,
         json!({"jsonrpc":"2.0", "id":4, "method":"notifications.getSnapshot", "params":{}}),
     )
     .await;
@@ -3046,7 +3081,7 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
     );
 
     let system_proxy = request(
-        &mut capture_client,
+        &mut command_client,
         json!({
             "jsonrpc":"2.0", "id":6, "method":"status.setCapture",
             "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
@@ -3062,9 +3097,30 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
         installed["result"]["tunHelper"]["availability"],
         "available"
     );
+    let subscriber_installed =
+        next_settings_snapshot_with_tun_helper_phase(&mut capture_client, "idle").await;
+    assert_eq!(
+        subscriber_installed["method"], "settings.snapshot",
+        "{subscriber_installed}"
+    );
+    assert_eq!(
+        subscriber_installed["params"]["snapshot"]["tunHelper"]["phase"],
+        "idle"
+    );
+    assert_eq!(
+        subscriber_installed["params"]["snapshot"]["tunHelper"]["availability"],
+        "available"
+    );
     timeout(Duration::from_secs(2), lifecycle_started.notified())
         .await
         .expect("serialized helper lifecycle did not begin");
+    let subscriber_repairing =
+        next_settings_snapshot_with_tun_helper_phase(&mut capture_client, "repairing").await;
+    assert_eq!(subscriber_repairing["method"], "settings.snapshot");
+    assert_eq!(
+        subscriber_repairing["params"]["snapshot"]["tunHelper"]["phase"],
+        "repairing"
+    );
     assert_eq!(
         platform.operations(),
         vec![
@@ -3075,9 +3131,16 @@ async fn browser_helper_setup_serializes_duplicate_lifecycle_and_merges_latest_c
     lifecycle_release.notify_one();
     let repaired = next_json(&mut duplicate_client).await;
     assert!(repaired.get("error").is_none(), "{repaired}");
+    let subscriber_repaired =
+        next_settings_snapshot_with_tun_helper_phase(&mut capture_client, "idle").await;
+    assert_eq!(subscriber_repaired["method"], "settings.snapshot");
+    assert_eq!(
+        subscriber_repaired["params"]["snapshot"]["tunHelper"]["phase"],
+        "idle"
+    );
 
     let after = request(
-        &mut capture_client,
+        &mut command_client,
         json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
@@ -3101,7 +3164,15 @@ async fn cancelled_browser_helper_repair_leaves_existing_capture_intent_unchange
 
     let browser_origin = format!("http://{}", bridge.address);
     let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    let mut observer = socket(bridge.address).await;
     authenticate(&mut browser).await;
+    authenticate(&mut observer).await;
+    let observed_settings = request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":1, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    assert!(observed_settings["result"]["subscriptionId"].is_string());
     let enabled = request(
         &mut browser,
         json!({
@@ -3120,6 +3191,24 @@ async fn cancelled_browser_helper_repair_leaves_existing_capture_intent_unchange
     .await;
     assert_eq!(repair["error"]["code"], -32055);
     assert_eq!(repair["error"]["data"]["kind"], "authorization-cancelled");
+    let observed_pending =
+        next_settings_snapshot_with_tun_helper_phase(&mut observer, "repairing").await;
+    assert_eq!(observed_pending["method"], "settings.snapshot");
+    assert_eq!(
+        observed_pending["params"]["snapshot"]["tunHelper"]["phase"],
+        "repairing"
+    );
+    let observed_failure =
+        next_settings_snapshot_with_tun_helper_phase(&mut observer, "failed").await;
+    assert_eq!(observed_failure["method"], "settings.snapshot");
+    assert_eq!(
+        observed_failure["params"]["snapshot"]["tunHelper"]["phase"],
+        "failed"
+    );
+    assert_eq!(
+        observed_failure["params"]["snapshot"]["tunHelper"]["lastFailure"],
+        "authorization-cancelled"
+    );
 
     let settings = request(
         &mut browser,

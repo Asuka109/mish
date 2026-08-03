@@ -15,7 +15,8 @@ use futures_util::future::BoxFuture;
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
     CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability, TunHelperController,
-    TunHelperFailureKind, TunHelperSnapshot,
+    TunHelperFailureKind, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperRemovalCapability, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -825,6 +826,33 @@ impl SettingsService {
         (receiver, snapshot)
     }
 
+    /// Publishes the Rust-owned pending projection before a Helper lifecycle can await platform
+    /// authorization or another resource boundary. The controller remains the source of the
+    /// observed Helper state; this only keeps every authenticated Settings subscriber aligned
+    /// with the admitted operation.
+    pub fn publish_tun_helper_pending(
+        &self,
+        operation: TunHelperLifecycleOperation,
+    ) -> SettingsSnapshot {
+        let mut snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+        snapshot.tun_helper.phase = match operation {
+            TunHelperLifecycleOperation::Install => TunHelperLifecyclePhase::Installing,
+            TunHelperLifecycleOperation::Repair => TunHelperLifecyclePhase::Repairing,
+            TunHelperLifecycleOperation::Remove => TunHelperLifecyclePhase::Removing,
+        };
+        if snapshot.tun_helper.removal == TunHelperRemovalCapability::Available {
+            snapshot.tun_helper.removal = TunHelperRemovalCapability::MaintenancePending;
+        }
+        self.publish_tun_helper_snapshot_value(snapshot)
+    }
+
+    /// Publishes the controller's current terminal observation after the outer lifecycle
+    /// transaction has released its resource boundary.
+    pub fn publish_tun_helper_snapshot(&self) -> SettingsSnapshot {
+        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+        self.publish_tun_helper_snapshot_value(snapshot)
+    }
+
     pub fn mutation_authority(&self) -> StateMutationAuthority {
         self.authority.clone()
     }
@@ -1253,6 +1281,11 @@ impl SettingsService {
         self.tun_helper
             .as_deref()
             .ok_or(SettingsServiceError::CapabilityUnavailable)
+    }
+
+    fn publish_tun_helper_snapshot_value(&self, snapshot: SettingsSnapshot) -> SettingsSnapshot {
+        let _ = self.changes.send(snapshot.clone());
+        snapshot
     }
 }
 
