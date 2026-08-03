@@ -18,9 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@mish/ui";
 import { useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -377,7 +374,6 @@ interface PolicyEntityRowProps {
   currentLabel: string;
   density?: PolicyBrowserDensity;
   disabled?: boolean;
-  disabledReason?: string;
   entity: PolicyGroupDto | ProxyNodeDto;
   entityKind: PolicyEntityKind;
   latency: ReactNode;
@@ -400,7 +396,6 @@ export function PolicyEntityRow({
   currentLabel,
   density = "default",
   disabled = false,
-  disabledReason,
   entity,
   entityKind,
   latency,
@@ -488,19 +483,7 @@ export function PolicyEntityRow({
       data-entity-id={entity.id}
       data-muted={muted || undefined}
     >
-      {selectionControl && disabled && disabledReason ? (
-        <Tooltip>
-          <TooltipTrigger
-            aria-disabled="true"
-            className="grid min-w-0 rounded-none focus-visible:outline-2 focus-visible:outline-focus-accent focus-visible:outline-offset-[-2px]"
-            data-policy-selection-unavailable-trigger="true"
-            render={<span tabIndex={0} />}
-          >
-            {selectionControl}
-          </TooltipTrigger>
-          <TooltipContent>{disabledReason}</TooltipContent>
-        </Tooltip>
-      ) : selectionControl ? (
+      {selectionControl ? (
         selectionControl
       ) : (
         <div className="policy-browser-entity-primary policy-browser-entity-primary--static">

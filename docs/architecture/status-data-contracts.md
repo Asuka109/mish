@@ -89,12 +89,20 @@ Rust-derived `groupSelectionAvailability` value `available`,
 stopped, and failed Core states publish `core-not-running`; a runtime without a
 group command surface publishes `unavailable`. Desktop WebView and Browser
 Client consume the same field. While it is `core-not-running`, selectable rows
-remain browseable but their selection controls are disabled behind a pointer-,
-touch-, and keyboard-focusable localized explanation. Web command admission
-checks the newest accepted snapshot before creating command feedback, and Rust
-checks the current Core status again before calling the Controller source. A
-race rejected by that Rust check returns `core-not-running` with the current
-reconciliation snapshot and produces no selection-failure notification.
+remain browseable but their selection controls use the same native disabled
+button state without a tooltip or focusable wrapper. Mouse, keyboard, and touch
+therefore cannot dispatch a stopped selection. Web command admission checks the
+newest accepted snapshot before creating command feedback, and Rust checks the
+current Core status again before calling the Controller source. A race rejected
+by that Rust check returns `core-not-running` with the current reconciliation
+snapshot and produces no selection-failure notification.
+
+The absence of explanatory UI is an intentional product exception to the
+general disabled-control guidance: stopped policy rows already communicate
+unavailability through their native disabled presentation, and adding a second
+focus target solely for a tooltip creates inconsistent behavior across the
+Desktop WebView and Browser Client. This exception does not weaken either Web
+or Rust command admission.
 
 Offline selection is intentionally rejected. The stopped Profile route catalog
 contains a Profile ID and effective fingerprint, but its group and child IDs

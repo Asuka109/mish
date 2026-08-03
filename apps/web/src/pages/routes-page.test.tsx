@@ -471,7 +471,7 @@ describe("Routes workspace", () => {
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
-  it("explains stopped selection for a lifecycle-only configured Profile catalog", async () => {
+  it("natively disables stopped selection for a lifecycle-only configured Profile catalog", async () => {
     const user = userEvent.setup();
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.adapterKind = "rpc";
@@ -509,14 +509,10 @@ describe("Routes workspace", () => {
       name: "Select Zulu node in Z first",
     });
     expect(configuredSelection).toBeDisabled();
-    const explanationTrigger = configuredSelection.closest<HTMLElement>(
-      "[data-policy-selection-unavailable-trigger]",
-    );
-    expect(explanationTrigger).toHaveAttribute("tabindex", "0");
-    await user.hover(explanationTrigger!);
+    expect(configuredSelection.closest("[data-policy-selection-unavailable-trigger]")).toBeNull();
     expect(
-      await screen.findByText("Start the proxy before changing this policy-group selection."),
-    ).toBeVisible();
+      screen.queryByText("Start the proxy before changing this policy-group selection."),
+    ).not.toBeInTheDocument();
     expect(configuredSelection).not.toHaveTextContent("Read-only");
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
     expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();
@@ -540,22 +536,11 @@ describe("Routes workspace", () => {
       name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
     });
     expect(selection).toBeDisabled();
-    const explanationTrigger = selection.closest<HTMLElement>(
-      "[data-policy-selection-unavailable-trigger]",
-    );
-    expect(explanationTrigger).not.toBeNull();
-    expect(explanationTrigger).toHaveAttribute("tabindex", "0");
-
-    await user.hover(explanationTrigger!);
-    expect(
-      await screen.findByText("Start the proxy before changing this policy-group selection."),
-    ).toBeVisible();
-    explanationTrigger!.focus();
-    expect(explanationTrigger).toHaveFocus();
-    fireEvent.keyDown(explanationTrigger!, { key: "Enter" });
-    fireEvent.touchStart(explanationTrigger!);
-    fireEvent.touchEnd(explanationTrigger!);
-    fireEvent.click(explanationTrigger!);
+    expect(selection.closest("[data-policy-selection-unavailable-trigger]")).toBeNull();
+    fireEvent.keyDown(selection, { key: "Enter" });
+    fireEvent.touchStart(selection);
+    fireEvent.touchEnd(selection);
+    fireEvent.click(selection);
 
     expect(client.selectionAttempts).toBe(0);
     expect(selection).not.toHaveAttribute("aria-busy", "true");

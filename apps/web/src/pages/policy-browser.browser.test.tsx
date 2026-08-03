@@ -127,7 +127,7 @@ describe("unified policy browser", () => {
     ["en", "Start the proxy before changing this policy-group selection."],
     ["zh", "请先启动代理，再更改这个策略组的选择。"],
   ] as const)(
-    "keeps stopped Browser Client selection inert with a focusable %s explanation",
+    "keeps stopped Browser Client selection natively disabled without a %s explanation",
     async (locale, explanation) => {
       await page.viewport(800, 600);
       const client = new StoppedPolicySelectionClient();
@@ -145,21 +145,17 @@ describe("unified policy browser", () => {
       const selection = document.querySelector<HTMLButtonElement>(
         '[data-entity-id="nrt-03"] [data-policy-row-primary]',
       );
-      const trigger = selection?.closest<HTMLElement>(
-        "[data-policy-selection-unavailable-trigger]",
-      );
-      if (!selection || !trigger) throw new Error("Missing stopped selection explanation");
+      if (!selection) throw new Error("Missing stopped selection control");
       expect(selection.disabled).toBe(true);
-      expect(trigger.tabIndex).toBe(0);
+      expect(selection.closest("[data-policy-selection-unavailable-trigger]")).toBeNull();
+      expect(document.body.textContent).not.toContain(explanation);
 
-      await page.elementLocator(trigger).hover();
-      await expect.element(page.getByText(explanation)).toBeVisible();
-      trigger.focus();
-      expect(document.activeElement).toBe(trigger);
-      await userEvent.keyboard("{Enter}");
-      trigger.dispatchEvent(new TouchEvent("touchstart", { bubbles: true }));
-      trigger.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
-      await userEvent.click(page.elementLocator(trigger));
+      selection.focus();
+      expect(document.activeElement).not.toBe(selection);
+      selection.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+      selection.dispatchEvent(new TouchEvent("touchstart", { bubbles: true }));
+      selection.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
+      selection.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
       expect(client.selectionAttempts).toBe(0);
       expect(selection.getAttribute("aria-busy")).not.toBe("true");

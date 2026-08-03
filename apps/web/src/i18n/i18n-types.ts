@@ -2479,10 +2479,6 @@ type RootTranslation = {
 		 */
 		graphErrorTitle: string
 		/**
-		 * S​t​a​r​t​ ​t​h​e​ ​p​r​o​x​y​ ​b​e​f​o​r​e​ ​c​h​a​n​g​i​n​g​ ​t​h​i​s​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​e​l​e​c​t​i​o​n​.
-		 */
-		selectionRequiresRunningProxy: string
-		/**
 		 * P​o​l​i​c​y​ ​g​r​o​u​p​ ​·​ ​{​t​y​p​e​}
 		 * @param {string} type
 		 */
@@ -7672,10 +7668,6 @@ export type TranslationFunctions = {
 		 * The policy-group graph is invalid
 		 */
 		graphErrorTitle: () => LocalizedString
-		/**
-		 * Start the proxy before changing this policy-group selection.
-		 */
-		selectionRequiresRunningProxy: () => LocalizedString
 		/**
 		 * Policy group · {type}
 		 */

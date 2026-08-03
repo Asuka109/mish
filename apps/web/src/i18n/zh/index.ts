@@ -700,7 +700,6 @@ const zh: Translation = {
     fixtureDescription: "用于演示的策略组和节点，不会更改网络设置。",
     graphErrorDescription: "配置中的策略组关系有误，暂时无法显示。Mish 没有更改任何选择。",
     graphErrorTitle: "无法显示策略组",
-    selectionRequiresRunningProxy: "请先启动代理，再更改这个策略组的选择。",
     groupReferenceType: "策略组 · {type}",
     groupNotFoundDescription: "确认后的策略图中已没有这个策略组。",
     groupNotFoundTitle: "找不到策略组",

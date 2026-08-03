@@ -52,16 +52,10 @@ export function usePolicyGroupSelection({
   group,
   onSelectionConfirmed,
 }: PolicyGroupSelectionOptions) {
-  const { isGroupCommandPending, isCommandSupported, selectGroupChild, snapshot } = useProduct();
-  const { LL } = useI18nContext();
+  const { isGroupCommandPending, isCommandSupported, selectGroupChild } = useProduct();
   const { publish } = useNotificationDelivery();
   const [pendingSelectionId, setPendingSelectionId] = useState<string | null>(null);
   const selectionDisabled = !group || commandsDisabled || !isCommandSupported("group");
-  const selectionDisabledReason =
-    snapshot?.groupSelectionAvailability === "core-not-running" ||
-    (selectionDisabled && snapshot?.runtime.phase === "inactive")
-      ? LL.routes.selectionRequiresRunningProxy()
-      : undefined;
   const selectionPending = group ? isGroupCommandPending(group.id) : false;
 
   useEffect(() => {
@@ -137,7 +131,6 @@ export function usePolicyGroupSelection({
     pendingSelectionId,
     selectChild,
     selectionDisabled,
-    selectionDisabledReason,
     selectionPending,
   };
 }
@@ -389,7 +382,6 @@ export function PolicyGroupBrowser({
                     currentLabel={LL.routes.selected()}
                     density={density}
                     disabled={selectionDisabled || selectionPending}
-                    disabledReason={selection.selectionDisabledReason}
                     entity={entity}
                     entityKind={childGroup ? "group" : "node"}
                     latency={
