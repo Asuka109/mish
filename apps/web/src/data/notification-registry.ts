@@ -3,12 +3,17 @@ import {
   type ApplicationNotification,
   type NotificationRecordDto,
   type NotificationSeverity,
+  type TunHelperRemovalOutcome,
   TunHelperFailureKindSchema,
   TunHelperRemovalOutcomeSchema,
 } from "@mish/contracts";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import { trafficFailureMessage } from "./traffic-failure-message";
-import { tunHelperFailureMessage } from "./tun-helper-failure-message";
+import {
+  tunHelperLifecycleFailureMessage,
+  tunHelperLifecycleOperation,
+  tunHelperOperationName,
+} from "./tun-helper-failure-message";
 
 export type NotificationActionTone = "primary" | "secondary" | "destructive";
 
@@ -215,44 +220,65 @@ function knownPresentation(
       return { message: LL.traffic.closeAllActiveSucceeded({ count: number("count") ?? 0 }) };
     case "traffic.operation-failed":
       return { message: trafficFailureMessage(LL, trafficFailure(string("failure"))) };
-    case "tun-helper.lifecycle": {
-      const removalOutcome = TunHelperRemovalOutcomeSchema.safeParse(string("outcome"));
-      const operation =
-        string("operation") === "install"
-          ? LL.settingsPage.installTunHelper()
-          : string("operation") === "repair"
-            ? LL.settingsPage.repairTunHelper()
-            : LL.settingsPage.removeTunHelper();
-      if (["pending", "finalizing"].includes(string("outcome") ?? "")) {
-        return { message: LL.settingsPage.tunHelperLifecyclePending({ operation }) };
-      }
-      if (string("outcome") === "applied") {
-        return { message: LL.settingsPage.tunHelperLifecycleApplied({ operation }) };
-      }
-      if (string("operation") === "remove" && removalOutcome.success) {
-        const message = {
-          "authorization-cancelled": LL.settingsPage.tunHelperRemovalAuthorizationCancelled,
-          "authorization-failed": LL.settingsPage.tunHelperRemovalAuthorizationFailed,
-          "observation-incomplete": LL.settingsPage.tunHelperRemovalObservationIncomplete,
-          "removal-failed": LL.settingsPage.tunHelperRemovalFailed,
-          removed: LL.settingsPage.tunHelperRemovalRemoved,
-          "shutdown-failed": LL.settingsPage.tunHelperRemovalShutdownFailed,
-        }[removalOutcome.data];
-        return { message: message() };
-      }
-      return {
-        message: LL.settingsPage.tunHelperLifecycleFailed({
-          failure: tunHelperFailureMessage(LL, tunHelperFailure(string("failure"))),
-          operation,
-        }),
-      };
-    }
+    case "tun-helper.lifecycle":
+      return tunHelperLifecyclePresentation(
+        string("operation"),
+        string("outcome"),
+        string("failure"),
+        LL,
+      );
     case "tun.drift":
       return { message: LL.capture.tunDrift() };
     case "tun.failed":
       return {
         message: LL.capture.tunFailure(),
       };
+  }
+}
+
+function tunHelperLifecyclePresentation(
+  operationValue: string | undefined,
+  outcome: string | undefined,
+  failureValue: string | undefined,
+  LL: TranslationFunctions,
+): PresentationCopy {
+  const operation = tunHelperLifecycleOperation(operationValue);
+  if (!operation) return { message: LL.settingsPage.tunHelperLifecycleUnknownOperation() };
+
+  const operationName = tunHelperOperationName(LL, operation);
+  if (outcome === "pending" || outcome === "finalizing") {
+    return { message: LL.settingsPage.tunHelperLifecyclePending({ operation: operationName }) };
+  }
+  if (outcome === "applied") {
+    return { message: LL.settingsPage.tunHelperLifecycleApplied({ operation: operationName }) };
+  }
+
+  const removalOutcome = TunHelperRemovalOutcomeSchema.safeParse(outcome);
+  if (operation === "remove" && removalOutcome.success) {
+    return { message: tunHelperRemovalOutcomeMessage(LL, removalOutcome.data) };
+  }
+  return {
+    message: tunHelperLifecycleFailureMessage(LL, operation, tunHelperFailure(failureValue)),
+  };
+}
+
+function tunHelperRemovalOutcomeMessage(
+  LL: TranslationFunctions,
+  outcome: TunHelperRemovalOutcome,
+) {
+  switch (outcome) {
+    case "authorization-cancelled":
+      return LL.settingsPage.tunHelperRemovalAuthorizationCancelled();
+    case "authorization-failed":
+      return LL.settingsPage.tunHelperRemovalAuthorizationFailed();
+    case "observation-incomplete":
+      return LL.settingsPage.tunHelperRemovalObservationIncomplete();
+    case "removal-failed":
+      return LL.settingsPage.tunHelperRemovalFailed();
+    case "removed":
+      return LL.settingsPage.tunHelperRemovalRemoved();
+    case "shutdown-failed":
+      return LL.settingsPage.tunHelperRemovalShutdownFailed();
   }
 }
 

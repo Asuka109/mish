@@ -1,6 +1,7 @@
 import {
   applicationNotificationKindSchema,
   NotificationRecordSchema,
+  TunHelperFailureKindSchema,
   type ApplicationActionId,
   type ApplicationNotification,
   type ApplicationNotificationDataByKind,
@@ -249,56 +250,190 @@ describe("notification presentation registry", () => {
     expect(finalizing.removable).toBe(false);
   });
 
-  it("presents distinct actionable Helper-removal outcomes", () => {
+  it("presents distinct actionable Helper-removal outcomes in both supported locales", () => {
     const expected = {
-      "authorization-cancelled":
-        "Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.",
-      "authorization-failed":
-        "macOS did not authorize Helper removal. Confirm administrator access and try again.",
-      "observation-incomplete":
-        "Mish could not confirm that Core, the virtual interface, routes, and DNS were clean, so the Helper was not removed. Restore the network state or restart Mish, then try again.",
-      "removal-failed":
-        "The Helper could not be removed and remains installed. Restart Mish, then open Settings and try again.",
-      removed:
-        "The Helper was removed after Mish confirmed that Core, the virtual interface, routes, and DNS were clean.",
-      "shutdown-failed":
-        "Mish could not stop the virtual interface safely, so the Helper was not removed. Turn off the virtual interface and try again.",
+      en: {
+        "authorization-cancelled":
+          "Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.",
+        "authorization-failed":
+          "macOS did not authorize Helper removal. Confirm administrator access and try again.",
+        "observation-incomplete":
+          "Mish could not confirm that Core, the virtual interface, routes, and DNS were clean, so the Helper was not removed. Restore the network state or restart Mish, then try again.",
+        "removal-failed":
+          "The Helper could not be removed and remains installed. Restart Mish, then open Settings and try again.",
+        removed:
+          "The Helper was removed after Mish confirmed that Core, the virtual interface, routes, and DNS were clean.",
+        "shutdown-failed":
+          "Mish could not stop the virtual interface safely, so the Helper was not removed. Turn off the virtual interface and try again.",
+      },
+      zh: {
+        "authorization-cancelled": "已取消管理员授权。系统组件仍保持安装；准备好后可再次尝试。",
+        "authorization-failed": "macOS 未授权移除系统组件。请确认管理员权限后重试。",
+        "observation-incomplete":
+          "Mish 无法确认核心、虚拟网卡、路由和 DNS 均已清理，因此没有移除系统组件。请恢复网络状态或重新启动 Mish 后重试。",
+        "removal-failed": "系统组件移除失败，当前仍保持安装。请重新启动 Mish，回到设置后重试。",
+        removed: "系统组件已移除。Mish 已确认核心、虚拟网卡、路由和 DNS 均已清理。",
+        "shutdown-failed":
+          "Mish 无法安全关闭虚拟网卡，因此没有移除系统组件。请先关闭虚拟网卡后重试。",
+      },
     } as const;
 
-    for (const [outcome, message] of Object.entries(expected)) {
-      const presentation = presentNotification(
-        record("tun-helper.lifecycle", { operation: "remove", outcome }),
-        i18nObject("en"),
-      );
-      expect(presentation.message).toBe(message);
-      if (outcome !== "removed") {
-        expect(presentation.message).not.toContain(outcome);
+    for (const [locale, outcomes] of [
+      ["en", expected.en],
+      ["zh", expected.zh],
+    ] as const) {
+      for (const [outcome, message] of Object.entries(outcomes)) {
+        const presentation = presentNotification(
+          record("tun-helper.lifecycle", { operation: "remove", outcome }),
+          i18nObject(locale),
+        );
+        expect(presentation.message).toBe(message);
+        if (outcome !== "removed") {
+          expect(presentation.message).not.toContain(outcome);
+        }
       }
+      expect(new Set(Object.values(outcomes)).size).toBe(Object.keys(outcomes).length);
     }
-    expect(new Set(Object.values(expected)).size).toBe(Object.keys(expected).length);
   });
 
-  it("presents Helper preparation failures as actionable user-facing recovery", () => {
-    const notification = record("tun-helper.lifecycle", {
-      failure: "preparation-failed",
-      operation: "repair",
-      outcome: "recovery-required",
-    });
+  it("derives every Helper lifecycle failure from its typed operation and failure", () => {
+    const locales = [
+      {
+        actionPattern:
+          /try |Restart Mish|Reopen Mish|Open (?:System )?Settings|Turn off Virtual Interface|Use a properly signed|Use a supported/,
+        locale: "en",
+        operations: {
+          install: "Install Helper",
+          remove: "Remove Helper",
+          repair: "Repair Helper",
+        },
+      },
+      {
+        actionPattern:
+          /再次尝试|重新启动 Mish|重新打开 Mish|前往“设置”|打开“系统设置”|先关闭虚拟网卡|使用经过正确签名|使用受支持/,
+        locale: "zh",
+        operations: {
+          install: "安装系统组件",
+          remove: "移除系统组件",
+          repair: "修复系统组件",
+        },
+      },
+    ] as const;
+    const distinctFailures = [
+      "authorization-cancelled",
+      "preparation-failed",
+      "installation-failed",
+      "confirmation-failed",
+    ] as const;
 
-    const presentation = presentNotification(notification, i18nObject("zh"));
+    for (const { actionPattern, locale, operations } of locales) {
+      for (const [operation, operationName] of Object.entries(operations)) {
+        const messages = new Map<string, string>();
+        for (const failure of TunHelperFailureKindSchema.options) {
+          const presentation = presentNotification(
+            record("tun-helper.lifecycle", {
+              failure,
+              operation,
+              outcome: "recovery-required",
+            }),
+            i18nObject(locale),
+          );
 
-    expect(presentation.message).toBe(
-      "修复系统组件未完成。Mish 无法准备或验证安装所需文件，因此没有请求管理员授权。请重新启动 Mish 后重试；若仍失败，请重新安装当前版本。",
-    );
-    expect(presentation.message).not.toContain("preparation-failed");
-    expect(presentation.message).not.toContain("Mihomo");
-    expect(presentation.message).not.toContain("Rust");
+          messages.set(failure, presentation.message);
+          expect(presentation.message).toContain(operationName);
+          expect(presentation.message).not.toContain(failure);
+          expect(presentation.message).toMatch(actionPattern);
+          if (operation === "remove") {
+            expect(presentation.message).not.toContain(operations.install);
+            expect(presentation.message).not.toContain(operations.repair);
+          }
+        }
 
-    const english = presentNotification(notification, i18nObject("en"));
-    expect(english.message).toBe(
-      "Repair Helper could not be completed. Mish could not prepare or verify the files required for installation, so administrator approval was not requested. Restart Mish and retry; if it still fails, reinstall this version.",
-    );
-    expect(english.message).not.toContain("preparation-failed");
+        expect(new Set(distinctFailures.map((failure) => messages.get(failure))).size).toBe(4);
+      }
+    }
+  });
+
+  it("keeps authorization, preparation, replacement, and confirmation recovery distinct", () => {
+    const notification = (failure: (typeof TunHelperFailureKindSchema.options)[number]) =>
+      record("tun-helper.lifecycle", {
+        failure,
+        operation: "repair",
+        outcome: "recovery-required",
+      });
+
+    const english = {
+      authorizationCancelled: presentNotification(
+        notification("authorization-cancelled"),
+        i18nObject("en"),
+      ).message,
+      confirmation: presentNotification(notification("confirmation-failed"), i18nObject("en"))
+        .message,
+      installation: presentNotification(notification("installation-failed"), i18nObject("en"))
+        .message,
+      preparation: presentNotification(notification("preparation-failed"), i18nObject("en"))
+        .message,
+    };
+    const chinese = {
+      authorizationCancelled: presentNotification(
+        notification("authorization-cancelled"),
+        i18nObject("zh"),
+      ).message,
+      confirmation: presentNotification(notification("confirmation-failed"), i18nObject("zh"))
+        .message,
+      installation: presentNotification(notification("installation-failed"), i18nObject("zh"))
+        .message,
+      preparation: presentNotification(notification("preparation-failed"), i18nObject("zh"))
+        .message,
+    };
+
+    expect(english.authorizationCancelled).toContain("was cancelled");
+    expect(english.preparation).toContain("was not asked for authorization");
+    expect(english.installation).toContain("after macOS approved the request");
+    expect(english.confirmation).toContain("could not confirm the final state");
+    expect(new Set(Object.values(english)).size).toBe(4);
+
+    expect(chinese.authorizationCancelled).toContain("已取消");
+    expect(chinese.preparation).toContain("没有请求管理员授权");
+    expect(chinese.installation).toContain("已授权");
+    expect(chinese.confirmation).toContain("无法确认最终状态");
+    expect(new Set(Object.values(chinese)).size).toBe(4);
+  });
+
+  it("distinguishes a signing requirement from a missing system component", () => {
+    for (const [locale, expected] of [
+      [
+        "en",
+        {
+          unpackaged: "does not include the required system component",
+          unsignedApp: "does not meet the macOS signing requirement",
+        },
+      ],
+      [
+        "zh",
+        {
+          unpackaged: "安装系统组件未完成，因为此版本的 Mish 不包含所需的系统组件",
+          unsignedApp: "不符合 macOS 的签名要求",
+        },
+      ],
+    ] as const) {
+      const message = (failure: "unpackaged" | "unsigned-app") =>
+        presentNotification(
+          record("tun-helper.lifecycle", {
+            failure,
+            operation: "install",
+            outcome: "recovery-required",
+          }),
+          i18nObject(locale),
+        ).message;
+
+      const unpackaged = message("unpackaged");
+      const unsignedApp = message("unsigned-app");
+      expect(unpackaged).toContain(expected.unpackaged);
+      expect(unsignedApp).toContain(expected.unsignedApp);
+      expect(unsignedApp).not.toBe(unpackaged);
+      expect(unsignedApp).not.toContain("unsigned-app");
+    }
   });
 
   it("rejects legacy and incomplete transport shapes", () => {
