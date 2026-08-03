@@ -100,9 +100,12 @@ The Shared Rust authority candidate passed all six unit tests with
 `cargo test -p mish-mobile-navigation-prototype`. The tests are state-contract
 evidence only; the prototype crate is not linked into either app.
 
-The final Android source candidate compiled through Tauri for arm64 and ran on
-an isolated Android 16/API 36 emulator. The personal USB device remained
-untouched.
+The Android candidate at `c2bc2c4` compiled through Tauri for arm64 and ran on
+an isolated Android 16/API 36 emulator. Review then found missing `/status/*`
+and `/profiles/*` mappings. Commit `c6dd0e5` corrected those mappings in Rust,
+Android, and SwiftUI, added the five-tab child-route matrix test, and recompiled
+the final Android source candidate. The mapping-only correction was not
+reinstalled on the emulator. The personal USB device remained untouched.
 
 - Artifact:
   `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
