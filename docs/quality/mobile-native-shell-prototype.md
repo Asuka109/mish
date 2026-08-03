@@ -18,10 +18,12 @@ Run the research-only Shared Rust state model:
 cargo test -p mish-mobile-navigation-prototype
 ```
 
-The tests cover native and React intent convergence, per-tab stacks, mobile
-deep-link mapping, back-before-exit, focus revision, stale intent rejection,
-duplicate intent idempotency, and invalid-link non-mutation. They do not prove
-native rendering, Tauri JNI/FFI integration, or device bridge latency.
+The tests cover the closed native/deep-link shell inputs, top-level selection,
+one-way Web entry reset, full external deep-link forwarding, source/action
+rejection, stale intent rejection, duplicate idempotency, and invalid-link
+non-mutation. There is deliberately no React/Web intent, route stack, back, or
+focus API in this crate. The tests do not prove native rendering, Tauri JNI/FFI
+integration, or device bridge latency.
 
 ## Android build and launch
 
@@ -82,26 +84,35 @@ recording for gesture and ripple behavior; screenshots alone are insufficient.
    edges. The touch-origin ripple/state layer must stay clipped to the Material
    item/indicator, while the complete bar remains unclipped.
 2. Hold, cancel, and release a tap. Pressed feedback appears immediately, but
-   selected state and content change together only after the authority revision
-   increments.
+   selected state and the one-way Web entry change together only after the
+   Shared Rust shell revision increments.
 3. Use **Disable Profiles**. Profiles becomes visibly and accessibly disabled,
-   cannot receive selection, and does not change the route revision. Re-enable
+   cannot receive selection, and does not change the shell revision. Re-enable
    it and confirm normal selection.
 4. Reselect the active destination. It remains on the same route and announces
    that it is already selected; no duplicate route is pushed.
 
-### Back and deep links
+### Boundary, back, and deep links
 
-1. Open a route child from Web content. Begin the edge-back gesture slowly,
-   cancel halfway, and confirm path, revision, selection, and focus are unchanged.
-2. Complete the gesture. The child pops once, native title/back state and Web
-   content show the same revision, and the heading receives focus.
-3. Back at a tab root transitions toward system home once. It must not flash a
-   second route, double-pop, or leave frozen Web content.
-4. Repeat with three-button navigation and the top app-bar Back affordance.
-5. Launch `/traffic?tab=rules`, `/events`, `/routes/streaming`, and
-   `/settings/network`. Activity/Routes/Settings selection and the visible route
-   must converge on one revision.
+1. Inspect the final debug source and runtime. There must be no
+   `addJavascriptInterface`, `JavascriptInterface`, `NativeRouteBridge`, custom
+   URL command, or Web-facing native shell command. Web buttons must change only
+   Web-owned internal history.
+2. Open an internal Web child. The visible Web path and Web back availability
+   change, while native selected tab and Rust shell revision remain unchanged.
+3. Begin the edge-back gesture slowly and cancel halfway. Web path/history and
+   native shell selection/revision remain unchanged. Complete it: Web history
+   pops once without a Rust shell transition.
+4. Back at the Web root transitions toward system home once. It must not flash a
+   second route, double-pop, change native selection, or invoke a Rust back path.
+5. Repeat with three-button navigation and the top app-bar Back affordance.
+6. Launch `/traffic?tab=rules`, `/events`, `/routes/streaming`, and
+   `/settings/network` as platform deep links. Rust selects the matching shell
+   destination once and emits the full entry path toward Web. Later internal Web
+   navigation must not report back to Native.
+7. Confirm the mobile Web content exposes no cross-section link. Primary
+   destination changes originate only from native tab/drawer chrome or a
+   platform deep link.
 
 ### Insets, keyboard, and recreation
 
@@ -111,7 +122,7 @@ recording for gesture and ripple behavior; screenshots alone are insufficient.
 2. Focus **Keyboard inset probe**. The field scrolls into the resized visual
    viewport. The native navigation may yield to the IME, but it must return
    unchanged after dismissal without doubled padding or a cleared route.
-3. Rotate with a child route and with the native sheet open. The prototype may
+3. Rotate with a Web child route and with the native sheet open. The prototype may
    recreate because it is deliberately not production state restoration, but
    it must never display two selected tabs or two bars.
 
@@ -126,8 +137,9 @@ recording for gesture and ripple behavior; screenshots alone are insufficient.
 3. Run Accessibility Scanner and traverse with TalkBack: top-bar Back/Sheet,
    Web heading and controls, then five labeled destinations. Confirm selected
    and disabled announcements, stable traversal, and practical targets.
-4. Open and dismiss **Sheet** using touch, keyboard, and TalkBack. The route
-   heading regains focus and no route revision changes.
+4. Open and dismiss **Sheet** using touch, keyboard, and TalkBack. It must be
+   reachable only from native chrome. Web content regains ordinary focus and no
+   shell revision or Web route changes.
 
 ## Android automated/supporting inspection
 
@@ -145,6 +157,21 @@ adb -s emulator-5556 shell dumpsys window
 The UI hierarchy can confirm labels, bounds, selected/disabled state, and one
 Activity. It cannot prove ripple clipping, gesture motion, focus announcement,
 or visual contrast.
+
+The source boundary must also stay closed:
+
+```sh
+if rg -n \
+  'addJavascriptInterface|JavascriptInterface|NativeRouteBridge|WKScriptMessageHandler' \
+  apps/mobile/src-tauri/gen/android/app/src/debug \
+  prototypes/mobile-shell/ios; then
+  exit 1
+fi
+```
+
+This negative check is necessary but not sufficient: hands-on inspection must
+also confirm that no custom URL scheme or Web-facing Tauri command provides an
+equivalent shell/native escape hatch.
 
 ## iOS and iPadOS source candidate
 
@@ -165,11 +192,14 @@ artifact identity.
 ### System tabs, navigation, and materials
 
 1. On iPhone compact width, confirm five stable labeled system tabs at the
-   bottom. Select/reselect each and confirm one selected tab and route revision.
-2. Push a child route in every tab, switch tabs, and return. Each tab preserves
-   its own native stack; system back and edge swipe pop only that stack.
-3. Cancel and complete interactive edge pop. Cancellation changes no revision;
-   completion changes one revision and restores heading focus.
+   bottom. Select/reselect each and confirm one selected shell destination and
+   one-way Web entry directive.
+2. Inspect controller/WebView containment. Exactly one Tauri-owned `WKWebView`
+   occupies the content boundary; switching tabs must not create one WebView per
+   tab or native product screens.
+3. Navigate to an internal Web child, then cancel and complete the platform back
+   gesture. Cancellation changes neither Web history nor shell revision;
+   completion pops Web history once without a Rust/native route-stack commit.
 4. Scroll long content through top and bottom edges. System navigation and tab
    chrome apply current scroll-edge and Liquid Glass behavior; tab minimization
    must not hide location or make a destination unreachable.
@@ -181,8 +211,9 @@ artifact identity.
 1. Run portrait, landscape, split view, and Stage Manager widths. Confirm the
    system chooses a compact tab or adaptable tab/sidebar form without showing
    the Mish desktop sidebar.
-2. Resize across compact/regular boundaries with a child route and sheet open.
-   Tab, route stack, focus, and sheet identity remain one authority projection.
+2. Resize across compact/regular boundaries with a Web child route and
+   native-origin shell sheet open. Shell selection remains Rust-owned, Web
+   history/focus remains React-owned, and there is still exactly one WKWebView.
 3. Exercise pointer hover and Full Keyboard Access over tabs, toolbar actions,
    content controls, and sheet controls. System shortcuts must not conflict with
    text entry or platform shortcuts.
@@ -202,6 +233,18 @@ artifact identity.
    appearance or hiding selection.
 5. Repeat light/dark appearance with Reduce Motion and Reduce Transparency
    independently; these settings are not one combined fallback.
+
+### Strict WebView boundary
+
+1. Inspect the WKWebView configuration and Tauri command surface. There must be
+   no `WKScriptMessageHandler`, custom URL command, or Web-facing Tauri command
+   for tabs, drawers, native sheets, haptics, permissions, back, or focus.
+2. Trigger every Web control in the candidate. It may navigate, open a Web
+   sheet, mutate Web pending state, and call separately audited Shared Rust
+   product APIs, but it cannot present or mutate Native UI.
+3. Trigger every native shell destination and platform deep link. The accepted
+   Rust shell snapshot emits one entry path toward React Router; React does not
+   acknowledge later internal paths back to Native.
 
 ## Acceptance and evidence labels
 

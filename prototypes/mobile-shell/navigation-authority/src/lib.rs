@@ -1,10 +1,12 @@
-//! Research-only mobile navigation authority used by the Issue #343 prototypes.
+//! Research-only mobile shell authority used by the Issue #343 prototypes.
 //!
-//! This crate is not linked into a Mish application. It proves the state and
-//! ordering contract that native chrome and React Router would project after
-//! an accepted implementation issue.
+//! This crate is not linked into a Mish application. It proves the outer-shell
+//! contract only: native chrome selects a primary destination through Shared
+//! Rust, and Rust emits one entry-route directive toward the WebView. React
+//! Router remains the only owner of routes, history, back, and focus inside the
+//! WebView. No Web-originated native intent exists in this API.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
 const MAX_RETIRED_INTENTS: usize = 128;
 
@@ -38,163 +40,127 @@ impl MobileTab {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum IntentSource {
+pub enum ShellIntentSource {
     AndroidChrome,
     AppleChrome,
-    ReactLink,
-    PlatformBack,
-    DeepLink,
+    PlatformDeepLink,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NavigationAction {
-    OpenPath(String),
+pub enum ShellAction {
     SelectTab(MobileTab),
-    Back,
+    OpenExternalPath(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NavigationIntent {
+pub struct ShellIntent {
     pub intent_id: String,
     pub expected_revision: u64,
-    pub source: IntentSource,
-    pub action: NavigationAction,
+    pub source: ShellIntentSource,
+    pub action: ShellAction,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NavigationSnapshot {
+pub struct ShellSnapshot {
     pub authority_id: String,
     pub revision: u64,
     pub selected_tab: MobileTab,
-    pub active_path: String,
-    pub tab_stacks: BTreeMap<MobileTab, Vec<String>>,
-    pub can_go_back: bool,
-    pub focus_token: u64,
+    /// One-way entry directive for the WebView. This is not a mirror of the
+    /// current React Router location and is never updated by Web content.
+    pub web_entry_path: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NavigationOutcome {
-    Applied(NavigationSnapshot),
-    Duplicate(NavigationSnapshot),
+pub enum ShellOutcome {
+    Applied(ShellSnapshot),
+    Duplicate(ShellSnapshot),
     RejectedStale {
         expected_revision: u64,
-        snapshot: NavigationSnapshot,
+        snapshot: ShellSnapshot,
     },
-    ExitRequested(NavigationSnapshot),
     RejectedPath {
         path: String,
-        snapshot: NavigationSnapshot,
+        snapshot: ShellSnapshot,
+    },
+    RejectedSource {
+        source: ShellIntentSource,
+        action: ShellAction,
+        snapshot: ShellSnapshot,
     },
 }
 
 #[derive(Debug)]
-pub struct MobileNavigationAuthority {
+pub struct MobileShellAuthority {
     authority_id: String,
     revision: u64,
-    focus_token: u64,
     selected_tab: MobileTab,
-    tab_stacks: BTreeMap<MobileTab, Vec<String>>,
+    web_entry_path: String,
     retired_intents: BTreeSet<String>,
     retired_intent_order: VecDeque<String>,
 }
 
-impl MobileNavigationAuthority {
+impl MobileShellAuthority {
     pub fn new(authority_id: impl Into<String>) -> Self {
-        let tab_stacks = MobileTab::ALL
-            .into_iter()
-            .map(|tab| (tab, vec![tab.root_path().to_owned()]))
-            .collect();
         Self {
             authority_id: authority_id.into(),
             revision: 0,
-            focus_token: 0,
             selected_tab: MobileTab::Home,
-            tab_stacks,
+            web_entry_path: MobileTab::Home.root_path().to_owned(),
             retired_intents: BTreeSet::new(),
             retired_intent_order: VecDeque::new(),
         }
     }
 
-    pub fn snapshot(&self) -> NavigationSnapshot {
-        let active_stack = self
-            .tab_stacks
-            .get(&self.selected_tab)
-            .expect("all mobile tabs have one stack");
-        NavigationSnapshot {
+    pub fn snapshot(&self) -> ShellSnapshot {
+        ShellSnapshot {
             authority_id: self.authority_id.clone(),
             revision: self.revision,
             selected_tab: self.selected_tab,
-            active_path: active_stack
-                .last()
-                .expect("every tab stack retains its root")
-                .clone(),
-            tab_stacks: self.tab_stacks.clone(),
-            can_go_back: active_stack.len() > 1,
-            focus_token: self.focus_token,
+            web_entry_path: self.web_entry_path.clone(),
         }
     }
 
-    pub fn apply(&mut self, intent: NavigationIntent) -> NavigationOutcome {
+    pub fn apply(&mut self, intent: ShellIntent) -> ShellOutcome {
         if self.retired_intents.contains(&intent.intent_id) {
-            return NavigationOutcome::Duplicate(self.snapshot());
+            return ShellOutcome::Duplicate(self.snapshot());
         }
         if intent.expected_revision != self.revision {
-            return NavigationOutcome::RejectedStale {
+            return ShellOutcome::RejectedStale {
                 expected_revision: intent.expected_revision,
                 snapshot: self.snapshot(),
             };
         }
 
-        let outcome = match intent.action {
-            NavigationAction::SelectTab(tab) => {
-                self.selected_tab = tab;
-                self.commit();
-                NavigationOutcome::Applied(self.snapshot())
+        match (&intent.source, &intent.action) {
+            (
+                ShellIntentSource::AndroidChrome | ShellIntentSource::AppleChrome,
+                ShellAction::SelectTab(tab),
+            ) => {
+                self.selected_tab = *tab;
+                self.web_entry_path = tab.root_path().to_owned();
             }
-            NavigationAction::OpenPath(path) => {
-                let Some(tab) = tab_for_path(&path) else {
-                    return NavigationOutcome::RejectedPath {
-                        path,
+            (ShellIntentSource::PlatformDeepLink, ShellAction::OpenExternalPath(path)) => {
+                let Some(tab) = tab_for_path(path) else {
+                    return ShellOutcome::RejectedPath {
+                        path: path.clone(),
                         snapshot: self.snapshot(),
                     };
                 };
                 self.selected_tab = tab;
-                let stack = self
-                    .tab_stacks
-                    .get_mut(&tab)
-                    .expect("all mobile tabs have one stack");
-                if stack.last() != Some(&path) {
-                    if path == tab.root_path() {
-                        stack.truncate(1);
-                    } else {
-                        stack.push(path);
-                    }
-                }
-                self.commit();
-                NavigationOutcome::Applied(self.snapshot())
+                self.web_entry_path = path.clone();
             }
-            NavigationAction::Back => {
-                let stack = self
-                    .tab_stacks
-                    .get_mut(&self.selected_tab)
-                    .expect("all mobile tabs have one stack");
-                if stack.len() == 1 {
-                    NavigationOutcome::ExitRequested(self.snapshot())
-                } else {
-                    stack.pop();
-                    self.commit();
-                    NavigationOutcome::Applied(self.snapshot())
-                }
+            _ => {
+                return ShellOutcome::RejectedSource {
+                    source: intent.source,
+                    action: intent.action,
+                    snapshot: self.snapshot(),
+                };
             }
-        };
+        }
 
-        self.retire_intent(intent.intent_id);
-        outcome
-    }
-
-    fn commit(&mut self) {
         self.revision += 1;
-        self.focus_token += 1;
+        self.retire_intent(intent.intent_id);
+        ShellOutcome::Applied(self.snapshot())
     }
 
     fn retire_intent(&mut self, intent_id: String) {
@@ -233,10 +199,10 @@ mod tests {
     fn intent(
         id: &str,
         revision: u64,
-        source: IntentSource,
-        action: NavigationAction,
-    ) -> NavigationIntent {
-        NavigationIntent {
+        source: ShellIntentSource,
+        action: ShellAction,
+    ) -> ShellIntent {
+        ShellIntent {
             intent_id: id.to_owned(),
             expected_revision: revision,
             source,
@@ -244,137 +210,127 @@ mod tests {
         }
     }
 
-    fn applied(outcome: NavigationOutcome) -> NavigationSnapshot {
+    fn applied(outcome: ShellOutcome) -> ShellSnapshot {
         match outcome {
-            NavigationOutcome::Applied(snapshot) => snapshot,
+            ShellOutcome::Applied(snapshot) => snapshot,
             other => panic!("expected applied outcome, got {other:?}"),
         }
     }
 
     #[test]
-    fn native_and_react_intents_converge_on_one_snapshot() {
-        let mut authority = MobileNavigationAuthority::new("authority-a");
+    fn native_tab_selection_emits_one_root_entry_directive() {
+        let mut authority = MobileShellAuthority::new("authority-a");
         let routes = applied(authority.apply(intent(
-            "native-tab-routes",
+            "android-tab-routes",
             0,
-            IntentSource::AndroidChrome,
-            NavigationAction::SelectTab(MobileTab::Routes),
-        )));
-        let child = applied(authority.apply(intent(
-            "react-route-child",
-            routes.revision,
-            IntentSource::ReactLink,
-            NavigationAction::OpenPath("/routes/streaming".to_owned()),
+            ShellIntentSource::AndroidChrome,
+            ShellAction::SelectTab(MobileTab::Routes),
         )));
 
-        assert_eq!(child.selected_tab, MobileTab::Routes);
-        assert_eq!(child.active_path, "/routes/streaming");
-        assert_eq!(
-            child.tab_stacks[&MobileTab::Routes],
-            ["/routes", "/routes/streaming"]
-        );
-        assert!(child.can_go_back);
-        assert_eq!(child.focus_token, 2);
+        assert_eq!(routes.selected_tab, MobileTab::Routes);
+        assert_eq!(routes.web_entry_path, "/routes");
+        assert_eq!(routes.revision, 1);
     }
 
     #[test]
-    fn deep_links_select_the_canonical_mobile_tab_and_preserve_other_stacks() {
-        let mut authority = MobileNavigationAuthority::new("authority-a");
-        let events = applied(authority.apply(intent(
-            "deep-link-events",
+    fn switching_shell_tabs_resets_only_the_one_way_web_entry() {
+        let mut authority = MobileShellAuthority::new("authority-a");
+        let deep_link = applied(authority.apply(intent(
+            "settings-deep-link",
             0,
-            IntentSource::DeepLink,
-            NavigationAction::OpenPath("/events".to_owned()),
+            ShellIntentSource::PlatformDeepLink,
+            ShellAction::OpenExternalPath("/settings/network".to_owned()),
         )));
+        let home = applied(authority.apply(intent(
+            "apple-tab-home",
+            deep_link.revision,
+            ShellIntentSource::AppleChrome,
+            ShellAction::SelectTab(MobileTab::Home),
+        )));
+
+        assert_eq!(home.selected_tab, MobileTab::Home);
+        assert_eq!(home.web_entry_path, "/status");
+    }
+
+    #[test]
+    fn platform_deep_link_selects_shell_and_forwards_the_full_entry_path() {
+        let mut authority = MobileShellAuthority::new("authority-a");
         let settings = applied(authority.apply(intent(
-            "deep-link-settings",
-            events.revision,
-            IntentSource::DeepLink,
-            NavigationAction::OpenPath("/settings/network".to_owned()),
+            "settings-deep-link",
+            0,
+            ShellIntentSource::PlatformDeepLink,
+            ShellAction::OpenExternalPath("/settings/network?source=notification".to_owned()),
         )));
 
-        assert_eq!(events.selected_tab, MobileTab::Activity);
-        assert_eq!(events.active_path, "/events");
         assert_eq!(settings.selected_tab, MobileTab::Settings);
-        assert_eq!(settings.active_path, "/settings/network");
         assert_eq!(
-            settings.tab_stacks[&MobileTab::Activity],
-            ["/traffic", "/events"]
+            settings.web_entry_path,
+            "/settings/network?source=notification"
         );
     }
 
     #[test]
-    fn platform_back_pops_the_selected_tab_before_requesting_exit() {
-        let mut authority = MobileNavigationAuthority::new("authority-a");
-        let child = applied(authority.apply(intent(
-            "open-child",
-            0,
-            IntentSource::ReactLink,
-            NavigationAction::OpenPath("/routes/streaming".to_owned()),
-        )));
-        let root = applied(authority.apply(intent(
-            "back-child",
-            child.revision,
-            IntentSource::PlatformBack,
-            NavigationAction::Back,
-        )));
-        let exit = authority.apply(intent(
-            "back-root",
-            root.revision,
-            IntentSource::PlatformBack,
-            NavigationAction::Back,
-        ));
-
-        assert_eq!(root.active_path, "/routes");
-        assert!(!root.can_go_back);
-        assert!(matches!(exit, NavigationOutcome::ExitRequested(_)));
-    }
-
-    #[test]
-    fn stale_and_duplicate_intents_cannot_diverge_native_and_react_projections() {
-        let mut authority = MobileNavigationAuthority::new("authority-a");
-        let first = intent(
-            "select-settings",
-            0,
-            IntentSource::AppleChrome,
-            NavigationAction::SelectTab(MobileTab::Settings),
-        );
-        let current = applied(authority.apply(first.clone()));
-
-        assert!(
-            matches!(authority.apply(first), NavigationOutcome::Duplicate(snapshot) if snapshot == current)
-        );
-        assert!(matches!(
-            authority.apply(intent(
-                "stale-web-link",
-                0,
-                IntentSource::ReactLink,
-                NavigationAction::OpenPath("/routes".to_owned()),
-            )),
-            NavigationOutcome::RejectedStale { snapshot, .. } if snapshot == current
-        ));
-    }
-
-    #[test]
-    fn invalid_deep_link_does_not_mutate_route_or_focus() {
-        let mut authority = MobileNavigationAuthority::new("authority-a");
+    fn chrome_cannot_open_arbitrary_web_paths() {
+        let mut authority = MobileShellAuthority::new("authority-a");
         let baseline = authority.snapshot();
         let outcome = authority.apply(intent(
-            "invalid-link",
+            "forbidden-chrome-path",
             0,
-            IntentSource::DeepLink,
-            NavigationAction::OpenPath("https://example.invalid/profile".to_owned()),
+            ShellIntentSource::AndroidChrome,
+            ShellAction::OpenExternalPath("/settings/network".to_owned()),
         ));
 
         assert!(matches!(
             outcome,
-            NavigationOutcome::RejectedPath { snapshot, .. } if snapshot == baseline
+            ShellOutcome::RejectedSource { snapshot, .. } if snapshot == baseline
+        ));
+    }
+
+    #[test]
+    fn stale_and_duplicate_shell_intents_cannot_replace_the_projection() {
+        let mut authority = MobileShellAuthority::new("authority-a");
+        let first = intent(
+            "select-settings",
+            0,
+            ShellIntentSource::AppleChrome,
+            ShellAction::SelectTab(MobileTab::Settings),
+        );
+        let current = applied(authority.apply(first.clone()));
+
+        assert!(
+            matches!(authority.apply(first), ShellOutcome::Duplicate(snapshot) if snapshot == current)
+        );
+        assert!(matches!(
+            authority.apply(intent(
+                "stale-native-tab",
+                0,
+                ShellIntentSource::AndroidChrome,
+                ShellAction::SelectTab(MobileTab::Routes),
+            )),
+            ShellOutcome::RejectedStale { snapshot, .. } if snapshot == current
+        ));
+    }
+
+    #[test]
+    fn invalid_platform_deep_link_does_not_mutate_the_shell() {
+        let mut authority = MobileShellAuthority::new("authority-a");
+        let baseline = authority.snapshot();
+        let outcome = authority.apply(intent(
+            "invalid-link",
+            0,
+            ShellIntentSource::PlatformDeepLink,
+            ShellAction::OpenExternalPath("https://example.invalid/profile".to_owned()),
+        ));
+
+        assert!(matches!(
+            outcome,
+            ShellOutcome::RejectedPath { snapshot, .. } if snapshot == baseline
         ));
         assert_eq!(authority.snapshot(), baseline);
     }
 
     #[test]
-    fn every_prototype_tab_accepts_its_child_route() {
+    fn every_shell_section_accepts_an_external_child_entry() {
         let cases = [
             ("/status/session", MobileTab::Home),
             ("/routes/streaming", MobileTab::Routes),

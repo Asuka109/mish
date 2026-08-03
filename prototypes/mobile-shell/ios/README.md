@@ -1,11 +1,18 @@
 # iOS and iPadOS shell prototype
 
-This research-only Swift package exercises system `TabView`,
-`NavigationStack`, adaptable sidebar presentation, navigation and toolbar
-materials, scroll-edge behavior, sheets, Dynamic Type, VoiceOver focus,
-Reduce Motion, Reduce Transparency, pointer hover, keyboard shortcuts, and
-compact or regular layouts. It contains no Mish product runtime and is not
+This research-only Swift package exercises the outer native shell only: system
+`TabView`, a shell-level `NavigationStack`, adaptable sidebar presentation,
+navigation and toolbar materials, a native-origin diagnostics sheet, Dynamic
+Type, Reduce Motion, Reduce Transparency, pointer hover, keyboard shortcuts,
+and compact or regular layouts. It contains no Mish product runtime and is not
 linked into the Tauri application.
+
+The content area is deliberately a boundary placeholder, not a native product
+screen. A production host candidate must place exactly one Tauri-owned
+`WKWebView` there. Shared Rust may emit a one-way top-level entry route toward
+React Router; Web content owns every internal route, history entry, back action,
+and DOM focus. The WebView must not install a script message handler or other
+Web-to-Native command bridge.
 
 Open `MishShellPrototype.swiftpm` in Xcode 26 or later, select an iOS 26 or
 iPadOS 26 simulator, and run **Mish Shell Prototype**. The package intentionally

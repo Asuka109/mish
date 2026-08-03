@@ -10,7 +10,6 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
@@ -37,9 +36,9 @@ import android.window.OnBackInvokedDispatcher
 /**
  * Debug-only host prototype for Issue #343.
  *
- * The native bar and WebView never own parallel selected-route stores. A small
- * in-process authority stands in for the tested Shared Rust prototype and emits
- * a complete revisioned snapshot to both projections after every intent.
+ * Shared Rust owns only the outer-shell selection. Native chrome emits one-way
+ * entry directives into the WebView, while Web content owns its routes, history,
+ * back, and focus without any API for invoking native capabilities.
  */
 class ShellPrototypeActivity : AppCompatActivity() {
   private lateinit var toolbar: MaterialToolbar
@@ -80,7 +79,6 @@ class ShellPrototypeActivity : AppCompatActivity() {
     if (Build.VERSION.SDK_INT >= 34 && predictiveBackRegistered) {
       predictiveBackCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
     }
-    webView.removeJavascriptInterface(JS_BRIDGE_NAME)
     super.onDestroy()
   }
 
@@ -163,7 +161,7 @@ class ShellPrototypeActivity : AppCompatActivity() {
 
   private fun configureToolbar() {
     toolbar.setNavigationOnClickListener {
-      commitBack(currentSnapshot.revision, "top-app-bar")
+      commitWebBack()
     }
     toolbar.menu.add("Sheet").apply {
       setIcon(android.R.drawable.ic_menu_more)
@@ -236,10 +234,7 @@ class ShellPrototypeActivity : AppCompatActivity() {
   private fun configureBack() {
     if (Build.VERSION.SDK_INT >= 34) {
       val callback = object : OnBackAnimationCallback {
-        private var expectedRevision = 0L
-
         override fun onBackStarted(backEvent: BackEvent) {
-          expectedRevision = currentSnapshot.revision
           previewBack(0f)
         }
 
@@ -253,14 +248,19 @@ class ShellPrototypeActivity : AppCompatActivity() {
 
         override fun onBackInvoked() {
           previewBack(0f)
-          commitBack(expectedRevision, "predictive-back")
+          commitWebBack()
         }
       }
       predictiveBackCallback = callback
+      onBackInvokedDispatcher.registerOnBackInvokedCallback(
+        OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+        callback,
+      )
+      predictiveBackRegistered = true
     } else {
-      val callback = object : OnBackPressedCallback(false) {
+      val callback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-          commitBack(currentSnapshot.revision, "dispatcher-back")
+          commitWebBack()
         }
       }
       legacyBackCallback = callback
@@ -268,7 +268,7 @@ class ShellPrototypeActivity : AppCompatActivity() {
     }
   }
 
-  @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+  @SuppressLint("SetJavaScriptEnabled")
   private fun configureWebView() {
     webView.settings.javaScriptEnabled = true
     webView.settings.domStorageEnabled = false
@@ -276,8 +276,8 @@ class ShellPrototypeActivity : AppCompatActivity() {
       override fun onPageFinished(view: WebView, url: String) {
         render(currentSnapshot)
       }
+
     }
-    webView.addJavascriptInterface(WebRouteBridge(), JS_BRIDGE_NAME)
     webView.loadDataWithBaseURL(
       "https://prototype.mish.invalid/",
       PROTOTYPE_HTML,
@@ -293,11 +293,6 @@ class ShellPrototypeActivity : AppCompatActivity() {
     navigation.selectedItemId = snapshot.selectedTab.menuId
     renderingSnapshot = false
     toolbar.title = snapshot.title
-    toolbar.navigationIcon =
-      if (snapshot.canGoBack) getDrawable(androidx.appcompat.R.drawable.abc_ic_ab_back_material)
-      else null
-    toolbar.navigationContentDescription = if (snapshot.canGoBack) "Back" else null
-    updateBackRegistration(snapshot.canGoBack)
     val motion = ValueAnimator.areAnimatorsEnabled()
     toolbar.subtitle =
       "revision ${snapshot.revision} · ${if (motion) "motion" else "reduced motion"}"
@@ -308,29 +303,15 @@ class ShellPrototypeActivity : AppCompatActivity() {
     )
   }
 
-  private fun updateBackRegistration(canGoBack: Boolean) {
-    if (Build.VERSION.SDK_INT >= 34) {
-      val callback = predictiveBackCallback ?: return
-      if (canGoBack && !predictiveBackRegistered) {
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(
-          OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-          callback,
-        )
-        predictiveBackRegistered = true
-      } else if (!canGoBack && predictiveBackRegistered) {
-        onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
-        predictiveBackRegistered = false
+  private fun commitWebBack() {
+    webView.evaluateJavascript(
+      "document.documentElement.dataset.webCanGoBack === 'true';",
+    ) { canGoBack ->
+      if (canGoBack == "true") {
+        webView.evaluateJavascript("window.routeProjection.back();", null)
+      } else {
+        finishAfterTransition()
       }
-    } else {
-      legacyBackCallback?.isEnabled = canGoBack
-    }
-  }
-
-  private fun commitBack(expectedRevision: Long, source: String) {
-    when (val outcome = authority.back(expectedRevision, "$source-${UUID.randomUUID()}")) {
-      is PrototypeBackOutcome.Applied -> render(outcome.snapshot)
-      is PrototypeBackOutcome.ExitRequested -> finishAfterTransition()
-      is PrototypeBackOutcome.Stale -> render(outcome.snapshot)
     }
   }
 
@@ -354,7 +335,7 @@ class ShellPrototypeActivity : AppCompatActivity() {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
       })
       addView(RadioButton(context).apply {
-        text = "Current route: ${currentSnapshot.activePath}"
+        text = "Shell entry: ${currentSnapshot.webEntryPath}"
         isChecked = true
       })
       addView(RadioButton(context).apply {
@@ -384,18 +365,8 @@ class ShellPrototypeActivity : AppCompatActivity() {
 
   private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-  private inner class WebRouteBridge {
-    @JavascriptInterface
-    fun openPath(path: String, expectedRevision: Long, intentId: String) {
-      runOnUiThread {
-        authority.openPath(path, expectedRevision, intentId)?.let(::render)
-      }
-    }
-  }
-
   companion object {
     const val EXTRA_PROTOTYPE_ROUTE = "prototype-route"
-    private const val JS_BRIDGE_NAME = "NativeRouteBridge"
     private const val ID_HOME = 10_001
     private const val ID_ROUTES = 10_002
     private const val ID_PROFILES = 10_003
@@ -425,23 +396,39 @@ class ShellPrototypeActivity : AppCompatActivity() {
         <main>
           <section class="card" id="route-card">
             <h1 id="route-heading" tabindex="-1">Home</h1>
-            <p>This WebView is a route projection. Native chrome and Web content submit intents to one revisioned authority.</p>
+            <p>Native chrome selects only the outer shell. This WebView owns its internal routes, history, back, and focus without a Native bridge.</p>
             <div class="facts">
               <span class="fact" id="path">/status</span>
-              <span class="fact" id="revision">revision 0</span>
-              <span class="fact" id="back">root</span>
+              <span class="fact" id="revision">shell revision 0</span>
+              <span class="fact" id="back">Web root</span>
             </div>
-            <button onclick="openRoute('/routes/streaming')">Open route child</button>
-            <button onclick="openRoute('/traffic?tab=rules')">Deep-link Activity rules</button>
-            <button onclick="openRoute('/settings/network')">Open Settings child</button>
+            <button onclick="openInternalChild()">Open internal child</button>
+            <button onclick="openInternalDetail()">Open nested Web detail</button>
             <input id="ime-probe" aria-label="Keyboard inset probe" placeholder="Focus to test IME insets">
           </section>
         </main>
       <script>
-        let snapshot = { revision: 0, focusToken: 0 };
-        let lastFocusToken = -1;
-        function intentId() { return 'web-' + Date.now() + '-' + Math.random().toString(16).slice(2); }
-        function openRoute(path) { NativeRouteBridge.openPath(path, snapshot.revision, intentId()); }
+        let shellSnapshot = { revision: 0, webEntryPath: '/status', title: 'Home' };
+        let webStack = ['/status'];
+        function normalizedRoot() { return shellSnapshot.webEntryPath.split('?')[0].split('/').slice(0, 2).join('/'); }
+        function openInternalChild() { openInternalRoute(normalizedRoot() + '/details'); }
+        function openInternalDetail() { openInternalRoute(normalizedRoot() + '/details/advanced'); }
+        function openInternalRoute(path) {
+          webStack.push(path);
+          const depth = webStack.length - 1;
+          history.pushState({ webDepth: depth }, '', '#' + path);
+          renderWebRoute(path, depth);
+        }
+        function renderWebRoute(path, depth) {
+          document.getElementById('route-heading').textContent = shellSnapshot.title;
+          document.getElementById('path').textContent = path;
+          document.getElementById('revision').textContent = 'shell revision ' + shellSnapshot.revision;
+          document.getElementById('back').textContent = depth > 0 ? 'Web back available' : 'Web root';
+          document.documentElement.dataset.webCanGoBack = depth > 0 ? 'true' : 'false';
+          document.getElementById('route-card').style.transform = '';
+          document.getElementById('route-card').style.opacity = '';
+          requestAnimationFrame(() => document.getElementById('route-heading').focus({ preventScroll: true }));
+        }
         const imeProbe = document.getElementById('ime-probe');
         function revealImeProbe() {
           if (document.activeElement === imeProbe) {
@@ -452,23 +439,23 @@ class ShellPrototypeActivity : AppCompatActivity() {
         window.visualViewport?.addEventListener('resize', revealImeProbe);
         window.routeProjection = {
           apply(next) {
-            snapshot = next;
-            history.replaceState({ revision: next.revision }, '', '#' + next.activePath);
-            document.getElementById('route-heading').textContent = next.title;
-            document.getElementById('path').textContent = next.activePath;
-            document.getElementById('revision').textContent = 'revision ' + next.revision;
-            document.getElementById('back').textContent = next.canGoBack ? 'back available' : 'tab root';
-            document.getElementById('route-card').style.transform = '';
-            document.getElementById('route-card').style.opacity = '';
-            if (next.focusToken !== lastFocusToken) {
-              lastFocusToken = next.focusToken;
-              requestAnimationFrame(() => document.getElementById('route-heading').focus({ preventScroll: true }));
-            }
+            shellSnapshot = next;
+            webStack = [next.webEntryPath];
+            history.replaceState({ webDepth: 0 }, '', '#' + next.webEntryPath);
+            renderWebRoute(next.webEntryPath, 0);
           },
           previewBack(progress) {
             const card = document.getElementById('route-card');
             card.style.transform = 'translateX(' + (progress * 18) + 'px) scale(' + (1 - progress * .025) + ')';
             card.style.opacity = String(1 - progress * .15);
+          },
+          back() {
+            if (webStack.length <= 1) return;
+            webStack.pop();
+            const path = webStack[webStack.length - 1];
+            const depth = webStack.length - 1;
+            history.replaceState({ webDepth: depth }, '', '#' + path);
+            renderWebRoute(path, depth);
           },
           restoreFocus() { document.getElementById('route-heading').focus({ preventScroll: true }); }
         };
@@ -504,10 +491,8 @@ private enum class PrototypeTab(val menuId: Int, val rootPath: String) {
 
 private data class PrototypeNavigationSnapshot(
   val revision: Long,
-  val focusToken: Long,
   val selectedTab: PrototypeTab,
-  val activePath: String,
-  val canGoBack: Boolean,
+  val webEntryPath: String,
 ) {
   val title: String
     get() = when (selectedTab) {
@@ -520,41 +505,30 @@ private data class PrototypeNavigationSnapshot(
 
   fun toJson(): JSONObject = JSONObject().apply {
     put("revision", revision)
-    put("focusToken", focusToken)
     put("selectedTab", selectedTab.name.lowercase())
-    put("activePath", activePath)
-    put("canGoBack", canGoBack)
+    put("webEntryPath", webEntryPath)
     put("title", title)
   }
 }
 
-private sealed interface PrototypeBackOutcome {
-  data class Applied(val snapshot: PrototypeNavigationSnapshot) : PrototypeBackOutcome
-  data class Stale(val snapshot: PrototypeNavigationSnapshot) : PrototypeBackOutcome
-  data class ExitRequested(val snapshot: PrototypeNavigationSnapshot) : PrototypeBackOutcome
-}
-
 private class PrototypeNavigationAuthority {
   private var revision = 0L
-  private var focusToken = 0L
   private var selectedTab = PrototypeTab.HOME
-  private val stacks = PrototypeTab.entries.associateWith { mutableListOf(it.rootPath) }.toMutableMap()
+  private var webEntryPath = PrototypeTab.HOME.rootPath
   private val retiredIntentIds = LinkedHashSet<String>()
 
   fun snapshot(): PrototypeNavigationSnapshot {
-    val activeStack = stacks.getValue(selectedTab)
     return PrototypeNavigationSnapshot(
       revision = revision,
-      focusToken = focusToken,
       selectedTab = selectedTab,
-      activePath = activeStack.last(),
-      canGoBack = activeStack.size > 1,
+      webEntryPath = webEntryPath,
     )
   }
 
   fun selectTab(tab: PrototypeTab, expectedRevision: Long, intentId: String): PrototypeNavigationSnapshot? {
     if (!admit(expectedRevision, intentId)) return snapshot()
     selectedTab = tab
+    webEntryPath = tab.rootPath
     commit(intentId)
     return snapshot()
   }
@@ -563,23 +537,9 @@ private class PrototypeNavigationAuthority {
     val tab = PrototypeTab.fromPath(path) ?: return snapshot()
     if (!admit(expectedRevision, intentId)) return snapshot()
     selectedTab = tab
-    val stack = stacks.getValue(tab)
-    if (path == tab.rootPath) {
-      stack.subList(1, stack.size).clear()
-    } else if (stack.last() != path) {
-      stack.add(path)
-    }
+    webEntryPath = path
     commit(intentId)
     return snapshot()
-  }
-
-  fun back(expectedRevision: Long, intentId: String): PrototypeBackOutcome {
-    if (!admit(expectedRevision, intentId)) return PrototypeBackOutcome.Stale(snapshot())
-    val stack = stacks.getValue(selectedTab)
-    if (stack.size == 1) return PrototypeBackOutcome.ExitRequested(snapshot())
-    stack.removeLast()
-    commit(intentId)
-    return PrototypeBackOutcome.Applied(snapshot())
   }
 
   private fun admit(expectedRevision: Long, intentId: String): Boolean =
@@ -587,7 +547,6 @@ private class PrototypeNavigationAuthority {
 
   private fun commit(intentId: String) {
     revision += 1
-    focusToken += 1
     retiredIntentIds += intentId
     while (retiredIntentIds.size > 128) retiredIntentIds.remove(retiredIntentIds.first())
   }

@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct MishShellPrototypeApp: App {
-    @StateObject private var authority = PrototypeNavigationAuthority()
+    @StateObject private var authority = PrototypeShellAuthority()
 
     var body: some Scene {
         WindowGroup {
@@ -18,9 +18,7 @@ private enum PrototypeTab: String, CaseIterable, Hashable {
     case activity
     case settings
 
-    var title: String {
-        rawValue.capitalized
-    }
+    var title: String { rawValue.capitalized }
 
     var systemImage: String {
         switch self {
@@ -59,56 +57,34 @@ private enum PrototypeTab: String, CaseIterable, Hashable {
     }
 }
 
-private struct PrototypeNavigationSnapshot: Equatable {
+private struct PrototypeShellSnapshot: Equatable {
     var revision: UInt64 = 0
-    var focusToken: UInt64 = 0
     var selectedTab: PrototypeTab = .home
-    var stacks: [PrototypeTab: [String]] = Dictionary(
-        uniqueKeysWithValues: PrototypeTab.allCases.map { ($0, [$0.rootPath]) }
-    )
-
-    var activePath: String {
-        stacks[selectedTab]?.last ?? selectedTab.rootPath
-    }
+    var webEntryPath: String = PrototypeTab.home.rootPath
 }
 
-/// This native mock has exactly the API the accepted implementation would
-/// delegate to the research-only Shared Rust authority over Tauri FFI.
+/// This mock models only the Shared Rust outer-shell authority. React Router
+/// remains the sole owner of WebView routes, history, back, and DOM focus.
+/// There is intentionally no Web-originated native command API.
 @MainActor
-private final class PrototypeNavigationAuthority: ObservableObject {
-    @Published private(set) var snapshot = PrototypeNavigationSnapshot()
+private final class PrototypeShellAuthority: ObservableObject {
+    @Published private(set) var snapshot = PrototypeShellSnapshot()
     private var retiredIntentIDs = Set<String>()
 
     func select(tab: PrototypeTab, expectedRevision: UInt64, intentID: String) {
         guard admit(expectedRevision: expectedRevision, intentID: intentID) else { return }
         snapshot.selectedTab = tab
+        snapshot.webEntryPath = tab.rootPath
         commit(intentID: intentID)
     }
 
-    func open(path: String, expectedRevision: UInt64, intentID: String) {
+    /// Platform launch/deep-link input only. Web content cannot call this API.
+    func openExternal(path: String, expectedRevision: UInt64, intentID: String) {
         guard let tab = PrototypeTab.tab(for: path),
               admit(expectedRevision: expectedRevision, intentID: intentID)
         else { return }
         snapshot.selectedTab = tab
-        var stack = snapshot.stacks[tab] ?? [tab.rootPath]
-        if path == tab.rootPath {
-            stack = [tab.rootPath]
-        } else if stack.last != path {
-            stack.append(path)
-        }
-        snapshot.stacks[tab] = stack
-        commit(intentID: intentID)
-    }
-
-    func replaceProjectedPath(
-        for tab: PrototypeTab,
-        with path: [String],
-        expectedRevision: UInt64,
-        intentID: String
-    ) {
-        guard admit(expectedRevision: expectedRevision, intentID: intentID) else { return }
-        snapshot.selectedTab = tab
-        snapshot.stacks[tab] = [tab.rootPath] + path
+        snapshot.webEntryPath = path
         commit(intentID: intentID)
     }
 
@@ -118,7 +94,6 @@ private final class PrototypeNavigationAuthority: ObservableObject {
 
     private func commit(intentID: String) {
         snapshot.revision += 1
-        snapshot.focusToken += 1
         retiredIntentIDs.insert(intentID)
         if retiredIntentIDs.count > 128 {
             retiredIntentIDs.removeAll(keepingCapacity: true)
@@ -128,7 +103,7 @@ private final class PrototypeNavigationAuthority: ObservableObject {
 }
 
 private struct PrototypeTabShell: View {
-    @ObservedObject var authority: PrototypeNavigationAuthority
+    @ObservedObject var authority: PrototypeShellAuthority
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
@@ -144,7 +119,7 @@ private struct PrototypeTabShell: View {
         )) {
             ForEach(PrototypeTab.allCases, id: \.self) { tab in
                 Tab(tab.title, systemImage: tab.systemImage, value: tab) {
-                    PrototypeNavigationStack(tab: tab, authority: authority)
+                    PrototypeOuterNavigation(tab: tab, snapshot: authority.snapshot)
                 }
             }
         }
@@ -163,137 +138,78 @@ private struct PrototypeTabShell: View {
     }
 }
 
-private struct PrototypeNavigationStack: View {
+private struct PrototypeOuterNavigation: View {
     let tab: PrototypeTab
-    @ObservedObject var authority: PrototypeNavigationAuthority
-
-    private var projectedPath: Binding<[String]> {
-        Binding(
-            get: { Array((authority.snapshot.stacks[tab] ?? [tab.rootPath]).dropFirst()) },
-            set: { path in
-                authority.replaceProjectedPath(
-                    for: tab,
-                    with: path,
-                    expectedRevision: authority.snapshot.revision,
-                    intentID: "apple-stack-\(UUID().uuidString)"
-                )
-            }
-        )
-    }
+    let snapshot: PrototypeShellSnapshot
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsShellDiagnostics = false
 
     var body: some View {
-        NavigationStack(path: projectedPath) {
-            PrototypeRouteProjection(tab: tab, authority: authority)
-                .navigationDestination(for: String.self) { _ in
-                    PrototypeRouteProjection(tab: tab, authority: authority)
+        NavigationStack {
+            PrototypeWebViewBoundary(snapshot: snapshot)
+                .navigationTitle(tab.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Shell information", systemImage: "info.circle") {
+                            showsShellDiagnostics = true
+                        }
+                        .keyboardShortcut("i", modifiers: [.command, .shift])
+                        .hoverEffect(.highlight)
+                    }
                 }
+        }
+        .sheet(isPresented: $showsShellDiagnostics) {
+            NavigationStack {
+                List {
+                    LabeledContent("Shell revision", value: String(snapshot.revision))
+                    LabeledContent("One-way Web entry", value: snapshot.webEntryPath)
+                    Label("No Web-to-Native command bridge", systemImage: "arrow.right")
+                    Label(
+                        reduceMotion ? "Reduce Motion" : "System motion",
+                        systemImage: "figure.walk.motion"
+                    )
+                    Label(
+                        reduceTransparency ? "Opaque fallback" : "System material",
+                        systemImage: "circle.lefthalf.filled"
+                    )
+                    Label(
+                        "Dynamic Type: \(String(describing: dynamicTypeSize))",
+                        systemImage: "textformat.size"
+                    )
+                }
+                .navigationTitle("Native shell")
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 }
 
-private struct PrototypeRouteProjection: View {
-    let tab: PrototypeTab
-    @ObservedObject var authority: PrototypeNavigationAuthority
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @AccessibilityFocusState private var headingFocused: Bool
-    @State private var showsSheet = false
-
-    private var snapshot: PrototypeNavigationSnapshot { authority.snapshot }
+/// The SwiftUI package deliberately does not instantiate product content or
+/// five WebViews. A future UIKit host adapter must place exactly one Tauri-owned
+/// WKWebView here and deliver `webEntryPath` toward React Router. The WebView
+/// must expose no script message handler or other route backchannel to Native.
+private struct PrototypeWebViewBoundary: View {
+    let snapshot: PrototypeShellSnapshot
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(snapshot.activePath)
-                    .font(.largeTitle.bold())
-                    .accessibilityFocused($headingFocused)
-
-                Text("React Router projection of Shared Rust navigation revision \(snapshot.revision).")
-                    .font(.body)
-
-                ViewThatFits(in: .horizontal) {
-                    HStack { environmentFacts }
-                    VStack(alignment: .leading) { environmentFacts }
-                }
-
-                Button("Open a child route") {
-                    authority.open(
-                        path: childPath,
-                        expectedRevision: snapshot.revision,
-                        intentID: "swift-link-\(UUID().uuidString)"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("o", modifiers: .command)
-                .hoverEffect(.highlight)
-                .accessibilityHint("Adds one route to the selected tab's authoritative stack")
-
-                Button("Open system sheet") {
-                    showsSheet = true
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .hoverEffect(.highlight)
-
-                ForEach(0..<18, id: \.self) { index in
-                    LabeledContent("Evidence row \(index + 1)", value: snapshot.activePath)
-                        .padding(.vertical, 8)
-                    Divider()
-                }
-            }
-            .padding()
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Single host-owned WKWebView", systemImage: "safari")
+                .font(.title2.bold())
+            Text("One-way entry: \(snapshot.webEntryPath)")
+                .font(.body.monospaced())
+            Text("React Router owns all content, internal history, back, and DOM focus inside this boundary.")
+                .font(.body)
+            Text("This placeholder is shell evidence only; it is not a native product screen.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
-        .navigationTitle(tab.title)
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Sheet", systemImage: "slider.horizontal.3") {
-                    showsSheet = true
-                }
-            }
-        }
-        .sheet(isPresented: $showsSheet, onDismiss: restoreRouteFocus) {
-            NavigationStack {
-                List {
-                    Label("System detents", systemImage: "rectangle.bottomhalf.inset.filled")
-                    Label("Pointer and keyboard", systemImage: "keyboard")
-                    Label("VoiceOver order", systemImage: "accessibility")
-                    Label("Disabled state", systemImage: "nosign")
-                        .disabled(true)
-                }
-                .navigationTitle("Native sheet")
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .onAppear(perform: restoreRouteFocus)
-        .onChange(of: snapshot.focusToken) { _, _ in restoreRouteFocus() }
-    }
-
-    @ViewBuilder
-    private var environmentFacts: some View {
-        Label(reduceMotion ? "Reduce Motion" : "System motion", systemImage: "figure.walk.motion")
-        Label(
-            reduceTransparency ? "Opaque fallback" : "System Liquid Glass",
-            systemImage: "circle.lefthalf.filled"
-        )
-        Label("Dynamic Type: \(String(describing: dynamicTypeSize))", systemImage: "textformat.size")
-    }
-
-    private var childPath: String {
-        switch tab {
-        case .home: "/status/session"
-        case .routes: "/routes/streaming"
-        case .profiles: "/profiles/import"
-        case .activity: "/events"
-        case .settings: "/settings/network"
-        }
-    }
-
-    private func restoreRouteFocus() {
-        DispatchQueue.main.async {
-            headingFocused = true
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding()
+        .background(.background)
+        .accessibilityElement(children: .contain)
     }
 }

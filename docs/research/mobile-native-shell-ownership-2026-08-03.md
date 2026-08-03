@@ -12,30 +12,35 @@ The recommended installed-mobile boundary is:
 
 - Shared Rust remains the only product authority for Profiles, capture, Core,
   Routes, Traffic, Events, Settings, notifications, ordering, and recovery.
-- One small Shared Rust **mobile navigation authority** becomes the only owner of
-  installed-mobile tab selection and per-tab route stacks. This is a deliberate
-  exception to the current React-owned navigation contract because native chrome
-  and the WebView would otherwise each require a mutable navigation stack.
-- Android and Apple native chrome submit navigation intents and render complete
-  revisioned navigation snapshots. They do not keep an independent selected-tab
-  or route store.
-- React Router becomes an installed-mobile projection and intent source. It does
-  not commit browser history before the navigation authority accepts an intent.
-  Desktop and Browser Client keep their existing React Router authority and are
-  unaffected.
+- One small Shared Rust **mobile shell authority** owns only the installed-mobile
+  top-level tab/drawer selection and emits a one-way Web entry directive after a
+  native-chrome or platform deep-link intent. It owns no Web route stack, back
+  state, or DOM focus.
+- Android and Apple native chrome submit shell intents to Rust and render the
+  accepted selected destination. The host then directs the single WebView to the
+  accepted entry path. Native chrome never mirrors the current internal Web path.
+- React Router remains the only authority inside the WebView: product routes,
+  history, internal back, page/sheet state, and DOM focus stay in the Web layer.
+  Mobile Web content is confined to the selected top-level section and exposes
+  no API for invoking Native UI or capabilities.
+- The boundary is strictly one-way for navigation: Native shell -> Shared Rust
+  shell authority -> WebView entry directive. There is no `JavascriptInterface`,
+  script message handler, Tauri command, or callback by which Web content asks
+  Native to open a sheet, change a tab, navigate, haptic, or permission surface.
 - Android initially uses selective Material Views already present in the APK,
   not Compose or MUI, for the persistent navigation and app bars. Compose becomes
   worthwhile only if a later accepted slice moves a complete native screen or
   adaptive pane into Android UI.
-- iOS and iPadOS use system-owned tabs, navigation bars/stacks, sheets, materials,
-  and adaptive sidebar or split-view behavior. UIKit is the production host
+- iOS and iPadOS use system-owned tabs, shell navigation/toolbars, native-origin
+  sheets, materials, and adaptive sidebar behavior. UIKit is the production host
   integration candidate around Tauri's `WKWebView`; SwiftUI is the concise
   behavior prototype and remains an option after the iOS host boundary exists.
 
-This proposal supersedes the installed-mobile portion of the current statement
-that React Router is always the navigation authority. It must not replace that
-contract until the maintainer accepts this report and a bounded implementation
-Issue changes the architecture and validation documents together.
+This proposal preserves the existing React Router authority for Web content and
+adds a disjoint outer-shell authority in Shared Rust. Each state domain has one
+writer; neither layer mirrors or commits the other's history. It must not replace
+the product contract until the maintainer accepts this report and a bounded
+implementation Issue changes the architecture and validation documents together.
 
 ## Evidence baseline and limits
 
@@ -54,8 +59,8 @@ Repository evidence:
   selection from `useLocation()`.
 - Tauri's current Android app plugin registers an `OnBackPressedCallback`; with
   no listener it calls `WebView.goBack()` or the Activity back path. A native
-  navigation implementation must replace that default with one authority-backed
-  callback or it can double-pop React and native history.
+  shell implementation must replace that default with one host callback that
+  delegates back toward the Web router or it can double-pop Web history.
 - Tauri's current iOS API exposes the created `WKWebView` and containing
   `UIViewController` to mobile plugins, but its documented plugin lifecycle does
   not provide a supported declarative API for replacing the generated root
@@ -96,44 +101,38 @@ Unavailable evidence:
 
 ## Prototype execution evidence
 
-The Shared Rust authority candidate passed all six unit tests with
+The revised Shared Rust shell authority passed all seven unit tests with
 `cargo test -p mish-mobile-navigation-prototype`. The tests are state-contract
 evidence only; the prototype crate is not linked into either app.
 
-The Android candidate at `c2bc2c4` compiled through Tauri for arm64 and ran on
-an isolated Android 16/API 36 emulator. Review then found missing `/status/*`
-and `/profiles/*` mappings. Commit `c6dd0e5` corrected those mappings in Rust,
-Android, and SwiftUI, added the five-tab child-route matrix test, and recompiled
-the final Android source candidate. The mapping-only correction was not
-reinstalled on the emulator. The personal USB device remained untouched.
+After maintainer boundary feedback, the Android candidate removed its
+Web-to-Native `JavascriptInterface`, removed Web-originated shell intents and
+Rust route stacks, rebuilt through Tauri for arm64, and ran on an isolated
+Android 16/API 36 emulator. The personal USB device remained untouched.
 
 - Artifact:
   `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
-- SHA-256: `cb568eb9bd4cfcc9e45f7fb0b10cfe7a64c08f31042b60506dc31280aa1170dc`
+- SHA-256: `4e747b3a4aa84326f5b4d90f59145783670ed36ce62687dc39403e0ea25dc349`
 - Size: 392,209,370 bytes; the artifact contains the arm64 debug Rust library
   and is not release-size evidence.
 - Emulator fingerprint:
   `google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys`
-- Native tab selection advanced one revision and projected the same selected
-  item and Web route. A Web child advanced the next revision and focused the
-  route heading. An injected API 36 edge gesture popped once, advanced one
-  revision, and left one Activity. At the tab root the prototype unregistered
-  its consuming callback; the next edge gesture was handled by the system and
-  returned to Launcher.
-- `/settings/network` delivered through `onNewIntent` to the existing
-  `singleTop` Activity, advanced one revision, selected Settings, projected the
-  same Web route, and left one Activity. Disabling Profiles exposed
-  `enabled=false`; tapping it did not change the selected Settings tab or route
-  revision.
-- The system-bar spacer kept all five labels above the gesture handle. The IME
-  became visible, the focused Web field scrolled fully above it, and the native
-  navigation returned unchanged on dismissal. The native sheet exposed enabled
-  and disabled rows; dismissal restored focus to the route heading without a
-  route revision.
-- Light and dark candidates rendered with matching system-bar contrast. Setting
-  the emulator animator duration scale to zero projected `reduced motion` and
-  kept navigation operational; the effective scale and light appearance were
-  restored before cleanup.
+- Native Settings selection advanced the Rust shell revision from 0 to 1 and
+  emitted `/settings` into the WebView. Opening `/settings/details` through a
+  Web button changed only Web-owned path/back state; the selected native tab and
+  shell revision remained Settings/revision 1.
+- Platform Back caused the host to query Web back availability, then sent one
+  back input toward the Web route projection. The Web stack popped to
+  `/settings` while the Rust shell remained revision 1 and one Activity remained.
+  The next Back at Web root returned to Launcher.
+- Static inspection found no `addJavascriptInterface`, `JavascriptInterface`,
+  `NativeRouteBridge`, or `WKScriptMessageHandler` in either prototype. The
+  closed Rust API also rejects a native-chrome attempt to open an arbitrary Web
+  child path.
+- Earlier geometry-only checks covered system-bar spacing, IME reveal, native
+  sheet focus, light/dark, disabled state, and reduced-motion operation. Because
+  those checks preceded this boundary revision, they remain supporting evidence
+  and must be repeated on an accepted exact candidate before implementation.
 
 The Android run does **not** claim hands-on proof for ripple clipping, held and
 cancelled pressed state, a cancelled predictive gesture, three-button
@@ -155,94 +154,96 @@ available. No Apple runtime or accessibility claim is made.
 
 | Surface               | Shared React/CSS                                                | Android host                                                                                     | iOS/iPadOS host                                                                                 | Authority rule                                                                      |
 | --------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Bottom/tab navigation | Product labels and route intent hook only                       | Native Material navigation bar; rail on an accepted expanded-window slice                        | System `UITabBarController`/`TabView`; adaptable tab/sidebar on iPad                            | Selected state comes only from the Rust navigation snapshot                         |
-| App/navigation bar    | Route metadata and scoped action descriptors                    | Native Material top app bar for title/back/overflow                                              | System navigation bar and toolbar                                                               | Native actions submit intent/command; no native route store                         |
-| Drawer/sidebar        | No phone drawer                                                 | No drawer for five phone destinations; future rail at expanded widths                            | System adaptable sidebar or split view in regular width                                         | Same tab/route snapshot drives every form factor                                    |
-| Back/edge gesture     | Renders preview and restores DOM focus                          | Platform predictive-back callback previews locally and commits one revisioned back intent        | System interactive pop drives one authority intent; native stack is rebuilt from full snapshots | Back cannot call both WebView history and native history                            |
-| Sheets                | Complex validation and product forms remain React routes/sheets | Native bottom sheet only for short platform choices or permission-adjacent UI                    | System sheets/popovers with detents for short choices                                           | Open/closed sheet state stays presentation-local; route changes still use authority |
+| Bottom/tab navigation | Receives a one-way entry route; no shell selection backchannel  | Native Material navigation bar; rail on an accepted expanded-window slice                        | System `UITabBarController`/`TabView`; adaptable tab/sidebar on iPad                            | Selected state comes only from the Rust shell snapshot                              |
+| App/navigation bar    | Product route title/actions remain inside Web content           | Native app bar only for outer-shell title/back/overflow                                          | System navigation bar and toolbar for outer-shell actions                                       | Native actions may submit shell intent; Web actions remain Web-only                 |
+| Drawer/sidebar        | No shell drawer implementation                                  | Native drawer only if an accepted product IA needs more than the bottom destinations              | System adaptable sidebar in regular width                                                       | Drawer/sidebar and tab bar project the same Rust shell selection                    |
+| Back/edge gesture     | React Router owns internal history, back, preview, and DOM focus | Host delegates to WebView history while available; root back remains system-owned                 | Host delegates inner back to the single WKWebView; no native product-route stack                | Rust never mirrors internal Web back state                                          |
+| Sheets                | Product forms, choices, validation, and route sheets remain Web | Native sheet only when launched by native chrome for a bounded platform concern                  | Same; native-origin platform presentation only                                                  | Web content cannot request a Native sheet                                           |
 | Safe area             | Content consumes only unhandled insets                          | Host consumes bars/cutout for native chrome and zeroes handled values before WebView             | System containers own bars/home indicator; Web content receives its remaining safe area         | Never pad the same inset in native and CSS                                          |
-| Keyboard/insets       | Visual viewport, field scroll, validation                       | `adjustResize` plus IME insets; do not clear focus on viewport changes                           | System keyboard avoidance; verify iPhone and iPad floating/docked keyboards                     | Focus token survives resize; keyboard does not mutate route                         |
-| Focus                 | DOM focus target and return target                              | Native-to-Web focus handoff after snapshot/sheet dismissal                                       | VoiceOver/keyboard focus handoff after snapshot/sheet dismissal                                 | Snapshot carries monotonic focus token, not a native DOM selector                   |
+| Keyboard/insets       | Visual viewport, field scroll, validation                       | `adjustResize` plus IME insets; do not clear Web focus on viewport changes                       | System keyboard avoidance; verify iPhone and iPad floating/docked keyboards                     | Web focus survives resize; keyboard does not mutate shell selection                 |
+| Focus                 | Owns DOM focus and Web sheet return targets                     | Native focus stays within shell; WebView regains ordinary host focus after native dismissal      | Native focus stays within shell; WKWebView owns content focus                                   | No cross-boundary focus token or DOM selector                                       |
 | Pressed feedback      | Content controls only                                           | Material state layer/ripple for chrome; clip belongs to the item/indicator, not the complete bar | System touch-down/highlight behavior                                                            | Pressed state is local and may precede authority commit; selected state may not     |
-| Motion                | Page/content motion with reduced-motion fallback                | Material motion and predictive progress; no custom gesture conflict                              | System navigation/sheet/tab motion and Liquid Glass response                                    | Gesture progress is presentation-only; commit is one authority transition           |
-| Split view            | Dense product content can provide shared detail models          | Future adaptive list/detail after phone acceptance                                               | System split view/sidebar in regular width                                                      | Collapsing/expanding projects the same route stack                                  |
-| Accessibility         | Accessible names, content semantics, DOM reading order          | Material semantics, TalkBack, switch/keyboard focus, 48dp chrome targets                         | Dynamic Type, VoiceOver, Full Keyboard Access, pointer, Reduce Motion/Transparency              | Native and Web each own their tree; handoff is explicit and testable                |
+| Motion                | Page/content motion with reduced-motion fallback                | Material shell motion and predictive progress; no custom gesture conflict                        | System shell/tab motion and Liquid Glass response                                                | Gesture progress is presentation-only; the owning Web or shell domain commits once  |
+| Split view            | Owns product list/detail routing inside WebView                 | Native rail/drawer may adapt around the same one WebView                                         | System shell sidebar may adapt around the same one WKWebView                                    | Adaptation changes shell chrome, not Web history                                    |
+| Accessibility         | Accessible names, content semantics, DOM reading order/focus    | Material shell semantics, TalkBack, switch/keyboard focus, 48dp chrome targets                   | Dynamic Type, VoiceOver, Full Keyboard Access, pointer, Reduce Motion/Transparency for shell    | Native and Web own disjoint trees; neither invokes the other                        |
 
-## One navigation authority
+## One writer per navigation domain
 
-### Canonical state
+### Shared Rust shell state
 
-The proposed navigation authority is process-scoped and presentation-only. It
-contains no Profile, capture, Core, Settings, or notification product data.
+The process-scoped Shared Rust authority contains only outer-shell state. It
+contains no Profile, capture, Core, Settings, notification, Web history, Web
+back, or DOM-focus state.
 
 ```text
-NavigationSnapshot =
+ShellSnapshot =
   authorityId
   + revision
   + selectedTab
-  + five bounded tabStacks
-  + activePath
-  + canGoBack
-  + focusToken
+  + webEntryPath
 ```
 
-Every input is an intent:
+Its closed input set is:
 
 ```text
-NavigationIntent =
+ShellIntent =
   intentId
-  + source(android | apple | react | deep-link | platform-back)
+  + source(androidChrome | appleChrome | platformDeepLink)
   + expectedRevision
-  + openPath | selectTab | back
+  + selectTab | openExternalPath
 ```
 
-The authority accepts one current revision, retires duplicate intent IDs, maps
-desktop-compatible deep links to the five mobile tabs, commits one revision,
-and publishes one complete snapshot. A stale or invalid intent returns the
-current snapshot without changing route or focus.
+There is intentionally no React/Web source, `back` intent, per-tab stack,
+`canGoBack`, focus token, native-component command, or general-purpose bridge.
+Chrome may select only a declared top-level destination. A platform deep link
+may select its matching shell destination and forward the full path once as the
+Web entry directive. Stale, duplicate, invalid, or source/action-mismatched
+intents do not mutate the shell.
 
 The research crate at
 [`prototypes/mobile-shell/navigation-authority`](../../prototypes/mobile-shell/navigation-authority)
-proves:
+proves these closed inputs, top-level mapping, one-way entry reset, external
+deep-link forwarding, stale/duplicate rejection, and invalid-input
+non-mutation.
 
-- native and React intents converge on the same selected tab and route stack;
-- `/traffic` and `/events` select Activity, while child Settings and Routes
-  links preserve the other tab stacks;
-- platform back pops within the current tab before requesting application exit;
-- stale and duplicate intents cannot replace the current native or React
-  projection; and
-- rejected deep links do not advance route revision or focus.
+### React Router Web state
 
-### React Router projection
+React Router remains the sole writer for everything inside the WebView:
 
-Installed mobile must wrap `Link`, `NavLink`, `navigate`, deep-link handling,
-and notification navigation behind one `MobileNavigationClient`:
+- `Link`/`NavLink` provide ordinary accessible Web navigation;
+- `navigate` remains reserved for imperative Web redirects;
+- browser history, child routes, search parameters, page sheets, pending state,
+  and DOM focus never enter the Rust shell snapshot; and
+- installed-mobile Web links stay inside the selected top-level section. A
+  cross-section destination must be exposed in native tab/drawer chrome or
+  arrive as a platform deep link, not as a Web-to-Native request.
 
-1. React submits an intent and keeps only pending presentation.
-2. Rust returns or emits a complete snapshot.
-3. React applies the active path to a controlled memory router or performs a
-   replace-only history projection. It never adds an independent browser entry.
-4. The native shell renders the same snapshot revision.
-5. React moves focus to the route heading only when the focus token advances and
-   acknowledges the handoff for diagnostics.
+The host may deliver an accepted `webEntryPath` into React Router through a
+one-way injection or host-owned event. The Web bundle exposes no
+`JavascriptInterface`, `WKScriptMessageHandler`, Tauri invoke command, custom
+URL scheme, or callback that can request a native tab, drawer, sheet, haptic,
+permission, or route mutation. Product data commands already owned by Shared
+Rust are a separate audited application boundary; they must not become a
+generic Native-UI escape hatch.
 
-`window.history.back()`, Tauri's default `WebView.goBack()`, and a native stack
-pop are forbidden as independent commit paths. A platform gesture may preview
-the current snapshot locally; cancellation changes nothing, and completion
-submits exactly one `back` intent with the gesture-start revision.
+### Back, focus, lifecycle, and deep links
 
-### Lifecycle and deep links
-
-- Activity/ViewController recreation requests the complete Rust snapshot before
-  accepting later events. Native saved state may retain only a last-observed
-  revision for diagnostics, never a reconstructable route authority.
-- Process replacement creates a new authority ID. The platform supplies the
-  launch/deep-link path once; absent a link, Rust starts at Home.
-- Android `onNewIntent` and the Apple scene/open-URL path submit a deep-link
-  intent. Neither writes React history directly.
-- A native tab or bar may display touch-down immediately. Selected chrome changes
-  only after the accepted snapshot, preventing fast double taps or bridge delay
-  from showing content and tab selection from different revisions.
+- Internal route/back/focus is a Web concern. The host queries Web-owned back
+  availability and sends a back input toward Web while history exists. At the
+  Web root, the host exits through the platform Activity/controller path without
+  a Rust shell transition.
+- Predictive/interactive progress may be presented toward the WebView, but
+  cancellation and completion cannot mutate Rust shell selection. Native must
+  not maintain a parallel internal route stack.
+- Activity/ViewController recreation requests the complete Rust shell snapshot,
+  then emits its `webEntryPath` once into the single WebView. React restores its
+  own internal state using Web-owned mechanisms.
+- Android `onNewIntent` and the Apple scene/open-URL path submit a platform
+  deep-link intent to Rust. The accepted shell selection and full entry path are
+  delivered toward Web; Web never reports later internal navigation back.
+- Native pressed/ripple/highlight remains local. Selected shell chrome changes
+  only after the Rust revision commits. Web route focus is moved by React Router
+  after it consumes the one-way entry directive.
 
 ## Android expectations and candidate
 
@@ -253,14 +254,14 @@ submits exactly one `back` intent with the gesture-start revision.
 | Navigation bar            | Three to five equal destinations, visible labels, Material indicator and state layer                                                                         | Debug `BottomNavigationView` has five labeled items and snapshot-driven selection                       |
 | Ripple                    | Origin follows touch; state layer/ripple is clipped to the Material item/indicator, not a rectangular Web child or structurally clipped bar                  | Record slow taps at each icon edge and inspect no bleed/cutoff                                          |
 | Selected/pressed/disabled | Pressed is immediate; selected waits for snapshot; disabled is non-actionable and exposed as disabled to accessibility                                       | Prototype toggles Profiles enabled state and keeps selection authority separate                         |
-| App bar                   | System density/title/back/overflow with at least 48dp targets                                                                                                | Debug `MaterialToolbar` projects title and `canGoBack`                                                  |
-| Back                      | API 34+ progress is visible; cancellation is lossless; completion sends one expected-revision back; root transitions to system home                          | Prototype uses `OnBackAnimationCallback`; fallback uses `OnBackPressedDispatcher`                       |
+| App bar                   | System density and shell-level title/overflow with at least 48dp targets; Web route title remains in Web content                                              | Debug `MaterialToolbar` projects only the selected shell destination                                    |
+| Back                      | API 34+ progress is visible; cancellation is lossless; completion delegates once to Web history; Web root transitions to system home                         | Prototype queries Web-owned back availability, sends one back input toward Web, and has no Rust stack    |
 | Insets                    | Edge-to-edge; host applies bar/cutout insets to native chrome and zeroes only handled types before WebView; IME remains dispatched                           | Rotate, switch gesture/three-button navigation, and focus the keyboard probe                            |
 | Motion                    | Material/system motion when animators are enabled; no custom route transform when system animation scale is zero                                             | Prototype gates predictive preview with `ValueAnimator.areAnimatorsEnabled()`                           |
 | Appearance                | Material semantic colors and system light/dark icon contrast; Mish status colors remain product content tokens                                               | Toggle appearance and inspect chrome/content separately                                                 |
 | Accessibility             | Labeled items, selected and disabled states, logical order, 48dp targets, TalkBack/keyboard operability                                                      | Accessibility Scanner plus TalkBack manual traversal; UIAutomator hierarchy is supporting evidence only |
 | Haptics                   | Routine navigation does not add gratuitous vibration; committed high-value actions may use action-oriented platform constants and must honor system settings | No custom vibration in the shell prototype; any future command haptic is separately accepted            |
-| Sheets                    | Native Material sheet only for short bounded platform choices; focus returns to the route heading                                                            | Prototype native sheet includes enabled and disabled rows and explicit focus restoration                |
+| Sheets                    | Native Material sheet only for a native-origin bounded platform concern; Web product sheets remain Web and cannot request Native                             | Prototype sheet is reachable only from the native toolbar and exposes no Web bridge                     |
 | Expanded windows          | Navigation rail, not desktop sidebar, after an explicit foldable/tablet candidate                                                                            | Not implemented in this phone prototype; official adaptive navigation remains direction evidence        |
 
 The runnable Android candidate is debug-only:
@@ -279,7 +280,7 @@ Keep in React:
 - all product page bodies and Shared Rust product projections;
 - Activity secondary navigation until a complete adaptive pane is accepted;
 - complex or validation-heavy sheets and child routes;
-- search/filter presentation, pending affordances, and DOM focus targets; and
+- search/filter presentation, pending affordances, internal history/back, and DOM focus targets; and
 - Mish design tokens for content, semantic statuses, and data typography.
 
 Keep native:
@@ -289,8 +290,15 @@ Keep native:
 - top app bar geometry and platform back/overflow affordances;
 - system bar, display cutout, and keyboard-inset composition at the WebView
   boundary;
-- predictive-back progress/cancel callbacks; and
-- short platform sheets and restrained platform haptics where appropriate.
+- predictive-back progress/cancel callbacks and delegation into Web history;
+- top-level shell selection projected from Shared Rust; and
+- native-origin platform sheets and restrained platform haptics where
+  separately accepted.
+
+The native host must not expose a general Web-to-Native bridge. In particular,
+Web content cannot select a native destination, open native presentation, or
+request shell back/focus. Cross-section Web links are excluded from the mobile
+composition; the native tab/drawer is the only user-facing primary switcher.
 
 Do not add Compose solely for these bars. Compose would add a second rendering
 tree plus Compose runtime, Material 3, navigation/adaptive, compiler, lifecycle,
@@ -306,13 +314,13 @@ is not an iOS answer.
 | Concern               | Required Apple behavior                                                                                                                                         | Candidate evidence/gate                                                                         |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Tabs                  | System tab bar on compact iPhone; platform-appropriate top tab/sidebar adaptation on iPad; five stable product tabs                                             | SwiftUI prototype uses `TabView` and `.sidebarAdaptable`                                        |
-| Navigation            | One native stack per tab, system back button, interactive edge pop, state restoration from authoritative stacks                                                 | Source candidate binds `NavigationStack` paths to one mock authority; runtime proof unavailable |
+| Navigation            | Native navigation container owns outer-shell title/toolbar only; React Router owns product route stack and internal back                                         | Source candidate has no native child stack; runtime proof unavailable                            |
 | Liquid Glass/material | Standard tabs, bars, toolbars, and sidebars adopt system Liquid Glass and accessibility variants; content uses standard material only where semantically useful | No CSS imitation; requires iOS/iPadOS 26 runtime inspection                                     |
 | Scroll edge           | Scrolling content extends under system chrome where appropriate; system controls legibility and tab minimization                                                | Candidate has long system scroll content and tab minimize-on-scroll; runtime proof unavailable  |
-| Sheets                | System sheet/popover choice, detents, drag indicator, dismissal, and focus restoration                                                                          | Candidate uses medium/large detents; runtime proof unavailable                                  |
+| Sheets                | System sheet/popover only for a native-origin bounded platform concern; Web product sheets remain internal and cannot request Native                              | Candidate diagnostic sheet is launched only by native toolbar; runtime proof unavailable        |
 | Safe area/keyboard    | System containers own bars, home indicator, keyboard avoidance, rotation, Stage Manager, and multitasking                                                       | Phone/iPad portrait/landscape and floating/docked keyboard are required gates                   |
 | Dynamic Type          | Semantic system fonts reflow through accessibility sizes without clipped tab labels, toolbar actions, or sheet rows                                             | Candidate uses semantic fonts and `ViewThatFits`; Accessibility Inspector required              |
-| VoiceOver             | System tab/navigation traits, stable order, selected tab announcement, heading focus after route/sheet                                                          | Candidate uses accessibility focus token; real VoiceOver required                               |
+| VoiceOver             | System shell traits/order/selection are native; Web heading/focus order remains wholly inside WKWebView                                                          | No cross-boundary focus token; real VoiceOver required                                          |
 | Reduce Motion         | System transitions adapt; custom content replaces spatial movement with a fade or no motion                                                                     | Candidate reads `accessibilityReduceMotion`; real setting required                              |
 | Reduce Transparency   | System Liquid Glass adapts; custom material becomes opaque where needed                                                                                         | Candidate reads `accessibilityReduceTransparency`; real setting required                        |
 | Pointer/keyboard      | iPad pointer hover, Full Keyboard Access, and non-conflicting shortcuts                                                                                         | Candidate uses hover effects and scoped shortcuts; real hardware/simulator required             |
@@ -320,8 +328,10 @@ is not an iOS answer.
 
 The source-ready Apple candidate is
 [`MishShellPrototype.swiftpm`](../../prototypes/mobile-shell/ios/MishShellPrototype.swiftpm/Package.swift).
-It uses only system SwiftUI components. It is not linked into Tauri and was not
-compiled because the host has no Xcode or iOS SDK.
+It uses system SwiftUI shell components around an explicit single-WKWebView
+boundary placeholder. It does not implement native product content or a native
+child route stack. It is not linked into Tauri and was not compiled because the
+host has no Xcode or iOS SDK.
 
 ### Why Liquid Glass cannot be a Web/CSS component
 
@@ -345,10 +355,11 @@ not ready; a custom CSS glass bar is not the fallback.
 
 ### SwiftUI versus UIKit recommendation
 
-SwiftUI is the preferred behavior description for a new standalone Apple app:
-it provides concise system tabs, navigation stacks, sheets, Dynamic Type,
-accessibility environments, and adaptive sidebar behavior. The prototype uses
-it for those reasons.
+SwiftUI is the preferred behavior description for the Apple outer shell: it
+provides concise system tabs, shell navigation/toolbars, native-origin sheets,
+Dynamic Type, accessibility environments, and adaptive sidebar behavior. The
+prototype uses it for those reasons and deliberately leaves product content as
+a one-WebView boundary placeholder.
 
 For Mish's current Tauri boundary, UIKit is the lower-risk host integration
 candidate because Tauri exposes an existing `UIViewController` and `WKWebView`.
@@ -359,8 +370,9 @@ WKWebView. Five independent WebViews are rejected because they multiply memory,
 Tauri lifecycle, product subscriptions, focus, cookies/storage, and testing.
 
 No UIKit or SwiftUI production choice is accepted until an iOS host prototype
-proves one WebView, one navigation authority, correct controller containment,
-interactive-pop cancellation, focus, deep links, and Tauri plugin lifecycle.
+proves one WebView, one Rust shell authority, one React Router Web authority,
+no Web-to-Native command channel, correct controller containment, system-back
+delegation, deep links, accessibility separation, and Tauri plugin lifecycle.
 
 ## Option comparison
 
@@ -379,28 +391,38 @@ unrelated app's package size as Mish evidence.
 
 ## Tauri composition boundary
 
-Tauri remains transport and WebView infrastructure, not navigation authority.
+Tauri remains transport and WebView infrastructure, not a generic Native UI
+bridge. Shared Rust owns the outer-shell selection; React Router owns internal
+Web navigation.
 
 Android:
 
 - Keep `TauriActivity` and the one Tauri WebView.
 - Add native chrome through an accepted host adapter or Activity layout, not a
   plugin-owned product store.
-- Register one back listener and disable Tauri's fallback WebView-history pop.
+- Kotlin sends only closed native-chrome/platform-deep-link shell intents to
+  Shared Rust, then delivers the accepted `webEntryPath` one-way toward React.
+- Do not install `addJavascriptInterface`, a custom URL handler, or a Web-facing
+  Tauri command for tabs, drawers, native sheets, haptics, permissions, or back.
+- Register one back listener. Delegate to WebView history while available and
+  leave Web-root exit to the system; do not create a Rust/native product stack.
 - Use the documented WebView inset zeroing pattern after native chrome consumes
   system bars and cutouts; keep IME updates flowing.
-- Kotlin invokes the Rust navigation authority through a bounded JNI/FFI seam,
-  matching Mish's existing mobile pattern. It publishes only accepted snapshots.
+- Kotlin invokes the Rust shell authority through a bounded JNI/FFI seam,
+  matching Mish's existing mobile pattern. It publishes only accepted shell
+  snapshots toward native chrome and one-way Web entry directives.
 
 Apple:
 
-- Keep one Tauri `WKWebView` and one mobile Rust process authority.
+- Keep one Tauri `WKWebView` and one mobile Rust shell authority.
 - Use the WebView/controller hook only inside a bounded host adapter. Do not
   infer that Tauri supports arbitrary root-controller replacement because a
   pointer is exposed.
-- UIKit/SwiftUI sends closed navigation intents through FFI and renders complete
-  snapshots. Controller delegate callbacks may report gesture progress, cancel,
-  or completion but may not invent a committed route.
+- UIKit/SwiftUI sends closed shell intents through FFI and renders shell
+  snapshots. The host emits an accepted entry path toward the WKWebView but
+  installs no `WKScriptMessageHandler` or Web-facing native command channel.
+- Product-route back, sheets, state, and focus remain in React Router/Web
+  content. UIKit delegates to WKWebView history and does not mirror it.
 - The WebView remains a content projection and must not be replicated once per
   tab.
 
@@ -408,19 +430,21 @@ Bridge timing policy:
 
 - Touch-down/ripple/highlight and predictive gesture progress stay local to the
   native presentation for frame-rate responsiveness.
-- Selected tab, route title, back availability, and React content update only on
-  the accepted snapshot.
-- Instrument intent-to-Rust, Rust transition, Rust-to-native render, and
-  Rust-to-React projection separately. No threshold is accepted before exact
-  device measurements; a visible one-frame mismatch is a candidate failure.
+- Selected tab and outer-shell title update only on the accepted Rust snapshot.
+  Internal route title, back availability, pending state, and focus remain Web.
+- Instrument native-intent-to-Rust, Rust transition, Rust-to-native render, and
+  one-way Rust-to-Web entry delivery separately. No Web-to-Native latency path
+  exists because no such UI bridge is permitted.
 
 ## Reversible migration sequence
 
 These are bounded draft slices, not created Issues.
 
-1. **Common authority contract.** Land the mobile-only Shared Rust navigation
-   reducer, native/React snapshot schemas, stale/duplicate/deep-link/back tests,
-   and a fixture adapter. Keep the current product shell selected by default.
+1. **Common shell contract.** Land the mobile-only Shared Rust shell reducer,
+   closed native/deep-link intent schema, stale/duplicate/source/path tests, and
+   one-way Web entry fixture. Add a negative check that no Web-to-Native shell
+   command or script handler exists. Keep the current product shell selected by
+   default.
 2. **Android debug comparison.** Add a build-time debug candidate that renders
    native Material bars around the unchanged WebView. Compare CSS and native
    candidates on the same #324 Home baseline. Removing the debug flag restores
@@ -432,9 +456,10 @@ These are bounded draft slices, not created Issues.
    iOS host, then prove one WKWebView inside UIKit and SwiftUI candidates without
    Packet Tunnel or product behavior.
 5. **Apple system-chrome comparison.** Run exact iPhone/iPad compact/regular,
-   Liquid Glass, accessibility, pointer/keyboard, deep-link, edge-pop, and
-   lifecycle comparisons. Reject the architecture if one-authority synchronization
-   or one-WebView containment cannot be proven.
+   Liquid Glass, accessibility, pointer/keyboard, deep-link, Web-back, and
+   lifecycle comparisons. Reject the architecture if single-WebView containment,
+   disjoint shell/Web writers, or absence of a Web-to-Native channel cannot be
+   proven.
 6. **Apple installed-mobile cutover.** Only after hands-on acceptance, enable
    system tabs/navigation for iOS/iPadOS behind a reversible build-time boundary.
 
@@ -448,8 +473,8 @@ The maintainer must accept or reject Android and Apple independently.
 
 | Platform   | Hands-on decision surface                                                                                                                                                                                    | Acceptance signal                                                                                                       | Current state                                                                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Android    | Exact debug APK: native vs current React bars, ripple clipping, selected/pressed/disabled, predictive back cancel/commit/root, insets/IME, TalkBack, light/dark, reduced motion, sheet focus                 | Explicitly accept selective native Material Views plus the one-authority contract, or reject with the observed mismatch | Candidate source delivered; build/runtime evidence recorded in the prototype validation document |
-| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system tabs/navigation, Liquid Glass, scroll edge, sheet, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/back/focus | Explicitly accept UIKit/SwiftUI host direction plus the one-authority contract, or reject with the observed mismatch    | Blocked on unavailable Xcode/iOS host; no runtime claim                                          |
+| Android    | Exact debug APK: native vs current React bars, strict one-way boundary, ripple clipping, selected/pressed/disabled, delegated Web back/root exit, insets/IME, TalkBack, light/dark, reduced motion, native-origin sheet | Explicitly accept selective Material Views plus disjoint shell/Web writers and no Web-to-Native bridge, or reject with the observed mismatch | Revised candidate rebuilt and core boundary path passed on isolated API 36; residual hands-on gates remain |
+| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system shell tabs/navigation, one WKWebView, no Web backchannel, Liquid Glass, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/Web-back | Explicitly accept UIKit/SwiftUI host direction plus the strict one-way boundary, or reject with the observed mismatch | Blocked on unavailable Xcode/iOS host; no runtime claim |
 
 The research pull request must remain unmerged and Issue #343 must remain open
 until both required platform decisions are explicit or the maintainer explicitly
