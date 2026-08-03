@@ -48,7 +48,7 @@
         --hairline-soft: #27272a;
         --hairline: #34343a;
         --accent: #60a5fa;
-        --brand: #3b82f6;
+        --brand: #2f6fdc;
         --brand-fg: #f8faff;
         --success: #6ee7b7;
         --success-bg: #14352a;
@@ -745,7 +745,7 @@
             <p class="eyebrow">Mish · Issue #356 · HITL</p>
             <h1 data-i18n="title">Systemic interface candidates</h1>
           </div>
-          <form class="controls" aria-label="Prototype settings">
+          <form class="controls" aria-label="Prototype settings" data-i18n-aria="prototypeSettings">
             <div class="control">
               <label for="theme" data-i18n="themeLabel">Theme</label>
               <select id="theme">
@@ -807,7 +807,7 @@
                 interaction box and allow rows to reflow.
               </p>
             </div>
-            <span class="candidate-id" aria-label="Candidate A">A</span>
+            <span class="candidate-id" aria-label="Candidate A" data-i18n-aria="candidateA">A</span>
           </header>
 
           <div class="comparison">
@@ -1022,7 +1022,7 @@
                 blocked until cleanup, rollback, or process recovery finishes.
               </p>
             </div>
-            <span class="candidate-id" aria-label="Candidate B">B</span>
+            <span class="candidate-id" aria-label="Candidate B" data-i18n-aria="candidateB">B</span>
           </header>
 
           <div class="candidate-header">
@@ -1146,7 +1146,11 @@
                       >Checking the live capability again before commit.</span
                     >
                   </div>
-                  <div class="anatomy" aria-label="Ownership anatomy">
+                  <div
+                    class="anatomy"
+                    aria-label="Ownership anatomy"
+                    data-i18n-aria="ownershipAnatomy"
+                  >
                     <div data-i18n="domainTruth">Domain phase</div>
                     <div data-i18n="sharedAnatomy">Shared anatomy</div>
                     <div data-i18n="nearbyReason">Nearby reason</div>
@@ -1193,7 +1197,12 @@
     <script>
       const copy = {
         en: {
+          documentTitle: "Mish Issue #356 — systemic interface candidates",
           title: "Systemic interface candidates",
+          prototypeSettings: "Prototype settings",
+          candidateA: "Candidate A",
+          candidateB: "Candidate B",
+          ownershipAnatomy: "Ownership anatomy",
           themeLabel: "Theme",
           light: "Light",
           dark: "Dark",
@@ -1275,7 +1284,12 @@
           rejectC: "Either candidate requires a new product dependency or broad rewrite.",
         },
         zh: {
+          documentTitle: "Mish Issue #356 — 系统级界面候选方案",
           title: "系统级界面候选方案",
+          prototypeSettings: "原型设置",
+          candidateA: "候选方案 A",
+          candidateB: "候选方案 B",
+          ownershipAnatomy: "权威结构",
           themeLabel: "主题",
           light: "浅色",
           dark: "深色",
@@ -1440,6 +1454,7 @@
       }
 
       function render() {
+        document.title = t("documentTitle");
         document.documentElement.dataset.theme = theme.value;
         document.documentElement.lang = locale.value === "zh" ? "zh-CN" : "en";
         artifact.dataset.viewport = viewport.value;
