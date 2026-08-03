@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   checkRepositoryMobileShellBoundary,
   findMobileShellBoundaryViolations,
+  findRuntimeCargoDependencies,
   type BoundarySource,
 } from "./check-mobile-shell-boundary.ts";
 
@@ -53,6 +54,13 @@ const forbiddenCases: Array<{
     },
   },
   {
+    expectedRule: "web-facing-tauri-shell-command",
+    source: {
+      path: "apps/web/src/platform/mobile-shell.ts",
+      text: 'await invoke("select_tab", { tab: "settings" });',
+    },
+  },
+  {
     expectedRule: "web-emitted-native-ui-event",
     source: {
       path: "apps/web/src/platform/mobile-shell.ts",
@@ -60,10 +68,24 @@ const forbiddenCases: Array<{
     },
   },
   {
+    expectedRule: "web-emitted-native-ui-event",
+    source: {
+      path: "apps/web/src/platform/mobile-shell.ts",
+      text: 'await emit("open_permission", { kind: "vpn" });',
+    },
+  },
+  {
     expectedRule: "mobile-tauri-shell-command",
     source: {
       path: "apps/mobile/src-tauri/src/lib.rs",
       text: "#[tauri::command]\nfn mobile_shell_select_tab(tab: String) {}",
+    },
+  },
+  {
+    expectedRule: "mobile-tauri-shell-command",
+    source: {
+      path: "apps/mobile/src-tauri/src/lib.rs",
+      text: "#[tauri::command]\nfn select_tab(tab: String) {}",
     },
   },
   {
@@ -85,6 +107,13 @@ const forbiddenCases: Array<{
     source: {
       path: "apps/mobile/src-tauri/gen/android/app/src/main/java/Bridge.kt",
       text: 'webView.loadUrl("mish-shell-command://select?tab=settings")',
+    },
+  },
+  {
+    expectedRule: "custom-url-command-channel",
+    source: {
+      path: "apps/mobile/src-tauri/gen/android/app/src/main/java/Bridge.kt",
+      text: 'webView.loadUrl("mish://select?tab=settings")',
     },
   },
 ];
@@ -113,6 +142,29 @@ test("accepts a strictly one-way platform-neutral entry seam", () => {
   ];
 
   assert.deepEqual(findMobileShellBoundaryViolations(sources), []);
+});
+
+test("finds normal and target-specific runtime Cargo dependencies", () => {
+  assert.deepEqual(
+    findRuntimeCargoDependencies({
+      packages: [
+        {
+          name: "mish-mobile-shell",
+          dependencies: [
+            { kind: "dev", name: "serde", target: null },
+            { kind: null, name: "runtime", target: null },
+            { kind: "build", name: "builder", target: null },
+            {
+              kind: null,
+              name: "android-runtime",
+              target: 'cfg(target_os = "android")',
+            },
+          ],
+        },
+      ],
+    }),
+    ["mish-mobile-shell:runtime", 'mish-mobile-shell:android-runtime@cfg(target_os = "android")'],
+  );
 });
 
 test("the checked-in repository keeps the native shell production-disabled", () => {

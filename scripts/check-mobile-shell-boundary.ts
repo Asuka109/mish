@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +33,17 @@ export interface BoundaryViolation {
   path: string;
 }
 
+interface CargoMetadata {
+  packages: Array<{
+    dependencies: Array<{
+      kind: string | null;
+      name: string;
+      target: string | null;
+    }>;
+    name: string;
+  }>;
+}
+
 interface BoundaryRule {
   id: string;
   applies(path: string): boolean;
@@ -43,7 +55,8 @@ const appleSource = (path: string) => /\.(?:m|mm|swift)$/u.test(path);
 const webSource = (path: string) => /apps\/web\/src\/.*\.(?:js|ts|tsx)$/u.test(path);
 const mobileRust = (path: string) => /apps\/mobile\/src-tauri\/.*\.rs$/u.test(path);
 
-const shellUiToken = String.raw`(?:shell|native[_:-]?(?:tab|drawer|sheet|back|focus|haptic|permission|route))`;
+const bareNativeUiAction = String.raw`(?:(?:select|switch|change|open|close|show|hide|request|trigger|perform|navigate|go|set)[_:-]?(?:tab|drawer|sheet|back|focus|haptic|permission)|(?:navigate|open)[_:-]?route)`;
+const shellUiToken = String.raw`(?:shell|native[_:-]?(?:tab|drawer|sheet|back|focus|haptic|permission|route)|${bareNativeUiAction})`;
 const boundedCommandName = String.raw`[^"'\x60\r\n]{0,80}${shellUiToken}`;
 
 const rules: readonly BoundaryRule[] = [
@@ -105,7 +118,7 @@ const rules: readonly BoundaryRule[] = [
     id: "custom-url-command-channel",
     applies: () => true,
     pattern:
-      /(?:mish[-_]?shell|mish[-_]?native|native[-_]?command|shell[-_]?command):(?:\/\/)?|(?:mish|native|shell):\/\/[^\s"']{0,80}(?:command|shell|native)|shouldOverrideUrlLoading[\s\S]{0,240}(?:command|shell|native)|decidePolicyFor[\s\S]{0,240}(?:command|shell|native)/iu,
+      /(?:mish[-_]?shell|mish[-_]?native|native[-_]?command|shell[-_]?command):(?:\/\/)?|(?:mish|native|shell):\/\/(?:action|command|shell|native|select|switch|change|open|close|show|hide|request|trigger|perform|navigate|go|set)(?:[/?#:_-]|$)|shouldOverrideUrlLoading[\s\S]{0,240}(?:command|shell|native)|decidePolicyFor[\s\S]{0,240}(?:command|shell|native)/iu,
   },
 ];
 
@@ -122,6 +135,23 @@ export function findMobileShellBoundaryViolations(
     }
   }
   return violations;
+}
+
+export function findRuntimeCargoDependencies(
+  metadata: CargoMetadata,
+  packageName = "mish-mobile-shell",
+): string[] {
+  return metadata.packages
+    .filter((cargoPackage) => cargoPackage.name === packageName)
+    .flatMap((cargoPackage) =>
+      cargoPackage.dependencies
+        .filter((dependency) => dependency.kind === null)
+        .map((dependency) =>
+          dependency.target
+            ? `${cargoPackage.name}:${dependency.name}@${dependency.target}`
+            : `${cargoPackage.name}:${dependency.name}`,
+        ),
+    );
 }
 
 function collectSources(relativeDirectory: string): BoundarySource[] {
@@ -164,7 +194,20 @@ export function checkRepositoryMobileShellBoundary() {
   const rust = readFileSync(resolve(root, "crates/mobile-shell/src/lib.rs"), "utf8");
   const mobileManifest = readFileSync(resolve(root, "apps/mobile/src-tauri/Cargo.toml"), "utf8");
   const mobileHost = readFileSync(resolve(root, "apps/mobile/src-tauri/src/lib.rs"), "utf8");
-  const shellManifest = readFileSync(resolve(root, "crates/mobile-shell/Cargo.toml"), "utf8");
+  const shellMetadata = JSON.parse(
+    execFileSync(
+      "cargo",
+      [
+        "metadata",
+        "--format-version",
+        "1",
+        "--no-deps",
+        "--manifest-path",
+        "crates/mobile-shell/Cargo.toml",
+      ],
+      { cwd: root, encoding: "utf8" },
+    ),
+  ) as CargoMetadata;
 
   for (const required of [
     "ShellIntentSource",
@@ -193,9 +236,10 @@ export function checkRepositoryMobileShellBoundary() {
     !mobileManifest.includes("mish-mobile-shell") && !mobileHost.includes("mish_mobile_shell"),
     "The production mobile application selected the native shell before its cutover Issue.",
   );
+  const runtimeDependencies = findRuntimeCargoDependencies(shellMetadata);
   invariant(
-    !/^\[dependencies\]/mu.test(shellManifest),
-    "The production-disabled shell contract introduced a runtime dependency.",
+    runtimeDependencies.length === 0,
+    `The production-disabled shell contract introduced runtime dependencies: ${runtimeDependencies.join(", ")}`,
   );
 
   console.log(
