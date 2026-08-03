@@ -564,7 +564,7 @@ const en = {
       confirmationFailed:
         "Installation finished, but Mish could not confirm the helper version and health. Use Clean reinstall in Settings, then retry.",
       description:
-        "Virtual Interface reaches traffic that does not follow the macOS System Proxy. Review what changes before continuing.",
+        "Virtual Interface needs a system component. It remains off while Mish prepares that component.",
       enable: "Enable Virtual Interface",
       helperDescription:
         "Mish uses its verified privileged helper to run Mihomo and create the macOS utun interface. The Web interface never receives root authority.",
@@ -573,25 +573,25 @@ const en = {
         "The helper was not installed. No TUN change was made; retry and approve the macOS administrator prompt.",
       installationFailed:
         "macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; use Clean reinstall in Settings and retry.",
-      installHelper: "Install Helper",
-      installingHelper: "Waiting for macOS…",
+      installHelper: "Install System Component",
+      installingHelper: "Waiting for macOS permission…",
       installerUnavailable:
         "Mish could not start the development helper installer or read its result. Reopen the dev app from pnpm and retry.",
       notNow: "Not Now",
       preparationFailed:
         "Mish could not prepare or verify the files required for installation, so administrator approval was not requested. Restart Mish and retry; if it still fails, reinstall this version.",
-      reviewSetup: "Review Helper Setup",
+      reviewSetup: "Open Settings",
       restartDescription:
         "Mish will restart the active Core with TUN enabled and briefly update device routes. Turning it off removes the virtual route and returns to the remaining selected capture modes.",
       restartTitle: "Core and routes change",
       repairDescription:
-        "Mish will repair the system component through the same macOS authorization flow. Virtual Interface stays off until Mish confirms the repaired component and a fresh disabled network observation, then resumes this enable request.",
-      repairHelper: "Repair Helper",
-      repairingHelper: "Repairing Helper…",
-      repairTitle: "Helper repair required",
+        "macOS will ask for permission so Mish can repair the system component that Virtual Interface needs. Virtual Interface stays off while Mish checks the component. Once it is ready, Mish continues your request to enable Virtual Interface.",
+      repairHelper: "Repair System Component",
+      repairingHelper: "Repairing system component…",
+      repairTitle: "Repair the system component",
       setupDescription:
-        "Mish will install the system component through macOS authorization. Virtual Interface stays off until Mish confirms the exact healthy component and a fresh disabled network observation, then resumes this enable request.",
-      setupTitle: "Helper setup required",
+        "macOS will ask for permission so Mish can install the system component that Virtual Interface needs. Virtual Interface stays off while Mish checks the component. Once it is ready, Mish continues your request to enable Virtual Interface.",
+      setupTitle: "Install the system component",
       title: "Before enabling Virtual Interface",
     },
     tunOff: "Virtual Interface is off.",

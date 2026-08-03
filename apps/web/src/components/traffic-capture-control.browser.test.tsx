@@ -33,10 +33,11 @@ function renderHost(
   onTunHelperSetup?: (
     operation: "install" | "repair",
   ) => Promise<{ ok: true } | { ok: false; failure: null }>,
+  locale: "en" | "zh" = "en",
 ) {
   const onTunChange = vi.fn();
   root.render(
-    <TypesafeI18n locale="en">
+    <TypesafeI18n key={`${locale}-${host}-${tun}`} locale={locale}>
       <MemoryRouter>
         <TooltipProvider>
           <section aria-label={host} className={host === "Settings" ? "max-w-60" : "max-w-120"}>
@@ -119,11 +120,115 @@ describe("Virtual Interface native setup boundary", () => {
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
     await userEvent.click(tun);
-    await expect.element(page.getByText("Helper repair required")).toBeVisible();
-    await userEvent.click(page.getByRole("button", { name: "Repair Helper" }));
+    await expect
+      .element(page.getByRole("heading", { name: "Repair the system component" }))
+      .toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Repair System Component" }));
 
     await expect.poll(() => setup.mock.calls.length).toBe(1);
     expect(setup).toHaveBeenCalledWith("repair");
     expect(onTunChange).not.toHaveBeenCalled();
+    await expect
+      .element(page.getByRole("dialog", { name: "Before enabling Virtual Interface" }))
+      .not.toBeInTheDocument();
   });
+
+  test.each([
+    {
+      dialogTitle: "Before enabling Virtual Interface",
+      locale: "en" as const,
+      sectionTitle: "Install the system component",
+      tun: "permission-required" as const,
+    },
+    {
+      dialogTitle: "Before enabling Virtual Interface",
+      locale: "en" as const,
+      sectionTitle: "Repair the system component",
+      tun: "repair-required" as const,
+    },
+    {
+      dialogTitle: "启用虚拟网卡之前",
+      locale: "zh" as const,
+      sectionTitle: "安装系统组件",
+      tun: "permission-required" as const,
+    },
+    {
+      dialogTitle: "启用虚拟网卡之前",
+      locale: "zh" as const,
+      sectionTitle: "修复系统组件",
+      tun: "repair-required" as const,
+    },
+  ])(
+    "stacks $locale $tun setup copy at ordinary and narrow widths",
+    async ({ dialogTitle, locale, sectionTitle, tun }) => {
+      for (const [host, width] of [
+        ["Status", 960],
+        ["Settings", 320],
+      ] as const) {
+        await page.viewport(width, 680);
+        renderHost(host, tun, undefined, locale);
+
+        const trigger = page.getByRole("button", {
+          name: locale === "en" ? /^Virtual Interface,/ : /^虚拟网卡，/,
+        });
+        await userEvent.click(trigger);
+
+        const dialog = page.getByRole("dialog", { name: dialogTitle });
+        await expect.element(dialog).toBeVisible();
+        await expect.element(page.getByRole("heading", { name: sectionTitle })).toBeVisible();
+
+        const dialogCopy = dialog
+          .element()
+          .querySelector<HTMLElement>("[data-tun-setup-dialog-copy]");
+        const dialogTitleElement = dialog
+          .element()
+          .querySelector<HTMLElement>("[data-tun-setup-dialog-title]");
+        const dialogDescription = dialog
+          .element()
+          .querySelector<HTMLElement>("[data-tun-setup-dialog-description]");
+        const copy = dialog.element().querySelector<HTMLElement>("[data-tun-setup-copy]");
+        const title = dialog.element().querySelector<HTMLElement>("[data-tun-setup-title]");
+        const description = dialog
+          .element()
+          .querySelector<HTMLElement>("[data-tun-setup-description]");
+        const actions = dialog.element().querySelector<HTMLElement>("[data-tun-setup-actions]");
+        if (
+          !dialogCopy ||
+          !dialogTitleElement ||
+          !dialogDescription ||
+          !copy ||
+          !title ||
+          !description ||
+          !actions
+        ) {
+          throw new Error("Missing setup explanation hierarchy");
+        }
+
+        expect(getComputedStyle(dialogCopy).display).toBe("flex");
+        expect(getComputedStyle(dialogCopy).flexDirection).toBe("column");
+        expect(dialogDescription.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          dialogTitleElement.getBoundingClientRect().bottom,
+        );
+        expect(getComputedStyle(copy).display).toBe("flex");
+        expect(getComputedStyle(copy).flexDirection).toBe("column");
+        expect(description.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          title.getBoundingClientRect().bottom,
+        );
+        expect(copy.scrollWidth).toBeLessThanOrEqual(copy.clientWidth + 1);
+        expect(dialog.element().scrollWidth).toBeLessThanOrEqual(dialog.element().clientWidth + 1);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth + 1);
+        expect(getComputedStyle(actions).flexWrap).toBe(width === 320 ? "wrap" : "nowrap");
+
+        const dialogBounds = dialog.element().getBoundingClientRect();
+        for (const action of actions.querySelectorAll<HTMLElement>("button")) {
+          const actionBounds = action.getBoundingClientRect();
+          expect(actionBounds.left).toBeGreaterThanOrEqual(dialogBounds.left - 1);
+          expect(actionBounds.right).toBeLessThanOrEqual(dialogBounds.right + 1);
+        }
+
+        await userEvent.keyboard("{Escape}");
+        await expect.element(dialog).not.toBeInTheDocument();
+      }
+    },
+  );
 });

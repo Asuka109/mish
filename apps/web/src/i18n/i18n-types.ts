@@ -1784,7 +1784,7 @@ type RootTranslation = {
 			 */
 			confirmationFailed: string
 			/**
-			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​a​c​h​e​s​ ​t​r​a​f​f​i​c​ ​t​h​a​t​ ​d​o​e​s​ ​n​o​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.​ ​R​e​v​i​e​w​ ​w​h​a​t​ ​c​h​a​n​g​e​s​ ​b​e​f​o​r​e​ ​c​o​n​t​i​n​u​i​n​g​.
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​n​e​e​d​s​ ​a​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​.​ ​I​t​ ​r​e​m​a​i​n​s​ ​o​f​f​ ​w​h​i​l​e​ ​M​i​s​h​ ​p​r​e​p​a​r​e​s​ ​t​h​a​t​ ​c​o​m​p​o​n​e​n​t​.
 			 */
 			description: string
 			/**
@@ -1808,11 +1808,11 @@ type RootTranslation = {
 			 */
 			installationFailed: string
 			/**
-			 * I​n​s​t​a​l​l​ ​H​e​l​p​e​r
+			 * I​n​s​t​a​l​l​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t
 			 */
 			installHelper: string
 			/**
-			 * W​a​i​t​i​n​g​ ​f​o​r​ ​m​a​c​O​S​…
+			 * W​a​i​t​i​n​g​ ​f​o​r​ ​m​a​c​O​S​ ​p​e​r​m​i​s​s​i​o​n​…
 			 */
 			installingHelper: string
 			/**
@@ -1828,7 +1828,7 @@ type RootTranslation = {
 			 */
 			preparationFailed: string
 			/**
-			 * R​e​v​i​e​w​ ​H​e​l​p​e​r​ ​S​e​t​u​p
+			 * O​p​e​n​ ​S​e​t​t​i​n​g​s
 			 */
 			reviewSetup: string
 			/**
@@ -1840,27 +1840,27 @@ type RootTranslation = {
 			 */
 			restartTitle: string
 			/**
-			 * M​i​s​h​ ​w​i​l​l​ ​r​e​p​a​i​r​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​s​a​m​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​f​l​o​w​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​r​e​p​a​i​r​e​d​ ​c​o​m​p​o​n​e​n​t​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
+			 * m​a​c​O​S​ ​w​i​l​l​ ​a​s​k​ ​f​o​r​ ​p​e​r​m​i​s​s​i​o​n​ ​s​o​ ​M​i​s​h​ ​c​a​n​ ​r​e​p​a​i​r​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​a​t​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​n​e​e​d​s​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​w​h​i​l​e​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​t​h​e​ ​c​o​m​p​o​n​e​n​t​.​ ​O​n​c​e​ ​i​t​ ​i​s​ ​r​e​a​d​y​,​ ​M​i​s​h​ ​c​o​n​t​i​n​u​e​s​ ​y​o​u​r​ ​r​e​q​u​e​s​t​ ​t​o​ ​e​n​a​b​l​e​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​.
 			 */
 			repairDescription: string
 			/**
-			 * R​e​p​a​i​r​ ​H​e​l​p​e​r
+			 * R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t
 			 */
 			repairHelper: string
 			/**
-			 * R​e​p​a​i​r​i​n​g​ ​H​e​l​p​e​r​…
+			 * R​e​p​a​i​r​i​n​g​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​…
 			 */
 			repairingHelper: string
 			/**
-			 * H​e​l​p​e​r​ ​r​e​p​a​i​r​ ​r​e​q​u​i​r​e​d
+			 * R​e​p​a​i​r​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t
 			 */
 			repairTitle: string
 			/**
-			 * M​i​s​h​ ​w​i​l​l​ ​i​n​s​t​a​l​l​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​r​o​u​g​h​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​e​x​a​c​t​ ​h​e​a​l​t​h​y​ ​c​o​m​p​o​n​e​n​t​ ​a​n​d​ ​a​ ​f​r​e​s​h​ ​d​i​s​a​b​l​e​d​ ​n​e​t​w​o​r​k​ ​o​b​s​e​r​v​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​s​u​m​e​s​ ​t​h​i​s​ ​e​n​a​b​l​e​ ​r​e​q​u​e​s​t​.
+			 * m​a​c​O​S​ ​w​i​l​l​ ​a​s​k​ ​f​o​r​ ​p​e​r​m​i​s​s​i​o​n​ ​s​o​ ​M​i​s​h​ ​c​a​n​ ​i​n​s​t​a​l​l​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​ ​t​h​a​t​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​n​e​e​d​s​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​ ​w​h​i​l​e​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​t​h​e​ ​c​o​m​p​o​n​e​n​t​.​ ​O​n​c​e​ ​i​t​ ​i​s​ ​r​e​a​d​y​,​ ​M​i​s​h​ ​c​o​n​t​i​n​u​e​s​ ​y​o​u​r​ ​r​e​q​u​e​s​t​ ​t​o​ ​e​n​a​b​l​e​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​.
 			 */
 			setupDescription: string
 			/**
-			 * H​e​l​p​e​r​ ​s​e​t​u​p​ ​r​e​q​u​i​r​e​d
+			 * I​n​s​t​a​l​l​ ​t​h​e​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t
 			 */
 			setupTitle: string
 			/**
@@ -6663,7 +6663,7 @@ export type TranslationFunctions = {
 			 */
 			confirmationFailed: () => LocalizedString
 			/**
-			 * Virtual Interface reaches traffic that does not follow the macOS System Proxy. Review what changes before continuing.
+			 * Virtual Interface needs a system component. It remains off while Mish prepares that component.
 			 */
 			description: () => LocalizedString
 			/**
@@ -6687,11 +6687,11 @@ export type TranslationFunctions = {
 			 */
 			installationFailed: () => LocalizedString
 			/**
-			 * Install Helper
+			 * Install System Component
 			 */
 			installHelper: () => LocalizedString
 			/**
-			 * Waiting for macOS…
+			 * Waiting for macOS permission…
 			 */
 			installingHelper: () => LocalizedString
 			/**
@@ -6707,7 +6707,7 @@ export type TranslationFunctions = {
 			 */
 			preparationFailed: () => LocalizedString
 			/**
-			 * Review Helper Setup
+			 * Open Settings
 			 */
 			reviewSetup: () => LocalizedString
 			/**
@@ -6719,27 +6719,27 @@ export type TranslationFunctions = {
 			 */
 			restartTitle: () => LocalizedString
 			/**
-			 * Mish will repair the system component through the same macOS authorization flow. Virtual Interface stays off until Mish confirms the repaired component and a fresh disabled network observation, then resumes this enable request.
+			 * macOS will ask for permission so Mish can repair the system component that Virtual Interface needs. Virtual Interface stays off while Mish checks the component. Once it is ready, Mish continues your request to enable Virtual Interface.
 			 */
 			repairDescription: () => LocalizedString
 			/**
-			 * Repair Helper
+			 * Repair System Component
 			 */
 			repairHelper: () => LocalizedString
 			/**
-			 * Repairing Helper…
+			 * Repairing system component…
 			 */
 			repairingHelper: () => LocalizedString
 			/**
-			 * Helper repair required
+			 * Repair the system component
 			 */
 			repairTitle: () => LocalizedString
 			/**
-			 * Mish will install the system component through macOS authorization. Virtual Interface stays off until Mish confirms the exact healthy component and a fresh disabled network observation, then resumes this enable request.
+			 * macOS will ask for permission so Mish can install the system component that Virtual Interface needs. Virtual Interface stays off while Mish checks the component. Once it is ready, Mish continues your request to enable Virtual Interface.
 			 */
 			setupDescription: () => LocalizedString
 			/**
-			 * Helper setup required
+			 * Install the system component
 			 */
 			setupTitle: () => LocalizedString
 			/**

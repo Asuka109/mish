@@ -375,8 +375,8 @@ test("unconfirmed rollback projects Recovery Required without false success", as
 });
 
 for (const [scenario, action] of [
-  ["helper-install", "Install Helper"],
-  ["helper-repair", "Repair Helper"],
+  ["helper-install", "Install System Component"],
+  ["helper-repair", "Repair System Component"],
 ] as const) {
   test(`${action} follows authenticated Settings and Rust maintenance authority`, async () => {
     registerFailureEvidence(
@@ -393,7 +393,10 @@ for (const [scenario, action] of [
       expect((await observation(scenario)).signals.maintenance?.journalPresent).toBe(true);
     });
     const pendingAction = page.getByRole("button", {
-      name: scenario === "helper-install" ? "Waiting for macOS…" : "Repairing Helper…",
+      name:
+        scenario === "helper-install"
+          ? "Waiting for macOS permission…"
+          : "Repairing system component…",
     });
     await expect.element(pendingAction).toBeDisabled();
     await expect.element(pendingAction).toHaveAttribute("aria-busy", "true");

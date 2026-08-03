@@ -2614,7 +2614,7 @@ describe("desktop RPC experience", () => {
     expect(
       await screen.findByRole("dialog", { name: "Before enabling Virtual Interface" }),
     ).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Install Helper" }));
+    await user.click(screen.getByRole("button", { name: "Install System Component" }));
 
     expect(settingsClient.installTunHelper).toHaveBeenCalledWith({ resumeCapture: true });
     expect(setCapture).not.toHaveBeenCalled();
@@ -2665,8 +2665,8 @@ describe("desktop RPC experience", () => {
         name: "Virtual Interface, not selected, not running",
       }),
     );
-    expect(await screen.findByText("Helper repair required")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Repair Helper" }));
+    expect(await screen.findByText("Repair the system component")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Repair System Component" }));
 
     await waitFor(() =>
       expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({ resumeCapture: true }),
