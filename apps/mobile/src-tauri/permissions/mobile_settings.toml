@@ -1,0 +1,29 @@
+[[permission]]
+identifier = "allow-mobile-settings-get-snapshot"
+description = "Enables the bounded mobile_settings_get_snapshot command without any pre-configured scope."
+commands.allow = ["mobile_settings_get_snapshot"]
+
+[[permission]]
+identifier = "deny-mobile-settings-get-snapshot"
+description = "Denies the bounded mobile_settings_get_snapshot command without any pre-configured scope."
+commands.deny = ["mobile_settings_get_snapshot"]
+
+[[permission]]
+identifier = "allow-mobile-settings-set-appearance"
+description = "Enables the bounded mobile_settings_set_appearance command without any pre-configured scope."
+commands.allow = ["mobile_settings_set_appearance"]
+
+[[permission]]
+identifier = "deny-mobile-settings-set-appearance"
+description = "Denies the bounded mobile_settings_set_appearance command without any pre-configured scope."
+commands.deny = ["mobile_settings_set_appearance"]
+
+[[permission]]
+identifier = "allow-mobile-settings-set-language"
+description = "Enables the bounded mobile_settings_set_language command without any pre-configured scope."
+commands.allow = ["mobile_settings_set_language"]
+
+[[permission]]
+identifier = "deny-mobile-settings-set-language"
+description = "Denies the bounded mobile_settings_set_language command without any pre-configured scope."
+commands.deny = ["mobile_settings_set_language"]

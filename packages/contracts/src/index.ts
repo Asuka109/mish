@@ -1883,7 +1883,7 @@ export const SettingsPreferencesSchema = z
   .strict();
 export interface SettingsPreferencesDto extends z.infer<typeof SettingsPreferencesSchema> {}
 
-export const SettingsAdapterKindSchema = z.enum(["fixture", "rpc"]);
+export const SettingsAdapterKindSchema = z.enum(["fixture", "native", "rpc"]);
 export type SettingsAdapterKind = z.infer<typeof SettingsAdapterKindSchema>;
 
 export const SettingsAvailabilitySchema = z.enum(["supported", "unavailable", "coming-later"]);

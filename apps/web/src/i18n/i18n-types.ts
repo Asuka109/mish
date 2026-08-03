@@ -934,6 +934,252 @@ type RootTranslation = {
 		 */
 		settings: string
 	}
+	mobileSettings: {
+		/**
+		 * A​p​p​l​i​c​a​t​i​o​n
+		 */
+		application: string
+		/**
+		 * A​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e​ ​a​r​e​ ​p​e​r​s​i​s​t​e​d​ ​b​y​ ​M​i​s​h​ ​o​n​ ​t​h​i​s​ ​d​e​v​i​c​e​.​ ​T​h​e​y​ ​d​o​ ​n​o​t​ ​s​t​a​r​t​ ​o​r​ ​s​t​o​p​ ​t​h​e​ ​V​P​N​.
+		 */
+		applicationDescription: string
+		/**
+		 * A​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e
+		 */
+		applicationSummary: string
+		/**
+		 * C​h​o​o​s​e​ ​a​ ​s​y​s​t​e​m​-​f​o​l​l​o​w​i​n​g​,​ ​l​i​g​h​t​,​ ​o​r​ ​d​a​r​k​ ​a​p​p​e​a​r​a​n​c​e​.
+		 */
+		appearanceDescription: string
+		/**
+		 * A​v​a​i​l​a​b​l​e
+		 */
+		available: string
+		/**
+		 * C​o​m​i​n​g​ ​l​a​t​e​r
+		 */
+		comingLater: string
+		/**
+		 * C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
+		 */
+		configuration: string
+		/**
+		 * O​n​l​y​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​M​o​b​i​l​e​ ​C​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​s​t​a​t​e​ ​i​s​ ​s​h​o​w​n​.
+		 */
+		configurationDescription: string
+		/**
+		 * E​m​b​e​d​d​e​d​ ​C​o​r​e
+		 */
+		core: string
+		/**
+		 * V​e​r​s​i​o​n​ ​i​n​f​o​r​m​a​t​i​o​n​ ​c​o​m​e​s​ ​f​r​o​m​ ​t​h​e​ ​p​a​c​k​a​g​e​d​ ​n​a​t​i​v​e​ ​C​o​r​e​ ​a​u​t​h​o​r​i​t​y​.
+		 */
+		coreDescription: string
+		/**
+		 * C​u​r​r​e​n​t​ ​s​t​a​t​e
+		 */
+		currentState: string
+		/**
+		 * D​e​s​k​t​o​p​ ​c​o​n​t​r​o​l​s
+		 */
+		desktopControls: string
+		/**
+		 * A​n​d​r​o​i​d​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​S​y​s​t​e​m​ ​P​r​o​x​y​,​ ​H​e​l​p​e​r​,​ ​l​o​o​p​b​a​c​k​,​ ​o​r​ ​d​e​s​k​t​o​p​-​w​i​n​d​o​w​ ​c​o​n​t​r​o​l​s​.
+		 */
+		desktopControlsDescription: string
+		/**
+		 * D​i​a​g​n​o​s​t​i​c​s
+		 */
+		diagnostics: string
+		/**
+		 * R​e​v​i​e​w​ ​b​o​u​n​d​e​d​ ​C​o​r​e​,​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​,​ ​a​n​d​ ​l​i​f​e​c​y​c​l​e​ ​e​v​i​d​e​n​c​e​.
+		 */
+		diagnosticsDescription: string
+		/**
+		 * V​P​N​ ​D​N​S​ ​p​o​l​i​c​y
+		 */
+		dns: string
+		/**
+		 * S​h​o​w​n​ ​o​n​l​y​ ​f​r​o​m​ ​A​n​d​r​o​i​d​'​s​ ​o​b​s​e​r​v​e​d​ ​V​P​N​ ​f​a​c​t​s​;​ ​n​o​ ​r​e​s​o​l​v​e​r​ ​a​d​d​r​e​s​s​e​s​ ​a​r​e​ ​e​x​p​o​s​e​d​.
+		 */
+		dnsDescription: string
+		/**
+		 * L​a​s​t​ ​l​i​f​e​c​y​c​l​e​ ​r​e​s​u​l​t
+		 */
+		failure: string
+		/**
+		 * F​a​i​l​u​r​e​s​ ​r​e​m​a​i​n​ ​r​e​d​a​c​t​e​d​ ​a​n​d​ ​r​e​q​u​i​r​e​ ​a​n​ ​e​x​p​l​i​c​i​t​ ​r​e​c​o​v​e​r​y​ ​p​a​t​h​.
+		 */
+		failureDescription: string
+		/**
+		 * A​c​t​i​o​n​ ​r​e​q​u​i​r​e​d
+		 */
+		failurePresent: string
+		/**
+		 * F​o​r​e​g​r​o​u​n​d​ ​s​e​r​v​i​c​e
+		 */
+		foreground: string
+		/**
+		 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​s​ ​w​h​e​t​h​e​r​ ​M​i​s​h​ ​c​u​r​r​e​n​t​l​y​ ​o​w​n​s​ ​t​h​e​ ​V​P​N​ ​f​o​r​e​g​r​o​u​n​d​ ​s​e​r​v​i​c​e​.
+		 */
+		foregroundDescription: string
+		/**
+		 * C​h​a​n​g​e​s​ ​M​i​s​h​ ​i​n​t​e​r​f​a​c​e​ ​t​e​x​t​ ​o​n​l​y​;​ ​u​s​e​r​-​p​r​o​v​i​d​e​d​ ​n​a​m​e​s​ ​r​e​m​a​i​n​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		languageDescription: string
+		/**
+		 * M​a​n​a​g​e​ ​o​n​ ​H​o​m​e
+		 */
+		manageOnHome: string
+		/**
+		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
+		 */
+		network: string
+		/**
+		 * T​h​e​s​e​ ​a​r​e​ ​A​n​d​r​o​i​d​ ​V​P​N​ ​o​b​s​e​r​v​a​t​i​o​n​s​,​ ​n​o​t​ ​e​d​i​t​a​b​l​e​ ​d​e​s​k​t​o​p​ ​n​e​t​w​o​r​k​ ​s​e​t​t​i​n​g​s​.
+		 */
+		networkDescription: string
+		/**
+		 * O​b​s​e​r​v​e​d​ ​V​P​N​ ​r​o​u​t​e​ ​a​n​d​ ​D​N​S​ ​s​t​a​t​e
+		 */
+		networkSummary: string
+		/**
+		 * N​o​ ​v​e​r​i​f​i​e​d​ ​C​o​r​e
+		 */
+		noVerifiedCore: string
+		/**
+		 * N​o​n​e
+		 */
+		none: string
+		/**
+		 * N​o​t​ ​e​x​p​o​s​e​d
+		 */
+		notExposed: string
+		/**
+		 * N​o​t​ ​o​b​s​e​r​v​e​d
+		 */
+		notObserved: string
+		/**
+		 * N​o​t​ ​r​e​q​u​i​r​e​d
+		 */
+		notRequired: string
+		/**
+		 * O​b​s​e​r​v​e​d
+		 */
+		observed: string
+		/**
+		 * P​r​i​v​a​c​y
+		 */
+		privacy: string
+		/**
+		 * A​n​d​r​o​i​d​-​s​p​e​c​i​f​i​c​ ​b​o​u​n​d​a​r​i​e​s​ ​s​t​a​y​ ​e​x​p​l​i​c​i​t​ ​a​n​d​ ​d​o​ ​n​o​t​ ​i​n​h​e​r​i​t​ ​d​e​s​k​t​o​p​ ​c​o​n​t​r​o​l​s​.
+		 */
+		privacyDescription: string
+		/**
+		 * A​n​d​r​o​i​d​ ​p​r​i​v​a​c​y​ ​b​o​u​n​d​a​r​i​e​s
+		 */
+		privacySummary: string
+		/**
+		 * P​u​b​l​i​c​ ​r​e​q​u​e​s​t
+		 */
+		publicRequest: string
+		/**
+		 * R​u​n​n​i​n​g​ ​r​e​q​u​i​r​e​s​ ​A​n​d​r​o​i​d​ ​t​o​ ​o​b​s​e​r​v​e​ ​o​n​e​ ​b​o​u​n​d​e​d​ ​p​u​b​l​i​c​ ​r​e​q​u​e​s​t​.
+		 */
+		publicRequestDescription: string
+		/**
+		 * R​e​c​o​v​e​r​y
+		 */
+		recovery: string
+		/**
+		 * R​e​q​u​i​r​e​d​ ​a​c​t​i​o​n
+		 */
+		recoveryAction: string
+		/**
+		 * W​h​e​n​ ​r​e​c​o​v​e​r​y​ ​i​s​ ​r​e​q​u​i​r​e​d​,​ ​c​l​e​a​n​u​p​ ​r​e​m​a​i​n​s​ ​a​n​ ​e​x​p​l​i​c​i​t​ ​H​o​m​e​ ​a​c​t​i​o​n​.
+		 */
+		recoveryActionDescription: string
+		/**
+		 * U​s​e​ ​t​h​e​ ​e​x​i​s​t​i​n​g​ ​V​P​N​ ​l​i​f​e​c​y​c​l​e​ ​a​u​t​h​o​r​i​t​y​ ​t​o​ ​r​e​c​o​v​e​r​ ​s​a​f​e​l​y​.
+		 */
+		recoveryDescription: string
+		/**
+		 * T​h​e​ ​d​i​s​p​l​a​y​e​d​ ​s​t​a​t​e​ ​i​s​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​p​r​o​j​e​c​t​i​o​n​.
+		 */
+		recoveryStateDescription: string
+		/**
+		 * C​h​o​o​s​e​ ​a​ ​f​o​c​u​s​e​d​ ​A​n​d​r​o​i​d​ ​s​e​t​t​i​n​g​.​ ​U​n​s​u​p​p​o​r​t​e​d​ ​d​e​s​k​t​o​p​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​o​m​i​t​t​e​d​.
+		 */
+		rootDescription: string
+		/**
+		 * V​P​N​ ​r​o​u​t​e​s
+		 */
+		routes: string
+		/**
+		 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​s​ ​w​h​e​t​h​e​r​ ​M​i​s​h​-​o​w​n​e​d​ ​V​P​N​ ​r​o​u​t​e​s​ ​a​r​e​ ​a​p​p​l​i​e​d​.
+		 */
+		routesDescription: string
+		/**
+		 * T​h​e​ ​s​e​t​t​i​n​g​ ​w​a​s​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d​.​ ​T​h​e​ ​l​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​v​a​l​u​e​ ​r​e​m​a​i​n​s​ ​i​n​ ​u​s​e​.
+		 */
+		settingFailed: string
+		/**
+		 * W​a​i​t​i​n​g​ ​f​o​r​ ​M​i​s​h​ ​t​o​ ​c​o​n​f​i​r​m​ ​t​h​i​s​ ​s​e​t​t​i​n​g​…
+		 */
+		settingPending: string
+		/**
+		 * A​n​d​r​o​i​d​ ​s​e​t​t​i​n​g​s
+		 */
+		title: string
+		/**
+		 * U​n​d​e​r​l​y​i​n​g​ ​n​e​t​w​o​r​k
+		 */
+		underlyingNetwork: string
+		/**
+		 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​s​ ​w​h​e​t​h​e​r​ ​a​ ​v​a​l​i​d​a​t​e​d​ ​n​o​n​-​V​P​N​ ​n​e​t​w​o​r​k​ ​i​s​ ​a​v​a​i​l​a​b​l​e​.
+		 */
+		underlyingNetworkDescription: string
+		/**
+		 * U​p​d​a​t​e​s
+		 */
+		updates: string
+		/**
+		 * U​p​d​a​t​e​ ​a​v​a​i​l​a​b​i​l​i​t​y
+		 */
+		updatesAvailability: string
+		/**
+		 * O​n​l​y​ ​S​h​a​r​e​d​ ​R​u​s​t​ ​c​a​p​a​b​i​l​i​t​y​ ​s​t​a​t​e​ ​i​s​ ​s​h​o​w​n​;​ ​n​o​ ​i​n​s​t​a​l​l​e​r​ ​i​s​ ​e​x​p​o​s​e​d​.
+		 */
+		updatesAvailabilityDescription: string
+		/**
+		 * U​p​d​a​t​e​s​ ​a​r​e​ ​n​o​t​ ​a​c​t​i​o​n​a​b​l​e​ ​u​n​t​i​l​ ​a​n​ ​A​n​d​r​o​i​d​-​s​p​e​c​i​f​i​c​ ​a​u​t​h​o​r​i​t​y​ ​i​s​ ​d​e​l​i​v​e​r​e​d​.
+		 */
+		updatesDescription: string
+		/**
+		 * V​P​N
+		 */
+		vpn: string
+		/**
+		 * V​P​N​ ​s​t​a​t​e​ ​a​n​d​ ​p​e​r​m​i​s​s​i​o​n​ ​c​o​m​e​ ​f​r​o​m​ ​t​h​e​ ​e​x​i​s​t​i​n​g​ ​A​n​d​r​o​i​d​ ​V​p​n​S​e​r​v​i​c​e​ ​a​u​t​h​o​r​i​t​y​.
+		 */
+		vpnDescription: string
+		/**
+		 * V​P​N​ ​p​e​r​m​i​s​s​i​o​n
+		 */
+		vpnPermission: string
+		/**
+		 * A​n​d​r​o​i​d​ ​o​w​n​s​ ​p​e​r​m​i​s​s​i​o​n​ ​c​o​n​s​e​n​t​;​ ​M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​i​n​f​e​r​ ​i​t​ ​f​r​o​m​ ​a​ ​p​r​i​o​r​ ​s​c​r​e​e​n​.
+		 */
+		vpnPermissionDescription: string
+		/**
+		 * G​r​a​n​t​e​d
+		 */
+		permissionGranted: string
+		/**
+		 * R​e​q​u​i​r​e​d
+		 */
+		permissionRequired: string
+	}
 	mobileRoutes: {
 		/**
 		 * T​h​i​s​ ​r​u​n​t​i​m​e​ ​c​a​n​ ​s​h​o​w​ ​R​o​u​t​e​s​ ​b​u​t​ ​c​a​n​n​o​t​ ​c​h​a​n​g​e​ ​a​ ​s​e​l​e​c​t​i​o​n​ ​o​r​ ​r​u​n​ ​a​ ​d​e​l​a​y​ ​t​e​s​t​ ​y​e​t​.
@@ -5827,6 +6073,252 @@ export type TranslationFunctions = {
 		 * Settings
 		 */
 		settings: () => LocalizedString
+	}
+	mobileSettings: {
+		/**
+		 * Application
+		 */
+		application: () => LocalizedString
+		/**
+		 * Appearance and language are persisted by Mish on this device. They do not start or stop the VPN.
+		 */
+		applicationDescription: () => LocalizedString
+		/**
+		 * Appearance and language
+		 */
+		applicationSummary: () => LocalizedString
+		/**
+		 * Choose a system-following, light, or dark appearance.
+		 */
+		appearanceDescription: () => LocalizedString
+		/**
+		 * Available
+		 */
+		available: () => LocalizedString
+		/**
+		 * Coming later
+		 */
+		comingLater: () => LocalizedString
+		/**
+		 * Core configuration
+		 */
+		configuration: () => LocalizedString
+		/**
+		 * Only the bounded Mobile Core configuration state is shown.
+		 */
+		configurationDescription: () => LocalizedString
+		/**
+		 * Embedded Core
+		 */
+		core: () => LocalizedString
+		/**
+		 * Version information comes from the packaged native Core authority.
+		 */
+		coreDescription: () => LocalizedString
+		/**
+		 * Current state
+		 */
+		currentState: () => LocalizedString
+		/**
+		 * Desktop controls
+		 */
+		desktopControls: () => LocalizedString
+		/**
+		 * Android does not expose System Proxy, Helper, loopback, or desktop-window controls.
+		 */
+		desktopControlsDescription: () => LocalizedString
+		/**
+		 * Diagnostics
+		 */
+		diagnostics: () => LocalizedString
+		/**
+		 * Review bounded Core, configuration, and lifecycle evidence.
+		 */
+		diagnosticsDescription: () => LocalizedString
+		/**
+		 * VPN DNS policy
+		 */
+		dns: () => LocalizedString
+		/**
+		 * Shown only from Android's observed VPN facts; no resolver addresses are exposed.
+		 */
+		dnsDescription: () => LocalizedString
+		/**
+		 * Last lifecycle result
+		 */
+		failure: () => LocalizedString
+		/**
+		 * Failures remain redacted and require an explicit recovery path.
+		 */
+		failureDescription: () => LocalizedString
+		/**
+		 * Action required
+		 */
+		failurePresent: () => LocalizedString
+		/**
+		 * Foreground service
+		 */
+		foreground: () => LocalizedString
+		/**
+		 * Android reports whether Mish currently owns the VPN foreground service.
+		 */
+		foregroundDescription: () => LocalizedString
+		/**
+		 * Changes Mish interface text only; user-provided names remain unchanged.
+		 */
+		languageDescription: () => LocalizedString
+		/**
+		 * Manage on Home
+		 */
+		manageOnHome: () => LocalizedString
+		/**
+		 * Network and DNS
+		 */
+		network: () => LocalizedString
+		/**
+		 * These are Android VPN observations, not editable desktop network settings.
+		 */
+		networkDescription: () => LocalizedString
+		/**
+		 * Observed VPN route and DNS state
+		 */
+		networkSummary: () => LocalizedString
+		/**
+		 * No verified Core
+		 */
+		noVerifiedCore: () => LocalizedString
+		/**
+		 * None
+		 */
+		none: () => LocalizedString
+		/**
+		 * Not exposed
+		 */
+		notExposed: () => LocalizedString
+		/**
+		 * Not observed
+		 */
+		notObserved: () => LocalizedString
+		/**
+		 * Not required
+		 */
+		notRequired: () => LocalizedString
+		/**
+		 * Observed
+		 */
+		observed: () => LocalizedString
+		/**
+		 * Privacy
+		 */
+		privacy: () => LocalizedString
+		/**
+		 * Android-specific boundaries stay explicit and do not inherit desktop controls.
+		 */
+		privacyDescription: () => LocalizedString
+		/**
+		 * Android privacy boundaries
+		 */
+		privacySummary: () => LocalizedString
+		/**
+		 * Public request
+		 */
+		publicRequest: () => LocalizedString
+		/**
+		 * Running requires Android to observe one bounded public request.
+		 */
+		publicRequestDescription: () => LocalizedString
+		/**
+		 * Recovery
+		 */
+		recovery: () => LocalizedString
+		/**
+		 * Required action
+		 */
+		recoveryAction: () => LocalizedString
+		/**
+		 * When recovery is required, cleanup remains an explicit Home action.
+		 */
+		recoveryActionDescription: () => LocalizedString
+		/**
+		 * Use the existing VPN lifecycle authority to recover safely.
+		 */
+		recoveryDescription: () => LocalizedString
+		/**
+		 * The displayed state is the current native lifecycle projection.
+		 */
+		recoveryStateDescription: () => LocalizedString
+		/**
+		 * Choose a focused Android setting. Unsupported desktop controls are omitted.
+		 */
+		rootDescription: () => LocalizedString
+		/**
+		 * VPN routes
+		 */
+		routes: () => LocalizedString
+		/**
+		 * Android reports whether Mish-owned VPN routes are applied.
+		 */
+		routesDescription: () => LocalizedString
+		/**
+		 * The setting was not confirmed. The last confirmed value remains in use.
+		 */
+		settingFailed: () => LocalizedString
+		/**
+		 * Waiting for Mish to confirm this setting…
+		 */
+		settingPending: () => LocalizedString
+		/**
+		 * Android settings
+		 */
+		title: () => LocalizedString
+		/**
+		 * Underlying network
+		 */
+		underlyingNetwork: () => LocalizedString
+		/**
+		 * Android reports whether a validated non-VPN network is available.
+		 */
+		underlyingNetworkDescription: () => LocalizedString
+		/**
+		 * Updates
+		 */
+		updates: () => LocalizedString
+		/**
+		 * Update availability
+		 */
+		updatesAvailability: () => LocalizedString
+		/**
+		 * Only Shared Rust capability state is shown; no installer is exposed.
+		 */
+		updatesAvailabilityDescription: () => LocalizedString
+		/**
+		 * Updates are not actionable until an Android-specific authority is delivered.
+		 */
+		updatesDescription: () => LocalizedString
+		/**
+		 * VPN
+		 */
+		vpn: () => LocalizedString
+		/**
+		 * VPN state and permission come from the existing Android VpnService authority.
+		 */
+		vpnDescription: () => LocalizedString
+		/**
+		 * VPN permission
+		 */
+		vpnPermission: () => LocalizedString
+		/**
+		 * Android owns permission consent; Mish does not infer it from a prior screen.
+		 */
+		vpnPermissionDescription: () => LocalizedString
+		/**
+		 * Granted
+		 */
+		permissionGranted: () => LocalizedString
+		/**
+		 * Required
+		 */
+		permissionRequired: () => LocalizedString
 	}
 	mobileRoutes: {
 		/**

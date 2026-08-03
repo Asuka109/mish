@@ -13,6 +13,7 @@ import {
   MobileRouteGroupPage,
   MobileRoutesPage,
 } from "./pages/mobile-routes-page";
+import { MobileSettingsDetailPage, MobileSettingsPage } from "./pages/mobile-settings-page";
 import type { MobileVpnClient } from "./platform/mobile-vpn-client";
 
 export interface MobileAppRoutesProps {
@@ -32,6 +33,11 @@ export function AppRoutes({
     throw new Error("Mobile routes require validated native fixture snapshots");
   }
 
+  const androidSettings =
+    mobileFixture.platform === "android" &&
+    mobileFixture.core.kind === "native" &&
+    mobileFixture.vpn.kind === "native";
+
   return (
     <NotificationDeliveryProvider client={notificationClient}>
       <NotificationToastPresenter suppressActions />
@@ -39,6 +45,19 @@ export function AppRoutes({
         routesChildElement={<MobileRouteChildPage />}
         routesElement={<MobileRoutesPage />}
         routesGroupElement={<MobileRouteGroupPage />}
+        settingsChildElement={
+          androidSettings ? (
+            <MobileSettingsDetailPage
+              initialSnapshot={mobileVpnSnapshot}
+              vpnClient={mobileVpnClient}
+            />
+          ) : undefined
+        }
+        settingsElement={
+          androidSettings ? (
+            <MobileSettingsPage initialSnapshot={mobileVpnSnapshot} vpnClient={mobileVpnClient} />
+          ) : undefined
+        }
         shell={<MobileShell fixture={mobileFixture} />}
         statusElement={
           <MobileHomePage

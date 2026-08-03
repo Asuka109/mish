@@ -12,6 +12,15 @@ bridge maps a closed set of authenticated RPC methods to that service. The Web
 client renders the snapshot and continues to use the existing Status client for
 System Proxy and TUN desired, observed, drift, failure, and recovery state.
 
+Android uses a separate, local Tauri adapter over the same `SettingsService`.
+It exposes only a complete `native` snapshot plus portable appearance and
+language mutations. The adapter writes through the Shared Rust service and
+returns a fresh confirmed snapshot only after the private write succeeds.
+React may present an optimistic affordance while that command is pending, but
+it retains only the last accepted snapshot and never turns a local preference
+into success. Android does not map any Settings control to desktop RPC, System
+Proxy, Helper, window, startup, or update commands.
+
 Ordinary settings RPC accepts only these bounded commands:
 
 - set one of `system`, `light`, or `dark` appearance;
@@ -96,11 +105,14 @@ entirely whenever `nativeSidebarMaterial` is not `supported`; opaque-only Web,
 mobile, and desktop platforms do not expose an inapplicable preference.
 
 The desktop shell and authenticated desktop browser client surface the durable
-invitation through their shared notification center. The installed mobile shell
-is explicitly excluded from this version: it creates no invitation and mounts
-neither the desktop notification center nor the welcome dialog. A future mobile
-onboarding flow requires its own platform recipe rather than inheriting this
-desktop modal.
+invitation through their shared notification center. Android initializes the
+same Shared Rust Settings service below its private application-data root, then
+removes a desktop welcome invitation during native bootstrap before any WebView
+snapshot is returned. It mounts neither the desktop notification center nor the
+welcome dialog. The Android Settings capability therefore retains portable
+preferences without inheriting a desktop modal. A future mobile onboarding flow
+requires its own platform recipe. The current iOS shell remains outside this
+Android Settings adapter.
 
 ## Launch at login
 
@@ -243,6 +255,16 @@ restore are supported only by the desktop composition through the native file
 boundary documented in
 [`local-backup-restore.md`](local-backup-restore.md); ordinary browsers report
 the capability as unavailable.
+
+Android reports its capability set from `SettingsCapabilities::android()`.
+Desktop startup, System Proxy and DNS configuration, Helper/TUN maintenance,
+status-bar, native-sidebar, connection-cleanup, and window-lifecycle surfaces
+are unavailable there; update, backup, and expert configuration remain
+coming-later rather than actionable. Android Settings exposes only portable
+appearance and language controls. Its VPN, permission, foreground, route, DNS,
+Core, failure, and recovery rows are read-only projections of the existing
+Shared Rust mobile lifecycle snapshot; their owning start, stop, consent, and
+recovery commands remain on Android Home.
 
 Full DNS servers, search domains, network-service names, and interface
 identifiers stay only in the authenticated local Settings response. They are

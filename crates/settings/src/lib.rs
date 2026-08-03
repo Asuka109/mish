@@ -211,6 +211,7 @@ impl SettingsPreferences {
 #[serde(rename_all = "kebab-case")]
 pub enum SettingsAdapterKind {
     Fixture,
+    Native,
     Rpc,
 }
 
@@ -239,6 +240,22 @@ pub struct SettingsCapabilities {
 }
 
 impl SettingsCapabilities {
+    pub fn android() -> Self {
+        Self {
+            background_launch: SettingsAvailability::Unavailable,
+            backup_restore: SettingsAvailability::ComingLater,
+            expert_configuration: SettingsAvailability::ComingLater,
+            launch_at_login: SettingsAvailability::Unavailable,
+            network_dns: SettingsAvailability::Unavailable,
+            native_sidebar_material: SettingsAvailability::Unavailable,
+            policy_group_connection_cleanup: SettingsAvailability::Unavailable,
+            status_bar: SettingsAvailability::Unavailable,
+            tun: SettingsAvailability::Unavailable,
+            updates: SettingsAvailability::ComingLater,
+            window_lifecycle: SettingsAvailability::Unavailable,
+        }
+    }
+
     pub fn macos(native_sidebar_material: bool) -> Self {
         Self {
             background_launch: SettingsAvailability::Supported,
@@ -1866,6 +1883,64 @@ mod tests {
             loaded.preferences.startup.launch_behavior,
             ApplicationLaunchBehavior::Off
         );
+    }
+
+    #[test]
+    fn android_capabilities_do_not_advertise_desktop_system_controls() {
+        let capabilities = SettingsCapabilities::android();
+
+        assert_eq!(
+            capabilities.background_launch,
+            SettingsAvailability::Unavailable
+        );
+        assert_eq!(
+            capabilities.launch_at_login,
+            SettingsAvailability::Unavailable
+        );
+        assert_eq!(capabilities.network_dns, SettingsAvailability::Unavailable);
+        assert_eq!(
+            capabilities.native_sidebar_material,
+            SettingsAvailability::Unavailable
+        );
+        assert_eq!(
+            capabilities.policy_group_connection_cleanup,
+            SettingsAvailability::Unavailable
+        );
+        assert_eq!(capabilities.status_bar, SettingsAvailability::Unavailable);
+        assert_eq!(capabilities.tun, SettingsAvailability::Unavailable);
+        assert_eq!(
+            capabilities.window_lifecycle,
+            SettingsAvailability::Unavailable
+        );
+        assert_eq!(capabilities.updates, SettingsAvailability::ComingLater);
+    }
+
+    #[test]
+    fn android_portable_preferences_survive_service_recreation() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::android(),
+        )
+        .expect("Android settings service");
+
+        service
+            .set_appearance(AppearancePreference::Dark)
+            .expect("persist Android appearance");
+        service
+            .set_language(LanguagePreference::Zh)
+            .expect("persist Android language");
+        drop(service);
+
+        let recreated =
+            SettingsService::load(repository, None, None, SettingsCapabilities::android())
+                .expect("recreated Android settings service");
+        let snapshot = recreated.snapshot(SettingsAdapterKind::Native);
+        assert_eq!(snapshot.adapter_kind, SettingsAdapterKind::Native);
+        assert_eq!(snapshot.preferences.appearance, AppearancePreference::Dark);
+        assert_eq!(snapshot.preferences.language, LanguagePreference::Zh);
     }
 
     #[test]

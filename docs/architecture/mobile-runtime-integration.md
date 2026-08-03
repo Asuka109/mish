@@ -77,6 +77,21 @@ Events, Diagnostics, and Settings boundaries. It does not call the desktop
 `native` adapter kinds remain the wire-level evidence that a snapshot came from
 the platform adapter.
 
+Android Settings is a dedicated grouped-list and child-route composition, not
+the desktop Settings page restyled for a narrow screen. Its local Tauri adapter
+allows only `mobile_settings_get_snapshot`, `mobile_settings_set_appearance`,
+and `mobile_settings_set_language`. Those commands delegate to the shared Rust
+`SettingsService`, persist before returning a complete `native` snapshot, and
+do not grant iOS or the WebView any desktop System Proxy, Helper, startup,
+window, or updater command. A recreated Android WebView reads that confirmed
+snapshot again; React's cache and pending affordances are never preference
+authority.
+
+The Android Settings VPN, network, diagnostics, and recovery screens render
+the already accepted mobile lifecycle snapshot as read-only facts. They link to
+Home for consent, start, stop, and recovery so neither React nor the Settings
+adapter duplicates `VpnService` ownership or lifecycle command handling.
+
 React Router remains the only navigation authority. Native plugins may emit
 platform lifecycle and command events, but they do not maintain a second route
 store.

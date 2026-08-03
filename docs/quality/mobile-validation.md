@@ -30,6 +30,11 @@ Automated coverage must prove:
 - back navigation within a tab before leaving its root;
 - no desktop bootstrap, loopback token, or WebSocket in mobile composition;
 - no `Sidebar` or desktop window controls in the mobile accessibility tree; and
+- an Android Settings grouped root and child route, with desktop System Proxy,
+  Helper, startup, window, and installer controls omitted rather than inert;
+- Android Settings baseline and portable mutations returning complete accepted
+  Shared Rust `native` snapshots, with a failed mutation re-reading the last
+  confirmed snapshot after recreation; and
 - unavailable native capabilities never simulating success.
 
 ## Viewport and interaction matrix
@@ -49,6 +54,13 @@ cover labels, safe areas, keyboard visibility, text scaling, local scroll
 ownership, clipped controls, selected states, sheet focus restoration, and
 reduced motion. Platform snapshots must not be used as the only behavioral
 evidence.
+
+For Android Settings, run the grouped root and at least the Application, VPN,
+Network and DNS, and Recovery child routes through the same matrix. Verify that
+the bottom navigation remains reachable, a child route returns to Settings with
+the top-bar Back control, rows and segmented controls retain 44px touch targets,
+and large text or a reduced keyboard viewport does not create horizontal
+overflow or hide the final row.
 
 ## Android debug acceptance
 

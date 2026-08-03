@@ -2780,6 +2780,7 @@ dependencies = [
 name = "mish-mobile"
 version = "0.1.0"
 dependencies = [
+ "mish-settings",
  "serde",
  "tauri",
  "tauri-build",

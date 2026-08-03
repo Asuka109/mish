@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "capabilities": ["mobile"],
+      "capabilities": ["mobile", "mobile-settings-android"],
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
       "headers": {
         "Cross-Origin-Resource-Policy": "same-origin",

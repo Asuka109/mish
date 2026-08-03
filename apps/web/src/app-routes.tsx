@@ -52,6 +52,8 @@ interface ProductRoutesProps {
   routesChildElement?: ReactNode;
   routesElement?: ReactNode;
   routesGroupElement?: ReactNode;
+  settingsChildElement?: ReactNode;
+  settingsElement?: ReactNode;
   statusElement?: ReactNode;
   shell: ReactNode;
 }
@@ -60,6 +62,8 @@ export function ProductRoutes({
   routesChildElement,
   routesElement,
   routesGroupElement,
+  settingsChildElement,
+  settingsElement,
   shell,
   statusElement = <StatusPage />,
 }: ProductRoutesProps) {
@@ -80,7 +84,10 @@ export function ProductRoutes({
         <Route element={renderDeferredRoute(<TrafficPage />)} path="traffic" />
         <Route element={renderDeferredRoute(<EventsPage />)} path="events" />
         <Route element={<Navigate replace to="/traffic" />} path="activity" />
-        <Route element={renderDeferredRoute(<SettingsPage />)} path="settings" />
+        <Route element={settingsElement ?? renderDeferredRoute(<SettingsPage />)} path="settings" />
+        {settingsChildElement ? (
+          <Route element={settingsChildElement} path="settings/:section" />
+        ) : null}
         <Route element={<NotFoundPage />} path="*" />
       </Route>
     </Routes>

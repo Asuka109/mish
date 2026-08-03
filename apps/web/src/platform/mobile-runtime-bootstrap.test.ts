@@ -1,15 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import { createFixtureSettingsSnapshot } from "../data/fixture-settings-client";
 import { resolveMobileStartup } from "./mobile-runtime-bootstrap";
+import { MobileSettingsClient } from "./mobile-settings-client";
 import type { MobileVpnClient } from "./mobile-vpn-client";
 
 const fixture = {
   adapterKind: "native",
   contractVersion: 1,
-  core: { availability: "unavailable", kind: "fixture" },
-  message: "Native fixture connected. VPN and embedded Core are not implemented.",
+  core: { availability: "available", kind: "native" },
+  message: "Android VPN and embedded Mobile Core boundaries are available through typed commands.",
   platform: "android",
   targetAbis: ["arm64-v8a", "x86_64"],
-  vpn: { availability: "unavailable", kind: "fixture" },
+  vpn: { availability: "available", kind: "native" },
 };
 
 const vpnSnapshot = {
@@ -85,16 +87,26 @@ function createVpnClient(): MobileVpnClient {
   };
 }
 
+function createSettingsClient() {
+  const snapshot = { ...createFixtureSettingsSnapshot(), adapterKind: "native" as const };
+  return new MobileSettingsClient({ invoke: vi.fn(async () => snapshot) });
+}
+
 describe("mobile native fixture bootstrap", () => {
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
     const invokeBootstrap = vi.fn(async () => fixture);
     const mobileVpnClient = createVpnClient();
-    const startup = await resolveMobileStartup({ invokeBootstrap, mobileVpnClient });
+    const startup = await resolveMobileStartup({
+      invokeBootstrap,
+      mobileSettingsClient: createSettingsClient(),
+      mobileVpnClient,
+    });
 
     expect(invokeBootstrap).toHaveBeenCalledOnce();
     expect(startup.runtime).toBe("mobile");
     expect(startup.mobileFixture).toEqual(fixture);
     expect(startup.mobileVpnSnapshot).toEqual(vpnSnapshot);
+    expect(startup.settingsSnapshot.adapterKind).toBe("native");
     await expect(startup.client?.getSnapshot()).resolves.toMatchObject({
       adapterKind: "native",
       capabilities: { systemProxy: "unavailable", tun: "unavailable" },
@@ -102,10 +114,27 @@ describe("mobile native fixture bootstrap", () => {
     });
   });
 
+  it("keeps a host-only Android-shaped fixture on the fixture Settings adapter", async () => {
+    const hostFixture = {
+      ...fixture,
+      core: { availability: "unavailable", kind: "fixture" },
+      vpn: { availability: "unavailable", kind: "fixture" },
+    };
+
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => hostFixture,
+      mobileSettingsClient: createSettingsClient(),
+      mobileVpnClient: createVpnClient(),
+    });
+
+    expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
+  });
+
   it("rejects malformed or capability-inflating native messages", async () => {
     await expect(
       resolveMobileStartup({
         invokeBootstrap: async () => ({ ...fixture, vpn: { availability: "supported" } }),
+        mobileSettingsClient: createSettingsClient(),
         mobileVpnClient: createVpnClient(),
       }),
     ).rejects.toThrow();
