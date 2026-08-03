@@ -65,6 +65,7 @@ pnpm check:format
 pnpm check:types
 pnpm test:unit
 pnpm test:browser:install
+pnpm test:application:simulated-host
 pnpm test:browser
 pnpm check:rust:format
 pnpm check:rust
@@ -78,9 +79,10 @@ git diff --check
 
 `pnpm check:pr` is the rapid pull-request gate. It keeps Android project and
 workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
-unit tests, Rust formatting, design tokens, and documentation links blocking.
-It intentionally excludes Rust compilation, Clippy, Rust integration tests,
-production builds, Design.md lint, and real-browser coverage.
+unit tests, Rust formatting, the bounded Rust-authoritative simulated application
+command, design tokens, and documentation links blocking. It intentionally
+excludes workspace-wide Rust compilation and tests, Clippy, production builds,
+Design.md lint, and the broad responsive browser suite.
 
 `pnpm check:all` runs the complete non-browser repository checks for local work
 and main-branch inspection. Browser installation, the browser suite, and
@@ -88,17 +90,20 @@ and main-branch inspection. Browser installation, the browser suite, and
 
 `pnpm test:browser:install` installs the Chromium version pinned by Playwright
 and is required once per developer machine or CI image. `pnpm test:browser`
-runs the responsive shell suite in Vitest Browser Mode against the real browser
-layout engine.
+runs the responsive shell suite plus the simulated-host application journey in
+Vitest Browser Mode against the real browser layout engine. The focused
+`pnpm test:application:simulated-host` command first runs the Rust model/RPC
+suite and then that browser journey.
 
 ## CI execution tiers
 
 Mish separates merge latency from broad regression detection during rapid
 preview development:
 
-- pull requests run `pnpm check:pr` on the dedicated macOS runner with a
-  ten-minute job ceiling
-  and never build or upload application packages;
+- pull requests install pinned Chromium and run `pnpm check:pr` on an isolated
+  GitHub-hosted Ubuntu runner with a ten-minute job ceiling; they never require
+  root, Tauri, WebDriver, Tart, a real Core/Helper/TUN, host-network mutation, or
+  application package upload;
 - every push to `main` independently builds the macOS ARM64 and Android test
   packages but does not repeat the complete validation suite;
 - a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out
@@ -172,9 +177,14 @@ Automated tests cover:
   local-only Clear Closed, structured filtering, exact counter sorting, complete
   route-chain detail, fictional privacy fixtures, and incremental large-snapshot
   rendering;
-- a real WebSocket client/server flow against the TypeScript mock bridge,
-  including authentication, snapshots, subscriptions, commands, core state,
-  typed failure, non-mutation after failure, and cleanup; and
+- a real WebSocket client/server flow against the transport-only TypeScript mock
+  bridge, including Host/Origin admission, authentication, static snapshots,
+  subscriptions, schema and cancellation framing, explicit lifecycle-command
+  failure, injected typed failure, and cleanup; and
+- the bounded Rust-authoritative simulated-host application command, including
+  deterministic logical time, authenticated RPC/client contracts, semantic
+  notifications, React pending/terminal interaction, stale/equal/duplicate,
+  reconnect/remount, cancellation/replacement, and sanitized failure evidence;
 - Rust desktop-bridge integration coverage for malformed and unauthenticated RPC,
   contract-compatible Status snapshots, subscription snapshot ordering, hostile
   Origin rejection, loopback-only binding, explicit managed-process start/stop,

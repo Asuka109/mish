@@ -234,9 +234,9 @@ async fn authenticated_rpc_disable_tracks_logical_propagation_and_matching_termi
         SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::DisabledPopulated);
     definition.propagation_delay = 5;
     let scenario = Arc::new(ScenarioRuntime::build(definition).await.unwrap());
-    let activation = scenario.activation.clone();
+    let runtime = scenario.runtime_host.current();
     let enable = tokio::spawn(async move {
-        activation
+        runtime
             .set_capture(
                 mish_runtime::CaptureRequest {
                     active: true,

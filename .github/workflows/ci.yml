@@ -56,6 +56,13 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pr-gate
+          cache-on-failure: true
+      - name: Install Playwright Chromium
+        run: pnpm test:browser:install
       - name: Run fast pull-request gate
         run: pnpm check:pr
 

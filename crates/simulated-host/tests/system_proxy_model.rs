@@ -54,7 +54,7 @@ async fn complete_typed_baselines_round_trip_through_the_real_application_captur
         let baseline = scenario.host.actual_proxy_state();
 
         scenario
-            .activation
+            .runtime_host
             .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
             .await
             .unwrap();
@@ -97,7 +97,7 @@ async fn complete_typed_baselines_round_trip_through_the_real_application_captur
         assert!(managed.bypass_domains.len() >= baseline.bypass_domains.len());
 
         scenario
-            .activation
+            .runtime_host
             .set_capture(system_proxy_request(false), StatusAdapterKind::Rpc)
             .await
             .unwrap();
@@ -132,7 +132,7 @@ async fn protected_and_unsafe_takeovers_reject_without_model_writes_or_applied_p
                 .unwrap();
         let baseline = scenario.host.actual_proxy_state();
         let error = scenario
-            .activation
+            .runtime_host
             .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
             .await
             .unwrap_err();
@@ -247,7 +247,7 @@ async fn every_ordered_write_failure_runs_real_compensation_and_restores_the_exa
         let scenario = ScenarioRuntime::build(definition).await.unwrap();
         let baseline = scenario.host.actual_proxy_state();
         let error = scenario
-            .activation
+            .runtime_host
             .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
             .await
             .unwrap_err();
@@ -298,7 +298,7 @@ async fn unconfirmed_compensation_is_recovery_required_and_never_false_idle_or_a
     ]);
     let scenario = ScenarioRuntime::build(definition).await.unwrap();
     let error = scenario
-        .activation
+        .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap_err();
@@ -327,9 +327,9 @@ async fn confirmation_retries_on_logical_time_and_duplicate_work_cannot_replace_
         SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::DisabledPopulated);
     definition.propagation_delay = 5;
     let scenario = Arc::new(ScenarioRuntime::build(definition).await.unwrap());
-    let activation = scenario.activation.clone();
+    let runtime = scenario.runtime_host.current();
     let enable = tokio::spawn(async move {
-        activation
+        runtime
             .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
             .await
     });
@@ -349,7 +349,7 @@ async fn confirmation_retries_on_logical_time_and_duplicate_work_cannot_replace_
     );
     assert!(!enable.is_finished());
     let duplicate = scenario
-        .activation
+        .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap_err();
@@ -395,7 +395,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
     .await
     .unwrap();
     complete
-        .activation
+        .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap();
@@ -432,7 +432,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
     .unwrap();
     let baseline = compensate.host.actual_proxy_state();
     compensate
-        .activation
+        .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap();
@@ -460,7 +460,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
     }];
     let drift = ScenarioRuntime::build(drift_definition).await.unwrap();
     drift
-        .activation
+        .runtime_host
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap();

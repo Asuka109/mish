@@ -511,9 +511,12 @@ directly into components.
 
 `packages/mock-bridge` is a separate contract-test implementation. Unlike the
 in-process production fixture, it exercises real JSON-RPC serialization,
-authentication, WebSocket delivery, subscriptions, and remote failures. Its
-`fixture-only` capability values and deterministic measurements must not be
-presented as Mihomo or operating-system observations.
+authentication, Host/Origin admission, WebSocket delivery, subscription and
+cancellation framing, schema rejection, and remote failures. Its snapshot is
+static input, every lifecycle command fails explicitly, and it does not decide
+Core or Capture transitions. Its `fixture-only` capability values and
+deterministic measurements must not be presented as Mihomo or operating-system
+observations.
 
 ## References
 

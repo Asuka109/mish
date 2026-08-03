@@ -141,6 +141,7 @@ invariant(
 );
 invariant(prGate["timeout-minutes"] === 10, "The fast gate must retain its ten-minute ceiling.");
 assertNodeCache(prGate, "The fast gate");
+assertRustCache(prGate, "Cache Rust dependencies and build outputs", "pr-gate");
 invariant(
   step(prGate, "Install dependencies").run === "pnpm install --frozen-lockfile",
   "The fast gate must install frozen dependencies.",
@@ -149,17 +150,21 @@ invariant(
   step(prGate, "Run fast pull-request gate").run === "pnpm check:pr",
   "Pull requests must use the bounded validation command.",
 );
-const internalTunMaintenanceContract =
-  "cargo test -p mish-simulated-host --test internal_tun_maintenance -- --test-threads=1";
+invariant(
+  step(prGate, "Install Playwright Chromium").run === "pnpm test:browser:install",
+  "The fast gate must install the Playwright-pinned Chromium.",
+);
+const simulatedApplicationContract =
+  "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
 const expectedPrValidation =
-  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm test:rust:internal-tun-maintenance && pnpm check:tokens && pnpm check:docs";
+  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
 invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
-  "check:pr must stay bounded to its fast static, unit, format, exact Internal TUN maintenance, token, and documentation checks.",
+  "check:pr must stay bounded to its fast static, unit, format, simulated application, token, and documentation checks.",
 );
 invariant(
-  packageJson.scripts?.["test:rust:internal-tun-maintenance"] === internalTunMaintenanceContract,
-  "The Fast PR gate must run the exact bounded Internal TUN maintenance contract.",
+  packageJson.scripts?.["test:application:simulated-host"] === simulatedApplicationContract,
+  "The Fast PR gate must run the exact bounded simulated application contract.",
 );
 invariant(
   packageJson.scripts?.["test:unit"]?.includes("pnpm test:scripts") &&
