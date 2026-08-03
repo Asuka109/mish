@@ -98,9 +98,11 @@ their identity, order, read/removal state, or stored copy.
 Creation and presentation are independent Rust-authoritative state machines. A
 new record begins `unpresented`; it is not marked presented by publication,
 snapshot retrieval, center reading, or React mounting. `resolved` remains a
-separate producer lifecycle field, so a record can be resolved and still be
-eligible for presentation unless that semantic kind explicitly requests a
-fold.
+separate producer lifecycle field and retained history fact. When a producer
+resolves an occurrence while it is still `unpresented`, Rust atomically folds it
+with `suppressed`: an obsolete recovery record cannot claim or block the global
+queue. A record that already holds a live `presenting` lease retains that lease
+and its normal acknowledgement, expiry, and reconnect semantics.
 
 `notifications.subscribe` receives a validated `clientId` and short-lived
 `sessionId`. While holding the notification lock it installs the live receiver,
@@ -137,10 +139,10 @@ still-open client cannot indefinitely block the global queue.
 
 Ordinary toasts use the application's bounded eight-second default duration. A
 Rust-pinned record makes the rendered toast persistent and prevents center
-removal while its work is active, but pinning does not bypass the lease. A
-semantic kind can explicitly map a producer update to suppression (for example,
-resolved GeoData progress); generic producer resolution does not implicitly fold
-or remove a presentation.
+removal while its work is active, but pinning does not bypass the lease. Generic
+resolution folds only an as-yet-unpresented record; it does not cancel or remove
+a live lease. A semantic kind can additionally map a rendered update to
+suppression (for example, resolved GeoData progress).
 
 Opening the center marks retained IDs read through Rust without consuming an
 unpresented or presenting lease. Toast timeout, explicit dismissal, action

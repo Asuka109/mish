@@ -294,6 +294,64 @@ describe("Rust-authoritative notification delivery projection", () => {
     second.dispose();
   });
 
+  it("projects only the newest authoritative activation-error claim after a rapid retry", async () => {
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    const viewer = new FixtureNotificationClient(center);
+    const competingViewer = new FixtureNotificationClient(center);
+    const firstKey = "profile.activation-failure:attempt-1";
+    const latestKey = "profile.activation-failure:attempt-2";
+
+    await publisher.publish(
+      notificationPublication("profile.activation-failed", {
+        data: { failure: "validation" },
+        dedupeKey: firstKey,
+        severity: "error",
+      }),
+    );
+    const firstId = (await publisher.getSnapshot()).notifications.find(
+      ({ dedupeKey }) => dedupeKey === firstKey,
+    )?.id;
+    expect(firstId).toBeDefined();
+
+    center.resolveByDedupeKey(firstKey);
+    await publisher.publish(
+      notificationPublication("profile.activation-failed", {
+        data: { failure: "managed-listener-conflict" },
+        dedupeKey: latestKey,
+        severity: "error",
+      }),
+    );
+    const latestId = (await publisher.getSnapshot()).notifications.find(
+      ({ dedupeKey }) => dedupeKey === latestKey,
+    )?.id;
+    expect(latestId).toBeDefined();
+
+    const view = render(
+      <TypesafeI18n locale="en">
+        <NotificationDeliveryProvider client={viewer}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
+    );
+
+    await vi.waitFor(() => expect(delivery?.toastEntries[0]?.id).toBe(latestId));
+    expect(delivery?.toastEntries).toHaveLength(1);
+    expect(
+      (await viewer.getSnapshot()).notifications.find(({ id }) => id === firstId),
+    ).toMatchObject({
+      presentationState: { foldReason: "suppressed", phase: "folded" },
+      resolved: true,
+      severity: "error",
+    });
+    expect(center.claimPresentation(competingViewer.presentationIdentity).claim).toBeNull();
+
+    view.unmount();
+    publisher.dispose();
+    viewer.dispose();
+    competingViewer.dispose();
+  });
+
   it("reprojects a toast when a stale completion leaves its lease active", async () => {
     const center = new FixtureNotificationCenter();
     const publisher = new FixtureNotificationClient(center);
