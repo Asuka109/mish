@@ -39,6 +39,7 @@ libc = "0.2.186"
 default = []
 custom-protocol = ["tauri/custom-protocol"]
 development-core-host = ["mish-platform-macos/development-core-host"]
+development-window-trigger = ["mish-bridge/development-window-trigger"]
 
 [dev-dependencies]
 futures-util = "0.3.31"

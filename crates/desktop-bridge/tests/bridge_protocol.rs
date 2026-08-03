@@ -1607,7 +1607,7 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     let browser = bridge.browser_client().expect("browser client handle");
     let launch_url = browser.issue_launch_url().unwrap();
     let launch_token = launch_url
-        .strip_prefix(&format!("http://{}/#mish-browser-launch=", bridge.address))
+        .strip_prefix(&format!("http://{}/#token=", bridge.address))
         .expect("launch URL prefix")
         .to_owned();
     assert_eq!(launch_token.len(), 43);
@@ -1837,7 +1837,7 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .unwrap();
     let launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
     let launch_token = launch_url
-        .split_once("#mish-browser-launch=")
+        .split_once("#token=")
         .expect("launch token fragment")
         .1;
     let client = reqwest::Client::new();
