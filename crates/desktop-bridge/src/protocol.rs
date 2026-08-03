@@ -1035,7 +1035,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 32,
+            "protocolVersion": 33,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
@@ -2768,6 +2768,7 @@ fn core_error_response(id: Value, error: CoreError) -> Value {
 fn status_command_error_response(id: Value, error: StatusCommandError) -> Value {
     let code = match error.kind {
         StatusCommandErrorKind::Unsupported => -32020,
+        StatusCommandErrorKind::CoreNotRunning => -32021,
         StatusCommandErrorKind::InvalidRequest | StatusCommandErrorKind::UnsupportedGroup => -32602,
         StatusCommandErrorKind::NotFound => -32004,
         StatusCommandErrorKind::Conflict | StatusCommandErrorKind::StaleMembership => -32009,

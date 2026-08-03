@@ -88,9 +88,11 @@ See [`android-vpn-service.md`](operations/android-vpn-service.md) and
 
 ### Desktop Startup and Settings
 
-- Desktop bridge protocol version 32 retains separate login registration,
-  login-window behavior, and application-launch behavior and adds the shared
-  Rust-authoritative updater projection and operation commands.
+- Desktop bridge protocol version 33 retains separate login registration,
+  login-window behavior, application-launch behavior, and the shared updater
+  projection. It adds Rust-authoritative policy-group selection availability:
+  stopped Core snapshots disable mutation consistently in Desktop WebView and
+  Browser Client, while running Controller confirmation remains unchanged.
 - Application launch behavior is one of `off`, `core`, or `proxy`. Automatic
   startup reuses the Profile activation and capture coordinators rather than
   creating a desktop-only lifecycle.

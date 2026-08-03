@@ -1418,6 +1418,40 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
     assert_eq!(version_drift["error"]["data"]["kind"], "version-drift");
     *fake.state.version.write().await = "v1.19.29".into();
 
+    let mutations_before_stop = fake.state.mutation_count.load(Ordering::Acquire);
+    let stopped = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":63, "method":"core.stop", "params":{}}),
+    )
+    .await;
+    assert_eq!(stopped["result"]["phase"], "stopped");
+    let stopped_snapshot = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":64, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        stopped_snapshot["result"]["groupSelectionAvailability"],
+        "core-not-running"
+    );
+    let stopped_selection = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":65, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"]}}),
+    )
+    .await;
+    assert_eq!(
+        stopped_selection["error"]["data"]["kind"],
+        "core-not-running"
+    );
+    assert_eq!(
+        stopped_selection["error"]["data"]["snapshot"]["groupSelectionAvailability"],
+        "core-not-running"
+    );
+    assert_eq!(
+        fake.state.mutation_count.load(Ordering::Acquire),
+        mutations_before_stop
+    );
+
     fake.set_available(false);
     let disconnected = rpc_request(
         &mut websocket,

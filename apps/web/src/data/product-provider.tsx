@@ -414,6 +414,18 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       deduplicationKey: string = command,
       failureReconciliation?: ProductCommandFailureReconciliation,
     ) => {
+      const currentSnapshot = snapshotRef.current;
+      if (command === "group" && currentSnapshot?.groupSelectionAvailability !== "available") {
+        return {
+          error: new StatusClientError(
+            currentSnapshot?.groupSelectionAvailability === "core-not-running"
+              ? "core-not-running"
+              : "unsupported",
+            "Policy-group selection is unavailable in the current runtime",
+          ),
+          ok: false,
+        } satisfies ProductCommandResult;
+      }
       if (!resolvedClient.supportsCommand(command)) {
         return {
           error: new StatusClientError(
@@ -431,7 +443,6 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         } satisfies ProductCommandResult;
       }
 
-      const currentSnapshot = snapshotRef.current;
       const domainKey = productCommandDomain(deduplicationKey);
       const feedbackOperation = beginCommandFeedback({
         confirmedAuthority: currentSnapshot
@@ -487,6 +498,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           } catch {
             // Keep the last confirmed snapshot stale when refresh also fails.
           }
+        }
+        if (typedError.code === "core-not-running") {
+          if (isCurrentCommandFeedback(feedbackOperation, "pending")) {
+            transitionCommandFeedback(feedbackOperation, "superseded");
+          }
+          return { error: typedError, ok: false } satisfies ProductCommandResult;
         }
         let reconciled =
           failureReconciliation?.confirm(typedError, currentSnapshot, snapshotRef.current) ?? false;
@@ -819,7 +836,8 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         (command === "capture" && snapshot?.runtime.captureOperation.phase === "pending"),
       isCommandSupported: (command) =>
         resolvedClient.supportsCommand(command) &&
-        (connection.phase === "fixture" || !connection.stale),
+        (connection.phase === "fixture" || !connection.stale) &&
+        (command !== "group" || snapshot?.groupSelectionAvailability === "available"),
       isGroupCommandPending: (groupId) =>
         commandFeedbackState.operations.get(productCommandDomain(`group:${groupId}`))?.phase ===
         "pending",

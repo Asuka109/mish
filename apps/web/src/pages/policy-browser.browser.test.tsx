@@ -101,7 +101,72 @@ class LocalizedStatusDensityClient extends FixtureStatusClient {
   }
 }
 
+class StoppedPolicySelectionClient extends FixtureStatusClient {
+  selectionAttempts = 0;
+
+  override getConnectionState() {
+    return { attempt: 0, phase: "connected" as const, stale: false };
+  }
+
+  override async getSnapshot() {
+    const snapshot = await super.getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+    return snapshot;
+  }
+
+  override async selectGroupChild(groupId: string, childId: string) {
+    this.selectionAttempts += 1;
+    return super.selectGroupChild(groupId, childId);
+  }
+}
+
 describe("unified policy browser", () => {
+  test.each([
+    ["en", "Start the proxy before changing this policy-group selection."],
+    ["zh", "请先启动代理，再更改这个策略组的选择。"],
+  ] as const)(
+    "keeps stopped Browser Client selection inert with a focusable %s explanation",
+    async (locale, explanation) => {
+      await page.viewport(800, 600);
+      const client = new StoppedPolicySelectionClient();
+      renderPolicyWorkspace("/routes", locale, "light", "opaque", client);
+      await expect
+        .element(page.getByRole("heading", { name: locale === "zh" ? "路由" : "Routes" }))
+        .toBeVisible();
+      await userEvent.click(
+        page.getByRole("button", {
+          name: locale === "zh" ? "浏览 🎬 Streaming" : "Browse 🎬 Streaming",
+        }),
+      );
+      await expect.element(page.getByRole("dialog", { name: "🎬 Streaming" })).toBeVisible();
+
+      const selection = document.querySelector<HTMLButtonElement>(
+        '[data-entity-id="nrt-03"] [data-policy-row-primary]',
+      );
+      const trigger = selection?.closest<HTMLElement>(
+        "[data-policy-selection-unavailable-trigger]",
+      );
+      if (!selection || !trigger) throw new Error("Missing stopped selection explanation");
+      expect(selection.disabled).toBe(true);
+      expect(trigger.tabIndex).toBe(0);
+
+      await page.elementLocator(trigger).hover();
+      await expect.element(page.getByText(explanation)).toBeVisible();
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+      await userEvent.keyboard("{Enter}");
+      trigger.dispatchEvent(new TouchEvent("touchstart", { bubbles: true }));
+      trigger.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
+      await userEvent.click(page.elementLocator(trigger));
+
+      expect(client.selectionAttempts).toBe(0);
+      expect(selection.getAttribute("aria-busy")).not.toBe("true");
+      expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+    },
+  );
+
   test.each([
     ["en", "light"],
     ["zh", "dark"],

@@ -779,6 +779,7 @@ const en = {
     graphErrorDescription:
       "Mish did not render this graph because its relationships are inconsistent. No route choice was changed.",
     graphErrorTitle: "The policy-group graph is invalid",
+    selectionRequiresRunningProxy: "Start the proxy before changing this policy-group selection.",
     groupReferenceType: "Policy group · {type:string}",
     groupNotFoundDescription: "The requested policy group is no longer in the confirmed graph.",
     groupNotFoundTitle: "Policy group not found",

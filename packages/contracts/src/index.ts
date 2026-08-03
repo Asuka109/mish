@@ -1710,6 +1710,13 @@ export const CapabilityAvailabilitySchema = z.enum([
 ]);
 export type CapabilityAvailability = z.infer<typeof CapabilityAvailabilitySchema>;
 
+export const GroupSelectionAvailabilitySchema = z.enum([
+  "available",
+  "core-not-running",
+  "unavailable",
+]);
+export type GroupSelectionAvailability = z.infer<typeof GroupSelectionAvailabilitySchema>;
+
 export const PlatformCapabilitiesSchema = z
   .object({
     systemProxy: CapabilityAvailabilitySchema,
@@ -2259,6 +2266,7 @@ export const StatusSnapshotSchema = z
     groupDelayPolicy: GroupDelayPolicySchema,
     groupDelayTest: GroupDelayTestSchema,
     groupSelectionOperation: GroupSelectionOperationSchema,
+    groupSelectionAvailability: GroupSelectionAvailabilitySchema,
     groupUsage: z.array(GroupUsageSchema),
     metrics: RuntimeMetricsSchema,
     nodes: z.array(ProxyNodeSchema),
@@ -2281,6 +2289,7 @@ export interface RpcStatusSnapshotDto extends z.infer<typeof RpcStatusSnapshotSc
 
 export const StatusCommandErrorKindSchema = z.enum([
   "unsupported",
+  "core-not-running",
   "invalid-request",
   "not-found",
   "conflict",
@@ -2409,7 +2418,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(32),
+    protocolVersion: z.literal(33),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3782,6 +3791,7 @@ export type StatusCommand =
 export type StatusClientErrorCode =
   | "cancelled"
   | "conflict"
+  | "core-not-running"
   | "disconnected"
   | "invalid-request"
   | "not-found"

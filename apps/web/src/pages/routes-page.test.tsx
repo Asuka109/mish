@@ -479,6 +479,7 @@ describe("Routes workspace", () => {
     snapshot.groups = [];
     snapshot.nodes = [];
     snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
 
     render(
       <AppearanceProvider>
@@ -509,6 +510,9 @@ describe("Routes workspace", () => {
       name: "Select Zulu node in Z first",
     });
     expect(configuredSelection).toBeDisabled();
+    expect(
+      configuredSelection.closest("[data-policy-selection-unavailable-trigger]"),
+    ).toHaveAttribute("tabindex", "0");
     expect(configuredSelection).not.toHaveTextContent("Read-only");
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
     expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();
@@ -516,6 +520,42 @@ describe("Routes workspace", () => {
     await user.click(screen.getByRole("button", { name: "Browse A second" }));
     const automaticDialog = await screen.findByRole("dialog", { name: "A second" });
     expect(within(automaticDialog).getByText("No matching nodes.")).toBeVisible();
+  });
+
+  it("blocks retained live-catalog selection without command, feedback, or residue while stopped", async () => {
+    const user = userEvent.setup();
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+    const client = new DeferredSelectionClient(snapshot);
+    renderRoutes(client);
+
+    await user.click(await screen.findByRole("button", { name: "Browse 🎬 Streaming" }));
+    const selection = screen.getByRole("button", {
+      name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
+    });
+    expect(selection).toBeDisabled();
+    const explanationTrigger = selection.closest<HTMLElement>(
+      "[data-policy-selection-unavailable-trigger]",
+    );
+    expect(explanationTrigger).not.toBeNull();
+    expect(explanationTrigger).toHaveAttribute("tabindex", "0");
+
+    await user.hover(explanationTrigger!);
+    expect(
+      await screen.findByText("Start the proxy before changing this policy-group selection."),
+    ).toBeVisible();
+    explanationTrigger!.focus();
+    expect(explanationTrigger).toHaveFocus();
+    fireEvent.keyDown(explanationTrigger!, { key: "Enter" });
+    fireEvent.touchStart(explanationTrigger!);
+    fireEvent.touchEnd(explanationTrigger!);
+    fireEvent.click(explanationTrigger!);
+
+    expect(client.selectionAttempts).toBe(0);
+    expect(selection).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText(/could not confirm|Unable to confirm/u)).not.toBeInTheDocument();
   });
 
   it("shows a safe graph error instead of rendering inconsistent relationships", async () => {

@@ -1,17 +1,19 @@
 use std::sync::{
     Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LoopbackProxyEndpoint,
-    ManualProxyState, MishRuntime, NetworkServiceProxyState, NotificationPresentationCompletion,
+    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink,
+    GroupSelectionAvailability, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
+    NetworkServiceProxyState, NotificationPresentationCompletion,
     NotificationPresentationFoldReason, NotificationPresentationIdentity,
     NotificationPresentationPhase, ProfileSummary, RecentTrafficObservation,
-    RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    RuntimeShutdownFailure, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::{
     sync::Notify,
@@ -56,6 +58,15 @@ impl CoreRuntime for EmbeddedCore {
 struct UnavailableCore;
 
 struct SuppliedStatusSource;
+
+struct TransitionCore {
+    running: AtomicBool,
+}
+
+#[derive(Default)]
+struct RecordingGroupSource {
+    calls: AtomicUsize,
+}
 
 struct PublishingStatusSource {
     observation: Mutex<Option<RecentTrafficObservation>>,
@@ -246,6 +257,60 @@ impl StatusDataSource for SuppliedStatusSource {
             label: "Supplied profile".into(),
         }];
         snapshot
+    }
+}
+
+impl TransitionCore {
+    fn current_status(&self) -> CoreStatus {
+        CoreStatus {
+            error: None,
+            phase: if self.running.load(Ordering::Acquire) {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
+            pid: None,
+            version: Some("embedded-test".into()),
+        }
+    }
+}
+
+impl CoreRuntime for TransitionCore {
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(self.current_status()))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.running.store(true, Ordering::Release);
+        Box::pin(ready(Ok(self.current_status())))
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.running.store(false, Ordering::Release);
+        Box::pin(ready(Ok(self.current_status())))
+    }
+}
+
+impl StatusDataSource for RecordingGroupSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+
+    fn supports_command(&self, command: StatusCommand) -> bool {
+        command == StatusCommand::Group
+    }
+
+    fn select_group_child(
+        &self,
+        _group_id: String,
+        _child_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.calls.fetch_add(1, Ordering::AcqRel);
+        Box::pin(ready(Ok(())))
     }
 }
 
@@ -444,6 +509,58 @@ async fn runtime_uses_an_injected_transport_neutral_status_source() {
     assert_eq!(snapshot["activeProfileId"], "supplied-profile");
     assert_eq!(snapshot["profiles"][0]["label"], "Supplied profile");
     assert_eq!(snapshot["adapterKind"], "native");
+}
+
+#[tokio::test]
+async fn group_selection_is_admitted_only_while_the_core_is_running() {
+    let source = Arc::new(RecordingGroupSource::default());
+    let runtime = MishRuntime::with_status_source(
+        Arc::new(TransitionCore {
+            running: AtomicBool::new(false),
+        }),
+        source.clone(),
+    );
+
+    let stopped_snapshot = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+    assert_eq!(
+        stopped_snapshot.group_selection_availability,
+        GroupSelectionAvailability::CoreNotRunning
+    );
+    let error = runtime
+        .select_group_child_typed("group".into(), "child".into(), StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, StatusCommandErrorKind::CoreNotRunning);
+    assert_eq!(source.calls.load(Ordering::Acquire), 0);
+    assert_eq!(
+        error
+            .reconciliation
+            .expect("stopped admission returns an authoritative snapshot")
+            .group_selection_availability,
+        GroupSelectionAvailability::CoreNotRunning
+    );
+
+    runtime.start_core().await.unwrap();
+    assert_eq!(
+        runtime
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await
+            .group_selection_availability,
+        GroupSelectionAvailability::Available
+    );
+    runtime
+        .select_group_child_typed("group".into(), "child".into(), StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(source.calls.load(Ordering::Acquire), 1);
+
+    runtime.stop_core().await.unwrap();
+    let error = runtime
+        .select_group_child_typed("group".into(), "child".into(), StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, StatusCommandErrorKind::CoreNotRunning);
+    assert_eq!(source.calls.load(Ordering::Acquire), 1);
 }
 
 #[tokio::test]

@@ -83,6 +83,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
       selectionConfirmed: false,
       targetCount: 0,
     },
+    groupSelectionAvailability: "available",
     groupUsage: [{ groupId: "proxy", observedConnectionCount: 4 }],
     metrics: {
       activeConnections: 4,
@@ -291,7 +292,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               return {
                 bridgeVersion: "transport-only-mock",
                 coreConfigured: false,
-                protocolVersion: 32,
+                protocolVersion: 33,
                 statusCommands: {
                   group: false,
                   groupDelay: false,

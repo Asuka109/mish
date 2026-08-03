@@ -450,7 +450,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 32,
+        protocolVersion: 33,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -489,7 +489,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 32,
+        protocolVersion: 33,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -518,7 +518,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 32,
+        protocolVersion: 33,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,
@@ -542,6 +542,27 @@ describe("RpcStatusClient", () => {
       expect.objectContaining<Partial<StatusClientError>>({
         code: "disconnected",
         retryable: true,
+      }),
+    );
+  });
+
+  it("preserves stopped-Core admission with its authoritative reconciliation snapshot", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+
+    expect(
+      mapRpcError(
+        new RpcRemoteError(-32_021, "The proxy must be running", {
+          kind: "core-not-running",
+          snapshot,
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining<Partial<StatusClientError>>({
+        code: "core-not-running",
+        retryable: false,
+        snapshot,
       }),
     );
   });
