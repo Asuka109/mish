@@ -100,8 +100,37 @@ const zh: Translation = {
     hideToStatusBar: "隐藏到状态栏",
     installTunHelper: "安装系统组件",
     tunHelperLifecycleApplied: "{operation}已完成并确认。",
-    tunHelperLifecycleFailed: "{operation}未完成。{failure}",
+    tunHelperLifecycleFailure: {
+      authorizationCancelled: "已取消{operation}的管理员授权，系统组件没有变化。{retry}",
+      authorizationFailed: "macOS 未授权{operation}。请确认管理员权限后{retry}",
+      confirmationFailed: "{operation}可能已经完成，但 Mish 无法确认最终状态。{recovery}",
+      connectionFailed:
+        "{operation}未完成，因为 Mish 无法连接到系统组件。请重新启动 Mish 后{retry}",
+      installationFailed: "macOS 已授权{operation}，但系统组件的更改未能完成。{recovery}",
+      installerUnavailable:
+        "无法开始{operation}，因为 Mish 无法启动所需的系统组件工具。请重新打开 Mish 后{retry}",
+      invalidResponse: "{operation}未完成，因为 Mish 收到了无效响应。请重新启动 Mish 后{retry}",
+      observationFailed:
+        "{operation}未完成，因为 Mish 无法安全确认当前网络状态。请先关闭虚拟网卡或重新启动 Mish 后{retry}",
+      operationFailed: "{operation}未完成。请重新启动 Mish 后{retry}",
+      preparationFailed:
+        "无法开始{operation}，因为 Mish 无法准备所需内容，因此没有请求管理员授权。请重新启动 Mish 后{retry}",
+      registrationFailed: "macOS 未能完成{operation}所需的系统组件注册。{recovery}",
+      registrationRequiresApproval:
+        "完成{operation}前需要在 macOS 中批准系统组件。请打开“系统设置”完成批准后{retry}",
+      repairRequired: "{operation}未完成，因为 Mish 无法验证系统组件。{recovery}",
+      unsupportedBuild:
+        "此版本的 Mish 不包含{operation}所需的系统组件，因此无法完成该操作。请使用受支持的 Mish 版本。",
+      unsupportedSystem:
+        "当前 macOS 版本无法完成{operation}。请使用受支持的 macOS 版本，或改用系统代理。",
+    },
     tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
+    tunHelperLifecycleReinstallRecovery: "请前往“设置”选择“清理并重装”。",
+    tunHelperLifecycleRemoveRecovery: "请重新启动 Mish 后再次尝试移除。",
+    tunHelperLifecycleRetryInstall: "再次尝试安装。",
+    tunHelperLifecycleRetryRemove: "再次尝试移除。",
+    tunHelperLifecycleRetryRepair: "再次尝试修复。",
+    tunHelperLifecycleUnknownOperation: "系统组件操作未完成。请前往“设置”并重试。",
     tunHelperRemovalAuthorizationCancelled:
       "已取消管理员授权。系统组件仍保持安装；准备好后可再次尝试。",
     tunHelperRemovalAuthorizationFailed: "macOS 未授权移除系统组件。请确认管理员权限后重试。",

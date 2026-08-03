@@ -1571,6 +1571,8 @@ describe("production routes", () => {
 
   it("keeps Helper removal available while the desktop core is active", async () => {
     const user = userEvent.setup();
+    const center = new FixtureNotificationCenter();
+    const notificationClient = new FixtureNotificationClient(center);
     const settingsClient = new DesktopSettingsClient();
     settingsClient.snapshot.capabilities.tun = "supported";
     settingsClient.snapshot.tunHelper = {
@@ -1583,6 +1585,20 @@ describe("production routes", () => {
       phase: "idle",
       removal: "available",
     };
+    settingsClient.removeTunHelper.mockImplementation(async () => {
+      await notificationClient.publish(
+        notificationPublication("tun-helper.lifecycle", {
+          data: {
+            failure: "confirmation-failed",
+            operation: "remove",
+            outcome: "recovery-required",
+          },
+          dedupeKey: "tun-helper.lifecycle:settings-remove",
+          severity: "error",
+        }),
+      );
+      return settingsClient.getSnapshot();
+    });
     renderRoute(
       "/settings",
       "en",
@@ -1590,6 +1606,9 @@ describe("production routes", () => {
       undefined,
       settingsClient,
       structuredClone(settingsClient.snapshot),
+      undefined,
+      undefined,
+      notificationClient,
     );
 
     expect(await screen.findByRole("button", { name: "Clean Reinstall" })).toBeDisabled();
@@ -1598,6 +1617,13 @@ describe("production routes", () => {
     await user.click(remove);
 
     expect(settingsClient.removeTunHelper).toHaveBeenCalledOnce();
+    await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "Remove Helper may have finished, but Mish could not confirm the final state. Restart Mish, then try removing it again.",
+    );
+    expect(notificationCenter).not.toHaveTextContent("Install Helper");
+    expect(notificationCenter).not.toHaveTextContent("Repair Helper");
   });
 
   it("uses the Rust Helper-removal capability for degraded and pending states", async () => {
@@ -2622,6 +2648,8 @@ describe("desktop RPC experience", () => {
 
   it("asks the desktop Helper lifecycle to repair and resume the original TUN command", async () => {
     const user = userEvent.setup();
+    const center = new FixtureNotificationCenter();
+    const notificationClient = new FixtureNotificationClient(center);
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "repair-required" };
     const statusClient = new RecordingCaptureClient(snapshot);
@@ -2639,16 +2667,17 @@ describe("desktop RPC experience", () => {
       removal: "available",
     };
     settingsClient.repairTunHelper.mockImplementation(async () => {
-      settingsClient.snapshot.tunHelper = {
-        availability: "available",
-        expectedVersion: "3",
-        health: "healthy",
-        installationId: "a".repeat(64),
-        installedVersion: "3",
-        lastFailure: null,
-        phase: "idle",
-        removal: "available",
-      };
+      await notificationClient.publish(
+        notificationPublication("tun-helper.lifecycle", {
+          data: {
+            failure: "preparation-failed",
+            operation: "repair",
+            outcome: "recovery-required",
+          },
+          dedupeKey: "tun-helper.lifecycle:guided-repair",
+          severity: "error",
+        }),
+      );
       return settingsClient.getSnapshot();
     });
     renderRoute(
@@ -2658,6 +2687,9 @@ describe("desktop RPC experience", () => {
       undefined,
       settingsClient,
       structuredClone(settingsClient.snapshot),
+      undefined,
+      undefined,
+      notificationClient,
     );
 
     await user.click(
@@ -2672,6 +2704,11 @@ describe("desktop RPC experience", () => {
       expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({ resumeCapture: true }),
     );
     expect(setCapture).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "Repair Helper could not start because Mish could not prepare the required files. macOS was not asked for authorization. Restart Mish, then try repairing it again.",
+    );
   });
 
   it("rechecks capture authority when stale recovery projections report unavailable modes", async () => {
