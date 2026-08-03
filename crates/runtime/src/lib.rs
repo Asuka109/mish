@@ -258,6 +258,9 @@ pub trait StatusDataSource: Send + Sync {
     fn supports_command(&self, _command: StatusCommand) -> bool {
         false
     }
+    fn provides_command(&self, command: StatusCommand) -> bool {
+        self.supports_command(command)
+    }
     fn set_policy_group_connection_cleanup_enabled(&self, _enabled: bool) {}
     fn run_proxy_diagnostic(
         &self,
@@ -328,6 +331,7 @@ pub enum StatusCommand {
 #[serde(rename_all = "kebab-case")]
 pub enum StatusCommandErrorKind {
     Unsupported,
+    CoreNotRunning,
     InvalidRequest,
     NotFound,
     Conflict,
@@ -369,6 +373,13 @@ impl StatusCommandError {
         Self::new(
             StatusCommandErrorKind::RuntimeReplaced,
             "The Status runtime was replaced before the command completed",
+        )
+    }
+
+    pub const fn core_not_running() -> Self {
+        Self::new(
+            StatusCommandErrorKind::CoreNotRunning,
+            "The proxy must be running before a policy-group selection can change",
         )
     }
 
@@ -1125,6 +1136,10 @@ impl MishRuntime {
         self.status_source.supports_command(command)
     }
 
+    pub fn provides_status_command(&self, command: StatusCommand) -> bool {
+        self.status_source.provides_command(command)
+    }
+
     pub async fn set_routing_mode(
         &self,
         mode: RoutingMode,
@@ -1164,6 +1179,15 @@ impl MishRuntime {
         child_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<StatusSnapshot, StatusCommandError> {
+        let core = self.core.status().await;
+        if !self.status_source.provides_command(StatusCommand::Group) {
+            return Err(StatusCommandError::unsupported()
+                .with_reconciliation(self.snapshot_typed_from_status(&core, adapter_kind)));
+        }
+        if !matches!(core.phase, CorePhase::Running) {
+            return Err(StatusCommandError::core_not_running()
+                .with_reconciliation(self.snapshot_typed_from_status(&core, adapter_kind)));
+        }
         self.status_source
             .select_group_child(group_id, child_id)
             .await?;
@@ -1472,6 +1496,17 @@ impl MishRuntime {
         adapter_kind: StatusAdapterKind,
     ) -> StatusSnapshot {
         let mut snapshot = self.status_source.snapshot(status, adapter_kind);
+        snapshot.group_selection_availability = if matches!(status.phase, CorePhase::Running)
+            && self.status_source.supports_command(StatusCommand::Group)
+        {
+            GroupSelectionAvailability::Available
+        } else if !matches!(status.phase, CorePhase::Running)
+            && self.status_source.provides_command(StatusCommand::Group)
+        {
+            GroupSelectionAvailability::CoreNotRunning
+        } else {
+            GroupSelectionAvailability::Unavailable
+        };
         if let Some(capture) = &self.capture {
             let capture_status = capture.status();
             snapshot.metrics.uptime_seconds = self

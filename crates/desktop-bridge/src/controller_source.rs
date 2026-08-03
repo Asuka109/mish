@@ -557,6 +557,14 @@ impl StatusDataSource for ControllerStatusSource {
             )
     }
 
+    fn provides_command(&self, command: StatusCommand) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && matches!(
+                command,
+                StatusCommand::Routing | StatusCommand::Group | StatusCommand::GroupDelay
+            )
+    }
+
     fn set_policy_group_connection_cleanup_enabled(&self, enabled: bool) {
         self.inner
             .connection_cleanup_preference

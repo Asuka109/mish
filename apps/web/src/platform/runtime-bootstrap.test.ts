@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BrowserAuthenticationRequired,
+  browserLaunchTokenFromLocation,
   parseRuntimeBootstrap,
   resolveStartupStatusClient,
 } from "./runtime-bootstrap";
@@ -75,6 +76,20 @@ const supportBundleDependencies = {
 };
 
 describe("desktop runtime bootstrap", () => {
+  it("accepts Browser Client capabilities only from the SPA root fragment", () => {
+    const launchToken = "a".repeat(43);
+    expect(
+      browserLaunchTokenFromLocation({
+        hash: `#token=${launchToken}`,
+        pathname: "/",
+      }),
+    ).toBe(launchToken);
+    expect(
+      browserLaunchTokenFromLocation({ hash: `#token=${launchToken}`, pathname: "/status" }),
+    ).toBeNull();
+    expect(browserLaunchTokenFromLocation({ hash: "#token=short", pathname: "/" })).toBeNull();
+  });
+
   it.each([
     [false, "browser"],
     [true, "desktop"],

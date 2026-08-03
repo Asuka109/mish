@@ -464,6 +464,14 @@ export function mapRpcError(error: unknown) {
         ? (error.data as { kind?: unknown }).kind
         : undefined;
     if (kind === "unsupported") return new StatusClientError("unsupported", error.message);
+    if (kind === "core-not-running") {
+      return new StatusClientError(
+        "core-not-running",
+        error.message,
+        false,
+        parsed.success ? (parsed.data.snapshot ?? null) : null,
+      );
+    }
     if (kind === "unsupported-group") {
       return new StatusClientError("unsupported", error.message);
     }

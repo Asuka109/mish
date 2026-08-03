@@ -28,7 +28,7 @@ async function bootstrap() {
   }
   const matches = [
     ...log.matchAll(
-      /Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#mish-browser-launch=[A-Za-z0-9_-]{43})/gu,
+      /Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#token=[A-Za-z0-9_-]{43})/gu,
     ),
   ];
   const nativeOriginMatches = [
@@ -39,7 +39,7 @@ async function bootstrap() {
   if (!launchUrl) throw new Error("The desktop acceptance launch URL is unavailable");
   if (!nativeOrigin) throw new Error("The desktop acceptance native origin is unavailable");
   const parsed = new URL(launchUrl);
-  const launchToken = parsed.hash.replace("#mish-browser-launch=", "");
+  const launchToken = parsed.hash.replace("#token=", "");
   const origin = parsed.origin;
   const response = await fetch(`${origin}/browser-bootstrap`, {
     method: "POST",

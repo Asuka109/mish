@@ -296,6 +296,7 @@ impl NotificationCenter {
 
         state.revision = state.revision.saturating_add(1);
         let revision = state.revision;
+        let now = self.now();
         state.records.retain(|record| {
             record.dedupe_key == publication.dedupe_key
                 || !publication
@@ -311,7 +312,7 @@ impl NotificationCenter {
             let mut record = state.records.remove(index).expect("existing notification");
             let preserves_occurrence_severity =
                 resolution_preserves_occurrence_severity(&record, &publication);
-            record.observed_at = self.now();
+            record.observed_at = now;
             record.pinned = publication.pinned;
             record.presentation = publication.presentation;
             record.resolved = publication.resolved;
@@ -319,15 +320,16 @@ impl NotificationCenter {
             if !preserves_occurrence_severity {
                 record.severity = publication.severity;
             }
+            fold_resolved_unpresented_record(&mut record, now);
             state.records.push_back(record);
         } else {
             state.next_id = state.next_id.saturating_add(1);
             let id = format!("notification:{}", state.next_id);
-            state.records.push_back(NotificationRecord {
+            let mut record = NotificationRecord {
                 created_revision: revision,
                 dedupe_key: publication.dedupe_key,
                 id,
-                observed_at: self.now(),
+                observed_at: now,
                 pinned: publication.pinned,
                 presentation: publication.presentation,
                 presentation_state: NotificationPresentationState::unpresented(),
@@ -337,7 +339,9 @@ impl NotificationCenter {
                 severity: publication.severity,
                 presentation_generation: 0,
                 presentation_lease: None,
-            });
+            };
+            fold_resolved_unpresented_record(&mut record, now);
+            state.records.push_back(record);
         }
         while state.records.len() > NOTIFICATION_RETENTION_LIMIT {
             state.records.pop_front();
@@ -392,10 +396,12 @@ impl NotificationCenter {
         };
         state.revision = state.revision.saturating_add(1);
         let revision = state.revision;
+        let now = self.now();
         let record = &mut state.records[index];
         record.pinned = false;
         record.resolved = true;
         record.revision = revision;
+        fold_resolved_unpresented_record(record, now);
         self.publish_snapshot(&state)
     }
 
@@ -705,6 +711,21 @@ fn resolution_preserves_occurrence_severity(
     publication: &NotificationPublication,
 ) -> bool {
     publication.resolved && record.presentation.content == publication.presentation.content
+}
+
+/// Resolution preserves retained history, but an occurrence that has not claimed a presentation
+/// lease is obsolete recovery state rather than an eligible queue item. A live lease remains
+/// independent so its owner, acknowledgement, expiry, and reconnect semantics stay unchanged.
+fn fold_resolved_unpresented_record(record: &mut NotificationRecord, now: u64) {
+    if record.resolved
+        && record.presentation_state.phase == NotificationPresentationPhase::Unpresented
+    {
+        record.presentation_lease = None;
+        record.presentation_state = NotificationPresentationState::folded(
+            NotificationPresentationFoldReason::Suppressed,
+            now,
+        );
+    }
 }
 
 fn validate_publication(
@@ -1031,6 +1052,14 @@ mod tests {
         assert_eq!(record.id, id);
         assert!(record.resolved);
         assert_eq!(record.severity, NotificationSeverity::Error);
+        assert_eq!(
+            record.presentation_state.phase,
+            NotificationPresentationPhase::Folded
+        );
+        assert_eq!(
+            record.presentation_state.fold_reason,
+            Some(NotificationPresentationFoldReason::Suppressed)
+        );
 
         let repeated = center.publish(resolution).unwrap();
         assert_eq!(repeated.revision, resolved.revision);
@@ -1381,11 +1410,57 @@ mod tests {
     }
 
     #[test]
-    fn read_resolution_and_removal_do_not_implicitly_consume_a_presentation_lease() {
+    fn rapid_retry_folds_an_unpresented_resolved_error_before_claiming_the_new_error() {
+        let (center, _) = center_with_clock();
+        let mut first_failure = publication("profile.activation-failure:attempt-1", 1);
+        first_failure.severity = NotificationSeverity::Error;
+        let first = center.publish(first_failure).unwrap();
+        let first_id = first.notifications[0].id.clone();
+
+        let resolved = center.resolve_by_dedupe_key("profile.activation-failure:attempt-1");
+        let first_record = resolved
+            .notifications
+            .iter()
+            .find(|record| record.id == first_id)
+            .expect("the resolved occurrence remains in notification history");
+        assert!(first_record.resolved);
+        assert_eq!(first_record.severity, NotificationSeverity::Error);
+        assert_eq!(
+            first_record.presentation_state.phase,
+            NotificationPresentationPhase::Folded,
+            "a recovered record that was never presented must not remain eligible"
+        );
+        assert_eq!(
+            first_record.presentation_state.fold_reason,
+            Some(NotificationPresentationFoldReason::Suppressed)
+        );
+
+        let mut latest_failure = publication("profile.activation-failure:attempt-2", 2);
+        latest_failure.severity = NotificationSeverity::Error;
+        let latest = center.publish(latest_failure).unwrap();
+        let latest_id = latest.notifications[0].id.clone();
+
+        let owner = identity("desktop-webview", "rapid-retry");
+        let claim = center
+            .claim_next_presentation(owner)
+            .claim
+            .expect("the newest eligible activation error must claim the one global lease");
+        assert_eq!(claim.id, latest_id);
+        assert!(
+            center
+                .claim_next_presentation(identity("browser", "rapid-retry"))
+                .claim
+                .is_none(),
+            "a simultaneous client cannot claim the same newest error"
+        );
+    }
+
+    #[test]
+    fn read_and_resolution_fold_unpresented_records_without_consuming_a_live_lease() {
         let (center, _) = center_with_clock();
         let created = center.publish(publication("independent", 1)).unwrap();
         let id = created.notifications[0].id.clone();
-        let read = center.mark_read(&[id.clone()]);
+        let read = center.mark_read(std::slice::from_ref(&id));
         assert!(read.notifications[0].read);
         assert_eq!(
             read.notifications[0].presentation_state.phase,
@@ -1395,22 +1470,33 @@ mod tests {
         assert!(resolved.notifications[0].resolved);
         assert_eq!(
             resolved.notifications[0].presentation_state.phase,
-            NotificationPresentationPhase::Unpresented
+            NotificationPresentationPhase::Folded
+        );
+        assert_eq!(
+            resolved.notifications[0].presentation_state.fold_reason,
+            Some(NotificationPresentationFoldReason::Suppressed)
         );
 
+        let presenting = center.publish(publication("still-presenting", 2)).unwrap();
+        let presenting_id = presenting.notifications[0].id.clone();
         let owner = identity("desktop-webview", "session-1");
         let claim = center
             .claim_next_presentation(owner.clone())
             .claim
-            .expect("resolution does not consume the pending presentation");
-        let resolved_while_presenting = center.resolve_by_dedupe_key("independent");
+            .expect("a later unpresented record remains eligible");
+        assert_eq!(claim.id, presenting_id);
+        let resolved_while_presenting = center.resolve_by_dedupe_key("still-presenting");
         assert_eq!(
-            resolved_while_presenting.notifications[0]
+            resolved_while_presenting
+                .notifications
+                .iter()
+                .find(|record| record.id == presenting_id)
+                .expect("live lease remains retained")
                 .presentation_state
                 .phase,
             NotificationPresentationPhase::Presenting
         );
-        center.remove(&id);
+        center.remove(&presenting_id);
         assert!(
             !center
                 .complete_presentation(completion(

@@ -7,18 +7,18 @@ use `<scope>:<action>[:<variant>]` when they target one product area and
 
 ## Daily commands
 
-| Command                     | Purpose                                                                                                                          |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm demo`                 | Start the explicit browser demo on the first port from 4173.                                                                     |
-| `pnpm desktop:demo`         | Start the backend-free demo in a native Tauri window.                                                                            |
-| `pnpm dev`                  | Start the ordinary unauthenticated Web development entry.                                                                        |
-| `pnpm desktop:dev`          | Start operational Tauri with optional explicitly installed development TUN, print a Browser Client URL, and select a Web origin. |
-| `pnpm desktop:dev:tart-tun` | Start the explicit disposable-Tart development TUN acceptance entry.                                                             |
-| `pnpm test:watch`           | Run Web unit tests in watch mode.                                                                                                |
-| `pnpm test:unit`            | Run all TypeScript unit tests once.                                                                                              |
-| `pnpm check`                | Run the fast pull-request-equivalent gate.                                                                                       |
-| `pnpm check:all`            | Run the complete non-browser repository inspection.                                                                              |
-| `pnpm test:browser`         | Run the responsive suite in a real Chromium browser.                                                                             |
+| Command                     | Purpose                                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `pnpm demo`                 | Start the explicit browser demo on the first port from 4173.                                                            |
+| `pnpm desktop:demo`         | Start the backend-free demo in a native Tauri window.                                                                   |
+| `pnpm dev`                  | Start the ordinary unauthenticated Web development entry.                                                               |
+| `pnpm desktop:dev`          | Start operational Tauri headlessly, prepare development Core, and print Browser Client and desktop-window trigger URLs. |
+| `pnpm desktop:dev:tart-tun` | Start the explicit disposable-Tart development TUN acceptance entry.                                                    |
+| `pnpm test:watch`           | Run Web unit tests in watch mode.                                                                                       |
+| `pnpm test:unit`            | Run all TypeScript unit tests once.                                                                                     |
+| `pnpm check`                | Run the fast pull-request-equivalent gate.                                                                              |
+| `pnpm check:all`            | Run the complete non-browser repository inspection.                                                                     |
+| `pnpm test:browser`         | Run the responsive suite in a real Chromium browser.                                                                    |
 
 Arguments pass through to the underlying package command. For example:
 
@@ -29,13 +29,30 @@ pnpm web:test:run -- src/path/to/example.test.ts
 ```
 
 The tracked `apps/desktop/.env.development` sets `MISH_DEVTOOLS=1` for
-`desktop:dev` and `desktop:demo`. The normal development command therefore
-opens the local WebKit Inspector as a separate window for only the current Mish
-desktop process:
+`desktop:dev` and `desktop:demo`. The ordinary operational development command
+starts the real Rust backend without creating, showing, or focusing a WebView
+or Inspector. After readiness it prints these stable prefixes:
+
+```text
+Mish Browser Client URL: <authenticated loopback launch URL>
+Mish Desktop Window Trigger URL: <development-only loopback trigger URL>
+```
+
+The Browser Client is the primary headless development surface. Open the second
+URL to create or reveal the one native main window; closing it hides only the
+window, and opening the same unexpired trigger again reveals it. Hot restart
+prints new process-scoped links and remains hidden. The configured Inspector
+opens only with an explicitly created development WebView. `desktop:demo`
+retains its ordinary window and Inspector behavior.
+
+Opening a browser is opt-in and does not change either printed URL:
 
 ```sh
-pnpm desktop:dev
+pnpm desktop:dev -- --open
 ```
+
+The launcher uses the operating system's standard URL opener. Failure is
+non-fatal and leaves the backend, RPC service, and printed links available.
 
 When `MISH_MIHOMO_BIN` is unset, the launcher prepares and verifies the
 repository-pinned Core. An explicit value remains the local Core debugging
@@ -94,7 +111,8 @@ and release builds. Follow
 administrator-operated acceptance procedure.
 
 Ordinary source development may opt into Virtual Interface by starting
-`desktop:dev`, opening Settings, choosing **Install virtual interface**, and
+`desktop:dev`, opening the desktop-window trigger, opening Settings, choosing
+**Install virtual interface**, and
 approving the native administrator prompt. Restart the dev process once before
 activation. `macos:tun:prepare:dev`, `macos:tun:install:dev`, and the shared
 `macos:tun:uninstall` remain equivalent CLI preparation and recovery paths.

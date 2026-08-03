@@ -236,6 +236,10 @@ impl DesktopRuntimeHost {
         self.current().supports_status_command(command)
     }
 
+    pub fn provides_status_command(&self, command: StatusCommand) -> bool {
+        self.current().provides_status_command(command)
+    }
+
     pub fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
         self.current().supports_traffic_command(operation)
     }

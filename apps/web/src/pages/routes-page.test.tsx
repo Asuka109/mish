@@ -471,7 +471,7 @@ describe("Routes workspace", () => {
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
-  it("shows the selected profile's configured groups while Mihomo is stopped", async () => {
+  it("natively disables stopped selection for a lifecycle-only configured Profile catalog", async () => {
     const user = userEvent.setup();
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.adapterKind = "rpc";
@@ -509,6 +509,10 @@ describe("Routes workspace", () => {
       name: "Select Zulu node in Z first",
     });
     expect(configuredSelection).toBeDisabled();
+    expect(configuredSelection.closest("[data-policy-selection-unavailable-trigger]")).toBeNull();
+    expect(
+      screen.queryByText("Start the proxy before changing this policy-group selection."),
+    ).not.toBeInTheDocument();
     expect(configuredSelection).not.toHaveTextContent("Read-only");
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
     expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();
@@ -516,6 +520,31 @@ describe("Routes workspace", () => {
     await user.click(screen.getByRole("button", { name: "Browse A second" }));
     const automaticDialog = await screen.findByRole("dialog", { name: "A second" });
     expect(within(automaticDialog).getByText("No matching nodes.")).toBeVisible();
+  });
+
+  it("blocks retained live-catalog selection without command, feedback, or residue while stopped", async () => {
+    const user = userEvent.setup();
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.runtime.phase = "inactive";
+    snapshot.groupSelectionAvailability = "core-not-running";
+    const client = new DeferredSelectionClient(snapshot);
+    renderRoutes(client);
+
+    await user.click(await screen.findByRole("button", { name: "Browse 🎬 Streaming" }));
+    const selection = screen.getByRole("button", {
+      name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
+    });
+    expect(selection).toBeDisabled();
+    expect(selection.closest("[data-policy-selection-unavailable-trigger]")).toBeNull();
+    fireEvent.keyDown(selection, { key: "Enter" });
+    fireEvent.touchStart(selection);
+    fireEvent.touchEnd(selection);
+    fireEvent.click(selection);
+
+    expect(client.selectionAttempts).toBe(0);
+    expect(selection).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText(/could not confirm|Unable to confirm/u)).not.toBeInTheDocument();
   });
 
   it("shows a safe graph error instead of rendering inconsistent relationships", async () => {

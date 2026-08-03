@@ -89,6 +89,13 @@ export class FixtureNotificationCenter {
           revision,
           severity: effectiveSeverity,
         };
+    if (record.resolved && record.presentationState.phase === "unpresented") {
+      record.presentationState = {
+        foldReason: "suppressed",
+        foldedAt: observedAt,
+        phase: "folded",
+      };
+    }
     this.snapshot = {
       notifications: [
         record,
@@ -216,7 +223,16 @@ export class FixtureNotificationCenter {
     this.snapshot = {
       notifications: this.snapshot.notifications.map((current) =>
         current.id === record.id
-          ? { ...current, pinned: false, resolved: true, revision }
+          ? {
+              ...current,
+              pinned: false,
+              presentationState:
+                current.presentationState.phase === "unpresented"
+                  ? { foldReason: "suppressed", foldedAt: Date.now(), phase: "folded" }
+                  : current.presentationState,
+              resolved: true,
+              revision,
+            }
           : current,
       ),
       revision,

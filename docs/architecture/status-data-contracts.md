@@ -80,9 +80,61 @@ confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid resul
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 
+### Policy-group selection while Core is stopped
+
+Mish uses the disabled-while-stopped contract. `StatusSnapshotDto` carries the
+Rust-derived `groupSelectionAvailability` value `available`,
+`core-not-running`, or `unavailable`. A Controller-capable runtime publishes
+`available` only from a current Running Core status. Starting, stopping,
+stopped, and failed Core states publish `core-not-running`; a runtime without a
+group command surface publishes `unavailable`. Desktop WebView and Browser
+Client consume the same field. While it is `core-not-running`, selectable rows
+remain browseable but their selection controls use the same native disabled
+button state without a tooltip or focusable wrapper. Mouse, keyboard, and touch
+therefore cannot dispatch a stopped selection. Web command admission checks the
+newest accepted snapshot before creating command feedback, and Rust checks the
+current Core status again before calling the Controller source. A race rejected
+by that Rust check returns `core-not-running` with the current reconciliation
+snapshot and produces no selection-failure notification.
+
+The absence of explanatory UI is an intentional product exception to the
+general disabled-control guidance: stopped policy rows already communicate
+unavailability through their native disabled presentation, and adding a second
+focus target solely for a tooltip creates inconsistent behavior across the
+Desktop WebView and Browser Client. This exception does not weaken either Web
+or Rust command admission.
+
+Offline selection is intentionally rejected. The stopped Profile route catalog
+contains a Profile ID and effective fingerprint, but its group and child IDs
+are hashes of entity kind, that fingerprint, and the exact opaque label. The
+Controller mapper uses the same label-derived identity because Mihomo does not
+guarantee stable unique entity IDs. Provider-expanded children exist only in
+the live Controller catalog. The `catalogRevision` and `membershipRevision`
+used by post-switch connection cleanup are hashes of one live Controller
+observation; they are neither persisted Profile revisions nor revisions shared
+with the parsed offline catalog. Mihomo's private `cache.db` selection
+persistence is Core-owned and does not provide a Mish command intent that can
+be independently scoped, applied, confirmed, and retired. An offline queue
+would therefore require label-only matching or an unprovable cross-catalog
+revision bridge, both of which can apply a renamed, removed, replaced, or
+provider-expanded target ambiguously.
+
+No offline selection intent exists to survive a Profile replacement, catalog
+change, runtime replacement, or failed launch. Those transitions only replace
+the authoritative snapshot and keep selection unavailable until a compatible
+running Controller catalog is confirmed. Running-Core selection remains the
+existing operation: fresh version/catalog/membership revalidation, Controller
+write, exact read-back confirmation, and the independent post-switch connection
+behavior. Protocol version 33 adds this availability and the typed
+`core-not-running` admission result without changing running operation identity
+or confirmation semantics.
+
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
-current mutation surface. The browser fixture supports isolated demo mutations.
+provided command surface. Group selection additionally requires the current
+Rust `groupSelectionAvailability` to be `available`; a stopped Controller-backed
+runtime can therefore retain stable capability discovery without admitting a
+mutation. The browser fixture supports isolated demo mutations.
 The native desktop RPC adapter supports System Proxy capture and recovery plus
 the shared TUN enable/disable command when the exact packaged helper is
 confirmed healthy. The Developer-ID-free `internal-tun-alpha` profile is

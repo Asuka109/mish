@@ -1156,6 +1156,109 @@ async fn authoritative_application_notifications_reach_every_notification_client
 }
 
 #[tokio::test]
+async fn rapid_retry_folds_an_unpresented_resolved_activation_error_before_the_latest_rpc_claim() {
+    let runtime_host = DesktopRuntimeHost::new(runtime(no_core()));
+    let first = runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "profile.activation-failure:rpc-attempt-1".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::ProfileActivationFailed(
+                    mish_runtime::ProfileActivationFailedApplicationNotificationData {
+                        failure: "validation".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let first_id = first.notifications[0].id.clone();
+    let resolved = runtime_host.resolve_notification("profile.activation-failure:rpc-attempt-1");
+    let resolved_record = resolved
+        .notifications
+        .iter()
+        .find(|record| record.id == first_id)
+        .expect("the recovered occurrence remains in notification history");
+    assert!(resolved_record.resolved);
+    assert_eq!(resolved_record.severity, NotificationSeverity::Error);
+    assert_eq!(
+        resolved_record.presentation_state.phase,
+        mish_runtime::NotificationPresentationPhase::Folded
+    );
+    assert_eq!(
+        resolved_record.presentation_state.fold_reason,
+        Some(mish_runtime::NotificationPresentationFoldReason::Suppressed)
+    );
+
+    let latest = runtime_host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "profile.activation-failure:rpc-attempt-2".into(),
+            pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::ProfileActivationFailed(
+                    mish_runtime::ProfileActivationFailedApplicationNotificationData {
+                        failure: "managed-listener-conflict".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
+    let latest_id = latest.notifications[0].id.clone();
+
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut first_client = socket(bridge.address).await;
+    let mut simultaneous_client = socket(bridge.address).await;
+    authenticate(&mut first_client).await;
+    authenticate(&mut simultaneous_client).await;
+
+    let first_claim = request(
+        &mut first_client,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"rapid-retry-first","sessionId":"rapid-retry-first-session"}
+        }),
+    )
+    .await;
+    assert_eq!(first_claim["result"]["claim"]["id"], latest_id);
+    let rpc_resolved = first_claim["result"]["snapshot"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"].as_str() == Some(first_id.as_str()))
+        .expect("resolved occurrence is present in the RPC snapshot");
+    assert_eq!(rpc_resolved["presentationState"]["phase"], "folded");
+    assert_eq!(
+        rpc_resolved["presentationState"]["foldReason"],
+        "suppressed"
+    );
+
+    let simultaneous_claim = request(
+        &mut simultaneous_client,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"notifications.subscribe",
+            "params":{"clientId":"rapid-retry-second","sessionId":"rapid-retry-second-session"}
+        }),
+    )
+    .await;
+    assert!(simultaneous_claim["result"]["claim"].is_null());
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn pre_gui_onboarding_record_is_claimed_once_by_the_first_authenticated_client() {
     let settings = settings_service();
     let crashed_before_gui = DesktopRuntimeHost::new(runtime(no_core()));
@@ -1607,7 +1710,7 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     let browser = bridge.browser_client().expect("browser client handle");
     let launch_url = browser.issue_launch_url().unwrap();
     let launch_token = launch_url
-        .strip_prefix(&format!("http://{}/#mish-browser-launch=", bridge.address))
+        .strip_prefix(&format!("http://{}/#token=", bridge.address))
         .expect("launch URL prefix")
         .to_owned();
     assert_eq!(launch_token.len(), 43);
@@ -1837,7 +1940,7 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .unwrap();
     let launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
     let launch_token = launch_url
-        .split_once("#mish-browser-launch=")
+        .split_once("#token=")
         .expect("launch token fragment")
         .1;
     let client = reqwest::Client::new();
@@ -3011,7 +3114,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 32);
+    assert_eq!(info["result"]["protocolVersion"], 33);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],

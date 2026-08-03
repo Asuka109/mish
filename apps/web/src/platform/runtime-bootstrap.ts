@@ -235,15 +235,18 @@ class BrowserBootstrapUnavailable extends Error {
   }
 }
 
-function readBrowserLaunchToken() {
-  const token = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-launch");
+export function browserLaunchTokenFromLocation(location: { hash: string; pathname: string }) {
+  if (location.pathname !== "/") return null;
+  const token = new URLSearchParams(location.hash.slice(1)).get("token");
   return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
+function readBrowserLaunchToken() {
+  return browserLaunchTokenFromLocation(window.location);
+}
+
 function clearBrowserLaunchToken() {
-  const url = new URL(window.location.href);
-  url.hash = "";
-  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  window.history.replaceState(null, "", "/");
 }
 
 const browserProofKey = "mish-browser-client-proof";
