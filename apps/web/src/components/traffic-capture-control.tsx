@@ -197,7 +197,7 @@ export function TrafficCaptureControl({
       <div className={captureStyles().stack()}>
         <div className={captureStyles().control()}>
           <Toggle
-            aria-busy={pendingMode === "systemProxy"}
+            aria-busy={systemProxyPending}
             aria-describedby={getCaptureModeDescriptionId(
               adapterKind,
               capabilities.systemProxy,
@@ -218,7 +218,7 @@ export function TrafficCaptureControl({
             pressed={systemProxySelected}
             variant="capture"
           >
-            {pendingMode === "systemProxy" ? (
+            {systemProxyPending ? (
               <Spinner data-icon="inline-start" />
             ) : (
               <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
@@ -227,7 +227,7 @@ export function TrafficCaptureControl({
           </Toggle>
           {tunActionable ? (
             <Toggle
-              aria-busy={pendingMode === "tun"}
+              aria-busy={tunPending}
               aria-describedby={getCaptureModeDescriptionId(
                 adapterKind,
                 capabilities.tun,
@@ -245,7 +245,7 @@ export function TrafficCaptureControl({
               pressed={tunSelected}
               variant="capture"
             >
-              {pendingMode === "tun" ? (
+              {tunPending ? (
                 <Spinner data-icon="inline-start" />
               ) : (
                 <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
@@ -263,7 +263,7 @@ export function TrafficCaptureControl({
                 render={<span tabIndex={0} />}
               >
                 <Toggle
-                  aria-busy={pendingMode === "tun"}
+                  aria-busy={tunPending}
                   aria-describedby={tunDescriptionId}
                   aria-label={LL.capture.modeAria({
                     mode: LL.capture.tun(),
@@ -275,7 +275,7 @@ export function TrafficCaptureControl({
                   pressed={tunSelected}
                   variant="capture"
                 >
-                  {pendingMode === "tun" ? (
+                  {tunPending ? (
                     <Spinner data-icon="inline-start" />
                   ) : (
                     <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />

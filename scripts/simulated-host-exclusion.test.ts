@@ -7,10 +7,21 @@ import path from "node:path";
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const simulatedPackage = "mish-simulated-host";
 const simulatedPath = "crates/simulated-host";
-const boundedInternalTunMaintenanceContract =
-  "cargo test -p mish-simulated-host --test internal_tun_maintenance -- --test-threads=1";
-const approvedCiContractDeclaration = `const internalTunMaintenanceContract =
-  "${boundedInternalTunMaintenanceContract}";`;
+const boundedSimulatedApplicationContract =
+  "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
+const approvedCiContractDeclaration = `const simulatedApplicationContract =
+  "${boundedSimulatedApplicationContract}";`;
+const forbiddenArtifactMarkers = [
+  "MISH_SIMULATED_SCENARIO",
+  "TEST_AUTH_TOKEN",
+  "TEST_CONTROL_KEY",
+  "MaintenanceScenarioRuntime",
+  "SemanticTranscript",
+  "SyntheticAuthorityId",
+  "scenario-harness",
+  "test-activation-host",
+  "test-correlation",
+];
 
 interface CargoMetadata {
   packages: Array<{
@@ -188,10 +199,15 @@ test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude
     const checkedContent = file.endsWith("check-ci-workflow.ts")
       ? content.replace(approvedCiContractDeclaration, "")
       : content;
+    const leakedMarkers = forbiddenArtifactMarkers.filter((marker) =>
+      checkedContent.includes(marker),
+    );
     assert.equal(
-      checkedContent.includes(simulatedPackage) || checkedContent.includes(simulatedPath),
+      checkedContent.includes(simulatedPackage) ||
+        checkedContent.includes(simulatedPath) ||
+        leakedMarkers.length > 0,
       false,
-      `${file} makes test-only SimulatedHost reachable from a release or product input.`,
+      `${file} makes test-only SimulatedHost data reachable from a release or product input: ${leakedMarkers.join(", ")}`,
     );
   }
 });
@@ -224,6 +240,20 @@ test("Web production sources cannot import the scenario control API or synthetic
       read(file).includes("simulated-host"),
       false,
       `${file} imports the test-only scenario graph.`,
+    );
+  }
+});
+
+test("product JavaScript package graphs exclude the transport mock", () => {
+  for (const manifest of [
+    "apps/desktop/package.json",
+    "apps/mobile/package.json",
+    "apps/web/package.json",
+  ]) {
+    assert.equal(
+      read(manifest).includes("@mish/mock-bridge"),
+      false,
+      `${manifest} makes the test-only transport mock reachable from a product bundle.`,
     );
   }
 });
