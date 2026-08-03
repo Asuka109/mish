@@ -291,7 +291,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               return {
                 bridgeVersion: "transport-only-mock",
                 coreConfigured: false,
-                protocolVersion: 31,
+                protocolVersion: 32,
                 statusCommands: {
                   group: false,
                   groupDelay: false,

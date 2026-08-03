@@ -23,8 +23,9 @@ use mish_runtime::{
     ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
-    TrafficCommandAuthority, TrafficCommandOperation,
-    TunHelperLifecycleApplicationNotificationData, valid_notification_presentation_completion,
+    TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
+    TunHelperLifecycleApplicationNotificationData, TunHelperRemovalCapability,
+    TunHelperRemovalOutcome, valid_notification_presentation_completion,
     valid_notification_presentation_identity,
 };
 use mish_settings::{
@@ -219,8 +220,12 @@ impl ProtocolState {
     }
 
     fn project_settings_snapshot(&self, snapshot: &mut mish_settings::SettingsSnapshot) {
+        if self.tun_helper_lifecycle_transaction.try_lock().is_err() {
+            snapshot.tun_helper.mark_removal_maintenance_pending();
+        }
         if self.client_surface == RpcClientSurface::Browser {
             snapshot.capabilities.tun = SettingsAvailability::Unavailable;
+            snapshot.tun_helper.removal = TunHelperRemovalCapability::Unavailable;
         }
     }
 
@@ -1030,7 +1035,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 31,
+            "protocolVersion": 32,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
@@ -1986,7 +1991,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
@@ -2007,6 +2012,7 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    drop(helper_lifecycle_transaction);
                     let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
@@ -2019,6 +2025,7 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
+                    drop(helper_lifecycle_transaction);
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2036,7 +2043,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
@@ -2057,6 +2064,7 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    drop(helper_lifecycle_transaction);
                     let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
@@ -2069,6 +2077,7 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
+                    drop(helper_lifecycle_transaction);
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2082,36 +2091,92 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let _helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "pending", None);
-            if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
-                publish_tun_helper_lifecycle(
+            let admitted = match service.refresh_tun_helper().await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
+                    publish_tun_helper_removal_outcome(
+                        state,
+                        &operation_id,
+                        outcome,
+                        Some(settings_failure_id(&error)),
+                    );
+                    drop(helper_lifecycle_transaction);
+                    return Some(tun_helper_removal_settings_error_response(
+                        state, id, error, outcome,
+                    ));
+                }
+            };
+            if !admitted.tun_helper.removal_available() {
+                let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
+                publish_tun_helper_removal_outcome(
                     state,
                     &operation_id,
-                    "remove",
-                    "recovery-required",
+                    outcome,
+                    Some("helper-installation-unconfirmed".into()),
+                );
+                drop(helper_lifecycle_transaction);
+                return Some(error_response(
+                    id,
+                    -32055,
+                    "TUN helper installation could not be confirmed for removal",
+                    Some(json!({ "outcome": outcome })),
+                ));
+            }
+            if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
+                let outcome = removal_outcome_for_capture_failure(error.kind);
+                state.runtime.record_capture_failure(&error);
+                publish_tun_helper_removal_outcome(
+                    state,
+                    &operation_id,
+                    outcome,
                     Some(capture_failure_id(error.kind)),
                 );
-                return Some(capture_error_response(id, error));
+                drop(helper_lifecycle_transaction);
+                return Some(tun_helper_removal_capture_error_response(
+                    id, error, outcome,
+                ));
+            }
+            if let Err(error) = service.confirm_tun_helper_removal_safe().await {
+                let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
+                publish_tun_helper_removal_outcome(
+                    state,
+                    &operation_id,
+                    outcome,
+                    Some(settings_failure_id(&error)),
+                );
+                drop(helper_lifecycle_transaction);
+                return Some(tun_helper_removal_settings_error_response(
+                    state, id, error, outcome,
+                ));
             }
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "finalizing", None);
             match service.remove_tun_helper().await {
                 Ok(mut snapshot) => {
-                    publish_tun_helper_lifecycle(state, &operation_id, "remove", "applied", None);
+                    publish_tun_helper_removal_outcome(
+                        state,
+                        &operation_id,
+                        TunHelperRemovalOutcome::Removed,
+                        None,
+                    );
+                    drop(helper_lifecycle_transaction);
                     state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
-                    publish_tun_helper_lifecycle(
+                    let outcome = removal_outcome_for_settings_failure(&error);
+                    publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
-                        "remove",
-                        "recovery-required",
+                        outcome,
                         Some(settings_failure_id(&error)),
                     );
-                    return Some(settings_error_response_without_notification(
-                        state, id, error,
+                    drop(helper_lifecycle_transaction);
+                    return Some(tun_helper_removal_settings_error_response(
+                        state, id, error, outcome,
                     ));
                 }
             }
@@ -2419,6 +2484,12 @@ fn project_browser_settings_value(value: &mut Value) {
         .and_then(|capabilities| capabilities.get_mut("tun"))
     {
         *tun = json!("unavailable");
+    }
+    if let Some(removal) = value
+        .get_mut("tunHelper")
+        .and_then(|tun_helper| tun_helper.get_mut("removal"))
+    {
+        *removal = json!("unavailable");
     }
     if let Some(snapshot) = value.get_mut("snapshot") {
         project_browser_settings_value(snapshot);
@@ -2818,8 +2889,12 @@ fn publish_tun_helper_lifecycle(
 ) {
     let pending = matches!(outcome, "pending" | "finalizing");
     let severity = match outcome {
-        "applied" => NotificationSeverity::Success,
-        "recovery-required" => NotificationSeverity::Error,
+        "applied" | "removed" => NotificationSeverity::Success,
+        "authorization-failed"
+        | "observation-incomplete"
+        | "removal-failed"
+        | "recovery-required"
+        | "shutdown-failed" => NotificationSeverity::Error,
         _ => NotificationSeverity::Info,
     };
     let _ = state.runtime.publish_notification(NotificationPublication {
@@ -2839,6 +2914,82 @@ fn publish_tun_helper_lifecycle(
         resolved: false,
         severity,
     });
+}
+
+fn publish_tun_helper_removal_outcome(
+    state: &ProtocolState,
+    operation_id: &str,
+    outcome: TunHelperRemovalOutcome,
+    failure: Option<String>,
+) {
+    let outcome = serde_json::to_value(outcome)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "removal-failed".into());
+    publish_tun_helper_lifecycle(state, operation_id, "remove", &outcome, failure);
+}
+
+fn removal_outcome_for_capture_failure(kind: CaptureFailureKind) -> TunHelperRemovalOutcome {
+    match kind {
+        CaptureFailureKind::ConfirmationFailed
+        | CaptureFailureKind::ExternalDrift
+        | CaptureFailureKind::ObservationFailed => TunHelperRemovalOutcome::ObservationIncomplete,
+        _ => TunHelperRemovalOutcome::ShutdownFailed,
+    }
+}
+
+fn removal_outcome_for_settings_failure(error: &SettingsServiceError) -> TunHelperRemovalOutcome {
+    match error {
+        SettingsServiceError::TunHelper(TunHelperFailureKind::AuthorizationCancelled) => {
+            TunHelperRemovalOutcome::AuthorizationCancelled
+        }
+        SettingsServiceError::TunHelper(
+            TunHelperFailureKind::IdentityRejected
+            | TunHelperFailureKind::PermissionDenied
+            | TunHelperFailureKind::RegistrationFailed
+            | TunHelperFailureKind::RegistrationRequiresApproval,
+        ) => TunHelperRemovalOutcome::AuthorizationFailed,
+        SettingsServiceError::TunHelper(
+            TunHelperFailureKind::ConfirmationFailed
+            | TunHelperFailureKind::ConnectionFailed
+            | TunHelperFailureKind::ObservationForeign
+            | TunHelperFailureKind::ObservationPartial
+            | TunHelperFailureKind::ObservationStale
+            | TunHelperFailureKind::ProtocolMismatch,
+        )
+        | SettingsServiceError::CapabilityUnavailable => {
+            TunHelperRemovalOutcome::ObservationIncomplete
+        }
+        _ => TunHelperRemovalOutcome::RemovalFailed,
+    }
+}
+
+fn tun_helper_removal_capture_error_response(
+    id: Value,
+    error: CaptureTransitionError,
+    outcome: TunHelperRemovalOutcome,
+) -> Value {
+    error_response(
+        id,
+        -32050,
+        "TUN cleanup could not be confirmed before Helper removal",
+        Some(json!({ "kind": error.kind, "outcome": outcome })),
+    )
+}
+
+fn tun_helper_removal_settings_error_response(
+    state: &ProtocolState,
+    id: Value,
+    error: SettingsServiceError,
+    outcome: TunHelperRemovalOutcome,
+) -> Value {
+    let mut response = settings_error_response_without_notification(state, id, error);
+    let data = &mut response["error"]["data"];
+    if !data.is_object() {
+        *data = json!({});
+    }
+    data["outcome"] = json!(outcome);
+    response
 }
 
 fn settings_failure_id(error: &SettingsServiceError) -> String {

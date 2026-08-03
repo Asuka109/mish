@@ -871,9 +871,9 @@ export function SettingsPage() {
                   {LL.settingsPage.reinstallTunHelper()}
                 </Button>
               ) : null}
-              {snapshot.capabilities.tun === "supported" && helperAvailable ? (
+              {["available", "maintenance-pending"].includes(helper.removal) ? (
                 <Button
-                  disabled={settings.pending}
+                  disabled={settings.pending || helper.removal === "maintenance-pending"}
                   loading={loadingPromise("remove-helper")}
                   loadingText={LL.settingsPage.removeTunHelper()}
                   onClick={() => runPromiseButtonAction("remove-helper", settings.removeTunHelper)}

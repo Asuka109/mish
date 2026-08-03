@@ -102,6 +102,15 @@ const zh: Translation = {
     tunHelperLifecycleApplied: "{operation}已完成并确认。",
     tunHelperLifecycleFailed: "{operation}未完成。{failure}",
     tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
+    tunHelperRemovalAuthorizationCancelled:
+      "已取消管理员授权。系统组件仍保持安装；准备好后可再次尝试。",
+    tunHelperRemovalAuthorizationFailed: "macOS 未授权移除系统组件。请确认管理员权限后重试。",
+    tunHelperRemovalObservationIncomplete:
+      "Mish 无法确认核心、虚拟网卡、路由和 DNS 均已清理，因此没有移除系统组件。请恢复网络状态或重新启动 Mish 后重试。",
+    tunHelperRemovalFailed: "系统组件移除失败，当前仍保持安装。请重新启动 Mish，回到设置后重试。",
+    tunHelperRemovalRemoved: "系统组件已移除。Mish 已确认核心、虚拟网卡、路由和 DNS 均已清理。",
+    tunHelperRemovalShutdownFailed:
+      "Mish 无法安全关闭虚拟网卡，因此没有移除系统组件。请先关闭虚拟网卡后重试。",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
     launchAtLogin: "设备启动时",
     launchAtLoginDescription:

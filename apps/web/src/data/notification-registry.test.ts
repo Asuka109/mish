@@ -249,6 +249,35 @@ describe("notification presentation registry", () => {
     expect(finalizing.removable).toBe(false);
   });
 
+  it("presents distinct actionable Helper-removal outcomes", () => {
+    const expected = {
+      "authorization-cancelled":
+        "Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.",
+      "authorization-failed":
+        "macOS did not authorize Helper removal. Confirm administrator access and try again.",
+      "observation-incomplete":
+        "Mish could not confirm that Core, the virtual interface, routes, and DNS were clean, so the Helper was not removed. Restore the network state or restart Mish, then try again.",
+      "removal-failed":
+        "The Helper could not be removed and remains installed. Restart Mish, then open Settings and try again.",
+      removed:
+        "The Helper was removed after Mish confirmed that Core, the virtual interface, routes, and DNS were clean.",
+      "shutdown-failed":
+        "Mish could not stop the virtual interface safely, so the Helper was not removed. Turn off the virtual interface and try again.",
+    } as const;
+
+    for (const [outcome, message] of Object.entries(expected)) {
+      const presentation = presentNotification(
+        record("tun-helper.lifecycle", { operation: "remove", outcome }),
+        i18nObject("en"),
+      );
+      expect(presentation.message).toBe(message);
+      if (outcome !== "removed") {
+        expect(presentation.message).not.toContain(outcome);
+      }
+    }
+    expect(new Set(Object.values(expected)).size).toBe(Object.keys(expected).length);
+  });
+
   it("presents Helper preparation failures as actionable user-facing recovery", () => {
     const notification = record("tun-helper.lifecycle", {
       failure: "preparation-failed",

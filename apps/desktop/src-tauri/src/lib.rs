@@ -2365,8 +2365,8 @@ mod tests {
     use mish_platform_macos::DevelopmentTunStartup;
     use mish_runtime::{
         CaptureFailureKind, CaptureSelection, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
-        TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot,
-        TunNetworkObservation, tun_observation_now,
+        TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperRemovalCapability,
+        TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
     };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
 
@@ -2380,6 +2380,7 @@ mod tests {
             installed_version: None,
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
+            removal: TunHelperRemovalCapability::NotInstalled,
         };
         assert!(development_tun_service_not_installed(&snapshot));
 
@@ -2400,6 +2401,7 @@ mod tests {
             installed_version: Some("3".to_owned()),
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
+            removal: TunHelperRemovalCapability::Available,
         };
 
         assert_eq!(
@@ -2421,6 +2423,7 @@ mod tests {
             installed_version: Some("4".to_owned()),
             last_failure: Some(TunHelperFailureKind::VersionMismatch),
             phase: TunHelperLifecyclePhase::Idle,
+            removal: TunHelperRemovalCapability::Available,
         };
 
         assert_eq!(

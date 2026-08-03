@@ -811,6 +811,21 @@ impl SettingsService {
         self.snapshot(SettingsAdapterKind::Rpc)
     }
 
+    pub async fn refresh_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
+        self.tun_helper()?.refresh().await;
+        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    pub async fn confirm_tun_helper_removal_safe(
+        &self,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        self.tun_helper()?
+            .confirm_removal_safe()
+            .await
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
+        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
     pub async fn install_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         self.tun_helper()?
             .install()

@@ -177,6 +177,7 @@ async fn unavailable_privileged_service_is_not_reported_as_a_profile_start_failu
         installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
+        removal: mish_runtime::TunHelperRemovalCapability::Available,
     };
     let policy = ManagedRuntimePolicy::new(
         unused_loopback_address(),
@@ -229,6 +230,7 @@ async fn foreign_tun_network_state_is_not_reported_as_a_profile_start_failure() 
         installed_version: Some(TUN_HELPER_EXPECTED_VERSION.into()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
+        removal: mish_runtime::TunHelperRemovalCapability::Available,
     };
     let policy = ManagedRuntimePolicy::new(
         unused_loopback_address(),
@@ -2120,6 +2122,7 @@ fn tun_policy_requires_explicit_selection_and_a_healthy_exact_version() {
         installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
+        removal: mish_runtime::TunHelperRemovalCapability::Available,
     };
     let policy = ManagedRuntimePolicy::new(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
@@ -2174,6 +2177,7 @@ fn tart_tun_policy_uses_fixed_public_dns_only_when_explicit() {
         installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
+        removal: mish_runtime::TunHelperRemovalCapability::Available,
     };
     let policy = ManagedRuntimePolicy::new(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43125),

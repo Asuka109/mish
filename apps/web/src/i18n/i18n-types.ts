@@ -367,6 +367,30 @@ type RootTranslation = {
 		 */
 		tunHelperLifecyclePending: RequiredParams<'operation'>
 		/**
+		 * A​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​T​h​e​ ​H​e​l​p​e​r​ ​r​e​m​a​i​n​s​ ​i​n​s​t​a​l​l​e​d​;​ ​t​r​y​ ​a​g​a​i​n​ ​w​h​e​n​ ​y​o​u​ ​a​r​e​ ​r​e​a​d​y​.
+		 */
+		tunHelperRemovalAuthorizationCancelled: string
+		/**
+		 * m​a​c​O​S​ ​d​i​d​ ​n​o​t​ ​a​u​t​h​o​r​i​z​e​ ​H​e​l​p​e​r​ ​r​e​m​o​v​a​l​.​ ​C​o​n​f​i​r​m​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​c​c​e​s​s​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		tunHelperRemovalAuthorizationFailed: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​a​t​ ​C​o​r​e​,​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e​,​ ​r​o​u​t​e​s​,​ ​a​n​d​ ​D​N​S​ ​w​e​r​e​ ​c​l​e​a​n​,​ ​s​o​ ​t​h​e​ ​H​e​l​p​e​r​ ​w​a​s​ ​n​o​t​ ​r​e​m​o​v​e​d​.​ ​R​e​s​t​o​r​e​ ​t​h​e​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​ ​o​r​ ​r​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		tunHelperRemovalObservationIncomplete: string
+		/**
+		 * T​h​e​ ​H​e​l​p​e​r​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​m​o​v​e​d​ ​a​n​d​ ​r​e​m​a​i​n​s​ ​i​n​s​t​a​l​l​e​d​.​ ​R​e​s​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​o​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		tunHelperRemovalFailed: string
+		/**
+		 * T​h​e​ ​H​e​l​p​e​r​ ​w​a​s​ ​r​e​m​o​v​e​d​ ​a​f​t​e​r​ ​M​i​s​h​ ​c​o​n​f​i​r​m​e​d​ ​t​h​a​t​ ​C​o​r​e​,​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e​,​ ​r​o​u​t​e​s​,​ ​a​n​d​ ​D​N​S​ ​w​e​r​e​ ​c​l​e​a​n​.
+		 */
+		tunHelperRemovalRemoved: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​o​p​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e​ ​s​a​f​e​l​y​,​ ​s​o​ ​t​h​e​ ​H​e​l​p​e​r​ ​w​a​s​ ​n​o​t​ ​r​e​m​o​v​e​d​.​ ​T​u​r​n​ ​o​f​f​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​i​n​t​e​r​f​a​c​e​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		tunHelperRemovalShutdownFailed: string
+		/**
 		 * C​h​a​n​g​e​s​ ​M​i​s​h​ ​i​n​t​e​r​f​a​c​e​ ​c​o​p​y​ ​o​n​l​y​.​ ​P​r​o​f​i​l​e​,​ ​g​r​o​u​p​,​ ​n​o​d​e​,​ ​a​n​d​ ​s​e​r​v​i​c​e​ ​l​a​b​e​l​s​ ​r​e​m​a​i​n​ ​u​n​c​h​a​n​g​e​d​.
 		 */
 		languageDescription: string
@@ -5241,6 +5265,30 @@ export type TranslationFunctions = {
 		 * {operation} is awaiting macOS confirmation.
 		 */
 		tunHelperLifecyclePending: (arg: { operation: string }) => LocalizedString
+		/**
+		 * Administrator authorization was cancelled. The Helper remains installed; try again when you are ready.
+		 */
+		tunHelperRemovalAuthorizationCancelled: () => LocalizedString
+		/**
+		 * macOS did not authorize Helper removal. Confirm administrator access and try again.
+		 */
+		tunHelperRemovalAuthorizationFailed: () => LocalizedString
+		/**
+		 * Mish could not confirm that Core, the virtual interface, routes, and DNS were clean, so the Helper was not removed. Restore the network state or restart Mish, then try again.
+		 */
+		tunHelperRemovalObservationIncomplete: () => LocalizedString
+		/**
+		 * The Helper could not be removed and remains installed. Restart Mish, then open Settings and try again.
+		 */
+		tunHelperRemovalFailed: () => LocalizedString
+		/**
+		 * The Helper was removed after Mish confirmed that Core, the virtual interface, routes, and DNS were clean.
+		 */
+		tunHelperRemovalRemoved: () => LocalizedString
+		/**
+		 * Mish could not stop the virtual interface safely, so the Helper was not removed. Turn off the virtual interface and try again.
+		 */
+		tunHelperRemovalShutdownFailed: () => LocalizedString
 		/**
 		 * Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.
 		 */
