@@ -29,6 +29,9 @@ use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+#[cfg(feature = "development-window-trigger")]
+use axum::extract::DefaultBodyLimit;
+
 use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
 use crate::{
@@ -92,6 +95,14 @@ const MISH_BROWSER_DISCOVERY_SERVICE: &str = "mish-browser-backend";
 const MISH_BROWSER_DISCOVERY_SCHEMA_VERSION: u8 = 1;
 const MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION: u8 = 1;
 const MISH_BROWSER_FIRST_PORT: u16 = 6474;
+#[cfg(feature = "development-window-trigger")]
+const DEVELOPMENT_WINDOW_TRIGGER_LIFETIME: Duration = Duration::from_secs(15 * 60);
+#[cfg(feature = "development-window-trigger")]
+const DEVELOPMENT_WINDOW_TRIGGER_REQUEST_LIMIT: usize = 64;
+#[cfg(feature = "development-window-trigger")]
+const DEVELOPMENT_WINDOW_TRIGGER_PATH: &str = "/__openWindow";
+#[cfg(feature = "development-window-trigger")]
+const DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH: &str = "/__openWindow.js";
 
 struct BrowserPairing {
     attempts_remaining: u8,
@@ -103,6 +114,56 @@ struct BrowserPairing {
 struct PendingLaunchToken {
     expires_at: Instant,
     token: String,
+}
+
+#[cfg(feature = "development-window-trigger")]
+pub trait DevelopmentWindowTrigger: Send + Sync {
+    fn trigger(&self) -> Result<(), String>;
+}
+
+#[cfg(feature = "development-window-trigger")]
+pub struct DevelopmentWindowTriggerConfig {
+    action: Arc<dyn DevelopmentWindowTrigger>,
+    lifetime: Duration,
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentWindowTriggerConfig {
+    pub fn new(action: Arc<dyn DevelopmentWindowTrigger>) -> Self {
+        Self {
+            action,
+            lifetime: DEVELOPMENT_WINDOW_TRIGGER_LIFETIME,
+        }
+    }
+
+    pub fn with_lifetime(action: Arc<dyn DevelopmentWindowTrigger>, lifetime: Duration) -> Self {
+        Self { action, lifetime }
+    }
+}
+
+#[cfg(feature = "development-window-trigger")]
+struct DevelopmentWindowTriggerState {
+    action: Arc<dyn DevelopmentWindowTrigger>,
+    capability: String,
+    expires_at: Instant,
+    used_request_ids: Mutex<VecDeque<String>>,
+}
+
+#[cfg(feature = "development-window-trigger")]
+#[derive(Clone)]
+pub struct DevelopmentWindowTriggerHandle {
+    address: SocketAddr,
+    capability: String,
+}
+
+#[cfg(feature = "development-window-trigger")]
+impl DevelopmentWindowTriggerHandle {
+    pub fn issue_url(&self) -> String {
+        format!(
+            "http://{}{}#token={}",
+            self.address, DEVELOPMENT_WINDOW_TRIGGER_PATH, self.capability
+        )
+    }
 }
 
 struct BrowserSession {
@@ -133,10 +194,7 @@ impl BrowserClientHandle {
             expires_at: now + BROWSER_PAIRING_LIFETIME,
             token: token.clone(),
         });
-        Ok(format!(
-            "http://{}/#mish-browser-launch={token}",
-            self.address
-        ))
+        Ok(format!("http://{}/#token={token}", self.address))
     }
 }
 
@@ -153,12 +211,16 @@ struct BrowserHttpState {
 }
 
 struct HttpState {
+    #[cfg(feature = "development-window-trigger")]
+    authority: String,
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
     native_origins: HashSet<String>,
     browser: Option<BrowserHttpState>,
     protocol: ProtocolState,
     max_message_bytes: usize,
+    #[cfg(feature = "development-window-trigger")]
+    development_window_trigger: Option<DevelopmentWindowTriggerState>,
 }
 
 pub struct LoopbackServerHandle {
@@ -172,6 +234,8 @@ pub struct LoopbackServerHandle {
     service_probes: Option<crate::service_probes::ServiceProbeService>,
     socket_shutdown: CancellationToken,
     browser_client: Option<BrowserClientHandle>,
+    #[cfg(feature = "development-window-trigger")]
+    development_window_trigger: Option<DevelopmentWindowTriggerHandle>,
     updater_service: Arc<mish_updater::UpdaterService>,
     terminal_failure: Option<BridgeShutdownFailure>,
 }
@@ -226,6 +290,11 @@ impl LoopbackServerHandle {
 
     pub fn updater_service(&self) -> Arc<mish_updater::UpdaterService> {
         self.updater_service.clone()
+    }
+
+    #[cfg(feature = "development-window-trigger")]
+    pub fn development_window_trigger(&self) -> Option<DevelopmentWindowTriggerHandle> {
+        self.development_window_trigger.clone()
     }
 
     pub async fn shutdown(mut self) -> BridgeShutdownOutcome {
@@ -396,6 +465,40 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     runtime: DesktopRuntimeHost,
     lifecycle_source: Option<Arc<dyn PlatformLifecycleEventSource>>,
 ) -> Result<LoopbackServerHandle, String> {
+    start_loopback_server_internal(
+        config,
+        runtime,
+        lifecycle_source,
+        #[cfg(feature = "development-window-trigger")]
+        None,
+    )
+    .await
+}
+
+#[cfg(feature = "development-window-trigger")]
+pub async fn start_loopback_server_with_runtime_host_lifecycle_and_development_window_trigger(
+    config: LoopbackServerConfig,
+    runtime: DesktopRuntimeHost,
+    lifecycle_source: Option<Arc<dyn PlatformLifecycleEventSource>>,
+    development_window_trigger: DevelopmentWindowTriggerConfig,
+) -> Result<LoopbackServerHandle, String> {
+    start_loopback_server_internal(
+        config,
+        runtime,
+        lifecycle_source,
+        Some(development_window_trigger),
+    )
+    .await
+}
+
+async fn start_loopback_server_internal(
+    config: LoopbackServerConfig,
+    runtime: DesktopRuntimeHost,
+    lifecycle_source: Option<Arc<dyn PlatformLifecycleEventSource>>,
+    #[cfg(feature = "development-window-trigger")] development_window_trigger: Option<
+        DevelopmentWindowTriggerConfig,
+    >,
+) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
         return Err("The Mish desktop bridge may only bind to a loopback address".into());
     }
@@ -475,8 +578,37 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         address,
         pending_launch_tokens,
     });
+    #[cfg(feature = "development-window-trigger")]
+    let (development_window_trigger_state, development_window_trigger_handle) =
+        match development_window_trigger {
+            Some(config) => {
+                if config.lifetime.is_zero() || config.lifetime > Duration::from_secs(60 * 60) {
+                    return Err(
+                        "development window trigger lifetime must be between one nanosecond and one hour"
+                            .into(),
+                    );
+                }
+                let capability = generate_browser_launch_token()
+                    .map_err(|_| "the operating system did not provide entropy")?;
+                (
+                    Some(DevelopmentWindowTriggerState {
+                        action: config.action,
+                        capability: capability.clone(),
+                        expires_at: Instant::now() + config.lifetime,
+                        used_request_ids: Mutex::new(VecDeque::new()),
+                    }),
+                    Some(DevelopmentWindowTriggerHandle {
+                        address,
+                        capability,
+                    }),
+                )
+            }
+            None => (None, None),
+        };
     let socket_shutdown = CancellationToken::new();
     let state = Arc::new(HttpState {
+        #[cfg(feature = "development-window-trigger")]
+        authority,
         allowed_hosts,
         allowed_origins,
         browser,
@@ -498,6 +630,8 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         },
         native_origins,
         max_message_bytes: config.max_message_bytes,
+        #[cfg(feature = "development-window-trigger")]
+        development_window_trigger: development_window_trigger_state,
     });
     let app = Router::new()
         .route("/health", get(health))
@@ -506,8 +640,20 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         .route("/browser-pairing", post(start_browser_pairing))
         .route("/browser-pairing/complete", post(complete_browser_pairing))
         .route("/browser-bootstrap", post(browser_bootstrap))
-        .fallback(browser_asset)
-        .with_state(state);
+        .fallback(browser_asset);
+    #[cfg(feature = "development-window-trigger")]
+    let app = app
+        .route(
+            DEVELOPMENT_WINDOW_TRIGGER_PATH,
+            get(development_window_trigger_page)
+                .post(development_window_trigger_request)
+                .layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH,
+            get(development_window_trigger_entry),
+        );
+    let app = app.with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (audit_shutdown_tx, audit_shutdown_rx) = oneshot::channel();
     let audit_join = spawn_lifecycle_coordination(
@@ -538,9 +684,179 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         service_probes,
         socket_shutdown,
         browser_client,
+        #[cfg(feature = "development-window-trigger")]
+        development_window_trigger: development_window_trigger_handle,
         updater_service,
         terminal_failure: None,
     })
+}
+
+#[cfg(feature = "development-window-trigger")]
+fn valid_development_window_trigger_request(
+    state: &HttpState,
+    peer: SocketAddr,
+    headers: &HeaderMap,
+    require_origin: bool,
+) -> bool {
+    if peer.ip() != IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) {
+        return false;
+    }
+    if headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        != Some(state.authority.as_str())
+    {
+        return false;
+    }
+    if !require_origin {
+        return true;
+    }
+    headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin == format!("http://{}", state.authority))
+}
+
+#[cfg(feature = "development-window-trigger")]
+fn development_window_trigger_asset(
+    state: &HttpState,
+    peer: SocketAddr,
+    headers: &HeaderMap,
+    content_type: &'static str,
+    bytes: &'static [u8],
+) -> Response {
+    if !valid_development_window_trigger_request(state, peer, headers, false) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if state.development_window_trigger.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, bytes.len())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        )
+        .header(header::REFERRER_POLICY, "no-referrer")
+        .header("cross-origin-resource-policy", "same-origin")
+        .header("permissions-policy", "camera=(), microphone=(), geolocation=()")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+#[cfg(feature = "development-window-trigger")]
+async fn development_window_trigger_page(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    development_window_trigger_asset(
+        &state,
+        peer,
+        &headers,
+        "text/html; charset=utf-8",
+        include_bytes!("../assets/development-window-trigger.html"),
+    )
+}
+
+#[cfg(feature = "development-window-trigger")]
+async fn development_window_trigger_entry(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    development_window_trigger_asset(
+        &state,
+        peer,
+        &headers,
+        "text/javascript; charset=utf-8",
+        include_bytes!("../assets/development-window-trigger.js"),
+    )
+}
+
+#[cfg(feature = "development-window-trigger")]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DevelopmentWindowTriggerRequest {
+    capability: String,
+    request_id: String,
+}
+
+#[cfg(feature = "development-window-trigger")]
+async fn development_window_trigger_request(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: bytes::Bytes,
+) -> Response {
+    if !valid_development_window_trigger_request(&state, peer, &headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(trigger) = &state.development_window_trigger else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(request) = serde_json::from_slice::<DevelopmentWindowTriggerRequest>(&body) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if !valid_browser_launch_token(&request.capability)
+        || !valid_browser_launch_token(&request.request_id)
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    if trigger.expires_at <= Instant::now() {
+        return StatusCode::GONE.into_response();
+    }
+    if !bool::from(
+        trigger
+            .capability
+            .as_bytes()
+            .ct_eq(request.capability.as_bytes()),
+    ) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let Ok(mut used_request_ids) = trigger.used_request_ids.lock() else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    if used_request_ids
+        .iter()
+        .any(|used| used == &request.request_id)
+    {
+        return StatusCode::CONFLICT.into_response();
+    }
+    if used_request_ids.len() >= DEVELOPMENT_WINDOW_TRIGGER_REQUEST_LIMIT {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    used_request_ids.push_back(request.request_id);
+    drop(used_request_ids);
+
+    match trigger.action.trigger() {
+        Ok(()) => secure_empty_response(StatusCode::NO_CONTENT),
+        Err(_) => secure_empty_response(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+#[cfg(feature = "development-window-trigger")]
+fn secure_empty_response(status: StatusCode) -> Response {
+    Response::builder()
+        .status(status)
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::REFERRER_POLICY, "no-referrer")
+        .header("cross-origin-resource-policy", "same-origin")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+#[cfg(feature = "development-window-trigger")]
+fn valid_browser_launch_token(token: &str) -> bool {
+    token.len() == 43
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 async fn bind_loopback_listener(

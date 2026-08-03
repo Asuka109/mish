@@ -4,9 +4,11 @@ import { createServer } from "node:net";
 import test from "node:test";
 
 import {
+  browserClientUrlFromOutput,
   createTauriDevelopmentEnvironment,
   createTauriDevelopmentConfig,
   findAvailablePort,
+  hostUrlOpenerCommand,
   isTauriDevelopmentStartupAbort,
   parseTauriDevelopmentArguments,
   resolveTauriDevelopmentExitCode,
@@ -23,6 +25,15 @@ const desktopEnvironment = readFileSync(
 const desktopPackage = JSON.parse(
   readFileSync(new URL("../apps/desktop/package.json", import.meta.url), "utf8"),
 );
+const desktopCargo = readFileSync(
+  new URL("../apps/desktop/src-tauri/Cargo.toml", import.meta.url),
+  "utf8",
+);
+const bridgeCargo = readFileSync(
+  new URL("../crates/desktop-bridge/Cargo.toml", import.meta.url),
+  "utf8",
+);
+const launcherSource = readFileSync(new URL("./tauri-dev.ts", import.meta.url), "utf8");
 
 test("falls back when the preferred development port is occupied", async () => {
   const occupied = createServer();
@@ -67,12 +78,14 @@ test("forwards pnpm pass-through options to the Tauri CLI", () => {
     application: [],
     demo: false,
     forwarded: ["--no-watch"],
+    openBrowser: false,
     tartTunAcceptance: false,
   });
   assert.deepEqual(parseTauriDevelopmentArguments(["--demo", "--verbose"]), {
     application: [],
     demo: true,
     forwarded: ["--verbose"],
+    openBrowser: false,
     tartTunAcceptance: false,
   });
 });
@@ -82,12 +95,14 @@ test("separates the process-local DevTools flag from Tauri CLI options", () => {
     application: ["--devtools"],
     demo: false,
     forwarded: ["--no-watch"],
+    openBrowser: false,
     tartTunAcceptance: false,
   });
   assert.deepEqual(parseTauriDevelopmentArguments(["--devtools=true"]), {
     application: ["--devtools=true"],
     demo: false,
     forwarded: [],
+    openBrowser: false,
     tartTunAcceptance: false,
   });
 });
@@ -97,11 +112,69 @@ test("consumes the explicit Tart TUN acceptance opt-in without forwarding it", (
     application: [],
     demo: false,
     forwarded: ["--no-watch"],
+    openBrowser: false,
     tartTunAcceptance: true,
   });
   assert.equal(
     parseTauriDevelopmentArguments(["--demo", "--tart-tun-acceptance"]).tartTunAcceptance,
     true,
+  );
+});
+
+test("consumes the opt-in Browser Client opener without forwarding it", () => {
+  assert.deepEqual(parseTauriDevelopmentArguments(["--open", "--no-watch"]), {
+    application: [],
+    demo: false,
+    forwarded: ["--no-watch"],
+    openBrowser: true,
+    tartTunAcceptance: false,
+  });
+});
+
+test("keeps the desktop window trigger feature out of shipped commands", () => {
+  assert.match(launcherSource, /--features", "development-core-host,development-window-trigger"/u);
+  assert.match(desktopCargo, /default = \[\]/u);
+  assert.match(
+    desktopCargo,
+    /development-window-trigger = \["mish-bridge\/development-window-trigger"\]/u,
+  );
+  assert.match(bridgeCargo, /development-window-trigger = \[\]/u);
+  for (const command of [
+    desktopPackage.scripts.build,
+    desktopPackage.scripts["bundle:macos"],
+    desktopPackage.scripts["bundle:macos:internal-tun-alpha"],
+    desktopPackage.scripts["bundle:macos:alpha-ad-hoc"],
+    desktopPackage.scripts["bundle:macos:production"],
+    desktopPackage.scripts["bundle:macos:signed-direct"],
+  ]) {
+    assert.doesNotMatch(command, /development-window-trigger/u);
+  }
+});
+
+test("uses the standard host URL opener without a shell", () => {
+  const url = "http://127.0.0.1:6474/#token=" + "a".repeat(43);
+  assert.deepEqual(hostUrlOpenerCommand("darwin", url), {
+    arguments: [url],
+    command: "open",
+  });
+  assert.deepEqual(hostUrlOpenerCommand("linux", url), {
+    arguments: [url],
+    command: "xdg-open",
+  });
+  assert.deepEqual(hostUrlOpenerCommand("win32", url), {
+    arguments: ["/d", "/s", "/c", "start", "", url],
+    command: "cmd.exe",
+  });
+});
+
+test("opens only a complete stable Browser Client readiness line", () => {
+  const token = "a".repeat(43);
+  const url = `http://127.0.0.1:6474/#token=${token}`;
+  assert.equal(browserClientUrlFromOutput(`building\nMish Browser Client URL: ${url}\n`), url);
+  assert.equal(browserClientUrlFromOutput(`Mish Browser Client URL: ${url.slice(0, -1)}`), null);
+  assert.equal(
+    browserClientUrlFromOutput(`Mish Browser Client URL: http://localhost:6474/#token=${token}\n`),
+    null,
   );
 });
 
