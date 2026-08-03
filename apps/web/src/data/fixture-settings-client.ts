@@ -101,6 +101,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       installedVersion: null,
       lastFailure: null,
       phase: "idle",
+      removal: "unavailable",
     },
   };
 }

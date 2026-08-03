@@ -34,8 +34,13 @@ a TUN helper, or any operating-system adapter.
 It also exposes empty-parameter, user-triggered `installTunHelper`,
 `repairTunHelper`, and `removeTunHelper` operations. Their snapshot reports
 availability, installed and expected versions, health, lifecycle phase, and the
-last typed failure. Each operation reobserves the helper before returning. The
-closed privileged contract is defined in
+last typed failure. It also reports a Rust-owned removal capability:
+`available` whenever the Helper is authoritatively installed, including
+repair-required and runtime-degraded states; `maintenance-pending` while a
+mutually exclusive Helper transaction is live; `not-installed`; or
+`unavailable`. React does not derive removal availability from Core, listener,
+Capture, or network health. Each operation reobserves the helper before
+returning. The closed privileged contract is defined in
 [`macos-tun-helper.md`](macos-tun-helper.md).
 
 `settings.refreshNetworkDns` is also an empty-parameter, read-only action. It

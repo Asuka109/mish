@@ -62,6 +62,7 @@ const settingsSnapshot = {
     installedVersion: null,
     lastFailure: "unpackaged" as const,
     phase: "idle" as const,
+    removal: "not-installed" as const,
   },
 };
 const supportBundleDependencies = {

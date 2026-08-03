@@ -6,8 +6,8 @@ use mish_runtime::{
     TUN_HELPER_PROTOCOL_VERSION, TUN_HELPER_SIGNING_IDENTIFIER, TunHelperAvailability,
     TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
     TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
-    TunHelperPeerIdentity, TunHelperPlatform, TunHelperSnapshot, TunHelperWireCommand,
-    TunNetworkObservation, decode_tun_helper_request, tun_observation_now,
+    TunHelperPeerIdentity, TunHelperPlatform, TunHelperRemovalCapability, TunHelperSnapshot,
+    TunHelperWireCommand, TunNetworkObservation, decode_tun_helper_request, tun_observation_now,
     validate_tun_helper_peer,
 };
 
@@ -125,6 +125,7 @@ impl TunHelperPlatform for FakeHelperPlatform {
                 installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
                 last_failure: None,
                 phase: TunHelperLifecyclePhase::Idle,
+                removal: TunHelperRemovalCapability::Available,
             };
         }
         TunHelperSnapshot::unavailable(
@@ -203,6 +204,7 @@ async fn install_requires_confirmation_and_reports_a_healthy_exact_version() {
         Some(TUN_HELPER_EXPECTED_VERSION)
     );
     assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Idle);
+    assert_eq!(snapshot.removal, TunHelperRemovalCapability::Available);
 }
 
 #[tokio::test]
@@ -329,6 +331,7 @@ async fn version_drift_requires_repair_and_repair_reobserves_health() {
     let drifted = helper.refresh().await;
     assert_eq!(drifted.availability, TunHelperAvailability::RepairRequired);
     assert_eq!(drifted.health, TunHelperHealth::VersionMismatch);
+    assert_eq!(drifted.removal, TunHelperRemovalCapability::Available);
 
     let repaired = helper.repair().await.unwrap();
     assert!(repaired.is_healthy());
@@ -420,17 +423,51 @@ async fn failed_removal_does_not_clear_the_development_runtime_restriction() {
 }
 
 #[tokio::test]
-async fn remove_disables_tun_before_confirming_absence() {
+async fn remove_requires_capture_to_handoff_tun_before_lifecycle() {
     let platform = Arc::new(FakeHelperPlatform::not_installed());
     let helper = TunHelperController::new(platform.clone());
     helper.install().await.unwrap();
     helper.set_tun_enabled(true).await.unwrap();
 
+    let error = helper.remove().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ObservationPartial);
+    assert_eq!(
+        platform
+            .observation
+            .lock()
+            .unwrap()
+            .installed_version
+            .as_deref(),
+        Some(TUN_HELPER_EXPECTED_VERSION)
+    );
+    assert!(*platform.tun_enabled.lock().unwrap());
+
+    helper.set_tun_enabled(false).await.unwrap();
     let removed = helper.remove().await.unwrap();
 
     assert_eq!(removed.health, TunHelperHealth::NotInstalled);
     assert_eq!(removed.installed_version, None);
+    assert_eq!(removed.removal, TunHelperRemovalCapability::NotInstalled);
     assert!(!*platform.tun_enabled.lock().unwrap());
+}
+
+#[tokio::test]
+async fn remove_rejects_an_unconfirmed_installation_without_starting_lifecycle() {
+    let platform = Arc::new(FakeHelperPlatform::not_installed());
+    let helper = TunHelperController::new(platform.clone());
+
+    let error = helper.remove().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ConfirmationFailed);
+    assert_eq!(
+        platform.observation.lock().unwrap().health,
+        TunHelperHealth::NotInstalled
+    );
+    assert_eq!(
+        helper.snapshot().removal,
+        TunHelperRemovalCapability::NotInstalled
+    );
 }
 
 #[test]

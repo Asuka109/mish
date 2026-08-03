@@ -12,12 +12,16 @@ use mish_bridge::{
 use mish_platform_macos::internal_tun_maintenance::{
     EnrollmentTransition, MaintenanceCommitPoint, MaintenanceKind, MaintenanceTerminalOutcome,
 };
-use mish_runtime::{CaptureRequest, CaptureSelection, StatusAdapterKind, TunHelperFailureKind};
-use mish_settings::SettingsServiceError;
+use mish_runtime::{
+    CaptureRequest, CaptureSelection, RuntimePhase, StatusAdapterKind, TunHelperFailureKind,
+    TunHelperRemovalCapability,
+};
+use mish_settings::{SettingsAdapterKind, SettingsServiceError};
 use mish_simulated_host::{
-    EffectKind, MAX_TRANSCRIPT_LIMIT, MaintenanceCompletionInjection, MaintenanceFault,
-    MaintenanceFaultKind, MaintenanceScenario, MaintenanceScenarioRuntime, ScenarioObservation,
-    ScheduledChange, SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticOwnership,
+    EffectKind, InjectedFailure, InjectedFailureKind, MAX_TRANSCRIPT_LIMIT,
+    MaintenanceCompletionInjection, MaintenanceFault, MaintenanceFaultKind, MaintenanceScenario,
+    MaintenanceScenarioRuntime, ManagedEndpointOwner, ScenarioObservation, ScheduledChange,
+    SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticOwnership,
     SyntheticPackageVersion, SyntheticProxyState, TEST_AUTH_TOKEN,
 };
 use mish_state_machine::Disposition;
@@ -182,6 +186,17 @@ async fn build(
     .unwrap()
 }
 
+async fn build_on(
+    host: SimulatedHostScenario,
+    initial: SyntheticMaintenanceInitial,
+    target: SyntheticPackageVersion,
+    faults: Vec<MaintenanceFault>,
+) -> MaintenanceScenarioRuntime {
+    MaintenanceScenarioRuntime::build(host, maintenance_scenario(initial, target, faults))
+        .await
+        .unwrap()
+}
+
 async fn activate_then_handoff(scenario: &MaintenanceScenarioRuntime) {
     tokio::time::timeout(
         Duration::from_secs(2),
@@ -228,6 +243,98 @@ async fn settle_until(mut predicate: impl FnMut() -> bool) {
         tokio::task::yield_now().await;
     }
     panic!("simulated maintenance did not settle within the scheduler budget");
+}
+
+#[tokio::test]
+async fn helper_removal_capability_is_authoritative_across_runtime_health_and_capture_states() {
+    let capture_on = build(
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V1,
+        Vec::new(),
+    )
+    .await;
+    assert!(capture_on.capture.status().capture_selection.tun);
+    assert_eq!(
+        capture_on.helper.refresh().await.removal,
+        TunHelperRemovalCapability::Available
+    );
+
+    handoff_capture(&capture_on).await;
+    assert!(!capture_on.capture.status().capture_selection.tun);
+    assert_eq!(
+        capture_on
+            .settings_service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .tun_helper
+            .removal,
+        TunHelperRemovalCapability::Available
+    );
+
+    let repair_required = build(
+        SyntheticMaintenanceInitial::RepairRequired,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(
+        repair_required.helper.refresh().await.removal,
+        TunHelperRemovalCapability::Available
+    );
+
+    let mut core_failed_host = SimulatedHostScenario::internal_tun_maintenance();
+    core_failed_host.failures = vec![InjectedFailure {
+        effect: EffectKind::CoreObserve,
+        kind: InjectedFailureKind::Observation,
+        occurrence: 1,
+    }];
+    let core_failed = build_on(
+        core_failed_host,
+        SyntheticMaintenanceInitial::RepairRequired,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    let status = core_failed
+        .runtime_host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert_eq!(status.runtime.phase, RuntimePhase::Error);
+    assert_eq!(
+        core_failed.helper.refresh().await.removal,
+        TunHelperRemovalCapability::Available
+    );
+
+    let mut listener_conflict_host = SimulatedHostScenario::internal_tun_maintenance();
+    listener_conflict_host.initial_endpoint_owner = ManagedEndpointOwner::Foreign;
+    let listener_conflict = build_on(
+        listener_conflict_host,
+        SyntheticMaintenanceInitial::RepairRequired,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(
+        listener_conflict.host.observation().endpoint_owner,
+        ManagedEndpointOwner::Foreign
+    );
+    assert_eq!(
+        listener_conflict.helper.refresh().await.removal,
+        TunHelperRemovalCapability::Available
+    );
+    let removed = listener_conflict
+        .settings_service
+        .remove_tun_helper()
+        .await
+        .unwrap();
+    assert_eq!(
+        removed.tun_helper.removal,
+        TunHelperRemovalCapability::NotInstalled
+    );
+    assert_eq!(
+        listener_conflict.host.observation().endpoint_owner,
+        ManagedEndpointOwner::Foreign
+    );
 }
 
 #[tokio::test]
@@ -867,6 +974,15 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
         .await
     });
     settle_until(|| scenario.maintenance.journal_snapshot().is_some()).await;
+    let settings_during_lifecycle = rpc_request(
+        &mut duplicate,
+        json!({"jsonrpc":"2.0", "id":40, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        settings_during_lifecycle["result"]["tunHelper"]["removal"],
+        "maintenance-pending"
+    );
     let during_lifecycle = scenario.capture.status();
     assert!(
         during_lifecycle.capture_selection.tun && during_lifecycle.tun_enabled,
@@ -973,6 +1089,292 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
     );
 
     drop(notifications);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
+}
+
+#[tokio::test]
+async fn authenticated_active_tun_removal_hands_off_capture_before_authorization() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    assert!(scenario.capture.status().tun_enabled);
+    let unrelated = scenario.host.maintenance_observation().unwrap().unrelated;
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config(&scenario),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+
+    let removed = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(removed["result"]["tunHelper"]["removal"], "not-installed");
+    assert!(!scenario.capture.status().tun_enabled);
+    let after = scenario.host.maintenance_observation().unwrap();
+    for owner in [
+        after.core_process,
+        after.dns,
+        after.filesystem,
+        after.helper_process,
+        after.route,
+        after.service,
+        after.socket,
+        after.tun,
+    ] {
+        assert_eq!(owner, SyntheticOwnership::Absent);
+    }
+    assert_eq!(after.unrelated, unrelated);
+
+    let transcript = &scenario.host.observation().transcript.events;
+    let capture_handoff = transcript
+        .iter()
+        .position(|event| event.effect_kind == EffectKind::MaintenanceCaptureReconcile)
+        .expect("Capture reconciliation must be recorded");
+    let authorization = transcript
+        .iter()
+        .position(|event| event.effect_kind == EffectKind::MaintenanceAuthorize)
+        .expect("administrator authorization must be recorded");
+    assert!(capture_handoff < authorization);
+
+    let notifications = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let lifecycle = notification(&notifications, "tun-helper.lifecycle");
+    assert_eq!(lifecycle["presentation"]["data"]["outcome"], "removed");
+    assert_eq!(lifecycle["severity"], "success");
+    assert_eq!(lifecycle["pinned"], false);
+
+    drop(socket);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
+}
+
+#[tokio::test]
+async fn incomplete_cleanup_observation_blocks_removal_before_maintenance() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    handoff_capture(&scenario).await;
+    scenario
+        .maintenance
+        .set_network_ownership(
+            SyntheticOwnership::Absent,
+            SyntheticOwnership::Absent,
+            SyntheticOwnership::Partial,
+            SyntheticOwnership::Absent,
+        )
+        .unwrap();
+    let before = scenario.host.maintenance_observation().unwrap();
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config(&scenario),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+
+    let rejected = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        rejected["error"]["data"]["outcome"],
+        "observation-incomplete"
+    );
+    assert_eq!(rejected["error"]["data"]["kind"], "observation-partial");
+    assert!(scenario.maintenance.journal_snapshot().is_none());
+    let after = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(after.installation_id, before.installation_id);
+    assert_eq!(after.route, SyntheticOwnership::Partial);
+    assert_eq!(after.unrelated, before.unrelated);
+    assert!(
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .all(|event| event.effect_kind != EffectKind::MaintenanceAuthorize)
+    );
+
+    let notifications = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        notification(&notifications, "tun-helper.lifecycle")["presentation"]["data"]["outcome"],
+        "observation-incomplete"
+    );
+
+    drop(socket);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Failed { .. }
+    ));
+}
+
+#[tokio::test]
+async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry() {
+    let cases = [
+        (
+            MaintenanceFaultKind::AdministratorCancelled,
+            MaintenanceCommitPoint::PriorServiceDetached,
+            "authorization-cancelled",
+            true,
+        ),
+        (
+            MaintenanceFaultKind::PermissionDenied,
+            MaintenanceCommitPoint::PriorServiceDetached,
+            "authorization-failed",
+            false,
+        ),
+        (
+            MaintenanceFaultKind::CleanupFailure,
+            MaintenanceCommitPoint::ServiceStarted,
+            "removal-failed",
+            false,
+        ),
+    ];
+    for (kind, at, expected_outcome, retries) in cases {
+        let scenario = Arc::new(
+            build(
+                SyntheticMaintenanceInitial::HealthyV1,
+                SyntheticPackageVersion::V1,
+                vec![MaintenanceFault { at, kind }],
+            )
+            .await,
+        );
+        let unrelated = scenario.host.maintenance_observation().unwrap().unrelated;
+        let bridge = start_loopback_server_with_runtime_host(
+            rpc_config(&scenario),
+            scenario.runtime_host.clone(),
+        )
+        .await
+        .unwrap();
+        let mut socket = rpc_socket(bridge.address).await;
+        rpc_authenticate(&mut socket).await;
+
+        let rejected = rpc_request(
+            &mut socket,
+            json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+        )
+        .await;
+        assert_eq!(
+            rejected["error"]["data"]["outcome"], expected_outcome,
+            "{kind:?}"
+        );
+        let after = scenario.host.maintenance_observation().unwrap();
+        assert_eq!(after.unrelated, unrelated, "{kind:?}");
+        assert!(after.installation_id.is_some(), "{kind:?}");
+
+        let notifications = rpc_request(
+            &mut socket,
+            json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+        )
+        .await;
+        assert!(
+            notifications["result"]["notifications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|record| {
+                    record["presentation"]["kind"] == "tun-helper.lifecycle"
+                        && record["presentation"]["data"]["outcome"] == expected_outcome
+                }),
+            "{kind:?}"
+        );
+
+        if retries {
+            scenario
+                .maintenance
+                .configure(SyntheticPackageVersion::V1, Vec::new())
+                .unwrap();
+            let retried = rpc_request(
+                &mut socket,
+                json!({"jsonrpc":"2.0", "id":4, "method":"settings.removeTunHelper", "params":{}}),
+            )
+            .await;
+            assert_eq!(retried["result"]["tunHelper"]["removal"], "not-installed");
+        }
+
+        drop(socket);
+        assert!(matches!(
+            bridge.shutdown().await,
+            BridgeShutdownOutcome::Confirmed(_)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn capture_shutdown_failure_blocks_helper_removal_before_authorization() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    scenario
+        .maintenance
+        .fail_next_tun_mutation(TunHelperFailureKind::OperationFailed)
+        .unwrap();
+    let before = scenario.host.maintenance_observation().unwrap();
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config(&scenario),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+
+    let rejected = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(rejected["error"]["data"]["outcome"], "shutdown-failed");
+    assert!(scenario.maintenance.journal_snapshot().is_none());
+    let after = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(after.installation_id, before.installation_id);
+    assert_eq!(after.unrelated, before.unrelated);
+    assert!(
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .all(|event| event.effect_kind != EffectKind::MaintenanceAuthorize)
+    );
+
+    drop(socket);
     assert!(matches!(
         bridge.shutdown().await,
         BridgeShutdownOutcome::Confirmed(_)

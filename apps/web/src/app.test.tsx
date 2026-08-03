@@ -1551,6 +1551,7 @@ describe("production routes", () => {
       installedVersion: "3",
       lastFailure: null,
       phase: "idle",
+      removal: "available",
     };
     renderRoute(
       "/settings",
@@ -1580,6 +1581,7 @@ describe("production routes", () => {
       installedVersion: "3",
       lastFailure: null,
       phase: "idle",
+      removal: "available",
     };
     renderRoute(
       "/settings",
@@ -1598,6 +1600,44 @@ describe("production routes", () => {
     expect(settingsClient.removeTunHelper).toHaveBeenCalledOnce();
   });
 
+  it("uses the Rust Helper-removal capability for degraded and pending states", async () => {
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "repair-required",
+      expectedVersion: "3",
+      health: "unreachable",
+      installationId: "a".repeat(64),
+      installedVersion: "2",
+      lastFailure: "connection-failed",
+      phase: "failed",
+      removal: "available",
+    };
+    const view = renderRoute(
+      "/settings",
+      "en",
+      new ActiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByRole("button", { name: "Remove Helper" })).toBeEnabled();
+
+    view.unmount();
+    settingsClient.snapshot.tunHelper.removal = "maintenance-pending";
+    renderRoute(
+      "/settings",
+      "en",
+      new ActiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByRole("button", { name: "Remove Helper" })).toBeDisabled();
+  });
+
   it("installs the development TUN helper from native Settings", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
@@ -1610,6 +1650,7 @@ describe("production routes", () => {
       installedVersion: null,
       lastFailure: null,
       phase: "idle",
+      removal: "not-installed",
     };
     renderRoute(
       "/settings",
@@ -2541,6 +2582,7 @@ describe("desktop RPC experience", () => {
       installedVersion: null,
       lastFailure: null,
       phase: "idle",
+      removal: "not-installed",
     };
     settingsClient.installTunHelper.mockImplementation(async () => {
       settingsClient.snapshot.tunHelper = {
@@ -2551,6 +2593,7 @@ describe("desktop RPC experience", () => {
         installedVersion: "3",
         lastFailure: null,
         phase: "idle",
+        removal: "available",
       };
       return settingsClient.getSnapshot();
     });
@@ -2593,6 +2636,7 @@ describe("desktop RPC experience", () => {
       installedVersion: "2",
       lastFailure: "version-mismatch",
       phase: "idle",
+      removal: "available",
     };
     settingsClient.repairTunHelper.mockImplementation(async () => {
       settingsClient.snapshot.tunHelper = {
@@ -2603,6 +2647,7 @@ describe("desktop RPC experience", () => {
         installedVersion: "3",
         lastFailure: null,
         phase: "idle",
+        removal: "available",
       };
       return settingsClient.getSnapshot();
     });

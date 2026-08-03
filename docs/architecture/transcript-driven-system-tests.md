@@ -132,8 +132,14 @@ An authenticated loopback-RPC test composes the real Settings command and
 notification path with this model. It proves Pending and finalizing lifecycle
 projections, lifecycle-lock serialization of a duplicate command, an early
 typed Capture failure with the permitted recovery action, and unpinned or
-resolved terminal records. This is application/semantic evidence only; it does
-not invoke a desktop driver or a privileged macOS component.
+resolved terminal records. The removal matrix also covers healthy and
+repair-required Helper state, failed Core observation, foreign listener
+ownership, Capture on and off, partial cleanup observation, and pending
+maintenance. Active-TUN uninstall proves that Capture handoff precedes
+authorization; cancellation, authorization failure, removal failure, shutdown
+failure, incomplete observation, and retry retain distinct outcomes while the
+unrelated owner is unchanged. This is application/semantic evidence only; it
+does not invoke a desktop driver or a privileged macOS component.
 
 ## Semantic transcript
 

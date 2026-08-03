@@ -199,6 +199,7 @@ impl TunHelperPlatform for FakeTunHelper {
             installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
+            removal: mish_runtime::TunHelperRemovalCapability::Available,
         }
     }
 
