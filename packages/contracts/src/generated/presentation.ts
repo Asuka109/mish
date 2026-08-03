@@ -131,6 +131,7 @@ const applicationNotificationProfileActivationAsnFailedDataSchema = z
 const applicationNotificationProfileActivationAsnProgressDataSchema = z
   .object({
     asset: z.string(),
+    outcome: z.string().optional(),
   })
   .strict();
 
@@ -150,6 +151,7 @@ const applicationNotificationProfileActivationGeoipFailedDataSchema = z
 const applicationNotificationProfileActivationGeoipProgressDataSchema = z
   .object({
     asset: z.string(),
+    outcome: z.string().optional(),
   })
   .strict();
 
@@ -163,6 +165,7 @@ const applicationNotificationProfileActivationGeositeFailedDataSchema = z
 const applicationNotificationProfileActivationGeositeProgressDataSchema = z
   .object({
     asset: z.string(),
+    outcome: z.string().optional(),
   })
   .strict();
 
@@ -182,6 +185,7 @@ const applicationNotificationProfileActivationMmdbFailedDataSchema = z
 const applicationNotificationProfileActivationMmdbProgressDataSchema = z
   .object({
     asset: z.string(),
+    outcome: z.string().optional(),
   })
   .strict();
 
