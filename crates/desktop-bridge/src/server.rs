@@ -100,11 +100,11 @@ const DEVELOPMENT_WINDOW_TRIGGER_LIFETIME: Duration = Duration::from_secs(15 * 6
 #[cfg(feature = "development-window-trigger")]
 const DEVELOPMENT_WINDOW_TRIGGER_REQUEST_LIMIT: usize = 64;
 #[cfg(feature = "development-window-trigger")]
-const DEVELOPMENT_WINDOW_TRIGGER_PATH: &str = "/development-window-trigger";
+const DEVELOPMENT_WINDOW_TRIGGER_PATH: &str = "/__openWindow";
 #[cfg(feature = "development-window-trigger")]
-const DEVELOPMENT_WINDOW_TRIGGER_CLIENT_PATH: &str = "/development-window-trigger-client.js";
+const DEVELOPMENT_WINDOW_TRIGGER_CLIENT_PATH: &str = "/__openWindow-client.js";
 #[cfg(feature = "development-window-trigger")]
-const DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH: &str = "/development-window-trigger.js";
+const DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH: &str = "/__openWindow.js";
 
 struct BrowserPairing {
     attempts_remaining: u8,

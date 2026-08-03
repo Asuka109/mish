@@ -96,7 +96,7 @@ fn trigger_capability(bridge: &LoopbackServerHandle) -> String {
         .issue_url();
     let url = url::Url::parse(&url).expect("valid trigger URL");
     assert_eq!(url.host_str(), Some("127.0.0.1"));
-    assert_eq!(url.path(), "/development-window-trigger");
+    assert_eq!(url.path(), "/__openWindow");
     assert!(url.query().is_none());
     url.fragment()
         .and_then(|fragment| fragment.strip_prefix("mish-desktop-window-trigger="))
@@ -112,7 +112,7 @@ async fn post_trigger(
 ) -> reqwest::Response {
     let origin = format!("http://{address}");
     client
-        .post(format!("{origin}/development-window-trigger"))
+        .post(format!("{origin}/__openWindow"))
         .header(header::ORIGIN, &origin)
         .header(header::CONTENT_TYPE, "application/json")
         .body(
@@ -158,12 +158,9 @@ async fn trigger_assets_keep_the_capability_in_the_fragment_and_apply_strict_hea
     );
     let body = page.text().await.unwrap();
     assert!(!body.contains(&capability));
-    assert!(body.contains("/development-window-trigger.js"));
+    assert!(body.contains("/__openWindow.js"));
 
-    for path in [
-        "/development-window-trigger.js",
-        "/development-window-trigger-client.js",
-    ] {
+    for path in ["/__openWindow.js", "/__openWindow-client.js"] {
         let asset = client
             .get(format!("http://{}{path}", bridge.address))
             .send()
@@ -172,6 +169,18 @@ async fn trigger_assets_keep_the_capability_in_the_fragment_and_apply_strict_hea
         assert_eq!(asset.status(), StatusCode::OK);
         assert!(!asset.text().await.unwrap().contains(&capability));
     }
+    assert_eq!(
+        client
+            .get(format!(
+                "http://{}/development-window-trigger",
+                bridge.address
+            ))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     shutdown(bridge).await;
 }
 
@@ -230,7 +239,7 @@ async fn exact_replay_malformed_cross_origin_and_localhost_alias_requests_fail_c
     let origin = format!("http://{}", bridge.address);
     let body = json!({ "capability": capability, "requestId": "s".repeat(43) });
     let missing_origin = client
-        .post(format!("{origin}/development-window-trigger"))
+        .post(format!("{origin}/__openWindow"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(serde_json::to_vec(&body).unwrap())
         .send()
@@ -238,7 +247,7 @@ async fn exact_replay_malformed_cross_origin_and_localhost_alias_requests_fail_c
         .unwrap();
     assert_eq!(missing_origin.status(), StatusCode::FORBIDDEN);
     let localhost_alias = client
-        .post(format!("{origin}/development-window-trigger"))
+        .post(format!("{origin}/__openWindow"))
         .header(header::HOST, format!("localhost:{}", bridge.address.port()))
         .header(header::ORIGIN, &origin)
         .header(header::CONTENT_TYPE, "application/json")

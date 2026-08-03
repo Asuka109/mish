@@ -1,4 +1,4 @@
-import { activateDevelopmentWindow } from "/development-window-trigger-client.js";
+import { activateDevelopmentWindow } from "/__openWindow-client.js";
 
 const status = document.getElementById("mish-development-window-trigger-status");
 if (status) {

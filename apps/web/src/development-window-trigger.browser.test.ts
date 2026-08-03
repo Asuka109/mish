@@ -42,16 +42,16 @@ describe("development desktop-window trigger client in Chromium", () => {
         history,
         location: {
           hash: `#mish-desktop-window-trigger=${capability}`,
-          pathname: "/development-window-trigger",
+          pathname: "/__openWindow",
         },
         status,
       }),
     ).resolves.toBe(true);
 
     expect(events).toEqual(["replace", "fetch"]);
-    expect(history.replaceState).toHaveBeenCalledWith(null, "", "/development-window-trigger");
+    expect(history.replaceState).toHaveBeenCalledWith(null, "", "/__openWindow");
     const request = fetchRequest.mock.calls[0];
-    expect(request?.[0]).toBe("/development-window-trigger");
+    expect(request?.[0]).toBe("/__openWindow");
     expect(request?.[1]).toMatchObject({
       cache: "no-store",
       credentials: "omit",
@@ -88,7 +88,7 @@ describe("development desktop-window trigger client in Chromium", () => {
         history: { replaceState: vi.fn() },
         location: {
           hash: `#mish-desktop-window-trigger=${"b".repeat(43)}`,
-          pathname: "/development-window-trigger",
+          pathname: "/__openWindow",
         },
         status: rejectedStatus,
       }),
