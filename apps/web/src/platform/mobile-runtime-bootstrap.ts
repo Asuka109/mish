@@ -1,6 +1,7 @@
 import {
   MobileFixtureBootstrapSchema,
   type MobileFixtureBootstrapDto,
+  type SettingsClient,
   type StatusCommand,
 } from "@mish/contracts";
 import { invoke } from "@tauri-apps/api/core";
@@ -14,14 +15,17 @@ import { UnavailableLocalBackupClient } from "./local-backup";
 import type { StartupStatusClient } from "./runtime-bootstrap";
 import { UnavailableSupportBundleClient } from "./support-bundle";
 import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
+import { MobileSettingsClient } from "./mobile-settings-client";
 
 interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
+  mobileSettingsClient: SettingsClient;
   mobileVpnClient: MobileVpnClient;
 }
 
 const defaultDependencies: MobileBootstrapDependencies = {
   invokeBootstrap: () => invoke("mobile_fixture_bootstrap"),
+  mobileSettingsClient: new MobileSettingsClient(),
   mobileVpnClient: new MobileVpnFixtureClient(),
 };
 
@@ -101,7 +105,12 @@ export async function resolveMobileStartup(
 ): Promise<StartupStatusClient> {
   const fixture = MobileFixtureBootstrapSchema.parse(await dependencies.invokeBootstrap());
   const mobileVpnSnapshot = await dependencies.mobileVpnClient.initialize();
-  const settingsClient = new FixtureSettingsClient();
+  const settingsClient =
+    fixture.platform === "android" &&
+    fixture.core.kind === "native" &&
+    fixture.vpn.kind === "native"
+      ? dependencies.mobileSettingsClient
+      : new FixtureSettingsClient();
   return {
     client: new MobileFixtureStatusClient(fixture),
     dispose: () => dependencies.mobileVpnClient.dispose(),

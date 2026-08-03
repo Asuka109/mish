@@ -11,6 +11,7 @@ import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx, tv } from "@mish/ui/tv";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
+import { useMobileVpnSnapshot } from "../data/mobile-vpn-snapshot";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";
@@ -302,7 +303,7 @@ function hasLifecycleFailure(snapshot: MobileVpnSnapshotDto) {
 export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHomePageProps) {
   const { LL } = useI18nContext();
   const { publish, retire } = useNotificationDelivery();
-  const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const snapshot = useMobileVpnSnapshot(vpnClient, initialSnapshot);
   const [loadInFlight, setLoadInFlight] = useState(false);
   const commandInFlight = useRef(false);
   const lifecycleAbortController = useRef<AbortController | undefined>(undefined);
@@ -311,14 +312,6 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
   const core = coreEvidence(LL, snapshot);
   const config = configEvidence(LL, snapshot);
   const canCancelStart = snapshot.phase === "starting" && snapshot.foreground;
-
-  useEffect(
-    () =>
-      vpnClient.subscribe((nextSnapshot) => {
-        setSnapshot(nextSnapshot);
-      }),
-    [vpnClient],
-  );
 
   useEffect(() => {
     if (hasLifecycleFailure(snapshot)) {

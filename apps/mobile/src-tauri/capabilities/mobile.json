@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Allows the Phase 0 mobile WebView to use the bounded native fixture and Android VPN lifecycle prototype.",
+  "description": "Allows the mobile WebView to use the bounded bootstrap and native VPN lifecycle projection.",
   "local": true,
   "windows": ["main"],
   "platforms": ["android", "iOS"],

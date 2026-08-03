@@ -33,7 +33,12 @@ const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
 };
 const mobilePermission = source("apps/mobile/src-tauri/permissions/mobile_fixture_bootstrap.toml");
 const mobileCapability = source("apps/mobile/src-tauri/capabilities/mobile.json");
+const mobileSettingsCapability = source(
+  "apps/mobile/src-tauri/capabilities/mobile-settings-android.json",
+);
+const mobileSettingsPermission = source("apps/mobile/src-tauri/permissions/mobile_settings.toml");
 const mobileRust = source("apps/mobile/src-tauri/src/lib.rs");
+const settingsRust = source("crates/settings/src/lib.rs");
 const tauri = source("apps/mobile/src-tauri/tauri.conf.json");
 const kotlinRoot = resolve(root, pluginRoot, "android/src/main/java/com/asuka109/mish/vpn");
 const kotlin = readdirSync(kotlinRoot)
@@ -340,7 +345,33 @@ invariant(
     mobilePermission.includes('commands.allow = ["mobile_fixture_bootstrap"]'),
   "The mobile fixture command must keep a stable, repository-owned permission.",
 );
+invariant(
+  mobileSettingsCapability.includes('"platforms": ["android"]') &&
+    mobileSettingsCapability.includes('"allow-mobile-settings-get-snapshot"') &&
+    mobileSettingsCapability.includes('"allow-mobile-settings-set-appearance"') &&
+    mobileSettingsCapability.includes('"allow-mobile-settings-set-language"') &&
+    !mobileCapability.includes('"allow-mobile-settings-get-snapshot"') &&
+    tauri.includes('"mobile-settings-android"'),
+  "Android Settings permissions must remain Android-only rather than expanding the iOS mobile capability.",
+);
+for (const command of [
+  "mobile_settings_get_snapshot",
+  "mobile_settings_set_appearance",
+  "mobile_settings_set_language",
+]) {
+  invariant(
+    mobileSettingsPermission.includes(`commands.allow = ["${command}"]`) &&
+      mobileRust.includes(command),
+    `Android Settings command is missing its narrow local permission: ${command}`,
+  );
+}
+invariant(
+  mobileRust.includes("SettingsCapabilities::android()") &&
+    mobileRust.includes("SettingsAdapterKind::Native") &&
+    settingsRust.includes("pub fn android() -> Self"),
+  "Android Settings must compose Shared Rust capability and snapshot authority.",
+);
 
 console.log(
-  "Android project valid: API 36, Shared Rust-authoritative VPN lifecycle, Kotlin foreground VpnService/TUN/Core effects, bounded Mobile Core validation/load/runtime bridge, dual ABI staging, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, Shared Rust-authoritative VPN and Settings state, Kotlin foreground VpnService/TUN/Core effects, bounded Mobile Core validation/load/runtime bridge, Android-only Settings permissions, dual ABI staging, predictive back, and no generated TV/FileProvider residue.",
 );

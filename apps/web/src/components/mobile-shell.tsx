@@ -78,7 +78,9 @@ function getTitle(LL: TranslationFunctions, pathname: string) {
   if (pathname === "/routes" || pathname.startsWith("/routes/"))
     return LL.mobileNavigation.routes();
   if (pathname === "/profiles") return LL.mobileNavigation.profiles();
-  if (pathname === "/settings") return LL.mobileNavigation.settings();
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return LL.mobileNavigation.settings();
+  }
   return LL.mobileNavigation.activity();
 }
 
@@ -90,11 +92,18 @@ function isRoutesPath(pathname: string) {
   return pathname === "/routes" || pathname.startsWith("/routes/");
 }
 
+function isSettingsPath(pathname: string) {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 function mobileBackTarget(pathname: string, search: string) {
   const segments = pathname.split("/");
-  if (segments[1] !== "routes" || segments.length < 3) return null;
-  if (segments[3] === "children" && segments[2]) return "/routes/" + segments[2] + search;
-  return "/routes";
+  if (segments[1] === "routes" && segments.length >= 3) {
+    if (segments[3] === "children" && segments[2]) return "/routes/" + segments[2] + search;
+    return "/routes";
+  }
+  if (segments[1] === "settings" && segments.length >= 3) return "/settings";
+  return null;
 }
 
 export function MobileShell({ fixture }: MobileShellProps) {
@@ -108,7 +117,7 @@ export function MobileShell({ fixture }: MobileShellProps) {
     <div className={mobileShellStyles().root()} data-platform={fixture.platform}>
       <RouteFocusManager
         headingSelector=".mobile-top-app-bar h1"
-        scrollerSelector="main .mobile-route-scroller, main .mobile-home-page"
+        scrollerSelector="main .mobile-route-scroller, main .mobile-home-page, main .mobile-settings-page"
       />
       <div className={mobileShellStyles().chrome()}>
         <header className={mobileShellStyles().topBar()}>
@@ -189,13 +198,15 @@ export function MobileShell({ fixture }: MobileShellProps) {
               ? activity
               : key === "routes"
                 ? isRoutesPath(location.pathname)
-                : location.pathname === path;
+                : key === "settings"
+                  ? isSettingsPath(location.pathname)
+                  : location.pathname === path;
           return (
             <NavLink
               aria-current={selected ? "page" : undefined}
               aria-label={label}
               className={mobileShellStyles({ selected }).destination()}
-              end={key !== "activity" && key !== "routes"}
+              end={key !== "activity" && key !== "routes" && key !== "settings"}
               key={path}
               to={path}
             >
