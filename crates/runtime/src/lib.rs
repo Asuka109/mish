@@ -1136,6 +1136,10 @@ impl MishRuntime {
         self.status_source.supports_command(command)
     }
 
+    pub fn provides_status_command(&self, command: StatusCommand) -> bool {
+        self.status_source.provides_command(command)
+    }
+
     pub async fn set_routing_mode(
         &self,
         mode: RoutingMode,

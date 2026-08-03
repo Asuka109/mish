@@ -1038,7 +1038,7 @@ async fn handle_message(
             "protocolVersion": 33,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
-                "group": state.runtime.supports_status_command(StatusCommand::Group),
+                "group": state.runtime.provides_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
                 "routing": state.runtime.supports_status_command(StatusCommand::Routing),
                 "services": state.service_probes.is_some(),

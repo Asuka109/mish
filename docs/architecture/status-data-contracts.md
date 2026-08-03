@@ -123,7 +123,10 @@ or confirmation semantics.
 
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
-current mutation surface. The browser fixture supports isolated demo mutations.
+provided command surface. Group selection additionally requires the current
+Rust `groupSelectionAvailability` to be `available`; a stopped Controller-backed
+runtime can therefore retain stable capability discovery without admitting a
+mutation. The browser fixture supports isolated demo mutations.
 The native desktop RPC adapter supports System Proxy capture and recovery plus
 the shared TUN enable/disable command when the exact packaged helper is
 confirmed healthy. The Developer-ID-free `internal-tun-alpha` profile is

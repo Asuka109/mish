@@ -1434,6 +1434,12 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
         stopped_snapshot["result"]["groupSelectionAvailability"],
         "core-not-running"
     );
+    let stopped_info = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":66, "method":"bridge.getInfo", "params":{}}),
+    )
+    .await;
+    assert_eq!(stopped_info["result"]["statusCommands"]["group"], true);
     let stopped_selection = rpc_request(
         &mut websocket,
         json!({"jsonrpc":"2.0", "id":65, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"]}}),
