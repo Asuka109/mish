@@ -1785,32 +1785,39 @@ mod tests {
             ScenarioRuntime::build(SimulatedHostScenario::ownership_changes_before_commit())
                 .await
                 .unwrap();
-        let profile_id = scenario
-            .profile_service
-            .snapshot()
-            .unwrap()
-            .selection
-            .profile_id
-            .unwrap();
         let command_id = "44444444-4444-4444-8444-444444444444";
-        let pending = scenario
-            .activation
-            .activate(command_id, &profile_id)
-            .await
-            .unwrap();
-        assert_eq!(pending.phase, ProfileActivationPhase::Pending);
+        let activation = scenario.activation.clone();
+        let launch = tokio::spawn(async move {
+            activation
+                .launch_proxy(command_id, system_proxy_selection(), StatusAdapterKind::Rpc)
+                .await
+        });
+        settle_until(|| {
+            scenario
+                .host
+                .observation()
+                .transcript
+                .events
+                .iter()
+                .any(|event| event.effect_kind == EffectKind::ProfilePreparation)
+        })
+        .await;
         let duplicate = scenario
             .activation
-            .activate(command_id, &profile_id)
+            .launch_proxy(command_id, system_proxy_selection(), StatusAdapterKind::Rpc)
             .await
-            .unwrap();
+            .unwrap_err();
         let equal_target = scenario
             .activation
-            .activate("55555555-5555-4555-8555-555555555555", &profile_id)
+            .launch_proxy(
+                "55555555-5555-4555-8555-555555555555",
+                system_proxy_selection(),
+                StatusAdapterKind::Rpc,
+            )
             .await
-            .unwrap();
-        assert_eq!(duplicate.command_id, pending.command_id);
-        assert_eq!(equal_target.command_id, pending.command_id);
+            .unwrap_err();
+        assert_eq!(duplicate.kind, CaptureFailureKind::RuntimeTransition);
+        assert_eq!(equal_target.kind, CaptureFailureKind::RuntimeTransition);
         let stale_cancel = scenario
             .activation
             .cancel("66666666-6666-4666-8666-666666666666")
@@ -1818,22 +1825,12 @@ mod tests {
             .unwrap();
         assert_eq!(stale_cancel.phase, ProfileActivationPhase::Pending);
         scenario.activation.cancel(command_id).await.unwrap();
-        settle_until(|| {
-            scenario.host.observation().preparation_phase == PreparationPhase::Finalizing
-        })
-        .await;
+        assert_eq!(
+            scenario.activation.activation_snapshot().await.phase,
+            ProfileActivationPhase::Pending
+        );
         scenario.host.advance_to(20).unwrap();
-        let mut settled = false;
-        for _ in 0..256 {
-            if scenario.activation.activation_snapshot().await.phase
-                != ProfileActivationPhase::Pending
-            {
-                settled = true;
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert!(settled, "activation did not publish its terminal snapshot");
+        assert!(launch.await.unwrap().is_err());
         let terminal = scenario.activation.activation_snapshot().await;
         assert_eq!(terminal.phase, ProfileActivationPhase::Failure);
         let preparation_count = scenario
