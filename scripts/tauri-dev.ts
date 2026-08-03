@@ -6,12 +6,19 @@ import { selectDevelopmentMihomo, type DevelopmentMihomoSelection } from "./deve
 
 export const defaultWebDevelopmentPort = 4173;
 export const tartTunAcceptanceArgument = "--tart-tun-acceptance";
+export const openBrowserArgument = "--open";
 
 export interface TauriDevelopmentInvocation {
   application: string[];
   demo: boolean;
   forwarded: string[];
+  openBrowser: boolean;
   tartTunAcceptance: boolean;
+}
+
+export interface HostUrlOpenerCommand {
+  arguments: string[];
+  command: string;
 }
 
 function portIsAvailable(port: number): Promise<boolean> {
@@ -71,11 +78,51 @@ export function parseTauriDevelopmentArguments(arguments_: string[]): TauriDevel
     forwarded: normalized.filter(
       (argument) =>
         argument !== "--demo" &&
+        argument !== openBrowserArgument &&
         argument !== tartTunAcceptanceArgument &&
         !isDevtoolsArgument(argument),
     ),
+    openBrowser: normalized.includes(openBrowserArgument),
     tartTunAcceptance: normalized.includes(tartTunAcceptanceArgument),
   };
+}
+
+export function hostUrlOpenerCommand(platform: NodeJS.Platform, url: string): HostUrlOpenerCommand {
+  if (platform === "darwin") return { arguments: [url], command: "open" };
+  if (platform === "win32") {
+    return {
+      arguments: ["/d", "/s", "/c", "start", "", url],
+      command: "cmd.exe",
+    };
+  }
+  return { arguments: [url], command: "xdg-open" };
+}
+
+export function browserClientUrlFromOutput(output: string): string | null {
+  const match = output.match(
+    /(?:^|\n)Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#mish-browser-launch=[A-Za-z0-9_-]{43})(?:\r?\n|$)/u,
+  );
+  return match?.[1] ?? null;
+}
+
+export function openBrowserClient(url: string, platform = process.platform): void {
+  const opener = hostUrlOpenerCommand(platform, url);
+  try {
+    const child = spawn(opener.command, opener.arguments, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.once("error", () => {
+      console.error("Mish Browser Client opener failed; the desktop backend remains available.");
+    });
+    child.once("exit", (code) => {
+      if (code === 0) return;
+      console.error("Mish Browser Client opener failed; the desktop backend remains available.");
+    });
+    child.unref();
+  } catch {
+    console.error("Mish Browser Client opener failed; the desktop backend remains available.");
+  }
 }
 
 export function createTauriDevelopmentEnvironment(
@@ -144,7 +191,9 @@ async function run(): Promise<void> {
       "exec",
       "tauri",
       "dev",
-      ...(invocation.demo ? [] : ["--features", "development-core-host"]),
+      ...(invocation.demo
+        ? []
+        : ["--features", "development-core-host,development-window-trigger"]),
       "--config",
       createTauriDevelopmentConfig(origin, invocation.demo),
       ...invocation.forwarded,
@@ -153,7 +202,7 @@ async function run(): Promise<void> {
     {
       cwd: desktopRoot,
       env: environment,
-      stdio: ["inherit", "inherit", "pipe"],
+      stdio: ["inherit", "pipe", "pipe"],
     },
   );
 
@@ -161,6 +210,20 @@ async function run(): Promise<void> {
 
   let startupOutput = "";
   let startupAborted = false;
+  let browserOutput = "";
+  let browserOpened = false;
+  child.stdout?.on("data", (chunk: Buffer) => {
+    const output = chunk.toString();
+    process.stdout.write(output);
+    if (!invocation.openBrowser || browserOpened) return;
+
+    browserOutput = `${browserOutput}${output}`.slice(-1024);
+    const url = browserClientUrlFromOutput(browserOutput);
+    if (!url) return;
+
+    browserOpened = true;
+    openBrowserClient(url);
+  });
   child.stderr?.on("data", (chunk: Buffer) => {
     const output = chunk.toString();
     process.stderr.write(output);

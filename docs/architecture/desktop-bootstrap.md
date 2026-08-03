@@ -46,7 +46,13 @@ still fails closed and never selects fixtures.
    and the bridge allowlist. Vite supplies the equivalent SPA fallback. The
    development command first builds `apps/web/dist` so the bridge can serve a
    deterministic browser-client artifact through Tauri's asset resolver while
-   the WebView uses Vite HMR.
+   a later explicitly created WebView uses Vite HMR. The operational launcher
+   enables a source-development-only Cargo feature that retains `main` as a
+   dynamic window template with `create:false`. Demo and every build, bundle,
+   packaged, production, updater, and login-launch command omit that feature.
+   On macOS the headless process uses the Accessory activation policy until an
+   explicit trigger requests a window, preventing a windowless launch from
+   activating the application or taking focus.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery
@@ -65,18 +71,21 @@ still fails closed and never selects fixtures.
    already in use. It retains the first listener it binds rather than probing
    and rebinding.
    The bridge-handle slot is created before `run_return`; Tauri's `Ready` setup
-   hook fills it before the WebView can invoke bootstrap, and the exit path later
-   takes the same handle for ordered shutdown.
+   hook fills it without requiring a WebView, and the exit path later takes the
+   same handle for ordered shutdown. Operational source development then prints
+   one authenticated Browser Client URL and one current-process desktop-window
+   trigger URL with stable prefixes.
 7. On macOS, the shell registers the documented `NSWorkspace` will-sleep and
    did-wake notifications and an `SCDynamicStore` callback for global IPv4/IPv6
    primary-service changes. These callbacks emit only a closed lifecycle event
    plus a process-local sequence number. Registration failure aborts desktop
    startup instead of silently claiming lifecycle recovery.
-8. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
+8. When a main WebView exists, it invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body. The same payload declares the
    desktop-only support-bundle and local-backup capabilities.
-9. The native window remains hidden until the WebView installs the document
+9. Packaged, production, demo, login-launch, and other normal window paths keep
+   their configured creation behavior. The native window remains hidden until the WebView installs the document
    startup placeholder: a quiet, centered Mish mark on the window surface.
    Before the placeholder can become visible, one synchronous repository-owned
    `/appearance-bootstrap.js` asset reads only the bounded
@@ -138,6 +147,10 @@ still fails closed and never selects fixtures.
     authorizes the final Tauri exit request. A failure keeps Mish alive with a
     native actionable recovery alert. Cleanup after `run_return` remains an
     idempotent abnormal-boundary fallback rather than the normal quit path.
+    The coordinator and fallback are initialized before any optional WebView,
+    so signal, Ctrl-C, status-bar Quit, and abnormal runner exit retain the same
+    Core, Capture, RPC, privileged ownership, and task-join ordering while
+    development remains headless.
 15. Before Tauri creates the configured `main` window, one typed startup-options
     parser resolves the process-local WebView Inspector contract. `--devtools`
     has precedence over `MISH_DEVTOOLS`; without the flag, only exact values `1`
@@ -160,11 +173,44 @@ still fails closed and never selects fixtures.
     lifecycle rather than creating a remote debugging service.
     The two source-development package commands load the tracked
     `apps/desktop/.env.development`, which deliberately provides
-    `MISH_DEVTOOLS=1` and opens Inspector as a separate window. An existing
+    `MISH_DEVTOOLS=1`. Demo opens Inspector with its normal window. Operational
+    development creates neither the WebView nor Inspector until the explicit
+    desktop-window trigger constructs the dynamic `main` window. An existing
     process environment can override it with `MISH_DEVTOOLS=0`. Build, bundle,
     packaged launch, Finder, Dock, and Login Item paths never load that file, so
     the application binary and every packaged workflow retain the default-off
     contract.
+
+## Development desktop-window trigger
+
+The trigger reuses the already-bound Browser Client listener and is compiled
+only with the operational source-development feature. It adds no listener,
+deep link, production capability, RPC method, setting, persisted state, or
+packaged route. The emitted URL uses exact `127.0.0.1` authority and carries an
+independent 256-bit base64url capability only in its fragment. The HTTP server
+therefore never receives the capability in a GET target, referrer, or query.
+
+The development-only page has a self-only CSP, no inline executable content,
+no storage, no cookies, no RPC bootstrap, and no external resource. Its module
+removes the fragment before sending a bounded same-origin JSON request with the
+capability and a fresh 256-bit request ID. Rust requires an IPv4-loopback peer,
+the exact numeric Host, the exact same Origin, fixed field shapes, a constant-
+time capability match, a 15-minute process-local expiry, and an unused request
+ID. It retains at most 64 request IDs and rejects exact replay, malformed input,
+expired capability, wrong process capability, non-loopback authority, origin
+drift, and saturation without invoking Tauri. The RPC token, Browser Client
+launch token, PIN, browser session, and origin proof are separate authorities.
+
+Accepted requests call one Rust window controller. Its serialized creation
+claim and fixed `main` label make concurrent construction idempotent. An absent
+window is built on Tauri's main thread from the checked configuration; an
+existing window is shown, unminimized, and focused. The normal WebView-ready
+handshake still prevents an empty frame. In this development mode a close
+request hides the window regardless of the stored production close preference,
+returns the process to Accessory activation, and leaves the backend and current
+trigger available. Process replacement discards
+the capability, replay set, pending creation claim, and window together, so a
+hot restart remains hidden and earlier URLs fail closed.
 
 ## Browser-client launch flow
 

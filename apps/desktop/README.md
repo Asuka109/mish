@@ -21,12 +21,46 @@ initialize application data, the desktop bridge, runtime ownership, System
 Proxy, TUN, the status bar, or login-launch integration. Multiple worktrees may
 run desktop demos concurrently.
 
+## Backend-first development
+
+`pnpm desktop:dev` starts the operational Rust process, managed runtime,
+Desktop Bridge/RPC, Browser Client, development Core preparation, native menu,
+and status bar without creating the main WebView. Readiness prints exactly one
+current Browser Client URL and one development-only desktop-window trigger URL:
+
+```text
+Mish Browser Client URL: http://127.0.0.1:<port>/#mish-browser-launch=<capability>
+Mish Desktop Window Trigger URL: http://127.0.0.1:<port>/development-window-trigger#mish-desktop-window-trigger=<capability>
+```
+
+Open the Browser Client for the primary no-window development surface. Open the
+desktop-window trigger when the native WebView is needed. A current trigger
+creates, reveals, or focuses the single `main` window. Closing that development
+window hides it without stopping the backend, and a fresh request from the same
+unexpired trigger can reveal it again. A hot rebuild starts the replacement
+process without a window and prints new process-scoped links; old links fail.
+
+Use `pnpm desktop:dev -- --open` to ask the host's standard URL opener to open
+the Browser Client after readiness. This option is off by default. Opener
+failure is reported without stopping the backend, and both URLs are still
+printed.
+
+The trigger endpoint is compiled only into the source-development feature set.
+It binds no additional listener and accepts only exact IPv4-loopback Host and
+same-origin requests. Its 256-bit fragment capability never enters the initial
+HTTP request, and each activation carries a fresh bounded request ID.
+Capabilities expire after 15 minutes, request IDs cannot be replayed, and a
+restarted process has unrelated authority. The trigger does not contain or
+authenticate the RPC token.
+
 ## Process-local WebView Inspector
 
 The desktop WebView Inspector remains default-off in the application binary.
 The tracked `.env.development` deliberately sets `MISH_DEVTOOLS=1` for
-`desktop:dev` and `desktop:demo`, so the normal source-development workflow
-opens WebKit Inspector as a separate window:
+`desktop:dev` and `desktop:demo`. `desktop:demo` opens WebKit Inspector with its
+normal demo window. Backend-first `desktop:dev` creates neither a WebView nor an
+Inspector at startup; the Inspector opens only after the desktop-window trigger
+creates the WebView:
 
 ```sh
 pnpm desktop:dev
