@@ -152,7 +152,7 @@ test("keeps the desktop window trigger feature out of shipped commands", () => {
 });
 
 test("uses the standard host URL opener without a shell", () => {
-  const url = "http://127.0.0.1:6474/#mish-browser-launch=" + "a".repeat(43);
+  const url = "http://127.0.0.1:6474/#token=" + "a".repeat(43);
   assert.deepEqual(hostUrlOpenerCommand("darwin", url), {
     arguments: [url],
     command: "open",
@@ -169,13 +169,11 @@ test("uses the standard host URL opener without a shell", () => {
 
 test("opens only a complete stable Browser Client readiness line", () => {
   const token = "a".repeat(43);
-  const url = `http://127.0.0.1:6474/#mish-browser-launch=${token}`;
+  const url = `http://127.0.0.1:6474/#token=${token}`;
   assert.equal(browserClientUrlFromOutput(`building\nMish Browser Client URL: ${url}\n`), url);
   assert.equal(browserClientUrlFromOutput(`Mish Browser Client URL: ${url.slice(0, -1)}`), null);
   assert.equal(
-    browserClientUrlFromOutput(
-      `Mish Browser Client URL: http://localhost:6474/#mish-browser-launch=${token}\n`,
-    ),
+    browserClientUrlFromOutput(`Mish Browser Client URL: http://localhost:6474/#token=${token}\n`),
     null,
   );
 });

@@ -99,7 +99,7 @@ fn trigger_capability(bridge: &LoopbackServerHandle) -> String {
     assert_eq!(url.path(), "/__openWindow");
     assert!(url.query().is_none());
     url.fragment()
-        .and_then(|fragment| fragment.strip_prefix("mish-desktop-window-trigger="))
+        .and_then(|fragment| fragment.strip_prefix("token="))
         .expect("fragment capability")
         .to_owned()
 }
@@ -160,15 +160,22 @@ async fn trigger_assets_keep_the_capability_in_the_fragment_and_apply_strict_hea
     assert!(!body.contains(&capability));
     assert!(body.contains("/__openWindow.js"));
 
-    for path in ["/__openWindow.js", "/__openWindow-client.js"] {
-        let asset = client
-            .get(format!("http://{}{path}", bridge.address))
+    let asset = client
+        .get(format!("http://{}/__openWindow.js", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert!(!asset.text().await.unwrap().contains(&capability));
+    assert_eq!(
+        client
+            .get(format!("http://{}/__openWindow-client.js", bridge.address))
             .send()
             .await
-            .unwrap();
-        assert_eq!(asset.status(), StatusCode::OK);
-        assert!(!asset.text().await.unwrap().contains(&capability));
-    }
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(
         client
             .get(format!(

@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import clientSource from "../../../crates/desktop-bridge/assets/development-window-trigger-client.js?raw";
+import clientSource from "../../../crates/desktop-bridge/assets/development-window-trigger.js?raw";
 
 interface TriggerClient {
   activateDevelopmentWindow(options: {
@@ -41,7 +41,7 @@ describe("development desktop-window trigger client in Chromium", () => {
         fetch: fetchRequest,
         history,
         location: {
-          hash: `#mish-desktop-window-trigger=${capability}`,
+          hash: `#token=${capability}`,
           pathname: "/__openWindow",
         },
         status,
@@ -73,7 +73,7 @@ describe("development desktop-window trigger client in Chromium", () => {
         crypto: window.crypto,
         fetch: malformedFetch,
         history: { replaceState: vi.fn() },
-        location: { hash: "#mish-desktop-window-trigger=short", pathname: "/trigger" },
+        location: { hash: "#token=short", pathname: "/trigger" },
         status: malformedStatus,
       }),
     ).resolves.toBe(false);
@@ -87,7 +87,7 @@ describe("development desktop-window trigger client in Chromium", () => {
         fetch: vi.fn(async () => new Response(null, { status: 409 })),
         history: { replaceState: vi.fn() },
         location: {
-          hash: `#mish-desktop-window-trigger=${"b".repeat(43)}`,
+          hash: `#token=${"b".repeat(43)}`,
           pathname: "/__openWindow",
         },
         status: rejectedStatus,

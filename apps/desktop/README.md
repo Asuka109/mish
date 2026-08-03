@@ -29,8 +29,8 @@ and status bar without creating the main WebView. Readiness prints exactly one
 current Browser Client URL and one development-only desktop-window trigger URL:
 
 ```text
-Mish Browser Client URL: http://127.0.0.1:<port>/#mish-browser-launch=<capability>
-Mish Desktop Window Trigger URL: http://127.0.0.1:<port>/__openWindow#mish-desktop-window-trigger=<capability>
+Mish Browser Client URL: http://127.0.0.1:<port>/#token=<capability>
+Mish Desktop Window Trigger URL: http://127.0.0.1:<port>/__openWindow#token=<capability>
 ```
 
 Open the Browser Client for the primary no-window development surface. Open the

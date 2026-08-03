@@ -100,7 +100,7 @@ export function hostUrlOpenerCommand(platform: NodeJS.Platform, url: string): Ho
 
 export function browserClientUrlFromOutput(output: string): string | null {
   const match = output.match(
-    /(?:^|\n)Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#mish-browser-launch=[A-Za-z0-9_-]{43})(?:\r?\n|$)/u,
+    /(?:^|\n)Mish Browser Client URL: (http:\/\/127\.0\.0\.1:\d+\/#token=[A-Za-z0-9_-]{43})(?:\r?\n|$)/u,
   );
   return match?.[1] ?? null;
 }

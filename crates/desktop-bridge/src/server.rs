@@ -102,8 +102,6 @@ const DEVELOPMENT_WINDOW_TRIGGER_REQUEST_LIMIT: usize = 64;
 #[cfg(feature = "development-window-trigger")]
 const DEVELOPMENT_WINDOW_TRIGGER_PATH: &str = "/__openWindow";
 #[cfg(feature = "development-window-trigger")]
-const DEVELOPMENT_WINDOW_TRIGGER_CLIENT_PATH: &str = "/__openWindow-client.js";
-#[cfg(feature = "development-window-trigger")]
 const DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH: &str = "/__openWindow.js";
 
 struct BrowserPairing {
@@ -162,7 +160,7 @@ pub struct DevelopmentWindowTriggerHandle {
 impl DevelopmentWindowTriggerHandle {
     pub fn issue_url(&self) -> String {
         format!(
-            "http://{}{}#mish-desktop-window-trigger={}",
+            "http://{}{}#token={}",
             self.address, DEVELOPMENT_WINDOW_TRIGGER_PATH, self.capability
         )
     }
@@ -196,10 +194,7 @@ impl BrowserClientHandle {
             expires_at: now + BROWSER_PAIRING_LIFETIME,
             token: token.clone(),
         });
-        Ok(format!(
-            "http://{}/#mish-browser-launch={token}",
-            self.address
-        ))
+        Ok(format!("http://{}/#token={token}", self.address))
     }
 }
 
@@ -655,10 +650,6 @@ async fn start_loopback_server_internal(
                 .layer(DefaultBodyLimit::max(1024)),
         )
         .route(
-            DEVELOPMENT_WINDOW_TRIGGER_CLIENT_PATH,
-            get(development_window_trigger_client),
-        )
-        .route(
             DEVELOPMENT_WINDOW_TRIGGER_ENTRY_PATH,
             get(development_window_trigger_entry),
         );
@@ -769,21 +760,6 @@ async fn development_window_trigger_page(
         &headers,
         "text/html; charset=utf-8",
         include_bytes!("../assets/development-window-trigger.html"),
-    )
-}
-
-#[cfg(feature = "development-window-trigger")]
-async fn development_window_trigger_client(
-    State(state): State<Arc<HttpState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-) -> Response {
-    development_window_trigger_asset(
-        &state,
-        peer,
-        &headers,
-        "text/javascript; charset=utf-8",
-        include_bytes!("../assets/development-window-trigger-client.js"),
     )
 }
 
