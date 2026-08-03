@@ -41,7 +41,10 @@ export const MobilePlatformKindSchema = z.enum(["android", "ios"]);
 export type MobilePlatformKind = z.infer<typeof MobilePlatformKindSchema>;
 
 export const MobileFixtureCapabilitySchema = z
-  .object({ availability: z.literal("unavailable"), kind: z.literal("fixture") })
+  .object({
+    availability: z.enum(["available", "unavailable"]),
+    kind: z.enum(["fixture", "native"]),
+  })
   .strict();
 export interface MobileFixtureCapabilityDto extends z.infer<typeof MobileFixtureCapabilitySchema> {}
 
@@ -100,13 +103,19 @@ export const MobileVpnLifecycleOperationOutcomeSchema = z.enum([
 export const MobileVpnLifecycleFailureSchema = z.enum([
   "busy",
   "cancelled",
+  "configuration-not-loaded",
+  "core-failure",
+  "core-unavailable",
   "invalid-command",
   "invalid-recovery-evidence",
+  "network-unavailable",
   "permission-denied",
   "platform-failure",
+  "public-request-failed",
   "service-destroyed",
   "stale-platform-authority",
   "timeout",
+  "tun-failure",
 ]);
 export const MobileVpnLifecycleOperationSchema = z
   .object({
@@ -131,16 +140,21 @@ export interface MobileVpnLifecycleOperationDto extends z.infer<
 
 export const MobileVpnSnapshotSchema = z
   .object({
+    activationSessionId: z.string().min(1).max(128).nullable(),
+    activeNetwork: z.boolean(),
     authorityId: IdentifierSchema.max(128),
-    backendKind: z.literal("fixture"),
+    backendKind: z.enum(["fixture", "native"]),
     contractVersion: z.literal(1),
     coreAbiVersion: z.literal(1).nullable(),
     coreAvailability: z.enum(["unavailable", "available"]),
     coreCommit: z.string().min(7).max(64).nullable(),
     configFailureInjectionAvailable: z.boolean(),
     coreConfigState: z.enum(["unloaded", "loaded", "unknown"]),
+    coreRunning: z.boolean(),
     coreVersion: z.string().min(1).max(32).nullable(),
     coreWrapperRevision: z.string().min(1).max(64).nullable(),
+    dnsApplied: z.boolean(),
+    failure: MobileVpnLifecycleFailureSchema.nullable(),
     foreground: z.boolean(),
     loadedConfigDigest: z
       .string()
@@ -152,18 +166,22 @@ export const MobileVpnSnapshotSchema = z
     operation: MobileVpnLifecycleOperationSchema.nullable(),
     permission: MobileVpnPermissionSchema,
     phase: MobileVpnPhaseSchema,
+    protectedSocketCount: z.number().int().nonnegative().max(1),
+    publicRequestObserved: z.boolean(),
     revision: z.number().int().nonnegative(),
     sequence: z.number().int().nonnegative(),
     sessionId: z.string().min(1).max(128),
+    routesApplied: z.boolean(),
+    tunEstablished: z.boolean(),
     updatedAtMillis: z.number().int().nonnegative(),
     validatedConfigDigest: z
       .string()
       .regex(/^[0-9a-f]{64}$/u)
       .nullable(),
     validatedConfigRevision: z.string().min(1).max(128).nullable(),
-    vpnActive: z.literal(false),
-    vpnAvailability: z.literal("unavailable"),
-    tunAvailability: z.literal("unavailable"),
+    vpnActive: z.boolean(),
+    vpnAvailability: z.enum(["available", "unavailable"]),
+    tunAvailability: z.enum(["available", "unavailable"]),
   })
   .strict()
   .superRefine((snapshot, context) => {
@@ -183,18 +201,64 @@ export const MobileVpnSnapshotSchema = z
         path: ["coreAvailability"],
       });
     }
-    if (snapshot.foreground && !["starting", "stopping", "unavailable"].includes(snapshot.phase)) {
+    if (
+      snapshot.foreground &&
+      !["starting", "running", "stopping", "unavailable"].includes(snapshot.phase)
+    ) {
       context.addIssue({
         code: "custom",
         message:
-          "The Phase 0 fixture may be foreground only during a transition or its explicit unavailable lifecycle",
+          "Android foreground ownership must agree with an active or transitioning lifecycle",
         path: ["foreground"],
       });
     }
-    if (snapshot.phase === "running") {
+    if (snapshot.backendKind === "fixture" && snapshot.phase === "running") {
       context.addIssue({
         code: "custom",
-        message: "The Phase 0 fixture must never report a running VPN",
+        message: "A fixture backend must never report a running VPN",
+        path: ["phase"],
+      });
+    }
+    const completeRunningObservation =
+      snapshot.activationSessionId === snapshot.sessionId &&
+      snapshot.activeNetwork &&
+      snapshot.coreRunning &&
+      snapshot.dnsApplied &&
+      snapshot.foreground &&
+      snapshot.protectedSocketCount > 0 &&
+      snapshot.publicRequestObserved &&
+      snapshot.routesApplied &&
+      snapshot.tunEstablished &&
+      snapshot.vpnActive;
+    if (snapshot.phase === "running" && !completeRunningObservation) {
+      context.addIssue({
+        code: "custom",
+        message: "Running requires complete same-session native VPN observation",
+        path: ["phase"],
+      });
+    }
+    if (snapshot.vpnActive !== snapshot.tunEstablished) {
+      context.addIssue({
+        code: "custom",
+        message: "VPN activity must agree with the owned TUN observation",
+        path: ["vpnActive"],
+      });
+    }
+    if (
+      snapshot.phase === "stopped" &&
+      (snapshot.activationSessionId !== null ||
+        snapshot.activeNetwork ||
+        snapshot.coreRunning ||
+        snapshot.dnsApplied ||
+        snapshot.foreground ||
+        snapshot.protectedSocketCount !== 0 ||
+        snapshot.routesApplied ||
+        snapshot.tunEstablished ||
+        snapshot.publicRequestObserved)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Stopped must not retain Mish-owned Android runtime resources",
         path: ["phase"],
       });
     }

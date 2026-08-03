@@ -25,16 +25,21 @@ const fixture = {
 };
 
 const initialSnapshot: MobileVpnSnapshotDto = {
+  activationSessionId: null,
+  activeNetwork: false,
   authorityId: "mobile-home-authority",
   backendKind: "fixture",
   contractVersion: 1,
   coreAbiVersion: null,
   coreAvailability: "unavailable",
+  coreRunning: false,
   coreCommit: null,
   configFailureInjectionAvailable: false,
   coreConfigState: "unloaded",
   coreVersion: null,
   coreWrapperRevision: null,
+  dnsApplied: false,
+  failure: null,
   foreground: false,
   loadedConfigDigest: null,
   loadedConfigRevision: null,
@@ -43,7 +48,10 @@ const initialSnapshot: MobileVpnSnapshotDto = {
   operation: null,
   permission: "required",
   phase: "permission-required",
+  protectedSocketCount: 0,
+  publicRequestObserved: false,
   revision: 1,
+  routesApplied: false,
   sequence: 1,
   sessionId: "session-1",
   updatedAtMillis: 1,
@@ -52,12 +60,13 @@ const initialSnapshot: MobileVpnSnapshotDto = {
   vpnActive: false,
   vpnAvailability: "unavailable",
   tunAvailability: "unavailable",
+  tunEstablished: false,
 };
 
 class TestMobileVpnClient implements MobileVpnClient {
   readonly requestNotificationPermission = vi.fn(async () => this.snapshot);
   readonly requestVpnConsent = vi.fn(async () => this.snapshot);
-  readonly startFixtureLifecycle = vi.fn(async () => this.snapshot);
+  readonly start = vi.fn(async (_options?: { signal?: AbortSignal }) => this.snapshot);
   readonly stop = vi.fn(async () => this.snapshot);
   readonly loadConfig = vi.fn(
     async (
@@ -187,7 +196,7 @@ describe("MobileHomePage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Checking native lifecycle" })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Starting VPN" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Pending" })).toBeDisabled();
     });
 
@@ -201,13 +210,42 @@ describe("MobileHomePage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "VPN unavailable" })).toBeVisible();
-      expect(screen.getByRole("button", { name: "Stop Lifecycle Check" })).toBeEnabled();
+      expect(screen.getByRole("heading", { name: "Waiting for network" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Stop VPN" })).toBeEnabled();
     });
-    expect(screen.getByText(/No device traffic is being routed/)).toBeVisible();
+    expect(screen.getByText(/No usable underlying network/)).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop Lifecycle Check" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop VPN" }));
     expect(client.stop).toHaveBeenCalledOnce();
+  });
+
+  it("cancels an admitted start through the typed lifecycle cancellation command", async () => {
+    const ready = {
+      ...initialSnapshot,
+      notificationPermission: "granted" as const,
+      permission: "granted" as const,
+      phase: "stopped" as const,
+    };
+    const client = new TestMobileVpnClient(ready);
+    client.start.mockImplementation(
+      async (options) =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => resolve({ ...ready, phase: "stopped", sequence: 3 }),
+            { once: true },
+          );
+        }),
+    );
+    renderHome(client);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start VPN" }));
+    client.publish({ ...ready, foreground: true, phase: "starting", sequence: 2 });
+
+    const cancel = await screen.findByRole("button", { name: "Stop VPN" });
+    expect(cancel).toBeEnabled();
+    fireEvent.click(cancel);
+    expect(client.start.mock.calls[0]?.[0]?.signal?.aborted).toBe(true);
   });
 
   it("replaces a terminal failure with a direct native retry action", async () => {
@@ -222,10 +260,10 @@ describe("MobileHomePage", () => {
       sequence: 2,
     });
 
-    const retry = await screen.findByRole("button", { name: "Retry Lifecycle Check" });
-    expect(screen.getByRole("heading", { name: "Lifecycle check failed" })).toBeVisible();
+    const retry = await screen.findByRole("button", { name: "Retry VPN Activation" });
+    expect(screen.getByRole("heading", { name: "VPN activation failed" })).toBeVisible();
     fireEvent.click(retry);
-    expect(client.startFixtureLifecycle).toHaveBeenCalledOnce();
+    expect(client.start).toHaveBeenCalledOnce();
   });
 
   it("shows verified package identity without claiming a current Profile, route, or traffic", () => {
@@ -243,7 +281,7 @@ describe("MobileHomePage", () => {
     expect(screen.getByText("Mihomo v1.19.29")).toBeVisible();
     expect(
       screen.getByText(
-        "Package identity is verified. Loading does not initialize VPN/TUN or start traffic handling.",
+        "Package identity is verified. VPN activation still requires an exact loaded configuration.",
       ),
     ).toBeVisible();
     expect(screen.getAllByText("Unavailable")).toHaveLength(3);
@@ -390,8 +428,8 @@ describe("MobileHomePage", () => {
     const { container } = renderHome(new TestMobileVpnClient(), "zh");
     const notice = container.querySelector(".mobile-home-fixture-notice");
 
-    expect(notice).toHaveTextContent("开发边界");
-    expect(notice).toHaveTextContent("无法启动代理、创建虚拟网卡或转发设备流量");
+    expect(notice).toHaveTextContent("有界配置");
+    expect(notice).toHaveTextContent("路径、Controller 访问和任意原生命令均不可用");
     expect(container.querySelector(".mobile-fixture-banner")).toBeNull();
   });
 });

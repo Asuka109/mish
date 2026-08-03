@@ -20,8 +20,8 @@ use crate::{
     MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
     MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
     lifecycle::{
-        LifecycleCommandKind, LifecycleEffect, LifecycleInput, LifecycleMachine, LifecycleState,
-        PlatformAction, PlatformFacts,
+        ActivationAuthority, LifecycleCommandKind, LifecycleEffect, LifecycleInput,
+        LifecycleMachine, LifecycleState, PlatformAction, PlatformFacts,
     },
     models::{MobileConfigValidationOutcome, MobileVpnEvent},
 };
@@ -49,6 +49,28 @@ struct NativeListenerPayload {
 
 #[derive(Serialize)]
 struct EmptyPayload {}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformStartRequest {
+    config_digest: String,
+    config_revision: String,
+    fact_sequence: u64,
+    platform_session_id: String,
+    product_session_id: String,
+}
+
+impl From<ActivationAuthority> for PlatformStartRequest {
+    fn from(value: ActivationAuthority) -> Self {
+        Self {
+            config_digest: value.config_digest,
+            config_revision: value.config_revision,
+            fact_sequence: value.fact_sequence,
+            platform_session_id: value.platform_session_id,
+            product_session_id: value.product_session_id,
+        }
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -202,10 +224,7 @@ impl<R: Runtime> MishVpn<R> {
             .await
     }
 
-    pub async fn start_fixture_lifecycle(
-        &self,
-        request: MobileVpnCommandRequest,
-    ) -> Result<MobileVpnCommandResult> {
+    pub async fn start(&self, request: MobileVpnCommandRequest) -> Result<MobileVpnCommandResult> {
         self.execute_command(LifecycleCommandKind::Start, request)
             .await
     }
@@ -235,10 +254,33 @@ impl<R: Runtime> MishVpn<R> {
                 timed_out: false,
             })
             .await;
-        Ok(command_result_or_invalid(
-            &runtime.runner.snapshot(),
-            request.operation_id,
-        ))
+        if let Some(result) =
+            MobileVpnCommandResult::from_state(&runtime.runner.snapshot(), &request.operation_id)
+        {
+            return Ok(result);
+        }
+        let mut updates = runtime.updates.clone();
+        let operation_id = request.operation_id;
+        let terminal = async {
+            loop {
+                if let Some(result) =
+                    MobileVpnCommandResult::from_state(&updates.borrow(), &operation_id)
+                {
+                    return result;
+                }
+                if updates.changed().await.is_err() {
+                    return command_result_or_invalid(
+                        &runtime.runner.snapshot(),
+                        operation_id.clone(),
+                    );
+                }
+            }
+        };
+        Ok(tokio::time::timeout(COMMAND_TIMEOUT, terminal)
+            .await
+            .unwrap_or_else(|_| {
+                command_result_or_invalid(&runtime.runner.snapshot(), operation_id.clone())
+            }))
     }
 
     async fn execute_command(
@@ -505,16 +547,47 @@ impl<R: Runtime> EffectExecutor<LifecycleMachine> for AndroidLifecycleExecutor<R
     ) -> Pin<Box<dyn Future<Output = LifecycleInput> + Send + 'static>> {
         let handle = self.handle.clone();
         Box::pin(async move {
-            let command = match effect.action {
-                PlatformAction::RequestNotificationPermission => "requestNotificationPermission",
-                PlatformAction::RequestVpnConsent => "requestVpnConsent",
-                PlatformAction::StartForegroundService => "startPlatformLifecycle",
-                PlatformAction::StopForegroundService => "stopPlatformLifecycle",
+            let result = match effect.action {
+                PlatformAction::StartForegroundService => {
+                    let Some(activation) = effect.activation.clone() else {
+                        return LifecycleInput::EffectFailed {
+                            action: effect.action,
+                            correlation: effect.correlation,
+                        };
+                    };
+                    handle
+                        .run_mobile_plugin_async::<PlatformFacts>(
+                            "startPlatformLifecycle",
+                            PlatformStartRequest::from(activation),
+                        )
+                        .await
+                }
+                PlatformAction::RequestNotificationPermission => {
+                    handle
+                        .run_mobile_plugin_async::<PlatformFacts>(
+                            "requestNotificationPermission",
+                            EmptyPayload {},
+                        )
+                        .await
+                }
+                PlatformAction::RequestVpnConsent => {
+                    handle
+                        .run_mobile_plugin_async::<PlatformFacts>(
+                            "requestVpnConsent",
+                            EmptyPayload {},
+                        )
+                        .await
+                }
+                PlatformAction::StopForegroundService => {
+                    handle
+                        .run_mobile_plugin_async::<PlatformFacts>(
+                            "stopPlatformLifecycle",
+                            EmptyPayload {},
+                        )
+                        .await
+                }
             };
-            match handle
-                .run_mobile_plugin_async::<PlatformFacts>(command, EmptyPayload {})
-                .await
-            {
+            match result {
                 Ok(facts) => LifecycleInput::EffectCompleted {
                     action: effect.action,
                     correlation: effect.correlation,

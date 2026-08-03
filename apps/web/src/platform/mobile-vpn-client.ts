@@ -9,6 +9,7 @@ import {
   type MobileConfigLoadResultDto,
   type MobileConfigValidationFailure,
   type MobileConfigValidationResultDto,
+  type MobileVpnCommandResultDto,
   type MobileVpnSnapshotDto,
 } from "@mish/contracts";
 import { invoke } from "@tauri-apps/api/core";
@@ -52,7 +53,7 @@ export interface MobileVpnClient {
   ): Promise<MobileConfigLoadResultDto>;
   requestNotificationPermission(): Promise<MobileVpnSnapshotDto>;
   requestVpnConsent(): Promise<MobileVpnSnapshotDto>;
-  startFixtureLifecycle(): Promise<MobileVpnSnapshotDto>;
+  start(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   stop(): Promise<MobileVpnSnapshotDto>;
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void): () => void;
   validateConfig(
@@ -116,8 +117,8 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     return this.runLifecycleCommand("request_vpn_consent", "request-vpn-consent");
   }
 
-  startFixtureLifecycle(): Promise<MobileVpnSnapshotDto> {
-    return this.runLifecycleCommand("start_fixture_lifecycle", "start");
+  start(options: { signal?: AbortSignal } = {}): Promise<MobileVpnSnapshotDto> {
+    return this.runLifecycleCommand("start", "start", options);
   }
 
   stop(): Promise<MobileVpnSnapshotDto> {
@@ -370,11 +371,26 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private async runLifecycleCommand(
     command: string,
     kind: "request-notification-permission" | "request-vpn-consent" | "start" | "stop",
+    options: { signal?: AbortSignal } = {},
   ): Promise<MobileVpnSnapshotDto> {
     const operationId = `mobile-vpn-${kind}-${Date.now()}-${++this.lifecycleOperationSequence}`;
-    const result = MobileVpnCommandResultSchema.parse(
-      await this.transport.invoke(command, { request: { operationId } }),
-    );
+    const onAbort = () => {
+      void this.transport
+        .invoke("cancel_lifecycle_operation", { request: { operationId } })
+        .then((value) => MobileVpnCommandResultSchema.parse(value))
+        .then((value) => this.acceptSnapshot(value.snapshot))
+        .catch(() => undefined);
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+    let result: MobileVpnCommandResultDto;
+    try {
+      result = MobileVpnCommandResultSchema.parse(
+        await this.transport.invoke(command, { request: { operationId } }),
+      );
+    } finally {
+      options.signal?.removeEventListener("abort", onAbort);
+    }
     if (result.operation.operationId !== operationId || result.operation.kind !== kind) {
       throw new Error("The mobile VPN lifecycle result identity was invalid.");
     }

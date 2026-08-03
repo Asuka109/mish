@@ -106,19 +106,45 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun startPlatformLifecycle(invoke: Invoke) {
-        val observed = observePlatformFacts()
-        if (observed.vpnPermission != "granted") {
+        val args = runCatching { invoke.parseArgs(StartLifecycleArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(store.current())
+                return
+            }
+        val observed = store.current()
+        if (
+            observed.vpnPermission != "granted" ||
+            observed.platformSessionId != args.platformSessionId ||
+            observed.factSequence != args.factSequence ||
+            observed.coreConfigState != "loaded" ||
+            observed.loadedConfigDigest != args.configDigest ||
+            observed.loadedConfigRevision != args.configRevision ||
+            !args.configDigest.matches(DIGEST_PATTERN) ||
+            !args.configRevision.matches(IDENTIFIER_PATTERN) ||
+            !args.productSessionId.matches(IDENTIFIER_PATTERN)
+        ) {
             invoke.resolveObject(observed)
             return
         }
-        val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_START)
+        val intent = Intent(activity, MishVpnService::class.java)
+            .setAction(MishVpnService.ACTION_START)
+            .putExtra(MishVpnService.EXTRA_CONFIG_DIGEST, args.configDigest)
+            .putExtra(MishVpnService.EXTRA_CONFIG_REVISION, args.configRevision)
+            .putExtra(MishVpnService.EXTRA_FACT_SEQUENCE, args.factSequence)
+            .putExtra(MishVpnService.EXTRA_PLATFORM_SESSION_ID, args.platformSessionId)
+            .putExtra(MishVpnService.EXTRA_PRODUCT_SESSION_ID, args.productSessionId)
         val initialSequence = observed.factSequence
         runCatching { ContextCompat.startForegroundService(activity, intent) }
             .onFailure {
                 invoke.resolveObject(store.current())
                 return
             }
-        resolveAfterPlatformEffect(invoke, initialSequence) { it.serviceForeground }
+        resolveAfterPlatformEffect(invoke, initialSequence) {
+            it.event in setOf(
+                PlatformEventKind.ACTIVATION_COMPLETED.wireName,
+                PlatformEventKind.ACTIVATION_FAILED.wireName,
+            )
+        }
     }
 
     @Command
@@ -135,7 +161,12 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.resolveObject(store.current())
                 return
             }
-        resolveAfterPlatformEffect(invoke, initialSequence) { !it.serviceForeground }
+        resolveAfterPlatformEffect(invoke, initialSequence) {
+            it.event == PlatformEventKind.STOP_COMPLETED.wireName &&
+                !it.serviceForeground &&
+                !it.coreRunning &&
+                !it.tunEstablished
+        }
     }
 
     @Command
@@ -206,8 +237,9 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         store.reconcilePermissions(vpnPermission, notificationPermission)
         store.reconcileCore(coreProbe.inspect())
         store.reconcileFailureInjection(failureInjectionAvailable)
-        val expectedDigest = store.current().loadedConfigDigest
-        return store.reconcileLoadedConfig(coreProbe.inspectLoaded(expectedDigest))
+        val latest = store.current()
+        if (latest.coreRunning) return latest
+        return store.reconcileLoadedConfig(coreProbe.inspectLoaded(latest.loadedConfigDigest))
     }
 
     private fun resolveAfterPlatformEffect(
@@ -251,6 +283,8 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private companion object {
-        const val PLATFORM_EFFECT_TIMEOUT_MILLIS = 5_000L
+        const val PLATFORM_EFFECT_TIMEOUT_MILLIS = 30_000L
+        val DIGEST_PATTERN = Regex("^[0-9a-f]{64}$")
+        val IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
     }
 }

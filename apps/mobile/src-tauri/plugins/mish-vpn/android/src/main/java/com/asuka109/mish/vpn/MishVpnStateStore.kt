@@ -117,13 +117,68 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
             it.copy(notificationPermission = if (granted) "granted" else "denied")
         }
 
-    fun serviceStarted(serviceInstanceId: String): MobilePlatformFacts {
+    fun activationStarting(
+        serviceInstanceId: String,
+        productSessionId: String,
+    ): MobilePlatformFacts {
         persistRecoveryRecord(serviceInstanceId)
         ProcessRuntimeRegistry.serviceActive = true
-        return publish(PlatformEventKind.START_COMPLETED) {
+        return publish(PlatformEventKind.ACTIVATION_PROGRESS) {
             it.copy(
+                activationFailure = null,
+                activationSessionId = productSessionId,
+                activeNetwork = false,
+                coreRunning = false,
+                dnsApplied = false,
+                protectedSocketCount = 0,
+                publicRequestObserved = false,
                 recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
+                routesApplied = false,
                 serviceForeground = true,
+                tunEstablished = false,
+            )
+        }
+    }
+
+    fun tunEstablished(): MobilePlatformFacts = publish(PlatformEventKind.ACTIVATION_PROGRESS) {
+        it.copy(dnsApplied = true, routesApplied = true, tunEstablished = true)
+    }
+
+    fun coreStarted(): MobilePlatformFacts = publish(PlatformEventKind.ACTIVATION_PROGRESS) {
+        it.copy(coreRunning = true)
+    }
+
+    fun protectedSocketObserved(): MobilePlatformFacts {
+        val current = current()
+        if (current.protectedSocketCount > 0) return current
+        return publish(PlatformEventKind.ACTIVATION_PROGRESS) {
+            it.copy(protectedSocketCount = 1)
+        }
+    }
+
+    fun networkChanged(available: Boolean): MobilePlatformFacts =
+        publish(PlatformEventKind.NETWORK_CHANGED) {
+            it.copy(
+                activeNetwork = available,
+                publicRequestObserved = false,
+            )
+        }
+
+    fun activationCompleted(): MobilePlatformFacts =
+        publish(PlatformEventKind.ACTIVATION_COMPLETED) {
+            it.copy(activationFailure = null, publicRequestObserved = true)
+        }
+
+    fun activationFailed(
+        failure: PlatformFailureKind,
+        productSessionId: String? = current().activationSessionId,
+    ): MobilePlatformFacts {
+        clearRecoveryRecord()
+        ProcessRuntimeRegistry.serviceActive = false
+        return publish(PlatformEventKind.ACTIVATION_FAILED) {
+            cleanedFacts(it).copy(
+                activationFailure = failure.wireName,
+                activationSessionId = productSessionId,
             )
         }
     }
@@ -132,10 +187,7 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
         clearRecoveryRecord()
         ProcessRuntimeRegistry.serviceActive = false
         return publish(PlatformEventKind.STOP_COMPLETED) {
-            it.copy(
-                recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
-                serviceForeground = false,
-            )
+            cleanedFacts(it).copy(activationFailure = null)
         }
     }
 
@@ -143,23 +195,49 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
         clearRecoveryRecord()
         ProcessRuntimeRegistry.serviceActive = false
         return publish(PlatformEventKind.REVOKED) {
-            it.copy(
-                recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
-                serviceForeground = false,
+            cleanedFacts(it).copy(
+                activationFailure = PlatformFailureKind.PERMISSION_REVOKED.wireName,
                 vpnPermission = "required",
             )
         }
     }
 
-    fun serviceDestroyed(): MobilePlatformFacts {
+    fun coreExited(): MobilePlatformFacts {
+        clearRecoveryRecord()
         ProcessRuntimeRegistry.serviceActive = false
-        return publish(PlatformEventKind.SERVICE_DESTROYED) {
-            it.copy(
-                recoveryEvidence = PlatformRecoveryEvidence.FOREGROUND_EXPECTED.wireName,
-                serviceForeground = false,
-            )
+        return publish(PlatformEventKind.CORE_EXITED) {
+            cleanedFacts(it).copy(activationFailure = PlatformFailureKind.CORE_EXITED.wireName)
         }
     }
+
+    fun serviceDestroyed(cleanupSucceeded: Boolean): MobilePlatformFacts {
+        if (cleanupSucceeded) clearRecoveryRecord()
+        ProcessRuntimeRegistry.serviceActive = false
+        return publish(PlatformEventKind.SERVICE_DESTROYED) {
+            if (cleanupSucceeded) {
+                cleanedFacts(it)
+            } else {
+                it.copy(
+                    activationFailure = PlatformFailureKind.CLEANUP_FAILED.wireName,
+                    recoveryEvidence = PlatformRecoveryEvidence.FOREGROUND_EXPECTED.wireName,
+                    serviceForeground = false,
+                )
+            }
+        }
+    }
+
+    private fun cleanedFacts(facts: MobilePlatformFacts): MobilePlatformFacts = facts.copy(
+        activationSessionId = null,
+        activeNetwork = false,
+        coreRunning = false,
+        dnsApplied = false,
+        protectedSocketCount = 0,
+        publicRequestObserved = false,
+        recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
+        routesApplied = false,
+        serviceForeground = false,
+        tunEstablished = false,
+    )
 
     private fun initialFacts(): MobilePlatformFacts {
         val core = readCoreEvidence()

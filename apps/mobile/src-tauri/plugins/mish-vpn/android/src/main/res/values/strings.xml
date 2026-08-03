@@ -1,7 +1,7 @@
 <resources>
     <string name="mish_vpn_channel_description">Persistent status for the Mish Android VPN lifecycle</string>
     <string name="mish_vpn_channel_name">VPN status</string>
-    <string name="mish_vpn_fixture_notification">Lifecycle fixture only · no traffic capture</string>
+    <string name="mish_vpn_running_notification">Traffic is protected by the embedded Mobile Core</string>
     <string name="mish_vpn_notification_title">Mish VPN lifecycle</string>
     <string name="mish_vpn_stop">Stop</string>
 </resources>

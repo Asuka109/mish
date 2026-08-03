@@ -22,14 +22,19 @@ struct FixtureCapability {
 
 #[tauri::command]
 fn mobile_fixture_bootstrap() -> MobileFixtureBootstrap {
+    let android = cfg!(target_os = "android");
     MobileFixtureBootstrap {
         adapter_kind: "native",
         contract_version: CONTRACT_VERSION,
         core: FixtureCapability {
-            availability: "unavailable",
-            kind: "fixture",
+            availability: if android { "available" } else { "unavailable" },
+            kind: if android { "native" } else { "fixture" },
         },
-        message: "Native fixture connected. Bounded Core loading is separate from unavailable VPN/TUN.",
+        message: if android {
+            "Android VPN and embedded Mobile Core boundaries are available through typed commands."
+        } else {
+            "The Android VPN and embedded Mobile Core boundaries are unavailable on this platform."
+        },
         platform: if cfg!(target_os = "android") {
             "android"
         } else if cfg!(target_os = "ios") {
@@ -39,8 +44,8 @@ fn mobile_fixture_bootstrap() -> MobileFixtureBootstrap {
         },
         target_abis: ["arm64-v8a", "x86_64"],
         vpn: FixtureCapability {
-            availability: "unavailable",
-            kind: "fixture",
+            availability: if android { "available" } else { "unavailable" },
+            kind: if android { "native" } else { "fixture" },
         },
     }
 }

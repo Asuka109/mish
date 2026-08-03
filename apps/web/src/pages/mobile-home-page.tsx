@@ -305,10 +305,12 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [loadInFlight, setLoadInFlight] = useState(false);
   const commandInFlight = useRef(false);
+  const lifecycleAbortController = useRef<AbortController | undefined>(undefined);
   const loadInFlightRef = useRef(false);
   const projection = projectMobileHome(LL, snapshot);
   const core = coreEvidence(LL, snapshot);
   const config = configEvidence(LL, snapshot);
+  const canCancelStart = snapshot.phase === "starting" && snapshot.foreground;
 
   useEffect(
     () =>
@@ -327,8 +329,13 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
   }, [publish, retire, snapshot.phase]);
 
   async function runLifecycleAction() {
-    if (commandInFlight.current || projection.busy) return;
+    if (commandInFlight.current) {
+      if (canCancelStart) lifecycleAbortController.current?.abort();
+      return;
+    }
+    if (projection.busy) return;
     commandInFlight.current = true;
+    let controller: AbortController | undefined;
     try {
       let nextSnapshot: MobileVpnSnapshotDto;
       if (projection.action === "stop") {
@@ -338,7 +345,9 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
       } else if (projection.action === "notification") {
         nextSnapshot = await vpnClient.requestNotificationPermission();
       } else {
-        nextSnapshot = await vpnClient.startFixtureLifecycle();
+        controller = new AbortController();
+        lifecycleAbortController.current = controller;
+        nextSnapshot = await vpnClient.start({ signal: controller.signal });
       }
       if (hasLifecycleFailure(nextSnapshot)) {
         publish(lifecycleFailureNotification());
@@ -348,6 +357,9 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
     } catch {
       publish(lifecycleFailureNotification());
     } finally {
+      if (lifecycleAbortController.current === controller) {
+        lifecycleAbortController.current = undefined;
+      }
       commandInFlight.current = false;
     }
   }
@@ -387,7 +399,16 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
         <section
           aria-labelledby="mobile-home-vpn-state"
           className={styles.authority()}
+          data-active-network={snapshot.activeNetwork}
+          data-core-running={snapshot.coreRunning}
+          data-dns-applied={snapshot.dnsApplied}
+          data-foreground={snapshot.foreground}
           data-phase={snapshot.phase}
+          data-protected-sockets={snapshot.protectedSocketCount}
+          data-public-request={snapshot.publicRequestObserved}
+          data-routes-applied={snapshot.routesApplied}
+          data-same-session={snapshot.activationSessionId === snapshot.sessionId}
+          data-tun-established={snapshot.tunEstablished}
         >
           <div aria-live="polite" className={styles.authorityHeader()}>
             <span aria-hidden="true" className={styles.authorityIcon()}>
@@ -408,11 +429,15 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
               aria-busy={projection.busy}
               aria-describedby="mobile-home-vpn-description"
               className={styles.action()}
-              disabled={projection.busy}
+              disabled={projection.busy && !canCancelStart}
               onClick={() => void runLifecycleAction()}
             >
               {projection.busy ? <Spinner data-icon="inline-start" /> : null}
-              {projection.busy ? LL.common.pending() : projection.actionLabel}
+              {canCancelStart
+                ? LL.mobileFixture.stopAction()
+                : projection.busy
+                  ? LL.common.pending()
+                  : projection.actionLabel}
             </Button>
           ) : null}
         </section>

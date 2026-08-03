@@ -16,6 +16,12 @@ typedef int32_t (*MishVpnCoreValidateConfigFn)(uint8_t *config,
 typedef int32_t (*MishVpnCoreLoadConfigFn)(uint8_t *config,
                                            uint64_t config_length,
                                            MishCoreBufferV1 *response);
+typedef int32_t (*MishVpnCoreStartFn)(uint8_t *request,
+                                     uint64_t request_length,
+                                     MishCoreBufferV1 *response);
+typedef int32_t (*MishVpnCoreStopFn)(uint8_t *request,
+                                    uint64_t request_length,
+                                    MishCoreBufferV1 *response);
 typedef int32_t (*MishVpnCoreSnapshotFn)(uint8_t *request,
                                          uint64_t request_length,
                                          MishCoreBufferV1 *response);
@@ -26,6 +32,8 @@ typedef struct MishVpnCoreValidationApi {
   MishVpnCoreInitializeFn initialize;
   MishVpnCoreValidateConfigFn validate_config;
   MishVpnCoreLoadConfigFn load_config;
+  MishVpnCoreStartFn start;
+  MishVpnCoreStopFn stop;
   MishVpnCoreSnapshotFn snapshot;
   MishVpnCoreFreeBufferFn free_buffer;
 } MishVpnCoreValidationApi;
@@ -88,5 +96,34 @@ typedef struct MishVpnCoreInspectionResult {
 MishVpnCoreInspectionResult mish_vpn_inspect_loaded_config(
     const MishVpnCoreValidationApi *api, int initialized,
     const char *expected_digest);
+
+typedef enum MishVpnCoreRuntimeCode {
+  MISH_VPN_RUNTIME_RUNNING = 0,
+  MISH_VPN_RUNTIME_INACTIVE = 1,
+  MISH_VPN_RUNTIME_CONFLICT = 2,
+  MISH_VPN_RUNTIME_NOT_LOADED = 3,
+  MISH_VPN_RUNTIME_CORE_UNAVAILABLE = 4,
+  MISH_VPN_RUNTIME_PROTECTION_FAILED = 5,
+  MISH_VPN_RUNTIME_MALFORMED_RESPONSE = 6,
+  MISH_VPN_RUNTIME_NATIVE_FAILED = 7
+} MishVpnCoreRuntimeCode;
+
+typedef struct MishVpnCoreRuntimeResult {
+  int32_t code;
+  int32_t abi_status;
+} MishVpnCoreRuntimeResult;
+
+MishVpnCoreRuntimeResult mish_vpn_start_core(
+    const MishVpnCoreValidationApi *api, int *initialized,
+    MishCorePlatformV1 *platform, const char *session_id,
+    int32_t tun_file_descriptor);
+
+MishVpnCoreRuntimeResult mish_vpn_stop_core(
+    const MishVpnCoreValidationApi *api, int initialized,
+    const char *session_id);
+
+MishVpnCoreRuntimeResult mish_vpn_inspect_runtime(
+    const MishVpnCoreValidationApi *api, int initialized,
+    const char *session_id);
 
 #endif

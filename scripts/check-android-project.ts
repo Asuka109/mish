@@ -140,6 +140,7 @@ for (const requirement of [
   "android.permission.FOREGROUND_SERVICE",
   "android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED",
   "android.permission.POST_NOTIFICATIONS",
+  "android.permission.ACCESS_NETWORK_STATE",
   'android:foregroundServiceType="systemExempted"',
   'android:permission="android.permission.BIND_VPN_SERVICE"',
   '<action android:name="android.net.VpnService"',
@@ -164,7 +165,7 @@ for (const requirement of [
   "Executors.newSingleThreadExecutor",
   "class MishVpnPlatformStore",
   "PlatformRecoveryEvidence",
-  "serviceStarted",
+  "activationStarting",
   "serviceDestroyed",
   'System.loadLibrary("mish_vpn_jni")',
   "class MishMobileCoreProbe",
@@ -173,6 +174,9 @@ for (const requirement of [
   "nativeValidateConfig",
   "nativeLoadConfig",
   "nativeInspectLoadedConfig",
+  "nativeStartCore",
+  "nativeStopCore",
+  "nativeInspectRuntime",
   "MOBILE_CORE_MAX_CONFIG_BYTES_V1",
   "getPlatformFacts",
   "startPlatformLifecycle",
@@ -223,10 +227,30 @@ invariant(
     mobileVpnClient.includes("retiredAuthorityIds"),
   "Rust-to-React delivery must require a complete baseline and authority/session ordering.",
 );
-for (const forbidden of [".establish(", "ParcelFileDescriptor", "libmihomo", "MihomoCore"]) {
+for (const requirement of [
+  "class MishVpnService : VpnService()",
+  "ParcelFileDescriptor",
+  ".establish()",
+  '.addRoute("0.0.0.0", 0)',
+  '.addRoute("::", 0)',
+  ".addDnsServer(TUN_IPV4_DNS)",
+  "setUnderlyingNetworks(networks)",
+  "fun protectSocket(fileDescriptor: Int)",
+  "core.start(request.productSessionId, descriptor.fd, this)",
+  "core.stop(session)",
+  "MishVpnOwnedResourceCleanup",
+  "ProtectedSocketFactGate",
+  "PUBLIC_PROBE_URL",
+]) {
+  invariant(
+    kotlin.includes(requirement),
+    `The Android VPN vertical slice is missing: ${requirement}`,
+  );
+}
+for (const forbidden of ["libmihomo", "MihomoCore", "externalController", "external-controller"]) {
   invariant(
     !kotlin.includes(forbidden),
-    `The Phase 0 fixture must not implement a TUN or Core boundary: ${forbidden}`,
+    `Android must not expose an unbounded Core path: ${forbidden}`,
   );
 }
 for (const requirement of [
@@ -245,12 +269,18 @@ for (const requirement of [
   "mish_core_initialize_v1",
   "mish_core_validate_config_v1",
   "mish_core_load_config_v1",
+  "mish_core_start_v1",
+  "mish_core_stop_v1",
   "mish_core_snapshot_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
   "mish_vpn_load_config",
   "mish_vpn_inspect_loaded_config",
+  "mish_vpn_start_core",
+  "mish_vpn_stop_core",
+  "mish_vpn_inspect_runtime",
+  "protect_socket_with_service",
   "MISH_CORE_MAX_RESPONSE_BYTES_V1",
 ]) {
   invariant(
@@ -258,12 +288,10 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
-for (const forbidden of ["mish_core_start_v1", "mish_core_stop_v1", "mish_core_command_v1"]) {
-  invariant(
-    !pluginNativeBridge.includes(forbidden),
-    `The validation-only JNI bridge must not resolve lifecycle symbol: ${forbidden}`,
-  );
-}
+invariant(
+  !pluginNativeBridge.includes("mish_core_command_v1"),
+  "Android JNI must not resolve the unbounded Mobile Core command symbol.",
+);
 for (const requirement of [
   "SHA256SUMS",
   "--evidence-dir",
@@ -281,7 +309,7 @@ for (const command of [
   "get_snapshot",
   "request_notification_permission",
   "request_vpn_consent",
-  "start_fixture_lifecycle",
+  "start",
   "stop",
   "cancel_lifecycle_operation",
   "validate_config",
@@ -292,7 +320,7 @@ for (const command of [
 }
 invariant(
   pluginPermission.includes('"allow-request-vpn-consent"') &&
-    pluginPermission.includes('"allow-start-fixture-lifecycle"') &&
+    pluginPermission.includes('"allow-start"') &&
     pluginPermission.includes('"allow-validate-config"') &&
     pluginPermission.includes('"allow-load-config"') &&
     pluginPermission.includes('"allow-cancel-config-load"') &&
@@ -314,5 +342,5 @@ invariant(
 );
 
 console.log(
-  "Android project valid: API 36, Shared Rust-authoritative fixture lifecycle, Kotlin platform facts/effects, bounded Mobile Core validation/load bridge, truthful unavailable VPN/TUN, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, Shared Rust-authoritative VPN lifecycle, Kotlin foreground VpnService/TUN/Core effects, bounded Mobile Core validation/load/runtime bridge, dual ABI staging, predictive back, and no generated TV/FileProvider residue.",
 );

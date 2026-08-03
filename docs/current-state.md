@@ -66,6 +66,26 @@ See
 [`status-data-contracts.md`](architecture/status-data-contracts.md), and
 [`traffic-data-contracts.md`](architecture/traffic-data-contracts.md).
 
+### Android VPN Vertical Slice
+
+- Shared Rust owns the Android VPN lifecycle authority, command operation and
+  product session identity, revision/sequence, cancellation, stale completion,
+  terminal outcome, and recovery policy.
+- Kotlin owns the real foreground `VpnService`, dual-stack TUN/default routes,
+  fixed DNS policy, validated underlying-network observation, socket
+  protection, embedded Core effects, and bounded fact publication. Running is
+  gated on every same-session platform fact plus one fixed public request.
+- The closed JNI/Mobile Core path consumes only the exact bounded configuration
+  authority, duplicates the TUN descriptor inside the Core wrapper, and exposes
+  no path, Controller endpoint, or arbitrary native command.
+- Local ARM64 emulator/Appium evidence covers Running, background/foreground,
+  rotation, cancellation, network loss/recovery, process recovery, and complete
+  stop cleanup. Physical ARM64 and x86_64 emulator runtime acceptance remain
+  open gates and are not inferred from cross-compilation.
+
+See [`android-vpn-service.md`](operations/android-vpn-service.md) and
+[`mobile-validation.md`](quality/mobile-validation.md).
+
 ### Desktop Startup and Settings
 
 - Desktop bridge protocol version 32 retains separate login registration,
@@ -139,13 +159,10 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
 
 ## Not Delivered
 
-- Shared Rust authority for the Android VPN product lifecycle. The current
-  Phase 0 prototype intentionally owns fixture phase/sequence/persistence in
-  Kotlin and projects fixture Status/Profile/Traffic/Events/Settings clients.
-- Production mobile Profile activation, configuration loading, TUN/socket
-  protection, Routes, Traffic commands, Events, Diagnostics, or semantic
-  notification projection. The staged Mobile Core and JNI path expose only
-  bounded ABI/version evidence.
+- Production mobile Profile import/commit, Routes, Traffic commands, Events,
+  Diagnostics, or semantic notification projection. The first Android VPN
+  slice activates only the exact bounded configuration authority already
+  validated and loaded by the native Core contract.
 - Production Android-specific page composition beyond the current mobile shell
   and fixture banner. Shared route components are not evidence for a universal
   desktop/mobile page.

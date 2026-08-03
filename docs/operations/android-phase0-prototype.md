@@ -1,5 +1,12 @@
 # Android Phase 0 Prototype
 
+> Historical evidence: this document describes the non-routing Phase 0 build
+> and its 2026-07/08 fixture demonstrations. The current source tree contains
+> the real VPN slice documented in
+> [`android-vpn-service.md`](android-vpn-service.md). No Phase 0 fixture result
+> is evidence for that slice, and the real slice does not inherit the fixture's
+> physical-device acceptance claims.
+
 ## Scope and claim boundary
 
 Phase 0 packages the standalone Mish mobile shell with a typed Tauri native

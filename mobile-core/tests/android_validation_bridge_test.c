@@ -11,6 +11,7 @@ typedef enum FakeEnvelope {
   FAKE_VALID_LOAD,
   FAKE_STATUS_UNLOADED,
   FAKE_STATUS_LOADED,
+  FAKE_STATUS_RUNNING,
   FAKE_ERROR,
   FAKE_MALFORMED,
   FAKE_OVERSIZED
@@ -20,11 +21,15 @@ static int abi_version = MISH_CORE_ABI_VERSION_V1;
 static int initialize_calls = 0;
 static int validate_calls = 0;
 static int load_calls = 0;
+static int start_calls = 0;
+static int stop_calls = 0;
 static int snapshot_calls = 0;
 static int free_calls = 0;
 static int32_t initialize_status = MISH_CORE_OK_V1;
 static int32_t validate_status = MISH_CORE_OK_V1;
 static int32_t load_status = MISH_CORE_OK_V1;
+static int32_t start_status = MISH_CORE_OK_V1;
+static int32_t stop_status = MISH_CORE_OK_V1;
 static int32_t snapshot_status = MISH_CORE_OK_V1;
 static FakeEnvelope initialize_envelope = FAKE_VALID_INITIALIZATION;
 static FakeEnvelope validate_envelope = FAKE_VALID_CONFIG;
@@ -32,6 +37,12 @@ static FakeEnvelope load_envelope = FAKE_VALID_LOAD;
 static FakeEnvelope snapshot_envelope = FAKE_STATUS_UNLOADED;
 static const char *expected_digest =
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+static int32_t fake_protect_socket(int32_t socket_fd, void *user_data) {
+  assert(socket_fd > 0);
+  assert(user_data == NULL);
+  return 0;
+}
 
 static const char *status_code(int32_t status) {
   switch (status) {
@@ -74,6 +85,9 @@ static void allocate_response(MishCoreBufferV1 *response, FakeEnvelope envelope,
   } else if (envelope == FAKE_STATUS_LOADED) {
     payload =
         "{\"abiVersion\":1,\"data\":{\"configSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"eventSequence\":\"1\",\"loaded\":true,\"mode\":\"rule\",\"phase\":\"inactive\",\"sessionId\":null}}";
+  } else if (envelope == FAKE_STATUS_RUNNING) {
+    payload =
+        "{\"abiVersion\":1,\"data\":{\"configSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"eventSequence\":\"2\",\"loaded\":true,\"mode\":\"rule\",\"phase\":\"running\",\"sessionId\":\"session-1\"}}";
   } else if (envelope == FAKE_ERROR) {
     snprintf(error, sizeof(error),
              "{\"abiVersion\":1,\"error\":{\"code\":\"%s\",\"message\":\"safe\"}}",
@@ -122,6 +136,37 @@ static int32_t fake_load(uint8_t *config, uint64_t config_length,
   return load_status;
 }
 
+static void assert_request_contains(uint8_t *request, uint64_t request_length,
+                                    const char *needle) {
+  char encoded[768];
+  assert(request != NULL);
+  assert(request_length < sizeof(encoded));
+  memcpy(encoded, request, (size_t)request_length);
+  encoded[request_length] = '\0';
+  assert(strstr(encoded, needle) != NULL);
+}
+
+static int32_t fake_start(uint8_t *request, uint64_t request_length,
+                          MishCoreBufferV1 *response) {
+  start_calls++;
+  assert_request_contains(request, request_length, "\"sessionId\":\"session-1\"");
+  assert_request_contains(request, request_length, "\"tunFileDescriptor\":42");
+  assert_request_contains(request, request_length, "\"stack\":\"mixed\"");
+  assert_request_contains(request, request_length, "172.19.0.1/30");
+  assert_request_contains(request, request_length, "fdfe:dcba:9876::1/126");
+  assert_request_contains(request, request_length, "1.1.1.1:53");
+  allocate_response(response, FAKE_STATUS_RUNNING, start_status);
+  return start_status;
+}
+
+static int32_t fake_stop(uint8_t *request, uint64_t request_length,
+                         MishCoreBufferV1 *response) {
+  stop_calls++;
+  assert_request_contains(request, request_length, "\"sessionId\":\"session-1\"");
+  allocate_response(response, FAKE_STATUS_UNLOADED, stop_status);
+  return stop_status;
+}
+
 static int32_t fake_snapshot(uint8_t *request, uint64_t request_length,
                              MishCoreBufferV1 *response) {
   snapshot_calls++;
@@ -145,6 +190,8 @@ static MishVpnCoreValidationApi api(void) {
       .initialize = fake_initialize,
       .validate_config = fake_validate,
       .load_config = fake_load,
+      .start = fake_start,
+      .stop = fake_stop,
       .snapshot = fake_snapshot,
       .free_buffer = fake_free,
   };
@@ -156,11 +203,15 @@ static void reset_fake(void) {
   initialize_calls = 0;
   validate_calls = 0;
   load_calls = 0;
+  start_calls = 0;
+  stop_calls = 0;
   snapshot_calls = 0;
   free_calls = 0;
   initialize_status = MISH_CORE_OK_V1;
   validate_status = MISH_CORE_OK_V1;
   load_status = MISH_CORE_OK_V1;
+  start_status = MISH_CORE_OK_V1;
+  stop_status = MISH_CORE_OK_V1;
   snapshot_status = MISH_CORE_OK_V1;
   initialize_envelope = FAKE_VALID_INITIALIZATION;
   validate_envelope = FAKE_VALID_CONFIG;
@@ -190,6 +241,12 @@ int main(void) {
   MishVpnCoreValidationResult validation;
   MishVpnCoreLoadResult loaded;
   MishVpnCoreInspectionResult inspection;
+  MishVpnCoreRuntimeResult runtime;
+  MishCorePlatformV1 platform = {
+      .struct_size = sizeof(MishCorePlatformV1),
+      .protect_socket = fake_protect_socket,
+      .user_data = NULL,
+  };
   size_t status_index;
   int initialized = 0;
 
@@ -342,6 +399,39 @@ int main(void) {
   assert(inspection.code == MISH_VPN_INSPECTION_LOADED_OTHER);
   assert(free_calls == 3);
 
-  puts("Android validation/load bridge fake-native contract: ok");
+  reset_fake();
+  initialized = 1;
+  runtime = mish_vpn_start_core(&fixture_api, &initialized, &platform,
+                                "session-1", 42);
+  assert(runtime.code == MISH_VPN_RUNTIME_MALFORMED_RESPONSE);
+  assert(initialized == 0);
+  assert(initialize_calls == 1);
+  assert(start_calls == 0);
+  assert(free_calls == 1);
+
+  reset_fake();
+  initialized = 1;
+  initialize_envelope = FAKE_STATUS_LOADED;
+  runtime = mish_vpn_start_core(&fixture_api, &initialized, &platform,
+                                "session-1", 42);
+  assert(runtime.code == MISH_VPN_RUNTIME_RUNNING);
+  assert(initialize_calls == 1);
+  assert(start_calls == 1);
+  assert(free_calls == 2);
+
+  snapshot_envelope = FAKE_STATUS_RUNNING;
+  runtime = mish_vpn_inspect_runtime(&fixture_api, initialized, "session-1");
+  assert(runtime.code == MISH_VPN_RUNTIME_RUNNING);
+  runtime = mish_vpn_inspect_runtime(&fixture_api, initialized, "session-other");
+  assert(runtime.code == MISH_VPN_RUNTIME_CONFLICT);
+  assert(snapshot_calls == 2);
+  assert(free_calls == 4);
+
+  runtime = mish_vpn_stop_core(&fixture_api, initialized, "session-1");
+  assert(runtime.code == MISH_VPN_RUNTIME_INACTIVE);
+  assert(stop_calls == 1);
+  assert(free_calls == 5);
+
+  puts("Android validation/load/runtime bridge fake-native contract: ok");
   return 0;
 }

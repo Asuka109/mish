@@ -46,13 +46,19 @@ pub enum LifecycleOperationOutcome {
 pub enum LifecycleFailure {
     Busy,
     Cancelled,
+    ConfigurationNotLoaded,
+    CoreFailure,
+    CoreUnavailable,
     InvalidCommand,
     InvalidRecoveryEvidence,
+    NetworkUnavailable,
     PermissionDenied,
     PlatformFailure,
+    PublicRequestFailed,
     ServiceDestroyed,
     StalePlatformAuthority,
     Timeout,
+    TunFailure,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -70,10 +76,28 @@ pub(crate) enum PlatformEventKind {
     Observation,
     ConsentResult,
     NotificationResult,
-    StartCompleted,
+    ActivationProgress,
+    ActivationCompleted,
+    ActivationFailed,
     StopCompleted,
+    NetworkChanged,
+    CoreExited,
     Revoked,
     ServiceDestroyed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PlatformFailureKind {
+    CleanupFailed,
+    ConfigurationNotLoaded,
+    CoreExited,
+    CoreStartFailed,
+    CoreUnavailable,
+    NetworkUnavailable,
+    PermissionRevoked,
+    PublicRequestFailed,
+    TunEstablishFailed,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -87,11 +111,15 @@ pub(crate) enum PlatformRecoveryEvidence {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlatformFacts {
+    pub activation_failure: Option<PlatformFailureKind>,
+    pub activation_session_id: Option<String>,
+    pub active_network: bool,
     pub config_failure_injection_available: bool,
     pub core_abi_version: Option<u8>,
     pub core_availability: String,
     pub core_commit: Option<String>,
     pub core_config_state: String,
+    pub core_running: bool,
     pub core_version: Option<String>,
     pub core_wrapper_revision: Option<String>,
     pub event: PlatformEventKind,
@@ -101,8 +129,13 @@ pub(crate) struct PlatformFacts {
     pub notification_permission: String,
     pub observed_at_millis: u64,
     pub platform_session_id: String,
+    pub protected_socket_count: u64,
+    pub public_request_observed: bool,
     pub recovery_evidence: PlatformRecoveryEvidence,
+    pub routes_applied: bool,
     pub service_foreground: bool,
+    pub dns_applied: bool,
+    pub tun_established: bool,
     pub validated_config_digest: Option<String>,
     pub validated_config_revision: Option<String>,
     pub vpn_permission: String,
@@ -125,6 +158,7 @@ pub(crate) struct LifecycleState {
 struct ActiveOperation {
     command: LifecycleCommandKind,
     correlation: Correlation,
+    cancellation: Option<LifecycleOperationOutcome>,
 }
 
 impl LifecycleState {
@@ -203,6 +237,7 @@ impl LifecycleState {
         self.active = Some(ActiveOperation {
             command,
             correlation: correlation.clone(),
+            cancellation: None,
         });
         self.push_operation(LifecycleOperation {
             failure: None,
@@ -210,6 +245,28 @@ impl LifecycleState {
             operation_id: correlation.operation_id,
             outcome: LifecycleOperationOutcome::Pending,
         });
+    }
+
+    fn activation_ready(&self) -> bool {
+        self.facts.activation_session_id.as_deref() == Some(self.session_id.as_str())
+            && self.facts.active_network
+            && self.facts.core_running
+            && self.facts.dns_applied
+            && self.facts.protected_socket_count > 0
+            && self.facts.public_request_observed
+            && self.facts.routes_applied
+            && self.facts.service_foreground
+            && self.facts.tun_established
+            && self.facts.vpn_permission == "granted"
+    }
+
+    fn platform_clean(&self) -> bool {
+        !self.facts.core_running
+            && !self.facts.dns_applied
+            && !self.facts.public_request_observed
+            && !self.facts.routes_applied
+            && !self.facts.service_foreground
+            && !self.facts.tun_established
     }
 
     fn finish(
@@ -252,8 +309,18 @@ pub(crate) enum PlatformAction {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ActivationAuthority {
+    pub config_digest: String,
+    pub config_revision: String,
+    pub fact_sequence: u64,
+    pub platform_session_id: String,
+    pub product_session_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LifecycleEffect {
     pub action: PlatformAction,
+    pub activation: Option<ActivationAuthority>,
     pub correlation: Correlation,
     mode: EffectMode,
 }
@@ -262,6 +329,30 @@ impl LifecycleEffect {
     fn spawn(action: PlatformAction, correlation: Correlation) -> Self {
         Self {
             action,
+            activation: None,
+            correlation,
+            mode: EffectMode::Spawn,
+        }
+    }
+
+    fn start(correlation: Correlation, state: &LifecycleState) -> Self {
+        Self {
+            action: PlatformAction::StartForegroundService,
+            activation: Some(ActivationAuthority {
+                config_digest: state
+                    .facts
+                    .loaded_config_digest
+                    .clone()
+                    .expect("start admission requires a loaded configuration digest"),
+                config_revision: state
+                    .facts
+                    .loaded_config_revision
+                    .clone()
+                    .expect("start admission requires a loaded configuration revision"),
+                fact_sequence: state.facts.fact_sequence,
+                platform_session_id: state.facts.platform_session_id.clone(),
+                product_session_id: state.session_id.clone(),
+            }),
             correlation,
             mode: EffectMode::Spawn,
         }
@@ -270,6 +361,7 @@ impl LifecycleEffect {
     fn cancel(correlation: Correlation) -> Self {
         Self {
             action: PlatformAction::StopForegroundService,
+            activation: None,
             correlation,
             mode: EffectMode::Cancel,
         }
@@ -468,7 +560,30 @@ fn reduce_command(
                 );
                 return Transition::Committed(next);
             }
-            if state.facts.service_foreground && state.phase == LifecyclePhase::Unavailable {
+            let start_failure = if state.facts.core_availability != "available" {
+                Some(LifecycleFailure::CoreUnavailable)
+            } else if state.facts.core_config_state != "loaded"
+                || state.facts.loaded_config_digest.is_none()
+                || state.facts.loaded_config_revision.is_none()
+            {
+                Some(LifecycleFailure::ConfigurationNotLoaded)
+            } else {
+                None
+            };
+            if let Some(failure) = start_failure {
+                let mut next = state.clone();
+                next.phase = LifecyclePhase::Failed;
+                next.failure = Some(failure);
+                next.advance();
+                next.finish(
+                    command,
+                    correlation.operation_id.clone(),
+                    LifecycleOperationOutcome::Rejected,
+                    Some(failure),
+                );
+                return Transition::Committed(next);
+            }
+            if state.activation_ready() && state.phase == LifecyclePhase::Running {
                 let mut next = state.clone();
                 next.advance();
                 next.finish(
@@ -507,9 +622,14 @@ fn reduce_command(
     }
     next.failure = None;
     next.begin(command, correlation.clone());
+    let effect = if action == PlatformAction::StartForegroundService {
+        LifecycleEffect::start(correlation.clone(), &next)
+    } else {
+        LifecycleEffect::spawn(action, correlation.clone())
+    };
     Transition::EffectEmitting {
         state: next,
-        effects: EffectBatch::one(LifecycleEffect::spawn(action, correlation.clone())),
+        effects: EffectBatch::one(effect),
     }
 }
 
@@ -522,7 +642,10 @@ fn reduce_effect_completed(
     let Some(active) = state.active.as_ref() else {
         return Transition::Retired;
     };
-    if active.correlation != *correlation {
+    if !active.correlation.same_operation(correlation) {
+        return Transition::Retired;
+    }
+    if active.cancellation.is_some() && action == PlatformAction::StartForegroundService {
         return Transition::Retired;
     }
     let mut next = state.clone();
@@ -553,15 +676,28 @@ fn reduce_effect_completed(
             LifecycleOperationOutcome::Rejected,
             Some(LifecycleFailure::PermissionDenied),
         ),
-        PlatformAction::StartForegroundService if facts.service_foreground => (
-            LifecyclePhase::Unavailable,
+        PlatformAction::StartForegroundService if next.activation_ready() => (
+            LifecyclePhase::Running,
             LifecycleOperationOutcome::Completed,
             None,
         ),
-        PlatformAction::StopForegroundService if !facts.service_foreground => (
+        PlatformAction::StartForegroundService if facts.activation_failure.is_some() => (
+            LifecyclePhase::Failed,
+            LifecycleOperationOutcome::Rejected,
+            facts.activation_failure.map(platform_failure),
+        ),
+        PlatformAction::StopForegroundService if next.platform_clean() => (
             LifecyclePhase::Stopped,
-            LifecycleOperationOutcome::Completed,
-            None,
+            active
+                .cancellation
+                .unwrap_or(LifecycleOperationOutcome::Completed),
+            active.cancellation.map(|outcome| {
+                if outcome == LifecycleOperationOutcome::Unknown {
+                    LifecycleFailure::Timeout
+                } else {
+                    LifecycleFailure::Cancelled
+                }
+            }),
         ),
         PlatformAction::StartForegroundService | PlatformAction::StopForegroundService => (
             LifecyclePhase::RecoveryRequired,
@@ -615,20 +751,13 @@ fn reduce_effect_failed(
         return Transition::Retired;
     }
     let mut next = state.clone();
-    next.phase = LifecyclePhase::RecoveryRequired;
-    next.failure = Some(LifecycleFailure::PlatformFailure);
-    next.advance();
-    next.finish(
-        active.command,
-        correlation.operation_id.clone(),
-        LifecycleOperationOutcome::Unknown,
-        Some(LifecycleFailure::PlatformFailure),
-    );
-    if matches!(
-        action,
-        PlatformAction::StartForegroundService | PlatformAction::StopForegroundService
-    ) && correlation.effect_id == 1
-    {
+    if action == PlatformAction::StartForegroundService && correlation.effect_id == 1 {
+        next.phase = LifecyclePhase::Stopping;
+        next.failure = Some(LifecycleFailure::PlatformFailure);
+        if let Some(active) = next.active.as_mut() {
+            active.cancellation = Some(LifecycleOperationOutcome::Unknown);
+        }
+        next.advance();
         let cleanup = LifecycleEffect::spawn(
             PlatformAction::StopForegroundService,
             correlation.with_effect(2),
@@ -638,6 +767,15 @@ fn reduce_effect_failed(
             effects: EffectBatch::one(cleanup),
         }
     } else {
+        next.phase = LifecyclePhase::RecoveryRequired;
+        next.failure = Some(LifecycleFailure::PlatformFailure);
+        next.advance();
+        next.finish(
+            active.command,
+            correlation.operation_id.clone(),
+            LifecycleOperationOutcome::Unknown,
+            Some(LifecycleFailure::PlatformFailure),
+        );
         Transition::RecoveryRequired(next)
     }
 }
@@ -651,53 +789,109 @@ fn reduce_platform_observation(
         return Transition::Retired;
     }
 
-    if let Some(active) = next.active.clone()
-        && platform_event_matches_command(facts.event, active.command)
-    {
-        let (phase, outcome, failure) = match active.command {
-            LifecycleCommandKind::RequestNotificationPermission => {
-                (next.phase, LifecycleOperationOutcome::Completed, None)
+    if let Some(active) = next.active.clone() {
+        let terminal = match active.command {
+            LifecycleCommandKind::RequestNotificationPermission
+                if facts.event == PlatformEventKind::NotificationResult =>
+            {
+                Some((next.phase, LifecycleOperationOutcome::Completed, None))
             }
-            LifecycleCommandKind::RequestVpnConsent if facts.vpn_permission == "granted" => (
-                LifecyclePhase::Stopped,
-                LifecycleOperationOutcome::Completed,
-                None,
-            ),
-            LifecycleCommandKind::RequestVpnConsent => (
-                LifecyclePhase::PermissionRequired,
-                LifecycleOperationOutcome::Rejected,
-                Some(LifecycleFailure::PermissionDenied),
-            ),
-            LifecycleCommandKind::Start if facts.service_foreground => (
-                LifecyclePhase::Unavailable,
-                LifecycleOperationOutcome::Completed,
-                None,
-            ),
-            LifecycleCommandKind::Stop if !facts.service_foreground => (
-                LifecyclePhase::Stopped,
-                LifecycleOperationOutcome::Completed,
-                None,
-            ),
-            LifecycleCommandKind::Start | LifecycleCommandKind::Stop => (
-                LifecyclePhase::RecoveryRequired,
-                LifecycleOperationOutcome::Unknown,
-                Some(LifecycleFailure::PlatformFailure),
-            ),
+            LifecycleCommandKind::RequestVpnConsent
+                if facts.event == PlatformEventKind::ConsentResult
+                    && facts.vpn_permission == "granted" =>
+            {
+                Some((
+                    LifecyclePhase::Stopped,
+                    LifecycleOperationOutcome::Completed,
+                    None,
+                ))
+            }
+            LifecycleCommandKind::RequestVpnConsent
+                if facts.event == PlatformEventKind::ConsentResult =>
+            {
+                Some((
+                    LifecyclePhase::PermissionRequired,
+                    LifecycleOperationOutcome::Rejected,
+                    Some(LifecycleFailure::PermissionDenied),
+                ))
+            }
+            LifecycleCommandKind::Start
+                if facts.event == PlatformEventKind::ActivationCompleted
+                    && next.activation_ready() =>
+            {
+                Some((
+                    LifecyclePhase::Running,
+                    LifecycleOperationOutcome::Completed,
+                    None,
+                ))
+            }
+            LifecycleCommandKind::Start if facts.event == PlatformEventKind::ActivationFailed => {
+                Some((
+                    LifecyclePhase::Failed,
+                    LifecycleOperationOutcome::Rejected,
+                    Some(
+                        facts
+                            .activation_failure
+                            .map(platform_failure)
+                            .unwrap_or(LifecycleFailure::PlatformFailure),
+                    ),
+                ))
+            }
+            LifecycleCommandKind::Start
+                if facts.event == PlatformEventKind::StopCompleted
+                    && active.cancellation.is_some()
+                    && next.platform_clean() =>
+            {
+                let outcome = active
+                    .cancellation
+                    .expect("cancelled operation lost its terminal outcome");
+                Some((
+                    LifecyclePhase::Stopped,
+                    outcome,
+                    Some(if outcome == LifecycleOperationOutcome::Unknown {
+                        LifecycleFailure::Timeout
+                    } else {
+                        LifecycleFailure::Cancelled
+                    }),
+                ))
+            }
+            LifecycleCommandKind::Stop
+                if facts.event == PlatformEventKind::StopCompleted && next.platform_clean() =>
+            {
+                Some((
+                    LifecyclePhase::Stopped,
+                    LifecycleOperationOutcome::Completed,
+                    None,
+                ))
+            }
+            _ => None,
         };
-        next.phase = phase;
-        next.failure = failure;
-        next.advance();
-        next.finish(
-            active.command,
-            active.correlation.operation_id,
-            outcome,
-            failure,
-        );
-        return if phase == LifecyclePhase::RecoveryRequired {
-            Transition::RecoveryRequired(next)
-        } else {
-            Transition::Committed(next)
-        };
+        if let Some((phase, outcome, failure)) = terminal {
+            next.phase = phase;
+            next.failure = failure;
+            next.advance();
+            next.finish(
+                active.command,
+                active.correlation.operation_id,
+                outcome,
+                failure,
+            );
+            return Transition::Committed(next);
+        }
+
+        if matches!(
+            facts.event,
+            PlatformEventKind::ActivationProgress | PlatformEventKind::NetworkChanged
+        ) {
+            next.phase = if active.cancellation.is_some() {
+                LifecyclePhase::Stopping
+            } else {
+                LifecyclePhase::Starting
+            };
+            next.failure = None;
+            next.advance();
+            return Transition::Committed(next);
+        }
     }
 
     let mut active_unknown = None;
@@ -708,9 +902,48 @@ fn reduce_platform_observation(
             active_unknown = next.active.as_ref().map(|active| active.command);
         }
         PlatformEventKind::ServiceDestroyed => {
-            next.phase = LifecyclePhase::RecoveryRequired;
+            next.phase = if next.platform_clean() {
+                LifecyclePhase::Failed
+            } else {
+                LifecyclePhase::RecoveryRequired
+            };
             next.failure = Some(LifecycleFailure::ServiceDestroyed);
             active_unknown = next.active.as_ref().map(|active| active.command);
+        }
+        PlatformEventKind::CoreExited => {
+            next.phase = LifecyclePhase::Failed;
+            next.failure = Some(LifecycleFailure::CoreFailure);
+            active_unknown = next.active.as_ref().map(|active| active.command);
+        }
+        PlatformEventKind::ActivationFailed => {
+            next.phase = LifecyclePhase::Failed;
+            next.failure = Some(
+                facts
+                    .activation_failure
+                    .map(platform_failure)
+                    .unwrap_or(LifecycleFailure::PlatformFailure),
+            );
+            active_unknown = next.active.as_ref().map(|active| active.command);
+        }
+        PlatformEventKind::ActivationCompleted if next.activation_ready() => {
+            next.phase = LifecyclePhase::Running;
+            next.failure = None;
+        }
+        PlatformEventKind::NetworkChanged if !facts.active_network => {
+            next.phase = LifecyclePhase::Unavailable;
+            next.failure = Some(LifecycleFailure::NetworkUnavailable);
+        }
+        PlatformEventKind::NetworkChanged if next.activation_ready() => {
+            next.phase = LifecyclePhase::Running;
+            next.failure = None;
+        }
+        PlatformEventKind::NetworkChanged => {
+            next.phase = LifecyclePhase::Starting;
+            next.failure = None;
+        }
+        PlatformEventKind::StopCompleted if next.platform_clean() => {
+            next.phase = LifecyclePhase::Stopped;
+            next.failure = None;
         }
         _ if facts.recovery_evidence != PlatformRecoveryEvidence::None => {
             next.phase = LifecyclePhase::RecoveryRequired;
@@ -756,20 +989,19 @@ fn reduce_platform_observation(
     }
 }
 
-fn platform_event_matches_command(event: PlatformEventKind, command: LifecycleCommandKind) -> bool {
-    matches!(
-        (event, command),
-        (
-            PlatformEventKind::NotificationResult,
-            LifecycleCommandKind::RequestNotificationPermission
-        ) | (
-            PlatformEventKind::ConsentResult,
-            LifecycleCommandKind::RequestVpnConsent
-        ) | (
-            PlatformEventKind::StartCompleted,
-            LifecycleCommandKind::Start
-        ) | (PlatformEventKind::StopCompleted, LifecycleCommandKind::Stop)
-    )
+fn platform_failure(failure: PlatformFailureKind) -> LifecycleFailure {
+    match failure {
+        PlatformFailureKind::ConfigurationNotLoaded => LifecycleFailure::ConfigurationNotLoaded,
+        PlatformFailureKind::CoreExited | PlatformFailureKind::CoreStartFailed => {
+            LifecycleFailure::CoreFailure
+        }
+        PlatformFailureKind::CoreUnavailable => LifecycleFailure::CoreUnavailable,
+        PlatformFailureKind::NetworkUnavailable => LifecycleFailure::NetworkUnavailable,
+        PlatformFailureKind::PermissionRevoked => LifecycleFailure::PermissionDenied,
+        PlatformFailureKind::PublicRequestFailed => LifecycleFailure::PublicRequestFailed,
+        PlatformFailureKind::TunEstablishFailed => LifecycleFailure::TunFailure,
+        PlatformFailureKind::CleanupFailed => LifecycleFailure::PlatformFailure,
+    }
 }
 
 fn reduce_cancel(
@@ -791,7 +1023,14 @@ fn reduce_cancel(
         LifecycleCommandKind::Start | LifecycleCommandKind::Stop
     );
     if consequential {
-        next.phase = LifecyclePhase::RecoveryRequired;
+        next.phase = LifecyclePhase::Stopping;
+        if let Some(active) = next.active.as_mut() {
+            active.cancellation = Some(if timed_out {
+                LifecycleOperationOutcome::Unknown
+            } else {
+                LifecycleOperationOutcome::Cancelled
+            });
+        }
         effects.push(LifecycleEffect::spawn(
             PlatformAction::StopForegroundService,
             active.correlation.with_effect(2),
@@ -809,12 +1048,14 @@ fn reduce_cancel(
     };
     next.failure = consequential.then_some(failure);
     next.advance();
-    next.finish(
-        active.command,
-        operation_id.to_owned(),
-        outcome,
-        Some(failure),
-    );
+    if !consequential {
+        next.finish(
+            active.command,
+            operation_id.to_owned(),
+            outcome,
+            Some(failure),
+        );
+    }
     Transition::EffectEmitting {
         state: next,
         effects: EffectBatch::from_first(effects.remove(0), effects),
@@ -828,15 +1069,16 @@ fn reduce_shutdown(
         return Transition::Unchanged;
     }
     let mut next = state.clone();
-    if let Some(active) = state.active.as_ref() {
-        next.finish(
-            active.command,
-            active.correlation.operation_id.clone(),
-            LifecycleOperationOutcome::Unknown,
-            Some(LifecycleFailure::Cancelled),
-        );
+    if state.active.is_some() {
+        if let Some(next_active) = next.active.as_mut() {
+            next_active.cancellation = Some(LifecycleOperationOutcome::Unknown);
+        }
     }
-    next.phase = LifecyclePhase::RecoveryRequired;
+    next.phase = if state.active.is_some() {
+        LifecyclePhase::Stopping
+    } else {
+        LifecyclePhase::RecoveryRequired
+    };
     next.failure = Some(LifecycleFailure::Cancelled);
     next.advance();
     let correlation = state.active.as_ref().map_or_else(
@@ -849,12 +1091,18 @@ fn reduce_shutdown(
         },
         |active| active.correlation.with_effect(2),
     );
+    let cleanup = LifecycleEffect::spawn(PlatformAction::StopForegroundService, correlation);
+    let effects = if let Some(active) = state.active.as_ref() {
+        EffectBatch::from_first(
+            LifecycleEffect::cancel(active.correlation.clone()),
+            vec![cleanup],
+        )
+    } else {
+        EffectBatch::one(cleanup)
+    };
     Transition::EffectEmitting {
         state: next,
-        effects: EffectBatch::one(LifecycleEffect::spawn(
-            PlatformAction::StopForegroundService,
-            correlation,
-        )),
+        effects,
     }
 }
 
@@ -865,22 +1113,31 @@ mod tests {
 
     fn facts(sequence: u64) -> PlatformFacts {
         PlatformFacts {
+            activation_failure: None,
+            activation_session_id: None,
+            active_network: false,
             config_failure_injection_available: false,
             core_abi_version: None,
-            core_availability: "unavailable".into(),
+            core_availability: "available".into(),
             core_commit: None,
-            core_config_state: "unloaded".into(),
+            core_config_state: "loaded".into(),
+            core_running: false,
             core_version: None,
             core_wrapper_revision: None,
             event: PlatformEventKind::Observation,
             fact_sequence: sequence,
-            loaded_config_digest: None,
-            loaded_config_revision: None,
+            loaded_config_digest: Some("a".repeat(64)),
+            loaded_config_revision: Some("revision-a".into()),
             notification_permission: "not-required".into(),
             observed_at_millis: sequence,
             platform_session_id: "platform-1".into(),
+            protected_socket_count: 0,
+            public_request_observed: false,
             recovery_evidence: PlatformRecoveryEvidence::None,
+            routes_applied: false,
             service_foreground: false,
+            dns_applied: false,
+            tun_established: false,
             validated_config_digest: None,
             validated_config_revision: None,
             vpn_permission: "granted".into(),
@@ -919,14 +1176,19 @@ mod tests {
     }
 
     #[test]
-    fn fixture_start_commits_only_after_foreground_observation() {
+    fn real_start_commits_only_after_every_same_session_observation() {
         let machine = LifecycleMachine;
-        let correlation = correlation("start-1", 2);
+        let mut initial = state();
+        initial.facts.core_availability = "available".into();
+        initial.facts.core_config_state = "loaded".into();
+        initial.facts.loaded_config_digest = Some("a".repeat(64));
+        initial.facts.loaded_config_revision = Some("revision-a".into());
+        let start_correlation = correlation("start-1", 2);
         let starting = next_state(machine.reduce(
-            &state(),
+            &initial,
             &LifecycleInput::Command {
                 command: LifecycleCommandKind::Start,
-                correlation: correlation.clone(),
+                correlation: start_correlation,
                 new_session_id: Some("session-2".into()),
             },
         ));
@@ -937,22 +1199,134 @@ mod tests {
         );
 
         let mut observed = facts(2);
-        observed.event = PlatformEventKind::StartCompleted;
+        observed.event = PlatformEventKind::ActivationProgress;
         observed.service_foreground = true;
-        let terminal = next_state(machine.reduce(
+        observed.activation_session_id = Some("session-2".into());
+        let foreground_only = next_state(machine.reduce(
             &starting,
-            &LifecycleInput::EffectCompleted {
-                action: PlatformAction::StartForegroundService,
-                correlation,
-                facts: observed,
-            },
+            &LifecycleInput::PlatformObserved(observed.clone()),
         ));
-        assert_eq!(terminal.phase, LifecyclePhase::Unavailable);
+        assert_eq!(foreground_only.phase, LifecyclePhase::Starting);
+        assert_eq!(
+            foreground_only.operation("start-1").unwrap().outcome,
+            LifecycleOperationOutcome::Pending
+        );
+
+        observed.event = PlatformEventKind::ActivationCompleted;
+        observed.fact_sequence = 3;
+        observed.active_network = true;
+        observed.core_running = true;
+        observed.dns_applied = true;
+        observed.protected_socket_count = 1;
+        observed.public_request_observed = true;
+        observed.routes_applied = true;
+        observed.tun_established = true;
+        observed.core_availability = "available".into();
+        observed.core_config_state = "loaded".into();
+        observed.loaded_config_digest = Some("a".repeat(64));
+        observed.loaded_config_revision = Some("revision-a".into());
+        let terminal = next_state(machine.reduce(
+            &foreground_only,
+            &LifecycleInput::PlatformObserved(observed),
+        ));
+        assert_eq!(terminal.phase, LifecyclePhase::Running);
         assert_eq!(
             terminal.operation("start-1").unwrap().outcome,
             LifecycleOperationOutcome::Completed
         );
-        assert!(!terminal.facts.core_availability.eq("available"));
+        assert_eq!(terminal.session_id, "session-2");
+    }
+
+    #[test]
+    fn cancelled_start_stays_pending_until_cleanup_and_rejects_duplicates() {
+        let machine = LifecycleMachine;
+        let mut initial = state();
+        initial.facts.core_availability = "available".into();
+        initial.facts.core_config_state = "loaded".into();
+        initial.facts.loaded_config_digest = Some("b".repeat(64));
+        initial.facts.loaded_config_revision = Some("revision-b".into());
+        let start_correlation = correlation("start-cancel", 2);
+        let starting = next_state(machine.reduce(
+            &initial,
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Start,
+                correlation: start_correlation,
+                new_session_id: Some("session-cancel".into()),
+            },
+        ));
+        let cleaning = next_state(machine.reduce(
+            &starting,
+            &LifecycleInput::Cancel {
+                operation_id: "start-cancel".into(),
+                timed_out: false,
+            },
+        ));
+        assert_eq!(cleaning.phase, LifecyclePhase::Stopping);
+        assert_eq!(
+            cleaning.operation("start-cancel").unwrap().outcome,
+            LifecycleOperationOutcome::Pending
+        );
+
+        let duplicate = next_state(machine.reduce(
+            &cleaning,
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Start,
+                correlation: correlation("duplicate", cleaning.revision + 1),
+                new_session_id: Some("session-duplicate".into()),
+            },
+        ));
+        assert_eq!(
+            duplicate.operation("duplicate").unwrap().failure,
+            Some(LifecycleFailure::Busy)
+        );
+
+        let mut stopped = cleaning.facts.clone();
+        stopped.event = PlatformEventKind::StopCompleted;
+        stopped.fact_sequence += 1;
+        let terminal =
+            next_state(machine.reduce(&cleaning, &LifecycleInput::PlatformObserved(stopped)));
+        assert_eq!(terminal.phase, LifecyclePhase::Stopped);
+        assert_eq!(
+            terminal.operation("start-cancel").unwrap().outcome,
+            LifecycleOperationOutcome::Cancelled
+        );
+    }
+
+    #[test]
+    fn shutdown_keeps_consequential_work_pending_until_cleanup_completes() {
+        let machine = LifecycleMachine;
+        let start_correlation = correlation("shutdown-start", 2);
+        let starting = next_state(machine.reduce(
+            &state(),
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Start,
+                correlation: start_correlation.clone(),
+                new_session_id: Some("shutdown-session".into()),
+            },
+        ));
+        let cleaning = next_state(machine.reduce(&starting, &LifecycleInput::Shutdown));
+        assert_eq!(cleaning.phase, LifecyclePhase::Stopping);
+        assert_eq!(
+            cleaning.operation("shutdown-start").unwrap().outcome,
+            LifecycleOperationOutcome::Pending
+        );
+
+        let mut stopped = cleaning.facts.clone();
+        stopped.event = PlatformEventKind::StopCompleted;
+        stopped.fact_sequence += 1;
+        let terminal = next_state(machine.reduce(
+            &cleaning,
+            &LifecycleInput::EffectCompleted {
+                action: PlatformAction::StopForegroundService,
+                correlation: start_correlation.with_effect(2),
+                facts: stopped,
+            },
+        ));
+        assert_eq!(terminal.phase, LifecyclePhase::Stopped);
+        assert_eq!(
+            terminal.operation("shutdown-start").unwrap().outcome,
+            LifecycleOperationOutcome::Unknown
+        );
     }
 
     #[test]
@@ -1145,13 +1519,13 @@ mod tests {
                 timed_out: false,
             },
         ));
-        assert_eq!(cancelled.phase, LifecyclePhase::RecoveryRequired);
+        assert_eq!(cancelled.phase, LifecyclePhase::Stopping);
         assert_eq!(
             cancelled.operation("start-1").unwrap().outcome,
-            LifecycleOperationOutcome::Unknown
+            LifecycleOperationOutcome::Pending
         );
         let mut late = facts(2);
-        late.event = PlatformEventKind::StartCompleted;
+        late.event = PlatformEventKind::ActivationCompleted;
         late.service_foreground = true;
         assert!(matches!(
             machine.reduce(
@@ -1189,13 +1563,21 @@ mod tests {
             },
         ));
         let mut observed = facts(2);
-        observed.event = PlatformEventKind::StartCompleted;
+        observed.event = PlatformEventKind::ActivationCompleted;
+        observed.activation_session_id = Some("session-2".into());
+        observed.active_network = true;
+        observed.core_running = true;
+        observed.dns_applied = true;
+        observed.protected_socket_count = 1;
+        observed.public_request_observed = true;
+        observed.routes_applied = true;
         observed.service_foreground = true;
+        observed.tun_established = true;
         let broadcast = next_state(machine.reduce(
             &starting,
             &LifecycleInput::PlatformObserved(observed.clone()),
         ));
-        assert_eq!(broadcast.phase, LifecyclePhase::Unavailable);
+        assert_eq!(broadcast.phase, LifecyclePhase::Running);
         assert_eq!(
             broadcast.operation("start-1").unwrap().outcome,
             LifecycleOperationOutcome::Completed

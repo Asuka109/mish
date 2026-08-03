@@ -149,6 +149,12 @@ starting, running, stopping, failed, and recovery-required phases. Repeated
 start and stop commands are idempotent, and lifecycle transitions are
 serialized with profile activation and configuration replacement.
 
+Running is a Shared Rust product state, not a Kotlin shortcut. The same product
+session must have observed foreground service, validated non-VPN network, TUN,
+routes, DNS, embedded Core, a protected socket, and one successful fixed public
+request. Network loss clears the public-request observation and projects
+unavailable until the complete barrier is observed again.
+
 Activity recreation, WebView destruction, screen lock, memory pressure, and
 network change do not transfer Core ownership back to the UI. The activity
 rebinds and receives an authoritative snapshot. Revoked VPN permission,
@@ -222,6 +228,7 @@ start VPN permission flow unless the user requested activation and capture.
 
 ## References
 
+- [Android VPN service](../operations/android-vpn-service.md)
 - [Mobile runtime reference review](../research/mobile-runtime-reference-review-2026-07-20.md)
 - [Frontend and platform boundary](frontend-platform-boundary.md)
 - [Mobile navigation and layout](../design/mobile-navigation-and-layout.md)

@@ -6,7 +6,7 @@ const COMMANDS: &[&str] = &[
     "removeListener",
     "request_notification_permission",
     "request_vpn_consent",
-    "start_fixture_lifecycle",
+    "start",
     "stop",
     "cancel_lifecycle_operation",
     "validate_config",

@@ -54,13 +54,11 @@ async fn request_vpn_consent<R: Runtime>(
 }
 
 #[tauri::command]
-async fn start_fixture_lifecycle<R: Runtime>(
+async fn start<R: Runtime>(
     app: AppHandle<R>,
     request: MobileVpnCommandRequest,
 ) -> Result<MobileVpnCommandResult> {
-    app.state::<platform::MishVpn<R>>()
-        .start_fixture_lifecycle(request)
-        .await
+    app.state::<platform::MishVpn<R>>().start(request).await
 }
 
 #[tauri::command]
@@ -116,7 +114,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             get_snapshot,
             request_notification_permission,
             request_vpn_consent,
-            start_fixture_lifecycle,
+            start,
             stop,
             cancel_lifecycle_operation,
             validate_config,
