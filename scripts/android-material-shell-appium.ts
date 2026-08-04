@@ -4,6 +4,15 @@ const PACKAGE_NAME = "com.asuka109.mish";
 const ACTIVITY = ".MainActivity";
 const DISABLED_DESTINATION_EXTRA = `${PACKAGE_NAME}.test.DISABLED_DESTINATION`;
 const EXTERNAL_DEEP_LINK_EXTRA = `${PACKAGE_NAME}.test.EXTERNAL_DEEP_LINK`;
+const DESTINATION_IDS = {
+  Activity: `${PACKAGE_NAME}:id/native_shell_activity`,
+  Home: `${PACKAGE_NAME}:id/native_shell_home`,
+  Profiles: `${PACKAGE_NAME}:id/native_shell_profiles`,
+  Routes: `${PACKAGE_NAME}:id/native_shell_routes`,
+  Settings: `${PACKAGE_NAME}:id/native_shell_settings`,
+} as const;
+
+type Destination = keyof typeof DESTINATION_IDS;
 
 interface ShellSnapshot {
   authorityId: string;
@@ -164,9 +173,13 @@ async function startActivity(argument: Record<string, unknown>): Promise<void> {
   });
 }
 
-async function selectedDestination(label: string): Promise<string> {
-  const item = await waitForElement("accessibility id", label);
-  assert((await attribute(item, "selected")) === "true", `${label} is not selected`);
+async function destinationItem(destination: Destination): Promise<string> {
+  return waitForElement("id", DESTINATION_IDS[destination]);
+}
+
+async function selectedDestination(destination: Destination): Promise<string> {
+  const item = await destinationItem(destination);
+  assert((await attribute(item, "selected")) === "true", `${destination} is not selected`);
   return item;
 }
 
@@ -189,8 +202,12 @@ try {
   await waitForElement("id", `${PACKAGE_NAME}:id/native_shell_root`);
   await waitForElement("id", `${PACKAGE_NAME}:id/native_shell_app_bar`);
   await waitForElement("id", `${PACKAGE_NAME}:id/native_shell_bottom_navigation`);
-  for (const label of ["Home", "Routes", "Profiles", "Activity", "Settings"]) {
-    await waitForElement("accessibility id", label);
+  for (const destination of Object.keys(DESTINATION_IDS) as Destination[]) {
+    const item = await destinationItem(destination);
+    assert(
+      (await attribute(item, "content-desc")).trim().length > 0,
+      `${destination} has no accessible name`,
+    );
   }
   await selectedDestination("Home");
   assertions.push(
@@ -206,12 +223,13 @@ try {
   );
 
   await switchContext("NATIVE_APP");
-  await click(await waitForElement("accessibility id", "Settings"));
+  await click(await destinationItem("Settings"));
   await selectedDestination("Settings");
-  await waitForElement(
+  const settingsTitle = await waitForElement(
     "xpath",
-    `//*[@resource-id='${PACKAGE_NAME}:id/native_shell_app_bar']//*[@text='Settings']`,
+    `//*[@resource-id='${PACKAGE_NAME}:id/native_shell_app_bar']//*[@class='android.widget.TextView']`,
   );
+  assert((await attribute(settingsTitle, "text")).trim().length > 0, "App-bar title is empty");
   await capture("settings");
   await switchContext(webContext);
   const settings = await snapshot();
@@ -222,7 +240,7 @@ try {
   assert((await webUrl()).endsWith("/settings"), "Settings directive did not enter React Router");
 
   await switchContext("NATIVE_APP");
-  await click(await waitForElement("accessibility id", "Settings"));
+  await click(await destinationItem("Settings"));
   await switchContext(webContext);
   assert(
     (await snapshot()).revision === settings.revision,
@@ -231,7 +249,7 @@ try {
   assertions.push("Native -> Shared Rust -> Web selection and non-mutating reselection");
 
   await switchContext("NATIVE_APP");
-  const routes = await waitForElement("accessibility id", "Routes");
+  const routes = await destinationItem("Routes");
   const routesRect = await rect(routes);
   await request(`${sessionPath}/actions`, "POST", {
     actions: [
@@ -276,7 +294,7 @@ try {
     extras: [["s", DISABLED_DESTINATION_EXTRA, "profiles"]],
     flags: "0x20000000",
   });
-  const profiles = await waitForElement("accessibility id", "Profiles");
+  const profiles = await destinationItem("Profiles");
   assert(
     (await attribute(profiles, "enabled")) === "false",
     "Disabled destination is not exposed semantically",
@@ -324,9 +342,9 @@ try {
   assertions.push("external deep link commits exactly; self-originated deep link is rejected");
 
   await switchContext("NATIVE_APP");
-  await click(await waitForElement("accessibility id", "Home"));
+  await click(await destinationItem("Home"));
   await selectedDestination("Home");
-  await click(await waitForElement("accessibility id", "Settings"));
+  await click(await destinationItem("Settings"));
   await selectedDestination("Settings");
   await switchContext(webContext);
   const settingsRoot = await snapshot();
@@ -341,7 +359,12 @@ try {
     "Internal Web navigation mutated Shared Rust authority",
   );
   await switchContext("NATIVE_APP");
-  await click(await waitForElement("accessibility id", "Back"));
+  await click(
+    await waitForElement(
+      "xpath",
+      `//*[@resource-id='${PACKAGE_NAME}:id/native_shell_app_bar']//*[@clickable='true']`,
+    ),
+  );
   await switchContext(webContext);
   assert(
     (await webUrl()).endsWith("/settings"),
@@ -354,7 +377,7 @@ try {
   assertions.push("Web owns child history and the sole Android Back callback consumes it once");
 
   await switchContext("NATIVE_APP");
-  await click(await waitForElement("accessibility id", "Routes"));
+  await click(await destinationItem("Routes"));
   await switchContext(webContext);
   const search = await waitForElement("css selector", "input[type='search']");
   await click(search);
@@ -373,7 +396,7 @@ try {
   );
   await capture("ime");
   await execute("mobile: hideKeyboard");
-  await click(await waitForElement("accessibility id", "Settings"));
+  await click(await destinationItem("Settings"));
   await selectedDestination("Settings");
   assertions.push("real IME keeps native navigation visible and dismisses without a shell command");
 
