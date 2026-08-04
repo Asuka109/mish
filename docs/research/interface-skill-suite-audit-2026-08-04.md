@@ -4,7 +4,7 @@ Date: 2026-08-04
 
 Issue: [#356](https://github.com/Asuka109/mish/issues/356)
 
-Decision state: **maintainer acceptance required; no production rule is accepted by this document**
+Decision state: **accepted by the maintainer on 2026-08-04; production changes remain bounded follow-up work**
 
 ## Executive decision
 
@@ -248,17 +248,46 @@ Accept only if the maintainer agrees that:
 
 ## Maintainer acceptance checklist
 
-Please explicitly accept or reject each item:
+The maintainer accepted the complete decision packet on 2026-08-04:
 
-1. the source integration matrix;
-2. the applicability matrix and its #323/#343 boundaries;
-3. prototype A, touch-adaptive Web product controls;
-4. prototype B, authoritative pending/finalizing feedback;
-5. the codify-only flow-relative-property rule.
+1. **Accepted:** the source integration matrix;
+2. **Accepted:** the applicability matrix and its #323/#343 boundaries;
+3. **Accepted for a bounded implementation Issue:** prototype A,
+   touch-adaptive Web product controls;
+4. **Accepted for a bounded implementation Issue:** prototype B,
+   authoritative pending/finalizing feedback;
+5. **Accepted as a codify-only rule:** opportunistic flow-relative properties
+   in touched shared primitives, without a broad rewrite.
 
-Only accepted systemic rules may be added to `DESIGN.md` or owning architecture
-documents. Only then may bounded implementation Issues be created. Rejected
-items remain research history and must not create product work.
+Acceptance does not claim that the installed seven-Skill suite has already been
+applied as a complete interaction-optimization pass. That remains an explicit
+HITL follow-up covering representative routes and states with the current
+installed Skills. Production changes must be separate vertical Issues; they
+must delete any superseded local overrides inside their owned slice instead of
+leaving compatibility residue. Rejected items remain research history and must
+not create product work.
+
+The accepted current suite was installed outside this repository under the
+canonical user-owned Skill root at the audited pinned commit. It is not a Mish
+runtime or vendored dependency. The earlier monolithic interface Skill and the
+standalone unlicensed OKLCH Skill were not installed.
+
+### Accepted follow-up Issues
+
+- [#379](https://github.com/Asuka109/mish/issues/379) owns the HITL full
+  interaction pass with the installed seven-Skill suite. This is distinct from
+  this source/applicability audit.
+- [#380](https://github.com/Asuka109/mish/issues/380) owns touch-adaptive shared
+  Web product controls and deletion of superseded local sizing overrides.
+- [#381](https://github.com/Asuka109/mish/issues/381) owns one authoritative
+  capture Pending → Finalizing → Error/Success vertical slice across Status and
+  Settings.
+- [#382](https://github.com/Asuka109/mish/issues/382) owns bounded removal of
+  physical-direction residue in shared Web primitives. It is not a broad RTL
+  rewrite.
+
+The standalone prototype remains acceptance evidence. It is not runtime code
+and is not the residual-cleanup target.
 
 ## Standards and project references
 
