@@ -1,0 +1,28 @@
+{
+  "contractVersion": 1,
+  "authorityId": "fixture-native-shell",
+  "steps": [
+    {
+      "source": "androidChrome",
+      "intentId": "android-routes",
+      "expectedRevision": 0,
+      "destination": "routes",
+      "expectedWebEntryPath": "/routes"
+    },
+    {
+      "source": "platformDeepLink",
+      "intentId": "settings-network-link",
+      "expectedRevision": 1,
+      "webEntryPath": "/settings/network?source=notification",
+      "expectedDestination": "settings",
+      "expectedWebEntryPath": "/settings/network?source=notification"
+    },
+    {
+      "source": "appleChrome",
+      "intentId": "apple-home",
+      "expectedRevision": 2,
+      "destination": "home",
+      "expectedWebEntryPath": "/status"
+    }
+  ]
+}

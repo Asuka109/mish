@@ -12,18 +12,20 @@ The architecture matrix and limitations are in
 
 ## Automated authority contract
 
-Run the research-only Shared Rust state model:
+Run the production-disabled Shared Rust state model promoted from the research
+prototype:
 
 ```sh
-cargo test -p mish-mobile-navigation-prototype
+cargo test -p mish-mobile-shell
 ```
 
 The tests cover the closed native/deep-link shell inputs, top-level selection,
-one-way Web entry reset, full external deep-link forwarding, source/action
-rejection, stale intent rejection, duplicate idempotency, and invalid-link
-non-mutation. There is deliberately no React/Web intent, route stack, back, or
-focus API in this crate. The tests do not prove native rendering, Tauri JNI/FFI
-integration, or device bridge latency.
+one-way Web entry reset, full validated deep-link forwarding, monotonic
+revision, bounded stale/duplicate behavior, prepare/commit revalidation, and
+invalid-link non-mutation. There is deliberately no React/Web intent, route
+stack, Back, `canGoBack`, sheet, or focus API in this crate. It remains unlinked
+from the selected application and does not prove native rendering, Tauri
+JNI/FFI integration, or device bridge latency.
 
 ## Android build and launch
 
