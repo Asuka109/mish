@@ -45,10 +45,16 @@ use crate::{
 };
 
 mod check_machine;
+mod continuation_machine;
 mod install_adapter;
 use check_machine::{
     CheckCompletion, CheckEffect, CheckEffectOutcome, CheckInput, CheckMachine, CheckOperation,
     CheckProjection, CheckState, CheckTaskFailure,
+};
+use continuation_machine::{
+    ContinuationCompletion, ContinuationEffect, ContinuationEffectOutcome, ContinuationInput,
+    ContinuationMachine, ContinuationOperation, ContinuationState, ContinuationTaskFailure,
+    EffectCorrelation as ContinuationCorrelation, MachineProgress,
 };
 pub use install_adapter::{
     LocalCandidateInstallAdapter, LocalInstallError, LocalInstallEvidence, LocalInstallRequest,
@@ -57,9 +63,11 @@ pub use install_adapter::{
 
 const STORE_SCHEMA_VERSION: u8 = 1;
 const CANDIDATE_SCHEMA_VERSION: u8 = 2;
+const RECOVERY_SCHEMA_VERSION: u8 = 1;
 const STORE_ENTRY_LIMIT: usize = 64;
 const ACCEPTED_METADATA_LIMIT: usize = 32;
 const STATE_FILE: &str = "state.json";
+const RECOVERY_FILE: &str = "recovery.json";
 const ACCEPTED_FILE: &str = "accepted.json";
 const PARTIAL_DIRECTORY: &str = "partial";
 const PARTIAL_PAYLOAD: &str = "payload.part";
@@ -177,6 +185,7 @@ pub struct UpdaterCheckTransitionEvidence {
     pub scope_epoch: Option<u64>,
     pub admitted_revision: Option<u64>,
     pub effect_id: Option<u64>,
+    pub progress_sequence: Option<u64>,
     pub operation_id_sha256: Option<String>,
     pub from: String,
     pub input: String,
@@ -311,8 +320,7 @@ struct RuntimeState {
     accepted: AcceptedMetadata,
     available: Option<AvailableCandidate>,
     release_context_bound: bool,
-    active_cancel: Option<CancellationToken>,
-    check_admission_pending: bool,
+    operation_admission_pending: bool,
 }
 
 struct ConfiguredUpdater {
@@ -435,10 +443,7 @@ impl CheckEffectExecutor for ProductionCheckEffectExecutor {
                     correlation,
                     candidate,
                 } => {
-                    let operation_id = correlation.operation_id.clone();
-                    let result = configured
-                        .store
-                        .persist_available(&candidate, &operation_id);
+                    let result = configured.store.persist_available(&candidate, &correlation);
                     CheckCompletion {
                         correlation,
                         outcome: CheckEffectOutcome::Commit(result),
@@ -496,7 +501,7 @@ impl TransitionObserver<CheckMachine> for CheckProjectionObserver {
         }
         let mut state = self.state.lock().expect("updater state poisoned");
         if check_requested {
-            state.check_admission_pending = false;
+            state.operation_admission_pending = false;
         }
         if should_project {
             project_check_state_locked(current, &mut state, &self.updates);
@@ -547,12 +552,12 @@ impl CheckRuntime {
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
         let snapshot = {
             let mut state = self.state.lock().expect("updater state poisoned");
-            if state.check_admission_pending {
+            if state.operation_admission_pending {
                 return Err(UpdateOperationError::Busy);
             }
             // Reserve the outer cutover before the bounded runner admits the
             // command so download admission cannot cross this Check request.
-            state.check_admission_pending = true;
+            state.operation_admission_pending = true;
             state.snapshot.clone()
         };
         let operation = CheckOperation {
@@ -576,7 +581,7 @@ impl CheckRuntime {
             self.state
                 .lock()
                 .expect("updater state poisoned")
-                .check_admission_pending = false;
+                .operation_admission_pending = false;
         }
         admission?;
         Ok(self
@@ -635,6 +640,7 @@ fn record_projected_check_evidence(
         scope_epoch: correlation.as_ref().map(|value| value.scope_epoch),
         admitted_revision: correlation.as_ref().map(|value| value.admitted_revision),
         effect_id: correlation.as_ref().map(|value| value.effect_id),
+        progress_sequence: None,
         operation_id_sha256: correlation
             .as_ref()
             .map(|value| digest(value.operation_id.as_bytes())),
@@ -675,7 +681,6 @@ fn project_check_state_locked(
         } => {
             state.available = Some(candidate.clone());
             state.release_context_bound = true;
-            state.active_cancel = None;
         }
         CheckState::Retired {
             terminal: check_machine::RetiredTerminal::Available { candidate },
@@ -683,15 +688,12 @@ fn project_check_state_locked(
         } => {
             state.available = Some(candidate.as_ref().clone());
             state.release_context_bound = true;
-            state.active_cancel = None;
         }
         CheckState::NoUpdate { .. }
         | CheckState::Unchanged { .. }
         | CheckState::Failed { .. }
         | CheckState::Cancelled { .. }
-        | CheckState::Retired { .. } => {
-            state.active_cancel = None;
-        }
+        | CheckState::Retired { .. } => {}
         CheckState::Checking { .. }
         | CheckState::CommittingAvailable { .. }
         | CheckState::Stable { available: None } => {}
@@ -699,13 +701,582 @@ fn project_check_state_locked(
     publish(updates, &state.snapshot);
 }
 
+struct ContinuationKernelExecutor {
+    configured: Arc<ConfiguredUpdater>,
+    runner: Arc<Mutex<Option<RunnerHandle<ContinuationMachine>>>>,
+}
+
+impl KernelEffectExecutor<ContinuationMachine> for ContinuationKernelExecutor {
+    fn execute(
+        &self,
+        effect: ContinuationEffect,
+        cancellation: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = ContinuationInput> + Send + 'static>> {
+        let configured = self.configured.clone();
+        let runner = self.runner.clone();
+        Box::pin(async move {
+            let completion = match effect {
+                ContinuationEffect::Download {
+                    correlation,
+                    candidate,
+                } => {
+                    let (correlation, result) = download_artifact_effect(
+                        configured,
+                        correlation,
+                        candidate.as_ref().clone(),
+                        cancellation,
+                        runner,
+                    )
+                    .await;
+                    ContinuationCompletion {
+                        correlation,
+                        outcome: ContinuationEffectOutcome::Download(result),
+                    }
+                }
+                ContinuationEffect::Verify {
+                    mut correlation,
+                    candidate,
+                } => {
+                    let adapter = configured.adapter.clone();
+                    let metadata = candidate.metadata.clone();
+                    let payload_path = configured.store.partial_payload_path();
+                    let artifact_name = metadata.artifact_name.clone();
+                    let signature = metadata.artifact_signature.clone();
+                    let verification = tokio::task::spawn_blocking(move || {
+                        adapter.verify_payload_file(
+                            &metadata,
+                            &artifact_name,
+                            &payload_path,
+                            &signature,
+                        )
+                    });
+                    let result = tokio::select! {
+                        _ = cancellation.cancelled() => Err(UpdateOperationError::Cancelled),
+                        result = verification => result
+                            .map_err(|_| UpdateOperationError::StoreIo)
+                            .and_then(|result| result.map_err(UpdateOperationError::Verification)),
+                    };
+                    correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+                    ContinuationCompletion {
+                        correlation,
+                        outcome: ContinuationEffectOutcome::Verify(result),
+                    }
+                }
+                ContinuationEffect::CommitCandidate {
+                    mut correlation,
+                    candidate,
+                } => {
+                    let store = configured.store.clone();
+                    let commit_correlation = correlation.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        store.publish_candidate(&candidate, &commit_correlation)
+                    })
+                    .await
+                    .map_err(|_| UpdateOperationError::StoreIo)
+                    .and_then(|result| result);
+                    correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+                    ContinuationCompletion {
+                        correlation,
+                        outcome: ContinuationEffectOutcome::Commit(result),
+                    }
+                }
+                ContinuationEffect::FinalizeFailure {
+                    mut correlation,
+                    candidate,
+                    discard_partial,
+                } => {
+                    let store = configured.store.clone();
+                    let operation_id = correlation.machine.operation_id.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        if discard_partial {
+                            store.discard_partial()?;
+                            Ok(PartialInfo::default())
+                        } else {
+                            match store.partial_info(&candidate, &operation_id) {
+                                Ok(partial) => Ok(partial),
+                                Err(UpdateOperationError::StoreIo) => Ok(PartialInfo::default()),
+                                Err(error) => Err(error),
+                            }
+                        }
+                    })
+                    .await
+                    .map_err(|_| UpdateOperationError::StoreIo)
+                    .and_then(|result| result);
+                    correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+                    ContinuationCompletion {
+                        correlation,
+                        outcome: ContinuationEffectOutcome::Finalize(result),
+                    }
+                }
+                ContinuationEffect::ReverifyCandidate {
+                    mut correlation,
+                    candidate,
+                } => {
+                    let store = configured.store.clone();
+                    let adapter = configured.adapter.clone();
+                    let persisted = candidate.persisted(&correlation.machine.operation_id);
+                    let recovery_correlation = correlation.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        match store.verify_ready(&adapter, &candidate, &persisted) {
+                            Ok(()) => store.record_reverified(&candidate, &recovery_correlation),
+                            Err(error) => {
+                                store.discard_managed_state()?;
+                                Err(error)
+                            }
+                        }
+                    })
+                    .await
+                    .map_err(|_| UpdateOperationError::StoreIo)
+                    .and_then(|result| result);
+                    correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+                    ContinuationCompletion {
+                        correlation,
+                        outcome: ContinuationEffectOutcome::Recovery(result),
+                    }
+                }
+                ContinuationEffect::Cancel { correlation } => ContinuationCompletion {
+                    correlation,
+                    outcome: ContinuationEffectOutcome::TaskFailed(
+                        ContinuationTaskFailure::CompletionConflict,
+                    ),
+                },
+            };
+            ContinuationInput::EffectCompleted(completion)
+        })
+    }
+}
+
+struct ContinuationProjectionObserver {
+    evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    state: Arc<Mutex<RuntimeState>>,
+    updates: broadcast::Sender<UpdaterSnapshot>,
+}
+
+impl TransitionObserver<ContinuationMachine> for ContinuationProjectionObserver {
+    fn transitioned(
+        &self,
+        previous: &ContinuationState,
+        input: &ContinuationInput,
+        current: &ContinuationState,
+        disposition: Disposition,
+    ) {
+        record_continuation_evidence(&self.evidence, previous, input, current, disposition);
+        let requested = matches!(input, ContinuationInput::DownloadRequested { .. });
+        let should_project = !matches!(
+            disposition,
+            Disposition::Rejected | Disposition::Unchanged | Disposition::Retired
+        );
+        if !requested && !should_project {
+            return;
+        }
+        let mut state = self.state.lock().expect("updater state poisoned");
+        if requested {
+            state.operation_admission_pending = false;
+        }
+        if !should_project {
+            return;
+        }
+        let Some(projection) = current.projection() else {
+            return;
+        };
+        if !requested
+            && (state.snapshot.phase == UpdatePhase::Checking
+                || state.snapshot.operation_id.as_deref() != Some(&projection.operation_id))
+        {
+            return;
+        }
+        let changed = state.snapshot.phase != projection.phase
+            || state.snapshot.operation_id.as_deref() != Some(&projection.operation_id)
+            || state.snapshot.channel != Some(projection.channel)
+            || state.snapshot.candidate.as_ref() != Some(&projection.candidate)
+            || state.snapshot.progress != projection.progress
+            || state.snapshot.resumable != projection.resumable
+            || state.snapshot.terminal_reason != projection.terminal_reason;
+        if !changed {
+            return;
+        }
+        state.snapshot.revision = state.snapshot.revision.saturating_add(1);
+        state.snapshot.phase = projection.phase;
+        state.snapshot.operation_id = Some(projection.operation_id);
+        state.snapshot.channel = Some(projection.channel);
+        state.snapshot.candidate = Some(projection.candidate);
+        state.snapshot.progress = projection.progress;
+        state.snapshot.resumable = projection.resumable;
+        state.snapshot.terminal_reason = projection.terminal_reason;
+        if matches!(
+            current,
+            ContinuationState::Ready { .. }
+                | ContinuationState::Retired {
+                    terminal: continuation_machine::RetiredTerminal::Ready,
+                    ..
+                }
+        ) {
+            if let Some(operation) = current.operation() {
+                state.accepted.record(&operation.candidate.metadata);
+            }
+            if !matches!(
+                input,
+                ContinuationInput::EffectCompleted(ContinuationCompletion {
+                    outcome: ContinuationEffectOutcome::Recovery(Ok(())),
+                    ..
+                })
+            ) {
+                state.release_context_bound = true;
+            }
+        }
+        publish(&self.updates, &state.snapshot);
+    }
+}
+
+fn record_continuation_evidence(
+    evidence: &Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+    previous: &ContinuationState,
+    input: &ContinuationInput,
+    current: &ContinuationState,
+    disposition: Disposition,
+) {
+    let correlation = ContinuationMachine.input_correlation(previous, input);
+    let progress_sequence = match input {
+        ContinuationInput::PartialCommitted { correlation, .. } => {
+            Some(correlation.progress_sequence)
+        }
+        ContinuationInput::EffectCompleted(ContinuationCompletion {
+            outcome: ContinuationEffectOutcome::TaskFailed(_),
+            ..
+        }) => previous
+            .progress()
+            .map(|progress| progress.sequence.saturating_add(1)),
+        ContinuationInput::EffectCompleted(ContinuationCompletion { correlation, .. }) => {
+            Some(correlation.progress_sequence)
+        }
+        ContinuationInput::DownloadRequested { .. } => Some(0),
+        _ => previous.progress().map(|progress| progress.sequence),
+    };
+    let mut evidence = evidence
+        .lock()
+        .expect("updater continuation evidence lock poisoned");
+    let sequence = evidence
+        .back()
+        .map_or(1, |entry| entry.sequence.saturating_add(1));
+    if evidence.len() == CHECK_EVIDENCE_LIMIT {
+        evidence.pop_front();
+    }
+    let disposition = match (disposition, previous.label(), input.label()) {
+        (Disposition::Unchanged, "committing-candidate", "cancel-requested") => "cancel-too-late",
+        (Disposition::Unchanged, _, _) => "duplicate",
+        (Disposition::Retired, _, _) => "retired-completion",
+        _ => disposition.label(),
+    };
+    evidence.push_back(UpdaterCheckTransitionEvidence {
+        sequence,
+        machine_authority_sha256: correlation
+            .as_ref()
+            .map(|value| digest(value.machine_authority.as_bytes())),
+        scope_epoch: correlation.as_ref().map(|value| value.scope_epoch),
+        admitted_revision: correlation.as_ref().map(|value| value.admitted_revision),
+        effect_id: correlation.as_ref().map(|value| value.effect_id),
+        progress_sequence,
+        operation_id_sha256: correlation
+            .as_ref()
+            .map(|value| digest(value.operation_id.as_bytes())),
+        from: previous.label().into(),
+        input: input.label().into(),
+        to: current.label().into(),
+        disposition: disposition.into(),
+    });
+}
+
+struct ContinuationRuntime {
+    next_scope_epoch: AtomicU64,
+    runner: RunnerHandle<ContinuationMachine>,
+    state: Arc<Mutex<RuntimeState>>,
+}
+
+impl ContinuationRuntime {
+    fn spawn(
+        initial: ContinuationState,
+        state: Arc<Mutex<RuntimeState>>,
+        updates: broadcast::Sender<UpdaterSnapshot>,
+        evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
+        configured: Arc<ConfiguredUpdater>,
+    ) -> Self {
+        let runner_slot = Arc::new(Mutex::new(None));
+        let runner = spawn_runner(
+            Arc::new(ContinuationMachine),
+            initial,
+            Arc::new(ContinuationKernelExecutor {
+                configured,
+                runner: runner_slot.clone(),
+            }),
+            Arc::new(ContinuationProjectionObserver {
+                evidence,
+                state: state.clone(),
+                updates,
+            }),
+            RunnerConfig {
+                evidence_limit: CHECK_EVIDENCE_LIMIT,
+                shutdown_grace: CHECK_SHUTDOWN_GRACE,
+                ..RunnerConfig::default()
+            },
+        );
+        *runner_slot
+            .lock()
+            .expect("continuation runner slot poisoned") = Some(runner.clone());
+        Self {
+            next_scope_epoch: AtomicU64::new(1),
+            runner,
+            state,
+        }
+    }
+
+    async fn start(&self, operation_id: String) -> Result<UpdaterSnapshot, UpdateOperationError> {
+        let (snapshot, available, resumed_bytes) = {
+            let mut state = self.state.lock().expect("updater state poisoned");
+            if state.operation_admission_pending {
+                return Err(UpdateOperationError::Busy);
+            }
+            let available = state
+                .available
+                .clone()
+                .ok_or(UpdateOperationError::OperationMismatch)?;
+            let resumed_bytes = available.metadata.artifact_size.min(
+                state
+                    .snapshot
+                    .progress
+                    .as_ref()
+                    .map_or(0, |value| value.downloaded_bytes),
+            );
+            state.operation_admission_pending = true;
+            (state.snapshot.clone(), available, resumed_bytes)
+        };
+        let operation = ContinuationOperation {
+            machine_authority: snapshot.authority_id.clone(),
+            scope_epoch: self.next_scope_epoch.fetch_add(1, AtomicOrdering::AcqRel),
+            operation_id,
+            admitted_revision: snapshot.revision.saturating_add(1),
+            candidate: available,
+        };
+        let admission = self
+            .runner
+            .admit(ContinuationInput::DownloadRequested {
+                operation: Box::new(operation),
+                outer: Box::new(snapshot),
+                resumed_bytes,
+            })
+            .await;
+        if admission.is_err() {
+            self.state
+                .lock()
+                .expect("updater state poisoned")
+                .operation_admission_pending = false;
+        }
+        admission?;
+        Ok(self
+            .state
+            .lock()
+            .expect("updater state poisoned")
+            .snapshot
+            .clone())
+    }
+
+    async fn cancel(&self, operation_id: String) -> Result<UpdaterSnapshot, UpdateOperationError> {
+        self.runner
+            .admit(ContinuationInput::CancelRequested { operation_id })
+            .await?;
+        Ok(self
+            .state
+            .lock()
+            .expect("updater state poisoned")
+            .snapshot
+            .clone())
+    }
+
+    async fn recover(&self) -> Result<(), UpdateOperationError> {
+        self.runner
+            .admit(ContinuationInput::RecoverRequested)
+            .await?;
+        timeout(Duration::from_secs(15), async {
+            while matches!(self.runner.snapshot(), ContinuationState::Recovering { .. }) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| UpdateOperationError::Timeout)
+    }
+
+    async fn shutdown(&self) {
+        let _ = self.runner.shutdown().await;
+    }
+}
+
 pub struct UpdaterService {
     check: Option<CheckRuntime>,
+    continuation: Option<ContinuationRuntime>,
     check_evidence: Arc<Mutex<VecDeque<UpdaterCheckTransitionEvidence>>>,
     configured: Option<Arc<ConfiguredUpdater>>,
     state: Arc<Mutex<RuntimeState>>,
     updates: broadcast::Sender<UpdaterSnapshot>,
     install_admission: Arc<Mutex<install_adapter::InstallAdmissionState>>,
+}
+
+async fn download_artifact_effect(
+    configured: Arc<ConfiguredUpdater>,
+    mut correlation: ContinuationCorrelation,
+    available: AvailableCandidate,
+    cancel: CancellationToken,
+    runner: Arc<Mutex<Option<RunnerHandle<ContinuationMachine>>>>,
+) -> (ContinuationCorrelation, Result<(), UpdateOperationError>) {
+    let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
+    let result = timeout_at(
+        deadline,
+        download_artifact_inner(&configured, &available, &cancel, &mut correlation, &runner),
+    )
+    .await
+    .map_err(|_| UpdateOperationError::Timeout)
+    .and_then(|result| result);
+    correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+    (correlation, result)
+}
+
+async fn download_artifact_inner(
+    configured: &ConfiguredUpdater,
+    available: &AvailableCandidate,
+    cancel: &CancellationToken,
+    correlation: &mut ContinuationCorrelation,
+    runner: &Arc<Mutex<Option<RunnerHandle<ContinuationMachine>>>>,
+) -> Result<(), UpdateOperationError> {
+    let operation_id = correlation.machine.operation_id.as_str();
+    let mut partial = configured.store.prepare_partial(available, operation_id)?;
+    let expected_size = available.metadata.artifact_size;
+    if partial.size == expected_size {
+        return Ok(());
+    }
+    let logical_url = Url::parse(&available.metadata.artifact_url)
+        .map_err(|_| UpdateOperationError::InvalidResponse)?;
+    let download_url = request_url(configured, &logical_url)?;
+    let mut request = configured
+        .client
+        .get(download_url.clone())
+        .header(ACCEPT_ENCODING, "identity");
+    if partial.size > 0 {
+        if partial.etag.is_none() {
+            configured.store.reset_partial(available, operation_id)?;
+            partial = PartialInfo::default();
+            request = configured
+                .client
+                .get(download_url)
+                .header(ACCEPT_ENCODING, "identity");
+        }
+        if partial.size > 0 {
+            let etag = partial
+                .etag
+                .as_deref()
+                .expect("etag checked for resumable partial");
+            request = request
+                .header(RANGE, format!("bytes={}-", partial.size))
+                .header(IF_RANGE, etag);
+        }
+    }
+    let response = tokio::select! {
+        _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
+        response = request.send() => response.map_err(map_reqwest_error)?,
+    };
+    if response.status().is_redirection() {
+        return Err(UpdateOperationError::RedirectRejected);
+    }
+    ensure_identity_encoding(&response)?;
+    let (mut offset, append) = classify_download_response(&response, &partial, expected_size)?;
+    if !append {
+        configured.store.reset_partial(available, operation_id)?;
+        offset = 0;
+    }
+    let etag = strong_etag(&response);
+    if append && etag.as_deref() != partial.etag.as_deref() {
+        return Err(UpdateOperationError::RangeMismatch);
+    }
+    if !append {
+        configured
+            .store
+            .set_partial_etag(available, operation_id, etag.as_deref())?;
+    }
+    let payload_path = configured.store.partial_payload_path();
+    let mut options = tokio::fs::OpenOptions::new();
+    options.create(false).write(true);
+    if append {
+        options.append(true);
+    } else {
+        options.truncate(true);
+    }
+    let mut payload = options
+        .open(&payload_path)
+        .await
+        .map_err(|_| UpdateOperationError::StoreIo)?;
+    let mut stream = response.bytes_stream();
+    loop {
+        let next = tokio::select! {
+            _ = cancel.cancelled() => {
+                payload.flush().await.map_err(|_| UpdateOperationError::StoreIo)?;
+                payload.sync_all().await.map_err(|_| UpdateOperationError::StoreIo)?;
+                return Err(UpdateOperationError::Cancelled);
+            }
+            next = timeout(configured.limits.idle_timeout, stream.next()) =>
+                next.map_err(|_| UpdateOperationError::Timeout)?,
+        };
+        let Some(chunk) = next else {
+            break;
+        };
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        offset = offset
+            .checked_add(chunk.len() as u64)
+            .ok_or(UpdateOperationError::OversizedPayload)?;
+        if offset > expected_size || offset > configured.limits.max_artifact_bytes {
+            return Err(UpdateOperationError::OversizedPayload);
+        }
+        payload
+            .write_all(&chunk)
+            .await
+            .map_err(|_| UpdateOperationError::StoreIo)?;
+        // A progress event is published only after the private partial bytes are
+        // durable. This is the partial-download commit point.
+        payload
+            .flush()
+            .await
+            .map_err(|_| UpdateOperationError::StoreIo)?;
+        payload
+            .sync_all()
+            .await
+            .map_err(|_| UpdateOperationError::StoreIo)?;
+        correlation.progress_sequence = correlation.progress_sequence.saturating_add(1);
+        configured
+            .store
+            .record_partial_commit(available, correlation, offset)?;
+        let progress_correlation = correlation.clone();
+        let runner = runner
+            .lock()
+            .expect("continuation runner slot poisoned")
+            .clone()
+            .ok_or(UpdateOperationError::Busy)?;
+        runner
+            .admit(ContinuationInput::PartialCommitted {
+                correlation: progress_correlation,
+                downloaded_bytes: offset,
+            })
+            .await?;
+    }
+    payload
+        .flush()
+        .await
+        .map_err(|_| UpdateOperationError::StoreIo)?;
+    payload
+        .sync_all()
+        .await
+        .map_err(|_| UpdateOperationError::StoreIo)?;
+    if offset != expected_size {
+        return Err(UpdateOperationError::Verification(
+            UpdaterError::ArtifactSizeMismatch,
+        ));
+    }
+    Ok(())
 }
 
 impl UpdaterService {
@@ -714,6 +1285,7 @@ impl UpdaterService {
         let (updates, _) = broadcast::channel(32);
         Self {
             check: None,
+            continuation: None,
             check_evidence: Arc::new(Mutex::new(VecDeque::new())),
             configured: None,
             state: Arc::new(Mutex::new(RuntimeState {
@@ -721,8 +1293,7 @@ impl UpdaterService {
                 accepted: AcceptedMetadata::empty(),
                 available: None,
                 release_context_bound: false,
-                active_cancel: None,
-                check_admission_pending: false,
+                operation_admission_pending: false,
             })),
             updates,
             install_admission: Arc::new(Mutex::new(
@@ -787,13 +1358,47 @@ impl UpdaterService {
             policy,
             store,
         });
+        let continuation_initial =
+            recovered
+                .available
+                .as_ref()
+                .map_or_else(ContinuationState::stable, |candidate| {
+                    let operation = ContinuationOperation {
+                        machine_authority: snapshot.authority_id.clone(),
+                        scope_epoch: 0,
+                        operation_id: recovered
+                            .operation_id
+                            .clone()
+                            .unwrap_or_else(|| "recovered".into()),
+                        admitted_revision: snapshot.revision,
+                        candidate: candidate.clone(),
+                    };
+                    let progress = MachineProgress {
+                        downloaded_bytes: recovered
+                            .progress
+                            .as_ref()
+                            .map_or(0, |value| value.downloaded_bytes),
+                        total_bytes: candidate.metadata.artifact_size,
+                        sequence: 0,
+                    };
+                    match recovered.phase {
+                        _ if recovered.needs_reverification => {
+                            ContinuationState::recovery_required(operation, progress)
+                        }
+                        UpdatePhase::Failed
+                            if recovered.terminal_reason.as_deref() == Some("interrupted") =>
+                        {
+                            ContinuationState::interrupted(operation, progress, recovered.resumable)
+                        }
+                        _ => ContinuationState::stable(),
+                    }
+                });
         let state = Arc::new(Mutex::new(RuntimeState {
             snapshot,
             accepted: recovered.accepted,
             available: recovered.available,
             release_context_bound: false,
-            active_cancel: None,
-            check_admission_pending: false,
+            operation_admission_pending: false,
         }));
         let check_evidence = Arc::new(Mutex::new(VecDeque::new()));
         let check = CheckRuntime::spawn(
@@ -805,8 +1410,16 @@ impl UpdaterService {
                 state: state.clone(),
             }),
         );
-        Ok(Self {
+        let continuation = ContinuationRuntime::spawn(
+            continuation_initial,
+            state.clone(),
+            updates.clone(),
+            check_evidence.clone(),
+            configured.clone(),
+        );
+        let service = Self {
             check: Some(check),
+            continuation: Some(continuation),
             check_evidence,
             configured: Some(configured),
             state,
@@ -814,7 +1427,25 @@ impl UpdaterService {
             install_admission: Arc::new(Mutex::new(
                 install_adapter::InstallAdmissionState::default(),
             )),
-        })
+        };
+        if recovered.needs_reverification {
+            service
+                .continuation
+                .as_ref()
+                .expect("configured updater has a continuation runtime")
+                .recover()
+                .await?;
+            // No subscriber can exist before construction returns. The fresh
+            // process publishes the reverified result as its revision-zero
+            // baseline while retaining the complete internal transition evidence.
+            service
+                .state
+                .lock()
+                .expect("updater state poisoned")
+                .snapshot
+                .revision = 0;
+        }
+        Ok(service)
     }
 
     pub fn snapshot(&self) -> UpdaterSnapshot {
@@ -873,67 +1504,17 @@ impl UpdaterService {
             .await
     }
 
-    pub fn start_download(
-        self: &Arc<Self>,
+    pub async fn start_download(
+        &self,
         operation_id: &str,
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
-        let configured = self.require_configured()?;
+        self.require_configured()?;
         validate_operation_id(operation_id)?;
-        let operation_id = operation_id.to_owned();
-        let cancel = CancellationToken::new();
-        let available = {
-            let mut state = self.state.lock().expect("updater state poisoned");
-            if state.check_admission_pending {
-                return Err(UpdateOperationError::OperationMismatch);
-            }
-            if state.snapshot.operation_id.as_deref() != Some(operation_id.as_str()) {
-                return Err(UpdateOperationError::OperationMismatch);
-            }
-            if matches!(
-                state.snapshot.phase,
-                UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Ready
-            ) {
-                return Ok(state.snapshot.clone());
-            }
-            if !matches!(
-                state.snapshot.phase,
-                UpdatePhase::Available | UpdatePhase::Cancelled | UpdatePhase::Failed
-            ) {
-                return Err(UpdateOperationError::OperationMismatch);
-            }
-            let available = state
-                .available
-                .clone()
-                .ok_or(UpdateOperationError::OperationMismatch)?;
-            let partial = configured
-                .store
-                .partial_info(&available, &operation_id)
-                .ok();
-            let resumed = partial
-                .filter(|partial| partial.etag.is_some())
-                .map_or(0, |partial| partial.size);
-            state.active_cancel = Some(cancel.clone());
-            transition(
-                &mut state.snapshot,
-                UpdatePhase::Downloading,
-                Some(operation_id.clone()),
-                Some(available.metadata.channel),
-                Some(available.identity()),
-                Some(UpdateProgress {
-                    downloaded_bytes: resumed.min(available.metadata.artifact_size),
-                    total_bytes: available.metadata.artifact_size,
-                }),
-                resumed > 0,
-                None,
-            );
-            publish(&self.updates, &state.snapshot);
-            available
-        };
-        let service = self.clone();
-        tokio::spawn(async move {
-            service.run_download(operation_id, available, cancel).await;
-        });
-        Ok(self.snapshot())
+        self.continuation
+            .as_ref()
+            .expect("configured updater has a continuation runtime")
+            .start(operation_id.to_owned())
+            .await
     }
 
     pub async fn cancel(
@@ -942,28 +1523,34 @@ impl UpdaterService {
     ) -> Result<UpdaterSnapshot, UpdateOperationError> {
         self.require_configured()?;
         validate_operation_id(operation_id)?;
-        {
-            let state = self.state.lock().expect("updater state poisoned");
-            if state.snapshot.phase != UpdatePhase::Checking {
-                if state.snapshot.operation_id.as_deref() != Some(operation_id) {
-                    return Err(UpdateOperationError::OperationMismatch);
-                }
-                if let Some(cancel) = &state.active_cancel {
-                    cancel.cancel();
-                }
-                return Ok(state.snapshot.clone());
-            }
+        let checking = self
+            .state
+            .lock()
+            .expect("updater state poisoned")
+            .snapshot
+            .phase
+            == UpdatePhase::Checking;
+        if checking {
+            self.check
+                .as_ref()
+                .expect("configured updater has a Check runtime")
+                .cancel(operation_id.to_owned())
+                .await
+        } else {
+            self.continuation
+                .as_ref()
+                .expect("configured updater has a continuation runtime")
+                .cancel(operation_id.to_owned())
+                .await
         }
-        self.check
-            .as_ref()
-            .expect("configured updater has a Check runtime")
-            .cancel(operation_id.to_owned())
-            .await
     }
 
     pub async fn shutdown(&self) {
         if let Some(check) = &self.check {
             check.shutdown().await;
+        }
+        if let Some(continuation) = &self.continuation {
+            continuation.shutdown().await;
         }
     }
 
@@ -1383,359 +1970,6 @@ async fn fetch_bounded_request(
     }
     Ok(body)
 }
-
-impl UpdaterService {
-    async fn run_download(
-        self: Arc<Self>,
-        operation_id: String,
-        available: AvailableCandidate,
-        cancel: CancellationToken,
-    ) {
-        let result = self
-            .download_with_deadline(&operation_id, &available, &cancel)
-            .await;
-        match result {
-            Ok(()) => self.finish_ready(&operation_id, available, &cancel).await,
-            Err(UpdateOperationError::Cancelled) => {
-                let resumable = self
-                    .configured
-                    .as_ref()
-                    .and_then(|configured| {
-                        configured
-                            .store
-                            .partial_info(&available, &operation_id)
-                            .ok()
-                    })
-                    .is_some_and(|partial| partial.size > 0 && partial.etag.is_some());
-                self.finish_cancelled(&operation_id, UpdatePhase::Downloading, resumable);
-            }
-            Err(error) => {
-                if matches!(
-                    error,
-                    UpdateOperationError::InvalidResponse
-                        | UpdateOperationError::OversizedPayload
-                        | UpdateOperationError::RangeMismatch
-                        | UpdateOperationError::Verification(_)
-                ) && let Some(configured) = &self.configured
-                {
-                    let _ = configured.store.discard_partial();
-                }
-                self.finish_failure(&operation_id, UpdatePhase::Downloading, error);
-            }
-        }
-    }
-
-    async fn download_with_deadline(
-        &self,
-        operation_id: &str,
-        available: &AvailableCandidate,
-        cancel: &CancellationToken,
-    ) -> Result<(), UpdateOperationError> {
-        let configured = self.require_configured()?;
-        let deadline = tokio::time::Instant::now() + configured.limits.request_timeout;
-        timeout_at(
-            deadline,
-            self.download_artifact(operation_id, available, cancel),
-        )
-        .await
-        .map_err(|_| UpdateOperationError::Timeout)?
-    }
-
-    async fn download_artifact(
-        &self,
-        operation_id: &str,
-        available: &AvailableCandidate,
-        cancel: &CancellationToken,
-    ) -> Result<(), UpdateOperationError> {
-        let configured = self.require_configured()?;
-        let mut partial = configured.store.prepare_partial(available, operation_id)?;
-        let expected_size = available.metadata.artifact_size;
-        if partial.size == expected_size {
-            return Ok(());
-        }
-        let logical_url = Url::parse(&available.metadata.artifact_url)
-            .map_err(|_| UpdateOperationError::InvalidResponse)?;
-        let download_url = request_url(configured, &logical_url)?;
-        let mut request = configured
-            .client
-            .get(download_url.clone())
-            .header(ACCEPT_ENCODING, "identity");
-        if partial.size > 0 {
-            if partial.etag.is_none() {
-                configured.store.reset_partial(available, operation_id)?;
-                partial = PartialInfo::default();
-                request = configured
-                    .client
-                    .get(download_url)
-                    .header(ACCEPT_ENCODING, "identity");
-            }
-            if partial.size > 0 {
-                let etag = partial
-                    .etag
-                    .as_deref()
-                    .expect("etag checked for resumable partial");
-                request = request
-                    .header(RANGE, format!("bytes={}-", partial.size))
-                    .header(IF_RANGE, etag);
-            }
-        }
-        let response = tokio::select! {
-            _ = cancel.cancelled() => return Err(UpdateOperationError::Cancelled),
-            response = request.send() => response.map_err(map_reqwest_error)?,
-        };
-        if response.status().is_redirection() {
-            return Err(UpdateOperationError::RedirectRejected);
-        }
-        ensure_identity_encoding(&response)?;
-        let (mut offset, append) = classify_download_response(&response, &partial, expected_size)?;
-        if !append {
-            configured.store.reset_partial(available, operation_id)?;
-            offset = 0;
-        }
-        let etag = strong_etag(&response);
-        if append && etag.as_deref() != partial.etag.as_deref() {
-            return Err(UpdateOperationError::RangeMismatch);
-        }
-        if !append {
-            configured
-                .store
-                .set_partial_etag(available, operation_id, etag.as_deref())?;
-        }
-        let payload_path = configured.store.partial_payload_path();
-        let mut options = tokio::fs::OpenOptions::new();
-        options.create(false).write(true);
-        if append {
-            options.append(true);
-        } else {
-            options.truncate(true);
-        }
-        let mut payload = options
-            .open(&payload_path)
-            .await
-            .map_err(|_| UpdateOperationError::StoreIo)?;
-        let mut stream = response.bytes_stream();
-        loop {
-            let next = tokio::select! {
-                _ = cancel.cancelled() => {
-                    payload.flush().await.map_err(|_| UpdateOperationError::StoreIo)?;
-                    payload.sync_all().await.map_err(|_| UpdateOperationError::StoreIo)?;
-                    return Err(UpdateOperationError::Cancelled);
-                }
-                next = timeout(configured.limits.idle_timeout, stream.next()) =>
-                    next.map_err(|_| UpdateOperationError::Timeout)?,
-            };
-            let Some(chunk) = next else {
-                break;
-            };
-            let chunk = chunk.map_err(map_reqwest_error)?;
-            offset = offset
-                .checked_add(chunk.len() as u64)
-                .ok_or(UpdateOperationError::OversizedPayload)?;
-            if offset > expected_size || offset > configured.limits.max_artifact_bytes {
-                return Err(UpdateOperationError::OversizedPayload);
-            }
-            payload
-                .write_all(&chunk)
-                .await
-                .map_err(|_| UpdateOperationError::StoreIo)?;
-            self.publish_progress(operation_id, available, offset);
-        }
-        payload
-            .flush()
-            .await
-            .map_err(|_| UpdateOperationError::StoreIo)?;
-        payload
-            .sync_all()
-            .await
-            .map_err(|_| UpdateOperationError::StoreIo)?;
-        if offset != expected_size {
-            return Err(UpdateOperationError::Verification(
-                UpdaterError::ArtifactSizeMismatch,
-            ));
-        }
-        Ok(())
-    }
-
-    fn publish_progress(
-        &self,
-        operation_id: &str,
-        available: &AvailableCandidate,
-        downloaded_bytes: u64,
-    ) {
-        let mut state = self.state.lock().expect("updater state poisoned");
-        if !current_operation(&state, operation_id, UpdatePhase::Downloading) {
-            return;
-        }
-        let next = UpdateProgress {
-            downloaded_bytes: downloaded_bytes.min(available.metadata.artifact_size),
-            total_bytes: available.metadata.artifact_size,
-        };
-        if state.snapshot.progress.as_ref() == Some(&next) {
-            return;
-        }
-        state.snapshot.progress = Some(next);
-        state.snapshot.revision = state.snapshot.revision.saturating_add(1);
-        publish(&self.updates, &state.snapshot);
-    }
-
-    async fn finish_ready(
-        &self,
-        operation_id: &str,
-        available: AvailableCandidate,
-        cancel: &CancellationToken,
-    ) {
-        {
-            let mut state = self.state.lock().expect("updater state poisoned");
-            if !current_operation(&state, operation_id, UpdatePhase::Downloading) {
-                return;
-            }
-            let progress = state.snapshot.progress.clone();
-            transition(
-                &mut state.snapshot,
-                UpdatePhase::Verifying,
-                Some(operation_id.to_owned()),
-                Some(available.metadata.channel),
-                Some(available.identity()),
-                progress,
-                false,
-                None,
-            );
-            publish(&self.updates, &state.snapshot);
-        }
-        let Some(configured) = &self.configured else {
-            return;
-        };
-        let adapter = configured.adapter.clone();
-        let metadata = available.metadata.clone();
-        let payload_path = configured.store.partial_payload_path();
-        let artifact_name = metadata.artifact_name.clone();
-        let signature = metadata.artifact_signature.clone();
-        let verification = tokio::task::spawn_blocking(move || {
-            adapter.verify_payload_file(&metadata, &artifact_name, &payload_path, &signature)
-        })
-        .await
-        .map_err(|_| UpdateOperationError::StoreIo)
-        .and_then(|result| result.map_err(UpdateOperationError::Verification));
-        if let Err(error) = verification {
-            let _ = configured.store.discard_partial();
-            self.finish_failure(operation_id, UpdatePhase::Verifying, error);
-            return;
-        }
-        if cancel.is_cancelled() {
-            self.finish_cancelled(operation_id, UpdatePhase::Verifying, true);
-            return;
-        }
-        if let Err(error) = configured.store.publish_candidate(&available, operation_id) {
-            self.finish_failure(operation_id, UpdatePhase::Verifying, error);
-            return;
-        }
-        let mut state = self.state.lock().expect("updater state poisoned");
-        if !current_operation(&state, operation_id, UpdatePhase::Verifying) {
-            return;
-        }
-        state.active_cancel = None;
-        state.accepted.record(&available.metadata);
-        transition(
-            &mut state.snapshot,
-            UpdatePhase::Ready,
-            Some(operation_id.to_owned()),
-            Some(available.metadata.channel),
-            Some(available.identity()),
-            Some(UpdateProgress {
-                downloaded_bytes: available.metadata.artifact_size,
-                total_bytes: available.metadata.artifact_size,
-            }),
-            false,
-            None,
-        );
-        publish(&self.updates, &state.snapshot);
-    }
-
-    fn finish_cancelled(&self, operation_id: &str, expected: UpdatePhase, resumable: bool) {
-        let mut state = self.state.lock().expect("updater state poisoned");
-        if !current_operation(&state, operation_id, expected) {
-            return;
-        }
-        state.active_cancel = None;
-        let channel = state.snapshot.channel;
-        let candidate = state.snapshot.candidate.clone();
-        let progress = state.snapshot.progress.clone();
-        transition(
-            &mut state.snapshot,
-            UpdatePhase::Cancelled,
-            Some(operation_id.to_owned()),
-            channel,
-            candidate,
-            progress,
-            resumable,
-            Some(UpdateOperationError::Cancelled.code().to_owned()),
-        );
-        publish(&self.updates, &state.snapshot);
-    }
-
-    fn finish_failure(
-        &self,
-        operation_id: &str,
-        expected: UpdatePhase,
-        error: UpdateOperationError,
-    ) {
-        let mut state = self.state.lock().expect("updater state poisoned");
-        if !current_operation(&state, operation_id, expected) {
-            return;
-        }
-        state.active_cancel = None;
-        let resumable = state.available.as_ref().is_some_and(|available| {
-            self.configured
-                .as_ref()
-                .and_then(|configured| configured.store.partial_info(available, operation_id).ok())
-                .is_some_and(|partial| {
-                    partial.size > 0
-                        && partial.size < available.metadata.artifact_size
-                        && partial.etag.is_some()
-                })
-        });
-        let channel = state.snapshot.channel;
-        let candidate = state.snapshot.candidate.clone();
-        let progress = state.snapshot.progress.clone();
-        transition(
-            &mut state.snapshot,
-            UpdatePhase::Failed,
-            Some(operation_id.to_owned()),
-            channel,
-            candidate,
-            progress,
-            resumable,
-            Some(error.code().to_owned()),
-        );
-        publish(&self.updates, &state.snapshot);
-    }
-}
-
-fn current_operation(state: &RuntimeState, operation_id: &str, phase: UpdatePhase) -> bool {
-    state.snapshot.operation_id.as_deref() == Some(operation_id) && state.snapshot.phase == phase
-}
-
-#[allow(clippy::too_many_arguments)]
-fn transition(
-    snapshot: &mut UpdaterSnapshot,
-    phase: UpdatePhase,
-    operation_id: Option<String>,
-    channel: Option<UpdateChannel>,
-    candidate: Option<UpdateCandidateIdentity>,
-    progress: Option<UpdateProgress>,
-    resumable: bool,
-    terminal_reason: Option<String>,
-) {
-    snapshot.revision = snapshot.revision.saturating_add(1);
-    snapshot.phase = phase;
-    snapshot.operation_id = operation_id;
-    snapshot.channel = channel;
-    snapshot.candidate = candidate;
-    snapshot.progress = progress;
-    snapshot.resumable = resumable;
-    snapshot.terminal_reason = terminal_reason;
-}
-
 fn publish(updates: &broadcast::Sender<UpdaterSnapshot>, snapshot: &UpdaterSnapshot) {
     let _ = updates.send(snapshot.clone());
 }
@@ -2084,6 +2318,107 @@ enum PersistedPhase {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryRecord {
+    schema_version: u8,
+    candidate: UpdateCandidateIdentity,
+    ownership: RecoveryOwnership,
+    commit: RecoveryCommit,
+    evidence: RecoveryEvidence,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryOwnership {
+    machine_authority_sha256: String,
+    scope_epoch: u64,
+    operation_id: String,
+    admitted_revision: u64,
+    effect_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum RecoveryCommit {
+    Available,
+    PartialDownload,
+    CandidateCommitStarted,
+    CandidateCommitted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryEvidence {
+    progress_sequence: u64,
+    committed_bytes: u64,
+    strong_etag_sha256: Option<String>,
+}
+
+impl RecoveryRecord {
+    fn check_available(
+        candidate: &AvailableCandidate,
+        correlation: &check_machine::EffectCorrelation,
+    ) -> Self {
+        Self {
+            schema_version: RECOVERY_SCHEMA_VERSION,
+            candidate: candidate.identity(),
+            ownership: RecoveryOwnership {
+                machine_authority_sha256: digest(correlation.machine_authority.as_bytes()),
+                scope_epoch: correlation.scope_epoch,
+                operation_id: correlation.operation_id.clone(),
+                admitted_revision: correlation.admitted_revision,
+                effect_id: correlation.effect_id,
+            },
+            commit: RecoveryCommit::Available,
+            evidence: RecoveryEvidence {
+                progress_sequence: 0,
+                committed_bytes: 0,
+                strong_etag_sha256: None,
+            },
+        }
+    }
+
+    fn continuation(
+        candidate: &AvailableCandidate,
+        correlation: &ContinuationCorrelation,
+        commit: RecoveryCommit,
+        partial: PartialInfo,
+    ) -> Self {
+        Self {
+            schema_version: RECOVERY_SCHEMA_VERSION,
+            candidate: candidate.identity(),
+            ownership: RecoveryOwnership {
+                machine_authority_sha256: digest(correlation.machine.machine_authority.as_bytes()),
+                scope_epoch: correlation.machine.scope_epoch,
+                operation_id: correlation.machine.operation_id.clone(),
+                admitted_revision: correlation.machine.admitted_revision,
+                effect_id: correlation.machine.effect_id,
+            },
+            commit,
+            evidence: RecoveryEvidence {
+                progress_sequence: correlation.progress_sequence,
+                committed_bytes: partial.size,
+                strong_etag_sha256: partial.etag.map(|etag| digest(etag.as_bytes())),
+            },
+        }
+    }
+
+    fn validates(&self, persisted: &PersistedCandidate) -> bool {
+        self.schema_version == RECOVERY_SCHEMA_VERSION
+            && self.candidate == persisted.identity
+            && self.ownership.operation_id == persisted.operation_id
+            && valid_digest(&self.ownership.machine_authority_sha256)
+            && validate_operation_id(&self.ownership.operation_id).is_ok()
+            && self.evidence.committed_bytes <= self.candidate.artifact_size
+            && self
+                .evidence
+                .strong_etag_sha256
+                .as_deref()
+                .is_none_or(valid_digest)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AcceptedMetadata {
     schema_version: u8,
     digests: Vec<String>,
@@ -2176,9 +2511,23 @@ struct RecoveredState {
     resumable: bool,
     terminal_reason: Option<String>,
     progress: Option<UpdateProgress>,
+    needs_reverification: bool,
 }
 
 impl RecoveredState {
+    fn idle(accepted: AcceptedMetadata) -> Self {
+        Self {
+            accepted,
+            available: None,
+            operation_id: None,
+            phase: UpdatePhase::Idle,
+            resumable: false,
+            terminal_reason: None,
+            progress: None,
+            needs_reverification: false,
+        }
+    }
+
     fn snapshot(&self, authority_id: String) -> UpdaterSnapshot {
         let candidate = self.available.as_ref().map(AvailableCandidate::identity);
         UpdaterSnapshot {
@@ -2215,9 +2564,11 @@ impl CandidateStore {
         policy: &UpdatePolicy,
         limits: &UpdaterLimits,
     ) -> Result<RecoveredState, UpdateOperationError> {
-        let mut accepted = self.read_accepted()?;
+        let accepted = self.read_accepted()?;
         if let Ok(state) = self.read_json::<PersistedState>(&self.root.join(STATE_FILE))
             && state.schema_version == STORE_SCHEMA_VERSION
+            && let Ok(recovery) = self.read_json::<RecoveryRecord>(&self.root.join(RECOVERY_FILE))
+            && recovery.validates(&state.candidate)
         {
             let accepted_for_candidate = accepted
                 .digests
@@ -2233,6 +2584,14 @@ impl CandidateStore {
             ) {
                 match state.phase {
                     PersistedPhase::Ready => {
+                        if !matches!(
+                            recovery.commit,
+                            RecoveryCommit::CandidateCommitStarted
+                                | RecoveryCommit::CandidateCommitted
+                        ) {
+                            self.discard_managed_state()?;
+                            return Ok(RecoveredState::idle(accepted));
+                        }
                         let accepted_identity = accepted
                             .digests
                             .contains(&available.metadata.metadata_sha256);
@@ -2241,32 +2600,60 @@ impl CandidateStore {
                             Some(Ordering::Equal) => accepted_identity,
                             Some(Ordering::Greater) | None => true,
                         };
-                        if high_water_allows
-                            && self
-                                .verify_ready(adapter, &available, &state.candidate)
-                                .is_ok()
-                        {
-                            let previous = accepted.clone();
-                            accepted.record(&available.metadata);
-                            if accepted != previous {
-                                self.write_accepted(&accepted)?;
-                            }
+                        if high_water_allows {
                             return Ok(RecoveredState {
                                 accepted,
                                 available: Some(available.clone()),
                                 operation_id: Some(state.candidate.operation_id),
-                                phase: UpdatePhase::Ready,
+                                phase: UpdatePhase::Failed,
                                 resumable: false,
-                                terminal_reason: None,
+                                terminal_reason: Some("recovery-required".into()),
                                 progress: Some(UpdateProgress {
                                     downloaded_bytes: available.metadata.artifact_size,
                                     total_bytes: available.metadata.artifact_size,
                                 }),
+                                needs_reverification: true,
                             });
                         }
                         self.discard_candidate()?;
                     }
                     PersistedPhase::Available => {
+                        if recovery.commit == RecoveryCommit::CandidateCommitStarted {
+                            let accepted_identity = accepted
+                                .digests
+                                .contains(&available.metadata.metadata_sha256);
+                            let high_water_allows = match accepted.compare(&available.metadata) {
+                                Some(Ordering::Less) => false,
+                                Some(Ordering::Equal) => accepted_identity,
+                                Some(Ordering::Greater) | None => true,
+                            };
+                            if high_water_allows
+                                && self.inspect_candidate(&available, &state.candidate).is_ok()
+                            {
+                                return Ok(RecoveredState {
+                                    accepted,
+                                    available: Some(available.clone()),
+                                    operation_id: Some(state.candidate.operation_id),
+                                    phase: UpdatePhase::Failed,
+                                    resumable: false,
+                                    terminal_reason: Some("recovery-required".into()),
+                                    progress: Some(UpdateProgress {
+                                        downloaded_bytes: available.metadata.artifact_size,
+                                        total_bytes: available.metadata.artifact_size,
+                                    }),
+                                    needs_reverification: true,
+                                });
+                            }
+                            self.discard_managed_state()?;
+                            return Ok(RecoveredState::idle(accepted));
+                        }
+                        if !matches!(
+                            recovery.commit,
+                            RecoveryCommit::Available | RecoveryCommit::PartialDownload
+                        ) {
+                            self.discard_managed_state()?;
+                            return Ok(RecoveredState::idle(accepted));
+                        }
                         if accepted.require_newer(&available.metadata).is_err() {
                             self.discard_managed_state()?;
                             return Ok(RecoveredState {
@@ -2277,6 +2664,7 @@ impl CandidateStore {
                                 resumable: false,
                                 terminal_reason: None,
                                 progress: None,
+                                needs_reverification: false,
                             });
                         }
                         let partial = self
@@ -2305,6 +2693,7 @@ impl CandidateStore {
                             resumable: resumable && !stale,
                             terminal_reason: progress.as_ref().map(|_| "interrupted".to_owned()),
                             progress,
+                            needs_reverification: false,
                         });
                     }
                 }
@@ -2319,14 +2708,16 @@ impl CandidateStore {
             resumable: false,
             terminal_reason: None,
             progress: None,
+            needs_reverification: false,
         })
     }
 
     fn persist_available(
         &self,
         available: &AvailableCandidate,
-        operation_id: &str,
+        correlation: &check_machine::EffectCorrelation,
     ) -> Result<(), UpdateOperationError> {
+        let operation_id = correlation.operation_id.as_str();
         let persisted = available.persisted(operation_id);
         if self
             .read_json::<PartialManifest>(&self.root.join(PARTIAL_DIRECTORY).join(PARTIAL_MANIFEST))
@@ -2344,6 +2735,11 @@ impl CandidateStore {
                 phase: PersistedPhase::Available,
                 candidate: persisted,
             },
+            0o600,
+        )?;
+        self.write_json_atomic(
+            &self.root.join(RECOVERY_FILE),
+            &RecoveryRecord::check_available(available, correlation),
             0o600,
         )
     }
@@ -2446,15 +2842,48 @@ impl CandidateStore {
         )
     }
 
+    fn record_partial_commit(
+        &self,
+        available: &AvailableCandidate,
+        correlation: &ContinuationCorrelation,
+        committed_bytes: u64,
+    ) -> Result<(), UpdateOperationError> {
+        let partial = self.partial_info(available, &correlation.machine.operation_id)?;
+        if partial.size != committed_bytes {
+            return Err(UpdateOperationError::StoreUnsafe);
+        }
+        self.write_json_atomic(
+            &self.root.join(RECOVERY_FILE),
+            &RecoveryRecord::continuation(
+                available,
+                correlation,
+                RecoveryCommit::PartialDownload,
+                partial,
+            ),
+            0o600,
+        )
+    }
+
     fn publish_candidate(
         &self,
         available: &AvailableCandidate,
-        operation_id: &str,
+        correlation: &ContinuationCorrelation,
     ) -> Result<(), UpdateOperationError> {
+        let operation_id = correlation.machine.operation_id.as_str();
         let partial = self.partial_info(available, operation_id)?;
         if partial.size != available.metadata.artifact_size {
             return Err(UpdateOperationError::StoreUnsafe);
         }
+        self.write_json_atomic(
+            &self.root.join(RECOVERY_FILE),
+            &RecoveryRecord::continuation(
+                available,
+                correlation,
+                RecoveryCommit::CandidateCommitStarted,
+                partial,
+            ),
+            0o600,
+        )?;
         self.discard_candidate()?;
         let temporary = self
             .root
@@ -2485,7 +2914,20 @@ impl CandidateStore {
         )?;
         let mut accepted = self.read_accepted()?;
         accepted.record(&available.metadata);
-        self.write_accepted(&accepted)
+        self.write_accepted(&accepted)?;
+        self.write_json_atomic(
+            &self.root.join(RECOVERY_FILE),
+            &RecoveryRecord::continuation(
+                available,
+                correlation,
+                RecoveryCommit::CandidateCommitted,
+                PartialInfo {
+                    size: available.metadata.artifact_size,
+                    etag: None,
+                },
+            ),
+            0o600,
+        )
     }
 
     fn verify_ready(
@@ -2494,6 +2936,22 @@ impl CandidateStore {
         available: &AvailableCandidate,
         expected: &PersistedCandidate,
     ) -> Result<(), UpdateOperationError> {
+        let payload = self.inspect_candidate(available, expected)?;
+        adapter
+            .verify_payload_file(
+                &available.metadata,
+                &available.metadata.artifact_name,
+                &payload,
+                &available.metadata.artifact_signature,
+            )
+            .map_err(UpdateOperationError::Verification)
+    }
+
+    fn inspect_candidate(
+        &self,
+        available: &AvailableCandidate,
+        expected: &PersistedCandidate,
+    ) -> Result<PathBuf, UpdateOperationError> {
         let directory = self.root.join(CANDIDATE_DIRECTORY);
         ensure_private_directory(&directory)?;
         validate_exact_entries(&directory, &[CANDIDATE_MANIFEST, CANDIDATE_PAYLOAD])?;
@@ -2503,14 +2961,30 @@ impl CandidateStore {
         }
         let payload = directory.join(CANDIDATE_PAYLOAD);
         validate_private_file(&payload, Some(available.metadata.artifact_size))?;
-        adapter
-            .verify_payload_file(
-                &available.metadata,
-                &available.metadata.artifact_name,
-                &payload,
-                &available.metadata.artifact_signature,
-            )
-            .map_err(UpdateOperationError::Verification)
+        Ok(payload)
+    }
+
+    fn record_reverified(
+        &self,
+        available: &AvailableCandidate,
+        correlation: &ContinuationCorrelation,
+    ) -> Result<(), UpdateOperationError> {
+        let mut accepted = self.read_accepted()?;
+        accepted.record(&available.metadata);
+        self.write_accepted(&accepted)?;
+        self.write_json_atomic(
+            &self.root.join(RECOVERY_FILE),
+            &RecoveryRecord::continuation(
+                available,
+                correlation,
+                RecoveryCommit::CandidateCommitted,
+                PartialInfo {
+                    size: available.metadata.artifact_size,
+                    etag: None,
+                },
+            ),
+            0o600,
+        )
     }
 
     fn partial_is_stale(&self, limits: &UpdaterLimits) -> Result<bool, UpdateOperationError> {
@@ -2536,6 +3010,7 @@ impl CandidateStore {
         }
         let recognized = BTreeSet::from([
             STATE_FILE,
+            RECOVERY_FILE,
             ACCEPTED_FILE,
             PARTIAL_DIRECTORY,
             CANDIDATE_DIRECTORY,
@@ -2551,6 +3026,7 @@ impl CandidateStore {
             }
             if name.starts_with("state.json.tmp-")
                 || name.starts_with("accepted.json.tmp-")
+                || name.starts_with("recovery.json.tmp-")
                 || name.starts_with("manifest.json.tmp-")
                 || name.starts_with("candidate.new-")
             {
@@ -2565,7 +3041,8 @@ impl CandidateStore {
     fn discard_managed_state(&self) -> Result<(), UpdateOperationError> {
         self.discard_partial()?;
         self.discard_candidate()?;
-        remove_file_if_present(&self.root.join(STATE_FILE))
+        remove_file_if_present(&self.root.join(STATE_FILE))?;
+        remove_file_if_present(&self.root.join(RECOVERY_FILE))
     }
 
     fn discard_partial(&self) -> Result<(), UpdateOperationError> {
@@ -3028,8 +3505,7 @@ mod tests {
             accepted: AcceptedMetadata::empty(),
             available: None,
             release_context_bound: false,
-            active_cancel: None,
-            check_admission_pending: false,
+            operation_admission_pending: false,
         }));
         let (updates, _) = broadcast::channel(32);
         let evidence = Arc::new(Mutex::new(VecDeque::new()));
@@ -3857,7 +4333,7 @@ mod tests {
     ) -> (Arc<UpdaterService>, UpdaterSnapshot) {
         let service = configured_service(server, root, "install-process", limits()).await;
         discover_available(&service, "download-operation").await;
-        service.start_download("download-operation").unwrap();
+        service.start_download("download-operation").await.unwrap();
         let ready = wait_phase(&service, UpdatePhase::Ready).await;
         (service, ready)
     }
@@ -3872,7 +4348,7 @@ mod tests {
             .await
             .unwrap();
         wait_phase(&service, UpdatePhase::Available).await;
-        service.start_download("stable-download").unwrap();
+        service.start_download("stable-download").await.unwrap();
         let ready = wait_phase(&service, UpdatePhase::Ready).await;
         (service, ready)
     }
@@ -3956,6 +4432,94 @@ mod tests {
         assert_eq!(
             server.state.artifact_requests.load(Ordering::SeqCst),
             artifact_requests
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_record_is_bounded_and_unknown_candidate_commit_is_only_reverified() {
+        let server = fixture_server().await;
+        let temporary = TempDir::new().unwrap();
+        let root = temporary.path().join("updates");
+        let service = configured_service(&server, &root, "record-process", limits()).await;
+        discover_available(&service, "record-operation").await;
+
+        let available_bytes = fs::read(root.join(RECOVERY_FILE)).unwrap();
+        let available_text = String::from_utf8(available_bytes.clone()).unwrap();
+        let available: RecoveryRecord = serde_json::from_slice(&available_bytes).unwrap();
+        assert_eq!(available.schema_version, RECOVERY_SCHEMA_VERSION);
+        assert_eq!(available.commit, RecoveryCommit::Available);
+        assert_eq!(available.evidence.committed_bytes, 0);
+        for secret in [
+            "metadataBase64",
+            "\"metadataSignature\":",
+            "\"artifactSignature\":",
+            "https://",
+            root.to_str().unwrap(),
+        ] {
+            assert!(!available_text.contains(secret));
+        }
+
+        service.start_download("record-operation").await.unwrap();
+        wait_phase(&service, UpdatePhase::Ready).await;
+        let committed: RecoveryRecord =
+            serde_json::from_slice(&fs::read(root.join(RECOVERY_FILE)).unwrap()).unwrap();
+        assert_eq!(committed.commit, RecoveryCommit::CandidateCommitted);
+        assert_eq!(
+            committed.evidence.committed_bytes,
+            committed.candidate.artifact_size
+        );
+
+        let mut unknown = committed;
+        unknown.commit = RecoveryCommit::CandidateCommitStarted;
+        let persisted: PersistedState = service
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .read_json(&root.join(STATE_FILE))
+            .unwrap();
+        service
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .write_json_atomic(
+                &root.join(STATE_FILE),
+                &PersistedState {
+                    phase: PersistedPhase::Available,
+                    ..persisted
+                },
+                0o600,
+            )
+            .unwrap();
+        service
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .write_json_atomic(&root.join(RECOVERY_FILE), &unknown, 0o600)
+            .unwrap();
+        let artifact_requests = server.state.artifact_requests.load(Ordering::SeqCst);
+        service.shutdown().await;
+        drop(service);
+
+        let recovered = configured_service(&server, &root, "recovery-process", limits()).await;
+        assert_eq!(recovered.snapshot().phase, UpdatePhase::Ready);
+        assert_eq!(
+            server.state.artifact_requests.load(Ordering::SeqCst),
+            artifact_requests,
+            "restart observes and re-verifies; it never replays the payload download"
+        );
+        let evidence = recovered.check_transition_evidence();
+        assert!(evidence.iter().any(|entry| {
+            entry.from == "recovery-required"
+                && entry.input == "recover-requested"
+                && entry.to == "recovering"
+        }));
+        assert!(
+            evidence
+                .iter()
+                .any(|entry| { entry.input == "reverification-succeeded" && entry.to == "ready" })
         );
     }
 
@@ -4305,7 +4869,7 @@ mod tests {
             Err(UpdateOperationError::Busy)
         );
         wait_phase(&service, UpdatePhase::Available).await;
-        service.start_download("operation-a").unwrap();
+        service.start_download("operation-a").await.unwrap();
         let ready = wait_phase(&service, UpdatePhase::Ready).await;
         assert_eq!(
             ready.progress,
@@ -4371,7 +4935,7 @@ mod tests {
             let service = service.clone();
             tokio::spawn(async move {
                 barrier.wait().await;
-                service.start_download("operation-a")
+                service.start_download("operation-a").await
             })
         };
         barrier.wait().await;
@@ -4459,7 +5023,7 @@ mod tests {
         let root = temporary.path().join("updates");
         let service = configured_service(&server, &root, "process-a", limits()).await;
         discover_available(&service, "nested-entry").await;
-        service.start_download("nested-entry").unwrap();
+        service.start_download("nested-entry").await.unwrap();
         wait_phase(&service, UpdatePhase::Ready).await;
         drop(service);
 
@@ -4467,7 +5031,11 @@ mod tests {
         fs::set_permissions(&candidate, fs::Permissions::from_mode(0o700)).unwrap();
         fs::write(candidate.join("foreign"), b"remove").unwrap();
         let restarted = configured_service(&server, &root, "process-b", limits()).await;
-        assert_eq!(restarted.snapshot().phase, UpdatePhase::Idle);
+        assert_eq!(restarted.snapshot().phase, UpdatePhase::Failed);
+        assert_eq!(
+            restarted.snapshot().terminal_reason.as_deref(),
+            Some("store-unsafe")
+        );
         assert!(!candidate.exists());
     }
 
@@ -4484,7 +5052,7 @@ mod tests {
         )
         .await;
         discover_available(&service, "resume-operation").await;
-        service.start_download("resume-operation").unwrap();
+        service.start_download("resume-operation").await.unwrap();
         timeout(Duration::from_secs(4), async {
             loop {
                 if service
@@ -4503,7 +5071,7 @@ mod tests {
         let cancelled = wait_phase(&service, UpdatePhase::Cancelled).await;
         assert!(cancelled.resumable);
         *server.state.artifact_mode.lock().unwrap() = ArtifactMode::Success;
-        service.start_download("resume-operation").unwrap();
+        service.start_download("resume-operation").await.unwrap();
         wait_phase(&service, UpdatePhase::Ready).await;
         assert!(server.state.ranges.lock().unwrap().iter().any(|range| {
             range
@@ -4525,7 +5093,7 @@ mod tests {
         )
         .await;
         discover_available(&service, "restart-operation").await;
-        service.start_download("restart-operation").unwrap();
+        service.start_download("restart-operation").await.unwrap();
         timeout(Duration::from_secs(4), async {
             loop {
                 if service
@@ -4543,7 +5111,7 @@ mod tests {
         service.cancel("restart-operation").await.unwrap();
         wait_phase(&service, UpdatePhase::Cancelled).await;
         *server.state.artifact_mode.lock().unwrap() = ArtifactMode::IgnoreRange;
-        service.start_download("restart-operation").unwrap();
+        service.start_download("restart-operation").await.unwrap();
         wait_phase(&service, UpdatePhase::Ready).await;
         assert!(server.state.artifact_requests.load(Ordering::SeqCst) >= 2);
     }
@@ -4627,7 +5195,7 @@ mod tests {
             )
             .await;
             discover_available(&service, "payload-failure").await;
-            service.start_download("payload-failure").unwrap();
+            service.start_download("payload-failure").await.unwrap();
             let failed = wait_phase(&service, UpdatePhase::Failed).await;
             assert_eq!(failed.terminal_reason.as_deref(), Some(expected));
             assert!(
@@ -4652,7 +5220,7 @@ mod tests {
         )
         .await;
         discover_available(&service, "first").await;
-        service.start_download("first").unwrap();
+        service.start_download("first").await.unwrap();
         let original = wait_phase(&service, UpdatePhase::Ready).await;
         service
             .start_check("second", UpdateChannel::Alpha)
@@ -4733,7 +5301,7 @@ mod tests {
                 .map(|candidate| candidate.version.as_str()),
             Some("0.1.1")
         );
-        service.start_download("stable-published").unwrap();
+        service.start_download("stable-published").await.unwrap();
         let ready = wait_phase(&service, UpdatePhase::Ready).await;
         assert_eq!(
             ready.progress.as_ref().map(|progress| progress.total_bytes),
@@ -4821,8 +5389,7 @@ mod tests {
             accepted: AcceptedMetadata::empty(),
             available: Some(existing.clone()),
             release_context_bound: true,
-            active_cancel: None,
-            check_admission_pending: false,
+            operation_admission_pending: false,
         });
         assert_eq!(
             classify_discovery(&state, existing.clone()),
@@ -4904,7 +5471,7 @@ mod tests {
         let root = temporary.path().join("updates");
         let service = configured_service(&server, &root, "process-a", limits()).await;
         discover_available(&service, "restart-resume").await;
-        service.start_download("restart-resume").unwrap();
+        service.start_download("restart-resume").await.unwrap();
         timeout(Duration::from_secs(4), async {
             loop {
                 if service
@@ -4960,7 +5527,7 @@ mod tests {
             .unwrap();
         let extra_link = temporary.path().join("extra-link");
         fs::hard_link(configured.store.partial_payload_path(), &extra_link).unwrap();
-        service.start_download("hard-link").unwrap();
+        service.start_download("hard-link").await.unwrap();
         wait_phase(&service, UpdatePhase::Ready).await;
         assert!(extra_link.exists());
         assert_eq!(

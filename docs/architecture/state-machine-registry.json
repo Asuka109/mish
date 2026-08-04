@@ -46,9 +46,9 @@
     },
     {
       "id": "updater-continuation",
-      "classification": "migration-required",
-      "canonicalOwner": "crates/updater",
-      "recoveryBoundary": "Versioned private partial/candidate store, immutable release identity, resume validators, and signed metadata high-water marks."
+      "classification": "conforming",
+      "canonicalOwner": "crates/updater/src/service/continuation_machine.rs",
+      "recoveryBoundary": "Versioned bounded RecoveryRecord plus the private partial/candidate store, immutable release identity, resume validators, signed metadata high-water marks, and mandatory candidate re-verification after restart."
     },
     {
       "id": "settings-backup-transactions",

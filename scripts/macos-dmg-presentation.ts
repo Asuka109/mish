@@ -11,6 +11,7 @@ import {
   readlinkSync,
   realpathSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +22,10 @@ const expectedRootEntries = [".DS_Store", ".background", "Applications", "Mish.a
 const expectedVisibleEntries = ["Applications", "Mish.app"] as const;
 const minimumImageMiB = 128;
 const imageOverheadMiB = 64;
+const hfsEpochOffsetSeconds = 2_082_844_800;
+const deterministicTimestampSeconds = Math.floor(
+  new Date("2020-01-01T00:00:00.000Z").getTime() / 1000,
+);
 
 type Point = {
   x: number;
@@ -62,6 +67,7 @@ type DetachRunner = (
 type DetachPause = (milliseconds: number) => void;
 
 export type CreateMacOsDmgOptions = {
+  normalizeForDeterminism?: boolean;
   replaceExistingOutput?: boolean;
 };
 
@@ -241,6 +247,196 @@ function attachImage(image: string, mountpoint: string, writable: boolean): void
   execFileSync("/usr/bin/hdiutil", arguments_, { stdio: "pipe" });
 }
 
+function normalizeHfsMetadata(image: string): void {
+  const bytes = readFileSync(image);
+  const hfsHeaderCandidates: Array<{
+    allocationBlockSize: number;
+    offset: number;
+    totalAllocationBlocks: number;
+  }> = [];
+  const hfsHeaderSignature = Buffer.from([0x48, 0x2b, 0, 4]);
+  for (
+    let offset = bytes.indexOf(hfsHeaderSignature);
+    offset >= 0;
+    offset = bytes.indexOf(hfsHeaderSignature, offset + hfsHeaderSignature.length)
+  ) {
+    if (offset + 112 > bytes.length) continue;
+    const allocationBlockSize = bytes.readUInt32BE(offset + 40);
+    const totalAllocationBlocks = bytes.readUInt32BE(offset + 44);
+    const freeAllocationBlocks = bytes.readUInt32BE(offset + 48);
+    if (
+      allocationBlockSize >= 512 &&
+      (allocationBlockSize & (allocationBlockSize - 1)) === 0 &&
+      totalAllocationBlocks > 0 &&
+      freeAllocationBlocks <= totalAllocationBlocks
+    ) {
+      hfsHeaderCandidates.push({ allocationBlockSize, offset, totalAllocationBlocks });
+    }
+  }
+  const hfsHeaderPairs = hfsHeaderCandidates.flatMap((primary) => {
+    const alternateOffset =
+      primary.offset + primary.allocationBlockSize * primary.totalAllocationBlocks - 2_048;
+    const alternate = hfsHeaderCandidates.find(
+      (candidate) =>
+        candidate.offset === alternateOffset &&
+        candidate.allocationBlockSize === primary.allocationBlockSize &&
+        candidate.totalAllocationBlocks === primary.totalAllocationBlocks,
+    );
+    return alternate ? [{ alternate, primary }] : [];
+  });
+  invariant(
+    hfsHeaderPairs.length === 1,
+    "macOS DMG must contain one bounded HFS+ volume header pair",
+  );
+  const { alternate, primary } = hfsHeaderPairs[0]!;
+  const fixedHfsTimestamp = Buffer.alloc(4);
+  fixedHfsTimestamp.writeUInt32BE(deterministicTimestampSeconds + hfsEpochOffsetSeconds);
+  const fixedBsdTimestamp = Buffer.alloc(4);
+  fixedBsdTimestamp.writeUInt32BE(deterministicTimestampSeconds);
+  const fixedVolumeId = createHash("sha256")
+    .update("Mish Finder DMG HFS volume v1")
+    .digest()
+    .subarray(0, 8);
+  for (const offset of [primary.offset, alternate.offset]) {
+    for (const dateOffset of [16, 20, 24, 28]) {
+      fixedHfsTimestamp.copy(bytes, offset + dateOffset);
+    }
+    fixedVolumeId.copy(bytes, offset + 104);
+  }
+
+  const volumeStart = primary.offset - 1_024;
+  invariant(volumeStart >= 0, "macOS DMG HFS+ volume start is invalid");
+  const catalogLogicalSize = Number(bytes.readBigUInt64BE(primary.offset + 272));
+  const catalogBlockCount = bytes.readUInt32BE(primary.offset + 284);
+  const catalogAllocatedSize = catalogBlockCount * primary.allocationBlockSize;
+  invariant(
+    Number.isSafeInteger(catalogLogicalSize) &&
+      catalogLogicalSize > 0 &&
+      catalogLogicalSize <= catalogAllocatedSize,
+    "macOS DMG HFS+ catalog size is invalid",
+  );
+  const catalog = Buffer.alloc(catalogAllocatedSize);
+  const catalogExtents: Array<{ blockCount: number; physicalOffset: number }> = [];
+  let catalogOffset = 0;
+  for (let extent = 0; extent < 8; extent += 1) {
+    const startBlock = bytes.readUInt32BE(primary.offset + 288 + extent * 8);
+    const blockCount = bytes.readUInt32BE(primary.offset + 292 + extent * 8);
+    if (blockCount === 0) {
+      invariant(startBlock === 0, "macOS DMG HFS+ catalog has a partial extent");
+      continue;
+    }
+    invariant(
+      startBlock < primary.totalAllocationBlocks &&
+        blockCount <= primary.totalAllocationBlocks - startBlock &&
+        catalogOffset + blockCount * primary.allocationBlockSize <= catalog.length,
+      "macOS DMG HFS+ catalog extent is invalid",
+    );
+    const physicalOffset = volumeStart + startBlock * primary.allocationBlockSize;
+    const byteLength = blockCount * primary.allocationBlockSize;
+    invariant(
+      physicalOffset >= 0 && physicalOffset + byteLength <= bytes.length,
+      "macOS DMG HFS+ catalog extent exceeds the image",
+    );
+    bytes.copy(catalog, catalogOffset, physicalOffset, physicalOffset + byteLength);
+    catalogExtents.push({ blockCount, physicalOffset });
+    catalogOffset += byteLength;
+  }
+  invariant(
+    catalogOffset === catalog.length && catalogExtents.length > 0,
+    "macOS DMG HFS+ catalog requires unsupported overflow extents",
+  );
+
+  invariant(
+    catalog.readInt8(8) === 1 && catalog.readUInt16BE(10) >= 3,
+    "macOS DMG HFS+ catalog header node is invalid",
+  );
+  const expectedLeafRecords = catalog.readUInt32BE(20);
+  const nodeSize = catalog.readUInt16BE(32);
+  const totalNodes = catalog.readUInt32BE(36);
+  invariant(
+    nodeSize >= 512 &&
+      (nodeSize & (nodeSize - 1)) === 0 &&
+      totalNodes > 0 &&
+      totalNodes * nodeSize <= catalogLogicalSize,
+    "macOS DMG HFS+ catalog B-tree shape is invalid",
+  );
+  let leafRecords = 0;
+  let normalizedRecords = 0;
+  for (let node = 0; node < totalNodes; node += 1) {
+    const nodeOffset = node * nodeSize;
+    if (catalog.readInt8(nodeOffset + 8) !== -1) continue;
+    const recordCount = catalog.readUInt16BE(nodeOffset + 10);
+    const offsetTableStart = nodeOffset + nodeSize - (recordCount + 1) * 2;
+    invariant(
+      recordCount > 0 && offsetTableStart >= nodeOffset + 14,
+      "macOS DMG HFS+ catalog leaf inventory is invalid",
+    );
+    let previousRecordOffset = 13;
+    for (let record = 0; record < recordCount; record += 1) {
+      const recordOffset = catalog.readUInt16BE(nodeOffset + nodeSize - (record + 1) * 2);
+      invariant(
+        recordOffset > previousRecordOffset && nodeOffset + recordOffset + 4 <= offsetTableStart,
+        "macOS DMG HFS+ catalog record offset is invalid",
+      );
+      previousRecordOffset = recordOffset;
+      const keyLength = catalog.readUInt16BE(nodeOffset + recordOffset);
+      const dataOffset = nodeOffset + recordOffset + ((keyLength + 3) & ~1);
+      invariant(dataOffset + 2 <= offsetTableStart, "macOS DMG HFS+ catalog record key is invalid");
+      const recordType = catalog.readInt16BE(dataOffset);
+      if (recordType === 1 || recordType === 2) {
+        const recordSize = recordType === 1 ? 88 : 248;
+        invariant(
+          dataOffset + recordSize <= offsetTableStart,
+          "macOS DMG HFS+ catalog record is truncated",
+        );
+        for (const dateOffset of [12, 16, 20, 24, 28]) {
+          fixedHfsTimestamp.copy(catalog, dataOffset + dateOffset);
+        }
+        fixedBsdTimestamp.copy(catalog, dataOffset + 68);
+        normalizedRecords += 1;
+      } else {
+        invariant(
+          recordType === 3 || recordType === 4,
+          "macOS DMG HFS+ catalog contains an unsupported record type",
+        );
+      }
+      leafRecords += 1;
+    }
+  }
+  invariant(
+    leafRecords === expectedLeafRecords && normalizedRecords > 0,
+    "macOS DMG HFS+ catalog leaf inventory is incomplete",
+  );
+
+  catalogOffset = 0;
+  for (const extent of catalogExtents) {
+    const byteLength = extent.blockCount * primary.allocationBlockSize;
+    catalog.copy(bytes, extent.physicalOffset, catalogOffset, catalogOffset + byteLength);
+    catalogOffset += byteLength;
+  }
+  writeFileSync(image, bytes);
+}
+
+function normalizeUdifSegmentId(image: string): void {
+  const bytes = readFileSync(image);
+  const footerOffset = bytes.length - 512;
+  invariant(
+    footerOffset >= 0 &&
+      bytes.toString("ascii", footerOffset, footerOffset + 4) === "koly" &&
+      bytes.readUInt32BE(footerOffset + 4) === 4 &&
+      bytes.readUInt32BE(footerOffset + 8) === 512 &&
+      bytes.readUInt32BE(footerOffset + 56) === 1 &&
+      bytes.readUInt32BE(footerOffset + 60) === 1,
+    "macOS DMG deterministic UDIF footer is invalid",
+  );
+  createHash("sha256")
+    .update("Mish deterministic UDIF segment v1")
+    .digest()
+    .subarray(0, 16)
+    .copy(bytes, footerOffset + 64);
+  writeFileSync(image, bytes);
+}
+
 export function createMacOsDmg(
   application: string,
   output: string,
@@ -282,23 +478,24 @@ export function createMacOsDmg(
     copyApplicationContents(resolvedApplication, path.join(mountpoint, "Mish.app"));
     detachMacOsDiskImage(mountpoint);
     attached = false;
+    if (options.normalizeForDeterminism) {
+      normalizeHfsMetadata(workingImage);
+    }
 
-    execFileSync(
-      "/usr/bin/hdiutil",
-      [
-        "convert",
-        workingImage,
-        "-format",
-        "UDZO",
-        "-imagekey",
-        "zlib-level=9",
-        "-o",
-        compressedBase,
-      ],
-      { stdio: "pipe" },
-    );
+    const conversionArguments = [
+      "convert",
+      workingImage,
+      "-format",
+      options.normalizeForDeterminism ? "UDBZ" : "UDZO",
+    ];
+    if (!options.normalizeForDeterminism) {
+      conversionArguments.push("-imagekey", "zlib-level=9");
+    }
+    conversionArguments.push("-o", compressedBase);
+    execFileSync("/usr/bin/hdiutil", conversionArguments, { stdio: "pipe" });
     const assembledOutput = outputFromBase(compressedBase);
     requireRegularFile(assembledOutput, "assembled delivery image");
+    if (options.normalizeForDeterminism) normalizeUdifSegmentId(assembledOutput);
     moveToTrash(resolvedOutput);
     copyFileSync(assembledOutput, resolvedOutput);
   } finally {

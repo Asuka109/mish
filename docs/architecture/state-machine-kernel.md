@@ -92,11 +92,13 @@ installation enrollment remain package-domain records.
 
 ## Adoption
 
-The conforming machines are Updater Check, Internal TUN Alpha package
-install/repair/uninstall, TUN Helper/Core/network lifecycle, and the Capture
-outer lifecycle. Capture owns its `State`, `Input`, `Effect`, projection, and
-error vocabulary; the kernel supplies only bounded admission, task ownership,
-correlation, finalization, and evidence. Future work such as #288 and #289 must
+The conforming machines are Updater Check, Updater Continuation, Internal TUN
+Alpha package install/repair/uninstall, TUN Helper/Core/network lifecycle, and
+the Capture outer lifecycle. Updater Continuation owns Download, Verify,
+immutable candidate commit, Ready, cancellation, interruption, retirement, and
+restart re-verification. Each domain owns its `State`, `Input`, `Effect`,
+projection, and error vocabulary; the kernel supplies only bounded admission,
+task ownership, correlation, finalization, and evidence. Future work such as #288 and #289 must
 consume this convention when it introduces a high-risk lifecycle, while
 retaining its own vocabulary and recovery boundary. Migration-required
 registry entries are independent vertical slices; this change does not rewrite

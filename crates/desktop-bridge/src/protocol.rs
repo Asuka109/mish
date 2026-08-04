@@ -2377,7 +2377,7 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match state.updater.start_download(&params.operation_id) {
+            match state.updater.start_download(&params.operation_id).await {
                 Ok(snapshot) => {
                     serde_json::to_value(snapshot).expect("serializable updater snapshot")
                 }

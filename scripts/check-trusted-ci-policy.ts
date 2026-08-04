@@ -302,6 +302,14 @@ const internalVerify = release.workflow.jobs?.["verify-internal-tun-candidate"];
 const internalStage = release.workflow.jobs?.["stage-internal-tun-alpha"];
 const internalConfirm = release.workflow.jobs?.["confirm-internal-tun-stage"];
 invariant(
+  internalBuild?.steps?.some(
+    (step) =>
+      step.name === "Run required repository and package policy checks" &&
+      step.run === "pnpm check:pr && pnpm test:macos:bundle",
+  ),
+  "Internal TUN staging must rerun the Fast PR contract and focused package policy suite.",
+);
+invariant(
   JSON.stringify(verify?.permissions) === JSON.stringify({ contents: "read" }) &&
     JSON.stringify(decision?.permissions) === JSON.stringify({ contents: "read" }) &&
     JSON.stringify(internalBuild?.permissions) === JSON.stringify({ contents: "read" }) &&

@@ -342,12 +342,18 @@ invariant(
 assertOrdered(
   internalBuild,
   [
-    "Run complete repository validation",
+    "Run required repository and package policy checks",
     "Build accepted Internal TUN Alpha package",
     "Build deterministic DMG, SBOM, provenance, and immutable candidate manifest",
     "Upload immutable-ID-addressed Internal TUN candidate",
   ],
   "Internal TUN validation, package, evidence, and upload order changed.",
+);
+invariant(
+  step(internalBuild, "Install Playwright Chromium").run === "pnpm test:browser:install" &&
+    step(internalBuild, "Run required repository and package policy checks").run ===
+      "pnpm check:pr && pnpm test:macos:bundle",
+  "Internal TUN staging must rerun the Fast PR contract and focused package policy suite.",
 );
 const internalCandidateUpload = step(
   internalBuild,
