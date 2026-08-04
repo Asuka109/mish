@@ -22,9 +22,9 @@
     },
     {
       "id": "runtime-profile-activation",
-      "classification": "migration-required",
-      "canonicalOwner": "crates/runtime and crates/profile",
-      "recoveryBoundary": "Runtime identity, Profile activation identity, candidate home, capture journal, and authoritative application snapshot."
+      "classification": "conforming",
+      "canonicalOwner": "crates/desktop-bridge/src/profile_activation.rs",
+      "recoveryBoundary": "The admitted Profile ID/revision/fingerprint, committed runtime authority ID, exact prior runtime instance, Capture operation/selection, candidate home, and Capture journal are re-observed before commit or compensation; ambiguity becomes RecoveryRequired."
     },
     {
       "id": "capture-system-proxy",

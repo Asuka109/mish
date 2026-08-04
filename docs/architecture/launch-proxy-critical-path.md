@@ -49,6 +49,15 @@ Both branches joined successfully
   +--> Rust Applied/Running publication
 ```
 
+The DAG above covers cold activation and a matching retained backend. When a
+running Capture request requires a different Core backend, the coordinator does
+not commit Profile and then issue a second Capture mutation. It admits the
+requested Capture contract into the Profile activation machine. The shared
+command ID prefixes Capture's internal correlation while the public Capture
+operation ID remains stable. Success is published only after the new runtime
+authority and Capture Applied state are both observed; failure restores the
+exact prior runtime/Capture state or publishes Recovery Required.
+
 The preflight branch is read-only. Its state and journal snapshot are opaque
 in-process data: they are never serialized or logged because they may contain
 service names, proxy hosts, or PAC URLs. They are preliminary evidence, not
@@ -118,6 +127,7 @@ startup, and machine load.
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Cold Profile or missing GeoData          | Candidate staging, Mihomo validation/download, Core startup, and readiness are on the long branch. | Read-only preflight overlaps that work; the full fingerprint is revalidated after readiness.                                    |
 | Warm retained Core and matching Profile  | Activation is already successful.                                                                  | There may be little cross-branch overlap, but each macOS observation still uses two read rounds instead of seven serial rounds. |
+| Running Capture requires another backend | The Profile machine owns replacement, finalization, and exact prior-runtime compensation.          | The requested Capture contract is part of the same saga; no intermediate Profile Success is published.                          |
 | First launch without a journal           | No prior Mish ownership exists.                                                                    | Preflight applies takeover protections; final observation must match before the prior state is journaled.                       |
 | Relaunch after safe stop                 | A healthy managed Core may remain intentionally retained.                                          | A new preflight and final validation run; the previous journal must already have been cleared by exact restoration.             |
 | System Proxy already running             | No new Profile activation or preliminary baseline is needed.                                       | The existing idempotent Capture path runs and timing evidence reports `already-running`.                                        |
