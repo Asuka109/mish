@@ -290,7 +290,8 @@ must never be described as Controller success.
 
 ## Native private connection observation log
 
-The native shell may derive one consumer-neutral route-activity summary from
+The native desktop status/menu adapter may derive one consumer-neutral
+route-activity summary from
 the same typed `TrafficDataSnapshot`; it does not poll Controller data and does
 not create another Traffic authority. The log is scoped to the active
 `profileId` and `sessionId`, and resets on stale, unavailable, missing-session,

@@ -228,7 +228,7 @@ Support bundle export is intentionally outside loopback protocol
 versioning. The shared UI consumes a typed `SupportBundleClient`: ordinary
 browsers receive an explicit unavailable adapter, while the Tauri bootstrap
 enables a private preview/save adapter. Preview exposes only metadata for the
-exact in-memory JSON; save sends only its opaque preview ID and the native shell
+exact in-memory JSON; save sends only its opaque preview ID and the desktop Tauri host
 owns destination selection, private atomic writing, cancellation, and cleanup.
 See [`support-bundle-data-contracts.md`](support-bundle-data-contracts.md).
 

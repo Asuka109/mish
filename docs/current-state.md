@@ -86,6 +86,28 @@ See
 See [`android-vpn-service.md`](operations/android-vpn-service.md) and
 [`mobile-validation.md`](quality/mobile-validation.md).
 
+### Mobile Product Navigation
+
+- The installed React `MobileShell` and React Router are the sole owners of
+  persistent mobile product chrome, top-level destinations, child routes,
+  history/Back, overlays/sheets, scroll state, and DOM focus.
+- The production-disabled Shared Rust shell-entry contract and Android/Apple
+  persistent-shell research prototypes were retired after hands-on review of
+  #373 exposed split navigation ownership. #343/#370/#372 remain superseded
+  historical evidence; #374 is not planned.
+- Native code continues to own genuine platform effects behind typed,
+  permission-scoped adapters, including Android VPN consent, foreground service,
+  TUN/socket protection, embedded Core, and platform lifecycle. No arbitrary
+  Web-to-Native script, message, URL-command, UI, or capability channel is
+  accepted.
+
+See
+[`mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md),
+[`mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md), and
+the durable
+[`native-persistent-mobile-shell.md`](../.out-of-scope/native-persistent-mobile-shell.md)
+decision.
+
 ### Desktop Startup and Settings
 
 - Desktop bridge protocol version 33 retains separate login registration,
