@@ -286,7 +286,14 @@ capabilities. Native local-file import, support-bundle export, local backup and
 restore, native Sidebar material, and native window lifecycle are reported as
 unavailable. HTTPS profile import and all authenticated RPC operations continue
 to use the same desktop application services and typed capability checks as the
-WebView.
+WebView. Virtual Interface and Helper lifecycle are authenticated RPC operations,
+not Tauri-only capabilities: the paired loopback Browser Client receives the same
+Rust projection and requests the same install, repair, removal, Capture,
+rollback, recovery, and terminal read-back authority as the WebView. Browser
+JavaScript never installs a Helper or performs a privileged or network mutation.
+A backend-free fixture, invalid or expired Browser session, wrong Origin,
+non-loopback peer, unsupported platform, or desktop composition without a valid
+backend remains unavailable before any effect.
 
 Managed Core recovery precedes every activation and managed-listener readiness
 probe. Startup never restores the recorded profile automatically: it terminates

@@ -132,11 +132,15 @@ describe("desktop runtime bootstrap", () => {
   it("connects an explicitly launched browser client to the authenticated desktop RPC", async () => {
     const clearLaunchToken = vi.fn();
     const saveProof = vi.fn();
+    const browserSettingsSnapshot = {
+      ...settingsSnapshot,
+      capabilities: { ...settingsSnapshot.capabilities, tun: "supported" as const },
+    };
     const fetchBootstrap = vi.fn(async () => ({
       authToken: token,
       localBackup: false,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
-      settingsSnapshot,
+      settingsSnapshot: browserSettingsSnapshot,
       supportBundleExport: false,
     }));
     const transport = {
@@ -171,6 +175,7 @@ describe("desktop runtime bootstrap", () => {
     expect(startup.runtime).toBe("browser");
     expect(startup.browserBackendPort).toBe(43_123);
     expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
+    expect(startup.settingsSnapshot.capabilities.tun).toBe("supported");
     const request = startup.client?.getSnapshot();
     expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
     startup.dispose();
