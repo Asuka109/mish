@@ -736,6 +736,12 @@ class DeferredCaptureClient extends SnapshotStatusClient {
   }
 
   override setCapture(): Promise<StatusSnapshotDto> {
+    this.currentSnapshot.runtime.captureOperation = {
+      failure: null,
+      operationId: "2",
+      phase: "pending",
+      scopeEpoch: "app-test-capture-scope",
+    };
     this.currentSnapshot.runtime.systemProxy.phase = "pending";
     this.currentSnapshot.runtime.tun.phase = "pending";
     for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
@@ -782,6 +788,7 @@ class FailingAfterPendingCaptureClient extends SnapshotStatusClient {
     this.captureSignal = options?.signal ?? null;
     this.currentSnapshot.applicationOrder.order += 1;
     this.currentSnapshot.runtime.captureOperation = {
+      failure: null,
       operationId: "2",
       phase: "pending",
       scopeEpoch: this.currentSnapshot.runtime.captureOperation.scopeEpoch,
@@ -833,6 +840,7 @@ async function createRpcSnapshot(sparse = false) {
   snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
   snapshot.runtime = {
     captureOperation: {
+      failure: null,
       operationId: "1",
       phase: "applied",
       scopeEpoch: "app-test-capture-scope",
@@ -2437,6 +2445,12 @@ describe("desktop RPC experience", () => {
       phase: "pending",
       recoveryActions: [],
     };
+    snapshot.runtime.captureOperation = {
+      failure: null,
+      operationId: "2",
+      phase: "pending",
+      scopeEpoch: "app-test-capture-scope",
+    };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
     const proxyControl = await screen.findByRole("button", { name: "Launch Proxy" });
@@ -3351,9 +3365,11 @@ describe("Status fixture experience", () => {
 
     await user.click(await screen.findByRole("button", { name: "Launch Proxy" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "System Proxy is pending macOS confirmation.",
-    );
+    expect(
+      (await screen.findAllByRole("status")).find((status) =>
+        status.textContent?.includes("Mish is checking the live resources again"),
+      ),
+    ).toBeDefined();
   });
 
   it("keeps Launch Proxy pending when an inactive snapshot arrives before capture completes", async () => {

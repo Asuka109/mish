@@ -125,6 +125,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
     routingMode: "rule",
     runtime: {
       captureOperation: {
+        failure: null,
         operationId: null,
         phase: "idle",
         scopeEpoch: "mock-capture-scope",
@@ -292,7 +293,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               return {
                 bridgeVersion: "transport-only-mock",
                 coreConfigured: false,
-                protocolVersion: 33,
+                protocolVersion: 34,
                 statusCommands: {
                   group: false,
                   groupDelay: false,

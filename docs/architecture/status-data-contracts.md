@@ -276,6 +276,14 @@ platform mutation or a detected authoritative transition admits a new operation.
 `captureOperation` is transition identity only and does not alter the nested
 `recentTraffic` authority, session, totals, cadence, retention, or revision.
 
+Status protocol version 34 adds a typed `failure` and the `finalizing` phase to
+that same envelope. `pending` covers admitted validation and mutation work;
+`finalizing` begins once a failure or cancellation is known and remains busy
+until the owning coordinator finishes compensation and cleanup. Both phases
+retain the same `scopeEpoch` and `operationId`, and both reject duplicate
+commands. Web action feedback and typed notifications present this projection
+but never complete, replace, or authorize the Rust operation.
+
 The canonical ownership, lifecycle, privacy, and retention contract is defined in
 [`runtime-state-ownership.md`](runtime-state-ownership.md). The detailed Traffic
 workspace deliberately retains its independent Controller source session and

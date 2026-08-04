@@ -44,6 +44,7 @@ class MobileFixtureStatusClient extends FixtureStatusClient {
     snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
     snapshot.runtime = {
       captureOperation: {
+        failure: null,
         operationId: null,
         phase: "idle",
         scopeEpoch: "mobile-fixture-capture-scope",

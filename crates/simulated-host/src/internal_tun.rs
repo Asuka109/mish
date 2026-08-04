@@ -1307,7 +1307,7 @@ impl MaintenanceEngine {
         // stable desired TUN projection is therefore not evidence that the handoff failed;
         // pending Capture work still is, and the fresh fail-closed network observation below is
         // required in either case.
-        if status.capture_operation.phase == mish_runtime::CaptureOperationPhase::Pending {
+        if status.capture_operation.is_busy() {
             return Err("maintenance-capture-handoff-not-accepted".into());
         }
         let after = self.network_observation(host)?;

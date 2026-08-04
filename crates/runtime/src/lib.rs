@@ -1560,9 +1560,9 @@ impl MishRuntime {
     }
 
     pub fn capture_operation_pending(&self) -> bool {
-        self.capture.as_ref().is_some_and(|capture| {
-            capture.status().capture_operation.phase == CaptureOperationPhase::Pending
-        })
+        self.capture
+            .as_ref()
+            .is_some_and(|capture| capture.status().capture_operation.is_busy())
     }
 
     pub async fn publish_capture_pending(
@@ -1588,6 +1588,17 @@ impl MishRuntime {
     ) -> Option<CaptureRuntimeStatus> {
         if let Some(capture) = &self.capture {
             return Some(capture.finish_operation_failure(operation, error).await);
+        }
+        None
+    }
+
+    pub async fn mark_capture_operation_finalizing(
+        &self,
+        operation: &CaptureOperation,
+        error: &CaptureTransitionError,
+    ) -> Option<CaptureRuntimeStatus> {
+        if let Some(capture) = &self.capture {
+            return Some(capture.mark_operation_finalizing(operation, error).await);
         }
         None
     }
@@ -1655,6 +1666,7 @@ mod proxy_session_uptime_tests {
     fn capture(system_proxy_enabled: bool, tun_enabled: bool) -> CaptureRuntimeStatus {
         CaptureRuntimeStatus {
             capture_operation: CaptureOperationStatus {
+                failure: None,
                 operation_id: None,
                 phase: CaptureOperationPhase::Idle,
                 scope_epoch: "runtime-test-capture-scope".into(),

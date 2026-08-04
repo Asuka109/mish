@@ -529,6 +529,7 @@ export const CaptureFailureKindSchema = z.enum([
   "apply-failed",
   "capability-unavailable",
   "confirmation-failed",
+  "configuration-required",
   "core-unhealthy",
   "external-drift",
   "invalid-recovery",
@@ -547,6 +548,7 @@ export type CaptureFailureKind = z.infer<typeof CaptureFailureKindSchema>;
 export const CaptureOperationPhaseSchema = z.enum([
   "idle",
   "pending",
+  "finalizing",
   "applied",
   "failed",
   "recovery-required",
@@ -555,6 +557,7 @@ export type CaptureOperationPhase = z.infer<typeof CaptureOperationPhaseSchema>;
 
 export const CaptureOperationStatusSchema = z
   .object({
+    failure: CaptureFailureKindSchema.nullable(),
     operationId: DecimalIntegerSchema.max(20).nullable(),
     phase: CaptureOperationPhaseSchema,
     scopeEpoch: z.string().min(1).max(64),
@@ -565,6 +568,28 @@ export const CaptureOperationStatusSchema = z
       context.addIssue({
         code: "custom",
         message: "Only an idle Capture scope may omit its aggregate operation ID",
+      });
+    }
+    if (
+      (operation.phase === "finalizing" || operation.phase === "failed") &&
+      operation.failure === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Finalizing and failed Capture operations require a typed failure",
+        path: ["failure"],
+      });
+    }
+    if (
+      (operation.phase === "idle" ||
+        operation.phase === "pending" ||
+        operation.phase === "applied") &&
+      operation.failure !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Idle, pending, and applied Capture operations cannot carry a failure",
+        path: ["failure"],
       });
     }
   });
@@ -2418,7 +2443,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(33),
+    protocolVersion: z.literal(34),
     statusCommands: z
       .object({
         group: z.boolean(),

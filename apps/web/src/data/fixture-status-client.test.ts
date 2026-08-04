@@ -29,6 +29,7 @@ describe("FixtureStatusClient", () => {
   it("requires bounded aggregate operation identity on every non-idle projection", () => {
     expect(
       CaptureOperationStatusSchema.safeParse({
+        failure: null,
         operationId: "18446744073709551615",
         phase: "recovery-required",
         scopeEpoch: "capture-scope",

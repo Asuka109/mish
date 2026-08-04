@@ -126,6 +126,7 @@ function createSnapshot() {
     routingMode: "rule",
     runtime: {
       captureOperation: {
+        failure: null,
         operationId: null,
         phase: "idle",
         scopeEpoch: "rpc-client-test-capture-scope",

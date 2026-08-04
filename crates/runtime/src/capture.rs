@@ -573,6 +573,7 @@ pub struct CaptureRuntimeStatus {
 pub enum CaptureOperationPhase {
     Idle,
     Pending,
+    Finalizing,
     Applied,
     Failed,
     RecoveryRequired,
@@ -581,6 +582,7 @@ pub enum CaptureOperationPhase {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureOperationStatus {
+    pub failure: Option<CaptureFailureKind>,
     pub operation_id: Option<String>,
     pub phase: CaptureOperationPhase,
     pub scope_epoch: String,
@@ -589,6 +591,7 @@ pub struct CaptureOperationStatus {
 impl CaptureOperationStatus {
     fn idle(scope_epoch: String) -> Self {
         Self {
+            failure: None,
             operation_id: None,
             phase: CaptureOperationPhase::Idle,
             scope_epoch,
@@ -597,6 +600,13 @@ impl CaptureOperationStatus {
 
     fn detached() -> Self {
         Self::idle("detached".into())
+    }
+
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self.phase,
+            CaptureOperationPhase::Pending | CaptureOperationPhase::Finalizing
+        )
     }
 }
 
@@ -2516,6 +2526,21 @@ impl CaptureReconciler {
         }
     }
 
+    pub async fn mark_operation_finalizing(
+        &self,
+        operation: &CaptureOperation,
+        error: &CaptureTransitionError,
+    ) -> CaptureRuntimeStatus {
+        let _ = self
+            .runner
+            .admit(CaptureInput::MarkFinalizing {
+                error: error.clone(),
+                operation: operation.clone(),
+            })
+            .await;
+        self.status()
+    }
+
     pub fn availability(&self) -> CapabilityAvailability {
         self.system_proxy.availability()
     }
@@ -2826,7 +2851,8 @@ impl CaptureReconciler {
     }
 
     fn has_pending_operation(&self) -> bool {
-        self.runner.snapshot().active_operation().is_some()
+        let state = self.runner.snapshot();
+        state.active_operation().is_some() || state.projection().capture_operation.is_busy()
     }
 }
 

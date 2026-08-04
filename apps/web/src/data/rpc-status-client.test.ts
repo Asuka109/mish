@@ -127,10 +127,14 @@ function captureSnapshot(
   operationId: string | null,
   phase: StatusSnapshotDto["runtime"]["captureOperation"]["phase"],
   scopeEpoch = "capture-scope-a",
+  failure: StatusSnapshotDto["runtime"]["captureOperation"]["failure"] = phase === "failed" ||
+  phase === "finalizing"
+    ? "apply-failed"
+    : null,
 ) {
   const next = structuredClone(snapshot);
   next.applicationOrder.order = ++statusSnapshotOrder;
-  next.runtime.captureOperation = { operationId, phase, scopeEpoch };
+  next.runtime.captureOperation = { failure, operationId, phase, scopeEpoch };
   return next;
 }
 
@@ -244,6 +248,7 @@ describe("RpcStatusClient", () => {
     publish(captureSnapshot(base, null, "idle", "capture-scope-b"));
     publish(captureSnapshot(base, "2", "recovery-required", "capture-scope-a"));
     expect(received.at(-1)?.runtime.captureOperation).toEqual({
+      failure: null,
       operationId: null,
       phase: "idle",
       scopeEpoch: "capture-scope-b",
@@ -280,6 +285,7 @@ describe("RpcStatusClient", () => {
     for (let audit = 0; audit < 3; audit += 1) {
       publish(structuredClone(terminal));
       expect(received.at(-1)?.runtime.captureOperation).toEqual({
+        failure: null,
         operationId: "7",
         phase: "applied",
         scopeEpoch: "capture-scope-a",
@@ -339,6 +345,7 @@ describe("RpcStatusClient", () => {
         activeProfileId: "profile-replacement",
         runtime: {
           captureOperation: {
+            failure: null,
             operationId: "7",
             phase: "applied",
             scopeEpoch: "capture-scope-a",
@@ -450,7 +457,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 33,
+        protocolVersion: 34,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -489,7 +496,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 33,
+        protocolVersion: 34,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -518,7 +525,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 33,
+        protocolVersion: 34,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,
@@ -582,6 +589,7 @@ describe("RpcStatusClient", () => {
   it("retains an authoritative terminal snapshot from a Capture command failure", async () => {
     const terminal = await createRpcSnapshot();
     terminal.runtime.captureOperation = {
+      failure: "apply-failed",
       operationId: "2",
       phase: "failed",
       scopeEpoch: "capture-scope-a",

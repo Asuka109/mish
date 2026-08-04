@@ -190,6 +190,22 @@ async fn authenticated_clients_observe_pending_early_conflict_terminal_and_recon
     );
     assert!(!command.is_finished());
 
+    let mut finalizing = None;
+    for _ in 0..4 {
+        let update = next_json(&mut status).await;
+        if update["method"] == "status.snapshot"
+            && update["params"]["snapshot"]["runtime"]["captureOperation"]["phase"] == "finalizing"
+        {
+            finalizing = Some(update);
+            break;
+        }
+    }
+    let finalizing = finalizing.expect("status subscription did not publish Finalizing");
+    assert_eq!(
+        finalizing["params"]["snapshot"]["runtime"]["captureOperation"]["failure"],
+        "listener-unavailable"
+    );
+
     let mut reconnected = socket(bridge.address).await;
     authenticate(&mut reconnected).await;
     let baseline = request(
@@ -209,10 +225,14 @@ async fn authenticated_clients_observe_pending_early_conflict_terminal_and_recon
 
     scenario.host.advance_to(20).unwrap();
     let terminal = command.await.unwrap();
-    assert_eq!(terminal["error"]["data"]["kind"], "runtime-transition");
+    assert_eq!(terminal["error"]["data"]["kind"], "listener-unavailable");
     assert_eq!(
         terminal["error"]["data"]["snapshot"]["runtime"]["captureOperation"]["phase"],
         "failed"
+    );
+    assert_eq!(
+        terminal["error"]["data"]["snapshot"]["runtime"]["captureOperation"]["failure"],
+        "listener-unavailable"
     );
     assert_eq!(
         terminal["error"]["data"]["snapshot"]["runtime"]["systemProxyEnabled"],

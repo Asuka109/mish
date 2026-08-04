@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { installFocusVisibility } from "../platform/focus-visibility";
+import type { CaptureActionFeedback } from "../data/capture-command";
 import { TrafficCaptureControl } from "./traffic-capture-control";
 import "../styles.css";
 
@@ -36,6 +37,7 @@ function renderHost(
     operation: "install" | "repair",
   ) => Promise<{ ok: true } | { ok: false; failure: null }>,
   locale: "en" | "zh" = "en",
+  feedback?: CaptureActionFeedback,
 ) {
   const onTunChange = vi.fn();
   root.render(
@@ -54,6 +56,7 @@ function renderHost(
               adapterKind="rpc"
               capabilities={{ systemProxy: "supported", tun }}
               commandSupported
+              feedback={feedback}
               onSystemProxyChange={vi.fn()}
               onTunHelperSetup={onTunHelperSetup}
               onTunChange={onTunChange}
@@ -256,6 +259,44 @@ describe("Virtual Interface native setup boundary", () => {
         await userEvent.keyboard("{Escape}");
         await expect.element(dialog).not.toBeInTheDocument();
       }
+    },
+  );
+});
+
+describe("authoritative Capture action feedback", () => {
+  test.each(["Status", "Settings"] as const)(
+    "keeps the %s action anatomy stable and blocked through finalization",
+    async (host) => {
+      renderHost(host, "unavailable", undefined, "en", {
+        busy: true,
+        failure: "listener-unavailable",
+        operationId: "7",
+        phase: "finalizing",
+      });
+
+      const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
+      await expect.element(systemProxy).toBeDisabled();
+      const finalizing = document.querySelector<HTMLElement>(
+        '[data-capture-operation-phase="finalizing"]',
+      );
+      if (!finalizing?.id) throw new Error("Missing finalizing Capture action feedback");
+      expect(finalizing).toHaveTextContent("Finalizing");
+      expect(finalizing).toHaveTextContent("System Proxy was not confirmed");
+      expect(systemProxy.element().getAttribute("aria-describedby")).toContain(finalizing.id);
+
+      renderHost(host, "unavailable", undefined, "en", {
+        busy: false,
+        failure: "listener-unavailable",
+        operationId: "7",
+        phase: "error",
+      });
+      await expect.element(page.getByText("Not completed", { exact: true })).toBeVisible();
+      const terminal = document.querySelector<HTMLElement>(
+        '[data-capture-operation-phase="error"]',
+      );
+      expect(terminal?.id).toBe(finalizing.id);
+      expect(terminal).toHaveTextContent("Not completed");
+      await expect.element(systemProxy).toBeEnabled();
     },
   );
 });

@@ -278,6 +278,7 @@ async fn evidence(state: &HarnessState) -> HarnessEvidence {
         },
         terminal_authority: json!({
             "captureOperation": {
+                "failure": capture["captureOperation"]["failure"],
                 "operationId": capture["captureOperation"]["operationId"],
                 "phase": capture["captureOperation"]["phase"],
                 "scopeEpoch": terminal_scope_epoch,

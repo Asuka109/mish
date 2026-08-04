@@ -15,7 +15,6 @@ import {
 import type {
   ApplicationLaunchBehavior,
   AppearancePreference,
-  CaptureSelectionDto,
   LanguagePreference,
   ManagedPortPreferencesDto,
   ProcessDiscoveryMode,
@@ -301,16 +300,13 @@ export function SettingsPage() {
     windowSurfacePreference,
   } = useAppearance();
   const { isCommandSupported, snapshot: product } = useProduct();
-  const { pending: capturePending, setCapture } = useCaptureCommand();
+  const { feedback: captureFeedback, setCapture } = useCaptureCommand();
   const settings = useSettings();
   const [pendingButtonAction, setPendingButtonAction] = useState<PendingButtonAction | null>(null);
   const [buttonActionPromise, setButtonActionPromise] = useState<{
     action: PromiseButtonAction;
     promise: Promise<unknown>;
   } | null>(null);
-  const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
-    useState<CaptureSelectionDto | null>(null);
-  const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
   const [optimisticStartup, setOptimisticStartup] = useState<StartupPreferencesDto | null>(null);
   const [optimisticLaunchBehavior, setOptimisticLaunchBehavior] =
     useState<ApplicationLaunchBehavior | null>(null);
@@ -394,14 +390,7 @@ export function SettingsPage() {
     if (!captureRuntime || !captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
-    setOptimisticCaptureSelection(selection);
-    setPendingCaptureMode(mode);
-    try {
-      await setCapture(selection, active);
-    } finally {
-      setOptimisticCaptureSelection(null);
-      setPendingCaptureMode(null);
-    }
+    await setCapture(selection, active);
   }
 
   function runPromiseButtonAction(action: PromiseButtonAction, operation: () => Promise<unknown>) {
@@ -716,11 +705,11 @@ export function SettingsPage() {
               }}
               commandSupported={captureSupported}
               disabled={
-                capturePending ||
                 settings.pending ||
                 captureRuntime.captureOperation.phase === "recovery-required" ||
                 captureRuntime.systemProxy.recoveryActions.length > 0
               }
+              feedback={captureFeedback}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
               onTunHelperSetup={(operation) =>
                 operation === "repair"
@@ -728,16 +717,11 @@ export function SettingsPage() {
                   : settings.installTunHelper({ resumeCapture: true })
               }
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
-              pending={capturePending}
-              pendingMode={pendingCaptureMode}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}
-              systemProxySelected={
-                optimisticCaptureSelection?.systemProxy ??
-                captureRuntime.captureSelection.systemProxy
-              }
+              systemProxySelected={captureRuntime.captureSelection.systemProxy}
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
-              tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
+              tunSelected={captureRuntime.captureSelection.tun}
               tunStatus={captureRuntime.tun}
             />
           ) : (

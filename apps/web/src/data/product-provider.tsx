@@ -282,7 +282,11 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           continue;
         }
         if (!confirmAuthority) continue;
-        if (command === "capture" && nextSnapshot.runtime.captureOperation.phase === "pending") {
+        if (
+          command === "capture" &&
+          (nextSnapshot.runtime.captureOperation.phase === "pending" ||
+            nextSnapshot.runtime.captureOperation.phase === "finalizing")
+        ) {
           continue;
         }
         if (confirmCommandAuthority(operation, productCommandAuthority(nextSnapshot, command))) {
@@ -833,7 +837,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           : null,
       isCommandPending: (command) =>
         commandStates[command].phase === "pending" ||
-        (command === "capture" && snapshot?.runtime.captureOperation.phase === "pending"),
+        (command === "capture" &&
+          (snapshot?.runtime.captureOperation.phase === "pending" ||
+            snapshot?.runtime.captureOperation.phase === "finalizing")),
       isCommandSupported: (command) =>
         resolvedClient.supportsCommand(command) &&
         (connection.phase === "fixture" || !connection.stale) &&
