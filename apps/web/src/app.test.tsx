@@ -3030,6 +3030,13 @@ describe("Status fixture experience", () => {
     expect(profileClient.activateProfile).not.toHaveBeenCalled();
     expect(errorToast).not.toHaveBeenCalledWith("操作失败。");
     expect(screen.getByRole("button", { name: "启动代理" })).toBeEnabled();
+    await waitFor(() =>
+      expect(document.querySelector("[data-capture-operation-phase]")).toHaveAttribute(
+        "data-capture-operation-phase",
+        "error",
+      ),
+    );
+    expect(document.querySelector("[data-capture-operation-phase]")).toBeEmptyDOMElement();
 
     await user.click(screen.getByRole("button", { name: /通知/ }));
     const notificationCenter = await screen.findByRole("dialog");

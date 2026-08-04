@@ -13,19 +13,20 @@ export function useCaptureCommand() {
   const product = useProduct();
   const operation = product.snapshot?.runtime.captureOperation;
   const locallyPending = product.commandStates.capture.phase === "pending";
+  const locallyFailed = product.commandStates.capture.phase === "failure";
   const phase: CaptureActionFeedback["phase"] = operation
     ? operation.phase === "finalizing"
       ? "finalizing"
       : operation.phase === "pending" || locallyPending
         ? "pending"
-        : operation.phase === "failed" || operation.phase === "recovery-required"
+        : locallyFailed || operation.phase === "failed" || operation.phase === "recovery-required"
           ? "error"
           : operation.phase === "applied"
             ? "success"
             : "idle"
     : locallyPending
       ? "pending"
-      : product.commandStates.capture.phase === "failure"
+      : locallyFailed
         ? "error"
         : "idle";
 
