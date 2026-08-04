@@ -228,6 +228,38 @@ work only after Issue #285 is accepted, its required gates pass, and the change
 is merged. It does not authorize Capture/TUN, download/install, UI,
 publication, or a generic state-machine framework.
 
+### Download, Verify, and Ready typed reducer
+
+Updater Continuation extends the same repository-owned kernel through
+Downloading, Verifying, CommittingCandidate, Ready, Interrupted, Finalizing,
+Failed, Cancelled, RecoveryRequired, Recovering, and Retired data-bearing
+states. The reducer owns no network, filesystem, clock, logging, or task-spawn
+work. Its effects carry machine authority, scope epoch, operation ID, admitted
+revision, effect ID, and a monotonic progress sequence. A completion that
+differs on any dimension, repeats a progress sequence, or supplies a different
+outcome for an equal revision is retired without changing current state.
+
+A partial-progress input is admitted only after the private payload file has
+been flushed and fsynced. `CommittingCandidate` is the later immutable
+publication cutoff: cancellation before it wins after the current Download or
+Verify effect finalizes, while cancellation after it is explicitly too late.
+Failure cleanup remains in `Finalizing`, so duplicate commands stay blocked
+until partial retention or removal has been observed. A panic, abort,
+completion conflict, shutdown, or commit result that cannot prove the
+filesystem outcome ends in a typed failed, retired, or recovery-required state.
+
+`recovery.json` is a versioned, bounded, mode-`0600` RecoveryRecord. It contains
+only the public candidate identity, hashed machine authority, bounded operation
+ownership, commit stage, progress sequence, committed byte count, and an
+optional strong-ETag digest. Authenticated metadata and signatures remain in
+the separately validated private binding and manifest. The RecoveryRecord has
+no metadata body, signature body, URL, credential, or private path.
+`candidate-commit-started` is evidence of an unknown outcome, not permission to
+replay publication. Restart observes the managed store and re-verifies the
+immutable payload's ownership, mode, links, size, SHA-256, and Minisign before
+the new process publishes Ready. A partial remains Interrupted until an
+explicit Download command resumes it.
+
 ## Bounded HTTP and resume
 
 One Rustls-backed HTTP client is reused per configured updater. Stable latest
@@ -274,8 +306,10 @@ target.
 
 The partial manifest retains authenticated metadata and resume identity. On
 process restart, Mish re-verifies that metadata before exposing `available` or
-a typed `failed: interrupted` resumable state. A ready candidate is reconstructed
-only after rechecking private ownership/mode/link count, exact size, SHA-256,
+a typed `failed: interrupted` resumable state. Interrupted work is never
+automatically replayed. A committed or commit-unknown candidate enters the
+internal RecoveryRequired/Recovering path and is reconstructed only after a
+fresh effect rechecks private ownership/mode/link count, exact size, SHA-256,
 and Minisign over the immutable payload. Foreign, corrupt, stale, overlong, or
 unrecognized managed state is removed within a bounded scan. Unrelated files
 outside the store remain untouched.
@@ -368,6 +402,15 @@ bridge tests prove that simultaneous and reconnecting clients observe one
 updater authority and revision. Web tests prove that the RPC client accepts
 only newer nested revisions and never replays check/download/cancel during
 reconnect.
+
+Continuation-specific tests cover its legal transition table and DTO
+invariants, bounded model exploration, every correlation dimension plus
+progress ordering, equal-revision outcome conflict, durable partial progress,
+barrier cancellation, Download/Verify/Finalize/Commit/Recovery failure
+injection, panic and abort finalization, paused-time uncooperative shutdown,
+strong-ETag resume, crash/restart, commit-unknown observation without replay,
+RecoveryRecord redaction, and mandatory candidate re-verification before
+Ready.
 
 ## Later live and installation boundaries
 
