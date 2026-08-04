@@ -2618,6 +2618,35 @@ impl CandidateStore {
                         self.discard_candidate()?;
                     }
                     PersistedPhase::Available => {
+                        if recovery.commit == RecoveryCommit::CandidateCommitStarted {
+                            let accepted_identity = accepted
+                                .digests
+                                .contains(&available.metadata.metadata_sha256);
+                            let high_water_allows = match accepted.compare(&available.metadata) {
+                                Some(Ordering::Less) => false,
+                                Some(Ordering::Equal) => accepted_identity,
+                                Some(Ordering::Greater) | None => true,
+                            };
+                            if high_water_allows
+                                && self.inspect_candidate(&available, &state.candidate).is_ok()
+                            {
+                                return Ok(RecoveredState {
+                                    accepted,
+                                    available: Some(available.clone()),
+                                    operation_id: Some(state.candidate.operation_id),
+                                    phase: UpdatePhase::Failed,
+                                    resumable: false,
+                                    terminal_reason: Some("recovery-required".into()),
+                                    progress: Some(UpdateProgress {
+                                        downloaded_bytes: available.metadata.artifact_size,
+                                        total_bytes: available.metadata.artifact_size,
+                                    }),
+                                    needs_reverification: true,
+                                });
+                            }
+                            self.discard_managed_state()?;
+                            return Ok(RecoveredState::idle(accepted));
+                        }
                         if !matches!(
                             recovery.commit,
                             RecoveryCommit::Available | RecoveryCommit::PartialDownload
@@ -2907,6 +2936,22 @@ impl CandidateStore {
         available: &AvailableCandidate,
         expected: &PersistedCandidate,
     ) -> Result<(), UpdateOperationError> {
+        let payload = self.inspect_candidate(available, expected)?;
+        adapter
+            .verify_payload_file(
+                &available.metadata,
+                &available.metadata.artifact_name,
+                &payload,
+                &available.metadata.artifact_signature,
+            )
+            .map_err(UpdateOperationError::Verification)
+    }
+
+    fn inspect_candidate(
+        &self,
+        available: &AvailableCandidate,
+        expected: &PersistedCandidate,
+    ) -> Result<PathBuf, UpdateOperationError> {
         let directory = self.root.join(CANDIDATE_DIRECTORY);
         ensure_private_directory(&directory)?;
         validate_exact_entries(&directory, &[CANDIDATE_MANIFEST, CANDIDATE_PAYLOAD])?;
@@ -2916,14 +2961,7 @@ impl CandidateStore {
         }
         let payload = directory.join(CANDIDATE_PAYLOAD);
         validate_private_file(&payload, Some(available.metadata.artifact_size))?;
-        adapter
-            .verify_payload_file(
-                &available.metadata,
-                &available.metadata.artifact_name,
-                &payload,
-                &available.metadata.artifact_signature,
-            )
-            .map_err(UpdateOperationError::Verification)
+        Ok(payload)
     }
 
     fn record_reverified(
@@ -4433,6 +4471,27 @@ mod tests {
 
         let mut unknown = committed;
         unknown.commit = RecoveryCommit::CandidateCommitStarted;
+        let persisted: PersistedState = service
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .read_json(&root.join(STATE_FILE))
+            .unwrap();
+        service
+            .configured
+            .as_ref()
+            .unwrap()
+            .store
+            .write_json_atomic(
+                &root.join(STATE_FILE),
+                &PersistedState {
+                    phase: PersistedPhase::Available,
+                    ..persisted
+                },
+                0o600,
+            )
+            .unwrap();
         service
             .configured
             .as_ref()
