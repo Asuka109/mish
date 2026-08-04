@@ -36,6 +36,7 @@ const requiredMachines = [
 
 const conformingSources = new Map([
   ["updater-check", "impl Machine for CheckMachine"],
+  ["updater-continuation", "impl Machine for ContinuationMachine"],
   ["internal-tun-alpha-package", "impl Machine for PackageMachine"],
   ["tun-helper-core-network", "impl Machine for TunLifecycleMachine"],
   ["capture-system-proxy", "impl Machine for CaptureMachine"],
