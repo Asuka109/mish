@@ -2094,6 +2094,26 @@ async fn capture_contract_matches(
             }
 }
 
+async fn prior_runtime_and_capture_restored(
+    managed: &crate::ManagedActivationState,
+    active_runtime: Option<&MishRuntime>,
+    safe_runtime: &MishRuntime,
+    resources: &ProfileActivationOperationResources,
+) -> bool {
+    match (&resources.previous_runtime, active_runtime) {
+        (ProfileActivationRuntime::Active { .. }, Some(runtime)) => {
+            managed_matches_runtime(managed, &resources.previous_runtime)
+                && runtime.is_same_instance(&resources.previous_host)
+                && capture_contract_matches(runtime, &resources.previous_capture).await
+        }
+        (ProfileActivationRuntime::SafeStopped, None) => {
+            managed.is_safe_stopped()
+                && capture_contract_matches(safe_runtime, &resources.previous_capture).await
+        }
+        _ => false,
+    }
+}
+
 async fn finalize_profile_activation(
     manager: &dyn ProfileActivationEffects,
     host: &DesktopRuntimeHost,
@@ -2147,18 +2167,13 @@ async fn finalize_profile_activation(
             }
         }
         ProfileActivationTaskOutcome::Activate(Err(error)) => {
-            let prior_restored = match (&resources.previous_runtime, active_runtime.as_ref()) {
-                (ProfileActivationRuntime::Active { .. }, Some(runtime)) => {
-                    managed_matches_runtime(&managed, &resources.previous_runtime)
-                        && runtime.is_same_instance(&resources.previous_host)
-                        && capture_contract_matches(runtime, &resources.previous_capture).await
-                }
-                (ProfileActivationRuntime::SafeStopped, None) => {
-                    managed.is_safe_stopped()
-                        && capture_contract_matches(safe_runtime, &resources.previous_capture).await
-                }
-                _ => false,
-            };
+            let prior_restored = prior_runtime_and_capture_restored(
+                &managed,
+                active_runtime.as_ref(),
+                safe_runtime,
+                resources,
+            )
+            .await;
             let safe_stopped = managed.is_safe_stopped()
                 && active_runtime.is_none()
                 && capture_contract_matches(
@@ -2301,20 +2316,15 @@ async fn finalize_profile_activation(
             }
         }
         ProfileActivationTaskOutcome::Failed(_) => {
-            let prior_restored = active_runtime.as_ref().is_some_and(|runtime| {
-                runtime.is_same_instance(&resources.previous_host)
-                    && managed_matches_runtime(&managed, &resources.previous_runtime)
-            });
-            if prior_restored
-                && capture_contract_matches(
-                    active_runtime
-                        .as_ref()
-                        .expect("restored runtime was checked"),
-                    &resources.previous_capture,
-                )
-                .await
+            if prior_runtime_and_capture_restored(
+                &managed,
+                active_runtime.as_ref(),
+                safe_runtime,
+                resources,
+            )
+            .await
             {
-                host.replace(active_runtime.expect("restored runtime was checked"));
+                host.replace(active_runtime.unwrap_or_else(|| safe_runtime.clone()));
                 manager.complete_runtime_handoff().await;
                 ProfileActivationFinalization::Completed(ProfileActivationCompletion::Failed {
                     evidence: ProfileActivationFailureEvidence::StateCommit,
@@ -4434,6 +4444,23 @@ mod activation_machine_tests {
                 Transition::RecoveryRequired(ProfileActivationState::RecoveryRequired { .. })
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn cold_task_failure_accepts_only_the_confirmed_safe_stopped_baseline() {
+        let runtime = safe_runtime();
+        let resources = fallback_operation_resources(&runtime);
+        let managed = crate::ManagedActivationState::default();
+
+        assert!(
+            prior_runtime_and_capture_restored(&managed, None, &runtime, &resources).await,
+            "an observed unchanged cold baseline is a confirmed compensation"
+        );
+        assert!(
+            !prior_runtime_and_capture_restored(&managed, Some(&runtime), &runtime, &resources,)
+                .await,
+            "a live runtime cannot satisfy a safe-stopped compensation contract"
+        );
     }
 
     #[test]
