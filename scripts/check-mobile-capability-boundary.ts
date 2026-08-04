@@ -45,6 +45,26 @@ export function isGeneratedSourceDirectory(path: string) {
   return generatedSourceDirectories.has(path);
 }
 
+export function parseTomlStringArray(source: string, key: string): string[] {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = source.match(
+    new RegExp(String.raw`^\s*${escapedKey}\s*=\s*\[([\s\S]*?)^\s*\]`, "mu"),
+  );
+  invariant(match, `Missing TOML string array: ${key}`);
+
+  const values: string[] = [];
+  const residue = match[1].replace(/"(?:[^"\\]|\\.)*"/gu, (value) => {
+    values.push(JSON.parse(value) as string);
+    return "";
+  });
+  invariant(/^[\s,]*$/u.test(residue), `Invalid TOML string array: ${key}`);
+  return values;
+}
+
+export function isExactStringSet(actual: readonly string[], expected: readonly string[]) {
+  return JSON.stringify(sorted(actual)) === JSON.stringify(sorted(expected));
+}
+
 interface CapabilityBoundaryRule {
   id: string;
   applies(path: string): boolean;
@@ -218,16 +238,39 @@ export function checkRepositoryMobileCapabilityBoundary() {
     readFileSync(resolve(root, "apps/mobile/src-tauri/capabilities/mobile.json"), "utf8"),
   ) as { permissions: string[] };
   invariant(
-    JSON.stringify(sorted(mobileCapability.permissions)) ===
-      JSON.stringify(
-        sorted([
-          "allow-mobile-fixture-bootstrap",
-          "core:event:allow-listen",
-          "core:event:allow-unlisten",
-          "mish-vpn:default",
-        ]),
-      ),
+    isExactStringSet(mobileCapability.permissions, [
+      "allow-mobile-fixture-bootstrap",
+      "core:event:allow-listen",
+      "core:event:allow-unlisten",
+      "mish-vpn:default",
+    ]),
     "The mobile WebView capability set changed; review it as a typed least-privilege boundary",
+  );
+
+  const vpnDefaultPermissions = parseTomlStringArray(
+    readFileSync(
+      resolve(root, "apps/mobile/src-tauri/plugins/mish-vpn/permissions/default.toml"),
+      "utf8",
+    ),
+    "permissions",
+  );
+  invariant(
+    isExactStringSet(vpnDefaultPermissions, [
+      "allow-get-snapshot",
+      "allow-register-listener",
+      "allow-registerListener",
+      "allow-remove-listener",
+      "allow-removeListener",
+      "allow-request-notification-permission",
+      "allow-request-vpn-consent",
+      "allow-start",
+      "allow-stop",
+      "allow-cancel-lifecycle-operation",
+      "allow-validate-config",
+      "allow-load-config",
+      "allow-cancel-config-load",
+    ]),
+    "The Mish VPN default permission bundle changed; review every command as a typed least-privilege capability",
   );
 
   const settingsCapability = JSON.parse(
@@ -237,14 +280,11 @@ export function checkRepositoryMobileCapabilityBoundary() {
     ),
   ) as { permissions: string[] };
   invariant(
-    JSON.stringify(sorted(settingsCapability.permissions)) ===
-      JSON.stringify(
-        sorted([
-          "allow-mobile-settings-get-snapshot",
-          "allow-mobile-settings-set-appearance",
-          "allow-mobile-settings-set-language",
-        ]),
-      ),
+    isExactStringSet(settingsCapability.permissions, [
+      "allow-mobile-settings-get-snapshot",
+      "allow-mobile-settings-set-appearance",
+      "allow-mobile-settings-set-language",
+    ]),
     "The Android Settings capability set changed; review it as a typed least-privilege boundary",
   );
 

@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   checkRepositoryMobileCapabilityBoundary,
   findMobileCapabilityBoundaryViolations,
+  isExactStringSet,
   isGeneratedSourceDirectory,
+  parseTomlStringArray,
   type CapabilityBoundarySource,
 } from "./check-mobile-capability-boundary.ts";
 
@@ -107,6 +109,16 @@ test("accepts reviewed typed platform capabilities", () => {
   ];
 
   assert.deepEqual(findMobileCapabilityBoundaryViolations(sources), []);
+});
+
+test("rejects additions to a named default permission bundle", () => {
+  const expected = ["allow-get-snapshot", "allow-start", "allow-stop"];
+  const actual = parseTomlStringArray(
+    'permissions = [\n  "allow-get-snapshot",\n  "allow-start",\n  "allow-stop",\n]',
+    "permissions",
+  );
+  assert.equal(isExactStringSet(actual, expected), true);
+  assert.equal(isExactStringSet([...actual, "allow-select-native-tab"], expected), false);
 });
 
 test("repository scan excludes only Tauri's ignored Android runtime sources", () => {
