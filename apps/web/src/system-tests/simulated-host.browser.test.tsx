@@ -316,7 +316,11 @@ test("commit-time managed-port drift never reaches Applied", async () => {
     .element(page.getByText("Mish could not use 127.0.0.1:7890.", { exact: true }))
     .toBeVisible();
   await expect.element(systemProxyButton()).toBeDisabled();
-  expect((await observation(scenario)).terminalAuthority.captureOperation.phase).toBe("finalizing");
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).terminalAuthority.captureOperation.phase).toBe(
+      "finalizing",
+    );
+  });
 
   await advanceTo(scenario, 20);
   await vi.waitFor(async () => {
