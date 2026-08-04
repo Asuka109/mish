@@ -1976,6 +1976,11 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .split_once("#token=")
         .expect("launch token fragment")
         .1;
+    let unused_launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
+    let unused_launch_token = unused_launch_url
+        .split_once("#token=")
+        .expect("unused launch token fragment")
+        .1;
     let client = reqwest::Client::new();
     let authenticated = client
         .post(format!("{origin}/browser-bootstrap"))
@@ -2007,6 +2012,21 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .await
         .unwrap();
     let restarted_client = reqwest::Client::new();
+    let rejected_stale_launch = restarted_client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {unused_launch_token}"),
+        )
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", "e".repeat(64))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected_stale_launch.status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
     let rejected = restarted_client
         .post(format!("{origin}/browser-bootstrap"))
         .header("Cookie", prior_session)

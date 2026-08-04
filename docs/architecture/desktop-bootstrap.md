@@ -230,12 +230,17 @@ and places it in the URL fragment. The actual RPC token and endpoint never
 appear in the URL. Browser startup posts the launch token plus a fresh origin
 proof to `/browser-bootstrap` from the
 same origin, and the bridge validates the loopback peer, exact Host, exact
-Origin, and token in constant time before consuming it. A successful token
-cannot be replayed, and an invalid token does not consume a valid pending token.
-The high-entropy token is not guarded by the low-entropy manual PIN's attempt
-lockout. The response is non-cacheable and contains the RPC bootstrap in its
-body; the Web client clears the fragment immediately and retains the RPC token
-only in memory.
+Origin, and token in constant time before consuming it. Before React Router can
+render or redirect, Browser startup accepts the fragment on the root, every
+stable product destination, and recognized Routes group paths. It removes the
+fragment with same-entry history replacement while preserving the requested
+path and query. Unknown paths and malformed tokens do not enter the launch
+exchange, but their token-shaped fragments are still removed before the
+authentication fallback renders. A successful token cannot be replayed, and an
+invalid token does not consume a valid pending token. The high-entropy token is
+not guarded by the low-entropy manual PIN's attempt lockout. The response is
+non-cacheable and contains the RPC bootstrap in its body; the Web client retains
+the RPC token only in memory.
 
 A direct browser visit first attempts `/browser-bootstrap`. Without a valid
 session it renders the pairing page and posts to `/browser-pairing`. The bridge

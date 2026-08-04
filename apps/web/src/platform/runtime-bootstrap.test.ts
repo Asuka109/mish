@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BrowserAuthenticationRequired,
   browserLaunchTokenFromLocation,
+  consumeBrowserLaunchTokenFromLocation,
   parseRuntimeBootstrap,
   resolveStartupStatusClient,
 } from "./runtime-bootstrap";
@@ -76,18 +77,83 @@ const supportBundleDependencies = {
 };
 
 describe("desktop runtime bootstrap", () => {
-  it("accepts Browser Client capabilities only from the SPA root fragment", () => {
+  it.each([
+    "/",
+    "/status",
+    "/routes",
+    "/routes/proxy",
+    "/profiles",
+    "/traffic",
+    "/events",
+    "/settings",
+    "/activity",
+  ])("accepts Browser Client launch capabilities on recognized route %s", (pathname) => {
     const launchToken = "a".repeat(43);
     expect(
       browserLaunchTokenFromLocation({
         hash: `#token=${launchToken}`,
-        pathname: "/",
+        pathname,
       }),
     ).toBe(launchToken);
-    expect(
-      browserLaunchTokenFromLocation({ hash: `#token=${launchToken}`, pathname: "/status" }),
-    ).toBeNull();
+  });
+
+  it.each(["/unknown", "/status/details", "/routes/proxy/children/direct"])(
+    "rejects Browser Client launch capabilities on unknown route %s",
+    (pathname) => {
+      expect(
+        browserLaunchTokenFromLocation({ hash: `#token=${"a".repeat(43)}`, pathname }),
+      ).toBeNull();
+    },
+  );
+
+  it("rejects malformed Browser Client launch capabilities", () => {
     expect(browserLaunchTokenFromLocation({ hash: "#token=short", pathname: "/" })).toBeNull();
+  });
+
+  it("consumes the launch fragment without replacing the requested route, query, or history state", () => {
+    const history = { replaceState: vi.fn(), state: { navigation: "original" } };
+    const launchToken = "a".repeat(43);
+
+    expect(
+      consumeBrowserLaunchTokenFromLocation(
+        {
+          hash: `#token=${launchToken}`,
+          pathname: "/routes/proxy",
+          search: "?sort=latency",
+        },
+        history,
+      ),
+    ).toBe(launchToken);
+    expect(history.replaceState).toHaveBeenCalledWith(
+      history.state,
+      "",
+      "/routes/proxy?sort=latency",
+    );
+  });
+
+  it.each([
+    ["/status", "#token=short"],
+    ["/unknown", `#token=${"a".repeat(43)}`],
+  ])(
+    "scrubs a rejected launch fragment from %s before authentication fallback",
+    (pathname, hash) => {
+      const history = { replaceState: vi.fn(), state: null };
+      expect(
+        consumeBrowserLaunchTokenFromLocation({ hash, pathname, search: "" }, history),
+      ).toBeNull();
+      expect(history.replaceState).toHaveBeenCalledWith(null, "", pathname);
+    },
+  );
+
+  it("leaves unrelated fragments untouched", () => {
+    const history = { replaceState: vi.fn(), state: null };
+    expect(
+      consumeBrowserLaunchTokenFromLocation(
+        { hash: "#section=advanced", pathname: "/settings", search: "" },
+        history,
+      ),
+    ).toBeNull();
+    expect(history.replaceState).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -130,7 +196,7 @@ describe("desktop runtime bootstrap", () => {
   });
 
   it("connects an explicitly launched browser client to the authenticated desktop RPC", async () => {
-    const clearLaunchToken = vi.fn();
+    const consumeLaunchToken = vi.fn(() => "a".repeat(43));
     const saveProof = vi.fn();
     const browserSettingsSnapshot = {
       ...settingsSnapshot,
@@ -154,11 +220,10 @@ describe("desktop runtime bootstrap", () => {
 
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearLaunchToken,
         clearProof: vi.fn(),
+        consumeLaunchToken,
         createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        launchToken: () => "a".repeat(43),
         loadProof: () => null,
         saveProof,
       },
@@ -170,7 +235,7 @@ describe("desktop runtime bootstrap", () => {
     });
 
     expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(43), "d".repeat(64));
-    expect(clearLaunchToken).toHaveBeenCalledOnce();
+    expect(consumeLaunchToken).toHaveBeenCalledOnce();
     expect(saveProof).toHaveBeenCalledWith("d".repeat(64));
     expect(startup.runtime).toBe("browser");
     expect(startup.browserBackendPort).toBe(43_123);
@@ -192,11 +257,10 @@ describe("desktop runtime bootstrap", () => {
     }));
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearLaunchToken: vi.fn(),
         clearProof: vi.fn(),
+        consumeLaunchToken: () => null,
         createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        launchToken: () => null,
         loadProof: () => "e".repeat(64),
         saveProof: vi.fn(),
       },
