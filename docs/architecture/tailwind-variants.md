@@ -61,6 +61,24 @@ Repeated root-state selectors use named CSS-first variants. `runtime-desktop:`,
 `runtime-mobile:`, and `theme-dark:` replace inline `html[data-*]` arbitrary
 ancestor selectors while preserving the same document-root state contract.
 
+## Input-aware interaction targets
+
+Shared controls that appear in compact desktop and touch-capable Web product
+content expose `touchTarget="adaptive"`. The Button, Toggle, ToggleGroup, and
+Select trigger recipes keep their ordinary desktop geometry, then use
+Tailwind's `pointer-coarse:` media variant to raise the real interaction box to
+at least 44 by 44 CSS pixels and enable `touch-action: manipulation`. Icons,
+type, borders, and semantic state styling retain their compact scale. Real box
+geometry is preferred over an overlapping pseudo-element hit area so adjacent
+segmented and toolbar controls remain independently targetable.
+
+Menu and Select option rows apply the same coarse-pointer minimum inside their
+shared recipes because they are always interactive descendants of those
+adaptive triggers. Page compositions opt controls into the contract; they may
+still arrange or wrap controls, but must not reproduce coarse-pointer heights
+with route-local sizing overrides. Fine-pointer geometry remains the existing
+30px segmented/capture size and 34px toolbar size.
+
 Simple fixed geometry follows the 4px Tailwind spacing base, including exact
 fractional steps (`h-5.5` for 22px, `gap-1.75` for 7px, and `px-2.25` for 9px).
 Do not round preserved geometry to a nearby whole step. Repeated responsive
