@@ -276,7 +276,7 @@ function writeDmg(packageRoot: string, destination: string): void {
     lstatSync(application).isDirectory() && !lstatSync(application).isSymbolicLink(),
     "Internal TUN Alpha package root does not contain a real Mish.app bundle.",
   );
-  createMacOsDmg(application, destination);
+  createMacOsDmg(application, destination, { normalizeForDeterminism: true });
   chmodSync(destination, 0o644);
 }
 

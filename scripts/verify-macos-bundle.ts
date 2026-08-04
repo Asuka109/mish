@@ -144,14 +144,15 @@ for (const binary of [
 }
 
 const mihomoDigest = await sha256(bundledMihomo);
-const preparedMihomoDigest = await sha256(preparedMihomo);
 const pinnedMihomoDigest = await sha256(pinnedMihomo);
 if (pinnedMihomoDigest !== mihomoManifest.binarySha256) {
   throw new Error(
     `Pinned Mihomo checksum mismatch after bundle staging: expected ${mihomoManifest.binarySha256}, received ${pinnedMihomoDigest}`,
   );
 }
-const expectedBundledMihomoDigest = internalTunAlpha ? pinnedMihomoDigest : preparedMihomoDigest;
+const expectedBundledMihomoDigest = internalTunAlpha
+  ? pinnedMihomoDigest
+  : await sha256(preparedMihomo);
 if (mihomoDigest !== expectedBundledMihomoDigest) {
   throw new Error(
     `Bundled Mihomo checksum mismatch: expected ${expectedBundledMihomoDigest}, received ${mihomoDigest}`,
