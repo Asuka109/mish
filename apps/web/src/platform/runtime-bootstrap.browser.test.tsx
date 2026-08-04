@@ -153,4 +153,19 @@ describe("Browser Client launch startup in Chromium", () => {
       expect(clearProof).toHaveBeenCalledOnce();
     },
   );
+
+  test("scrubs an unknown double-slash path without protocol-relative navigation", () => {
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.origin}//status#token=${"a".repeat(43)}`,
+    );
+
+    expect(() =>
+      consumeBrowserLaunchTokenFromLocation(window.location, window.history),
+    ).not.toThrow();
+    expect(window.location.origin).not.toBe("http://status");
+    expect(window.location.pathname).toBe("//status");
+    expect(window.location.hash).toBe("");
+  });
 });

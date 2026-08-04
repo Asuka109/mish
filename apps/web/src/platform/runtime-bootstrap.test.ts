@@ -118,6 +118,7 @@ describe("desktop runtime bootstrap", () => {
       consumeBrowserLaunchTokenFromLocation(
         {
           hash: `#token=${launchToken}`,
+          origin: "http://127.0.0.1:6474",
           pathname: "/routes/proxy",
           search: "?sort=latency",
         },
@@ -127,7 +128,7 @@ describe("desktop runtime bootstrap", () => {
     expect(history.replaceState).toHaveBeenCalledWith(
       history.state,
       "",
-      "/routes/proxy?sort=latency",
+      "http://127.0.0.1:6474/routes/proxy?sort=latency",
     );
   });
 
@@ -139,9 +140,16 @@ describe("desktop runtime bootstrap", () => {
     (pathname, hash) => {
       const history = { replaceState: vi.fn(), state: null };
       expect(
-        consumeBrowserLaunchTokenFromLocation({ hash, pathname, search: "" }, history),
+        consumeBrowserLaunchTokenFromLocation(
+          { hash, origin: "http://127.0.0.1:6474", pathname, search: "" },
+          history,
+        ),
       ).toBeNull();
-      expect(history.replaceState).toHaveBeenCalledWith(null, "", pathname);
+      expect(history.replaceState).toHaveBeenCalledWith(
+        null,
+        "",
+        `http://127.0.0.1:6474${pathname}`,
+      );
     },
   );
 
@@ -149,7 +157,12 @@ describe("desktop runtime bootstrap", () => {
     const history = { replaceState: vi.fn(), state: null };
     expect(
       consumeBrowserLaunchTokenFromLocation(
-        { hash: "#section=advanced", pathname: "/settings", search: "" },
+        {
+          hash: "#section=advanced",
+          origin: "http://127.0.0.1:6474",
+          pathname: "/settings",
+          search: "",
+        },
         history,
       ),
     ).toBeNull();

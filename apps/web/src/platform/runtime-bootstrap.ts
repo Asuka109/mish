@@ -258,13 +258,17 @@ export function browserLaunchTokenFromLocation(location: { hash: string; pathnam
 }
 
 export function consumeBrowserLaunchTokenFromLocation(
-  location: { hash: string; pathname: string; search: string },
+  location: { hash: string; origin: string; pathname: string; search: string },
   history: Pick<History, "replaceState" | "state">,
 ) {
   const parameters = new URLSearchParams(location.hash.slice(1));
   if (!parameters.has("token")) return null;
   const token = browserLaunchTokenFromLocation(location);
-  history.replaceState(history.state, "", `${location.pathname}${location.search}`);
+  history.replaceState(
+    history.state,
+    "",
+    `${location.origin}${location.pathname}${location.search}`,
+  );
   return token;
 }
 
