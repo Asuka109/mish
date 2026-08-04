@@ -42,10 +42,15 @@ and product providers. Mobile code must not render the `Sidebar` and then move
 it to the bottom with CSS. The mobile bottom bar owns only top-level navigation;
 VPN start/stop remains a Home command and never consumes a navigation item.
 
-React Router is the navigation authority. Each tab preserves its own last child
-route and scroll position for the session. A platform shell may request haptic
-feedback or platform-safe-area information, but it must not keep an independent
-selected-tab store.
+React Router is the sole authority for product routes, child routes, internal
+history and Back, per-page state, sheets, scroll state, `canGoBack`, and DOM
+focus. Installed-mobile native tab/drawer chrome is a disjoint outer shell: its
+selected top-level destination and one-way validated entry are owned by the
+Shared Rust contract. Native chrome cannot carry an arbitrary path, and Web
+content cannot request a native selection, haptic, sheet, permission, Back, or
+focus effect. The current React `MobileShell` remains selected until a separate
+platform cutover. Exact ownership is in
+[`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
 
 ## Android presentation
 
@@ -70,8 +75,8 @@ the iOS floating glass tab bar.
 The iOS shell follows the current tab-bar and navigation-stack conventions:
 
 - a persistent bottom Tab Bar with system-consistent item spacing and labels;
-- one Navigation Stack per tab, including native-feeling back and edge-swipe
-  behavior;
+- one system outer-shell container around one WebView; React Router retains the
+  product route stack and internal edge-swipe/Back result;
 - system font metrics, Dynamic Type, safe areas, and short labels;
 - sheets with appropriate detents for filters and bounded selection;
 - immediate touch-down feedback and restrained haptics for meaningful commits;

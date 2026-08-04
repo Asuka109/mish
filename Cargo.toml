@@ -4,6 +4,7 @@ members = [
   "apps/mobile/src-tauri",
   "crates/desktop-bridge",
   "crates/mihomo-controller",
+  "crates/mobile-shell",
   "crates/native-i18n",
   "crates/platform-macos",
   "crates/profile",
@@ -14,7 +15,6 @@ members = [
   "crates/state-authority",
   "crates/state-machine",
   "crates/updater",
-  "prototypes/mobile-shell/navigation-authority",
 ]
 resolver = "2"
 
