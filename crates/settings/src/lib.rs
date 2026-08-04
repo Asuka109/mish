@@ -15,7 +15,8 @@ use futures_util::future::BoxFuture;
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
     CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability, TunHelperController,
-    TunHelperFailureKind, TunHelperSnapshot,
+    TunHelperFailureKind, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperRemovalCapability, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -514,7 +515,30 @@ pub struct SettingsService {
     startup_platform: Option<Arc<dyn StartupPlatform>>,
     state: Mutex<SettingsState>,
     tun_helper: Option<Arc<TunHelperController>>,
+    tun_helper_lifecycle: Mutex<Option<TunHelperLifecycleOperation>>,
     window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+}
+
+#[must_use = "the lifecycle publication must remain alive until the operation is terminal"]
+pub struct TunHelperLifecyclePublication {
+    active: bool,
+    service: Arc<SettingsService>,
+}
+
+impl TunHelperLifecyclePublication {
+    /// Clears the admitted operation and publishes one terminal controller snapshot.
+    pub fn finish(mut self) -> SettingsSnapshot {
+        self.active = false;
+        self.service.finish_tun_helper_lifecycle()
+    }
+}
+
+impl Drop for TunHelperLifecyclePublication {
+    fn drop(&mut self) {
+        if self.active {
+            self.service.finish_tun_helper_lifecycle();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -745,6 +769,7 @@ impl SettingsService {
                 storage_recovered,
             }),
             tun_helper,
+            tun_helper_lifecycle: Mutex::new(None),
             window_surface_platform,
         })
     }
@@ -760,12 +785,19 @@ impl SettingsService {
             observed,
             self.capabilities.launch_at_login,
         );
-        let tun_helper = self
+        let mut tun_helper = self
             .tun_helper
             .as_ref()
             .map_or_else(TunHelperSnapshot::browser_unavailable, |helper| {
                 helper.snapshot()
             });
+        if let Some(operation) = *self
+            .tun_helper_lifecycle
+            .lock()
+            .expect("TUN helper lifecycle lock poisoned")
+        {
+            project_tun_helper_lifecycle(&mut tun_helper, operation);
+        }
         let mut capabilities = self.capabilities;
         capabilities.tun = match tun_helper.availability {
             TunHelperAvailability::Available if tun_helper.is_healthy() => {
@@ -825,6 +857,30 @@ impl SettingsService {
         (receiver, snapshot)
     }
 
+    /// Persists and publishes the Rust-owned admitted operation before a Helper lifecycle can
+    /// await platform authorization or another resource boundary. Keeping the publication guard
+    /// alive makes late snapshots and subscriptions agree with existing subscribers.
+    pub fn begin_tun_helper_lifecycle(
+        self: &Arc<Self>,
+        operation: TunHelperLifecycleOperation,
+    ) -> Result<TunHelperLifecyclePublication, SettingsServiceError> {
+        let mut lifecycle = self
+            .tun_helper_lifecycle
+            .lock()
+            .expect("TUN helper lifecycle lock poisoned");
+        if lifecycle.is_some() {
+            return Err(SettingsServiceError::Busy);
+        }
+        *lifecycle = Some(operation);
+        drop(lifecycle);
+        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+        self.publish_tun_helper_snapshot_value(snapshot);
+        Ok(TunHelperLifecyclePublication {
+            active: true,
+            service: self.clone(),
+        })
+    }
+
     pub fn mutation_authority(&self) -> StateMutationAuthority {
         self.authority.clone()
     }
@@ -841,6 +897,13 @@ impl SettingsService {
     pub async fn refresh_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         self.tun_helper()?.refresh().await;
         Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    /// Performs the early, side-effect-free removal admission read against the controller's
+    /// observed state. The public Settings snapshot may already project the admitted removal as
+    /// maintenance-pending, so it must not decide whether that same removal may start.
+    pub async fn refresh_tun_helper_removal_available(&self) -> Result<bool, SettingsServiceError> {
+        Ok(self.tun_helper()?.refresh().await.removal_available())
     }
 
     pub async fn confirm_tun_helper_removal_safe(
@@ -1253,6 +1316,36 @@ impl SettingsService {
         self.tun_helper
             .as_deref()
             .ok_or(SettingsServiceError::CapabilityUnavailable)
+    }
+
+    fn publish_tun_helper_snapshot_value(&self, snapshot: SettingsSnapshot) -> SettingsSnapshot {
+        let _ = self.changes.send(snapshot.clone());
+        snapshot
+    }
+
+    fn finish_tun_helper_lifecycle(&self) -> SettingsSnapshot {
+        let mut lifecycle = self
+            .tun_helper_lifecycle
+            .lock()
+            .expect("TUN helper lifecycle lock poisoned");
+        *lifecycle = None;
+        drop(lifecycle);
+        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+        self.publish_tun_helper_snapshot_value(snapshot)
+    }
+}
+
+fn project_tun_helper_lifecycle(
+    snapshot: &mut TunHelperSnapshot,
+    operation: TunHelperLifecycleOperation,
+) {
+    snapshot.phase = match operation {
+        TunHelperLifecycleOperation::Install => TunHelperLifecyclePhase::Installing,
+        TunHelperLifecycleOperation::Repair => TunHelperLifecyclePhase::Repairing,
+        TunHelperLifecycleOperation::Remove => TunHelperLifecyclePhase::Removing,
+    };
+    if snapshot.removal == TunHelperRemovalCapability::Available {
+        snapshot.removal = TunHelperRemovalCapability::MaintenancePending;
     }
 }
 
@@ -1798,6 +1891,50 @@ mod tests {
         calls: AtomicUsize,
         first_started: Notify,
         release_first: Notify,
+    }
+
+    struct FakeTunHelperPlatform;
+
+    impl mish_runtime::TunHelperPlatform for FakeTunHelperPlatform {
+        fn initial_snapshot(&self) -> TunHelperSnapshot {
+            TunHelperSnapshot::unavailable(
+                TunHelperAvailability::PermissionRequired,
+                mish_runtime::TunHelperHealth::NotInstalled,
+                TunHelperFailureKind::PermissionDenied,
+            )
+        }
+
+        fn observe_helper(
+            &self,
+        ) -> BoxFuture<'_, Result<mish_runtime::TunHelperObservation, mish_runtime::TunHelperError>>
+        {
+            Box::pin(async { Ok(mish_runtime::TunHelperObservation::not_installed()) })
+        }
+
+        fn run_lifecycle(
+            &self,
+            _operation: TunHelperLifecycleOperation,
+        ) -> BoxFuture<'_, Result<(), mish_runtime::TunHelperError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn observe_tun(
+            &self,
+        ) -> BoxFuture<'_, Result<mish_runtime::TunNetworkObservation, mish_runtime::TunHelperError>>
+        {
+            Box::pin(async {
+                Ok(mish_runtime::TunNetworkObservation::disabled(
+                    mish_runtime::tun_observation_now(),
+                ))
+            })
+        }
+
+        fn set_tun_enabled(
+            &self,
+            _enabled: bool,
+        ) -> BoxFuture<'_, Result<(), mish_runtime::TunHelperError>> {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     impl NetworkDnsPlatform for BlockingNetworkDnsPlatform {
@@ -2934,6 +3071,66 @@ mod tests {
         assert!(delivered.revision > initial.revision);
         assert_eq!(delivered.revision, updated.revision);
         assert_eq!(delivered.preferences.language, LanguagePreference::Zh);
+    }
+
+    #[test]
+    fn tun_helper_lifecycle_publication_persists_for_late_readers_until_terminal() {
+        let (_root, repository) = repository();
+        let helper = Arc::new(TunHelperController::new(Arc::new(FakeTunHelperPlatform)));
+        let service = Arc::new(
+            SettingsService::load_with_platforms(
+                repository,
+                None,
+                Some(window_surface_platform()),
+                SettingsCapabilities::macos(true),
+                Some(helper),
+                None,
+            )
+            .expect("settings service"),
+        );
+        let mut existing_updates = service.subscribe();
+
+        let lifecycle = service
+            .begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Repair)
+            .expect("admitted lifecycle");
+        let existing_pending = existing_updates.try_recv().expect("pending publication");
+        assert_eq!(
+            existing_pending.tun_helper.phase,
+            TunHelperLifecyclePhase::Repairing
+        );
+        assert_eq!(
+            service.snapshot(SettingsAdapterKind::Rpc).tun_helper.phase,
+            TunHelperLifecyclePhase::Repairing
+        );
+        let (mut late_updates, late_snapshot) =
+            service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+        assert_eq!(
+            late_snapshot.tun_helper.phase,
+            TunHelperLifecyclePhase::Repairing
+        );
+        assert!(matches!(
+            service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Install),
+            Err(SettingsServiceError::Busy)
+        ));
+
+        let terminal = lifecycle.finish();
+        assert_eq!(terminal.tun_helper.phase, TunHelperLifecyclePhase::Idle);
+        assert_eq!(
+            existing_updates
+                .try_recv()
+                .expect("existing terminal publication")
+                .tun_helper
+                .phase,
+            TunHelperLifecyclePhase::Idle
+        );
+        assert_eq!(
+            late_updates
+                .try_recv()
+                .expect("late terminal publication")
+                .tun_helper
+                .phase,
+            TunHelperLifecyclePhase::Idle
+        );
     }
 
     #[test]

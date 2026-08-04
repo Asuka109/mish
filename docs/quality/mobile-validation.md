@@ -40,6 +40,27 @@ Automated coverage must prove:
   confirmed snapshot after recreation; and
 - unavailable native capabilities never simulating success.
 
+## Production-disabled native shell entry contract
+
+Run:
+
+```sh
+cargo test -p mish-mobile-shell
+node --test scripts/check-mobile-shell-boundary.test.ts
+node scripts/check-mobile-shell-boundary.ts
+```
+
+These checks prove the closed Android/Apple chrome and validated platform-deep-
+link model, exact Native-to-Rust-to-Web fixture, monotonic revision, bounded
+duplicate/stale behavior, prepare/commit revalidation, invalid-input
+non-mutation, and deterministic rejection of Web-to-Native UI backchannels.
+They also prove that `apps/mobile` does not depend on the contract crate, so the
+current React shell remains selected. This evidence permits only a
+**production-disabled shell contract** claim. It is not a compiled Android or
+Apple adapter, native rendering, device, accessibility, latency, or production
+cutover claim. See
+[`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
+
 ## Viewport and interaction matrix
 
 At minimum, run real-browser mobile-shell coverage at:

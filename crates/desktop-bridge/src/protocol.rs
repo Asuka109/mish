@@ -24,15 +24,15 @@ use mish_runtime::{
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
-    TunHelperLifecycleApplicationNotificationData, TunHelperRemovalCapability,
+    TunHelperLifecycleApplicationNotificationData, TunHelperLifecycleOperation,
     TunHelperRemovalOutcome, valid_notification_presentation_completion,
     valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
     ManagedPortPreferences, OnboardingWelcomeAction, ProcessDiscoveryMode, SettingsAdapterKind,
-    SettingsAvailability, SettingsService, SettingsServiceError, StartupPreferences,
-    WindowCloseBehavior, WindowSurfacePreference,
+    SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
+    WindowSurfacePreference,
 };
 use mish_updater::{UpdateChannel, UpdateOperationError, UpdaterService, UpdaterSnapshot};
 use tokio::{
@@ -47,12 +47,6 @@ static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_NOTIFICATION_PRESENTATION_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 const PROCESS_ICON_MAX_BYTES: usize = 262_144;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RpcClientSurface {
-    Native,
-    Browser,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,7 +85,6 @@ pub(crate) struct ProtocolState {
     // command race the Capture transaction and publish a stale terminal lifecycle notification.
     pub tun_helper_lifecycle_transaction: std::sync::Arc<Mutex<()>>,
     pub updater: std::sync::Arc<UpdaterService>,
-    pub client_surface: RpcClientSurface,
 }
 
 /// Tracks which live WebSocket owns each client-provided presentation identity. The identity is
@@ -157,7 +150,6 @@ impl ProtocolState {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
-        self.project_status_snapshot(&mut snapshot);
         self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
@@ -174,7 +166,6 @@ impl ProtocolState {
             service_probes.overlay(snapshot);
         }
         if let Some(snapshot) = error.reconciliation.as_mut() {
-            self.project_status_snapshot(snapshot);
             self.runtime.stamp_status_snapshot(ticket, snapshot);
         }
         status_command_error_response(id, error)
@@ -202,35 +193,12 @@ impl ProtocolState {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
-        self.project_status_snapshot(&mut snapshot);
         self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 
-    fn project_status_snapshot(&self, snapshot: &mut StatusSnapshot) {
-        if self.client_surface == RpcClientSurface::Browser {
-            snapshot.capabilities.tun = CapabilityAvailability::Unavailable;
-        }
-    }
-
     fn settings_snapshot(&self, service: &SettingsService) -> mish_settings::SettingsSnapshot {
-        let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-        self.project_settings_snapshot(&mut snapshot);
-        snapshot
-    }
-
-    fn project_settings_snapshot(&self, snapshot: &mut mish_settings::SettingsSnapshot) {
-        if self.tun_helper_lifecycle_transaction.try_lock().is_err() {
-            snapshot.tun_helper.mark_removal_maintenance_pending();
-        }
-        if self.client_surface == RpcClientSurface::Browser {
-            snapshot.capabilities.tun = SettingsAvailability::Unavailable;
-            snapshot.tun_helper.removal = TunHelperRemovalCapability::Unavailable;
-        }
-    }
-
-    fn permits_tun_lifecycle(&self) -> bool {
-        self.client_surface == RpcClientSurface::Native
+        service.snapshot(SettingsAdapterKind::Rpc)
     }
 
     fn record_onboarding_welcome_presentation(
@@ -895,8 +863,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
             }
             update = subscriptions.settings_updates.recv(), if authenticated && !subscriptions.settings_ids.is_empty() => {
-                let Ok(mut snapshot) = update else { continue };
-                state.project_settings_snapshot(&mut snapshot);
+                let Ok(snapshot) = update else { continue };
                 for subscription_id in &subscriptions.settings_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
@@ -1005,8 +972,7 @@ async fn handle_message(
         return Some(error_response(id, -32602, "Invalid params", None));
     }
 
-    let is_settings_request = request.method.starts_with("settings.");
-    let mut result = match request.method.as_str() {
+    let result = match request.method.as_str() {
         "rpc.authenticate" => {
             *authenticated = false;
             let auth: Authentication = match serde_json::from_value(request.params) {
@@ -1976,8 +1942,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let mut snapshot = service.refresh_network_dns().await;
-            state.project_settings_snapshot(&mut snapshot);
+            let snapshot = service.refresh_network_dns().await;
             serde_json::to_value(snapshot).expect("serializable settings snapshot")
         }
         "settings.installTunHelper" => {
@@ -1985,13 +1950,15 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Install) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "install", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "install", "finalizing", None);
@@ -2012,9 +1979,8 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -2025,7 +1991,6 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2037,13 +2002,15 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Repair) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "pending", None);
             publish_tun_helper_lifecycle(state, &operation_id, "repair", "finalizing", None);
@@ -2064,9 +2031,8 @@ async fn handle_message(
                     if let Some(error) = capture_error {
                         state.runtime.record_capture_failure(&error);
                     }
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    let mut snapshot = service.snapshot(SettingsAdapterKind::Rpc);
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -2077,7 +2043,6 @@ async fn handle_message(
                         "recovery-required",
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
                     return Some(settings_error_response_without_notification(
                         state, id, error,
                     ));
@@ -2085,17 +2050,19 @@ async fn handle_message(
             }
         }
         "settings.removeTunHelper" => {
-            if !state.permits_tun_lifecycle() {
-                return Some(settings_capability_error(id));
-            }
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
             let helper_lifecycle_transaction = state.tun_helper_lifecycle_transaction.lock().await;
+            let helper_lifecycle_publication =
+                match service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Remove) {
+                    Ok(publication) => publication,
+                    Err(error) => return Some(settings_error_response(state, id, error)),
+                };
             let operation_id = Uuid::new_v4().to_string();
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "pending", None);
-            let admitted = match service.refresh_tun_helper().await {
-                Ok(snapshot) => snapshot,
+            let removal_available = match service.refresh_tun_helper_removal_available().await {
+                Ok(removal_available) => removal_available,
                 Err(error) => {
                     let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
                     publish_tun_helper_removal_outcome(
@@ -2104,13 +2071,12 @@ async fn handle_message(
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
                 }
             };
-            if !admitted.tun_helper.removal_available() {
+            if !removal_available {
                 let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
                 publish_tun_helper_removal_outcome(
                     state,
@@ -2118,7 +2084,6 @@ async fn handle_message(
                     outcome,
                     Some("helper-installation-unconfirmed".into()),
                 );
-                drop(helper_lifecycle_transaction);
                 return Some(error_response(
                     id,
                     -32055,
@@ -2135,7 +2100,6 @@ async fn handle_message(
                     outcome,
                     Some(capture_failure_id(error.kind)),
                 );
-                drop(helper_lifecycle_transaction);
                 return Some(tun_helper_removal_capture_error_response(
                     id, error, outcome,
                 ));
@@ -2148,22 +2112,21 @@ async fn handle_message(
                     outcome,
                     Some(settings_failure_id(&error)),
                 );
-                drop(helper_lifecycle_transaction);
                 return Some(tun_helper_removal_settings_error_response(
                     state, id, error, outcome,
                 ));
             }
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "finalizing", None);
             match service.remove_tun_helper().await {
-                Ok(mut snapshot) => {
+                Ok(_) => {
                     publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
                         TunHelperRemovalOutcome::Removed,
                         None,
                     );
+                    let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
-                    state.project_settings_snapshot(&mut snapshot);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
@@ -2174,7 +2137,6 @@ async fn handle_message(
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
-                    drop(helper_lifecycle_transaction);
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
@@ -2347,8 +2309,7 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            let (updates, mut snapshot) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
-            state.project_settings_snapshot(&mut snapshot);
+            let (updates, snapshot) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
             subscriptions.settings_updates = updates;
             let subscription_id = format!(
                 "settings-{}",
@@ -2472,28 +2433,7 @@ async fn handle_message(
         }
         _ => return Some(error_response(id, -32601, "Method not found", None)),
     };
-    if is_settings_request && state.client_surface == RpcClientSurface::Browser {
-        project_browser_settings_value(&mut result);
-    }
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
-}
-
-fn project_browser_settings_value(value: &mut Value) {
-    if let Some(tun) = value
-        .get_mut("capabilities")
-        .and_then(|capabilities| capabilities.get_mut("tun"))
-    {
-        *tun = json!("unavailable");
-    }
-    if let Some(removal) = value
-        .get_mut("tunHelper")
-        .and_then(|tun_helper| tun_helper.get_mut("removal"))
-    {
-        *removal = json!("unavailable");
-    }
-    if let Some(snapshot) = value.get_mut("snapshot") {
-        project_browser_settings_value(snapshot);
-    }
 }
 
 fn try_capture_transaction(
@@ -2567,14 +2507,6 @@ async fn set_aggregate_capture_locked(
     state: &ProtocolState,
     params: SetCaptureParams,
 ) -> Result<Value, CaptureTransitionError> {
-    ensure_capture_surface_authority(
-        state,
-        &CaptureRequest {
-            active: params.active,
-            selection: params.selection.clone(),
-        },
-    )
-    .await?;
     if !params.active {
         return set_capture_with_core_reactivation(
             state,
@@ -2662,31 +2594,6 @@ async fn requested_capture_selection(
         Err(CaptureTransitionError::new(
             CaptureFailureKind::UnsupportedSelection,
             "No available Capture mode can be launched on this system",
-        ))
-    }
-}
-
-async fn ensure_capture_surface_authority(
-    state: &ProtocolState,
-    request: &CaptureRequest,
-) -> Result<(), CaptureTransitionError> {
-    if state.client_surface == RpcClientSurface::Native {
-        return Ok(());
-    }
-    let snapshot = state
-        .runtime
-        .status_snapshot_typed(StatusAdapterKind::Rpc)
-        .await;
-    let requested_tun = request.active && request.selection.tun;
-    let current_tun = &snapshot.runtime.tun;
-    let preserves_off = !requested_tun && !current_tun.desired;
-    let preserves_applied = requested_tun && current_tun.desired && snapshot.runtime.tun_enabled;
-    if preserves_off || preserves_applied {
-        Ok(())
-    } else {
-        Err(CaptureTransitionError::new(
-            CaptureFailureKind::CapabilityUnavailable,
-            "Virtual Interface can only be changed by the packaged desktop application",
         ))
     }
 }

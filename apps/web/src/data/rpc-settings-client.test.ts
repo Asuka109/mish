@@ -11,6 +11,7 @@ describe("RPC settings client", () => {
       capabilities: {
         backupRestore: "supported",
         nativeSidebarMaterial: "supported",
+        tun: "supported",
         windowLifecycle: "supported",
       },
     }));
@@ -23,6 +24,7 @@ describe("RPC settings client", () => {
       capabilities: {
         backupRestore: "unavailable",
         nativeSidebarMaterial: "unavailable",
+        tun: "supported",
         windowLifecycle: "unavailable",
       },
     });

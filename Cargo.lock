@@ -2788,8 +2788,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "mish-mobile-navigation-prototype"
+name = "mish-mobile-shell"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "mish-native-i18n"
