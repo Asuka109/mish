@@ -4600,9 +4600,30 @@ async fn authenticated_browser_capture_without_a_tun_backend_stays_unavailable()
         "capability-unavailable"
     );
     assert!(unavailable_combination.get("result").is_none());
+    let notifications = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":7, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let capture_failures = notifications["result"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|record| record["presentation"]["kind"] == "capture.failure")
+        .collect::<Vec<_>>();
+    assert_eq!(capture_failures.len(), 1);
+    assert_eq!(
+        capture_failures[0]["presentation"]["data"]["failure"],
+        "capability-unavailable"
+    );
+    assert_eq!(
+        capture_failures[0]["presentation"]["data"]["captureMode"],
+        "tun"
+    );
+    assert_eq!(capture_failures[0]["resolved"], false);
     let after_rejected_tun = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":8, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(
