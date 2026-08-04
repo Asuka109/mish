@@ -13,8 +13,16 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 mish-settings = { path = "../../../crates/settings" }
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-mish-vpn = { path = "plugins/mish-vpn" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+mish-mobile-shell = { path = "../../../crates/mobile-shell" }
+
+[dev-dependencies]
+mish-mobile-shell = { path = "../../../crates/mobile-shell" }
 
 [features]
 default = []

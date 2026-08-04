@@ -18,12 +18,12 @@ const fixture = MobileFixtureBootstrapSchema.parse({
   vpn: { availability: "unavailable", kind: "fixture" },
 });
 
-function renderShell(path: string) {
+function renderShell(path: string, nativeChrome = false) {
   return render(
     <TypesafeI18n locale="en">
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route element={<MobileShell fixture={fixture} />}>
+          <Route element={<MobileShell fixture={fixture} nativeChrome={nativeChrome} />}>
             <Route element={<div>Route content</div>} path="*" />
           </Route>
         </Routes>
@@ -88,5 +88,15 @@ describe("MobileShell", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toHaveClass("is-active");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/settings");
+  });
+
+  it("removes both Web chrome regions when the installed Android host owns them", () => {
+    const view = renderShell("/status", true);
+
+    expect(view.container.querySelector("[data-native-chrome='android-material']")).not.toBeNull();
+    expect(view.container.querySelector(".mobile-chrome")).toBeNull();
+    expect(view.container.querySelector(".mobile-bottom-navigation")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Mobile navigation" })).not.toBeInTheDocument();
+    expect(screen.getByText("Route content")).toBeVisible();
   });
 });

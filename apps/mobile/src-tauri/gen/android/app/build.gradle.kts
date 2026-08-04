@@ -13,6 +13,14 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val mishNativeShellEnabled = providers.gradleProperty("mishNativeShell").orElse("true").map {
+    when (it) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("mishNativeShell must be exactly true or false")
+    }
+}
+
 android {
     buildToolsVersion = "36.1.0"
     compileSdk = 36
@@ -25,6 +33,11 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        buildConfigField(
+            "boolean",
+            "MISH_NATIVE_SHELL_ENABLED",
+            mishNativeShellEnabled.get().toString(),
+        )
     }
     buildTypes {
         getByName("debug") {

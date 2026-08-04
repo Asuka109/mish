@@ -7,6 +7,7 @@
   "scripts": {
     "android:acceptance": "node scripts/android-acceptance-harness.ts",
     "android:acceptance:test": "node --test scripts/android-acceptance-harness.test.ts",
+    "android:shell:acceptance": "node scripts/android-material-shell-appium.ts",
     "android:check": "pnpm check:android && pnpm android:acceptance:test",
     "audit:ci:trust-settings": "node scripts/audit-github-trust-settings.ts",
     "brand:generate": "pnpm generate:brand",

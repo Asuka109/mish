@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mish</string>
+    <string name="main_activity_title">Mish</string>
+    <string name="mobile_navigation_home">首页</string>
+    <string name="mobile_navigation_routes">路由</string>
+    <string name="mobile_navigation_profiles">配置</string>
+    <string name="mobile_navigation_activity">活动</string>
+    <string name="mobile_navigation_settings">设置</string>
+    <string name="native_shell_back">返回</string>
+    <string name="native_shell_destination_reselected">已选择%1$s</string>
+</resources>

@@ -266,11 +266,12 @@ generic Native-UI escape hatch.
 | Sheets                    | Native Material sheet only for a native-origin bounded platform concern; Web product sheets remain Web and cannot request Native                             | Prototype sheet is reachable only from the native toolbar and exposes no Web bridge                     |
 | Expanded windows          | Navigation rail, not desktop sidebar, after an explicit foldable/tablet candidate                                                                            | Not implemented in this phone prototype; official adaptive navigation remains direction evidence        |
 
-The runnable Android candidate is debug-only:
-[`ShellPrototypeActivity.kt`](../../apps/mobile/src-tauri/gen/android/app/src/debug/java/com/asuka109/mish/ShellPrototypeActivity.kt).
-It is excluded from release source sets and does not replace `MainActivity` or
-the React product shell. The app's existing Material dependency supplies the
-native components, so this candidate adds no runtime library.
+The Android candidate was debug-only and excluded from release source sets.
+Issue #373 later removed that second-Activity prototype when
+[`InstalledAndroidShellHost.kt`](../../apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/InstalledAndroidShellHost.kt)
+cut the accepted Material projection into `MainActivity` around the retained
+Tauri WebView. The app's existing Material dependency supplies the native
+components, so neither candidate adds a UI runtime library.
 
 ### Android ownership recommendation
 

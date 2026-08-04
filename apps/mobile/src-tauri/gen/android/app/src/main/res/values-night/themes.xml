@@ -1,6 +1,17 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.mish_mobile" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+<resources>
+    <style name="Theme.mish_mobile" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#9FC0FF</item>
+        <item name="colorOnPrimary">#002F6F</item>
+        <item name="colorSecondaryContainer">#234775</item>
+        <item name="colorOnSecondaryContainer">#D9E5FF</item>
+        <item name="colorSurface">#141414</item>
+        <item name="colorSurfaceContainer">#1C1C1C</item>
+        <item name="colorOnSurface">#F5F5F5</item>
+        <item name="colorOnSurfaceVariant">#B9BEC8</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 </resources>

@@ -14,6 +14,15 @@ function invariant(condition: unknown, message: string): asserts condition {
 const gradle = source("apps/mobile/src-tauri/gen/android/app/build.gradle.kts");
 const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
+const mainActivity = source(
+  "apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/MainActivity.kt",
+);
+const installedShellHost = source(
+  "apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/InstalledAndroidShellHost.kt",
+);
+const nativeShellBridge = source(
+  "apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/NativeShellBridge.kt",
+);
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
 const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xml`);
 const pluginBuild = source(`${pluginRoot}/build.rs`);
@@ -38,6 +47,9 @@ const mobileSettingsCapability = source(
 );
 const mobileSettingsPermission = source("apps/mobile/src-tauri/permissions/mobile_settings.toml");
 const mobileRust = source("apps/mobile/src-tauri/src/lib.rs");
+const androidShellRust = source("apps/mobile/src-tauri/src/android_shell.rs");
+const mobileCargo = source("apps/mobile/src-tauri/Cargo.toml");
+const installedShellWeb = source("apps/web/src/platform/installed-android-shell.tsx");
 const settingsRust = source("crates/settings/src/lib.rs");
 const tauri = source("apps/mobile/src-tauri/tauri.conf.json");
 const kotlinRoot = resolve(root, pluginRoot, "android/src/main/java/com/asuka109/mish/vpn");
@@ -130,6 +142,84 @@ invariant(
   manifest.includes('android:enableOnBackInvokedCallback="true"') &&
     !manifest.includes('android:enableOnBackInvokedCallback="false"'),
   "Android 16 predictive back must remain enabled without a compatibility opt-out.",
+);
+for (const requirement of [
+  'android:launchMode="singleTop"',
+  'android:windowSoftInputMode="adjustResize"',
+  '<action android:name="android.intent.action.VIEW"',
+  'android:name="android.intent.category.BROWSABLE"',
+  'android:host="app"',
+  'android:scheme="mish"',
+]) {
+  invariant(
+    manifest.includes(requirement),
+    `Installed Android shell Manifest is missing: ${requirement}`,
+  );
+}
+invariant(
+  gradle.includes('"MISH_NATIVE_SHELL_ENABLED"') &&
+    gradle.includes('gradleProperty("mishNativeShell").orElse("true")'),
+  "The Android Material shell must retain an explicit build-time Web-shell fallback.",
+);
+for (const requirement of [
+  "InstalledAndroidShellHost(this)",
+  "onWebViewCreate(webView: WebView)",
+  "wrapTauriWebView(view)",
+]) {
+  invariant(
+    mainActivity.includes(requirement),
+    `The Tauri Activity shell seam is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "MaterialToolbar",
+  "BottomNavigationView",
+  "setItemActiveIndicatorEnabled(true)",
+  "setOnItemReselectedListener",
+  "if (!item.isEnabled)",
+  "WebViewFeature.DOCUMENT_START_SCRIPT",
+  "addDocumentStartJavaScript",
+  "evaluateJavascript",
+  "OnBackPressedCallback(false)",
+  "handleOnBackCancelled",
+  "attachedWebView.canGoBack()",
+  "WindowInsetsCompat.Builder(windowInsets)",
+  ".setInsets(handledTypes or imeType, Insets.NONE)",
+  "rootBaseBottom + if (imeVisible) imeInsets.bottom else 0",
+  "DISPATCH_MODE_CONTINUE_ON_SUBTREE",
+  "IntentCompat.getParcelableExtra",
+  "intent === activity.intent",
+  "isSelfOriginatedReferrer(exactReferrer)",
+  "EXTRA_EXTERNAL_DEEP_LINK_FOR_TESTING",
+]) {
+  invariant(
+    installedShellHost.includes(requirement),
+    `Installed Android shell is missing: ${requirement}`,
+  );
+}
+for (const forbidden of [
+  "WebView(activity)",
+  "ComposeView",
+  "addJavascriptInterface",
+  "addWebMessageListener",
+  "@JavascriptInterface",
+]) {
+  invariant(
+    !mainActivity.includes(forbidden) &&
+      !installedShellHost.includes(forbidden) &&
+      !nativeShellBridge.includes(forbidden),
+    `Installed Android shell must retain one Tauri WebView and no Web-to-Native bridge: ${forbidden}`,
+  );
+}
+invariant(
+  mobileCargo.includes("[target.'cfg(target_os = \"android\")'.dependencies]") &&
+    mobileCargo.includes("mish-mobile-shell") &&
+    androidShellRust.includes("ShellIntent::android_chrome") &&
+    androidShellRust.includes("ShellIntent::platform_deep_link") &&
+    androidShellRust.includes("ShellOutcome::Applied") &&
+    !installedShellWeb.includes("invoke(") &&
+    !installedShellWeb.includes("emit("),
+  "Installed Android shell input must flow Native -> Shared Rust -> Web without a Web capability channel.",
 );
 invariant(
   !manifest.includes("LEANBACK_LAUNCHER") &&

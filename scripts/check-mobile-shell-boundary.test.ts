@@ -167,6 +167,6 @@ test("finds normal and target-specific runtime Cargo dependencies", () => {
   );
 });
 
-test("the checked-in repository keeps the native shell production-disabled", () => {
+test("the checked-in repository selects only the installed Android native shell", () => {
   assert.doesNotThrow(checkRepositoryMobileShellBoundary);
 });

@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri::State;
 
+#[cfg(any(target_os = "android", test))]
+mod android_shell;
+
 const CONTRACT_VERSION: u8 = 1;
 
 #[derive(Clone, Serialize)]

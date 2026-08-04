@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="native_shell_root" type="id" />
+    <item name="native_shell_app_bar" type="id" />
+    <item name="native_shell_web_container" type="id" />
+    <item name="native_shell_bottom_navigation" type="id" />
+    <item name="native_shell_home" type="id" />
+    <item name="native_shell_routes" type="id" />
+    <item name="native_shell_profiles" type="id" />
+    <item name="native_shell_activity" type="id" />
+    <item name="native_shell_settings" type="id" />
+</resources>

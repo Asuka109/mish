@@ -94,12 +94,14 @@ Home for consent, start, stop, and recovery so neither React nor the Settings
 adapter duplicates `VpnService` ownership or lifecycle command handling.
 
 React Router remains the sole authority for product routes, internal history
-and Back, page/sheet state, `canGoBack`, and DOM focus. The disjoint
-production-disabled Shared Rust outer-shell authority owns only installed-
-mobile top-level selection and one-way validated entry. Native tab/drawer and
-platform deep links are its only sources; Web content cannot submit a shell
-intent. See [Mobile Native Shell Entry](mobile-native-shell-entry.md). The
-current React `MobileShell` remains selected until a separate platform cutover.
+and Back, page/sheet state, `canGoBack`, and DOM focus. The disjoint Shared Rust
+outer-shell authority owns only installed-mobile top-level selection and
+one-way validated entry. On Android, Material app-bar and bottom-navigation
+Views project that snapshot around exactly one retained Tauri WebView. Native
+chrome and verified external deep links are its only sources; Web content
+cannot submit a shell intent. A build-time flag retains the React `MobileShell`
+fallback, and Apple remains Web-shell selected until its own cutover. See
+[Mobile Native Shell Entry](mobile-native-shell-entry.md).
 
 ## Native Core contract
 

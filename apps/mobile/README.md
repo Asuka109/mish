@@ -1,7 +1,13 @@
 # Mish Mobile Shell
 
-This package owns the Tauri 2 mobile application shell. Phase 0 packages a
-typed native fixture and an Android `VpnService` lifecycle prototype. The
+This package owns the Tauri 2 mobile application shell. Installed Android wraps
+the one Tauri WebView in Material app-bar and bottom-navigation Views. Native
+chrome enters through the Shared Rust shell authority and delivers one-way Web
+entries; product pages, internal history/Back/focus, and business sheets remain
+in React. Set Gradle property `mishNativeShell=false` to compile the retained
+Web-shell fallback.
+
+Phase 0 also packages a typed native fixture and an Android `VpnService` lifecycle prototype. The
 prototype requests VPN consent only after an explicit user action, exercises
 foreground-service and recovery semantics, and publishes authoritative typed
 snapshots. Its replaceable fixture backend never creates a TUN interface,

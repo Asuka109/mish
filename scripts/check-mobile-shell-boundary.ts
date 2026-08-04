@@ -22,6 +22,9 @@ const scanRoots = [
   "crates/mobile-shell",
   "prototypes/mobile-shell/ios",
 ] as const;
+const generatedSourceDirectories = new Set([
+  "apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/generated",
+]);
 
 export interface BoundarySource {
   path: string;
@@ -163,6 +166,7 @@ function collectSources(relativeDirectory: string): BoundarySource[] {
       if (entry.name === "build" || entry.name === "target") continue;
       const absolutePath = resolve(directory, entry.name);
       if (entry.isDirectory()) {
+        if (generatedSourceDirectories.has(absolutePath.slice(root.length + 1))) continue;
         visit(absolutePath);
       } else if (entry.isFile() && sourceExtensions.has(extname(entry.name))) {
         sources.push({
@@ -194,6 +198,17 @@ export function checkRepositoryMobileShellBoundary() {
   const rust = readFileSync(resolve(root, "crates/mobile-shell/src/lib.rs"), "utf8");
   const mobileManifest = readFileSync(resolve(root, "apps/mobile/src-tauri/Cargo.toml"), "utf8");
   const mobileHost = readFileSync(resolve(root, "apps/mobile/src-tauri/src/lib.rs"), "utf8");
+  const androidHost = readFileSync(
+    resolve(root, "apps/mobile/src-tauri/src/android_shell.rs"),
+    "utf8",
+  );
+  const androidActivity = readFileSync(
+    resolve(
+      root,
+      "apps/mobile/src-tauri/gen/android/app/src/main/java/com/asuka109/mish/MainActivity.kt",
+    ),
+    "utf8",
+  );
   const shellMetadata = JSON.parse(
     execFileSync(
       "cargo",
@@ -233,8 +248,13 @@ export function checkRepositoryMobileShellBoundary() {
   }
 
   invariant(
-    !mobileManifest.includes("mish-mobile-shell") && !mobileHost.includes("mish_mobile_shell"),
-    "The production mobile application selected the native shell before its cutover Issue.",
+    mobileManifest.includes("[target.'cfg(target_os = \"android\")'.dependencies]") &&
+      mobileManifest.includes('mish-mobile-shell = { path = "../../../crates/mobile-shell" }') &&
+      mobileHost.includes("mod android_shell") &&
+      androidHost.includes("ShellIntent::android_chrome") &&
+      androidHost.includes("ShellIntent::platform_deep_link") &&
+      androidActivity.includes("BuildConfig.MISH_NATIVE_SHELL_ENABLED"),
+    "The installed Android shell must select the Shared Rust contract behind its build-time fallback.",
   );
   const runtimeDependencies = findRuntimeCargoDependencies(shellMetadata);
   invariant(
@@ -243,7 +263,7 @@ export function checkRepositoryMobileShellBoundary() {
   );
 
   console.log(
-    `Mobile shell boundary valid across ${sources.length} source files: Native -> Shared Rust -> Web entry only; the production app remains unselected.`,
+    `Mobile shell boundary valid across ${sources.length} source files: installed Android selects Native -> Shared Rust -> Web entry behind a build-time fallback.`,
   );
 }
 

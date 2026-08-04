@@ -1,4 +1,11 @@
 <resources>
     <string name="app_name">"Mish"</string>
     <string name="main_activity_title">"Mish"</string>
+    <string name="mobile_navigation_home">Home</string>
+    <string name="mobile_navigation_routes">Routes</string>
+    <string name="mobile_navigation_profiles">Profiles</string>
+    <string name="mobile_navigation_activity">Activity</string>
+    <string name="mobile_navigation_settings">Settings</string>
+    <string name="native_shell_back">Back</string>
+    <string name="native_shell_destination_reselected">%1$s is already selected</string>
 </resources>

@@ -2780,8 +2780,11 @@ dependencies = [
 name = "mish-mobile"
 version = "0.1.0"
 dependencies = [
+ "jni 0.21.1",
+ "mish-mobile-shell",
  "mish-settings",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-mish-vpn",

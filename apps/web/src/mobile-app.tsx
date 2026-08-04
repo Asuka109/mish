@@ -15,6 +15,7 @@ import {
 } from "./pages/mobile-routes-page";
 import { MobileSettingsDetailPage, MobileSettingsPage } from "./pages/mobile-settings-page";
 import type { MobileVpnClient } from "./platform/mobile-vpn-client";
+import { isInstalledAndroidShellActive } from "./platform/installed-android-shell";
 
 export interface MobileAppRoutesProps {
   mobileFixture?: MobileFixtureBootstrapDto;
@@ -37,6 +38,8 @@ export function AppRoutes({
     mobileFixture.platform === "android" &&
     mobileFixture.core.kind === "native" &&
     mobileFixture.vpn.kind === "native";
+  const installedAndroidShell =
+    mobileFixture.platform === "android" && isInstalledAndroidShellActive();
 
   return (
     <NotificationDeliveryProvider client={notificationClient}>
@@ -58,7 +61,7 @@ export function AppRoutes({
             <MobileSettingsPage initialSnapshot={mobileVpnSnapshot} vpnClient={mobileVpnClient} />
           ) : undefined
         }
-        shell={<MobileShell fixture={mobileFixture} />}
+        shell={<MobileShell fixture={mobileFixture} nativeChrome={installedAndroidShell} />}
         statusElement={
           <MobileHomePage
             fixture={mobileFixture}

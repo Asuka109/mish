@@ -3,11 +3,11 @@
 ## Delivery status
 
 The Shared Rust contract is implemented in
-[`crates/mobile-shell`](../../crates/mobile-shell) as a production-disabled
-vertical slice. It is a workspace crate but is not a dependency of
-[`apps/mobile`](../../apps/mobile), so the current React `MobileShell` remains
-selected. This delivery adds no UI or runtime dependency and changes no
-Desktop WebView or Browser Client route, history, presentation, or command.
+[`crates/mobile-shell`](../../crates/mobile-shell). Installed Android now uses
+that contract through a small JNI adapter and renders Material Views around the
+one WebView created by Tauri. The build property `mishNativeShell=false`
+selects the retained React `MobileShell` as a compile-time fallback. Browser,
+Desktop, Apple, product routes, Web history, and business sheets are unchanged.
 
 The contract is the accepted boundary from Issue #343 and PR #370:
 
@@ -93,26 +93,35 @@ The authority retains at most 128 committed intent IDs. A retained replay is
 revisions never decrease. This keeps memory bounded without allowing an old
 intent to become current again.
 
-## Android adapter seam
+## Android adapter
 
-The future Android cutover adapter must:
+The installed Android adapter:
 
-1. obtain one process-scoped `MobileShellAuthority` from Rust application state;
-2. render tab/drawer selection only from a returned `ShellSnapshot`;
-3. create `androidChrome(destination)` from Material chrome, never from Web;
-4. validate the Android intent's application scheme/host and pass only its
+1. obtains one process-scoped `MobileShellAuthority` from Rust application state;
+2. renders bottom-navigation selection only from a returned `ShellSnapshot`;
+3. creates `androidChrome(destination)` from Material chrome, never from Web;
+4. validates the Android intent's application scheme/host and caller before passing its
    root-relative entry to `WebEntryPath::parse`;
-5. submit the prepared transition and consume only an `Applied` directive;
-6. deliver that directive toward the attached Tauri WebView once per
+5. submits the prepared transition and consumes only an `Applied` directive;
+6. delivers that directive toward the attached Tauri WebView once per
    `(authorityId, revision, WebView instance)`; and
-7. refresh the complete snapshot after stale, duplicate, interrupted, or
+7. refreshes the complete snapshot after stale, duplicate, interrupted, or
    otherwise unknown transport outcomes instead of guessing selection.
 
-The adapter may use a bounded JNI/FFI wrapper consistent with the existing
-mobile native pattern. It must not install `addJavascriptInterface`, an Android
-Web message listener, a custom URL command scheme, or a Web-facing Tauri shell
-command/event listener. Native pressed/ripple and predictive-back progress stay
-local presentation facts; they do not commit selected state.
+`InstalledAndroidShellHost` never constructs a WebView. It retains the Tauri
+instance, wraps it in a `MaterialToolbar` and `BottomNavigationView`, and uses a
+document-start script plus callback-free `evaluateJavascript` for one-way Web
+entry. If document-start injection is unavailable, the host leaves the Tauri
+view untouched so the existing Web shell remains usable. It installs no
+JavaScript interface, Android Web-message listener, custom URL command scheme,
+or Web-facing Tauri shell command/event listener. Native pressed/ripple and
+predictive-back progress stay local presentation facts and never commit state.
+
+AndroidX owns the sole Activity Back callback. It is enabled only while the
+retained WebView can go back, previews and cancels locally, and commits
+`WebView.goBack()` once. At a Web root it is disabled so system Back owns the
+Activity exit. System-bar and display-cutout insets are consumed by native
+chrome and zeroed before dispatch to Web; IME insets continue to the WebView.
 
 ## Apple adapter seam
 
@@ -163,8 +172,8 @@ scans mobile host, shared Web, Apple prototype, and Rust shell sources. It fails
 on Android JavaScript interfaces/Web message listeners, Apple script/custom
 scheme handlers, Web-facing Tauri shell commands, Web-emitted Native-UI events,
 custom URL command channels, and equivalent named shell backchannels. It also
-proves the contract crate remains absent from the selected mobile app and has no
-runtime dependency.
+proves Android depends on the shared contract only in its target-specific Rust
+adapter, retains the build fallback, and exposes no reverse capability channel.
 
 The companion deterministic tests inject one forbidden fixture for every rule
 and a permitted Native-to-Rust-to-Web seam. The platform-neutral JSON fixture
@@ -173,9 +182,10 @@ at
 traces Android chrome, a full platform deep link, and Apple chrome through Rust
 to exact Web directives.
 
-The Rust model tests cover every source/destination pair, exact deep-link
+The Rust model and Android-adapter tests cover every source/destination pair, exact deep-link
 preservation, invalid-entry non-mutation, monotonic revision over 512 commits,
 bounded retirement, duplicate/stale idempotency, prepare/commit TOCTOU races,
-cross-authority rejection, bounded identifiers, and revision exhaustion. These
-are model and boundary evidence only; they do not claim Android/Apple adapter,
-rendering, device, accessibility, bridge-latency, or production-cutover proof.
+cross-authority rejection, bounded identifiers, and revision exhaustion. Build
+and device evidence for the installed Android projection is recorded through
+the Issue #373 acceptance gate. Apple remains unselected and requires its own
+adapter, rendering, device, and accessibility proof.

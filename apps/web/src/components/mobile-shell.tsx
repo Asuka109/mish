@@ -10,6 +10,7 @@ import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import { RouteFocusManager } from "../platform/route-focus";
+import { InstalledAndroidShellEntryBridge } from "../platform/installed-android-shell";
 
 const destinations = [
   { icon: House, key: "home", path: "/status" },
@@ -71,6 +72,7 @@ const mobileShellStyles = tv({
 
 interface MobileShellProps {
   fixture: MobileFixtureBootstrapDto;
+  nativeChrome?: boolean;
 }
 
 function getTitle(LL: TranslationFunctions, pathname: string) {
@@ -106,12 +108,31 @@ function mobileBackTarget(pathname: string, search: string) {
   return null;
 }
 
-export function MobileShell({ fixture }: MobileShellProps) {
+export function MobileShell({ fixture, nativeChrome = false }: MobileShellProps) {
   const { LL } = useI18nContext();
   const location = useLocation();
   const activity = isActivityPath(location.pathname);
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
   const backTarget = mobileBackTarget(location.pathname, location.search);
+
+  if (nativeChrome) {
+    return (
+      <div
+        className="mobile-shell grid h-full min-h-0 w-full min-w-0 grid-rows-[minmax(0,1fr)] bg-canvas"
+        data-native-chrome="android-material"
+        data-platform={fixture.platform}
+      >
+        <InstalledAndroidShellEntryBridge />
+        <RouteFocusManager
+          headingSelector="main h1"
+          scrollerSelector="main .mobile-route-scroller, main .mobile-home-page, main .mobile-settings-page"
+        />
+        <main className={mobileShellStyles().main()}>
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className={mobileShellStyles().root()} data-platform={fixture.platform}>

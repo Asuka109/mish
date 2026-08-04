@@ -7,6 +7,13 @@ not validate a product shell, VPN, Core, Packet Tunnel, release artifact, or
 distribution candidate. Passing one platform does not imply the other platform
 passes.
 
+The debug Android prototype Activity was retired when Issue #373 installed the
+accepted Material projection in `MainActivity`. Android commands below are
+historical evidence only; current Android replay uses
+`pnpm android:shell:acceptance` and the gate in
+[`mobile-validation.md`](mobile-validation.md). The Apple candidate remains a
+research prototype.
+
 The architecture matrix and limitations are in
 [`../research/mobile-native-shell-ownership-2026-08-03.md`](../research/mobile-native-shell-ownership-2026-08-03.md).
 

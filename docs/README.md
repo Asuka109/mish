@@ -145,7 +145,7 @@ of treating an implementation accident as intent.
   only when its upstream evidence or rationale is needed.
 - [`research/mobile-native-shell-ownership-2026-08-03.md`](research/mobile-native-shell-ownership-2026-08-03.md)
   records the accepted per-platform native shell ownership decision and Issue
-  #343 prototype evidence. The implemented production-disabled contract is
+  #343 prototype evidence. The shared contract and installed Android cutover are
   [`architecture/mobile-native-shell-entry.md`](architecture/mobile-native-shell-entry.md).
 - [`research/interface-skill-suite-audit-2026-08-04.md`](research/interface-skill-suite-audit-2026-08-04.md)
   records the accepted Issue #356 source provenance, selective integration and

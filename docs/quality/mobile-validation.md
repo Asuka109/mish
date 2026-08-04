@@ -40,25 +40,33 @@ Automated coverage must prove:
   confirmed snapshot after recreation; and
 - unavailable native capabilities never simulating success.
 
-## Production-disabled native shell entry contract
+## Shared shell contract and installed Android cutover
 
 Run:
 
 ```sh
 cargo test -p mish-mobile-shell
+cargo test -p mish-mobile android_shell --lib
 node --test scripts/check-mobile-shell-boundary.test.ts
 node scripts/check-mobile-shell-boundary.ts
+node scripts/check-android-project.ts
+pnpm --filter @mish/web exec vitest run \
+  src/platform/installed-android-shell.test.tsx \
+  src/components/mobile-shell.test.tsx
+pnpm mobile:android:build
 ```
 
 These checks prove the closed Android/Apple chrome and validated platform-deep-
 link model, exact Native-to-Rust-to-Web fixture, monotonic revision, bounded
 duplicate/stale behavior, prepare/commit revalidation, invalid-input
 non-mutation, and deterministic rejection of Web-to-Native UI backchannels.
-They also prove that `apps/mobile` does not depend on the contract crate, so the
-current React shell remains selected. This evidence permits only a
-**production-disabled shell contract** claim. It is not a compiled Android or
-Apple adapter, native rendering, device, accessibility, latency, or production
-cutover claim. See
+Android additionally proves one retained Tauri WebView, Material chrome,
+document-start bootstrap, one-way directive delivery, a sole predictive-Back
+owner, inset partitioning, external deep-link caller checks, and the
+`mishNativeShell=false` Web-shell fallback. Build evidence alone is not visual,
+interaction, accessibility, or physical-device acceptance; attach the exact APK
+hash plus Appium/accessibility evidence and complete the human gate in Issue
+#373. Apple remains a production-disabled adapter contract. See
 [`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
 
 ## Viewport and interaction matrix
