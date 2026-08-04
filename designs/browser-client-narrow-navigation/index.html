@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mish narrow Browser Client navigation prototype</title>
+    <style>
+      :root {
+        --ink: #111111;
+        --body: #374151;
+        --muted: #6b7280;
+        --canvas: #ffffff;
+        --surface: #f8f9fa;
+        --interactive: #f3f4f6;
+        --hairline: #e5e7eb;
+        --brand: #2f6fdc;
+        --focus: #3b82f6;
+        --error: #dc2626;
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --shadow-panel: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 2.5%);
+        color: var(--ink);
+        background: var(--surface);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+        font-size: 14px;
+        font-synthesis: none;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+      }
+
+      button,
+      summary {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      .review-bar {
+        display: flex;
+        min-height: 54px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--hairline);
+        background: var(--canvas);
+      }
+
+      .review-bar strong {
+        font-size: 13px;
+      }
+
+      .view-switch {
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+      }
+
+      .view-switch button {
+        min-height: 34px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .view-switch button[aria-pressed="true"] {
+        background: var(--canvas);
+        box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+        font-weight: 600;
+      }
+
+      .notes {
+        border-bottom: 1px solid var(--hairline);
+        background: var(--canvas);
+      }
+
+      .notes summary {
+        width: fit-content;
+        min-height: 40px;
+        padding: 10px 16px;
+        color: var(--body);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .notes div {
+        max-width: 880px;
+        padding: 0 16px 16px;
+        color: var(--body);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .notes p {
+        margin: 0 0 6px;
+      }
+
+      .prototype-stage {
+        min-height: calc(100vh - 55px);
+        padding: 18px;
+      }
+
+      .shell {
+        display: grid;
+        width: min(100%, 1040px);
+        height: min(760px, calc(100vh - 92px));
+        min-height: 560px;
+        margin: 0 auto;
+        grid-template-columns: 164px minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        box-shadow: var(--shadow-panel);
+      }
+
+      .desktop-sidebar {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 18px 10px 10px;
+        border-right: 1px solid var(--hairline);
+      }
+
+      .brand {
+        min-height: 50px;
+        padding: 6px 10px;
+        font-size: 22px;
+        font-style: italic;
+        font-weight: 700;
+      }
+
+      .desktop-nav {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .desktop-nav button,
+      .bottom-nav button {
+        border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .desktop-nav button {
+        min-height: 36px;
+        padding: 0 10px;
+        border-radius: var(--radius-sm);
+        color: var(--muted);
+        text-align: left;
+      }
+
+      .desktop-nav button[data-selected="true"] {
+        border-color: var(--hairline);
+        background: var(--canvas);
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .desktop-nav .push-bottom {
+        margin-top: auto;
+      }
+
+      .workspace {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        margin: 10px 10px 10px 0;
+        grid-template-rows: 56px minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        background: var(--canvas);
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0 16px 0 20px;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .toolbar-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 600;
+      }
+
+      .toolbar-actions {
+        display: flex;
+        flex: none;
+        gap: 4px;
+      }
+
+      .toolbar-actions button {
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0 9px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-sm);
+        background: var(--canvas);
+        cursor: pointer;
+      }
+
+      .content {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 24px;
+      }
+
+      .mode-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .section {
+        overflow: hidden;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+      }
+
+      .section-header {
+        padding: 12px 14px 8px;
+        color: var(--body);
+        font-weight: 600;
+      }
+
+      .segmented {
+        display: flex;
+        gap: 0;
+        padding: 0 14px 14px;
+      }
+
+      .segmented button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid var(--hairline);
+        background: var(--canvas);
+        cursor: pointer;
+      }
+
+      .segmented button:first-child {
+        border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+      }
+
+      .segmented button:last-child {
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      }
+
+      .segmented button[aria-pressed="true"] {
+        background: var(--interactive);
+        font-weight: 600;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metric {
+        min-height: 72px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .metric:nth-child(odd) {
+        border-right: 1px solid var(--hairline);
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+      }
+
+      .activity-tabs {
+        display: none;
+        gap: 4px;
+        overflow-x: auto;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--hairline);
+        background: var(--canvas);
+      }
+
+      .activity-tabs button {
+        min-height: 36px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .activity-tabs button[aria-pressed="true"] {
+        background: var(--interactive);
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .bottom-nav {
+        display: none;
+      }
+
+      .observed-collision {
+        display: none;
+      }
+
+      .prototype-stage[data-mode="observed"] .observed-collision {
+        display: block;
+      }
+
+      .prototype-stage[data-mode="observed"] .bottom-nav {
+        top: 0;
+        right: 0;
+        bottom: auto;
+        left: 0;
+        z-index: 1;
+        height: 64px;
+        grid-row: auto;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+      }
+
+      .prototype-stage[data-mode="observed"] .bottom-nav button {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .prototype-stage[data-mode="observed"] .workspace {
+        z-index: 2;
+      }
+
+      .observed-collision {
+        position: absolute;
+        z-index: 5;
+        top: 66px;
+        left: 16px;
+        max-width: calc(100% - 32px);
+        padding: 8px 10px;
+        border: 1px solid color-mix(in srgb, var(--error) 34%, var(--hairline));
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--error) 8%, var(--canvas));
+        color: #991b1b;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .screen-copy {
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      @media (max-width: 599px) {
+        .review-bar {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 10px 12px;
+        }
+
+        .prototype-stage {
+          min-height: 0;
+          padding: 8px;
+        }
+
+        .shell {
+          position: relative;
+          width: 100%;
+          height: calc(100dvh - 168px);
+          min-height: 520px;
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: minmax(0, 1fr) 64px;
+          border-radius: var(--radius-md);
+        }
+
+        .desktop-sidebar {
+          display: none;
+        }
+
+        .workspace {
+          position: relative;
+          z-index: 1;
+          margin: 6px 6px 0;
+          grid-row: 1;
+          border-radius: var(--radius-md) var(--radius-md) 0 0;
+        }
+
+        .toolbar {
+          padding: 0 8px 0 12px;
+        }
+
+        .toolbar-actions button span {
+          display: none;
+        }
+
+        .content {
+          padding: 16px;
+        }
+
+        .activity-tabs[data-visible="true"] {
+          display: flex;
+        }
+
+        .bottom-nav {
+          position: absolute;
+          z-index: 3;
+          right: 0;
+          bottom: 0;
+          left: 0;
+          display: grid;
+          min-height: 64px;
+          grid-row: 2;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          padding: 4px;
+          border-top: 1px solid var(--hairline);
+          background: var(--surface);
+        }
+
+        .bottom-nav button {
+          display: flex;
+          min-width: 0;
+          min-height: 56px;
+          align-items: center;
+          justify-content: center;
+          padding: 0 3px;
+          border-radius: var(--radius-sm);
+          color: var(--muted);
+          font-size: 11px;
+          line-height: 1.25;
+          text-align: center;
+        }
+
+        .bottom-nav button[data-selected="true"] {
+          background: var(--interactive);
+          color: var(--ink);
+          font-weight: 600;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="review-bar">
+      <strong>Narrow Browser Client navigation — bounded interaction prototype</strong>
+      <div class="view-switch" aria-label="Prototype view">
+        <button id="candidate-view" type="button" aria-pressed="true">Candidate</button>
+        <button id="observed-view" type="button" aria-pressed="false">Observed collision</button>
+      </div>
+    </header>
+
+    <details class="notes">
+      <summary>Review notes</summary>
+      <div>
+        <p>
+          <strong>Brief:</strong> help a Browser Client user at 320–599 CSS pixels move between
+          every product area without a covered or truncated primary navigation.
+        </p>
+        <p>
+          <strong>Candidate:</strong> retain the desktop sidebar at 600px and above; below 600px,
+          use five persistent destinations and group Traffic, Rules, and Events under Activity,
+          matching the installed-mobile Web information architecture.
+        </p>
+        <p>
+          <strong>Simulation:</strong> product data is static; route selection, Activity
+          subnavigation, keyboard focus, and the observed collision comparison are interactive.
+          Production components and touch-target sizing remain separate implementation work.
+        </p>
+      </div>
+    </details>
+
+    <main class="prototype-stage" id="prototype-stage" data-mode="candidate">
+      <section class="shell" id="shell" data-screen-label="candidate-five-destination-shell">
+        <aside class="desktop-sidebar" aria-label="Primary navigation">
+          <div class="brand">Mish</div>
+          <nav class="desktop-nav" aria-label="Workspace sections">
+            <button type="button" data-route="Status" data-selected="true">Status</button>
+            <button type="button" data-route="Routes" data-selected="false">Routes</button>
+            <button type="button" data-route="Profiles" data-selected="false">Profiles</button>
+            <button type="button" data-route="Traffic" data-selected="false">Traffic</button>
+            <button type="button" data-route="Events" data-selected="false">Events</button>
+            <button class="push-bottom" type="button" data-route="Settings" data-selected="false">
+              Settings
+            </button>
+          </nav>
+        </aside>
+
+        <div class="workspace">
+          <header class="toolbar">
+            <span class="toolbar-title" id="toolbar-title">Status</span>
+            <div class="toolbar-actions">
+              <button type="button" aria-label="Switch profile"><span>Home</span> ▾</button>
+              <button type="button" aria-label="Change appearance">◐</button>
+              <button type="button" aria-label="Notifications">○</button>
+            </div>
+          </header>
+
+          <nav class="activity-tabs" id="activity-tabs" data-visible="false" aria-label="Activity">
+            <button type="button" data-activity-route="Traffic" aria-pressed="true">
+              Connections
+            </button>
+            <button type="button" data-activity-route="Rules" aria-pressed="false">Rules</button>
+            <button type="button" data-activity-route="Events" aria-pressed="false">Events</button>
+          </nav>
+
+          <div class="content" tabindex="-1" id="content-focus">
+            <h1 id="page-title">Status</h1>
+            <p class="screen-copy" id="screen-copy">
+              Current connection controls and session health remain the first narrow-screen
+              destination.
+            </p>
+            <div class="mode-grid" id="status-content">
+              <section class="section">
+                <div class="section-header">Routing mode</div>
+                <div class="segmented" aria-label="Routing mode">
+                  <button type="button" aria-pressed="false">Direct</button>
+                  <button type="button" aria-pressed="false">Global</button>
+                  <button type="button" aria-pressed="true">Rule</button>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-header">Current session</div>
+                <div class="metric-grid">
+                  <div class="metric"><span>Downloaded</span><strong>—</strong></div>
+                  <div class="metric"><span>Uploaded</span><strong>—</strong></div>
+                  <div class="metric"><span>Connections</span><strong>—</strong></div>
+                  <div class="metric"><span>Active rules</span><strong>—</strong></div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <nav class="bottom-nav" aria-label="Primary navigation">
+          <button type="button" data-mobile-route="Status" data-selected="true">Status</button>
+          <button type="button" data-mobile-route="Routes" data-selected="false">Routes</button>
+          <button type="button" data-mobile-route="Profiles" data-selected="false">Profiles</button>
+          <button type="button" data-mobile-route="Activity" data-selected="false">Activity</button>
+          <button type="button" data-mobile-route="Settings" data-selected="false">Settings</button>
+          <button type="button" data-observed-only="true" hidden>Settings</button>
+          <button type="button" data-observed-only="true" hidden>Proxy</button>
+        </nav>
+
+        <p class="observed-collision" role="status">
+          Observed at 390px and 599px: the workspace toolbar paints over this navigation row, so
+          pointer hit testing reaches the header instead of the underlying route links.
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const stage = document.querySelector("#prototype-stage");
+      const shell = document.querySelector("#shell");
+      const candidateView = document.querySelector("#candidate-view");
+      const observedView = document.querySelector("#observed-view");
+      const toolbarTitle = document.querySelector("#toolbar-title");
+      const pageTitle = document.querySelector("#page-title");
+      const screenCopy = document.querySelector("#screen-copy");
+      const activityTabs = document.querySelector("#activity-tabs");
+      const contentFocus = document.querySelector("#content-focus");
+      const observedOnly = [...document.querySelectorAll("[data-observed-only]")];
+      const candidateMobileLabels = ["Status", "Routes", "Profiles", "Activity", "Settings"];
+      const observedMobileLabels = ["Status", "Routes", "Profiles", "Traffic", "Events"];
+
+      const routeCopy = {
+        Status:
+          "Current connection controls and session health remain the first narrow-screen destination.",
+        Routes: "Policy groups and route selection stay available without opening an overlay.",
+        Profiles: "Profile metadata and safe actions use the existing product route.",
+        Activity:
+          "Connections, Rules, and Events share one narrow-screen destination with a visible local subnavigation.",
+        Traffic: "Active connections remain the default Activity view.",
+        Rules: "Effective rules remain one tap from Activity.",
+        Events: "Runtime events remain one tap from Activity.",
+        Settings: "Application and platform preferences remain a persistent destination.",
+      };
+
+      function selectRoute(route) {
+        const effectiveRoute = route === "Activity" ? "Traffic" : route;
+        const mobileRoute = ["Traffic", "Rules", "Events"].includes(effectiveRoute)
+          ? "Activity"
+          : effectiveRoute;
+        document.querySelectorAll("[data-route]").forEach((button) => {
+          button.dataset.selected = String(button.dataset.route === effectiveRoute);
+        });
+        document.querySelectorAll("[data-mobile-route]").forEach((button) => {
+          button.dataset.selected = String(button.dataset.mobileRoute === mobileRoute);
+        });
+        document.querySelectorAll("[data-activity-route]").forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.activityRoute === effectiveRoute),
+          );
+        });
+        activityTabs.dataset.visible = String(mobileRoute === "Activity");
+        toolbarTitle.textContent = mobileRoute === "Activity" ? "Activity" : effectiveRoute;
+        pageTitle.textContent = effectiveRoute === "Traffic" ? "Connections" : effectiveRoute;
+        screenCopy.textContent = routeCopy[effectiveRoute];
+        contentFocus.focus({ preventScroll: true });
+      }
+
+      function setMode(mode) {
+        const observed = mode === "observed";
+        stage.dataset.mode = mode;
+        shell.dataset.screenLabel = observed
+          ? "observed-covered-seven-destination-shell"
+          : "candidate-five-destination-shell";
+        candidateView.setAttribute("aria-pressed", String(!observed));
+        observedView.setAttribute("aria-pressed", String(observed));
+        document.querySelectorAll("[data-mobile-route]").forEach((button, index) => {
+          button.textContent = (observed ? observedMobileLabels : candidateMobileLabels)[index];
+        });
+        observedOnly.forEach((button) => {
+          button.hidden = !observed;
+        });
+      }
+
+      candidateView.addEventListener("click", () => setMode("candidate"));
+      observedView.addEventListener("click", () => setMode("observed"));
+      document.querySelectorAll("[data-route]").forEach((button) => {
+        button.addEventListener("click", () => selectRoute(button.dataset.route));
+      });
+      document.querySelectorAll("[data-mobile-route]").forEach((button) => {
+        button.addEventListener("click", () => selectRoute(button.dataset.mobileRoute));
+      });
+      document.querySelectorAll("[data-activity-route]").forEach((button) => {
+        button.addEventListener("click", () => selectRoute(button.dataset.activityRoute));
+      });
+      document.querySelectorAll(".segmented button").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".segmented button").forEach((candidate) => {
+            candidate.setAttribute("aria-pressed", String(candidate === button));
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
