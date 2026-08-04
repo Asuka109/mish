@@ -627,19 +627,8 @@ const en = {
     notRunning: "not running",
     notSelected: "not selected",
     operationFeedback: {
-      errorDescription: "Safe finalization has finished. Review the reason before retrying.",
-      errorLabel: "Not completed",
-      finalizingDescription:
-        "Mish is completing cancellation, rollback, Core cleanup, and network restoration before another command can start.",
-      finalizingLabel: "Finalizing safely",
-      idleDescription: "Choose the capture modes Mish should apply and remember.",
-      idleLabel: "Ready",
-      pendingDescription:
-        "Mish is checking the live resources again at the commit boundary before confirming the change.",
-      pendingLabel: "Pending",
-      reason: "Reason: {reason:string}",
-      successDescription: "The current authoritative runtime confirms this capture selection.",
-      successLabel: "Confirmed",
+      finalizingDescription: "Finishing the change. Please wait before trying again.",
+      pendingDescription: "Applying the change. Please wait.",
     },
     openProfiles: "Open Profiles",
     running: "running",

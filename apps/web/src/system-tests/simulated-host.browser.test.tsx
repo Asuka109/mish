@@ -272,7 +272,11 @@ test("early managed-port failure survives reconnect/remount and delayed cleanup"
   await mountScenario(scenario);
   await expect.element(systemProxyButton()).toBeDisabled();
   await expect.element(systemProxyButton()).toHaveAttribute("aria-busy", "true");
-  await expect.element(page.getByText("Finalizing safely", { exact: true })).toBeVisible();
+  const finalizingFeedback = document.querySelector<HTMLElement>(
+    '[data-capture-operation-phase="finalizing"]',
+  );
+  expect(finalizingFeedback).toHaveClass("sr-only");
+  expect(finalizingFeedback).toHaveTextContent("Finishing the change");
 
   await advanceTo(scenario, 20);
   await vi.waitFor(async () => {
@@ -337,7 +341,9 @@ test("confirmed rollback retains the prior System Proxy authority", async () => 
   });
   await expect.element(systemProxyButton()).toBeEnabled();
   await expect.element(systemProxyButton()).toHaveAttribute("aria-pressed", "false");
-  await expect.element(page.getByText("Not completed", { exact: true })).toBeInTheDocument();
+  expect(
+    document.querySelector<HTMLElement>('[data-capture-operation-phase="error"]'),
+  ).toBeEmptyDOMElement();
   const terminal = await observation(scenario);
   expect(terminal.signals.journalPresent).toBe(false);
   expect(terminal.terminalAuthority.systemProxy).toMatchObject({

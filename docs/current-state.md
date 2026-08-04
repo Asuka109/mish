@@ -52,7 +52,9 @@ Evidence labels on this page have strict meanings:
   a presentation snapshot while continuing to receive the latest authoritative
   state.
 - Web command feedback is keyed by operation and scope instead of relying on
-  one shared optimistic boolean.
+  one shared optimistic boolean. Capture keeps Pending and Finalizing inside
+  the initiating controls without shifting the page; terminal failures reuse
+  the canonical notification and routine success adds no persistent feedback.
 - The cross-platform audit classifies Status/capture, Profile/configuration,
   Routes, Traffic, Events/Diagnostics, Settings, notifications, updater,
   lifecycle, desktop transport, Android Tauri/Kotlin/JNI, and Mobile Core state

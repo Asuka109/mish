@@ -377,7 +377,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
-  it("keeps one associated action anatomy through finalizing, error, and success", () => {
+  it("keeps busy feedback accessible without reserving visible space", () => {
     function control(
       feedback: NonNullable<ComponentProps<typeof TrafficCaptureControl>["feedback"]>,
     ) {
@@ -416,14 +416,16 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(systemProxy).toBeDisabled();
     expect(systemProxy).toHaveAttribute("aria-busy", "true");
     expect(systemProxy).toHaveAttribute("aria-describedby", expect.stringContaining(operationId));
-    expect(operation).toHaveTextContent("Finalizing safely");
-    expect(operation).toHaveTextContent("Reason: System Proxy was not confirmed");
+    expect(operation).toHaveClass("sr-only");
+    expect(operation).toHaveTextContent("Finishing the change. Please wait before trying again.");
+    expect(operation).not.toHaveTextContent("System Proxy was not confirmed");
 
     rerender(control({ busy: false, failure: "apply-failed", operationId: "7", phase: "error" }));
     expect(document.getElementById(operationId)).toHaveAttribute(
       "data-capture-operation-phase",
       "error",
     );
+    expect(document.getElementById(operationId)).toBeEmptyDOMElement();
     expect(systemProxy).toBeEnabled();
 
     rerender(control({ busy: false, failure: null, operationId: "8", phase: "success" }));
@@ -431,7 +433,7 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
       "data-capture-operation-phase",
       "success",
     );
-    expect(document.getElementById(operationId)).toHaveTextContent("Confirmed");
+    expect(document.getElementById(operationId)).toBeEmptyDOMElement();
   });
 
   it("announces pending state only for the requested Capture mode", () => {
@@ -466,7 +468,8 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
 
     const status = document.querySelector<HTMLElement>("[data-capture-operation-phase]");
     if (!status) throw new Error("Missing Capture operation feedback");
-    expect(status).toHaveTextContent("Pending");
+    expect(status).toHaveClass("sr-only");
+    expect(status).toHaveTextContent("Applying the change. Please wait.");
     const runtimeStatus = screen.getAllByRole("status").at(-1);
     if (!runtimeStatus) throw new Error("Missing Capture runtime status");
     expect(runtimeStatus).toHaveTextContent("System Proxy is off and confirmed by macOS.");

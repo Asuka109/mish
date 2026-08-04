@@ -40,9 +40,6 @@ const captureStyles = tv({
   slots: {
     stack: "traffic-capture-stack flex min-w-0 flex-col items-start gap-1.5 py-2.5",
     control: "inline-flex flex-wrap items-center gap-2",
-    feedback: "flex min-h-10 min-w-0 flex-col items-start gap-0.5 text-metadata",
-    feedbackLabel: "font-medium text-fg",
-    feedbackDescription: "min-w-0 text-muted-foreground",
     dialogHeader: "border-0",
     explanations: "px-4 py-1.5",
     explanation: cx(
@@ -125,7 +122,7 @@ export function TrafficCaptureControl({
   const tunSetupRequired = tunSetupOperation !== null;
   const guideTunSetupOperation = tunGuideOperation ?? tunSetupOperation;
   const guideTunSetupRequired = guideTunSetupOperation !== null;
-  const tunActionable = tunAvailable || tunSetupRequired;
+  const tunActionable = canRequestAuthoritativeCaptureCheck || tunAvailable || tunSetupRequired;
   const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
     : statusDescriptionIds.tunUnavailable;
@@ -137,53 +134,17 @@ export function TrafficCaptureControl({
     return ids.filter(Boolean).join(" ");
   }
 
-  function failureReason() {
-    switch (feedback.failure) {
-      case "configuration-required":
-        return LL.capture.configurationRequired();
-      case "core-unhealthy":
-        return LL.capture.systemProxyCoreFailure();
-      case "invalid-recovery":
-        return LL.capture.systemProxyInvalidRecovery();
-      case "persistence-failed":
-        return LL.capture.systemProxyPersistenceFailure();
-      case "permission-denied":
-        return LL.capture.systemProxyPermissionFailure();
-      case "takeover-rejected":
-      case "unsafe-existing-configuration":
-        return LL.capture.systemProxyUnsafeFailure();
-      case "external-drift":
-        return tunSelected ? LL.capture.tunDrift() : LL.capture.systemProxyDrift();
-      case null:
-        return null;
-      default:
-        return tunSelected ? LL.capture.tunFailure() : LL.capture.systemProxyFailure();
-    }
-  }
-
-  const feedbackCopy = (() => {
+  const operationAnnouncement = (() => {
     const copy = LL.capture.operationFeedback;
     switch (feedback.phase) {
       case "pending":
-        return { description: copy.pendingDescription(), label: copy.pendingLabel() };
+        return copy.pendingDescription();
       case "finalizing":
-        return {
-          description: failureReason()
-            ? `${copy.finalizingDescription()} ${copy.reason({ reason: failureReason()! })}`
-            : copy.finalizingDescription(),
-          label: copy.finalizingLabel(),
-        };
+        return copy.finalizingDescription();
       case "error":
-        return {
-          description: failureReason()
-            ? `${copy.errorDescription()} ${copy.reason({ reason: failureReason()! })}`
-            : copy.errorDescription(),
-          label: copy.errorLabel(),
-        };
       case "success":
-        return { description: copy.successDescription(), label: copy.successLabel() };
       case "idle":
-        return { description: copy.idleDescription(), label: copy.idleLabel() };
+        return "";
     }
   })();
 
@@ -356,17 +317,16 @@ export function TrafficCaptureControl({
             <Question aria-hidden="true" />
           </Button>
         </div>
-        <div
+        <span
           aria-atomic="true"
           aria-live="polite"
-          className={captureStyles().feedback()}
+          className="sr-only"
           data-capture-operation-phase={feedback.phase}
           id={operationStatusId}
           role="status"
         >
-          <span className={captureStyles().feedbackLabel()}>{feedbackCopy.label}</span>
-          <span className={captureStyles().feedbackDescription()}>{feedbackCopy.description}</span>
-        </div>
+          {operationAnnouncement}
+        </span>
         {adapterKind === "fixture" ? null : (
           <span aria-live="polite" className="sr-only" role="status">
             {systemProxyStatusMessage(LL, systemProxyStatus, systemProxyPending)}{" "}

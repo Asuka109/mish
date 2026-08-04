@@ -1999,50 +1999,13 @@ type RootTranslation = {
 		notSelected: string
 		operationFeedback: {
 			/**
-			 * S​a​f​e​ ​f​i​n​a​l​i​z​a​t​i​o​n​ ​h​a​s​ ​f​i​n​i​s​h​e​d​.​ ​R​e​v​i​e​w​ ​t​h​e​ ​r​e​a​s​o​n​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
-			 */
-			errorDescription: string
-			/**
-			 * N​o​t​ ​c​o​m​p​l​e​t​e​d
-			 */
-			errorLabel: string
-			/**
-			 * M​i​s​h​ ​i​s​ ​c​o​m​p​l​e​t​i​n​g​ ​c​a​n​c​e​l​l​a​t​i​o​n​,​ ​r​o​l​l​b​a​c​k​,​ ​C​o​r​e​ ​c​l​e​a​n​u​p​,​ ​a​n​d​ ​n​e​t​w​o​r​k​ ​r​e​s​t​o​r​a​t​i​o​n​ ​b​e​f​o​r​e​ ​a​n​o​t​h​e​r​ ​c​o​m​m​a​n​d​ ​c​a​n​ ​s​t​a​r​t​.
+			 * F​i​n​i​s​h​i​n​g​ ​t​h​e​ ​c​h​a​n​g​e​.​ ​P​l​e​a​s​e​ ​w​a​i​t​ ​b​e​f​o​r​e​ ​t​r​y​i​n​g​ ​a​g​a​i​n​.
 			 */
 			finalizingDescription: string
 			/**
-			 * F​i​n​a​l​i​z​i​n​g​ ​s​a​f​e​l​y
-			 */
-			finalizingLabel: string
-			/**
-			 * C​h​o​o​s​e​ ​t​h​e​ ​c​a​p​t​u​r​e​ ​m​o​d​e​s​ ​M​i​s​h​ ​s​h​o​u​l​d​ ​a​p​p​l​y​ ​a​n​d​ ​r​e​m​e​m​b​e​r​.
-			 */
-			idleDescription: string
-			/**
-			 * R​e​a​d​y
-			 */
-			idleLabel: string
-			/**
-			 * M​i​s​h​ ​i​s​ ​c​h​e​c​k​i​n​g​ ​t​h​e​ ​l​i​v​e​ ​r​e​s​o​u​r​c​e​s​ ​a​g​a​i​n​ ​a​t​ ​t​h​e​ ​c​o​m​m​i​t​ ​b​o​u​n​d​a​r​y​ ​b​e​f​o​r​e​ ​c​o​n​f​i​r​m​i​n​g​ ​t​h​e​ ​c​h​a​n​g​e​.
+			 * A​p​p​l​y​i​n​g​ ​t​h​e​ ​c​h​a​n​g​e​.​ ​P​l​e​a​s​e​ ​w​a​i​t​.
 			 */
 			pendingDescription: string
-			/**
-			 * P​e​n​d​i​n​g
-			 */
-			pendingLabel: string
-			/**
-			 * R​e​a​s​o​n​:​ ​{​r​e​a​s​o​n​}
-			 * @param {string} reason
-			 */
-			reason: RequiredParams<'reason'>
-			/**
-			 * T​h​e​ ​c​u​r​r​e​n​t​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​r​u​n​t​i​m​e​ ​c​o​n​f​i​r​m​s​ ​t​h​i​s​ ​c​a​p​t​u​r​e​ ​s​e​l​e​c​t​i​o​n​.
-			 */
-			successDescription: string
-			/**
-			 * C​o​n​f​i​r​m​e​d
-			 */
-			successLabel: string
 		}
 		/**
 		 * O​p​e​n​ ​P​r​o​f​i​l​e​s
@@ -7257,49 +7220,13 @@ export type TranslationFunctions = {
 		notSelected: () => LocalizedString
 		operationFeedback: {
 			/**
-			 * Safe finalization has finished. Review the reason before retrying.
-			 */
-			errorDescription: () => LocalizedString
-			/**
-			 * Not completed
-			 */
-			errorLabel: () => LocalizedString
-			/**
-			 * Mish is completing cancellation, rollback, Core cleanup, and network restoration before another command can start.
+			 * Finishing the change. Please wait before trying again.
 			 */
 			finalizingDescription: () => LocalizedString
 			/**
-			 * Finalizing safely
-			 */
-			finalizingLabel: () => LocalizedString
-			/**
-			 * Choose the capture modes Mish should apply and remember.
-			 */
-			idleDescription: () => LocalizedString
-			/**
-			 * Ready
-			 */
-			idleLabel: () => LocalizedString
-			/**
-			 * Mish is checking the live resources again at the commit boundary before confirming the change.
+			 * Applying the change. Please wait.
 			 */
 			pendingDescription: () => LocalizedString
-			/**
-			 * Pending
-			 */
-			pendingLabel: () => LocalizedString
-			/**
-			 * Reason: {reason}
-			 */
-			reason: (arg: { reason: string }) => LocalizedString
-			/**
-			 * The current authoritative runtime confirms this capture selection.
-			 */
-			successDescription: () => LocalizedString
-			/**
-			 * Confirmed
-			 */
-			successLabel: () => LocalizedString
 		}
 		/**
 		 * Open Profiles

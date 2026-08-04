@@ -2502,7 +2502,7 @@ describe("desktop RPC experience", () => {
     expect(systemProxy).toHaveAccessibleDescription(/System Proxy is unavailable/i);
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
     expect(tun).toHaveAccessibleDescription(
       /Virtual Interface is not available in this version of Mish/i,
     );
@@ -2743,12 +2743,12 @@ describe("desktop RPC experience", () => {
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(systemProxy).toBeEnabled();
-    expect(tun).toBeDisabled();
+    expect(tun).toBeEnabled();
 
-    await user.click(systemProxy);
+    await user.click(tun);
     await waitFor(() =>
       expect(client.setCapture).toHaveBeenCalledWith(
-        { systemProxy: true, tun: false },
+        { systemProxy: false, tun: true },
         true,
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
@@ -3367,7 +3367,7 @@ describe("Status fixture experience", () => {
 
     expect(
       (await screen.findAllByRole("status")).find((status) =>
-        status.textContent?.includes("Mish is checking the live resources again"),
+        status.textContent?.includes("Applying the change. Please wait."),
       ),
     ).toBeDefined();
   });

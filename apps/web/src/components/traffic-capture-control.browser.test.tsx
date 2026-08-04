@@ -90,37 +90,31 @@ afterAll(() => {
 });
 
 describe("Virtual Interface native setup boundary", () => {
-  test("keeps an unsupported Virtual Interface unavailable in Status", async () => {
+  test("lets native RPC recheck an unavailable Virtual Interface in Status", async () => {
     const onTunChange = renderHost("Status");
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
-    await expect.element(tun).toBeDisabled();
-    expect(onTunChange).not.toHaveBeenCalled();
+    await expect.element(tun).toBeEnabled();
+    await userEvent.click(tun);
+    expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
-  test("keeps an unavailable reason accessible from the narrow Settings host", async () => {
+  test("keeps the native recheck reason and focus path accessible in narrow Settings", async () => {
     renderHost("Settings");
     const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
-    const unavailableTrigger = document.querySelector<HTMLElement>(
-      "[data-capture-unavailable-trigger]",
-    );
 
     await expect.element(tun).toHaveAccessibleDescription(unavailableMessage);
-    await expect.element(tun).toBeDisabled();
-    expect(unavailableTrigger).not.toHaveAttribute("aria-disabled");
-    expect(unavailableTrigger?.tabIndex).toBe(0);
+    await expect.element(tun).toBeEnabled();
+    expect(document.querySelector("[data-capture-unavailable-trigger]")).toBeNull();
 
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await userEvent.keyboard("{Tab}");
     expect(document.activeElement).toBe(systemProxy.element());
     await userEvent.keyboard("{Tab}");
-    const focusedTrigger = document.querySelector<HTMLElement>(
-      "[data-capture-unavailable-trigger]",
-    );
-    expect(document.activeElement).toBe(focusedTrigger);
-    expect(focusedTrigger).toHaveAttribute("data-mish-focus-visible", "keyboard");
-    expect(getComputedStyle(focusedTrigger!).outlineStyle).toBe("solid");
+    expect(document.activeElement).toBe(tun.element());
+    await expect.element(tun).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(tun.element()).outlineStyle).toBe("solid");
   });
 
   test("restores keyboard focus after cancelling the bounded setup explanation", async () => {
@@ -263,7 +257,7 @@ describe("Virtual Interface native setup boundary", () => {
   );
 });
 
-describe("authoritative Capture action feedback", () => {
+describe("Capture action feedback", () => {
   test.each(["Status", "Settings"] as const)(
     "keeps the %s action anatomy stable and blocked through finalization",
     async (host) => {
@@ -280,9 +274,14 @@ describe("authoritative Capture action feedback", () => {
         '[data-capture-operation-phase="finalizing"]',
       );
       if (!finalizing?.id) throw new Error("Missing finalizing Capture action feedback");
-      expect(finalizing).toHaveTextContent("Finalizing");
-      expect(finalizing).toHaveTextContent("System Proxy was not confirmed");
+      expect(finalizing).toHaveClass("sr-only");
+      expect(finalizing).toHaveTextContent("Finishing the change");
+      expect(finalizing).not.toHaveTextContent("System Proxy was not confirmed");
+      expect(getComputedStyle(finalizing).position).toBe("absolute");
       expect(systemProxy.element().getAttribute("aria-describedby")).toContain(finalizing.id);
+      const hostElement = document.querySelector<HTMLElement>(`[aria-label="${host}"]`);
+      if (!hostElement) throw new Error(`Missing ${host} host`);
+      const busyHeight = hostElement.getBoundingClientRect().height;
 
       renderHost(host, "unavailable", undefined, "en", {
         busy: false,
@@ -290,12 +289,19 @@ describe("authoritative Capture action feedback", () => {
         operationId: "7",
         phase: "error",
       });
-      await expect.element(page.getByText("Not completed", { exact: true })).toBeVisible();
+      await expect
+        .poll(
+          () =>
+            document.querySelector<HTMLElement>("[data-capture-operation-phase]")?.dataset
+              .captureOperationPhase,
+        )
+        .toBe("error");
       const terminal = document.querySelector<HTMLElement>(
         '[data-capture-operation-phase="error"]',
       );
       expect(terminal?.id).toBe(finalizing.id);
-      expect(terminal).toHaveTextContent("Not completed");
+      expect(terminal).toBeEmptyDOMElement();
+      expect(hostElement.getBoundingClientRect().height).toBe(busyHeight);
       await expect.element(systemProxy).toBeEnabled();
     },
   );
