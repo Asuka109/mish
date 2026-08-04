@@ -2,11 +2,11 @@
 
 ## Decision
 
-Mish mobile applications use a dedicated bottom-navigation shell rather than a
-collapsed or restyled desktop sidebar. Android and iOS share product domains,
-routes, accessibility semantics, and brand tokens, but each platform renders
-navigation, bars, sheets, motion, typography, and feedback in a style familiar
-to that operating system.
+Mish mobile applications use the dedicated React `MobileShell` and its
+bottom-navigation composition rather than a collapsed or restyled desktop
+sidebar. Android and iOS share product domains, routes, accessibility semantics,
+and brand tokens. The Web shell may apply platform-familiar presentation recipes
+without moving persistent product navigation into a second Native owner.
 
 The compact mobile hierarchy has five stable top-level destinations:
 
@@ -42,23 +42,21 @@ and product providers. Mobile code must not render the `Sidebar` and then move
 it to the bottom with CSS. The mobile bottom bar owns only top-level navigation;
 VPN start/stop remains a Home command and never consumes a navigation item.
 
-React Router is the sole authority for product routes, child routes, internal
-history and Back, per-page state, sheets, scroll state, `canGoBack`, and DOM
-focus. Installed-mobile native tab/drawer chrome is a disjoint outer shell: its
-selected top-level destination and one-way validated entry are owned by the
-Shared Rust contract. Native chrome cannot carry an arbitrary path, and Web
-content cannot request a native selection, haptic, sheet, permission, Back, or
-focus effect. The current React `MobileShell` remains selected until a separate
-platform cutover. Exact ownership is in
-[`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
+React Router and the React `MobileShell` are the sole authorities for persistent
+product chrome, top-level destinations, child routes, internal history and Back,
+per-page state, sheets, scroll state, `canGoBack`, route focus, and DOM focus.
+Native code owns real platform effects behind typed adapters, but it does not
+own tabs, bars, drawers, product routes, Back, or product overlays beside the
+Web shell. The rejected split-owner direction and evidence are recorded in
+[`../../.out-of-scope/native-persistent-mobile-shell.md`](../../.out-of-scope/native-persistent-mobile-shell.md).
 
 ## Android presentation
 
-The Android shell follows Material 3 compact-window navigation behavior:
+The Android Web shell follows platform-familiar compact navigation behavior:
 
 - a bottom Navigation Bar with one icon and short visible label per destination;
 - a top app bar for the current title, back navigation, and scoped actions;
-- Material pressed, selected, ripple, elevation, and shape behavior;
+- immediate pressed and selected feedback with Android-familiar geometry;
 - edge-to-edge content with system inset handling;
 - predictive-back-compatible navigation with no custom conflicting gesture;
 - modal or standard bottom sheets for compact filters and contextual choices;
@@ -72,16 +70,16 @@ the iOS floating glass tab bar.
 
 ## iOS presentation
 
-The iOS shell follows the current tab-bar and navigation-stack conventions:
+The iOS Web shell follows familiar tab-bar and navigation-stack conventions
+without claiming to be system chrome:
 
-- a persistent bottom Tab Bar with system-consistent item spacing and labels;
-- one system outer-shell container around one WebView; React Router retains the
-  product route stack and internal edge-swipe/Back result;
+- a persistent bottom tab bar with platform-familiar spacing and labels;
+- one Web-owned product route stack and internal Back result;
 - system font metrics, Dynamic Type, safe areas, and short labels;
 - sheets with appropriate detents for filters and bounded selection;
 - immediate touch-down feedback and restrained haptics for meaningful commits;
-- translucent floating chrome where legibility permits, with deterministic
-  opaque fallbacks for Reduce Transparency and increased contrast; and
+- deterministic opaque/translucent Web surfaces that do not imitate or claim
+  Apple Liquid Glass; and
 - interruptible, spatially consistent transitions that reduce to cross-fades
   when Reduce Motion is enabled.
 
@@ -92,18 +90,20 @@ but platform chrome uses explicit iOS recipes.
 ## Shared visual boundary
 
 Shared design tokens continue to own brand colors, semantic statuses, spacing
-rhythm, data typography, and minimum interaction targets. Platform recipes own:
+rhythm, data typography, and minimum interaction targets. Web platform recipes
+own:
 
 - bottom-bar geometry and selection treatment;
 - top-bar structure;
 - sheet and menu presentation;
 - motion and haptic feedback;
 - platform font resolution; and
-- system inset and keyboard behavior.
+- safe-area and keyboard-aware product layout.
 
-Implement Android and iOS shell components separately instead of accumulating
-platform branches inside one universal navigation component. Reuse shared hooks,
-route metadata, accessible names, and commands underneath them.
+Keep platform presentation differences bounded inside the Web composition and
+reuse shared hooks, route metadata, accessible names, and commands. The Native
+host owns OS lifecycle, VPN/TUN/Core, permissions, and other genuine platform
+effects, not a parallel persistent product shell.
 
 ## Home adaptation
 
@@ -181,10 +181,10 @@ workflow.
 ## Adaptive layout
 
 The first mobile release targets compact phone layouts in portrait and
-landscape. Bottom navigation remains the stable handheld model. A later tablet
-or foldable navigation rail or split view requires a separate validated
-adaptive decision; it must not reintroduce the desktop sidebar merely because
-more width is available.
+landscape. Bottom navigation remains the stable handheld model. A later Web
+tablet or foldable navigation rail or split view requires a separate validated
+adaptive decision; it must not reintroduce the desktop sidebar or a second
+Native navigation owner merely because more width is available.
 
 Dense content owns its own scrolling. Pages must not create document-wide
 horizontal overflow. Content and interactive controls respect display cutouts,
@@ -209,7 +209,8 @@ area.
 - Desktop tables made usable only through full-page horizontal scrolling.
 - One universal bottom bar styled with small conditional color differences.
 - iOS glass effects on Android or Material selection indicators on iOS.
-- Navigation or VPN lifetime owned by the WebView.
+- Navigation split between Native persistent chrome and Web-owned child routes.
+- VPN/TUN/Core lifetime owned by the WebView.
 - Automatic `More` overflow that hides a product destination unpredictably.
 
 ## Validation

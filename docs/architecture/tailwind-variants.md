@@ -92,7 +92,7 @@ semantics with visual-only state.
 - the retained `DestinationPage` styling reference, which is not imported by a
   production route and is intentionally outside this migration.
 
-Desktop/browser and native mobile shells remain separate components with local
+Desktop/browser and installed mobile Web shells remain separate components with local
 recipes. Runtime-, theme-, viewport-, container-, `data-*`-, and ARIA-dependent
 presentation belongs to those recipes rather than new global selectors.
 

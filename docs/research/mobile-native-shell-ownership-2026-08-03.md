@@ -1,15 +1,28 @@
 # Mobile Native Shell Ownership Research
 
-## Decision status
+## Decision status — superseded historical evidence
 
-This report is the Issue #343 architecture decision. The maintainer accepted the
-Android and Apple platform directions and the strict Native-to-Rust-to-Web
-boundary on 2026-08-04. The decision authorizes only the bounded follow-up slices
-below; it does not itself authorize a mobile-shell rewrite. No product shell,
-runtime dependency, or product behavior changes in this pull request. The
-Android and Apple candidates remain research-only prototypes.
+This report preserves the Issue #343 / PR #370 research and the architecture
+accepted earlier on 2026-08-04. It is not current product direction. Hands-on
+review of the exact Android #373 / PR #386 candidate later rejected Native
+persistent chrome because Web child routes must cover their tab root while
+history, Back, focus, overlays, and business sheets remain inside the WebView.
+That split produced two visible navigation owners even without a Web-to-Native
+path mirror.
 
-The recommended installed-mobile boundary is:
+The current decision is the installed React `MobileShell` and React Router as
+the sole owners of persistent product chrome and navigation. Native code remains
+authoritative only for genuine platform effects behind typed, least-privilege
+adapters. #372's production-disabled contract and both research prototypes were
+removed by #387; #374 is not planned. See the durable
+[`native-persistent-mobile-shell.md`](../../.out-of-scope/native-persistent-mobile-shell.md)
+record.
+
+The remainder of this document records the superseded proposal and the evidence
+that led to it. Its recommendations and migration steps are historical, not a
+backlog or authorization for future work.
+
+The superseded installed-mobile proposal was:
 
 - Shared Rust remains the only product authority for Profiles, capture, Core,
   Routes, Traffic, Events, Settings, notifications, ordering, and recovery.
@@ -37,11 +50,10 @@ The recommended installed-mobile boundary is:
   integration candidate around Tauri's `WKWebView`; SwiftUI is the concise
   behavior prototype and remains an option after the iOS host boundary exists.
 
-This proposal preserves the existing React Router authority for Web content and
-adds a disjoint outer-shell authority in Shared Rust. Each state domain has one
-writer; neither layer mirrors or commits the other's history. The accepted
-direction becomes a product contract only through bounded implementation Issues
-that change the architecture and validation documents together.
+At the time, this proposal attempted to preserve the existing React Router
+authority for Web content while adding a disjoint outer-shell authority in
+Shared Rust. #373 demonstrated that the visible hierarchy still had two owners,
+so that separation was insufficient and is no longer accepted.
 
 ## Evidence baseline and limits
 
@@ -104,8 +116,9 @@ Unavailable evidence:
 
 The revised research Shared Rust shell authority passed all seven original
 unit tests. Issue #372 later promoted that model into the production-disabled
-`mish-mobile-shell` contract with broader model/property evidence. The contract
-crate remains unlinked from either app.
+`mish-mobile-shell` contract with broader model/property evidence. It never
+linked into either app and was removed by #387 after its only intended consumer
+direction was rejected.
 
 After maintainer boundary feedback, the Android candidate removed its
 Web-to-Native `JavascriptInterface`, removed Web-originated shell intents and
@@ -146,7 +159,7 @@ The repository's ordinary `pnpm desktop:dev` path also loaded the Browser
 Client through its local Rust bridge. React Router changed `/status` to
 `/routes`, marked the route heading active, and browser back returned to
 `/status`. This confirms the existing desktop projection remains operational;
-it does not substitute for the future installed-mobile native-to-Rust bridge.
+it did not prove that installed-mobile navigation should move into Native.
 
 The Apple package remains source-only. `xcodebuild` cannot run because the host
 has only `/Library/Developer/CommandLineTools`; no iOS SDK or Simulator is
@@ -202,11 +215,12 @@ may select its matching shell destination and forward the full path once as the
 Web entry directive. Stale, duplicate, invalid, or source/action-mismatched
 intents do not mutate the shell.
 
-The production-disabled crate at
-[`crates/mobile-shell`](../../crates/mobile-shell) proves these closed inputs,
-top-level mapping, one-way entry reset, external deep-link forwarding,
-stale/duplicate rejection, prepare/commit revalidation, and invalid-input
-non-mutation without selecting a production shell.
+The now-removed production-disabled `crates/mobile-shell` implementation proved
+these closed inputs, top-level mapping, one-way entry reset, external deep-link
+forwarding, stale/duplicate rejection, prepare/commit revalidation, and invalid-
+input non-mutation without selecting a production shell. That evidence remains
+auditable in #372 / PR #375; the unused implementation is no longer in the
+current source tree.
 
 ### React Router Web state
 
@@ -266,18 +280,18 @@ generic Native-UI escape hatch.
 | Sheets                    | Native Material sheet only for a native-origin bounded platform concern; Web product sheets remain Web and cannot request Native                             | Prototype sheet is reachable only from the native toolbar and exposes no Web bridge                     |
 | Expanded windows          | Navigation rail, not desktop sidebar, after an explicit foldable/tablet candidate                                                                            | Not implemented in this phone prototype; official adaptive navigation remains direction evidence        |
 
-The runnable Android candidate is debug-only:
-[`ShellPrototypeActivity.kt`](../../apps/mobile/src-tauri/gen/android/app/src/debug/java/com/asuka109/mish/ShellPrototypeActivity.kt).
-It is excluded from release source sets and does not replace `MainActivity` or
-the React product shell. The app's existing Material dependency supplies the
-native components, so this candidate adds no runtime library.
+The runnable Android candidate was a debug-only `ShellPrototypeActivity.kt`.
+It was excluded from release source sets and never replaced `MainActivity` or
+the React product shell. #387 removed it so the rejected alternate navigation
+owner cannot be revived accidentally.
 
-### Android ownership recommendation
+### Android ownership recommendation (superseded)
 
-Accept **selective native Material Views** for persistent bottom navigation,
-top app bar, system insets, and predictive-back integration.
+The report initially recommended **selective native Material Views** for
+persistent bottom navigation, top app bar, system insets, and predictive-back
+integration.
 
-Keep in React:
+It proposed keeping in React:
 
 - all product page bodies and Shared Rust product projections;
 - Activity secondary navigation until a complete adaptive pane is accepted;
@@ -285,7 +299,7 @@ Keep in React:
 - search/filter presentation, pending affordances, internal history/back, and DOM focus targets; and
 - Mish design tokens for content, semantic statuses, and data typography.
 
-Keep native:
+It proposed moving to Native:
 
 - navigation bar/rail geometry, ripple, state layer, touch target, and TalkBack
   semantics;
@@ -297,17 +311,17 @@ Keep native:
 - native-origin platform sheets and restrained platform haptics where
   separately accepted.
 
-The native host must not expose a general Web-to-Native bridge. In particular,
-Web content cannot select a native destination, open native presentation, or
-request shell back/focus. Cross-section Web links are excluded from the mobile
-composition; the native tab/drawer is the only user-facing primary switcher.
+The proposed native host was not allowed to expose a general Web-to-Native
+bridge. In particular, Web content could not select a native destination, open
+native presentation, or request shell back/focus. Cross-section Web links would
+have been excluded from the mobile composition so the native tab/drawer was the
+only user-facing primary switcher.
 
-Do not add Compose solely for these bars. Compose would add a second rendering
-tree plus Compose runtime, Material 3, navigation/adaptive, compiler, lifecycle,
-and testing surfaces. It becomes preferable only when an accepted native screen
-or adaptive list/detail flow can amortize that cost. MUI is rejected: it adds a
-second Web design system, does not fix Tauri/WebView back or inset ownership, and
-is not an iOS answer.
+The recommendation did not add Compose solely for these bars because it would
+add a second rendering tree plus Compose runtime, Material 3,
+navigation/adaptive, compiler, lifecycle, and testing surfaces. MUI was also
+rejected because it added a second Web design system without resolving the host
+ownership problem.
 
 ## iOS and iPadOS expectations and candidate
 
@@ -328,12 +342,10 @@ is not an iOS answer.
 | Pointer/keyboard      | iPad pointer hover, Full Keyboard Access, and non-conflicting shortcuts                                                                                         | Candidate uses hover effects and scoped shortcuts; real hardware/simulator required            |
 | Compact/regular       | Compact remains tab-first; regular may expose adaptable sidebar or split view without desktop sidebar reuse                                                     | iPhone and iPad/Stage Manager walkthrough required                                             |
 
-The source-ready Apple candidate is
-[`MishShellPrototype.swiftpm`](../../prototypes/mobile-shell/ios/MishShellPrototype.swiftpm/Package.swift).
-It uses system SwiftUI shell components around an explicit single-WKWebView
-boundary placeholder. It does not implement native product content or a native
-child route stack. It is not linked into Tauri and was not compiled because the
-host has no Xcode or iOS SDK.
+The source-ready Apple candidate was `MishShellPrototype.swiftpm`. It used
+system SwiftUI shell components around an explicit single-WKWebView boundary
+placeholder, was never linked into Tauri, and was not compiled because the host
+had no Xcode or iOS SDK. #387 removed it after #374 was closed as not planned.
 
 ### Why Liquid Glass cannot be a Web/CSS component
 
@@ -350,12 +362,12 @@ inherit future system hit testing and animation changes, or prove equivalent
 VoiceOver and Full Keyboard Access behavior. A decorative approximation may be
 acceptable for Web content material, but not for system navigation chrome.
 
-Therefore system tabs, navigation bars, sidebars/split views, and short sheets
-are native-owned on Apple platforms. If the required native host container
-cannot be delivered, the honest result is that the iOS installed-app shell is
-not ready; a custom CSS glass bar is not the fallback.
+The superseded proposal therefore assigned system tabs, navigation bars,
+sidebars/split views, and short sheets to Native on Apple platforms. The current
+decision instead keeps persistent product chrome in the Web shell and still
+does not authorize a CSS imitation of Liquid Glass.
 
-### SwiftUI versus UIKit recommendation
+### SwiftUI versus UIKit recommendation (superseded)
 
 SwiftUI is the preferred behavior description for the Apple outer shell: it
 provides concise system tabs, shell navigation/toolbars, native-origin sheets,
@@ -371,31 +383,33 @@ WKWebView projection, or a `UIHostingController` wrapper around the same single
 WKWebView. Five independent WebViews are rejected because they multiply memory,
 Tauri lifecycle, product subscriptions, focus, cookies/storage, and testing.
 
-No UIKit or SwiftUI production choice is accepted until an iOS host prototype
-proves one WebView, one Rust shell authority, one React Router Web authority,
-no Web-to-Native command channel, correct controller containment, system-back
-delegation, deep links, accessibility separation, and Tauri plugin lifecycle.
+The historical proposal required an iOS host prototype to prove one WebView,
+one Rust shell authority, one React Router Web authority, no Web-to-Native
+command channel, correct controller containment, system-back delegation, deep
+links, accessibility separation, and Tauri plugin lifecycle. #374 closed as not
+planned before that evidence existed.
 
 ## Option comparison
 
-| Direction                        | Fidelity                                                                       | Bundle/runtime cost                                                                       | Token reuse                                   | Lifecycle and bridge                                                                | Testing/a11y                                            | Future API change                                               | Decision                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Shared React/CSS chrome          | Medium on Android content; low for Android ripple/back and Apple system chrome | Lowest new native code; existing Web runtime                                              | Highest direct CSS token reuse                | Simple React lifecycle, but WebView/system gesture and inset boundaries remain      | Good DOM tests; cannot prove native system semantics    | Custom code must chase both platforms                           | Keep for product content, not persistent installed-mobile chrome       |
-| Selective Web library            | Potential Android visuals only; no Apple system fidelity                       | Adds JS/CSS/runtime and a second design-system surface                                    | Token mapping required and may drift          | Does not solve native back, safe area, keyboard, or host lifecycle                  | Library DOM semantics, still not native                 | Library and OS both change                                      | Reject MUI/new dependency for this task                                |
-| Selective Android Material Views | High for Android bars/ripple/semantics with existing dependency                | Small host code; zero new library in current APK; measured delta pending                  | Map stable Mish semantic colors, not geometry | One Activity/WebView boundary; native back and insets are explicit                  | Espresso/UIAutomator/TalkBack plus Web tests            | Material library/API updates are localized                      | Recommended Android first slice                                        |
-| Jetpack Compose native shell     | Highest Android consistency and adaptive APIs                                  | Adds Compose runtime/compiler/Material/adaptive stack unless later native UI amortizes it | Requires a Kotlin token adapter               | Compose + WebView interop and two rendering trees; strong native navigation APIs    | Excellent semantics/test APIs; more test infrastructure | Google system APIs evolve coherently                            | Defer until a complete native screen/pane is accepted                  |
-| SwiftUI native shell             | Highest concise Apple system behavior                                          | OS framework plus host code; one-WKWebView constraint still matters                       | Swift color/status adapter                    | Clean state binding, but Tauri root-controller integration is unproven              | Strong Dynamic Type/environment support; Xcode required | Standard components inherit new Apple behavior                  | Preferred Apple behavior prototype; production integration conditional |
-| UIKit native shell               | Highest Apple behavior with explicit controller control                        | More host code, no third-party UI runtime                                                 | UIKit semantic color adapter                  | Best fit for existing Tauri controller/WKWebView; containment complexity is visible | XCTest/Accessibility Inspector and delegate tests       | Standard bars inherit platform behavior; more manual adaptation | Recommended Apple host integration candidate                           |
+| Direction                        | Fidelity                                                                       | Bundle/runtime cost                                                                       | Token reuse                                   | Lifecycle and bridge                                                                | Testing/a11y                                            | Future API change                                               | Historical decision (withdrawn)                                     |
+| -------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Shared React/CSS chrome          | Medium on Android content; low for Android ripple/back and Apple system chrome | Lowest new native code; existing Web runtime                                              | Highest direct CSS token reuse                | Simple React lifecycle, but WebView/system gesture and inset boundaries remain      | Good DOM tests; cannot prove native system semantics    | Custom code must chase both platforms                           | Now retained as the sole persistent product-chrome owner after #373 |
+| Selective Web library            | Potential Android visuals only; no Apple system fidelity                       | Adds JS/CSS/runtime and a second design-system surface                                    | Token mapping required and may drift          | Does not solve native back, safe area, keyboard, or host lifecycle                  | Library DOM semantics, still not native                 | Library and OS both change                                      | Reject MUI/new dependency for this task                             |
+| Selective Android Material Views | High for Android bars/ripple/semantics with existing dependency                | Small host code; zero new library in current APK; measured delta pending                  | Map stable Mish semantic colors, not geometry | One Activity/WebView boundary; native back and insets are explicit                  | Espresso/UIAutomator/TalkBack plus Web tests            | Material library/API updates are localized                      | Was recommended; rejected after #373                                |
+| Jetpack Compose native shell     | Highest Android consistency and adaptive APIs                                  | Adds Compose runtime/compiler/Material/adaptive stack unless later native UI amortizes it | Requires a Kotlin token adapter               | Compose + WebView interop and two rendering trees; strong native navigation APIs    | Excellent semantics/test APIs; more test infrastructure | Google system APIs evolve coherently                            | Not planned as persistent product chrome                            |
+| SwiftUI native shell             | Highest concise Apple system behavior                                          | OS framework plus host code; one-WKWebView constraint still matters                       | Swift color/status adapter                    | Clean state binding, but Tauri root-controller integration is unproven              | Strong Dynamic Type/environment support; Xcode required | Standard components inherit new Apple behavior                  | Was a behavior prototype; #374 not planned                          |
+| UIKit native shell               | Highest Apple behavior with explicit controller control                        | More host code, no third-party UI runtime                                                 | UIKit semantic color adapter                  | Best fit for existing Tauri controller/WKWebView; containment complexity is visible | XCTest/Accessibility Inspector and delegate tests       | Standard bars inherit platform behavior; more manual adaptation | Was a host candidate; #374 not planned                              |
 
-Bundle size, memory, startup, and bridge latency must be measured from exact
-candidate artifacts. The decision must not use ecosystem reputation or an
-unrelated app's package size as Mish evidence.
+The proposal required bundle size, memory, startup, and bridge latency to be
+measured from exact candidate artifacts rather than ecosystem reputation or an
+unrelated app's package size. Those measurements are no longer a planned gate.
 
-## Tauri composition boundary
+## Historical Tauri composition proposal
 
-Tauri remains transport and WebView infrastructure, not a generic Native UI
-bridge. Shared Rust owns the outer-shell selection; React Router owns internal
-Web navigation.
+In the superseded proposal, Tauri remained transport and WebView infrastructure,
+not a generic Native UI bridge, while Shared Rust would own outer-shell
+selection and React Router would own internal Web navigation. The current
+architecture removes that separate outer-shell selection entirely.
 
 Android:
 
@@ -438,9 +452,10 @@ Bridge timing policy:
   one-way Rust-to-Web entry delivery separately. No Web-to-Native latency path
   exists because no such UI bridge is permitted.
 
-## Reversible migration sequence
+## Historical migration sequence — cancelled
 
-These are bounded draft slices, not created Issues.
+These were bounded draft slices. They are cancelled by the later #373 decision
+and are not current backlog:
 
 1. **Common shell contract.** Land the mobile-only Shared Rust shell reducer,
    closed native/deep-link intent schema, stale/duplicate/source/path tests, and
@@ -469,24 +484,26 @@ Each slice has one observable platform outcome and preserves desktop/browser
 behavior. Follow-up Issues may be created only for the accepted slices and must
 retain explicit platform dependencies.
 
-After the 2026-08-04 acceptance, the bounded next slices were published as
-#372 (Shared Rust shell contract), #373 (Android installed-mobile cutover), and
-#374 (Apple single-WebView host/runtime comparison). The Apple production
-cutover remains intentionally uncreated until #374 supplies exact Xcode/runtime
-evidence and receives its own hands-on acceptance.
+After the earlier 2026-08-04 acceptance, the bounded next slices were published
+as #372 (Shared Rust shell contract), #373 (Android installed-mobile cutover),
+and #374 (Apple single-WebView host/runtime comparison). #373 then rejected the
+direction after hands-on review, #374 was closed as not planned, and #387 removed
+the unused contract and prototypes. No persistent Native-shell cutover remains
+planned.
 
-## Acceptance decision
+## Historical acceptance and later rejection
 
 The maintainer must accept or reject Android and Apple independently.
 
-| Platform   | Hands-on decision surface                                                                                                                                                                                                       | Acceptance signal                                                                                                                            | Current state                                                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Android    | Exact debug APK: native vs current React bars, strict one-way boundary, ripple clipping, selected/pressed/disabled, delegated Web back/root exit, insets/IME, TalkBack, light/dark, reduced motion, native-origin sheet         | Explicitly accept selective Material Views plus disjoint shell/Web writers and no Web-to-Native bridge, or reject with the observed mismatch | Accepted 2026-08-04; residual exact-candidate hands-on gates transfer to the Android implementation Issue                      |
-| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system shell tabs/navigation, one WKWebView, no Web backchannel, Liquid Glass, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/Web-back | Explicitly accept UIKit/SwiftUI host direction plus the strict one-way boundary, or reject with the observed mismatch                        | Architecture direction accepted 2026-08-04; Xcode/runtime evidence remains unavailable and must precede any production cutover |
+| Platform   | Hands-on decision surface                                                                                                                                                                                                       | Acceptance signal                                                                                                                            | Current state                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Android    | Exact debug APK: native vs current React bars, strict one-way boundary, ripple clipping, selected/pressed/disabled, delegated Web back/root exit, insets/IME, TalkBack, light/dark, reduced motion, native-origin sheet         | Explicitly accept selective Material Views plus disjoint shell/Web writers and no Web-to-Native bridge, or reject with the observed mismatch | Earlier architecture acceptance was withdrawn after #373 hands-on review exposed split navigation ownership.    |
+| iOS/iPadOS | Exact Xcode candidate on iPhone and iPad: system shell tabs/navigation, one WKWebView, no Web backchannel, Liquid Glass, Dynamic Type, VoiceOver, accessibility settings, pointer/keyboard, compact/regular, deep-link/Web-back | Explicitly accept UIKit/SwiftUI host direction plus the strict one-way boundary, or reject with the observed mismatch                        | The shared direction was withdrawn; #374 is not planned and its unavailable runtime evidence was never claimed. |
 
-The maintainer's 2026-08-04 acceptance satisfies the research decision gate for
-both platforms. It does not waive the unavailable Apple runtime evidence or the
-hands-on gates attached to the bounded follow-up Issues.
+The earlier acceptance remains part of the research history, but it no longer
+authorizes implementation. The later #373 observation is the controlling
+product evidence: persistent mobile chrome, routes, Back, overlays, and focus
+need one Web owner in the current architecture.
 
 ## Official sources
 

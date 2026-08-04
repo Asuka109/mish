@@ -4,7 +4,6 @@ members = [
   "apps/mobile/src-tauri",
   "crates/desktop-bridge",
   "crates/mihomo-controller",
-  "crates/mobile-shell",
   "crates/native-i18n",
   "crates/platform-macos",
   "crates/profile",
