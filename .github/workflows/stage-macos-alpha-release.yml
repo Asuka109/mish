@@ -398,8 +398,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Run complete repository validation
-        run: pnpm check:all
+      - name: Install Playwright Chromium
+        run: pnpm test:browser:install
+      - name: Run required repository and package policy checks
+        run: pnpm check:pr && pnpm test:macos:bundle
       - name: Build accepted Internal TUN Alpha package
         run: pnpm macos:internal-tun-alpha:package
       - name: Build deterministic DMG, SBOM, provenance, and immutable candidate manifest

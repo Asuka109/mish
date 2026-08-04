@@ -107,8 +107,12 @@ test("Internal TUN Alpha DMGs hide their payload below Mish.app", macOsOnly, () 
   const fixture = applicationFixture(true);
   using temporary = fixture.temporary;
   const dmg = path.join(temporary.path, "Mish-internal.dmg");
+  const reproducedDmg = path.join(temporary.path, "Mish-internal-reproduced.dmg");
 
-  createMacOsDmg(fixture.application, dmg);
+  createMacOsDmg(fixture.application, dmg, { normalizeForDeterminism: true });
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_100);
+  createMacOsDmg(fixture.application, reproducedDmg, { normalizeForDeterminism: true });
+  assert.deepEqual(readFileSync(reproducedDmg), readFileSync(dmg));
   verifyMacOsDmgPresentation(dmg, (application) => {
     assert.ok(
       readFileSync(
@@ -148,7 +152,10 @@ test("routine DMG assembly has no Finder or open invocation", () => {
   assert.match(builder, /if \(openDmg\) execFileSync\("\/usr\/bin\/open"/u);
   assert.match(builder, /Mish-production-fixture_0\.1\.0_aarch64\.dmg/u);
   assert.match(builder, /verifyMacOsDmgPresentation\(dmg, \(mountedApplication\)/u);
-  assert.match(staging, /createMacOsDmg\(application, destination\)/u);
+  assert.match(
+    staging,
+    /createMacOsDmg\(application, destination, \{ normalizeForDeterminism: true \}\)/u,
+  );
   assert.doesNotMatch(staging, /makehybrid|hfs-iso9660/u);
   assert.match(stageVerifier, /verifyMacOsDmgPresentation\(dmg/u);
   assert.doesNotMatch(stageVerifier, /makehybrid|hfs-iso9660/u);

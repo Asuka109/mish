@@ -176,6 +176,16 @@ test("package build embeds the operational payload and signs the enclosing appli
     );
   }
   assert.equal(downloadSource.includes('execFileSync("gh"'), false);
+
+  const bundleVerifier = (
+    await readFile(path.resolve(import.meta.dirname, "verify-macos-bundle.ts"), "utf8")
+  ).replace(/\s+/g, " ");
+  assert.ok(
+    bundleVerifier.includes(
+      "const expectedBundledMihomoDigest = internalTunAlpha ? pinnedMihomoDigest : await sha256(preparedMihomo);",
+    ),
+    "Internal TUN Alpha verification must not require the separately staged signed Core",
+  );
 });
 
 test("rejects profile drift, unknown fields, mutable policy, and stale hashes", async () => {
