@@ -147,6 +147,10 @@ of treating an implementation accident as intent.
   records the accepted per-platform native shell ownership decision and Issue
   #343 prototype evidence. The implemented production-disabled contract is
   [`architecture/mobile-native-shell-entry.md`](architecture/mobile-native-shell-entry.md).
+- [`research/interface-skill-suite-audit-2026-08-04.md`](research/interface-skill-suite-audit-2026-08-04.md)
+  records the accepted Issue #356 source provenance, selective integration and
+  applicability matrices, representative state audit, prototypes, and bounded
+  follow-up Issues; it does not change production design authority by itself.
 - [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)
   is a superseded high-level plan retained as a short historical record.
 - `pnpm demo` is the shared fixture-backed interaction reference; its data is

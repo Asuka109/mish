@@ -1,0 +1,1487 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mish Issue #356 — systemic interface candidates</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111111;
+        --ink-active: #242424;
+        --body: #374151;
+        --muted: #6b7280;
+        --muted-soft: #898989;
+        --canvas: #ffffff;
+        --surface: #f8f9fa;
+        --interactive: #f3f4f6;
+        --hairline-soft: #f3f4f6;
+        --hairline: #e5e7eb;
+        --accent: #3b82f6;
+        --brand: #2f6fdc;
+        --brand-fg: #f8faff;
+        --success: #047857;
+        --success-bg: #ecfdf5;
+        --warning: #b45309;
+        --warning-bg: #fffbeb;
+        --error: #dc2626;
+        --error-bg: #fef2f2;
+        --shadow-panel: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 2.5%);
+        --shadow-float: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --focus: 0 0 0 2px var(--accent);
+        --duration: 140ms;
+      }
+
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --ink: #f5f5f5;
+        --ink-active: #ffffff;
+        --body: #d1d5db;
+        --muted: #9ca3af;
+        --muted-soft: #737373;
+        --canvas: #18181b;
+        --surface: #111113;
+        --interactive: #27272a;
+        --hairline-soft: #27272a;
+        --hairline: #34343a;
+        --accent: #60a5fa;
+        --brand: #2f6fdc;
+        --brand-fg: #f8faff;
+        --success: #6ee7b7;
+        --success-bg: #14352a;
+        --warning: #fbbf24;
+        --warning-bg: #3a2a10;
+        --error: #fca5a5;
+        --error-bg: #401c1c;
+        --shadow-panel: 0 1px 2px rgb(0 0 0 / 24%), 0 8px 28px rgb(0 0 0 / 18%);
+        --shadow-float: 0 8px 24px rgb(0 0 0 / 32%), 0 2px 6px rgb(0 0 0 / 24%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 320px;
+        background: var(--surface);
+      }
+
+      body {
+        margin: 0;
+        color: var(--body);
+        background: var(--surface);
+        font:
+          14px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button,
+      select,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      select:focus-visible,
+      a:focus-visible {
+        outline: none;
+        box-shadow: var(--focus);
+      }
+
+      .artifact[data-motion="reduced"] {
+        --duration: 0ms;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .artifact {
+          --duration: 0ms;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      .page-header {
+        position: sticky;
+        z-index: 10;
+        top: 0;
+        border-bottom: 1px solid var(--hairline);
+        background: color-mix(in srgb, var(--surface) 94%, transparent);
+        backdrop-filter: blur(16px);
+      }
+
+      .page-header-inner,
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin-inline: auto;
+      }
+
+      .page-header-inner {
+        display: grid;
+        grid-template-columns: minmax(240px, 1fr) auto;
+        align-items: center;
+        gap: 20px;
+        min-height: 76px;
+        padding-block: 12px;
+      }
+
+      .eyebrow {
+        margin: 0 0 2px;
+        color: var(--brand);
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-block-start: 0;
+      }
+
+      h1 {
+        margin-block-end: 0;
+        color: var(--ink);
+        font-size: 20px;
+        line-height: 1.25;
+      }
+
+      h2 {
+        margin-block-end: 6px;
+        color: var(--ink);
+        font-size: 20px;
+        line-height: 1.3;
+      }
+
+      h3 {
+        margin-block-end: 4px;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .control {
+        display: grid;
+        gap: 3px;
+        min-width: 112px;
+      }
+
+      .control label {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      select {
+        height: 34px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        padding-inline: 9px 28px;
+        color: var(--ink);
+        background: var(--canvas);
+      }
+
+      main {
+        display: grid;
+        gap: 28px;
+        padding-block: 28px 56px;
+      }
+
+      .intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.6fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .intro-copy,
+      .boundary-note,
+      .candidate,
+      .decision-panel {
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-lg);
+        background: var(--canvas);
+        box-shadow: var(--shadow-panel);
+      }
+
+      .intro-copy,
+      .boundary-note {
+        padding: 16px;
+      }
+
+      .intro-copy p,
+      .boundary-note p {
+        margin-block-end: 0;
+        color: var(--muted);
+      }
+
+      .boundary-note {
+        border-color: color-mix(in srgb, var(--brand) 30%, var(--hairline));
+        background: color-mix(in srgb, var(--brand) 4%, var(--canvas));
+      }
+
+      .candidate {
+        overflow: hidden;
+      }
+
+      .candidate-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        padding: 16px;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .candidate-header p {
+        max-width: 780px;
+        margin-block-end: 0;
+        color: var(--muted);
+      }
+
+      .candidate-id {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        height: 24px;
+        border-radius: 999px;
+        padding-inline: 8px;
+        color: var(--brand-fg);
+        background: var(--brand);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        background: var(--hairline);
+      }
+
+      .comparison-panel {
+        min-width: 0;
+        padding: 16px;
+        background: var(--surface);
+      }
+
+      .panel-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 26px;
+        margin-block-end: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .measure {
+        border-radius: 999px;
+        padding: 3px 7px;
+        color: var(--muted);
+        background: var(--interactive);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .app-frame {
+        width: min(100%, 520px);
+        min-height: 368px;
+        margin-inline: auto;
+        overflow: hidden;
+        border: 1px solid var(--hairline);
+        border-radius: 10px;
+        color: var(--body);
+        background: var(--canvas);
+        box-shadow: var(--shadow-panel);
+        transition:
+          width var(--duration) ease-out,
+          border-radius var(--duration) ease-out;
+      }
+
+      .artifact[data-viewport="mobile"] .app-frame {
+        width: min(100%, 360px);
+        border-radius: 18px;
+      }
+
+      .frame-note {
+        display: flex;
+        min-height: 28px;
+        align-items: center;
+        justify-content: center;
+        border-bottom: 1px solid var(--hairline);
+        color: var(--muted);
+        background: var(--surface);
+        font-size: 10px;
+      }
+
+      .product-toolbar {
+        display: flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding-inline: 12px;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .toolbar-actions,
+      .segmented,
+      .capture-row,
+      .action-row,
+      .state-controls {
+        display: flex;
+        align-items: center;
+      }
+
+      .toolbar-actions {
+        gap: 6px;
+      }
+
+      .product-title {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .icon-button,
+      .compact-button,
+      .segment,
+      .capture-button,
+      .primary-button,
+      .state-button {
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        color: var(--body);
+        background: var(--canvas);
+        font-weight: 550;
+        transition:
+          background-color var(--duration) ease-out,
+          color var(--duration) ease-out,
+          border-color var(--duration) ease-out;
+      }
+
+      .icon-button {
+        display: inline-grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        padding: 0;
+      }
+
+      .icon-button svg,
+      .capture-button svg {
+        width: 15px;
+        height: 15px;
+        stroke-width: 1.8;
+      }
+
+      .product-body {
+        display: grid;
+        gap: 18px;
+        padding: 18px;
+      }
+
+      .section-label {
+        margin-block-end: 7px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .segmented {
+        width: fit-content;
+      }
+
+      .segment {
+        min-width: 54px;
+        height: 30px;
+        border-radius: 0;
+        padding-inline: 10px;
+        font-size: 13px;
+      }
+
+      .segment + .segment {
+        margin-inline-start: -1px;
+      }
+
+      .segment:first-child {
+        border-start-start-radius: var(--radius-md);
+        border-end-start-radius: var(--radius-md);
+      }
+
+      .segment:last-child {
+        border-start-end-radius: var(--radius-md);
+        border-end-end-radius: var(--radius-md);
+      }
+
+      .segment[aria-pressed="true"] {
+        z-index: 1;
+        color: var(--ink);
+        background: var(--interactive);
+        border-color: color-mix(in srgb, var(--brand) 30%, var(--hairline));
+      }
+
+      .capture-row {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .capture-button {
+        display: inline-flex;
+        height: 30px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding-inline: 10px;
+        font-size: 13px;
+      }
+
+      .capture-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .touch.after-control {
+        min-height: 34px;
+      }
+
+      .artifact[data-viewport="mobile"] .after .touch.after-control {
+        min-width: 44px;
+        min-height: 44px;
+      }
+
+      .artifact[data-viewport="mobile"] .after .segment.after-control,
+      .artifact[data-viewport="mobile"] .after .capture-button.after-control {
+        height: 44px;
+      }
+
+      .artifact[data-viewport="mobile"] .after .toolbar-actions {
+        gap: 4px;
+      }
+
+      .artifact[data-viewport="mobile"] .after .product-toolbar {
+        min-height: 60px;
+        padding-inline: 8px;
+      }
+
+      .artifact[data-viewport="mobile"] .after .product-body {
+        padding: 16px;
+      }
+
+      .metric-card {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        overflow: hidden;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        background: var(--hairline);
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 10px;
+        background: var(--canvas);
+      }
+
+      .metric span,
+      .metric strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .metric strong {
+        margin-block-start: 2px;
+        color: var(--ink);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .state-controls {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .state-button {
+        min-height: 30px;
+        padding-inline: 9px;
+        font-size: 12px;
+      }
+
+      .state-button[aria-pressed="true"] {
+        color: var(--brand-fg);
+        background: var(--brand);
+        border-color: var(--brand);
+      }
+
+      .async-surface {
+        display: grid;
+        gap: 14px;
+        min-height: 224px;
+        align-content: start;
+        padding: 16px;
+      }
+
+      .async-copy p {
+        margin-block-end: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .action-row {
+        min-height: 58px;
+        justify-content: space-between;
+        gap: 12px;
+        border-top: 1px solid var(--hairline);
+        border-bottom: 1px solid var(--hairline);
+        padding-block: 10px;
+      }
+
+      .primary-button {
+        display: inline-flex;
+        min-width: 118px;
+        height: 34px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding-inline: 12px;
+        color: var(--brand-fg);
+        background: var(--brand);
+        border-color: var(--brand);
+      }
+
+      .primary-button:disabled {
+        opacity: 0.58;
+      }
+
+      .spinner {
+        width: 14px;
+        height: 14px;
+        flex: none;
+        border: 1.5px solid currentColor;
+        border-inline-end-color: transparent;
+        border-radius: 999px;
+        animation: spin 800ms linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .artifact[data-motion="reduced"] .spinner {
+        animation: none;
+        border-style: dotted;
+      }
+
+      .inline-result {
+        min-height: 42px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        padding: 10px 11px;
+        color: var(--muted);
+        background: var(--surface);
+        font-size: 12px;
+      }
+
+      .inline-result[data-tone="warning"] {
+        color: var(--warning);
+        background: var(--warning-bg);
+        border-color: color-mix(in srgb, var(--warning) 30%, var(--hairline));
+      }
+
+      .inline-result[data-tone="error"] {
+        color: var(--error);
+        background: var(--error-bg);
+        border-color: color-mix(in srgb, var(--error) 30%, var(--hairline));
+      }
+
+      .inline-result[data-tone="success"] {
+        color: var(--success);
+        background: var(--success-bg);
+        border-color: color-mix(in srgb, var(--success) 30%, var(--hairline));
+      }
+
+      .anatomy {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .anatomy div {
+        padding: 8px;
+        border-radius: var(--radius-sm);
+        color: var(--muted);
+        background: var(--interactive);
+        font-size: 10px;
+        text-align: center;
+      }
+
+      .decision-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 1px;
+        overflow: hidden;
+        background: var(--hairline);
+      }
+
+      .decision-column {
+        padding: 16px;
+        background: var(--canvas);
+      }
+
+      .decision-column ul {
+        margin: 8px 0 0;
+        padding-inline-start: 18px;
+        color: var(--muted);
+      }
+
+      .decision-column li + li {
+        margin-block-start: 5px;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 860px) {
+        .page-header {
+          position: static;
+        }
+
+        .page-header-inner,
+        .intro,
+        .candidate-header,
+        .decision-panel {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .controls,
+        .state-controls {
+          justify-content: flex-start;
+        }
+
+        .control {
+          flex: 1 1 130px;
+        }
+
+        .comparison {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 480px) {
+        .page-header-inner,
+        main {
+          width: min(100% - 20px, 1180px);
+        }
+
+        .product-title {
+          max-width: 88px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .metric-card,
+        .anatomy {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="artifact" data-motion="full" data-viewport="desktop">
+      <header class="page-header">
+        <div class="page-header-inner">
+          <div>
+            <p class="eyebrow">Mish · Issue #356 · HITL</p>
+            <h1 data-i18n="title">Systemic interface candidates</h1>
+          </div>
+          <form class="controls" aria-label="Prototype settings" data-i18n-aria="prototypeSettings">
+            <div class="control">
+              <label for="theme" data-i18n="themeLabel">Theme</label>
+              <select id="theme">
+                <option value="light" data-i18n="light">Light</option>
+                <option value="dark" data-i18n="dark">Dark</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="locale" data-i18n="languageLabel">Language</label>
+              <select id="locale">
+                <option value="en">English</option>
+                <option value="zh">简体中文</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="viewport" data-i18n="viewportLabel">Frame</label>
+              <select id="viewport">
+                <option value="desktop" data-i18n="desktop">Desktop</option>
+                <option value="mobile" data-i18n="mobile">Mobile</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="motion" data-i18n="motionLabel">Motion</label>
+              <select id="motion">
+                <option value="full" data-i18n="fullMotion">Full</option>
+                <option value="reduced" data-i18n="reducedMotion">Reduced</option>
+              </select>
+            </div>
+          </form>
+        </div>
+      </header>
+
+      <main data-screen-label="issue-356-systemic-candidates-desktop-en-light-full">
+        <section class="intro" aria-labelledby="intro-title">
+          <div class="intro-copy">
+            <h2 id="intro-title" data-i18n="introTitle">Compare behavior, not decoration</h2>
+            <p data-i18n="introCopy">
+              These runnable before/after studies isolate two shared candidates. They do not change
+              production code or propose a broad visual redesign.
+            </p>
+          </div>
+          <aside class="boundary-note">
+            <h3 data-i18n="boundaryTitle">Accepted boundary</h3>
+            <p data-i18n="boundaryCopy">
+              Native outer-shell chrome is intentionally absent. The frames show Web product content
+              only; React Router still owns page history and product dialogs.
+            </p>
+          </aside>
+        </section>
+
+        <section class="candidate" aria-labelledby="candidate-a-title">
+          <header class="candidate-header">
+            <div>
+              <h2 id="candidate-a-title" data-i18n="touchTitle">
+                Touch-adaptive Web product controls
+              </h2>
+              <p data-i18n="touchCopy">
+                Preserve desktop density. In the mobile/coarse-input frame, enlarge only the
+                interaction box and allow rows to reflow.
+              </p>
+            </div>
+            <span class="candidate-id" aria-label="Candidate A" data-i18n-aria="candidateA">A</span>
+          </header>
+
+          <div class="comparison">
+            <article class="comparison-panel before" aria-labelledby="touch-before-label">
+              <div class="panel-label" id="touch-before-label">
+                <span data-i18n="before">Before · current compact sizing</span>
+                <span class="measure" data-i18n="beforeMeasure">30–34 px controls</span>
+              </div>
+              <div class="app-frame">
+                <div class="frame-note" data-i18n="webContentOnly">Web product content only</div>
+                <div class="product-toolbar">
+                  <strong class="product-title" data-i18n="status">Status</strong>
+                  <div class="toolbar-actions">
+                    <button class="icon-button touch" type="button" data-i18n-aria="profile">
+                      H
+                    </button>
+                    <button class="icon-button touch" type="button" data-i18n-aria="themeButton">
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path
+                          d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+                        ></path>
+                      </svg>
+                    </button>
+                    <button class="icon-button touch" type="button" data-i18n-aria="notifications">
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+                        <path d="M10 21h4"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="product-body">
+                  <div>
+                    <div class="section-label" data-i18n="routingMode">Routing mode</div>
+                    <div class="segmented" role="group" data-i18n-aria="routingMode">
+                      <button
+                        class="segment touch"
+                        type="button"
+                        aria-pressed="false"
+                        data-i18n="direct"
+                      >
+                        Direct
+                      </button>
+                      <button
+                        class="segment touch"
+                        type="button"
+                        aria-pressed="false"
+                        data-i18n="global"
+                      >
+                        Global
+                      </button>
+                      <button
+                        class="segment touch"
+                        type="button"
+                        aria-pressed="true"
+                        data-i18n="rule"
+                      >
+                        Rule
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="section-label" data-i18n="capture">Traffic capture</div>
+                    <div class="capture-row">
+                      <button class="capture-button touch" type="button">
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                        >
+                          <path d="M5 12h14M12 5l7 7-7 7"></path>
+                        </svg>
+                        <span data-i18n="systemProxy">System Proxy</span>
+                      </button>
+                      <button class="capture-button touch" type="button" disabled>
+                        <span data-i18n="virtualInterface">Virtual Interface</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric">
+                      <span data-i18n="downloaded">Downloaded</span><strong>1.28 GB</strong>
+                    </div>
+                    <div class="metric">
+                      <span data-i18n="connections">Connections</span><strong>24</strong>
+                    </div>
+                    <div class="metric">
+                      <span data-i18n="memory">Memory</span><strong>84 MB</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="comparison-panel after" aria-labelledby="touch-after-label">
+              <div class="panel-label" id="touch-after-label">
+                <span data-i18n="after">After · input-aware sizing</span>
+                <span class="measure" data-i18n="afterMeasure">34 px desktop / 44 px mobile</span>
+              </div>
+              <div class="app-frame">
+                <div class="frame-note" data-i18n="webContentOnly">Web product content only</div>
+                <div class="product-toolbar">
+                  <strong class="product-title" data-i18n="status">Status</strong>
+                  <div class="toolbar-actions">
+                    <button
+                      class="icon-button touch after-control"
+                      type="button"
+                      data-i18n-aria="profile"
+                    >
+                      H
+                    </button>
+                    <button
+                      class="icon-button touch after-control"
+                      type="button"
+                      data-i18n-aria="themeButton"
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path
+                          d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+                        ></path>
+                      </svg>
+                    </button>
+                    <button
+                      class="icon-button touch after-control"
+                      type="button"
+                      data-i18n-aria="notifications"
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+                        <path d="M10 21h4"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="product-body">
+                  <div>
+                    <div class="section-label" data-i18n="routingMode">Routing mode</div>
+                    <div class="segmented" role="group" data-i18n-aria="routingMode">
+                      <button
+                        class="segment touch after-control"
+                        type="button"
+                        aria-pressed="false"
+                        data-i18n="direct"
+                      >
+                        Direct
+                      </button>
+                      <button
+                        class="segment touch after-control"
+                        type="button"
+                        aria-pressed="false"
+                        data-i18n="global"
+                      >
+                        Global
+                      </button>
+                      <button
+                        class="segment touch after-control"
+                        type="button"
+                        aria-pressed="true"
+                        data-i18n="rule"
+                      >
+                        Rule
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="section-label" data-i18n="capture">Traffic capture</div>
+                    <div class="capture-row">
+                      <button class="capture-button touch after-control" type="button">
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                        >
+                          <path d="M5 12h14M12 5l7 7-7 7"></path>
+                        </svg>
+                        <span data-i18n="systemProxy">System Proxy</span>
+                      </button>
+                      <button class="capture-button touch after-control" type="button" disabled>
+                        <span data-i18n="virtualInterface">Virtual Interface</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric">
+                      <span data-i18n="downloaded">Downloaded</span><strong>1.28 GB</strong>
+                    </div>
+                    <div class="metric">
+                      <span data-i18n="connections">Connections</span><strong>24</strong>
+                    </div>
+                    <div class="metric">
+                      <span data-i18n="memory">Memory</span><strong>84 MB</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="candidate" aria-labelledby="candidate-b-title">
+          <header class="candidate-header">
+            <div>
+              <h2 id="candidate-b-title" data-i18n="asyncTitle">
+                Authoritative finalizing feedback
+              </h2>
+              <p data-i18n="asyncCopy">
+                Early validation can explain a failure immediately, but duplicate commands remain
+                blocked until cleanup, rollback, or process recovery finishes.
+              </p>
+            </div>
+            <span class="candidate-id" aria-label="Candidate B" data-i18n-aria="candidateB">B</span>
+          </header>
+
+          <div class="candidate-header">
+            <p data-i18n="statePrompt">Choose a domain state to compare the two presentations.</p>
+            <div class="state-controls" role="group" data-i18n-aria="statePrompt">
+              <button
+                class="state-button"
+                type="button"
+                data-state="pending"
+                aria-pressed="true"
+                data-i18n="pending"
+              >
+                Pending
+              </button>
+              <button
+                class="state-button"
+                type="button"
+                data-state="finalizing"
+                aria-pressed="false"
+                data-i18n="finalizing"
+              >
+                Finalizing
+              </button>
+              <button
+                class="state-button"
+                type="button"
+                data-state="error"
+                aria-pressed="false"
+                data-i18n="error"
+              >
+                Error
+              </button>
+              <button
+                class="state-button"
+                type="button"
+                data-state="success"
+                aria-pressed="false"
+                data-i18n="success"
+              >
+                Success
+              </button>
+            </div>
+          </div>
+
+          <div class="comparison">
+            <article class="comparison-panel before" aria-labelledby="async-before-label">
+              <div class="panel-label" id="async-before-label">
+                <span data-i18n="beforeGeneric">Before · generic pending control</span>
+                <span class="measure" data-i18n="truthUnclear">ownership unclear</span>
+              </div>
+              <div class="app-frame">
+                <div class="frame-note" data-i18n="webContentOnly">Web product content only</div>
+                <div class="async-surface">
+                  <div class="async-copy">
+                    <h3 data-i18n="launchProxy">Launch Proxy</h3>
+                    <p data-i18n="launchCopy">
+                      Start the selected profile and restore capture options.
+                    </p>
+                  </div>
+                  <div class="action-row">
+                    <span class="section-label" data-i18n="genericStatus">Command status</span>
+                    <button
+                      class="primary-button generic-action"
+                      type="button"
+                      disabled
+                      aria-busy="true"
+                    >
+                      <span class="spinner generic-spinner" aria-hidden="true"></span>
+                      <span class="generic-label" data-i18n="pending">Pending</span>
+                    </button>
+                  </div>
+                  <div
+                    class="inline-result generic-result"
+                    role="status"
+                    aria-live="polite"
+                    data-tone="warning"
+                  >
+                    <span data-i18n="genericPendingCopy">Please wait…</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="comparison-panel after" aria-labelledby="async-after-label">
+              <div class="panel-label" id="async-after-label">
+                <span data-i18n="afterAuthoritative">After · domain-owned phase</span>
+                <span class="measure" data-i18n="stableGeometry">stable geometry</span>
+              </div>
+              <div class="app-frame">
+                <div class="frame-note" data-i18n="webContentOnly">Web product content only</div>
+                <div class="async-surface">
+                  <div class="async-copy">
+                    <h3 data-i18n="launchProxy">Launch Proxy</h3>
+                    <p data-i18n="launchCopy">
+                      Start the selected profile and restore capture options.
+                    </p>
+                  </div>
+                  <div class="action-row">
+                    <span class="section-label phase-label" data-i18n="pendingPhase"
+                      >Starting selected profile</span
+                    >
+                    <button
+                      class="primary-button authoritative-action"
+                      type="button"
+                      disabled
+                      aria-busy="true"
+                      aria-describedby="authoritative-result"
+                    >
+                      <span class="spinner authoritative-spinner" aria-hidden="true"></span>
+                      <span class="authoritative-label" data-i18n="pending">Pending</span>
+                    </button>
+                  </div>
+                  <div
+                    class="inline-result authoritative-result"
+                    id="authoritative-result"
+                    role="status"
+                    aria-live="polite"
+                    data-tone="warning"
+                  >
+                    <span data-i18n="pendingCopy"
+                      >Checking the live capability again before commit.</span
+                    >
+                  </div>
+                  <div
+                    class="anatomy"
+                    aria-label="Ownership anatomy"
+                    data-i18n-aria="ownershipAnatomy"
+                  >
+                    <div data-i18n="domainTruth">Domain phase</div>
+                    <div data-i18n="sharedAnatomy">Shared anatomy</div>
+                    <div data-i18n="nearbyReason">Nearby reason</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="decision-panel" aria-labelledby="decision-title">
+          <div class="decision-column">
+            <h2 id="decision-title" data-i18n="acceptTitle">Accept only if</h2>
+            <ul>
+              <li data-i18n="acceptA">
+                A applies to Web product controls, not Native outer chrome.
+              </li>
+              <li data-i18n="acceptB">
+                B is limited to actions with real cleanup or recovery phases.
+              </li>
+              <li data-i18n="acceptC">
+                Domain state remains authoritative; shared UI owns presentation only.
+              </li>
+            </ul>
+          </div>
+          <div class="decision-column">
+            <h2 data-i18n="rejectTitle">Reject if</h2>
+            <ul>
+              <li data-i18n="rejectA">
+                A would reset compact desktop density or imitate mobile Native chrome.
+              </li>
+              <li data-i18n="rejectB">
+                B would create a second async state machine or generic success truth.
+              </li>
+              <li data-i18n="rejectC">
+                Either candidate requires a new product dependency or broad rewrite.
+              </li>
+            </ul>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const copy = {
+        en: {
+          documentTitle: "Mish Issue #356 — systemic interface candidates",
+          title: "Systemic interface candidates",
+          prototypeSettings: "Prototype settings",
+          candidateA: "Candidate A",
+          candidateB: "Candidate B",
+          ownershipAnatomy: "Ownership anatomy",
+          themeLabel: "Theme",
+          light: "Light",
+          dark: "Dark",
+          languageLabel: "Language",
+          viewportLabel: "Frame",
+          desktop: "Desktop",
+          mobile: "Mobile",
+          motionLabel: "Motion",
+          fullMotion: "Full",
+          reducedMotion: "Reduced",
+          introTitle: "Compare behavior, not decoration",
+          introCopy:
+            "These runnable before/after studies isolate two shared candidates. They do not change production code or propose a broad visual redesign.",
+          boundaryTitle: "Accepted boundary",
+          boundaryCopy:
+            "Native outer-shell chrome is intentionally absent. The frames show Web product content only; React Router still owns page history and product dialogs.",
+          touchTitle: "Touch-adaptive Web product controls",
+          touchCopy:
+            "Preserve desktop density. In the mobile/coarse-input frame, enlarge only the interaction box and allow rows to reflow.",
+          before: "Before · current compact sizing",
+          beforeMeasure: "30–34 px controls",
+          after: "After · input-aware sizing",
+          afterMeasure: "34 px desktop / 44 px mobile",
+          webContentOnly: "Web product content only — Native outer shell not shown",
+          status: "Status",
+          profile: "Switch profile. Current profile: Home",
+          themeButton: "Change theme",
+          notifications: "Notifications, 0 unread",
+          routingMode: "Routing mode",
+          direct: "Direct",
+          global: "Global",
+          rule: "Rule",
+          capture: "Traffic capture",
+          systemProxy: "System Proxy",
+          virtualInterface: "Virtual Interface",
+          downloaded: "Downloaded",
+          connections: "Connections",
+          memory: "Memory",
+          asyncTitle: "Authoritative finalizing feedback",
+          asyncCopy:
+            "Early validation can explain a failure immediately, but duplicate commands remain blocked until cleanup, rollback, or process recovery finishes.",
+          statePrompt: "Choose a domain state to compare the two presentations.",
+          pending: "Pending",
+          finalizing: "Finalizing",
+          error: "Error",
+          success: "Success",
+          beforeGeneric: "Before · generic pending control",
+          truthUnclear: "ownership unclear",
+          launchProxy: "Launch Proxy",
+          launchCopy: "Start the selected profile and restore capture options.",
+          genericStatus: "Command status",
+          genericPendingCopy: "Please wait…",
+          afterAuthoritative: "After · domain-owned phase",
+          stableGeometry: "stable geometry",
+          pendingPhase: "Starting selected profile",
+          pendingCopy: "Checking the live capability again before commit.",
+          finalizingPhase: "Restoring safe network state",
+          finalizingCopy:
+            "The early check failed. Cleanup is still running; duplicate commands remain blocked.",
+          errorPhase: "Launch did not complete",
+          errorCopy: "Safe state is restored. Review the nearby reason, then retry.",
+          successPhase: "Proxy is running",
+          successCopy: "The committed runtime snapshot confirms the selected profile is active.",
+          genericFinalizingCopy: "An error was found.",
+          genericErrorCopy: "Something went wrong.",
+          genericSuccessCopy: "Done.",
+          retry: "Retry",
+          launch: "Launch Proxy",
+          domainTruth: "Domain phase",
+          sharedAnatomy: "Shared anatomy",
+          nearbyReason: "Nearby reason",
+          acceptTitle: "Accept only if",
+          acceptA: "A applies to Web product controls, not Native outer chrome.",
+          acceptB: "B is limited to actions with real cleanup or recovery phases.",
+          acceptC: "Domain state remains authoritative; shared UI owns presentation only.",
+          rejectTitle: "Reject if",
+          rejectA: "A would reset compact desktop density or imitate mobile Native chrome.",
+          rejectB: "B would create a second async state machine or generic success truth.",
+          rejectC: "Either candidate requires a new product dependency or broad rewrite.",
+        },
+        zh: {
+          documentTitle: "Mish Issue #356 — 系统级界面候选方案",
+          title: "系统级界面候选方案",
+          prototypeSettings: "原型设置",
+          candidateA: "候选方案 A",
+          candidateB: "候选方案 B",
+          ownershipAnatomy: "权威结构",
+          themeLabel: "主题",
+          light: "浅色",
+          dark: "深色",
+          languageLabel: "语言",
+          viewportLabel: "画框",
+          desktop: "桌面",
+          mobile: "移动",
+          motionLabel: "动效",
+          fullMotion: "完整",
+          reducedMotion: "减少",
+          introTitle: "比较行为，而不是装饰",
+          introCopy:
+            "这组可运行的前后对照只隔离两个共享候选，不修改生产代码，也不提出大范围视觉重设计。",
+          boundaryTitle: "已接受边界",
+          boundaryCopy:
+            "原型刻意不画 Native 外层壳。画框只展示 Web 产品内容；页面历史和产品对话框仍由 React Router 管理。",
+          touchTitle: "触控自适应的 Web 产品控件",
+          touchCopy: "保留桌面密度。只在移动／粗指针画框中扩大交互区域，并允许控件行换行。",
+          before: "之前 · 当前紧凑尺寸",
+          beforeMeasure: "30–34 px 控件",
+          after: "之后 · 按输入方式适配",
+          afterMeasure: "桌面 34 px / 移动 44 px",
+          webContentOnly: "仅 Web 产品内容 — 不展示 Native 外层壳",
+          status: "状态",
+          profile: "切换配置。当前配置：Home",
+          themeButton: "切换主题",
+          notifications: "通知，0 条未读",
+          routingMode: "路由模式",
+          direct: "直连",
+          global: "全局",
+          rule: "规则",
+          capture: "流量接管",
+          systemProxy: "系统代理",
+          virtualInterface: "虚拟网卡",
+          downloaded: "已下载",
+          connections: "连接数",
+          memory: "内存",
+          asyncTitle: "权威的收尾阶段反馈",
+          asyncCopy:
+            "前置校验可以立即解释失败，但在清理、回滚或进程恢复完成前，重复命令仍应被阻止。",
+          statePrompt: "选择一个领域状态，对照两种呈现方式。",
+          pending: "处理中",
+          finalizing: "正在收尾",
+          error: "错误",
+          success: "成功",
+          beforeGeneric: "之前 · 通用等待控件",
+          truthUnclear: "权威不清晰",
+          launchProxy: "启动代理",
+          launchCopy: "启动所选配置并恢复流量接管选项。",
+          genericStatus: "命令状态",
+          genericPendingCopy: "请稍候……",
+          afterAuthoritative: "之后 · 领域拥有阶段",
+          stableGeometry: "布局稳定",
+          pendingPhase: "正在启动所选配置",
+          pendingCopy: "在真正提交前，再次检查当前能力。",
+          finalizingPhase: "正在恢复安全网络状态",
+          finalizingCopy: "前置检查已失败，但清理仍在进行；重复命令继续被阻止。",
+          errorPhase: "启动未完成",
+          errorCopy: "安全状态已恢复。查看附近的原因后可以重试。",
+          successPhase: "代理正在运行",
+          successCopy: "已提交的运行时快照确认所选配置处于活动状态。",
+          genericFinalizingCopy: "检测到错误。",
+          genericErrorCopy: "发生了问题。",
+          genericSuccessCopy: "已完成。",
+          retry: "重试",
+          launch: "启动代理",
+          domainTruth: "领域阶段",
+          sharedAnatomy: "共享结构",
+          nearbyReason: "附近原因",
+          acceptTitle: "仅在以下条件下接受",
+          acceptA: "A 只应用于 Web 产品控件，不触及 Native 外层壳。",
+          acceptB: "B 只用于确实存在清理或恢复阶段的操作。",
+          acceptC: "领域状态保持权威；共享 UI 只拥有呈现。",
+          rejectTitle: "出现以下情况则拒绝",
+          rejectA: "A 会重置紧凑桌面密度，或模仿移动 Native 外壳。",
+          rejectB: "B 会产生第二套异步状态机，或通用的成功真相。",
+          rejectC: "任一候选需要新增产品依赖或大范围重写。",
+        },
+      };
+
+      const artifact = document.querySelector(".artifact");
+      const main = document.querySelector("main");
+      const theme = document.querySelector("#theme");
+      const locale = document.querySelector("#locale");
+      const viewport = document.querySelector("#viewport");
+      const motion = document.querySelector("#motion");
+      let asyncState = "pending";
+
+      function t(key) {
+        return copy[locale.value][key] ?? copy.en[key] ?? key;
+      }
+
+      function updateAsyncState() {
+        const genericAction = document.querySelector(".generic-action");
+        const genericSpinner = document.querySelector(".generic-spinner");
+        const genericLabel = document.querySelector(".generic-label");
+        const genericResult = document.querySelector(".generic-result");
+        const authoritativeAction = document.querySelector(".authoritative-action");
+        const authoritativeSpinner = document.querySelector(".authoritative-spinner");
+        const authoritativeLabel = document.querySelector(".authoritative-label");
+        const authoritativeResult = document.querySelector(".authoritative-result");
+        const phaseLabel = document.querySelector(".phase-label");
+
+        document.querySelectorAll(".state-button").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.state === asyncState));
+        });
+
+        const isBusy = asyncState === "pending" || asyncState === "finalizing";
+        genericAction.disabled = isBusy;
+        authoritativeAction.disabled = isBusy;
+        genericAction.setAttribute("aria-busy", String(isBusy));
+        authoritativeAction.setAttribute("aria-busy", String(isBusy));
+        genericSpinner.hidden = !isBusy;
+        authoritativeSpinner.hidden = !isBusy;
+
+        const configuration = {
+          pending: {
+            genericLabel: "pending",
+            genericCopy: "genericPendingCopy",
+            genericTone: "warning",
+            label: "pending",
+            phase: "pendingPhase",
+            copy: "pendingCopy",
+            tone: "warning",
+          },
+          finalizing: {
+            genericLabel: "error",
+            genericCopy: "genericFinalizingCopy",
+            genericTone: "error",
+            label: "finalizing",
+            phase: "finalizingPhase",
+            copy: "finalizingCopy",
+            tone: "warning",
+          },
+          error: {
+            genericLabel: "retry",
+            genericCopy: "genericErrorCopy",
+            genericTone: "error",
+            label: "retry",
+            phase: "errorPhase",
+            copy: "errorCopy",
+            tone: "error",
+          },
+          success: {
+            genericLabel: "launch",
+            genericCopy: "genericSuccessCopy",
+            genericTone: "success",
+            label: "launch",
+            phase: "successPhase",
+            copy: "successCopy",
+            tone: "success",
+          },
+        }[asyncState];
+
+        genericLabel.textContent = t(configuration.genericLabel);
+        genericResult.textContent = t(configuration.genericCopy);
+        genericResult.dataset.tone = configuration.genericTone;
+        authoritativeLabel.textContent = t(configuration.label);
+        phaseLabel.textContent = t(configuration.phase);
+        authoritativeResult.textContent = t(configuration.copy);
+        authoritativeResult.dataset.tone = configuration.tone;
+      }
+
+      function render() {
+        document.title = t("documentTitle");
+        document.documentElement.dataset.theme = theme.value;
+        document.documentElement.lang = locale.value === "zh" ? "zh-CN" : "en";
+        artifact.dataset.viewport = viewport.value;
+        artifact.dataset.motion = motion.value;
+        main.dataset.screenLabel = `issue-356-systemic-candidates-${viewport.value}-${locale.value}-${theme.value}-${motion.value}`;
+
+        document.querySelectorAll("[data-i18n]").forEach((element) => {
+          element.textContent = t(element.dataset.i18n);
+        });
+        document.querySelectorAll("[data-i18n-aria]").forEach((element) => {
+          element.setAttribute("aria-label", t(element.dataset.i18nAria));
+        });
+        updateAsyncState();
+      }
+
+      [theme, locale, viewport, motion].forEach((control) => {
+        control.addEventListener("change", render);
+      });
+
+      document.querySelectorAll(".state-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          asyncState = button.dataset.state;
+          updateAsyncState();
+        });
+      });
+
+      render();
+    </script>
+  </body>
+</html>
