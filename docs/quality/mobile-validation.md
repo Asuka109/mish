@@ -29,7 +29,10 @@ Automated coverage must prove:
 - per-tab child-route and scroll-state preservation;
 - back navigation within a tab before leaving its root;
 - no desktop bootstrap, loopback token, or WebSocket in mobile composition;
-- no `Sidebar` or desktop window controls in the mobile accessibility tree; and
+- no `Sidebar` or desktop window controls in the mobile accessibility tree;
+- the shared focus-modality contract marks visible actionable controls only
+  after Tab or Shift+Tab, keeps touch and imperative title/sheet focus visually
+  silent, and preserves deterministic sheet focus return;
 - an Android Settings grouped root and child route, with desktop System Proxy,
   Helper, startup, window, and installer controls omitted rather than inert;
 - Android Settings baseline and portable mutations returning complete accepted

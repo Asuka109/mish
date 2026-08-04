@@ -114,13 +114,19 @@ body {
     cursor: pointer;
   }
 
-  button:focus-visible,
-  input:focus-visible,
-  a:focus-visible,
-  [role="menuitem"]:focus-visible,
-  [role="option"]:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, var(--color-canvas));
-    outline-offset: 2px;
+  :where(
+    button,
+    input,
+    select,
+    textarea,
+    a[href],
+    area[href],
+    summary,
+    [contenteditable],
+    [tabindex]
+  ):focus-visible:not([data-mish-focus-visible="keyboard"]),
+  [tabindex="-1"]:focus {
+    outline: none;
   }
 
   h1,
@@ -136,15 +142,16 @@ body {
     line-height: var(--text-title--line-height);
   }
 
-  .workspace-page-scroll h1[tabindex="-1"]:focus {
-    outline: none;
-  }
-
   h2 {
     font-size: var(--text-body);
     font-weight: var(--font-weight-heading);
     line-height: 20px;
   }
+}
+
+[data-mish-focus-visible="keyboard"] {
+  outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, var(--color-canvas));
+  outline-offset: var(--mish-focus-outline-offset, 2px);
 }
 
 .notification-toast[data-sonner-toast][data-styled="true"] {

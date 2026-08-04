@@ -33,6 +33,7 @@ import {
 import { resolveMobileStartup } from "./platform/mobile-runtime-bootstrap";
 import { resolveRuntimeKind } from "./platform/runtime-kind";
 import { installDesktopNativeFeel } from "./platform/desktop-native-feel";
+import { installFocusVisibility } from "./platform/focus-visibility";
 import { NativeNavigationBridge } from "./platform/native-navigation";
 import "./styles.css";
 
@@ -76,6 +77,7 @@ async function startApplication() {
     tauri: isTauri(),
   });
   document.documentElement.dataset.runtime = runtime;
+  const releaseFocusVisibility = installFocusVisibility();
   const releaseNativeFeel =
     runtime === "mobile" ? () => undefined : installDesktopNativeFeel(runtime);
   let disposeStartup: () => void = () => undefined;
@@ -83,6 +85,7 @@ async function startApplication() {
     "pagehide",
     () => {
       releaseNativeFeel();
+      releaseFocusVisibility();
       disposeStartup();
     },
     { once: true },
