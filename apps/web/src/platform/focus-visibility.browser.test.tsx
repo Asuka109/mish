@@ -113,6 +113,30 @@ test("Tab covers native controls, menu items, options, and interactive rows", as
   }
 });
 
+test("keyboard roving focus keeps the ring after Tab enters a control group", async () => {
+  const first = document.createElement("button");
+  const second = document.createElement("button");
+  const third = document.createElement("button");
+  first.textContent = "First destination";
+  second.textContent = "Second destination";
+  third.textContent = "Third destination";
+  container.append(first, second, third);
+  container.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") second.focus({ preventScroll: true });
+    else if (event.key === "End") third.focus({ preventScroll: true });
+    else if (event.key === "f") first.focus({ preventScroll: true });
+  });
+
+  await userEvent.keyboard("{Tab}");
+  expectKeyboardRing(first);
+  await userEvent.keyboard("{ArrowDown}");
+  expectKeyboardRing(second);
+  await userEvent.keyboard("{End}");
+  expectKeyboardRing(third);
+  await userEvent.keyboard("f");
+  expectKeyboardRing(first);
+});
+
 test("route, lazy, reconnect, Profile, and notification focus transfers stay silent", async () => {
   const scroller = document.createElement("main");
   const routeHeading = document.createElement("h1");

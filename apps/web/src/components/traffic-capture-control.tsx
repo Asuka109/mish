@@ -257,7 +257,6 @@ export function TrafficCaptureControl({
               <TooltipTrigger
                 aria-describedby={tunDescriptionId}
                 aria-label={LL.capture.tun()}
-                aria-disabled="true"
                 className="inline-flex rounded-md"
                 data-capture-unavailable-trigger="true"
                 render={<span tabIndex={0} />}

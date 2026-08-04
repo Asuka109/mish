@@ -1,4 +1,14 @@
 const KEYBOARD_FOCUS_ATTRIBUTE = "data-mish-focus-visible";
+const KEYBOARD_FOCUS_MOVE_KEYS = new Set([
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "End",
+  "Home",
+  "PageDown",
+  "PageUp",
+]);
 const ACTIONABLE_SELECTOR = [
   "button",
   "input:not([type='hidden'])",
@@ -45,11 +55,17 @@ function isActionableFocusTarget(target: Element, targetDocument: Document) {
   return target.getClientRects().length > 0;
 }
 
+function isKeyboardFocusMove(event: KeyboardEvent) {
+  if (KEYBOARD_FOCUS_MOVE_KEYS.has(event.key)) return true;
+  return event.key.length === 1 && Boolean(event.key.trim());
+}
+
 export function installFocusVisibility(targetDocument: Document = document) {
   const targetWindow = targetDocument.defaultView;
   if (!targetWindow) return () => undefined;
   let indicatedTarget: HTMLElement | null = null;
-  let pendingTabSequence = 0;
+  let pendingFocusSequence = 0;
+  let pendingFocusKind: "tab" | "keyboard-move" | null = null;
   let pendingTimer: number | null = null;
 
   const clearIndicatedTarget = () => {
@@ -63,40 +79,43 @@ export function installFocusVisibility(targetDocument: Document = document) {
     indicatedTarget = target as HTMLElement;
     return true;
   };
-  const cancelPendingTab = () => {
-    pendingTabSequence += 1;
+  const cancelPendingFocus = () => {
+    pendingFocusSequence += 1;
     if (pendingTimer !== null) targetWindow.clearTimeout(pendingTimer);
     pendingTimer = null;
+    pendingFocusKind = null;
   };
   const clearPointerFocus = () => {
-    cancelPendingTab();
+    cancelPendingFocus();
     clearIndicatedTarget();
   };
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (
-      event.key !== "Tab" ||
-      event.isComposing ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.metaKey
-    ) {
-      return;
-    }
+    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    const kind =
+      event.key === "Tab"
+        ? "tab"
+        : indicatedTarget === targetDocument.activeElement && isKeyboardFocusMove(event)
+          ? "keyboard-move"
+          : null;
+    if (!kind) return;
 
-    cancelPendingTab();
-    const sequence = pendingTabSequence;
+    cancelPendingFocus();
+    const sequence = pendingFocusSequence;
+    pendingFocusKind = kind;
     pendingTimer = targetWindow.setTimeout(() => {
       pendingTimer = null;
-      if (sequence !== pendingTabSequence) return;
+      const focusKind = pendingFocusKind;
+      pendingFocusKind = null;
+      if (sequence !== pendingFocusSequence || focusKind !== "tab") return;
       const target = targetDocument.activeElement;
-      if (target && markTarget(target)) pendingTabSequence += 1;
+      if (target && markTarget(target)) pendingFocusSequence += 1;
     });
   };
   const handleFocusIn = (event: FocusEvent) => {
     clearIndicatedTarget();
-    if (pendingTimer === null || !(event.target instanceof targetWindow.Element)) return;
+    if (pendingFocusKind === null || !(event.target instanceof targetWindow.Element)) return;
     if (!markTarget(event.target)) return;
-    cancelPendingTab();
+    cancelPendingFocus();
   };
   const handleFocusOut = (event: FocusEvent) => {
     if (event.target !== indicatedTarget) return;
@@ -130,7 +149,7 @@ export function installFocusVisibility(targetDocument: Document = document) {
   });
 
   return () => {
-    cancelPendingTab();
+    cancelPendingFocus();
     clearIndicatedTarget();
     observer.disconnect();
     targetDocument.removeEventListener("keydown", handleKeyDown, true);

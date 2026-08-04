@@ -97,10 +97,27 @@ describe("Virtual Interface native setup boundary", () => {
 
   test("keeps an unavailable reason accessible from the narrow Settings host", async () => {
     renderHost("Settings");
+    const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
+    const unavailableTrigger = document.querySelector<HTMLElement>(
+      "[data-capture-unavailable-trigger]",
+    );
 
     await expect.element(tun).toHaveAccessibleDescription(unavailableMessage);
     await expect.element(tun).toBeDisabled();
+    expect(unavailableTrigger).not.toHaveAttribute("aria-disabled");
+    expect(unavailableTrigger?.tabIndex).toBe(0);
+
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(systemProxy.element());
+    await userEvent.keyboard("{Tab}");
+    const focusedTrigger = document.querySelector<HTMLElement>(
+      "[data-capture-unavailable-trigger]",
+    );
+    expect(document.activeElement).toBe(focusedTrigger);
+    expect(focusedTrigger).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(focusedTrigger!).outlineStyle).toBe("solid");
   });
 
   test("restores keyboard focus after cancelling the bounded setup explanation", async () => {
