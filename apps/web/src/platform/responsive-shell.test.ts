@@ -66,6 +66,8 @@ describe("responsive shell CSS", () => {
     expect(contentSelectionRule).toContain("[data-native-text-interaction]");
     expect(contentSelectionRule).toContain(".notification-toast-copy");
     expect(contentSelectionRule).toContain("user-select: text");
-    expect(styles).toContain('.workspace-page-scroll h1[tabindex="-1"]:focus');
+    expect(styles).toContain('[tabindex="-1"]:focus');
+    expect(styles).toContain('[data-mish-focus-visible="keyboard"]');
+    expect(styles).not.toContain('.workspace-page-scroll h1[tabindex="-1"]:focus');
   });
 });

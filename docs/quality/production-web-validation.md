@@ -132,6 +132,11 @@ Automated tests cover:
   overflow, navigation labels, viewport-clipped controls, completed deferred
   route loading, and table-local horizontal scrolling;
 - semantic sidebar links and accessible active destination state;
+- real Chromium focus geometry across browser, desktop-WebView, and mobile
+  compositions in both appearances and locales: only Tab or Shift+Tab marks a
+  visible actionable target, pointer/touch and imperative focus stay silent,
+  hidden/disabled/inert targets are rejected, and Base UI trap/return behavior
+  remains intact;
 - typed fixture snapshot isolation and fixture-only capability declarations;
 - legacy selector-contract compatibility plus all extended policy-group types;
 - nested group graph validation for cycles, missing children, duplicate or
@@ -196,8 +201,11 @@ Automated tests cover:
   effective-rule counts;
 - explicit desktop-bridge rejection and non-mutation coverage for every
   unsupported network-changing Status command;
-- authenticated System Proxy RPC coverage for confirmed application, typed TUN
-  rejection, drift notifications, bounded recovery actions, and sensitive-state
+- authenticated Capture RPC coverage for confirmed System Proxy application,
+  typed TUN rejection without a valid backend, paired Browser/WebView TUN
+  capability and Helper lifecycle parity, shared pending and terminal operation
+  identity across simultaneous clients, cancellation/disconnect read-back,
+  reconnect, drift notifications, bounded recovery actions, and sensitive-state
   redaction;
 - transport-neutral System Proxy reconciliation coverage for pending/applied/
   failed/drift state, external modification, partial failure, confirmed
@@ -235,7 +243,9 @@ Before a visible production change is accepted, verify:
 - direct load and browser refresh for every route;
 - keyboard traversal of navigation, routing, capture, profile, group picker,
   service management, and dialog close/cancel actions;
-- visible focus and no clipped focus rings;
+- visible focus and no clipped focus rings after Tab or Shift+Tab, with no ring
+  after pointer/touch activation, route-title announcements, reconnect, Profile
+  changes, notification actions, or overlay initial/return focus;
 - reduced-motion mode, WebGL unavailable fallback, and an inactive aggregate
   control;
 - long mixed-script, emoji, and no-emoji labels without semantic parsing;
@@ -248,7 +258,11 @@ For a real-client check, launch the desktop shell, choose `Open Browser Client`
 from the status-bar menu, and confirm that Status reports RPC-backed state, a
 refresh of every deep route remains authenticated, and native-only actions such
 as local-file import, backup/restore, support-bundle export, and Sidebar material
-remain unavailable. Then open the bridge root directly, confirm that no product
+remain unavailable. On a host with a valid development TUN backend, confirm that
+Virtual Interface and Helper install, repair, and removal availability match the
+Desktop WebView, while every pending, recovery-required, failure, and terminal
+result comes from the same Rust operation rather than optimistic browser state.
+Then open the bridge root directly, confirm that no product
 or demo state appears before authentication, enter the six-digit PIN shown by
 the desktop app, and confirm that the browser session survives a refresh.
 The explicit source-only `pnpm demo` and `pnpm desktop:demo` targets are outside

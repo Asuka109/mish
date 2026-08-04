@@ -29,13 +29,37 @@ Automated coverage must prove:
 - per-tab child-route and scroll-state preservation;
 - back navigation within a tab before leaving its root;
 - no desktop bootstrap, loopback token, or WebSocket in mobile composition;
-- no `Sidebar` or desktop window controls in the mobile accessibility tree; and
+- no `Sidebar` or desktop window controls in the mobile accessibility tree;
+- the shared focus-modality contract marks visible actionable controls only
+  after Tab or Shift+Tab, keeps touch and imperative title/sheet focus visually
+  silent, and preserves deterministic sheet focus return;
 - an Android Settings grouped root and child route, with desktop System Proxy,
   Helper, startup, window, and installer controls omitted rather than inert;
 - Android Settings baseline and portable mutations returning complete accepted
   Shared Rust `native` snapshots, with a failed mutation re-reading the last
   confirmed snapshot after recreation; and
 - unavailable native capabilities never simulating success.
+
+## Production-disabled native shell entry contract
+
+Run:
+
+```sh
+cargo test -p mish-mobile-shell
+node --test scripts/check-mobile-shell-boundary.test.ts
+node scripts/check-mobile-shell-boundary.ts
+```
+
+These checks prove the closed Android/Apple chrome and validated platform-deep-
+link model, exact Native-to-Rust-to-Web fixture, monotonic revision, bounded
+duplicate/stale behavior, prepare/commit revalidation, invalid-input
+non-mutation, and deterministic rejection of Web-to-Native UI backchannels.
+They also prove that `apps/mobile` does not depend on the contract crate, so the
+current React shell remains selected. This evidence permits only a
+**production-disabled shell contract** claim. It is not a compiled Android or
+Apple adapter, native rendering, device, accessibility, latency, or production
+cutover claim. See
+[`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
 
 ## Viewport and interaction matrix
 

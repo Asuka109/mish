@@ -213,9 +213,12 @@ arbitrary path/command, or parameterized network-mutation action. The `.7`
 delivery layout fixes `MISH_TUN_SERVICE_ALLOW_TUN=1`, but post-install remains
 healthy and disabled. Only the app's shared Rust Capture
 authority can stage the bounded candidate and invoke the existing authenticated
-typed Helper commands. `alpha-ad-hoc`, `signed-direct`, Browser Client, and
-future production layouts remain free of Internal TUN Alpha authority and fail
-closed if one appears.
+typed Helper commands. The paired authenticated loopback Browser Client may
+request those same Rust operations for the running Internal TUN Alpha desktop
+composition, but it owns no package, Helper transport, authorization, Capture,
+or privileged authority itself. `alpha-ad-hoc`, `signed-direct`, and future
+production layouts remain free of Internal TUN Alpha authority and fail closed
+if one appears; a backend-free browser fixture cannot change that layout.
 
 Package install, repair, and uninstall now execute through the typed
 `PackageMachine`. Its explicit states are absent, staging, awaiting

@@ -94,7 +94,7 @@ export function BrowserBackendRecovery({
   useEffect(() => {
     if (!recoveryRequired || recoveryNotified.current) return;
     recoveryNotified.current = true;
-    heading.current?.focus();
+    heading.current?.focus({ preventScroll: true });
     onRecoveryRequired?.();
   }, [onRecoveryRequired, recoveryRequired]);
 

@@ -130,7 +130,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
   const finalStep = step === welcomeStepCount - 1;
 
   useEffect(() => {
-    if (open && step > 0) titleRef.current?.focus();
+    if (open && step > 0) titleRef.current?.focus({ preventScroll: true });
   }, [open, step]);
 
   function changeOpen(nextOpen: boolean) {
