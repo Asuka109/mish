@@ -23,6 +23,15 @@ describe("responsive shell CSS", () => {
     expect(shell).not.toContain("min-h-[620px]");
   });
 
+  it("keeps narrow Browser navigation in explicit safe-area-aware rows", () => {
+    expect(shell).toContain("max-shell-mobile:row-start-2");
+    expect(shell).toContain("max-shell-mobile:row-start-1");
+    expect(shell).toContain("safe-area-inset-left");
+    expect(shell).toContain("safe-area-inset-right");
+    expect(shell).toContain("safe-area-inset-bottom");
+    expect(shell).not.toContain("max-shell-mobile:grid-row-");
+  });
+
   it("bounds the mobile root to the dynamic viewport", () => {
     const mobileViewportRule = styles.match(
       /:root\[data-runtime="mobile"\],[\s\S]*?:root\[data-runtime="mobile"\] #root \{[\s\S]*?\n\}/,

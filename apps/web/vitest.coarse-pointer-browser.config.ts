@@ -22,6 +22,9 @@ export default defineConfig({
         },
       }),
     },
-    include: ["src/platform/coarse-pointer-controls.browser.test.ts"],
+    include: [
+      "src/platform/coarse-pointer-controls.browser.test.ts",
+      "src/platform/responsive-shell.browser.test.ts",
+    ],
   },
 });

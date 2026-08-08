@@ -239,8 +239,10 @@ export function RoutesPage() {
 
   if (isLoading) {
     return (
-      <div className={routeStyles().loading()}>
-        {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+      <div aria-busy="true" className={routeStyles().loading()}>
+        <span role="status">
+          {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+        </span>
       </div>
     );
   }

@@ -8,6 +8,7 @@ const routes = ["/status", "/routes", "/profiles", "/traffic", "/events", "/sett
 const viewports = [
   { height: 568, name: "compact mobile", width: 320 },
   { height: 844, name: "mobile", width: 390 },
+  { height: 720, name: "narrow boundary", width: 599 },
   { height: 600, name: "Tauri minimum", width: 800 },
 ];
 
@@ -47,6 +48,50 @@ function centerOf(element: HTMLElement): Center {
     x: rect.left + element.clientLeft + element.clientWidth / 2,
     y: rect.top + element.clientTop + element.clientHeight / 2,
   };
+}
+
+function expectTargetOwnsItsCenter(target: HTMLElement, context: string) {
+  const center = centerOf(target);
+  const hit = document.elementFromPoint(center.x, center.y);
+
+  expect(
+    hit === target || (hit !== null && target.contains(hit)),
+    `${context}: center hit ${hit?.className || hit?.tagName || "nothing"}`,
+  ).toBe(true);
+}
+
+function expectNarrowNavigationGeometry(context: string) {
+  const shell = document.querySelector<HTMLElement>(".app-shell");
+  const sidebar = document.querySelector<HTMLElement>(".sidebar");
+  const workspace = document.querySelector<HTMLElement>("main.workspace");
+  if (!shell || !sidebar || !workspace) throw new Error(`${context}: missing shell geometry`);
+
+  const sidebarRect = sidebar.getBoundingClientRect();
+  const workspaceRect = workspace.getBoundingClientRect();
+  const gridRows = getComputedStyle(shell)
+    .gridTemplateRows.split(" ")
+    .map((value) => Number.parseFloat(value));
+
+  expect(gridRows, `${context}: two explicit nonzero rows`).toHaveLength(2);
+  expect(
+    gridRows.every((height) => height > 0),
+    `${context}: nonzero rows`,
+  ).toBe(true);
+  expect(workspaceRect.bottom, `${context}: workspace ends before navigation`).toBeLessThanOrEqual(
+    sidebarRect.top + 0.5,
+  );
+  expect(sidebarRect.height, `${context}: reachable navigation row`).toBeGreaterThanOrEqual(56);
+  expect(sidebarRect.bottom, `${context}: safe viewport bottom`).toBeLessThanOrEqual(
+    window.innerHeight + 0.5,
+  );
+
+  for (const target of document.querySelectorAll<HTMLElement>(".nav-item")) {
+    const rect = target.getBoundingClientRect();
+    const label = target.getAttribute("aria-label") ?? target.textContent ?? "destination";
+    expect(rect.width, `${context}: ${label} target width`).toBeGreaterThanOrEqual(24);
+    expect(rect.height, `${context}: ${label} target height`).toBeGreaterThanOrEqual(44);
+    expectTargetOwnsItsCenter(target, `${context}: ${label}`);
+  }
 }
 
 function appendRoutePending(scroller: HTMLElement) {
@@ -437,6 +482,7 @@ describe("responsive application shell", () => {
       await page.viewport(viewport.width, viewport.height);
 
       for (const locale of ["English", "简体中文"] as const) {
+        document.documentElement.dataset.theme = locale === "English" ? "light" : "dark";
         await selectLocale(locale);
 
         for (const path of routes) {
@@ -468,7 +514,9 @@ describe("responsive application shell", () => {
             [],
           );
 
-          if (viewport.name === "Tauri minimum") {
+          if (viewport.width < 600) {
+            expectNarrowNavigationGeometry(context);
+          } else {
             expect(measurement.sidebarWidth, `${context}: full desktop sidebar width`).toBe(164);
           }
 
@@ -480,6 +528,51 @@ describe("responsive application shell", () => {
         }
       }
     }
+    delete document.documentElement.dataset.theme;
+  });
+
+  test("keeps narrow destinations pointer- and keyboard-reachable with visible focus", async () => {
+    await selectLocale("English");
+
+    for (const viewport of viewports.filter(({ width }) => width < 600)) {
+      await page.viewport(viewport.width, viewport.height);
+      await navigate("/status");
+      const links = [...document.querySelectorAll<HTMLAnchorElement>(".nav-item")];
+      expect(links).toHaveLength(6);
+
+      links[0]?.focus({ preventScroll: true });
+      await userEvent.keyboard("{Tab}");
+      expect(document.activeElement, `${viewport.width}px keyboard entry`).toBe(links[1]);
+      expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+      for (const expected of links.slice(2).concat(links.slice(0, 2))) {
+        await userEvent.keyboard("{ArrowDown}");
+        expect(document.activeElement, `${viewport.width}px keyboard order`).toBe(expected);
+        expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
+        expect(getComputedStyle(expected).outlineStyle).toBe("solid");
+        expectTargetOwnsItsCenter(expected, `${viewport.width}px focused ${expected.ariaLabel}`);
+      }
+
+      for (const link of links) {
+        expectTargetOwnsItsCenter(link, `${viewport.width}px pointer ${link.ariaLabel}`);
+        await page.elementLocator(link).click();
+        await vi.waitFor(() => expect(window.location.pathname).toBe(link.pathname));
+      }
+    }
+  });
+
+  test("preserves the compact desktop sidebar at the 600px boundary", async () => {
+    await page.viewport(600, 720);
+    await selectLocale("English");
+    await navigate("/status");
+
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    const navigationItem = document.querySelector<HTMLElement>(".nav-item");
+    if (!shell || !sidebar || !navigationItem) throw new Error("Missing desktop boundary shell");
+
+    expect(Math.round(sidebar.getBoundingClientRect().width)).toBe(164);
+    expect(getComputedStyle(shell).gridTemplateColumns).toMatch(/^164px /);
+    expect(Math.round(navigationItem.getBoundingClientRect().height)).toBe(36);
   });
 
   test("centers deferred route loading in the visible workspace scroller", async () => {

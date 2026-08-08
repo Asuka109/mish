@@ -210,8 +210,10 @@ export function StatusPage() {
 
   if (isLoading) {
     return (
-      <div className={statusStyles().loading()}>
-        {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+      <div aria-busy="true" className={statusStyles().loading()}>
+        <span role="status">
+          {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+        </span>
       </div>
     );
   }
