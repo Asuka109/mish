@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { MobileSettingsClient, type MobileSettingsTransport } from "./mobile-settings-client";
 
 function nativeSnapshot(revision = 1) {
-  return { ...createFixtureSettingsSnapshot(), adapterKind: "native" as const, revision };
+  return {
+    ...createFixtureSettingsSnapshot(),
+    adapterKind: "native" as const,
+    applicationOrder: { authorityId: "native-settings", epoch: 1, order: revision },
+    revision,
+  };
 }
 
 describe("MobileSettingsClient", () => {

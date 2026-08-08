@@ -10,6 +10,7 @@ import {
 const token = "0123456789abcdef".repeat(4);
 const settingsSnapshot = {
   adapterKind: "rpc" as const,
+  applicationOrder: { authorityId: "runtime-bootstrap", epoch: 1, order: 1 },
   build: { appVersion: "0.1.0", mihomoVersion: "v1.19.29" },
   capabilities: {
     backgroundLaunch: "supported" as const,
@@ -54,6 +55,7 @@ const settingsSnapshot = {
     loopbackOnly: "confirmed" as const,
     originValidated: "confirmed" as const,
   },
+  revision: 1,
   startupRegistration: { desired: false, observed: false, phase: "applied" as const },
   storageRecovered: false,
   tunHelper: {
@@ -346,7 +348,6 @@ describe("desktop runtime bootstrap", () => {
       rpcUrl: "ws://127.0.0.1:43123/rpc",
       settingsSnapshot: {
         ...settingsSnapshot,
-        revision: 0,
         preferences: {
           ...settingsSnapshot.preferences,
           captureSelection: { systemProxy: false, tun: false },

@@ -3,7 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -42,7 +42,7 @@ use mish_settings::{
 };
 use serde_json::{Value, json};
 use tokio::{
-    sync::{Mutex as AsyncMutex, Notify},
+    sync::Notify,
     time::{Duration, timeout},
 };
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
@@ -816,66 +816,8 @@ fn config() -> LoopbackServerConfig {
     }
 }
 
-fn stable_port_test_lock() -> &'static AsyncMutex<()> {
-    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| AsyncMutex::new(()))
-}
-
 #[tokio::test]
-async fn sequential_port_selection_starts_at_6474_when_available() {
-    let _lock = stable_port_test_lock().lock().await;
-    let mut bridge_config = config();
-    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
-    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
-
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(
-        bridge.address,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474)
-    );
-    bridge.shutdown().await;
-}
-
-#[tokio::test]
-async fn sequential_port_selection_retains_first_available_listener() {
-    let _lock = stable_port_test_lock().lock().await;
-    let first = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6474)).unwrap();
-    let second = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6475)).unwrap();
-    let mut bridge_config = config();
-    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
-    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
-
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(
-        bridge.address,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6476)
-    );
-    assert!(StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6476)).is_err());
-
-    bridge.shutdown().await;
-    drop(second);
-    drop(first);
-}
-
-#[tokio::test]
-async fn fixed_and_ephemeral_port_selection_preserve_existing_semantics() {
-    let fixed_port = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let mut fixed_config = config();
-    fixed_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), fixed_port);
-    let fixed_bridge = start_loopback_server(fixed_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(fixed_bridge.address.port(), fixed_port);
-    fixed_bridge.shutdown().await;
-
+async fn ephemeral_port_selection_preserves_existing_server_semantics() {
     let ephemeral_bridge = start_loopback_server(config(), runtime(no_core()))
         .await
         .unwrap();
@@ -3062,6 +3004,74 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
 }
 
 #[tokio::test]
+async fn accepted_settings_observation_reaches_desktop_browser_and_native_subscribers() {
+    let settings = settings_service();
+    let mut native_updates = settings.subscribe();
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+
+    let mut desktop = socket(bridge.address).await;
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    let mut command = socket(bridge.address).await;
+    authenticate(&mut desktop).await;
+    authenticate(&mut browser).await;
+    authenticate(&mut command).await;
+    let desktop_subscription = request(
+        &mut desktop,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    let browser_subscription = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    let preference_revision = desktop_subscription["result"]["snapshot"]["revision"].clone();
+
+    let refreshed = request(
+        &mut command,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"settings.refreshNetworkDns", "params":{}
+        }),
+    )
+    .await;
+    let desktop_update = next_json(&mut desktop).await;
+    let browser_update = next_json(&mut browser).await;
+    let native_update = native_updates.recv().await.expect("native settings update");
+
+    assert_eq!(refreshed["result"]["networkDns"]["phase"], "ready");
+    assert_eq!(refreshed["result"]["revision"], preference_revision);
+    assert_eq!(desktop_update["method"], "settings.snapshot");
+    assert_eq!(browser_update["method"], "settings.snapshot");
+    assert_eq!(
+        desktop_update["params"]["subscriptionId"],
+        desktop_subscription["result"]["subscriptionId"]
+    );
+    assert_eq!(
+        browser_update["params"]["subscriptionId"],
+        browser_subscription["result"]["subscriptionId"]
+    );
+    assert_eq!(
+        desktop_update["params"]["snapshot"]["applicationOrder"],
+        refreshed["result"]["applicationOrder"]
+    );
+    assert_eq!(
+        browser_update["params"]["snapshot"]["applicationOrder"],
+        refreshed["result"]["applicationOrder"]
+    );
+    assert_eq!(
+        serde_json::to_value(native_update.application_order).unwrap(),
+        refreshed["result"]["applicationOrder"]
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn native_healthy_helper_reinstall_reconciles_capture_after_success() {
     let platform = Arc::new(HealthyTunHelperPlatform::default());
     let helper = Arc::new(TunHelperController::new(platform.clone()));
@@ -3510,7 +3520,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 34);
+    assert_eq!(info["result"]["protocolVersion"], 35);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],

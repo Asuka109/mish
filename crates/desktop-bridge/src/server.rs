@@ -1,5 +1,6 @@
 use std::{
     collections::{HashSet, VecDeque},
+    future::Future,
     io::ErrorKind,
     net::{IpAddr, SocketAddr},
     path::Path,
@@ -895,14 +896,29 @@ async fn bind_loopback_listener(
     bind: SocketAddr,
     port_selection: LoopbackPortSelection,
 ) -> Result<TcpListener, String> {
+    bind_loopback_listener_with(bind, port_selection, |candidate| {
+        TcpListener::bind(candidate)
+    })
+    .await
+}
+
+async fn bind_loopback_listener_with<F, Fut>(
+    bind: SocketAddr,
+    port_selection: LoopbackPortSelection,
+    mut bind_candidate: F,
+) -> Result<TcpListener, String>
+where
+    F: FnMut(SocketAddr) -> Fut,
+    Fut: Future<Output = std::io::Result<TcpListener>>,
+{
     match port_selection {
-        LoopbackPortSelection::Fixed => TcpListener::bind(bind)
+        LoopbackPortSelection::Fixed => bind_candidate(bind)
             .await
             .map_err(|error| format!("failed to bind Mish desktop bridge at {bind}: {error}")),
         LoopbackPortSelection::SequentialFallback => {
             for port in bind.port()..=u16::MAX {
                 let candidate = SocketAddr::new(bind.ip(), port);
-                match TcpListener::bind(candidate).await {
+                match bind_candidate(candidate).await {
                     Ok(listener) => return Ok(listener),
                     Err(error) if error.kind() == ErrorKind::AddrInUse => continue,
                     Err(error) => {
@@ -917,6 +933,107 @@ async fn bind_loopback_listener(
                 bind.port(),
                 u16::MAX
             ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod port_selection_tests {
+    use std::{
+        future::ready,
+        net::{Ipv4Addr, TcpListener as StdTcpListener},
+    };
+
+    use tokio::net::TcpListener;
+
+    use super::{LoopbackPortSelection, bind_loopback_listener_with};
+
+    fn reserve_contiguous_ephemeral_ports(count: u16) -> Vec<StdTcpListener> {
+        // Keep every reservation open so the kernel, rather than a process-local mutex, owns the
+        // isolation. The successful reservation is converted in place and is never probe-bound.
+        assert!(count > 0);
+        for _ in 0..10_000 {
+            let first = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                .expect("the test host should provide an ephemeral loopback port");
+            let first_port = first.local_addr().unwrap().port();
+            if first_port.checked_add(count - 1).is_none() {
+                continue;
+            }
+            let mut reservations = vec![first];
+            for offset in 1..count {
+                let port = first_port + offset;
+                match StdTcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+                    Ok(listener) => reservations.push(listener),
+                    Err(_) => break,
+                }
+            }
+            if reservations.len() == usize::from(count) {
+                return reservations;
+            }
+        }
+        panic!("could not reserve {count} contiguous ephemeral loopback ports");
+    }
+
+    fn into_tokio_listener(listener: StdTcpListener) -> TcpListener {
+        listener.set_nonblocking(true).unwrap();
+        TcpListener::from_std(listener).unwrap()
+    }
+
+    #[tokio::test]
+    async fn fixed_selection_retains_an_injected_ephemeral_listener() {
+        let reservation = reserve_contiguous_ephemeral_ports(1).pop().unwrap();
+        let address = reservation.local_addr().unwrap();
+        let mut listener = Some(into_tokio_listener(reservation));
+
+        let bound =
+            bind_loopback_listener_with(address, LoopbackPortSelection::Fixed, |candidate| {
+                assert_eq!(candidate, address);
+                ready(Ok(listener.take().unwrap()))
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(bound.local_addr().unwrap(), address);
+        assert!(StdTcpListener::bind(address).is_err());
+    }
+
+    #[tokio::test]
+    async fn sequential_selection_retains_the_first_successful_reserved_listener() {
+        let mut reservations = reserve_contiguous_ephemeral_ports(3);
+        let first_address = reservations[0].local_addr().unwrap();
+        let second_address = reservations[1].local_addr().unwrap();
+        let success = reservations.pop().unwrap();
+        let success_address = success.local_addr().unwrap();
+        let mut success = Some(into_tokio_listener(success));
+        let mut visited = Vec::new();
+
+        let bound = bind_loopback_listener_with(
+            first_address,
+            LoopbackPortSelection::SequentialFallback,
+            |candidate| {
+                visited.push(candidate);
+                if candidate == success_address {
+                    return ready(Ok(success.take().unwrap()));
+                }
+                let error = StdTcpListener::bind(candidate)
+                    .expect_err("the preceding candidate must remain reserved");
+                ready(Err(error))
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(visited, [first_address, second_address, success_address]);
+        assert_eq!(bound.local_addr().unwrap(), success_address);
+        assert!(StdTcpListener::bind(success_address).is_err());
+    }
+
+    #[test]
+    fn ephemeral_reservations_are_owned_by_the_operating_system() {
+        let reservations = reserve_contiguous_ephemeral_ports(3);
+        for reservation in reservations {
+            let address = reservation.local_addr().unwrap();
+            assert!(StdTcpListener::bind(address).is_err());
         }
     }
 }

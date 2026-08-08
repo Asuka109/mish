@@ -47,6 +47,13 @@ from the active generation becomes `ready` and receives a new `observedAt`
 timestamp. A failed refresh is `failed`; retained values, if any, remain visibly
 non-current.
 
+Every accepted invalidation and refresh is projected into one complete Settings
+snapshot and published to all current Rust/RPC subscribers. Its Settings
+`applicationOrder.order` advances when the public observation changes while the
+durable preference `revision` remains unchanged. Lifecycle-triggered refreshes
+use this same publication path as the user-triggered RPC action; the initiating
+caller does not receive a private observation unavailable to other clients.
+
 Authenticated RPC exposes only `settings.getSnapshot` and the empty-parameter
 `settings.refreshNetworkDns` action for this data. The Web client aborts its
 request when the view is disposed and suppresses duplicate refresh controls
