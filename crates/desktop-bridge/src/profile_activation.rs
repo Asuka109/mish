@@ -1762,6 +1762,31 @@ impl Machine for ProfileActivationMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        match state {
+            ProfileActivationState::Pending(pending)
+            | ProfileActivationState::Retrying { pending, .. } => {
+                let expected = match pending.stage {
+                    ProfileActivationStage::Effect => PROFILE_ACTIVATION_EFFECT_ID,
+                    ProfileActivationStage::Finalizing => PROFILE_ACTIVATION_FINALIZER_EFFECT_ID,
+                    ProfileActivationStage::Recovering => PROFILE_ACTIVATION_RECOVERY_EFFECT_ID,
+                };
+                correlation.effect_id == expected
+                    && pending
+                        .command
+                        .correlation(expected)
+                        .same_operation(correlation)
+            }
+            ProfileActivationState::Compensating { command, .. } => {
+                correlation.effect_id == PROFILE_ACTIVATION_COMPENSATION_EFFECT_ID
+                    && command
+                        .correlation(PROFILE_ACTIVATION_COMPENSATION_EFFECT_ID)
+                        .same_operation(correlation)
+            }
+            _ => false,
+        }
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         ProfileActivationMachineInput::TaskFailed {
             correlation,

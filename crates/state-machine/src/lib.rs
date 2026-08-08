@@ -172,6 +172,10 @@ pub trait Machine: Send + Sync + 'static {
     fn state_label(&self, state: &Self::State) -> &'static str;
     fn input_label(&self, input: &Self::Input) -> &'static str;
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation>;
+    /// Returns whether an effect owned by the runner may still complete for the current state.
+    /// Implementations must reject replaced operations and superseded effect stages even when
+    /// the supplied correlation is otherwise well formed.
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool;
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input;
     fn shutdown(&self) -> Self::Input;
     fn unavailable(&self) -> Self::Error;
@@ -737,7 +741,9 @@ fn finish_effect<M: Machine>(
     match joined {
         Ok((_, input)) => {
             let completion = machine.input_correlation(state, &input);
-            if completion.as_ref() != Some(&task.correlation) {
+            if completion.as_ref() != Some(&task.correlation)
+                || !machine.effect_is_current(state, &task.correlation)
+            {
                 record_evidence(
                     evidence,
                     evidence_limit,
@@ -1036,6 +1042,10 @@ mod tests {
             }
         }
 
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            matches!(state, TestState::Running(current) if current == correlation)
+        }
+
         fn task_failed(&self, _correlation: Correlation, failure: TaskFailure) -> Self::Input {
             let _ = failure;
             TestInput::Shutdown
@@ -1191,6 +1201,10 @@ mod tests {
             TestMachine.input_correlation(state, input)
         }
 
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            TestMachine.effect_is_current(state, correlation)
+        }
+
         fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
             TestMachine.task_failed(correlation, failure)
         }
@@ -1238,6 +1252,10 @@ mod tests {
             input: &Self::Input,
         ) -> Option<Correlation> {
             TestMachine.input_correlation(state, input)
+        }
+
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            TestMachine.effect_is_current(state, correlation)
         }
 
         fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
@@ -1628,7 +1646,7 @@ mod tests {
     #[derive(Clone, Debug, Eq, PartialEq)]
     enum AdversarialState {
         Idle,
-        Running,
+        Running(Correlation),
         ForeignCommitted,
         Retired,
     }
@@ -1636,6 +1654,7 @@ mod tests {
     #[derive(Clone, Debug)]
     enum AdversarialInput {
         Start(Correlation),
+        Replace(Correlation),
         Complete(Correlation),
         TaskFailed(Correlation),
         Shutdown,
@@ -1673,20 +1692,23 @@ mod tests {
             match (state, input) {
                 (AdversarialState::Idle, AdversarialInput::Start(correlation)) => {
                     Transition::EffectEmitting {
-                        state: AdversarialState::Running,
+                        state: AdversarialState::Running(correlation.clone()),
                         effects: EffectBatch::one(AdversarialEffect::Owned(correlation.clone())),
                     }
                 }
+                (AdversarialState::Running(_), AdversarialInput::Replace(correlation)) => {
+                    Transition::Accepted(AdversarialState::Running(correlation.clone()))
+                }
                 // Deliberately unsafe: this reducer accepts every completion and would run a
                 // business effect if the Kernel ever offered it a foreign correlation.
-                (AdversarialState::Running, AdversarialInput::Complete(correlation)) => {
+                (AdversarialState::Running(_), AdversarialInput::Complete(correlation)) => {
                     Transition::EffectEmitting {
                         state: AdversarialState::ForeignCommitted,
                         effects: EffectBatch::one(AdversarialEffect::Business(correlation.clone())),
                     }
                 }
                 (
-                    AdversarialState::Running | AdversarialState::ForeignCommitted,
+                    AdversarialState::Running(_) | AdversarialState::ForeignCommitted,
                     AdversarialInput::TaskFailed(_),
                 )
                 | (_, AdversarialInput::Shutdown) => {
@@ -1699,7 +1721,7 @@ mod tests {
         fn state_label(&self, state: &Self::State) -> &'static str {
             match state {
                 AdversarialState::Idle => "idle",
-                AdversarialState::Running => "running",
+                AdversarialState::Running(_) => "running",
                 AdversarialState::ForeignCommitted => "foreign-committed",
                 AdversarialState::Retired => "retired",
             }
@@ -1708,6 +1730,7 @@ mod tests {
         fn input_label(&self, input: &Self::Input) -> &'static str {
             match input {
                 AdversarialInput::Start(_) => "start",
+                AdversarialInput::Replace(_) => "replace",
                 AdversarialInput::Complete(_) => "complete",
                 AdversarialInput::TaskFailed(_) => "task-failed",
                 AdversarialInput::Shutdown => "shutdown",
@@ -1721,10 +1744,15 @@ mod tests {
         ) -> Option<Correlation> {
             match input {
                 AdversarialInput::Start(correlation)
+                | AdversarialInput::Replace(correlation)
                 | AdversarialInput::Complete(correlation)
                 | AdversarialInput::TaskFailed(correlation) => Some(correlation.clone()),
                 AdversarialInput::Shutdown => None,
             }
+        }
+
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            matches!(state, AdversarialState::Running(current) if current == correlation)
         }
 
         fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
@@ -1758,6 +1786,36 @@ mod tests {
                 AdversarialEffect::Owned(mut correlation) => {
                     correlation.scope_epoch = correlation.scope_epoch.saturating_add(1);
                     Box::pin(async move { AdversarialInput::Complete(correlation) })
+                }
+                AdversarialEffect::Business(correlation) => {
+                    self.business_effects.fetch_add(1, AtomicOrdering::Relaxed);
+                    Box::pin(async move { AdversarialInput::Complete(correlation) })
+                }
+            }
+        }
+    }
+
+    struct ReplacementAdversarialExecutor {
+        business_effects: Arc<AtomicUsize>,
+        release: Arc<Notify>,
+        started: Arc<Notify>,
+    }
+
+    impl EffectExecutor<AdversarialMachine> for ReplacementAdversarialExecutor {
+        fn execute(
+            &self,
+            effect: AdversarialEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = AdversarialInput> + Send + 'static>> {
+            match effect {
+                AdversarialEffect::Owned(correlation) => {
+                    let release = self.release.clone();
+                    let started = self.started.clone();
+                    Box::pin(async move {
+                        started.notify_one();
+                        release.notified().await;
+                        AdversarialInput::Complete(correlation)
+                    })
                 }
                 AdversarialEffect::Business(correlation) => {
                     self.business_effects.fetch_add(1, AtomicOrdering::Relaxed);
@@ -1845,6 +1903,68 @@ mod tests {
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].disposition, "retired");
         assert_eq!(conflicts[0].effect_id, Some(1));
+        let _ = runner.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn replaced_effect_completion_never_reaches_an_adversarial_reducer() {
+        let finalized = Arc::new(Mutex::new(Vec::new()));
+        let business_effects = Arc::new(AtomicUsize::new(0));
+        let foreign_commits = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(Notify::new());
+        let started = Arc::new(Notify::new());
+        let runner = spawn_runner(
+            Arc::new(AdversarialMachine {
+                finalized: finalized.clone(),
+            }),
+            AdversarialState::Idle,
+            Arc::new(ReplacementAdversarialExecutor {
+                business_effects: business_effects.clone(),
+                release: release.clone(),
+                started: started.clone(),
+            }),
+            Arc::new(AdversarialObserver {
+                foreign_commits: foreign_commits.clone(),
+            }),
+            RunnerConfig::default(),
+        );
+        let owned = correlation("replaced-operation");
+        let replacement = correlation("replacement-operation");
+
+        runner
+            .admit(AdversarialInput::Start(owned.clone()))
+            .await
+            .unwrap();
+        started.notified().await;
+        runner
+            .admit(AdversarialInput::Replace(replacement))
+            .await
+            .unwrap();
+        release.notify_one();
+        for _ in 0..100 {
+            if runner.snapshot() == AdversarialState::Retired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(runner.snapshot(), AdversarialState::Retired);
+        assert_eq!(foreign_commits.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(business_effects.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(
+            *finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned"),
+            vec![(owned, TaskFailure::CompletionConflict)]
+        );
+        assert_eq!(
+            runner
+                .evidence()
+                .into_iter()
+                .filter(|entry| entry.input == "effect-completion-conflict")
+                .count(),
+            1
+        );
         let _ = runner.shutdown().await;
     }
 

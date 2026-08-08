@@ -43,10 +43,14 @@ recovery-required transitions.
 - a bounded evidence ring containing hashed authority/operation identity and
   state/input/disposition labels.
 
-The runner checks a completed task against the correlation it owned before it
-calls the reducer. A foreign or stale completion is never a domain input: the
-runner records one bounded `effect-completion-conflict` retirement entry and
-constructs exactly one domain finalizer from the owned original correlation.
+The runner checks a completed task against the correlation it owned and asks
+the machine whether that owned effect is still current for the present state
+before it calls the reducer. A foreign completion and an otherwise well-formed
+completion from an operation that has since been replaced are never domain
+inputs: the runner records one bounded `effect-completion-conflict` retirement
+entry and constructs exactly one domain finalizer from the owned original
+correlation. Every machine must implement this current-effect predicate from
+its own State and Effect vocabulary.
 Domain correlation guards remain required as defense in depth for inputs that
 arrive through ordinary admission rather than an owned effect task.
 

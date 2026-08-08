@@ -1361,6 +1361,26 @@ impl Machine for ContinuationMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        let (operation, effect_id) = match state {
+            ContinuationState::Downloading { operation, .. } => (operation, DOWNLOAD_EFFECT_ID),
+            ContinuationState::Verifying { operation, .. } => (operation, VERIFY_EFFECT_ID),
+            ContinuationState::CommittingCandidate { operation, .. } => {
+                (operation, COMMIT_CANDIDATE_EFFECT_ID)
+            }
+            ContinuationState::Finalizing { operation, .. } => (operation, FINALIZE_EFFECT_ID),
+            ContinuationState::Recovering { operation, .. } => (operation, REVERIFY_EFFECT_ID),
+            _ => return false,
+        };
+        operation.accepts(
+            &EffectCorrelation {
+                machine: correlation.clone(),
+                progress_sequence: 0,
+            },
+            effect_id,
+        )
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         ContinuationInput::EffectCompleted(ContinuationCompletion {
             correlation: EffectCorrelation {
