@@ -15,7 +15,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LocalProxyOwnership,
+    CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
+    CoreStatusEventSink, LocalProxyOwnership,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -431,7 +432,7 @@ impl DesktopMihomoProcess {
         status
     }
 
-    pub async fn start(&self) -> Result<CoreStatus, String> {
+    async fn start(&self) -> Result<CoreStatus, String> {
         if !self.configured() {
             return Err("Mihomo requires an explicit binary and configuration path".into());
         }
@@ -657,7 +658,7 @@ impl DesktopMihomoProcess {
         Ok(reported)
     }
 
-    pub async fn stop(&self) -> Result<CoreStatus, String> {
+    async fn stop(&self) -> Result<CoreStatus, String> {
         let mut inner = self.inner.lock().await;
         inner.generation = inner.generation.wrapping_add(1);
         if let Some(process) = inner.privileged_process.take() {
@@ -1005,24 +1006,26 @@ impl CoreRuntime for DesktopMihomoProcess {
         Box::pin(DesktopMihomoProcess::status(self))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(async move {
-            if !self.configured() {
-                return Err(CoreError::unavailable(
-                    "Mihomo requires an explicit binary and configuration path",
-                ));
+            match command.mutation() {
+                CoreLifecycleMutation::Start => {
+                    if !self.configured() {
+                        return Err(CoreError::unavailable(
+                            "Mihomo requires an explicit binary and configuration path",
+                        ));
+                    }
+                    DesktopMihomoProcess::start(self)
+                        .await
+                        .map_err(CoreError::start_failed)
+                }
+                CoreLifecycleMutation::Stop => DesktopMihomoProcess::stop(self)
+                    .await
+                    .map_err(CoreError::stop_failed),
             }
-            DesktopMihomoProcess::start(self)
-                .await
-                .map_err(CoreError::start_failed)
-        })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move {
-            DesktopMihomoProcess::stop(self)
-                .await
-                .map_err(CoreError::stop_failed)
         })
     }
 }

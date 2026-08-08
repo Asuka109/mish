@@ -9,6 +9,11 @@ static int fixture_loaded = 0;
 static int fixture_running = 0;
 static uint64_t fixture_sequence = 0;
 static char fixture_session[129] = {0};
+static char fixture_machine_authority[129] = {0};
+static char fixture_operation_id[129] = {0};
+static char fixture_effect_identity[129] = {0};
+static uint64_t fixture_scope_epoch = 0;
+static uint64_t fixture_admitted_revision = 0;
 static MishCorePlatformV1 fixture_platform = {0};
 
 static int32_t set_response(MishCoreBufferV1 *response, int32_t status,
@@ -78,6 +83,46 @@ static int extract_string(const char *json, const char *field, char *output,
   memcpy(output, start, length);
   output[length] = '\0';
   return 1;
+}
+
+static int extract_uint64(const char *json, const char *field, uint64_t *output) {
+  char needle[96];
+  char *end;
+  const char *start;
+  unsigned long long value;
+  snprintf(needle, sizeof(needle), "\"%s\":", field);
+  start = strstr(json, needle);
+  if (start == NULL) return 0;
+  start += strlen(needle);
+  value = strtoull(start, &end, 10);
+  if (end == start || value == 0) return 0;
+  *output = (uint64_t)value;
+  return 1;
+}
+
+static int lifecycle_is_successor(const char *machine, uint64_t scope,
+                                  const char *operation, uint64_t revision,
+                                  const char *effect) {
+  char cleanup_effect[140];
+  if (fixture_scope_epoch == 0) return 1;
+  if (strcmp(machine, fixture_machine_authority) != 0) return 0;
+  if (scope != fixture_scope_epoch) return scope > fixture_scope_epoch;
+  if (revision != fixture_admitted_revision)
+    return revision > fixture_admitted_revision;
+  snprintf(cleanup_effect, sizeof(cleanup_effect), "%s.cleanup",
+           fixture_effect_identity);
+  return strcmp(operation, fixture_operation_id) == 0 &&
+         strcmp(effect, cleanup_effect) == 0;
+}
+
+static void record_lifecycle(const char *machine, uint64_t scope,
+                             const char *operation, uint64_t revision,
+                             const char *effect) {
+  strcpy(fixture_machine_authority, machine);
+  strcpy(fixture_operation_id, operation);
+  strcpy(fixture_effect_identity, effect);
+  fixture_scope_epoch = scope;
+  fixture_admitted_revision = revision;
 }
 
 static int32_t require_initialized(MishCoreBufferV1 *response) {
@@ -182,6 +227,11 @@ int32_t mish_core_start_v1(uint8_t *request,
                            MishCoreBufferV1 *response) {
   char *json;
   char session[129] = {0};
+  char machine[129] = {0};
+  char operation[129] = {0};
+  char effect[129] = {0};
+  uint64_t scope = 0;
+  uint64_t revision = 0;
   int32_t initialized = require_initialized(response);
   if (initialized != MISH_CORE_OK_V1) {
     return initialized;
@@ -192,6 +242,11 @@ int32_t mish_core_start_v1(uint8_t *request,
   }
   json = copy_input(request, request_length, MISH_CORE_MAX_REQUEST_BYTES_V1);
   if (json == NULL || !extract_string(json, "sessionId", session, sizeof(session)) ||
+      !extract_string(json, "machineAuthority", machine, sizeof(machine)) ||
+      !extract_uint64(json, "scopeEpoch", &scope) ||
+      !extract_string(json, "operationId", operation, sizeof(operation)) ||
+      !extract_uint64(json, "admittedRevision", &revision) ||
+      !extract_string(json, "effectIdentity", effect, sizeof(effect)) ||
       strstr(json, "\"tunFileDescriptor\":") == NULL ||
       strstr(json, "\"addresses\":[") == NULL || strstr(json, "\"mtu\":") == NULL) {
     free(json);
@@ -200,17 +255,26 @@ int32_t mish_core_start_v1(uint8_t *request,
   }
   free(json);
   if (fixture_running) {
-    if (strcmp(fixture_session, session) == 0) {
+    if (strcmp(fixture_session, session) == 0 &&
+        strcmp(machine, fixture_machine_authority) == 0 &&
+        scope == fixture_scope_epoch && revision == fixture_admitted_revision &&
+        strcmp(operation, fixture_operation_id) == 0 &&
+        strcmp(effect, fixture_effect_identity) == 0) {
       return status_response(response);
     }
     return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
                      "another session is already running");
+  }
+  if (!lifecycle_is_successor(machine, scope, operation, revision, effect)) {
+    return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                     "lifecycle authority is stale");
   }
   if (fixture_platform.protect_socket(100, fixture_platform.user_data) != 0) {
     return set_error(response, MISH_CORE_FAILURE_V1, "core-failure",
                      "platform rejected socket protection");
   }
   strcpy(fixture_session, session);
+  record_lifecycle(machine, scope, operation, revision, effect);
   fixture_running = 1;
   fixture_sequence++;
   return status_response(response);
@@ -220,17 +284,36 @@ int32_t mish_core_stop_v1(uint8_t *request,
                           uint64_t request_length,
                           MishCoreBufferV1 *response) {
   char *json;
+  char machine[129] = {0};
+  char operation[129] = {0};
+  char effect[129] = {0};
+  uint64_t scope = 0;
+  uint64_t revision = 0;
   int32_t initialized = require_initialized(response);
   if (initialized != MISH_CORE_OK_V1) {
     return initialized;
   }
   json = copy_input(request, request_length, MISH_CORE_MAX_REQUEST_BYTES_V1);
-  if (json == NULL || request_length == 0) {
+  if (json == NULL || request_length == 0 ||
+      !extract_string(json, "machineAuthority", machine, sizeof(machine)) ||
+      !extract_uint64(json, "scopeEpoch", &scope) ||
+      !extract_string(json, "operationId", operation, sizeof(operation)) ||
+      !extract_uint64(json, "admittedRevision", &revision) ||
+      !extract_string(json, "effectIdentity", effect, sizeof(effect))) {
     free(json);
     return set_error(response, MISH_CORE_INVALID_ARGUMENT_V1, "invalid-argument",
                      "stop request is invalid");
   }
   free(json);
+  if (!lifecycle_is_successor(machine, scope, operation, revision, effect) &&
+      !(strcmp(machine, fixture_machine_authority) == 0 &&
+        scope == fixture_scope_epoch && revision == fixture_admitted_revision &&
+        strcmp(operation, fixture_operation_id) == 0 &&
+        strcmp(effect, fixture_effect_identity) == 0)) {
+    return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                     "lifecycle authority is stale");
+  }
+  record_lifecycle(machine, scope, operation, revision, effect);
   if (fixture_running) {
     fixture_running = 0;
     fixture_session[0] = '\0';

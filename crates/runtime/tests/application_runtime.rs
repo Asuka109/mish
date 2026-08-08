@@ -7,20 +7,28 @@ use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink,
-    GroupSelectionAvailability, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState, NotificationPresentationCompletion,
-    NotificationPresentationFoldReason, NotificationPresentationIdentity,
-    NotificationPresentationPhase, ProfileSummary, RecentTrafficObservation,
-    RuntimeShutdownFailure, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
+    CoreErrorKind, CoreLifecycleCommand, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase,
+    CoreRuntime, CoreStatus, CoreStatusEventSink, GroupSelectionAvailability,
+    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
+    NotificationPresentationCompletion, NotificationPresentationFoldReason,
+    NotificationPresentationIdentity, NotificationPresentationPhase, ProfileSummary,
+    RecentTrafficObservation, RuntimeShutdownFailure, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusProjectionEventSink,
+    StatusSnapshot,
 };
 use tokio::{
     sync::Notify,
     time::{Duration, timeout},
 };
 
-struct EmbeddedCore;
+#[derive(Default)]
+struct EmbeddedCore {
+    running: AtomicBool,
+}
+
+fn lifecycle(operation_id: &str) -> CoreLifecycleOperation {
+    CoreLifecycleOperation::new("test-authority", 1, operation_id, 1, 1).unwrap()
+}
 
 impl CoreRuntime for EmbeddedCore {
     fn configured(&self) -> bool {
@@ -30,25 +38,31 @@ impl CoreRuntime for EmbeddedCore {
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
         Box::pin(ready(CoreStatus {
             error: None,
-            phase: CorePhase::Stopped,
+            phase: if self.running.load(Ordering::Acquire) {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
             pid: None,
             version: Some("embedded-test".into()),
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.running.store(
+            command.mutation() == CoreLifecycleMutation::Start,
+            Ordering::Release,
+        );
         Box::pin(ready(Ok(CoreStatus {
             error: None,
-            phase: CorePhase::Running,
-            pid: None,
-            version: Some("embedded-test".into()),
-        })))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(ready(Ok(CoreStatus {
-            error: None,
-            phase: CorePhase::Stopped,
+            phase: if command.mutation() == CoreLifecycleMutation::Start {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
             pid: None,
             version: Some("embedded-test".into()),
         })))
@@ -63,6 +77,12 @@ struct TransitionCore {
     running: AtomicBool,
 }
 
+struct ReplacementCore {
+    calls: AtomicUsize,
+    first_started: Notify,
+    release_first: Notify,
+}
+
 #[derive(Default)]
 struct RecordingGroupSource {
     calls: AtomicUsize,
@@ -70,7 +90,7 @@ struct RecordingGroupSource {
 
 struct PublishingStatusSource {
     observation: Mutex<Option<RecentTrafficObservation>>,
-    sink: OnceLock<CoreStatusEventSink>,
+    sink: OnceLock<StatusProjectionEventSink>,
 }
 
 struct ShutdownRecordingSource {
@@ -284,13 +304,14 @@ impl CoreRuntime for TransitionCore {
         Box::pin(ready(self.current_status()))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.running.store(true, Ordering::Release);
-        Box::pin(ready(Ok(self.current_status())))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.running.store(false, Ordering::Release);
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.running.store(
+            command.mutation() == CoreLifecycleMutation::Start,
+            Ordering::Release,
+        );
         Box::pin(ready(Ok(self.current_status())))
     }
 }
@@ -330,7 +351,7 @@ impl PublishingStatusSource {
 }
 
 impl StatusDataSource for PublishingStatusSource {
-    fn attach_status_event_sink(&self, sink: CoreStatusEventSink) {
+    fn attach_status_event_sink(&self, sink: StatusProjectionEventSink) {
         let _ = self.sink.set(sink);
     }
 
@@ -365,24 +386,34 @@ impl CoreRuntime for ShutdownRecordingCore {
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        let stopped = self.order.lock().unwrap().contains(&"core");
         Box::pin(ready(CoreStatus {
             error: None,
-            phase: CorePhase::Running,
+            phase: if stopped {
+                CorePhase::Stopped
+            } else {
+                CorePhase::Running
+            },
             pid: None,
             version: Some("embedded-test".into()),
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move { Ok(self.status().await) })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(async move {
-            self.order.lock().unwrap().push("core");
+            if command.mutation() == CoreLifecycleMutation::Stop {
+                self.order.lock().unwrap().push("core");
+            }
             Ok(CoreStatus {
                 error: None,
-                phase: CorePhase::Stopped,
+                phase: if command.mutation() == CoreLifecycleMutation::Start {
+                    CorePhase::Running
+                } else {
+                    CorePhase::Stopped
+                },
                 pid: None,
                 version: Some("embedded-test".into()),
             })
@@ -404,14 +435,55 @@ impl CoreRuntime for UnavailableCore {
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(ready(Err(CoreError::unavailable(
-            "No mobile core installed",
-        ))))
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Err(
+            if command.mutation() == CoreLifecycleMutation::Start {
+                CoreError::unavailable("No mobile core installed")
+            } else {
+                CoreError::stop_failed("Core rejected stop")
+            },
+        )))
+    }
+}
+
+impl CoreRuntime for ReplacementCore {
+    fn configured(&self) -> bool {
+        true
     }
 
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(ready(Err(CoreError::stop_failed("Core rejected stop"))))
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(CoreStatus {
+            error: None,
+            phase: CorePhase::Stopped,
+            pid: None,
+            version: Some("replacement-test".into()),
+        }))
+    }
+
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        let call = self.calls.fetch_add(1, Ordering::AcqRel);
+        Box::pin(async move {
+            if call == 0 {
+                self.first_started.notify_one();
+                self.release_first.notified().await;
+            }
+            Ok(CoreStatus {
+                error: None,
+                phase: if command.mutation() == CoreLifecycleMutation::Start {
+                    CorePhase::Running
+                } else {
+                    CorePhase::Stopped
+                },
+                pid: None,
+                version: Some("replacement-test".into()),
+            })
+        })
     }
 }
 
@@ -448,19 +520,17 @@ impl CoreRuntime for EventReportingCore {
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(ready(Ok(CoreStatus {
             error: None,
-            phase: CorePhase::Running,
-            pid: None,
-            version: Some("embedded-test".into()),
-        })))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(ready(Ok(CoreStatus {
-            error: None,
-            phase: CorePhase::Stopped,
+            phase: if command.mutation() == CoreLifecycleMutation::Start {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
             pid: None,
             version: Some("embedded-test".into()),
         })))
@@ -469,11 +539,14 @@ impl CoreRuntime for EventReportingCore {
 
 #[tokio::test]
 async fn runtime_drives_an_injected_core_and_publishes_status() {
-    let runtime = MishRuntime::new(Arc::new(EmbeddedCore));
+    let runtime = MishRuntime::new(Arc::new(EmbeddedCore::default()));
     let mut updates = runtime.subscribe_status();
 
     assert!(runtime.core_configured());
-    let status = runtime.start_core().await.unwrap();
+    let status = runtime
+        .execute_core_lifecycle(&lifecycle("start-core"), CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
     assert!(matches!(status.phase, CorePhase::Running));
 
     let update = updates.recv().await.unwrap();
@@ -491,8 +564,67 @@ async fn runtime_preserves_typed_core_failures_without_publishing_success() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
     let mut updates = runtime.subscribe_status();
 
-    let error = runtime.start_core().await.unwrap_err();
+    let error = runtime
+        .execute_core_lifecycle(
+            &lifecycle("start-unavailable"),
+            CoreLifecycleMutation::Start,
+        )
+        .await
+        .unwrap_err();
     assert!(matches!(error.kind, CoreErrorKind::Unavailable));
+    let observed = updates.recv().await.unwrap();
+    assert!(matches!(observed.phase, CorePhase::Stopped));
+}
+
+#[tokio::test]
+async fn replaced_core_completion_retires_without_publishing_success() {
+    let core = Arc::new(ReplacementCore {
+        calls: AtomicUsize::new(0),
+        first_started: Notify::new(),
+        release_first: Notify::new(),
+    });
+    let runtime = MishRuntime::new(core.clone());
+    let mut updates = runtime.subscribe_status();
+    let old_operation =
+        CoreLifecycleOperation::new("profile-authority", 3, "activate-old", 7, 1).unwrap();
+    let delayed_old_operation = old_operation.clone();
+    let replacement =
+        CoreLifecycleOperation::new("profile-authority", 3, "stop-new", 8, 1).unwrap();
+    let old_runtime = runtime.clone();
+    let old = tokio::spawn(async move {
+        old_runtime
+            .execute_core_lifecycle(&old_operation, CoreLifecycleMutation::Start)
+            .await
+    });
+    core.first_started.notified().await;
+
+    let foreign = CoreLifecycleOperation::new("foreign-authority", 4, "foreign", 9, 1).unwrap();
+    let error = runtime
+        .execute_core_lifecycle(&foreign, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap_err();
+    assert!(matches!(error.kind, CoreErrorKind::Retired));
+    assert_eq!(core.calls.load(Ordering::Acquire), 1);
+
+    let stopped = runtime
+        .execute_core_lifecycle(&replacement, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
+    assert!(matches!(stopped.phase, CorePhase::Stopped));
+    assert!(matches!(
+        updates.recv().await.unwrap().phase,
+        CorePhase::Stopped
+    ));
+
+    core.release_first.notify_one();
+    let retired = old.await.unwrap().unwrap_err();
+    assert!(matches!(retired.kind, CoreErrorKind::Retired));
+    let delayed = runtime
+        .execute_core_lifecycle(&delayed_old_operation, CoreLifecycleMutation::Start)
+        .await
+        .unwrap_err();
+    assert!(matches!(delayed.kind, CoreErrorKind::Retired));
+    assert_eq!(core.calls.load(Ordering::Acquire), 2);
     assert!(
         timeout(Duration::from_millis(20), updates.recv())
             .await
@@ -502,8 +634,10 @@ async fn runtime_preserves_typed_core_failures_without_publishing_success() {
 
 #[tokio::test]
 async fn runtime_uses_an_injected_transport_neutral_status_source() {
-    let runtime =
-        MishRuntime::with_status_source(Arc::new(EmbeddedCore), Arc::new(SuppliedStatusSource));
+    let runtime = MishRuntime::with_status_source(
+        Arc::new(EmbeddedCore::default()),
+        Arc::new(SuppliedStatusSource),
+    );
     let snapshot = runtime.status_snapshot(StatusAdapterKind::Native).await;
 
     assert_eq!(snapshot["activeProfileId"], "supplied-profile");
@@ -540,7 +674,11 @@ async fn group_selection_is_admitted_only_while_the_core_is_running() {
         GroupSelectionAvailability::CoreNotRunning
     );
 
-    runtime.start_core().await.unwrap();
+    let core_lifecycle = lifecycle("group-selection");
+    runtime
+        .execute_core_lifecycle(&core_lifecycle, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
     assert_eq!(
         runtime
             .status_snapshot_typed(StatusAdapterKind::Rpc)
@@ -554,7 +692,10 @@ async fn group_selection_is_admitted_only_while_the_core_is_running() {
         .unwrap();
     assert_eq!(source.calls.load(Ordering::Acquire), 1);
 
-    runtime.stop_core().await.unwrap();
+    runtime
+        .execute_core_lifecycle(&core_lifecycle, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
     let error = runtime
         .select_group_child_typed("group".into(), "child".into(), StatusAdapterKind::Rpc)
         .await
@@ -577,7 +718,8 @@ async fn source_publication_advances_recent_traffic_without_a_snapshot_reader() 
         })),
         sink: OnceLock::new(),
     });
-    let runtime = MishRuntime::with_status_source(Arc::new(EmbeddedCore), source.clone());
+    let runtime =
+        MishRuntime::with_status_source(Arc::new(EmbeddedCore::default()), source.clone());
     let started = runtime
         .recent_traffic()
         .capture_applied("profile-a", source.recent_traffic_observation());
@@ -621,6 +763,28 @@ async fn runtime_forwards_adapter_reported_lifecycle_events() {
 }
 
 #[tokio::test]
+async fn adapter_cannot_publish_terminal_success_without_owned_finalization() {
+    let core = Arc::new(EventReportingCore {
+        events: Mutex::new(None),
+    });
+    let runtime = MishRuntime::new(core.clone());
+    let mut updates = runtime.subscribe_status();
+
+    core.report(CoreStatus {
+        error: None,
+        phase: CorePhase::Running,
+        pid: Some(17),
+        version: Some("unowned".into()),
+    });
+
+    assert!(
+        timeout(Duration::from_millis(20), updates.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn runtime_shuts_down_status_source_before_core_lifecycle() {
     let order = Arc::new(Mutex::new(Vec::new()));
     let runtime = MishRuntime::with_status_source(
@@ -632,7 +796,10 @@ async fn runtime_shuts_down_status_source_before_core_lifecycle() {
         }),
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime
+        .shutdown(&lifecycle("shutdown-order"))
+        .await
+        .unwrap();
 
     assert_eq!(*order.lock().unwrap(), ["status-source", "core"]);
 }
@@ -653,7 +820,9 @@ async fn runtime_does_not_stop_core_when_capture_restoration_is_unconfirmed() {
     );
 
     assert!(matches!(
-        runtime.shutdown().await,
+        runtime
+            .shutdown(&lifecycle("shutdown-capture-failure"))
+            .await,
         Err(RuntimeShutdownFailure::CaptureRestoration)
     ));
     assert!(order.lock().unwrap().is_empty());
@@ -674,7 +843,10 @@ async fn runtime_stops_without_observing_system_proxy_when_it_has_no_capture_aut
         capture,
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime
+        .shutdown(&lifecycle("shutdown-no-capture"))
+        .await
+        .unwrap();
 
     assert_eq!(*order.lock().unwrap(), ["core"]);
 }
@@ -718,14 +890,19 @@ async fn runtime_does_not_skip_capture_reconciliation_during_an_uncommitted_oper
     observation_started.await;
 
     assert!(matches!(
-        runtime.shutdown().await,
+        runtime
+            .shutdown(&lifecycle("shutdown-pending-capture"))
+            .await,
         Err(RuntimeShutdownFailure::CaptureRestoration)
     ));
     assert!(order.lock().unwrap().is_empty());
 
     release.notify_one();
     operation.await.unwrap().unwrap();
-    runtime.shutdown().await.unwrap();
+    runtime
+        .shutdown(&lifecycle("shutdown-after-capture"))
+        .await
+        .unwrap();
     assert_eq!(*order.lock().unwrap(), ["core"]);
 }
 
@@ -763,7 +940,10 @@ async fn runtime_restores_capture_before_stopping_core() {
         capture,
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime
+        .shutdown(&lifecycle("shutdown-restores-capture"))
+        .await
+        .unwrap();
 
     assert_eq!(*order.lock().unwrap(), ["capture", "core"]);
     assert!(journal.load().unwrap().is_none());
@@ -774,7 +954,7 @@ async fn runtime_reports_core_stop_failure_after_capture_is_safe() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
 
     assert!(matches!(
-        runtime.shutdown().await,
+        runtime.shutdown(&lifecycle("shutdown-core-failure")).await,
         Err(RuntimeShutdownFailure::CoreStop)
     ));
 }

@@ -315,6 +315,11 @@ pub(crate) struct ActivationAuthority {
     pub fact_sequence: u64,
     pub platform_session_id: String,
     pub product_session_id: String,
+    pub machine_authority: String,
+    pub scope_epoch: u64,
+    pub operation_id: String,
+    pub admitted_revision: u64,
+    pub effect_identity: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -352,6 +357,11 @@ impl LifecycleEffect {
                 fact_sequence: state.facts.fact_sequence,
                 platform_session_id: state.facts.platform_session_id.clone(),
                 product_session_id: state.session_id.clone(),
+                machine_authority: correlation.machine_authority.clone(),
+                scope_epoch: correlation.scope_epoch,
+                operation_id: correlation.operation_id.clone(),
+                admitted_revision: correlation.admitted_revision,
+                effect_identity: correlation.effect_id.to_string(),
             }),
             correlation,
             mode: EffectMode::Spawn,
@@ -1086,10 +1096,10 @@ fn reduce_shutdown(
         return Transition::Unchanged;
     }
     let mut next = state.clone();
-    if state.active.is_some() {
-        if let Some(next_active) = next.active.as_mut() {
-            next_active.cancellation = Some(LifecycleOperationOutcome::Unknown);
-        }
+    if state.active.is_some()
+        && let Some(next_active) = next.active.as_mut()
+    {
+        next_active.cancellation = Some(LifecycleOperationOutcome::Unknown);
     }
     next.phase = if state.active.is_some() {
         LifecyclePhase::Stopping

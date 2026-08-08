@@ -94,6 +94,11 @@ Start accepts one bounded DTO:
 
 ```json
 {
+  "machineAuthority": "mobile-profile-authority",
+  "scopeEpoch": 7,
+  "operationId": "activate-profile",
+  "admittedRevision": 42,
+  "effectIdentity": "1",
   "sessionId": "platform-authority-id",
   "tunFileDescriptor": 42,
   "stack": "mixed",
@@ -105,9 +110,11 @@ Start accepts one bounded DTO:
 
 `stack` is one of `gvisor`, `system`, or `mixed`; address lists contain at most
 eight entries; and MTU is between 1280 and 9000. The platform owns creation and
-closure coordination for the supplied descriptor. Starting the same running
-session is idempotent. Starting a different session returns `CONFLICT`. Stop is
-idempotent; an explicitly supplied session must own the running Core.
+closure coordination for the supplied descriptor. Start and stop both require
+the five lifecycle authority fields. The wrapper retains the latest admitted
+authority and rejects a foreign machine, older scope/revision, or unowned
+same-revision effect with `CONFLICT` before mutation. Retrying the exact current
+command is idempotent; an explicitly supplied session must own the running Core.
 
 ## Snapshots, commands, and events
 

@@ -394,20 +394,26 @@ impl LoopbackServerHandle {
             service_probes.shutdown();
         }
         self.updater_service.shutdown().await;
-        if let Err(failure) = self.runtime.current().shutdown().await {
-            return BridgeShutdownOutcome::Failed {
-                failure: match failure {
-                    RuntimeShutdownFailure::CaptureRestoration => {
-                        BridgeShutdownFailure::RuntimeCaptureRestoration
-                    }
-                    RuntimeShutdownFailure::CoreStop => BridgeShutdownFailure::RuntimeCoreStop,
-                },
-                handle: Box::new(self),
-                report,
-            };
+        let runtime = self.runtime.current();
+        runtime.shutdown_observers().await;
+        if self.profile_activation.is_none() {
+            // A transport-only bridge cannot mutate Core or Capture. It may close only after a
+            // fresh read-only proof confirms that no coordinator-owned teardown remains.
+            if let Err(failure) = runtime.confirm_transport_shutdown_safe().await {
+                return BridgeShutdownOutcome::Failed {
+                    failure: match failure {
+                        RuntimeShutdownFailure::CaptureRestoration => {
+                            BridgeShutdownFailure::RuntimeCaptureRestoration
+                        }
+                        RuntimeShutdownFailure::CoreStop => BridgeShutdownFailure::RuntimeCoreStop,
+                    },
+                    handle: Box::new(self),
+                    report,
+                };
+            }
+            report.capture_restored = true;
+            report.core_stopped = true;
         }
-        report.capture_restored = true;
-        report.core_stopped = true;
         if let Some(shutdown) = self.shutdown.take() {
             self.socket_shutdown.cancel();
             let _ = shutdown.send(());

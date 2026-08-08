@@ -17,9 +17,9 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureFailureKind, CaptureReconciler, CaptureRequest, CaptureRuntimeTransition,
-    CaptureSelection, CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint,
-    MishRuntime, PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason,
-    StatusAdapterKind,
+    CaptureSelection, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime,
+    LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
+    PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason, StatusAdapterKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -668,6 +668,7 @@ impl MihomoActivationManager {
 
     pub async fn recover_startup(
         &self,
+        _operation: &CoreLifecycleOperation,
     ) -> Result<ManagedCoreRecoveryOutcome, MihomoActivationError> {
         let mut recovered = self.recovery_outcome.lock().await;
         if let Some(outcome) = *recovered {
@@ -691,11 +692,12 @@ impl MihomoActivationManager {
 
     pub async fn activate(
         &self,
+        operation: &CoreLifecycleOperation,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         let result = self
-            .activate_cancellable(record, policy, CancellationToken::new())
+            .activate_cancellable(operation, record, policy, CancellationToken::new())
             .await;
         self.complete_runtime_handoff().await;
         result
@@ -703,16 +705,18 @@ impl MihomoActivationManager {
 
     pub async fn activate_cancellable(
         &self,
+        operation: &CoreLifecycleOperation,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable_observed(record, policy, cancellation, None, None)
+        self.activate_cancellable_observed(operation, record, policy, cancellation, None, None)
             .await
     }
 
     pub(crate) async fn activate_cancellable_observed(
         &self,
+        operation: &CoreLifecycleOperation,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
@@ -720,26 +724,26 @@ impl MihomoActivationManager {
         final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         self.activate_cancellable_observed_for_operation(
+            operation,
             record,
             policy,
             cancellation,
             progress,
             final_capture,
-            None,
         )
         .await
     }
 
     pub(crate) async fn activate_cancellable_observed_for_operation(
         &self,
+        operation: &CoreLifecycleOperation,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
         progress: Option<&crate::ProfileActivationProgressObserver>,
         final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
-        saga_operation_id: Option<&str>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.recover_startup().await?;
+        self.recover_startup(operation).await?;
         if !self.timing.valid() {
             return Err(MihomoActivationError::InvalidTiming);
         }
@@ -782,7 +786,7 @@ impl MihomoActivationManager {
         };
 
         if cancellation.is_cancelled() {
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             record_failed_attempt(&mut state.managed, record, MihomoActivationError::Cancelled);
             persist_managed_state(resolved.runtime_root(), &state.managed)?;
             self.finish_listener_preparation().await?;
@@ -792,11 +796,11 @@ impl MihomoActivationManager {
         let mut capture_transition = match &self.capture {
             Some(capture) => match capture
                 .clone()
-                .begin_runtime_transition_for_operation(saga_operation_id)
+                .begin_runtime_transition_for_operation(Some(operation.operation_id()))
             {
                 Ok(transition) => Some(transition),
                 Err(_) => {
-                    rollback_candidate(candidate).await;
+                    rollback_candidate(candidate, operation).await;
                     let error =
                         MihomoActivationError::CaptureFailed(CaptureFailureKind::RuntimeTransition);
                     record_failed_attempt(&mut state.managed, record, error);
@@ -821,7 +825,7 @@ impl MihomoActivationManager {
                     if let Some(previous) = state.active.as_ref() {
                         previous.runtime.resume_observations().await;
                     }
-                    rollback_candidate(candidate).await;
+                    rollback_candidate(candidate, operation).await;
                     record_failed_attempt(&mut state.managed, record, error);
                     persist_managed_state(resolved.runtime_root(), &state.managed)?;
                     return Err(error);
@@ -832,14 +836,19 @@ impl MihomoActivationManager {
         };
 
         if let Some(previous) = state.active.as_ref()
-            && previous.runtime.stop_core().await.is_err()
+            && previous
+                .runtime
+                .execute_core_lifecycle(operation, CoreLifecycleMutation::Stop)
+                .await
+                .is_err()
         {
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             record_failed_attempt(
@@ -864,12 +873,13 @@ impl MihomoActivationManager {
         }
 
         if let Err(error) = seed_bundled_geodata(resolved.bundled_geodata(), &candidate.home) {
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             record_failed_attempt(&mut state.managed, record, error);
@@ -900,12 +910,13 @@ impl MihomoActivationManager {
         {
             Ok(conflict) => conflict,
             Err(error) => {
-                rollback_candidate(candidate).await;
+                rollback_candidate(candidate, operation).await;
                 let restored = self
                     .restore_previous(
                         state.active.as_ref(),
                         suspended_capture.as_ref(),
                         capture_transition.as_ref(),
+                        operation,
                     )
                     .await;
                 record_failed_attempt(&mut state.managed, record, error);
@@ -933,12 +944,13 @@ impl MihomoActivationManager {
                     commit_conflict,
                 ));
             }
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             let error = MihomoActivationError::ManagedListenerConflict(commit_conflict);
@@ -961,13 +973,17 @@ impl MihomoActivationManager {
             return Err(error);
         }
 
-        if let Err(error) = self.start_candidate(&candidate, cancellation.clone()).await {
-            rollback_candidate(candidate).await;
+        if let Err(error) = self
+            .start_candidate(&candidate, operation, cancellation.clone())
+            .await
+        {
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             record_failed_attempt(&mut state.managed, record, error);
@@ -1010,12 +1026,13 @@ impl MihomoActivationManager {
             },
         };
         if let Some(capture_failure) = capture_handoff_failure {
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             let error = MihomoActivationError::CaptureFailed(capture_failure);
@@ -1040,12 +1057,13 @@ impl MihomoActivationManager {
             if suspended_capture.is_some() || final_capture.is_some() {
                 let _ = self.suspend_capture(capture_transition.as_ref()).await;
             }
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             record_failed_attempt(&mut state.managed, record, MihomoActivationError::Cancelled);
@@ -1084,12 +1102,13 @@ impl MihomoActivationManager {
             if suspended_capture.is_some() || final_capture.is_some() {
                 let _ = self.suspend_capture(capture_transition.as_ref()).await;
             }
-            rollback_candidate(candidate).await;
+            rollback_candidate(candidate, operation).await;
             let restored = self
                 .restore_previous(
                     state.active.as_ref(),
                     suspended_capture.as_ref(),
                     capture_transition.as_ref(),
+                    operation,
                 )
                 .await;
             record_failed_attempt(
@@ -1150,9 +1169,7 @@ impl MihomoActivationManager {
             .active
             .as_ref()
             .map(|active| (active.runtime.clone(), active.tun_enabled));
-        let Some((runtime, active_tun_enabled)) = active else {
-            return None;
-        };
+        let (runtime, active_tun_enabled) = active?;
         Some(
             active_tun_enabled == tun_enabled
                 && matches!(runtime.core_status().await.phase, CorePhase::Running),
@@ -1176,8 +1193,11 @@ impl MihomoActivationManager {
         state.capture_transition = None;
     }
 
-    pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
-        self.recover_startup().await?;
+    pub async fn shutdown(
+        &self,
+        operation: &CoreLifecycleOperation,
+    ) -> Result<(), MihomoActivationError> {
+        self.recover_startup(operation).await?;
         let mut state = self.state.lock().await;
         let capture_transition = match state.capture_transition.take() {
             Some(transition) => Some(transition),
@@ -1200,7 +1220,12 @@ impl MihomoActivationManager {
                 active.runtime.resume_observations().await;
                 return Err(error);
             }
-            if active.runtime.stop_core().await.is_err() {
+            if active
+                .runtime
+                .execute_core_lifecycle(operation, CoreLifecycleMutation::Stop)
+                .await
+                .is_err()
+            {
                 active.runtime.resume_observations().await;
                 return Err(MihomoActivationError::ShutdownFailed);
             }
@@ -1307,9 +1332,13 @@ impl MihomoActivationManager {
     async fn start_candidate(
         &self,
         candidate: &ActiveMihomo,
+        operation: &CoreLifecycleOperation,
         cancellation: CancellationToken,
     ) -> Result<(), MihomoActivationError> {
-        let start = candidate.runtime.start_core().await;
+        let start = candidate
+            .runtime
+            .execute_core_lifecycle(operation, CoreLifecycleMutation::Start)
+            .await;
         if start.is_err() {
             match candidate.process.privileged_start_failure().await {
                 Some(PrivilegedCoreHostError::Unavailable) => {
@@ -1408,6 +1437,7 @@ impl MihomoActivationManager {
         previous: Option<&ActiveMihomo>,
         capture: Option<&CaptureSelection>,
         transition: Option<&CaptureRuntimeTransition>,
+        operation: &CoreLifecycleOperation,
     ) -> bool {
         let core_restored = match previous {
             Some(previous)
@@ -1430,7 +1460,11 @@ impl MihomoActivationManager {
                 wait_for_activation_listener_release(&endpoints, MANAGED_LISTENER_RELEASE_TIMEOUT)
                     .await
                     .is_none()
-                    && previous.runtime.start_core().await.is_ok()
+                    && previous
+                        .runtime
+                        .execute_core_lifecycle(operation, CoreLifecycleMutation::Start)
+                        .await
+                        .is_ok()
             }
             None => true,
         };
@@ -1671,9 +1705,7 @@ async fn wait_for_activation_listener_release(
             .iter()
             .copied()
             .find(|endpoint| std::net::TcpListener::bind(endpoint).is_err());
-        let Some(occupied) = occupied else {
-            return None;
-        };
+        let occupied = occupied?;
         if Instant::now() >= deadline {
             return Some(occupied);
         }
@@ -1712,9 +1744,12 @@ fn managed_listener_endpoints(
     ]
 }
 
-async fn rollback_candidate(candidate: ActiveMihomo) {
+async fn rollback_candidate(candidate: ActiveMihomo, operation: &CoreLifecycleOperation) {
     candidate.source.close().await;
-    let _ = candidate.runtime.stop_core().await;
+    let _ = candidate
+        .runtime
+        .execute_core_lifecycle(operation, CoreLifecycleMutation::Stop)
+        .await;
     remove_generation_config(&candidate.config_file);
 }
 
@@ -2083,7 +2118,7 @@ mod bundled_geodata_tests {
         let home = root.path().join("home");
         fs::create_dir(&home).unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, content) in ASSETS {
             assert_eq!(fs::read(home.join(runtime_name)).unwrap(), content);
         }
@@ -2106,7 +2141,7 @@ mod bundled_geodata_tests {
         fs::write(home.join("GeoSite.dat"), []).unwrap();
 
         assert!(!bundled_geodata_assets_complete(&home));
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert_eq!(
             fs::read(home.join("GeoSite.dat")).unwrap(),
             b"geosite fixture"
@@ -2123,7 +2158,7 @@ mod bundled_geodata_tests {
         let stale = home.join(format!(".geodata-seed-{}", Uuid::new_v4()));
         fs::write(&stale, b"interrupted").unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert!(!stale.exists());
         assert!(bundled_geodata_assets_complete(&home));
     }
@@ -2143,10 +2178,7 @@ mod bundled_geodata_tests {
         );
 
         let source = snapshot(root.path());
-        assert_eq!(
-            seed_bundled_geodata(Some(&source), root.path()).unwrap(),
-            true
-        );
+        assert!(seed_bundled_geodata(Some(&source), root.path()).unwrap());
         assert_eq!(
             candidate_readiness_timeout(root.path(), &timing),
             Duration::from_secs(15)
@@ -2161,7 +2193,7 @@ mod bundled_geodata_tests {
         fs::create_dir(&home).unwrap();
         fs::write(home.join("GeoSite.dat"), b"newer runtime asset").unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert_eq!(
             fs::read(home.join("GeoSite.dat")).unwrap(),
             b"newer runtime asset"
@@ -2182,7 +2214,7 @@ mod bundled_geodata_tests {
             fs::write(home.join(runtime_name), b"runtime-owned").unwrap();
         }
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        assert!(!seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, _) in ASSETS {
             assert_eq!(fs::read(home.join(runtime_name)).unwrap(), b"runtime-owned");
         }
@@ -2196,7 +2228,7 @@ mod bundled_geodata_tests {
         let home = root.path().join("home");
         fs::create_dir(&home).unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        assert!(!seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, _) in ASSETS {
             assert!(!home.join(runtime_name).exists());
         }
@@ -2535,10 +2567,12 @@ fn load_managed_state(runtime_root: &Path) -> ManagedActivationState {
         return ManagedActivationState::default();
     }
     #[cfg(unix)]
-    if {
+    let has_insecure_permissions = {
         use std::os::unix::fs::PermissionsExt;
         metadata.permissions().mode() & 0o777 != 0o600
-    } {
+    };
+    #[cfg(unix)]
+    if has_insecure_permissions {
         return ManagedActivationState::default();
     }
     let Ok(contents) = fs::read(path) else {
@@ -2963,7 +2997,7 @@ fn namespace_explicit_provider_paths(
                 .split('/')
                 .filter(|component| !component.is_empty() && *component != ".")
                 .collect::<Vec<_>>();
-            if components.is_empty() || components.iter().any(|component| *component == "..") {
+            if components.is_empty() || components.contains(&"..") {
                 return Err(RuntimeConfigGenerationError::UnsafeManagedPath);
             }
             mapping.insert(
@@ -2983,7 +3017,7 @@ mod managed_listener_ownership_tests {
     use std::{collections::HashSet, net::TcpListener};
 
     use futures_util::future::BoxFuture;
-    use mish_runtime::{CoreError, CorePhase, CoreStatus};
+    use mish_runtime::{CoreError, CoreLifecycleCommand, CorePhase, CoreStatus};
 
     use super::*;
 
@@ -3029,11 +3063,10 @@ mod managed_listener_ownership_tests {
             }))
         }
 
-        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-            Box::pin(async { Ok(self.status().await) })
-        }
-
-        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        fn execute_lifecycle(
+            &self,
+            _command: CoreLifecycleCommand,
+        ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
             Box::pin(async { Ok(self.status().await) })
         }
     }
@@ -3063,11 +3096,10 @@ mod managed_listener_ownership_tests {
             }))
         }
 
-        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-            Box::pin(async { Ok(self.status().await) })
-        }
-
-        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        fn execute_lifecycle(
+            &self,
+            _command: CoreLifecycleCommand,
+        ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
             Box::pin(async { Ok(self.status().await) })
         }
     }

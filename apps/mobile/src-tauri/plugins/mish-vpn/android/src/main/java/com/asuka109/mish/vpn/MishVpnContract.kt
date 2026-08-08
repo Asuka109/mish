@@ -106,6 +106,20 @@ internal class StartLifecycleArgs {
     var factSequence: Long = -1
     var platformSessionId: String = ""
     var productSessionId: String = ""
+    var machineAuthority: String = ""
+    var scopeEpoch: Long = -1
+    var operationId: String = ""
+    var admittedRevision: Long = -1
+    var effectIdentity: String = ""
+}
+
+@InvokeArg
+internal class StopLifecycleArgs {
+    var machineAuthority: String = ""
+    var scopeEpoch: Long = -1
+    var operationId: String = ""
+    var admittedRevision: Long = -1
+    var effectIdentity: String = ""
 }
 
 internal fun JSONObject.optIntOrNull(name: String): Int? =

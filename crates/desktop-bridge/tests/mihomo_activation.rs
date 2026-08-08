@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -42,8 +42,8 @@ use mish_profile::{
 use mish_runtime::{
     CaptureAuditReason, CaptureFailureKind, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
-    CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState, NotificationPresentationCompletion,
+    CaptureTransitionError, CoreLifecycleOperation, LoopbackProxyEndpoint, ManualProxyState,
+    MishRuntime, NetworkServiceProxyState, NotificationPresentationCompletion,
     NotificationPresentationFoldReason, NotificationPresentationIdentity,
     NotificationPresentationPhase, RoutingMode, StatusAdapterKind, SystemProxyPhase,
     TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
@@ -62,6 +62,18 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+fn manager_lifecycle() -> CoreLifecycleOperation {
+    static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
+    CoreLifecycleOperation::new(
+        "mihomo-activation-test",
+        1,
+        Uuid::new_v4().to_string(),
+        NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
+        1,
+    )
+    .unwrap()
+}
 
 const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 
@@ -188,7 +200,10 @@ async fn unavailable_privileged_service_is_not_reported_as_a_profile_start_failu
     .unwrap();
     let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
 
-    let error = manager.activate(&profile, &policy).await.unwrap_err();
+    let error = manager
+        .activate(&manager_lifecycle(), &profile, &policy)
+        .await
+        .unwrap_err();
 
     assert_eq!(error, MihomoActivationError::TunHelperUnavailable);
     assert_eq!(
@@ -241,7 +256,10 @@ async fn foreign_tun_network_state_is_not_reported_as_a_profile_start_failure() 
     .unwrap();
     let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
 
-    let error = manager.activate(&profile, &policy).await.unwrap_err();
+    let error = manager
+        .activate(&manager_lifecycle(), &profile, &policy)
+        .await
+        .unwrap_err();
 
     assert_eq!(error, MihomoActivationError::TunNetworkOwnershipConflict);
     assert_eq!(
@@ -968,7 +986,21 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
     assert_eq!(config["find-process-mode"].as_str(), Some("always"));
 
     let exited_tun_core = host.current();
-    exited_tun_core.stop_core().await.unwrap();
+    let stop_command = Uuid::new_v4().to_string();
+    coordinator.stop(&stop_command).await.unwrap();
+    assert_eq!(
+        wait_for_activation(&coordinator, &mut updates).await.phase,
+        ProfileActivationPhase::Success
+    );
+    let restart_command = Uuid::new_v4().to_string();
+    coordinator
+        .activate(&restart_command, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_activation(&coordinator, &mut updates).await.phase,
+        ProfileActivationPhase::Success
+    );
     let restarted_tun = coordinator
         .set_capture(
             CaptureRequest {
@@ -1711,7 +1743,10 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
         activation_timing(Duration::from_secs(2)),
         Some(restarted_capture.clone()),
     ));
-    restarted_manager.shutdown().await.unwrap();
+    restarted_manager
+        .shutdown(&manager_lifecycle())
+        .await
+        .unwrap();
     let restarted_safe_runtime = MishRuntime::with_capture(
         Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
             binary: None,
@@ -2295,7 +2330,7 @@ async fn startup_records_an_explicit_safe_stopped_state_without_a_binary() {
         ActivationTiming::default(),
     );
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
 
     let persisted = std::fs::read_to_string(root.join("runtime/activation-state.json")).unwrap();
     let state: serde_json::Value = serde_json::from_str(&persisted).unwrap();
@@ -2340,7 +2375,10 @@ rules:
     repository.save(&record).unwrap();
     let persisted = repository.load(&record.metadata.id).unwrap();
 
-    let committed = manager.activate(&persisted, &policy).await.unwrap();
+    let committed = manager
+        .activate(&manager_lifecycle(), &persisted, &policy)
+        .await
+        .unwrap();
 
     assert_eq!(committed.profile_id(), record.metadata.id.as_str());
     assert_eq!(
@@ -2404,7 +2442,7 @@ rules:
         );
     }
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     assert_eq!(candidate_count(&root), 0);
     controller.shutdown().await;
 }
@@ -2638,7 +2676,11 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
             .is_mish_endpoint(&LoopbackProxyEndpoint::managed())
     );
 
-    host.stop_core().await.unwrap();
+    let stop_command = Uuid::new_v4().to_string();
+    coordinator.stop(&stop_command).await.unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
     host.audit_capture(CaptureAuditReason::CoreHealthChanged)
         .await
         .unwrap();
@@ -2649,7 +2691,14 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     assert_eq!(platform.state(), disabled_capture_service());
     assert!(journal.load().unwrap().is_none());
 
-    host.start_core().await.unwrap();
+    let restart_command = Uuid::new_v4().to_string();
+    coordinator
+        .activate(&restart_command, replacement.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
     host.set_capture(
         CaptureRequest {
             active: true,
@@ -4020,7 +4069,10 @@ async fn invalid_candidate_preserves_prior_core_and_records_a_redacted_attempt()
     let policy =
         ManagedRuntimePolicy::new(controller.address, "do-not-leak-controller-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &policy)
+        .await
+        .unwrap();
     let candidate = profile_record(
         br#"
 activation-test-invalid: true
@@ -4040,7 +4092,7 @@ rules:
                 LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
             );
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -4084,7 +4136,7 @@ rules:
     assert_eq!(snapshot["activeProfileId"], prior.metadata.id.as_str());
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     drop(manager);
     let restarted = MihomoActivationManager::new(
         ManagedMihomoResolver::development(
@@ -4123,7 +4175,10 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
     );
     let prior_policy = ManagedRuntimePolicy::new(controller.address, "prior-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &prior_policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &prior_policy)
+        .await
+        .unwrap();
     let candidate =
         profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
     let unavailable = unused_loopback_address();
@@ -4134,7 +4189,7 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
         );
 
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -4151,7 +4206,7 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
     let status = manager.active_runtime().await.unwrap().core_status().await;
     assert!(matches!(status.phase, mish_runtime::CorePhase::Running));
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     controller.shutdown().await;
 }
 
@@ -4169,7 +4224,10 @@ async fn managed_listener_collision_is_typed_and_redacted() {
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
 
     let started_at = Instant::now();
-    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+    let error = manager
+        .activate(&manager_lifecycle(), &candidate, &policy)
+        .await
+        .unwrap_err();
 
     assert_eq!(
         error,
@@ -4194,8 +4252,13 @@ async fn managed_listener_collision_is_typed_and_redacted() {
     let retry_policy = ManagedRuntimePolicy::new(controller.address, "fixture-secret")
         .unwrap()
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
-    assert!(manager.activate(&retry, &retry_policy).await.is_ok());
-    manager.shutdown().await.unwrap();
+    assert!(
+        manager
+            .activate(&manager_lifecycle(), &retry, &retry_policy)
+            .await
+            .is_ok()
+    );
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     controller.shutdown().await;
 }
 
@@ -4488,8 +4551,11 @@ async fn listener_claimed_after_preflight_is_rejected_before_commit() {
         .unwrap()
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
     let activation_manager = manager.clone();
-    let activation =
-        tokio::spawn(async move { activation_manager.activate(&candidate, &policy).await });
+    let activation = tokio::spawn(async move {
+        activation_manager
+            .activate(&manager_lifecycle(), &candidate, &policy)
+            .await
+    });
 
     timeout(Duration::from_secs(1), async {
         while candidate_count(root.path()) == 0 {
@@ -4508,7 +4574,7 @@ async fn listener_claimed_after_preflight_is_rejected_before_commit() {
     );
     assert_eq!(candidate_count(root.path()), 0);
     drop(listener);
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
 }
 
 #[tokio::test]
@@ -4552,8 +4618,11 @@ async fn listener_claimed_during_candidate_initialization_stops_the_candidate_pr
         .unwrap()
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
     let activation_manager = manager.clone();
-    let mut activation =
-        tokio::spawn(async move { activation_manager.activate(&candidate, &policy).await });
+    let mut activation = tokio::spawn(async move {
+        activation_manager
+            .activate(&manager_lifecycle(), &candidate, &policy)
+            .await
+    });
 
     tokio::select! {
         result = &mut activation => {
@@ -4582,7 +4651,7 @@ async fn listener_claimed_during_candidate_initialization_stops_the_candidate_pr
     );
     assert_eq!(candidate_count(root.path()), 0);
     drop(listener);
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
 }
 
 #[tokio::test]
@@ -4599,7 +4668,10 @@ async fn immediate_exit_reports_a_conflicting_managed_controller_port() {
         .unwrap()
         .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", proxy_port).unwrap());
 
-    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+    let error = manager
+        .activate(&manager_lifecycle(), &candidate, &policy)
+        .await
+        .unwrap_err();
 
     assert_eq!(
         error,
@@ -4623,13 +4695,16 @@ async fn controller_timeout_preserves_the_prior_healthy_core() {
     let manager = activation_manager(&root, Duration::from_millis(250));
     let prior_policy = ManagedRuntimePolicy::new(controller.address, "prior-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &prior_policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &prior_policy)
+        .await
+        .unwrap();
     let candidate = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let candidate_policy =
         ManagedRuntimePolicy::new(unused_loopback_address(), "candidate-secret").unwrap();
 
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -4643,7 +4718,7 @@ async fn controller_timeout_preserves_the_prior_healthy_core() {
         managed.last_attempt().unwrap().failure(),
         Some(ActivationFailureKind::Timeout)
     );
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     controller.shutdown().await;
 }
 
@@ -4661,7 +4736,7 @@ async fn cancellation_stops_the_candidate_without_committing_a_profile() {
     });
 
     let error = manager
-        .activate_cancellable(&candidate, &policy, cancellation)
+        .activate_cancellable(&manager_lifecycle(), &candidate, &policy, cancellation)
         .await
         .unwrap_err();
 
@@ -4699,7 +4774,10 @@ async fn cancellation_before_state_commit_restores_the_previous_runtime() {
     let policy =
         ManagedRuntimePolicy::new(controller.address, "commit-cancellation-secret").unwrap();
 
-    manager.activate(&prior, &policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &policy)
+        .await
+        .unwrap();
     manager
         .active_runtime()
         .await
@@ -4725,7 +4803,12 @@ async fn cancellation_before_state_commit_restores_the_previous_runtime() {
     let activating_cancellation = cancellation.clone();
     let activation = tokio::spawn(async move {
         activating_manager
-            .activate_cancellable(&candidate, &activating_policy, activating_cancellation)
+            .activate_cancellable(
+                &manager_lifecycle(),
+                &candidate,
+                &activating_policy,
+                activating_cancellation,
+            )
             .await
     });
     timeout(Duration::from_secs(5), platform.resume_started.notified())
@@ -4749,7 +4832,7 @@ async fn cancellation_before_state_commit_restores_the_previous_runtime() {
     );
     assert_eq!(candidate_count(&root), 1);
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     controller.shutdown().await;
 }
 
@@ -4774,18 +4857,27 @@ async fn measures_fixture_global_home_activation_paths() {
     let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
 
     let cold_started = Instant::now();
-    manager.activate(&profile, &policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &profile, &policy)
+        .await
+        .unwrap();
     let cold = cold_started.elapsed();
 
     let warm_started = Instant::now();
-    manager.activate(&profile, &policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &profile, &policy)
+        .await
+        .unwrap();
     let warm = warm_started.elapsed();
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     let relaunched =
         MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
     let relaunch_started = Instant::now();
-    relaunched.activate(&profile, &policy).await.unwrap();
+    relaunched
+        .activate(&manager_lifecycle(), &profile, &policy)
+        .await
+        .unwrap();
     let relaunch = relaunch_started.elapsed();
 
     let invalid =
@@ -4798,7 +4890,7 @@ async fn measures_fixture_global_home_activation_paths() {
     let failure_started = Instant::now();
     assert_eq!(
         relaunched
-            .activate(&invalid, &failure_policy)
+            .activate(&manager_lifecycle(), &invalid, &failure_policy)
             .await
             .unwrap_err(),
         MihomoActivationError::StartFailed
@@ -4812,7 +4904,7 @@ async fn measures_fixture_global_home_activation_paths() {
         "the failed generation must leave only the active generation"
     );
 
-    relaunched.shutdown().await.unwrap();
+    relaunched.shutdown(&manager_lifecycle()).await.unwrap();
     let cancelled =
         MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
     let cancellation = CancellationToken::new();
@@ -4820,7 +4912,7 @@ async fn measures_fixture_global_home_activation_paths() {
     let cancellation_started = Instant::now();
     assert_eq!(
         cancelled
-            .activate_cancellable(&profile, &policy, cancellation)
+            .activate_cancellable(&manager_lifecycle(), &profile, &policy, cancellation)
             .await
             .unwrap_err(),
         MihomoActivationError::Cancelled
@@ -4887,17 +4979,26 @@ async fn measures_pinned_core_global_home_activation_paths() {
     let manager = MihomoActivationManager::new(resolver(), timing.clone());
 
     let cold_started = Instant::now();
-    manager.activate(&profile, &policy()).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &profile, &policy())
+        .await
+        .unwrap();
     let cold = cold_started.elapsed();
 
     let warm_started = Instant::now();
-    manager.activate(&profile, &policy()).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &profile, &policy())
+        .await
+        .unwrap();
     let warm = warm_started.elapsed();
 
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     let relaunched = MihomoActivationManager::new(resolver(), timing.clone());
     let relaunch_started = Instant::now();
-    relaunched.activate(&profile, &policy()).await.unwrap();
+    relaunched
+        .activate(&manager_lifecycle(), &profile, &policy())
+        .await
+        .unwrap();
     let relaunch = relaunch_started.elapsed();
 
     let invalid = profile_record(
@@ -4905,7 +5006,10 @@ async fn measures_pinned_core_global_home_activation_paths() {
     );
     let failure_started = Instant::now();
     assert_eq!(
-        relaunched.activate(&invalid, &policy()).await.unwrap_err(),
+        relaunched
+            .activate(&manager_lifecycle(), &invalid, &policy())
+            .await
+            .unwrap_err(),
         MihomoActivationError::StartFailed
     );
     let failure = failure_started.elapsed();
@@ -4916,14 +5020,14 @@ async fn measures_pinned_core_global_home_activation_paths() {
         1
     );
 
-    relaunched.shutdown().await.unwrap();
+    relaunched.shutdown(&manager_lifecycle()).await.unwrap();
     let cancelled = MihomoActivationManager::new(resolver(), timing);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let cancellation_started = Instant::now();
     assert_eq!(
         cancelled
-            .activate_cancellable(&profile, &policy(), cancellation)
+            .activate_cancellable(&manager_lifecycle(), &profile, &policy(), cancellation)
             .await
             .unwrap_err(),
         MihomoActivationError::Cancelled
@@ -4958,13 +5062,16 @@ async fn controller_version_mismatch_preserves_the_prior_healthy_core() {
     let manager = activation_manager(&root, Duration::from_secs(2));
     let prior_policy = ManagedRuntimePolicy::new(controller.address, "prior-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &prior_policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &prior_policy)
+        .await
+        .unwrap();
     let candidate = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let candidate_policy =
         ManagedRuntimePolicy::new(incompatible.address, "candidate-secret").unwrap();
 
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -4978,7 +5085,7 @@ async fn controller_version_mismatch_preserves_the_prior_healthy_core() {
         managed.last_attempt().unwrap().failure(),
         Some(ActivationFailureKind::VersionMismatch)
     );
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     incompatible.shutdown().await;
     controller.shutdown().await;
 }
@@ -5001,7 +5108,10 @@ async fn managed_binary_version_mismatch_never_starts_or_commits() {
         );
     let candidate = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
 
-    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+    let error = manager
+        .activate(&manager_lifecycle(), &candidate, &policy)
+        .await
+        .unwrap_err();
 
     assert_eq!(error, MihomoActivationError::VersionMismatch);
     assert!(!error.to_string().contains("private-build-detail"));
@@ -5023,12 +5133,15 @@ async fn invalid_controller_snapshot_preserves_the_prior_healthy_core() {
     let manager = activation_manager(&root, Duration::from_secs(2));
     let prior_policy = ManagedRuntimePolicy::new(controller.address, "prior-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &prior_policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &prior_policy)
+        .await
+        .unwrap();
     let candidate = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let candidate_policy = ManagedRuntimePolicy::new(invalid.address, "candidate-secret").unwrap();
 
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -5042,7 +5155,7 @@ async fn invalid_controller_snapshot_preserves_the_prior_healthy_core() {
         managed.last_attempt().unwrap().failure(),
         Some(ActivationFailureKind::Controller)
     );
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     invalid.shutdown().await;
     controller.shutdown().await;
 }
@@ -5055,7 +5168,10 @@ async fn active_state_commit_failure_restores_the_prior_core() {
     let manager = activation_manager(&root, Duration::from_secs(2));
     let prior_policy = ManagedRuntimePolicy::new(prior_controller.address, "prior-secret").unwrap();
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    manager.activate(&prior, &prior_policy).await.unwrap();
+    manager
+        .activate(&manager_lifecycle(), &prior, &prior_policy)
+        .await
+        .unwrap();
     let state_path = root.join("runtime/activation-state.json");
     let saved_state = root.join("runtime/activation-state.saved");
     std::fs::rename(&state_path, &saved_state).unwrap();
@@ -5065,7 +5181,7 @@ async fn active_state_commit_failure_restores_the_prior_core() {
         ManagedRuntimePolicy::new(candidate_controller.address, "candidate-secret").unwrap();
 
     let error = manager
-        .activate(&candidate, &candidate_policy)
+        .activate(&manager_lifecycle(), &candidate, &candidate_policy)
         .await
         .unwrap_err();
 
@@ -5088,7 +5204,7 @@ async fn active_state_commit_failure_restores_the_prior_core() {
     let blocked_state = root.join("runtime/activation-state.blocked");
     std::fs::rename(&state_path, blocked_state).unwrap();
     std::fs::rename(saved_state, &state_path).unwrap();
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&manager_lifecycle()).await.unwrap();
     candidate_controller.shutdown().await;
     prior_controller.shutdown().await;
 }

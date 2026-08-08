@@ -11,11 +11,12 @@ use mish_bridge::{DesktopLifecycleCoordinator, DesktopRuntimeHost, LifecycleEven
 use mish_runtime::{
     CaptureFailureKind, CaptureJournal, CaptureJournalStore, CaptureOperationPhase,
     CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError,
-    CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint, ManualProxyState,
-    MishRuntime, NetworkServiceProxyState, NotificationSeverity, PlatformLifecycleEvent,
-    PlatformLifecycleEventKind, PlatformLifecycleEventSource, RuntimeObservationPauseReason,
-    StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase,
-    TrafficDataSnapshot, TrafficDataSource,
+    CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
+    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
+    NotificationSeverity, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    PlatformLifecycleEventSource, RuntimeObservationPauseReason, StatusAdapterKind,
+    StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use mish_settings::{
     DnsObservation, FileSettingsRepository, NetworkDnsObservation, NetworkDnsObservationError,
@@ -80,13 +81,15 @@ impl CoreRuntime for TestCore {
         Box::pin(ready(self.status.lock().unwrap().clone()))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.set_phase(CorePhase::Running);
-        Box::pin(ready(Ok(self.status.lock().unwrap().clone())))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.set_phase(CorePhase::Stopped);
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.set_phase(if command.mutation() == CoreLifecycleMutation::Start {
+            CorePhase::Running
+        } else {
+            CorePhase::Stopped
+        });
         Box::pin(ready(Ok(self.status.lock().unwrap().clone())))
     }
 }
@@ -398,7 +401,7 @@ async fn runtime_replacement_does_not_restore_an_inactive_capture_selection() {
         .runtime
         .status_snapshot_typed(StatusAdapterKind::Rpc)
         .await;
-    assert_eq!(status.runtime.capture_selection.system_proxy, true);
+    assert!(status.runtime.capture_selection.system_proxy);
     assert_eq!(status.runtime.system_proxy.phase, SystemProxyPhase::Off);
     assert!(!status.runtime.system_proxy.desired);
     assert_eq!(

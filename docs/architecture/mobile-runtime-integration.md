@@ -176,6 +176,11 @@ notification. Its state machine covers unavailable, permission-required,
 starting, running, stopping, failed, and recovery-required phases. Repeated
 start and stop commands are idempotent, and lifecycle transitions are
 serialized with profile activation and configuration replacement.
+Each admitted Core mutation carries the Shared Rust machine authority, scope
+epoch, operation ID, admitted revision, and effect identity through Kotlin,
+JNI, and the Mobile Core request. The wrapper rejects stale or foreign
+authority before changing the active runtime; cleanup derives an owned effect
+from the admitted activation when no later explicit stop exists.
 
 Running is a Shared Rust product state, not a Kotlin shortcut. The same product
 session must have observed foreground service, validated non-VPN network, TUN,

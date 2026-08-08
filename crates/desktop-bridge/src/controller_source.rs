@@ -17,20 +17,19 @@ use mish_mihomo_controller::{
 };
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationEvent, CaptureSelection, CorePhase, CoreRuntime,
-    CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT, EventEvidence, EventLevel, EventRecord,
-    EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource,
-    EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure,
-    GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, GroupSelectionCleanupFailure,
-    GroupSelectionCleanupMode, GroupSelectionCleanupPhase, GroupSelectionOperation,
-    PolicyGroupConnectionCleanupPreference, ProfileSummary, ProviderAuthority,
-    ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
-    ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateFailure,
-    ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure, ProxyDiagnosticObservation,
-    RecentTrafficObservation, RoutingMode, RuntimeObservationPauseReason, RuntimePhase,
-    RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
-    StatusDataSource, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
-    TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource,
+    CoreStatus, EVENTS_BUFFER_LIMIT, EventEvidence, EventLevel, EventRecord, EventSource,
+    EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
+    GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure, GroupDelayPolicy,
+    GroupDelayTest, GroupDelayTestPhase, GroupSelectionCleanupFailure, GroupSelectionCleanupMode,
+    GroupSelectionCleanupPhase, GroupSelectionOperation, PolicyGroupConnectionCleanupPreference,
+    ProfileSummary, ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
+    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
+    ProviderUpdateFailure, ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure,
+    ProxyDiagnosticObservation, RecentTrafficObservation, RoutingMode,
+    RuntimeObservationPauseReason, RuntimePhase, RuntimeProvider, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusProjectionEventSink,
+    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -235,7 +234,7 @@ struct SourceInner {
     reconnect_delay: Duration,
     refresh_interval: Duration,
     state: Mutex<SourceState>,
-    status_events: OnceLock<CoreStatusEventSink>,
+    status_events: OnceLock<StatusProjectionEventSink>,
 }
 
 pub struct ControllerStatusSource {
@@ -471,7 +470,7 @@ impl Drop for ControllerStatusSource {
 }
 
 impl StatusDataSource for ControllerStatusSource {
-    fn attach_status_event_sink(&self, sink: CoreStatusEventSink) {
+    fn attach_status_event_sink(&self, sink: StatusProjectionEventSink) {
         let _ = self.inner.status_events.set(sink);
     }
 

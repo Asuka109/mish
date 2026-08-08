@@ -68,7 +68,7 @@ impl DesktopLifecycleCoordinator {
                 let recent_revision = runtime.recent_traffic().snapshot().revision;
                 self.host.suspend_recent_traffic();
                 if runtime.recent_traffic().snapshot().revision != recent_revision {
-                    runtime.publish_current_status().await;
+                    runtime.publish_coordinator_observation().await;
                 }
                 self.invalidate_network_dns();
                 runtime
@@ -120,7 +120,7 @@ impl DesktopLifecycleCoordinator {
             let recent_revision = runtime.recent_traffic().snapshot().revision;
             self.host.discontinue_recent_traffic();
             if runtime.recent_traffic().snapshot().revision != recent_revision {
-                runtime.publish_current_status().await;
+                runtime.publish_coordinator_observation().await;
             }
             return Err(capture_error(error));
         }
@@ -128,7 +128,7 @@ impl DesktopLifecycleCoordinator {
         self.host
             .resume_recent_traffic(RecentTrafficContinuity::Continue);
         if runtime.recent_traffic().snapshot().revision != recent_revision {
-            runtime.publish_current_status().await;
+            runtime.publish_coordinator_observation().await;
         }
         self.refresh_network_dns().await;
         Ok(())
@@ -164,7 +164,7 @@ impl DesktopLifecycleCoordinator {
         self.host
             .resume_recent_traffic(RecentTrafficContinuity::Continue);
         if runtime.recent_traffic().snapshot().revision != recent_revision {
-            runtime.publish_current_status().await;
+            runtime.publish_coordinator_observation().await;
         }
         self.refresh_network_dns().await;
         Ok(())
@@ -206,7 +206,7 @@ impl DesktopLifecycleCoordinator {
         let recent_revision = runtime.recent_traffic().snapshot().revision;
         self.host.suspend_recent_traffic();
         if runtime.recent_traffic().snapshot().revision != recent_revision {
-            runtime.publish_current_status().await;
+            runtime.publish_coordinator_observation().await;
         }
         runtime.pause_observations(reason).await;
         if self.sleeping.load(Ordering::Acquire) {
@@ -227,7 +227,7 @@ impl DesktopLifecycleCoordinator {
                 self.host
                     .resume_recent_traffic(RecentTrafficContinuity::Continue);
                 if runtime.recent_traffic().snapshot().revision != recent_revision {
-                    runtime.publish_current_status().await;
+                    runtime.publish_coordinator_observation().await;
                 }
                 Ok(())
             }
@@ -235,7 +235,7 @@ impl DesktopLifecycleCoordinator {
                 let recent_revision = runtime.recent_traffic().snapshot().revision;
                 self.host.discontinue_recent_traffic();
                 if runtime.recent_traffic().snapshot().revision != recent_revision {
-                    runtime.publish_current_status().await;
+                    runtime.publish_coordinator_observation().await;
                 }
                 Err(capture_error(error))
             }
@@ -272,10 +272,8 @@ pub(crate) fn spawn_lifecycle_coordination(
             initial_runtime.core_status().await.phase,
             CorePhase::Running
         );
-        if was_running {
-            if let Some(service_probes) = &service_probes {
-                service_probes.test_after_core_start();
-            }
+        if was_running && let Some(service_probes) = &service_probes {
+            service_probes.test_after_core_start();
         }
         let _ = host.audit_capture(CaptureAuditReason::Restart).await;
         let mut periodic = tokio::time::interval(std::time::Duration::from_secs(5));
@@ -294,10 +292,10 @@ pub(crate) fn spawn_lifecycle_coordination(
                     status_updates = runtime.subscribe_status();
                     let running = matches!(runtime.core_status().await.phase, CorePhase::Running);
                     was_running = running;
-                    if running {
-                        if let Some(service_probes) = &service_probes {
-                            service_probes.test_after_core_start();
-                        }
+                    if running
+                        && let Some(service_probes) = &service_probes
+                    {
+                        service_probes.test_after_core_start();
                     }
                     let _ = coordinator.handle_runtime_replacement(running).await;
                 }
@@ -321,10 +319,10 @@ pub(crate) fn spawn_lifecycle_coordination(
                     let running = matches!(status.phase, CorePhase::Running);
                     if running != was_running {
                         was_running = running;
-                        if running {
-                            if let Some(service_probes) = &service_probes {
-                                service_probes.test_after_core_start();
-                            }
+                        if running
+                            && let Some(service_probes) = &service_probes
+                        {
+                            service_probes.test_after_core_start();
                         }
                         let _ = coordinator.handle_core_availability(running).await;
                     }

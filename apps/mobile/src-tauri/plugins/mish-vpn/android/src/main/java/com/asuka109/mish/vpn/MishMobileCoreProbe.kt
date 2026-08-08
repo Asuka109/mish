@@ -30,14 +30,23 @@ internal data class NativeRuntimeResult(
     val abiStatus: Int = -1,
 )
 
+internal data class CoreLifecycleAuthority(
+    val machineAuthority: String,
+    val scopeEpoch: Long,
+    val operationId: String,
+    val admittedRevision: Long,
+    val effectIdentity: String,
+)
+
 internal interface MobileCoreRuntime {
     fun start(
+        authority: CoreLifecycleAuthority,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): NativeRuntimeResult
 
-    fun stop(productSessionId: String?): NativeRuntimeResult
+    fun stop(authority: CoreLifecycleAuthority, productSessionId: String?): NativeRuntimeResult
 
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
@@ -117,15 +126,35 @@ internal class MishMobileCoreProbe :
     private external fun nativeInspectLoadedConfig(expectedDigest: String?): IntArray?
 
     override fun start(
+        authority: CoreLifecycleAuthority,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): NativeRuntimeResult = runtimeCall {
-        nativeStartCore(productSessionId, tunFileDescriptor, vpnService)
+        nativeStartCore(
+            authority.machineAuthority,
+            authority.scopeEpoch,
+            authority.operationId,
+            authority.admittedRevision,
+            authority.effectIdentity,
+            productSessionId,
+            tunFileDescriptor,
+            vpnService,
+        )
     }
 
-    override fun stop(productSessionId: String?): NativeRuntimeResult = runtimeCall {
-        nativeStopCore(productSessionId)
+    override fun stop(
+        authority: CoreLifecycleAuthority,
+        productSessionId: String?,
+    ): NativeRuntimeResult = runtimeCall {
+        nativeStopCore(
+            authority.machineAuthority,
+            authority.scopeEpoch,
+            authority.operationId,
+            authority.admittedRevision,
+            authority.effectIdentity,
+            productSessionId,
+        )
     }
 
     override fun inspectRuntime(productSessionId: String?): NativeRuntimeResult = runtimeCall {
@@ -143,12 +172,24 @@ internal class MishMobileCoreProbe :
     }
 
     private external fun nativeStartCore(
+        machineAuthority: String,
+        scopeEpoch: Long,
+        operationId: String,
+        admittedRevision: Long,
+        effectIdentity: String,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): IntArray?
 
-    private external fun nativeStopCore(productSessionId: String?): IntArray?
+    private external fun nativeStopCore(
+        machineAuthority: String,
+        scopeEpoch: Long,
+        operationId: String,
+        admittedRevision: Long,
+        effectIdentity: String,
+        productSessionId: String?,
+    ): IntArray?
 
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
 
