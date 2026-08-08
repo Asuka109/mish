@@ -4281,6 +4281,11 @@ mod tests {
                 if snapshot.phase == phase {
                     return snapshot;
                 }
+                if matches!(snapshot.phase, UpdatePhase::Failed | UpdatePhase::Cancelled) {
+                    panic!(
+                        "updater reached a terminal phase while waiting for {phase:?}: {snapshot:?}"
+                    );
+                }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
