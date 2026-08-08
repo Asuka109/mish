@@ -1344,9 +1344,16 @@ impl UpdaterService {
                     attempt.stop()
                 }
             }))
-            .pool_max_idle_per_host(1)
-            .build()
-            .map_err(|_| UpdateOperationError::Network)?;
+            .pool_max_idle_per_host(1);
+        // Fixture URLs are loopback-only and must not inherit a CI or host
+        // proxy that can route them away from the in-process test server.
+        let client = if fixture_rewrite.is_some() {
+            client.no_proxy()
+        } else {
+            client
+        }
+        .build()
+        .map_err(|_| UpdateOperationError::Network)?;
         let store = CandidateStore::open(store_root)?;
         let recovered = store.recover(&adapter, &policy, &limits)?;
         let snapshot = recovered.snapshot(authority_id);
