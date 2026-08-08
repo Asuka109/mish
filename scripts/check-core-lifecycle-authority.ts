@@ -131,8 +131,11 @@ export function checkCoreLifecycleAuthority(): void {
   );
   invariant(
     mobileKotlin.includes("CoreLifecycleAuthority") &&
+      mobileKotlin.includes("fun nextEffect()") &&
       mobileCore.includes("validateLifecycleAuthority") &&
-      mobileCore.includes("lifecycleSuccessor"),
+      mobileCore.includes("lifecycleSuccessor") &&
+      mobileCore.includes("strconv.ParseUint(current.EffectIdentity, 10, 64)") &&
+      !mobileCore.includes('current.EffectIdentity+".cleanup"'),
     "Mobile Core mutations are not validating coordinator authority.",
   );
 }

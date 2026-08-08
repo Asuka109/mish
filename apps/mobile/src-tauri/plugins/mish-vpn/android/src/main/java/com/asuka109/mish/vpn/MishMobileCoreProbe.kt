@@ -36,7 +36,28 @@ internal data class CoreLifecycleAuthority(
     val operationId: String,
     val admittedRevision: Long,
     val effectIdentity: String,
-)
+) {
+    fun nextEffect(): CoreLifecycleAuthority? {
+        val effect = effectIdentity.toULongOrNull() ?: return null
+        if (effect == ULong.MAX_VALUE) return null
+        return copy(effectIdentity = (effect + 1u).toString())
+    }
+}
+
+internal fun lifecycleAuthorityIsSuccessor(
+    candidate: CoreLifecycleAuthority,
+    current: CoreLifecycleAuthority?,
+): Boolean {
+    if (current == null) return true
+    if (candidate.machineAuthority != current.machineAuthority) return false
+    if (candidate.scopeEpoch != current.scopeEpoch) {
+        return candidate.scopeEpoch > current.scopeEpoch
+    }
+    if (candidate.admittedRevision != current.admittedRevision) {
+        return candidate.admittedRevision > current.admittedRevision
+    }
+    return candidate == current.nextEffect()
+}
 
 internal interface MobileCoreRuntime {
     fun start(

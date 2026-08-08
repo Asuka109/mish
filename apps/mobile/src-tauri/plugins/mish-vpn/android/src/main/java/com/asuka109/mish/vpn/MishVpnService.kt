@@ -320,15 +320,18 @@ class MishVpnService : VpnService() {
             return store.current().let { !it.coreRunning && !it.tunEstablished }
         }
         val session = productSessionId
-        val authority = requestedStopAuthority ?: activeLifecycleAuthority?.let {
-            it.copy(effectIdentity = "${it.effectIdentity}.cleanup")
-        }
+        val activeAuthority = activeLifecycleAuthority
+        val authority = requestedStopAuthority ?: activeAuthority?.nextEffect()
         return cleanup.cleanup(
             stopCore = {
-                authority == null || core.stop(authority, session).code in setOf(
-                    NativeRuntimeCode.INACTIVE,
-                    NativeRuntimeCode.CORE_UNAVAILABLE,
-                )
+                if (activeAuthority != null && authority == null) {
+                    false
+                } else {
+                    authority == null || core.stop(authority, session).code in setOf(
+                        NativeRuntimeCode.INACTIVE,
+                        NativeRuntimeCode.CORE_UNAVAILABLE,
+                    )
+                }
             },
             closeTun = {
                 val descriptor = tunDescriptor
@@ -549,20 +552,5 @@ class MishVpnService : VpnService() {
             )
         }
 
-        private fun lifecycleAuthorityIsSuccessor(
-            candidate: CoreLifecycleAuthority,
-            current: CoreLifecycleAuthority?,
-        ): Boolean {
-            if (current == null) return true
-            if (candidate.machineAuthority != current.machineAuthority) return false
-            if (candidate.scopeEpoch != current.scopeEpoch) {
-                return candidate.scopeEpoch > current.scopeEpoch
-            }
-            if (candidate.admittedRevision != current.admittedRevision) {
-                return candidate.admittedRevision > current.admittedRevision
-            }
-            return candidate.operationId == current.operationId &&
-                candidate.effectIdentity == "${current.effectIdentity}.cleanup"
-        }
     }
 }

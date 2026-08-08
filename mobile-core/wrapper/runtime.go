@@ -415,8 +415,12 @@ func lifecycleSuccessor(candidate, current *lifecycleAuthority) bool {
 	if candidate.AdmittedRevision != current.AdmittedRevision {
 		return candidate.AdmittedRevision > current.AdmittedRevision
 	}
+	currentEffect, err := strconv.ParseUint(current.EffectIdentity, 10, 64)
+	if err != nil || currentEffect == ^uint64(0) {
+		return false
+	}
 	return candidate.OperationID == current.OperationID &&
-		candidate.EffectIdentity == current.EffectIdentity+".cleanup"
+		candidate.EffectIdentity == strconv.FormatUint(currentEffect+1, 10)
 }
 
 func tunOptions(request *startRequest) LC.Tun {

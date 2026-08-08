@@ -115,6 +115,9 @@ the five lifecycle authority fields. The wrapper retains the latest admitted
 authority and rejects a foreign machine, older scope/revision, or unowned
 same-revision effect with `CONFLICT` before mutation. Retrying the exact current
 command is idempotent; an explicitly supplied session must own the running Core.
+Cleanup for the same operation and admitted revision must carry the immediately
+next decimal effect identity (`1` to `2`); suffixes, skipped effects, and
+overflow fail closed across Kotlin, JNI, and the wrapper.
 
 ## Snapshots, commands, and events
 

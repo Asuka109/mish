@@ -64,6 +64,8 @@ int main(void) {
   const char *poll_events = "{\"afterSequence\":\"0\",\"limit\":16}";
   const char *stop =
       "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"stop-op\",\"admittedRevision\":2,\"effectIdentity\":\"1\",\"sessionId\":\"session-1\"}";
+  const char *cancel_stop =
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"start-op\",\"admittedRevision\":1,\"effectIdentity\":\"2\",\"sessionId\":\"session-1\"}";
   const char *stale_stop =
       "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"stale-op\",\"admittedRevision\":1,\"effectIdentity\":\"1\",\"sessionId\":\"session-1\"}";
 
@@ -137,6 +139,10 @@ int main(void) {
 
   assert(mish_core_stop_v1((uint8_t *)stale_stop, strlen(stale_stop), &response) ==
          MISH_CORE_CONFLICT_V1);
+  release(&response);
+  assert(mish_core_stop_v1((uint8_t *)cancel_stop, strlen(cancel_stop), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "\"phase\":\"inactive\""));
   release(&response);
   assert(mish_core_stop_v1((uint8_t *)stop, strlen(stop), &response) == MISH_CORE_OK_V1);
   assert(contains(&response, "\"phase\":\"inactive\""));

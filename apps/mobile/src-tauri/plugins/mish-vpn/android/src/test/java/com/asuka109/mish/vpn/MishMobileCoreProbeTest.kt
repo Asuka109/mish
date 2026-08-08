@@ -1,7 +1,9 @@
 package com.asuka109.mish.vpn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MishMobileCoreProbeTest {
@@ -48,5 +50,17 @@ class MishMobileCoreProbeTest {
             NativeRuntimeCode.NATIVE_FAILED,
             MishMobileCoreProbe.parseRuntime(intArrayOf(99, -1)).code,
         )
+    }
+
+    @Test
+    fun `accepts only the coordinator issued next effect for same operation cleanup`() {
+        val active = CoreLifecycleAuthority("authority", 1, "start", 2, "1")
+
+        assertEquals("2", active.nextEffect()?.effectIdentity)
+        assertTrue(lifecycleAuthorityIsSuccessor(active.copy(effectIdentity = "2"), active))
+        assertFalse(lifecycleAuthorityIsSuccessor(active.copy(effectIdentity = "1.cleanup"), active))
+        assertFalse(lifecycleAuthorityIsSuccessor(active.copy(effectIdentity = "3"), active))
+        assertFalse(lifecycleAuthorityIsSuccessor(active.copy(operationId = "foreign"), active))
+        assertNull(active.copy(effectIdentity = ULong.MAX_VALUE.toString()).nextEffect())
     }
 }

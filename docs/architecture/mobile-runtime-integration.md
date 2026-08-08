@@ -180,7 +180,10 @@ Each admitted Core mutation carries the Shared Rust machine authority, scope
 epoch, operation ID, admitted revision, and effect identity through Kotlin,
 JNI, and the Mobile Core request. The wrapper rejects stale or foreign
 authority before changing the active runtime; cleanup derives an owned effect
-from the admitted activation when no later explicit stop exists.
+from the admitted activation when no later explicit stop exists. A same-operation
+cleanup accepts only the coordinator-issued next decimal effect identity; a
+suffix, skipped effect, or overflow is stale and cannot mutate Android or Core
+resources.
 
 Running is a Shared Rust product state, not a Kotlin shortcut. The same product
 session must have observed foreground service, validated non-VPN network, TUN,

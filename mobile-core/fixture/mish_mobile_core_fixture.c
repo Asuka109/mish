@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 static int fixture_initialized = 0;
 static int fixture_loaded = 0;
@@ -103,16 +104,21 @@ static int extract_uint64(const char *json, const char *field, uint64_t *output)
 static int lifecycle_is_successor(const char *machine, uint64_t scope,
                                   const char *operation, uint64_t revision,
                                   const char *effect) {
-  char cleanup_effect[140];
+  char next_effect[32];
+  char *end = NULL;
+  unsigned long long current_effect;
   if (fixture_scope_epoch == 0) return 1;
   if (strcmp(machine, fixture_machine_authority) != 0) return 0;
   if (scope != fixture_scope_epoch) return scope > fixture_scope_epoch;
   if (revision != fixture_admitted_revision)
     return revision > fixture_admitted_revision;
-  snprintf(cleanup_effect, sizeof(cleanup_effect), "%s.cleanup",
-           fixture_effect_identity);
+  current_effect = strtoull(fixture_effect_identity, &end, 10);
+  if (end == fixture_effect_identity || *end != '\0' ||
+      current_effect == ULLONG_MAX)
+    return 0;
+  snprintf(next_effect, sizeof(next_effect), "%llu", current_effect + 1);
   return strcmp(operation, fixture_operation_id) == 0 &&
-         strcmp(effect, cleanup_effect) == 0;
+         strcmp(effect, next_effect) == 0;
 }
 
 static void record_lifecycle(const char *machine, uint64_t scope,
