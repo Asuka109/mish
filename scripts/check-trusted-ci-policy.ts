@@ -374,6 +374,14 @@ invariant(
   "check:ci must run the trusted CI drift check.",
 );
 invariant(
+  packageJson.scripts?.["check:pr"]?.includes("pnpm check:rust:pr") &&
+    packageJson.scripts?.["check:rust:pr"] ===
+      "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings" &&
+    packageJson.scripts?.["check:rust:clippy"] ===
+      "cargo clippy --workspace --all-targets -- -D warnings",
+  "The secretless Fast PR gate must retain the portable workspace/all-target Clippy contract without weakening the complete main inspection.",
+);
+invariant(
   packageJson.scripts?.["test:scripts"]?.includes("trusted-release-policy.test.ts"),
   "The Fast PR gate must run trusted release adversarial fixtures.",
 );

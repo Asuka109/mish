@@ -1091,7 +1091,7 @@ async fn browser_bootstrap(
         };
         match establish_browser_session(browser, proof) {
             Ok(session) => Some(session),
-            Err(response) => return response,
+            Err(status) => return status.into_response(),
         }
     } else {
         None
@@ -1231,7 +1231,7 @@ async fn complete_browser_pairing(
     }
     let session = match establish_browser_session(browser, proof) {
         Ok(session) => session,
-        Err(response) => return response,
+        Err(status) => return status.into_response(),
     };
     browser_bootstrap_response(browser, Some(&session))
 }
@@ -1253,13 +1253,15 @@ fn browser_bootstrap_response(browser: &BrowserHttpState, session: Option<&str>)
     )
 }
 
-fn establish_browser_session(browser: &BrowserHttpState, proof: &str) -> Result<String, Response> {
-    let token =
-        generate_browser_secret().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+fn establish_browser_session(
+    browser: &BrowserHttpState,
+    proof: &str,
+) -> Result<String, StatusCode> {
+    let token = generate_browser_secret().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut sessions = browser
         .sessions
         .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if sessions.len() >= BROWSER_SESSION_LIMIT {
         sessions.pop_front();
     }

@@ -4993,7 +4993,7 @@ async fn measures_pinned_core_global_home_activation_paths() {
     let warm = warm_started.elapsed();
 
     manager.shutdown(&manager_lifecycle()).await.unwrap();
-    let relaunched = MihomoActivationManager::new(resolver(), timing.clone());
+    let relaunched = MihomoActivationManager::new(resolver(), timing);
     let relaunch_started = Instant::now();
     relaunched
         .activate(&manager_lifecycle(), &profile, &policy())

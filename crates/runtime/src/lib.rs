@@ -550,7 +550,7 @@ pub enum StatusCommandErrorKind {
 #[derive(Clone, Debug)]
 pub struct StatusCommandError {
     pub kind: StatusCommandErrorKind,
-    pub reconciliation: Option<StatusSnapshot>,
+    pub reconciliation: Option<Box<StatusSnapshot>>,
     message: &'static str,
 }
 
@@ -585,7 +585,7 @@ impl StatusCommandError {
     }
 
     pub fn with_reconciliation(mut self, snapshot: StatusSnapshot) -> Self {
-        self.reconciliation = Some(snapshot);
+        self.reconciliation = Some(Box::new(snapshot));
         self
     }
 }

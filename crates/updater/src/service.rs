@@ -1344,9 +1344,16 @@ impl UpdaterService {
                     attempt.stop()
                 }
             }))
-            .pool_max_idle_per_host(1)
-            .build()
-            .map_err(|_| UpdateOperationError::Network)?;
+            .pool_max_idle_per_host(1);
+        // Fixture URLs are loopback-only and must not inherit a CI or host
+        // proxy that can route them away from the in-process test server.
+        let client = if fixture_rewrite.is_some() {
+            client.no_proxy()
+        } else {
+            client
+        }
+        .build()
+        .map_err(|_| UpdateOperationError::Network)?;
         let store = CandidateStore::open(store_root)?;
         let recovered = store.recover(&adapter, &policy, &limits)?;
         let snapshot = recovered.snapshot(authority_id);
@@ -4273,6 +4280,11 @@ mod tests {
                 let snapshot = service.snapshot();
                 if snapshot.phase == phase {
                     return snapshot;
+                }
+                if matches!(snapshot.phase, UpdatePhase::Failed | UpdatePhase::Cancelled) {
+                    panic!(
+                        "updater reached a terminal phase while waiting for {phase:?}: {snapshot:?}"
+                    );
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
