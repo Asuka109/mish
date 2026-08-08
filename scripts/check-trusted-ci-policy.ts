@@ -375,10 +375,11 @@ invariant(
 );
 invariant(
   packageJson.scripts?.["check:pr"]?.includes("pnpm check:rust:pr") &&
-    packageJson.scripts?.["check:rust:pr"] === "pnpm check:rust:clippy" &&
+    packageJson.scripts?.["check:rust:pr"] ===
+      "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn -- -D warnings" &&
     packageJson.scripts?.["check:rust:clippy"] ===
       "cargo clippy --workspace --all-targets -- -D warnings",
-  "The secretless Fast PR gate must retain the bounded workspace/all-target Clippy contract.",
+  "The secretless Fast PR gate must retain the portable workspace/all-target Clippy contract without weakening the complete main inspection.",
 );
 invariant(
   packageJson.scripts?.["test:scripts"]?.includes("trusted-release-policy.test.ts"),

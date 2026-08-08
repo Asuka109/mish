@@ -156,7 +156,9 @@ invariant(
 );
 const simulatedApplicationContract =
   "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
-const rustPullRequestContract = "cargo clippy --workspace --all-targets -- -D warnings";
+const rustInspectionContract = "cargo clippy --workspace --all-targets -- -D warnings";
+const rustPullRequestContract =
+  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn -- -D warnings";
 const expectedPrValidation =
   "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
 invariant(
@@ -164,9 +166,9 @@ invariant(
   "check:pr must stay bounded to its static, unit, Rust Clippy, simulated application, token, and documentation checks.",
 );
 invariant(
-  packageJson.scripts?.["check:rust:pr"] === "pnpm check:rust:clippy" &&
-    packageJson.scripts?.["check:rust:clippy"] === rustPullRequestContract,
-  "The Fast PR gate must deny warnings across workspace/all-target Rust compilation.",
+  packageJson.scripts?.["check:rust:pr"] === rustPullRequestContract &&
+    packageJson.scripts?.["check:rust:clippy"] === rustInspectionContract,
+  "The Fast PR gate must deny warnings across portable workspace/all-target Rust compilation while main inspection retains every host application target.",
 );
 invariant(
   packageJson.scripts?.["test:application:simulated-host"] === simulatedApplicationContract,

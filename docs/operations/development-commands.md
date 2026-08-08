@@ -176,8 +176,8 @@ acceptance boundaries.
 | `check:types:ts`               | TypeScript packages only.                                                      |
 | `check:rust`                   | Cargo workspace check.                                                         |
 | `check:rust:format`            | Rust formatting.                                                               |
-| `check:rust:clippy`            | Clippy with warnings denied.                                                   |
-| `check:rust:pr`                | Agent-friendly PR Rust contract: workspace/all-target Clippy, warnings denied. |
+| `check:rust:clippy`            | Full workspace/all-target Clippy used by main inspection, warnings denied.     |
+| `check:rust:pr`                | Portable PR Clippy contract; host Tauri application crates stay in inspection. |
 | `check:format`                 | Repository formatting without writing changes.                                 |
 | `check:lint`                   | TypeScript and JavaScript lint.                                                |
 | `check:i18n`                   | Generated localization contract.                                               |

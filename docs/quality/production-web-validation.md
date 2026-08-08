@@ -90,13 +90,16 @@ git diff --check
 
 `pnpm check:pr` is the rapid pull-request gate. It keeps Android project and
 workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
-unit tests, Rust formatting, workspace/all-target Clippy, the bounded
+unit tests, Rust formatting, portable workspace/all-target Clippy, the bounded
 Rust-authoritative simulated application command, design tokens, and
-documentation links blocking. Agents can reproduce the exact Rust compile and
-warning contract with one command: `pnpm check:rust:pr`; Cargo identifies the
-owning crate and target in failure output. The gate intentionally excludes Rust
-test execution beyond the simulated application contract, production builds,
-Design.md lint, and the broad responsive browser suite.
+documentation links blocking. The PR contract excludes only the Desktop,
+Mobile, and mobile Tauri plugin application crates whose Linux builds require
+host WebKit/GTK libraries; the macOS main inspection retains them. Agents can
+reproduce the complete inspection warning contract with one command:
+`pnpm check:rust:clippy`; Cargo identifies the owning crate and target in
+failure output. The gate intentionally excludes Rust test execution beyond the
+simulated application contract, production builds, Design.md lint, and the broad
+responsive browser suite.
 
 `pnpm check:all` runs the complete non-browser repository checks for local work
 and main-branch inspection. Browser installation, the browser suite, and
@@ -115,8 +118,9 @@ Mish separates merge latency from broad regression detection during rapid
 preview development:
 
 - pull requests install pinned Chromium and run `pnpm check:pr`, including the
-  workspace/all-target Rust Clippy contract, on an isolated GitHub-hosted Ubuntu
-  runner with a ten-minute job ceiling; they never require root, WebDriver,
+  portable workspace/all-target Rust Clippy contract, on an isolated
+  GitHub-hosted Ubuntu runner with a ten-minute job ceiling; they never install
+  host WebKit/GTK application-build dependencies or require root, WebDriver,
   Tart, a real Core/Helper/TUN, signing, publication, physical devices,
   host-network mutation, or application package upload;
 - every push to `main` independently builds the macOS ARM64 and Android test
