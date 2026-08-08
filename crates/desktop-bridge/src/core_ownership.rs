@@ -867,11 +867,11 @@ fn process_binary(pid: u32) -> Result<Option<PathBuf>, ManagedProcessPlatformErr
     #[cfg(target_os = "linux")]
     {
         let path = PathBuf::from(format!("/proc/{pid}/exe"));
-        return match fs::read_link(path) {
+        match fs::read_link(path) {
             Ok(path) => Ok(Some(path)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(_) => Err(ManagedProcessPlatformError::ObservationFailed),
-        };
+        }
     }
     #[cfg(target_os = "macos")]
     {
