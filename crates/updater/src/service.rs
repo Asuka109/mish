@@ -3188,9 +3188,14 @@ fn ensure_private_directory(path: &Path) -> Result<(), UpdateOperationError> {
 
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), UpdateOperationError> {
-    File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| UpdateOperationError::StoreIo)
+    match File::open(path).and_then(|directory| directory.sync_all()) {
+        Ok(()) => Ok(()),
+        // Some Unix filesystems reject fsync for directories. The file data is
+        // already synced before each rename, so retain that guarantee when the
+        // host cannot additionally make the directory entry durable.
+        Err(error) if error.raw_os_error() == Some(libc::EINVAL) => Ok(()),
+        Err(_) => Err(UpdateOperationError::StoreIo),
+    }
 }
 
 #[cfg(not(unix))]
