@@ -29,6 +29,10 @@ describe("Events toolbar", () => {
     [800, 600],
   ])("keeps only the intended body scrolling at %ix%i", async (width, height) => {
     await page.viewport(width, height);
+    await vi.waitFor(() => {
+      expect(window.innerWidth).toBe(width);
+      expect(window.innerHeight).toBe(height);
+    });
     await openEvents();
 
     const scrollers = document.querySelectorAll<HTMLElement>("main .workspace-page-scroll");
