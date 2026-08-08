@@ -44,12 +44,7 @@ const visibleNotificationLimit = 5;
 
 const notificationStyles = tv({
   slots: {
-    trigger: cx(
-      "toolbar-button notification-trigger relative inline-flex h-8.5 items-center justify-center",
-      "gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata",
-      "text-muted-foreground hover:border-hairline hover:bg-accent hover:text-fg",
-      "data-popup-open:border-hairline data-popup-open:bg-accent data-popup-open:text-fg",
-    ),
+    trigger: "notification-trigger relative",
     count: cx(
       "notification-count absolute -top-1 -right-1.25 h-4.25 min-w-4.25 pointer-events-none px-1",
       "text-micro leading-none tabular-nums",
@@ -215,8 +210,9 @@ export function NotificationBubble({
               aria-label={LL.notifications.trigger({ count: unreadCount })}
               className={notificationStyles().trigger()}
               ref={notificationTriggerRef}
-              size="icon-sm"
-              variant="ghost"
+              size="icon"
+              touchTarget="adaptive"
+              variant="toolbar"
             />
           }
         >

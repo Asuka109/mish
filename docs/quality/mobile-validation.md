@@ -40,26 +40,29 @@ Automated coverage must prove:
   confirmed snapshot after recreation; and
 - unavailable native capabilities never simulating success.
 
-## Production-disabled native shell entry contract
+## Mobile navigation and capability boundary
 
 Run:
 
 ```sh
-cargo test -p mish-mobile-shell
-node --test scripts/check-mobile-shell-boundary.test.ts
-node scripts/check-mobile-shell-boundary.ts
+pnpm --filter @mish/web test:run
+node --test scripts/check-mobile-capability-boundary.test.ts
+node scripts/check-mobile-capability-boundary.ts
 ```
 
-These checks prove the closed Android/Apple chrome and validated platform-deep-
-link model, exact Native-to-Rust-to-Web fixture, monotonic revision, bounded
-duplicate/stale behavior, prepare/commit revalidation, invalid-input
-non-mutation, and deterministic rejection of Web-to-Native UI backchannels.
-They also prove that `apps/mobile` does not depend on the contract crate, so the
-current React shell remains selected. This evidence permits only a
-**production-disabled shell contract** claim. It is not a compiled Android or
-Apple adapter, native rendering, device, accessibility, latency, or production
-cutover claim. See
-[`../architecture/mobile-native-shell-entry.md`](../architecture/mobile-native-shell-entry.md).
+The Web tests cover the installed React `MobileShell`, top-level and child-route
+selection, Back, focus, accessibility, and mobile product composition. The
+capability check proves that this Web shell remains the selected and sole
+product-navigation owner, the retired Native persistent-shell crate and
+prototype paths stay absent, and generic JavaScript interfaces, message
+handlers, URL-command channels, and Web-facing Native UI/navigation commands
+remain forbidden.
+
+The same check permits the explicitly reviewed, permission-scoped Settings and
+VPN/Core adapters. It does not claim that Web owns VPN/TUN/Core effects or that
+source inspection substitutes for an Android/iOS build, device, lifecycle, or
+accessibility gate. The rejected direction is recorded in
+[`../../.out-of-scope/native-persistent-mobile-shell.md`](../../.out-of-scope/native-persistent-mobile-shell.md).
 
 ## Viewport and interaction matrix
 
@@ -233,7 +236,7 @@ verification.
 The initial matrix separates jobs so one unavailable platform gate does not hide
 another result:
 
-1. shared Web, contract, and mobile-shell tests;
+1. shared Web/mobile-shell and typed mobile capability-boundary tests;
 2. Android native fixture and debug APK build;
 3. Android native Core per-ABI build and checksum verification;
 4. iOS shell, Swift bridge, and extension compile check without a device claim;

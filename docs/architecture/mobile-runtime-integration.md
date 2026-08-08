@@ -55,16 +55,15 @@ flowchart TD
 
 ## Ownership
 
-| Layer                      | Owns                                                                               | Must not own                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Shared React product layer | Views, product routes/history/back, page/sheet/focus state, DTO validation         | Native shell selection, VPN permission, TUN descriptors, native Core lifetime |
-| Shared Rust mobile shell   | Selected installed-mobile top-level destination, revision, one-way Web entry       | Product route stack, internal back, `canGoBack`, page/sheet state, DOM focus  |
-| Mobile native client       | Typed commands, subscriptions, cancellation, adapter state                         | Platform networking policy or a second product state store                    |
-| Android plugin             | Activity-to-service binding and platform command registration                      | VPN lifetime or Core state that disappears with the activity                  |
-| Android `VpnService`       | Permission result, TUN, socket protection, foreground notification, Core lifecycle | WebView navigation or arbitrary JavaScript execution                          |
-| iOS main-app plugin        | Tunnel configuration, manager commands, provider messaging                         | Packet processing or extension-owned Core lifetime                            |
-| iOS Packet Tunnel          | Packet flow, network settings, embedded Core, provider messages                    | UI navigation or main-app-only storage                                        |
-| Native Core wrapper        | Narrow stable ABI over pinned Mihomo source                                        | Product persistence, platform permission prompts, remote update policy        |
+| Layer                      | Owns                                                                                                                       | Must not own                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Shared React product layer | Views, persistent mobile chrome, top-level navigation, product routes/history/back, page/sheet/focus state, DTO validation | VPN permission, TUN descriptors, native Core lifetime, platform lifecycle |
+| Mobile native client       | Typed commands, subscriptions, cancellation, adapter state                                                                 | Platform networking policy or a second product state store                |
+| Android plugin             | Activity-to-service binding and platform command registration                                                              | VPN lifetime or Core state that disappears with the activity              |
+| Android `VpnService`       | Permission result, TUN, socket protection, foreground notification, Core lifecycle                                         | WebView navigation or arbitrary JavaScript execution                      |
+| iOS main-app plugin        | Tunnel configuration, manager commands, provider messaging                                                                 | Packet processing or extension-owned Core lifetime                        |
+| iOS Packet Tunnel          | Packet flow, network settings, embedded Core, provider messages                                                            | UI navigation or main-app-only storage                                    |
+| Native Core wrapper        | Narrow stable ABI over pinned Mihomo source                                                                                | Product persistence, platform permission prompts, remote update policy    |
 
 ## Mobile shell and client selection
 
@@ -93,13 +92,22 @@ the already accepted mobile lifecycle snapshot as read-only facts. They link to
 Home for consent, start, stop, and recovery so neither React nor the Settings
 adapter duplicates `VpnService` ownership or lifecycle command handling.
 
-React Router remains the sole authority for product routes, internal history
-and Back, page/sheet state, `canGoBack`, and DOM focus. The disjoint
-production-disabled Shared Rust outer-shell authority owns only installed-
-mobile top-level selection and one-way validated entry. Native tab/drawer and
-platform deep links are its only sources; Web content cannot submit a shell
-intent. See [Mobile Native Shell Entry](mobile-native-shell-entry.md). The
-current React `MobileShell` remains selected until a separate platform cutover.
+React Router and the React `MobileShell` are the sole authorities for persistent
+mobile product chrome, top-level destinations, product routes, internal history
+and Back, page/sheet state, `canGoBack`, scroll state, and DOM focus. Platform
+deep links enter the same Web-owned route hierarchy; Native adapters do not
+maintain a parallel selected-tab or product route stack.
+
+The previously delivered production-disabled Shared Rust shell-entry contract
+and Android/Apple persistent-shell prototypes were retired after hands-on #373
+validation showed that Native tabs/bars plus Web-owned child routes, history,
+Back, overlays, and focus create two navigation owners. The durable decision is
+recorded in
+[`../../.out-of-scope/native-persistent-mobile-shell.md`](../../.out-of-scope/native-persistent-mobile-shell.md).
+
+This does not broaden the WebView's platform authority. Mobile plugins expose
+only typed, permission-scoped product capabilities. Web content has no generic
+script, message, URL-command, Native UI, or arbitrary capability channel.
 
 ## Native Core contract
 
@@ -237,7 +245,7 @@ start VPN permission flow unless the user requested activation and capture.
 ## Delivery order
 
 1. Freeze the common mobile DTO and native ABI shape.
-2. Scaffold one mobile shell with Android and Apple generated projects.
+2. Scaffold the Web-owned mobile shell with Android and Apple generated hosts.
 3. Produce an installable Android shell backed by a native fixture.
 4. Build the pinned Android Core and complete the `VpnService` device loop.
 5. In parallel, compile the iOS shell, plugin, Packet Tunnel extension, provider

@@ -323,12 +323,15 @@ mobile Shell and its bottom-navigation stylesheet; the desktop build fails when
 mobile navigation markers remain in generated JavaScript or CSS.
 
 Installed mobile applications do not reuse that responsive browser shell as
-their product navigation. They replace the desktop sidebar with a dedicated
-five-destination bottom-navigation shell and adapt dense pages through drill-down
-flows, lists, sheets, and child routes. Android and iOS share product semantics
-and Mish status tokens, but use separate platform recipes for navigation bars,
-top bars, sheets, feedback, motion, typography, and safe areas. The binding
-mobile hierarchy and platform rules live in
+their product navigation. The React `MobileShell` replaces the desktop sidebar
+with a dedicated five-destination bottom-navigation shell and adapts dense pages
+through drill-down flows, lists, sheets, and child routes. It is the sole owner
+of persistent mobile product chrome, top-level navigation, Back, overlays, and
+focus; Native code remains limited to genuine typed platform effects such as
+VPN/TUN/Core and operating-system lifecycle. Android and iOS share product
+semantics and Mish status tokens, but use separate Web presentation recipes for
+navigation bars, top bars, sheets, feedback, motion, typography, and safe areas.
+The binding mobile hierarchy and platform rules live in
 [`docs/design/mobile-navigation-and-layout.md`](docs/design/mobile-navigation-and-layout.md).
 
 ## Elevation & Depth

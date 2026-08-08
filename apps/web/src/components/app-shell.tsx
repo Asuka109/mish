@@ -140,14 +140,6 @@ const shellStyles = tv({
       "toolbar-actions flex min-w-0 flex-initial items-center gap-1.5 max-shell-mobile:flex-none",
       "max-shell-mobile:gap-0.5",
     ),
-    toolbarButton: cx(
-      "toolbar-button inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border",
-      "border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground",
-      "hover:border-hairline hover:bg-accent hover:text-fg data-popup-open:border-hairline",
-      "data-popup-open:bg-accent data-popup-open:text-fg [&_svg]:size-3.75",
-    ),
-    appearanceToolbarButton: "appearance-menu-trigger size-8.5 p-0",
-    languageToolbarButton: "language-menu-trigger size-8.5 p-0",
     profileTrigger: cx(
       "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5",
       "max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden",
@@ -547,6 +539,7 @@ function ProfileMenu() {
         aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
         className={shellStyles().profileTrigger()}
         disabled={profilePending || !profileSupported || managedProfiles.length === 0}
+        touchTarget="adaptive"
       >
         {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
         <span className="user-authored-label">{activeLabel}</span>
@@ -591,12 +584,17 @@ function LanguageMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-busy={pending}
-        aria-label={LL.language.current({ language: currentLanguage })}
-        className={shellStyles().toolbarButton({
-          className: shellStyles().languageToolbarButton(),
-        })}
-        disabled={pending}
+        render={
+          <Button
+            aria-busy={pending}
+            aria-label={LL.language.current({ language: currentLanguage })}
+            className="language-menu-trigger"
+            disabled={pending}
+            size="icon"
+            touchTarget="adaptive"
+            variant="toolbar"
+          />
+        }
       >
         {pending ? <Spinner data-icon="icon-only" /> : <Translate aria-hidden="true" />}
       </DropdownMenuTrigger>
@@ -630,12 +628,17 @@ function AppearanceMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-busy={appearancePending}
-        aria-label={LL.appearance.current({ appearance: currentAppearance })}
-        className={shellStyles().toolbarButton({
-          className: shellStyles().appearanceToolbarButton(),
-        })}
-        disabled={appearancePending}
+        render={
+          <Button
+            aria-busy={appearancePending}
+            aria-label={LL.appearance.current({ appearance: currentAppearance })}
+            className="appearance-menu-trigger"
+            disabled={appearancePending}
+            size="icon"
+            touchTarget="adaptive"
+            variant="toolbar"
+          />
+        }
       >
         {appearancePending ? <Spinner /> : <AppearanceIcon aria-hidden="true" />}
       </DropdownMenuTrigger>

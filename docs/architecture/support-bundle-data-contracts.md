@@ -30,7 +30,7 @@ Preview creates the exact bounded in-memory JSON and returns only:
 - closed category names with item counts; and
 - closed redaction categories.
 
-Save accepts only the preview ID. The native shell owns destination selection,
+Save accepts only the preview ID. The desktop Tauri host owns destination selection,
 private atomic writing, cancellation, and stale-preview cleanup. No path,
 contents, upload target, arbitrary file read, Core command, or capture command
 crosses the Web boundary.

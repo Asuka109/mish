@@ -223,6 +223,7 @@ const rowIds = [
   "M05",
   "M06",
   "V01",
+  "V02",
 ] as const;
 const boundaryTerms = [
   "**Shared Rust**",

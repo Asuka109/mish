@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Button, cn, Spinner, Toggle } from "@mish/ui";
+import { Button, cn, Spinner, Toggle, ToggleGroup, ToggleGroupItem } from "@mish/ui";
 import { describe, expect, it } from "vitest";
 
 function deferred() {
@@ -64,6 +64,37 @@ describe("Button promise loading", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(toggle).toHaveAttribute("data-capture-state", "running");
     expect(toggle).toHaveClass("data-[capture-state=running]:text-fg");
+  });
+
+  it("exposes the shared adaptive coarse-pointer target without changing compact defaults", () => {
+    render(
+      <>
+        <Button size="icon" touchTarget="adaptive" variant="toolbar">
+          Toolbar
+        </Button>
+        <Toggle touchTarget="adaptive" variant="capture">
+          Capture
+        </Toggle>
+        <ToggleGroup touchTarget="adaptive" value={["rule"]} variant="segmented">
+          <ToggleGroupItem value="rule">Rule</ToggleGroupItem>
+        </ToggleGroup>
+      </>,
+    );
+
+    for (const name of ["Toolbar", "Capture", "Rule"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass(
+        "touch-manipulation",
+        "pointer-coarse:min-h-11",
+        "pointer-coarse:min-w-11",
+      );
+    }
+    expect(screen.getByRole("button", { name: "Toolbar" })).toHaveClass(
+      "size-8.5",
+      "text-muted-foreground",
+      "hover:text-fg",
+    );
+    expect(screen.getByRole("button", { name: "Capture" })).toHaveClass("h-7.5");
+    expect(screen.getByRole("button", { name: "Rule" })).toHaveClass("h-7.5");
   });
 
   it("stays loading until a promise resolves", async () => {

@@ -44,8 +44,9 @@ It does not:
 - change production UI;
 - install Skills, copy upstream instructions, or add dependencies;
 - implement the focus-visible repair owned by [#323](https://github.com/Asuka109/mish/issues/323);
-- replace or imitate Native outer-shell chrome, whose accepted ownership remains
-  defined by [#343](https://github.com/Asuka109/mish/issues/343);
+- redesign the installed Web mobile shell or reopen the superseded Native
+  persistent-shell direction from
+  [#343](https://github.com/Asuka109/mish/issues/343);
 - convert the semantic hex token source to OKLCH;
 - create implementation Issues before maintainer acceptance.
 
@@ -141,7 +142,7 @@ so it must not replace Mish's current conformance gate.
 | Individual missing `tabular-nums` or wrap handling           | **Component-local**                            | Fix only when a specific dynamic value visibly shifts or overflows; do not add a global typography utility sweep.                                                                                                                                                                                        |
 | Page-specific long URL/chain/dialog overflow                 | **Component-local, mostly strong**             | Traffic detail has wide/narrow/short viewport tests with body-only scrolling; Profiles and Events have explicit empty/loading/error layouts. Continue route-owned fixes.                                                                                                                                 |
 | Explicit keyboard focus ring repair                          | **Existing Issue ownership: #323**             | Coordinate only. This audit does not change `:focus-visible`, route heading outlines, or Base UI focus styles.                                                                                                                                                                                           |
-| Native outer-shell replacement with Web chrome               | **Rejected**                                   | Violates accepted #343: Native owns persistent outer chrome; React Router/WebView owns product pages and internal history. Prototype A intentionally omits Native chrome.                                                                                                                                |
+| Native persistent-shell replacement around Web routes        | **Rejected**                                   | Superseded #343/#370/#372 direction. #373 hands-on review showed that Native persistent chrome plus Web-owned child routes, history, Back, overlays, and focus creates two navigation owners. Prototype A does not reopen that direction.                                                                |
 | Universal 44×44 desktop controls                             | **Rejected**                                   | Conflicts with compact utility density and mouse/keyboard desktop use. WCAG 2.2 AA specifies 24×24 or sufficient spacing, while 44×44 is an enhanced target. Use input-aware adaptation, not a global density reset.                                                                                     |
 | Universal spring, stagger, scale, or “delight” animation     | **Rejected**                                   | Repetition and high-frequency telemetry make it distracting and costly. Preserve restrained CSS and `prefers-reduced-motion`.                                                                                                                                                                            |
 | New font, icon, motion, or color runtime dependency          | **Rejected**                                   | Existing system fonts, Lucide, Base UI, CSS, and tokens are sufficient.                                                                                                                                                                                                                                  |
@@ -162,7 +163,7 @@ product preference for coarse-pointer product controls, not a WCAG AA claim.
 | **Desktop WebView — Status, Profiles, Traffic detail, Events**                  | Direct: Profiles `Empty`       | Direct: route and Profiles loading             | Direct: runtime/capture scenarios and Events typed failure | Direct: capability-owned capture/profile actions  | Direct: shared spinner and capture controls | Direct: command/notification DTO outcomes            | Direct: Traffic detail body-only scrolling at wide/short widths | Direct: sidebar, router focus, dialog return                        | Direct: en/zh status geometry and catalogs                            |
 | **Browser Client — authentication/recovery, Status, Traffic, responsive shell** | Shared: route `Empty` patterns | Direct: startup placeholder and route suspense | Direct: authentication/recovery and provider failures      | Direct: unavailable capabilities remain explained | Direct: launch/capture/profile actions      | Direct: fixture command completion and notifications | Direct: Traffic tables/details and 390px shell                  | Live: 1280px sidebar → 390px bottom navigation                      | Live: English/Chinese and light/dark switched without structural loss |
 | **Installed mobile — Home, Routes drill-down, Activity, Settings**              | Direct: route fixtures         | Shared: mobile provider/bootstrap states       | Direct: unavailable Core/VPN and route recovery copy       | Direct: unavailable platform capabilities         | Shared: Web product action primitives       | Shared: typed results and route state                | Direct: mobile page browser tests and bounded route content     | Direct: five destinations, progressive Back, deep-link preservation | Direct: shared catalogs; semantic platform data remains opaque        |
-| **Native outer shell**                                                          | Not applicable                 | Native-owned startup only                      | Native-owned launch/bootstrap only                         | Native capability presentation only               | Native-owned outer-shell action only        | Native-owned outer-shell result only                 | Native-owned                                                    | Native owns persistent chrome; Web owns page/back history           | Native catalogs only; no Web imitation                                |
+| **Native platform effects**                                                     | Not applicable                 | Platform-owned startup only                    | Platform-owned lifecycle/bootstrap only                    | Typed capability presentation only                | Typed platform operation only               | Rust/platform-authoritative result only              | Platform-owned                                                  | No persistent product navigation; Web owns routes and Back          | Native system copy only where required                                |
 
 ### State findings
 
@@ -192,10 +193,10 @@ URLs, route chains, Chinese copy, 200% zoom, and narrow containers.
 
 **Navigation.** The Browser Client correctly changes the same Web navigation
 from sidebar to bottom layout. Installed mobile uses a dedicated five-tab Web
-product shell today. The accepted target boundary remains one Native outer-shell
-authority with one-way entry into Router destinations; Web still owns internal
-product history. No prototype in this delivery depicts or replaces Native
-chrome.
+product shell, which remains the sole owner of persistent chrome, top-level and
+child routes, history/Back, overlays, and focus. Native code remains responsible
+only for real typed platform effects. No prototype in this delivery changes
+that ownership.
 
 **Localization.** Live English/Chinese switching preserved roles and route
 structure. Both current locales are LTR, so physical-direction utilities are a
@@ -222,12 +223,14 @@ simulated reduced-motion preference.
 Before: the 30–34px compact controls observed in the current 390px Browser
 Client are reproduced. After: desktop remains compact, while mobile/coarse-input
 product controls receive a 44px interaction box. Visual icon and type sizes do
-not grow. Native outer chrome is absent by design.
+not grow. A separate Native outer shell is absent; the installed Web shell is
+the sole navigation owner but is not changed by this standalone candidate.
 
 Accept only if the maintainer agrees that:
 
 - touch adaptation belongs in shared Web primitive variants/tokens;
-- it applies to product content, dialogs, and menus, not Native shell chrome;
+- it applies to product content, dialogs, and menus; persistent Web shell chrome
+  remains outside this candidate's scope;
 - desktop mouse/keyboard density remains unchanged;
 - important multi-control rows may reflow instead of shrinking targets.
 
@@ -251,7 +254,9 @@ Accept only if the maintainer agrees that:
 The maintainer accepted the complete decision packet on 2026-08-04:
 
 1. **Accepted:** the source integration matrix;
-2. **Accepted:** the applicability matrix and its #323/#343 boundaries;
+2. **Accepted at delivery:** the applicability matrix and its then-current
+   #323/#343 boundaries; #343's Native persistent-shell direction was later
+   superseded by #373 and must now be read through #387;
 3. **Accepted for a bounded implementation Issue:** prototype A,
    touch-adaptive Web product controls;
 4. **Accepted for a bounded implementation Issue:** prototype B,
