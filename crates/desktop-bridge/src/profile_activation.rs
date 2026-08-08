@@ -2166,13 +2166,20 @@ async fn finalize_profile_activation(
                 Some(runtime) => capture_contract_matches(runtime, &expected_capture).await,
                 None => false,
             };
-            if authoritative && capture_confirmed {
+            if authoritative {
+                // The manager commits and retires the previous runtime before final Capture
+                // observation. Keep every host consumer on that exact committed instance even
+                // when Capture cannot be confirmed and the Profile projection must expose
+                // RecoveryRequired; otherwise status and retry baselines keep targeting the
+                // retired runtime while the manager owns the candidate.
                 host.replace(active_runtime.expect("authoritative runtime was checked above"));
-                manager.complete_runtime_handoff().await;
-                resolve_geodata_notifications(host, &command.command_id, None);
-                return ProfileActivationFinalization::Completed(
-                    ProfileActivationCompletion::Succeeded(committed),
-                );
+                if capture_confirmed {
+                    manager.complete_runtime_handoff().await;
+                    resolve_geodata_notifications(host, &command.command_id, None);
+                    return ProfileActivationFinalization::Completed(
+                        ProfileActivationCompletion::Succeeded(committed),
+                    );
+                }
             }
             let evidence = if authoritative {
                 ProfileActivationFailureEvidence::Capture(CaptureFailureKind::ObservationFailed)
@@ -4358,7 +4365,9 @@ mod activation_machine_tests {
 
     #[derive(Default)]
     struct RecoveryBoundaryEffects {
+        active_runtime: std::sync::Mutex<Option<MishRuntime>>,
         handoff_releases: AtomicUsize,
+        managed_state: std::sync::Mutex<crate::ManagedActivationState>,
         panic_on_observation: AtomicBool,
     }
 
@@ -4380,7 +4389,12 @@ mod activation_machine_tests {
         }
 
         fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>> {
-            Box::pin(async { None })
+            Box::pin(async move {
+                self.active_runtime
+                    .lock()
+                    .expect("recovery-boundary active runtime lock poisoned")
+                    .clone()
+            })
         }
 
         fn active_backend_matches(&self, _tun_enabled: bool) -> BoxFuture<'_, Option<bool>> {
@@ -4393,7 +4407,10 @@ mod activation_machine_tests {
                     !self.panic_on_observation.load(Ordering::SeqCst),
                     "synthetic recovery observation panic"
                 );
-                crate::ManagedActivationState::default()
+                self.managed_state
+                    .lock()
+                    .expect("recovery-boundary managed state lock poisoned")
+                    .clone()
             })
         }
 
@@ -4589,6 +4606,89 @@ mod activation_machine_tests {
             }
         ));
         assert_eq!(manager.handoff_releases.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn committed_runtime_is_installed_before_capture_recovery_is_published() {
+        let previous = safe_runtime();
+        let candidate = safe_runtime();
+        let host = DesktopRuntimeHost::new(previous.clone());
+        let commit = crate::ActivationCommit::new(FINGERPRINT, "local", REVISION);
+        let managed_state = serde_json::from_value(serde_json::json!({
+            "activeFingerprint": FINGERPRINT,
+            "activeProfileId": "local",
+            "activeRevision": REVISION,
+            "activeRuntimeId": commit.runtime_id(),
+            "lastSuccessfulProfileId": "local",
+            "lastAttempt": null,
+            "schemaVersion": 2
+        }))
+        .expect("managed recovery fixture must deserialize");
+        let manager = RecoveryBoundaryEffects {
+            active_runtime: std::sync::Mutex::new(Some(candidate.clone())),
+            managed_state: std::sync::Mutex::new(managed_state),
+            ..RecoveryBoundaryEffects::default()
+        };
+        let mut state = ProfileActivationState::idle();
+        let command = state
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                "local",
+                Some(REVISION.into()),
+                Some(FINGERPRINT.into()),
+                1,
+            )
+            .expect("activation command must be admitted");
+        let resources = ProfileActivationOperationResources {
+            _permit: None,
+            final_capture: Some(ProfileActivationCaptureContract {
+                active: true,
+                adapter_kind: StatusAdapterKind::Rpc,
+                pending_operation_id: None,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            }),
+            owns_final_capture: true,
+            previous_capture: ProfileActivationCaptureContract {
+                active: false,
+                adapter_kind: StatusAdapterKind::Rpc,
+                pending_operation_id: None,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: false,
+                },
+            },
+            previous_host: previous,
+            previous_runtime: ProfileActivationRuntime::SafeStopped,
+            suppress_capture_failure_notification: false,
+        };
+
+        let finalization = finalize_profile_activation(
+            &manager,
+            &host,
+            &candidate,
+            &command,
+            &ProfileActivationTaskOutcome::Activate(Ok(commit)),
+            &resources,
+        )
+        .await;
+
+        assert!(matches!(
+            finalization,
+            ProfileActivationFinalization::RecoveryRequired {
+                evidence: ProfileActivationFailureEvidence::Capture(
+                    CaptureFailureKind::ObservationFailed
+                ),
+                runtime: ProfileActivationRuntime::Active { ref profile_id, .. },
+            } if profile_id == "local"
+        ));
+        assert!(
+            host.current().is_same_instance(&candidate),
+            "the host must follow the committed runtime before RecoveryRequired is visible"
+        );
     }
 
     #[tokio::test]
