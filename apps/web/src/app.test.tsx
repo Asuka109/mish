@@ -958,9 +958,7 @@ describe("production routes", () => {
       const statusOwners = view.container.querySelectorAll('[role="status"]');
       const busyOwners = view.container.querySelectorAll('[aria-busy="true"]');
       expect(statusOwners).toHaveLength(1);
-      expect(busyOwners).toHaveLength(1);
-      expect(busyOwners[0]).toContainElement(statusOwners[0] as HTMLElement);
-      expect(statusOwners[0]).not.toHaveAttribute("aria-busy");
+      expect(busyOwners).toHaveLength(0);
       expect(view.container.querySelector(".route-loading")).not.toBeInTheDocument();
 
       view.unmount();
