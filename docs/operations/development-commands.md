@@ -38,7 +38,10 @@ Mish Browser Client URL: <authenticated loopback launch URL>
 Mish Desktop Window Trigger URL: <development-only loopback trigger URL>
 ```
 
-The Browser Client is the primary headless development surface. Open the second
+The Browser Client is the primary headless development surface. Its single
+printed URL can authenticate multiple clean browser contexts until a hot restart
+prints a replacement and invalidates the prior capability. Production status-bar
+launch URLs remain short-lived and one-time. Open the second
 URL to create or reveal the one native main window; closing it hides only the
 window, and opening the same unexpired trigger again reveals it. Hot restart
 prints new process-scoped links and remains hidden. The configured Inspector

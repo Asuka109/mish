@@ -45,6 +45,17 @@ fallback behavior. Tauri's embedded-asset resolver also returns the bundled
 `index.html` for unknown paths. The local browser host preserves that behavior
 for unknown non-asset paths while returning `404` for missing asset filenames,
 so a direct URL or browser refresh resolves before React Router takes over.
+The Browser Client consumes a valid one-time launch fragment before React Router
+mounts, whether the requested path is the root, one of these six destinations,
+the legacy `/activity` redirect, or a recognized Routes group path. It replaces
+the current history entry without the fragment and keeps the requested path and
+query; unknown paths and malformed launch fragments cannot authenticate through
+that capability and are scrubbed before the existing session or pairing path.
+The source-development console uses the same route-independent client handoff
+with a process-lifetime launch capability, allowing its single printed URL to
+open multiple clean browser contexts. Production status-bar capabilities remain
+bounded, two-minute, and one-time; a new development process invalidates its
+predecessor's console URL.
 
 The application shell, platform bootstrap, first-frame reveal handshake, and
 default `/status` route remain in the eager entry path. The other route pages

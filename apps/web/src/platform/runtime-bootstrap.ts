@@ -40,11 +40,10 @@ interface RuntimeBootstrapPayload {
 }
 
 interface BrowserBootstrapDependencies {
-  clearLaunchToken(): void;
   clearProof(): void;
+  consumeLaunchToken(): string | null;
   createProof(): string;
   fetch(token: string | null, proof: string | null): Promise<unknown>;
-  launchToken(): string | null;
   loadProof(): string | null;
   saveProof(proof: string): void;
 }
@@ -88,11 +87,10 @@ export interface StartupStatusClient {
 
 const defaultDependencies: BootstrapDependencies = {
   browserBootstrap: {
-    clearLaunchToken: clearBrowserLaunchToken,
     clearProof: clearBrowserProof,
+    consumeLaunchToken: consumeBrowserLaunchToken,
     createProof: createBrowserProof,
     fetch: fetchBrowserBootstrap,
-    launchToken: readBrowserLaunchToken,
     loadProof: readBrowserProof,
     saveProof: saveBrowserProof,
   },
@@ -122,7 +120,7 @@ export async function resolveStartupStatusClient(
     if (!browser) {
       throw new BrowserAuthenticationRequired();
     }
-    const launchToken = browser.launchToken();
+    const launchToken = browser.consumeLaunchToken();
     const proof = launchToken ? browser.createProof() : browser.loadProof();
     try {
       const bootstrap = parseRuntimeBootstrap(await browser.fetch(launchToken, proof));
@@ -134,8 +132,6 @@ export async function resolveStartupStatusClient(
         throw new BrowserAuthenticationRequired();
       }
       throw error;
-    } finally {
-      if (launchToken) browser.clearLaunchToken();
     }
   }
 
@@ -228,25 +224,56 @@ export class BrowserAuthenticationRequired extends Error {
   }
 }
 
-class BrowserBootstrapUnavailable extends Error {
+export class BrowserBootstrapUnavailable extends Error {
   constructor(readonly status: number | null) {
     super("Browser bootstrap unavailable");
     this.name = "BrowserBootstrapUnavailable";
   }
 }
 
+const exactBrowserApplicationRoutes = new Set([
+  "/",
+  "/activity",
+  "/events",
+  "/profiles",
+  "/routes",
+  "/settings",
+  "/status",
+  "/traffic",
+]);
+
+export function isRecognizedBrowserApplicationRoute(pathname: string) {
+  const normalizedPathname =
+    pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return (
+    exactBrowserApplicationRoutes.has(normalizedPathname) ||
+    /^\/routes\/[^/]+$/u.test(normalizedPathname)
+  );
+}
+
 export function browserLaunchTokenFromLocation(location: { hash: string; pathname: string }) {
-  if (location.pathname !== "/") return null;
+  if (!isRecognizedBrowserApplicationRoute(location.pathname)) return null;
   const token = new URLSearchParams(location.hash.slice(1)).get("token");
   return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
-function readBrowserLaunchToken() {
-  return browserLaunchTokenFromLocation(window.location);
+export function consumeBrowserLaunchTokenFromLocation(
+  location: { hash: string; origin: string; pathname: string; search: string },
+  history: Pick<History, "replaceState" | "state">,
+) {
+  const parameters = new URLSearchParams(location.hash.slice(1));
+  if (!parameters.has("token")) return null;
+  const token = browserLaunchTokenFromLocation(location);
+  history.replaceState(
+    history.state,
+    "",
+    `${location.origin}${location.pathname}${location.search}`,
+  );
+  return token;
 }
 
-function clearBrowserLaunchToken() {
-  window.history.replaceState(null, "", "/");
+function consumeBrowserLaunchToken() {
+  return consumeBrowserLaunchTokenFromLocation(window.location, window.history);
 }
 
 const browserProofKey = "mish-browser-client-proof";

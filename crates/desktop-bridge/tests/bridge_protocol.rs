@@ -1891,6 +1891,109 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
 }
 
 #[tokio::test]
+async fn browser_client_reuses_only_the_current_development_launch_token() {
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let browser = bridge.browser_client().expect("browser client handle");
+    let first_url = browser.issue_development_launch_url().unwrap();
+    let first_token = first_url
+        .split_once("#token=")
+        .expect("development launch token fragment")
+        .1;
+    let client = reqwest::Client::new();
+    let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
+    let origin = format!("http://{}", bridge.address);
+
+    for proof in ["a".repeat(64), "b".repeat(64)] {
+        let accepted = client
+            .post(&bootstrap_url)
+            .header(
+                "Authorization",
+                format!("Mish-Browser-Launch {first_token}"),
+            )
+            .header("X-Mish-Browser-Proof", proof)
+            .header("Origin", &origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), reqwest::StatusCode::OK);
+    }
+
+    let one_time_url = browser.issue_launch_url().unwrap();
+    let one_time_token = one_time_url
+        .split_once("#token=")
+        .expect("one-time launch token fragment")
+        .1;
+    let replacement_url = browser.issue_development_launch_url().unwrap();
+    let replacement_token = replacement_url
+        .split_once("#token=")
+        .expect("replacement development launch token fragment")
+        .1;
+    assert_ne!(first_token, replacement_token);
+
+    let revoked = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {first_token}"),
+        )
+        .header("X-Mish-Browser-Proof", "c".repeat(64))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let accepted_one_time = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {one_time_token}"),
+        )
+        .header("X-Mish-Browser-Proof", "d".repeat(64))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted_one_time.status(), reqwest::StatusCode::OK);
+    let rejected_one_time_replay = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {one_time_token}"),
+        )
+        .header("X-Mish-Browser-Proof", "e".repeat(64))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected_one_time_replay.status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+
+    let accepted_replacement = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {replacement_token}"),
+        )
+        .header("X-Mish-Browser-Proof", "f".repeat(64))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted_replacement.status(), reqwest::StatusCode::OK);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn browser_discovery_exposes_only_a_loopback_cors_service_marker() {
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
@@ -1955,7 +2058,7 @@ async fn browser_discovery_exposes_only_a_loopback_cors_service_marker() {
 }
 
 #[tokio::test]
-async fn restarted_browser_backend_rejects_the_prior_process_session() {
+async fn restarted_browser_backend_rejects_the_prior_process_session_and_development_token() {
     let address = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .unwrap()
         .local_addr()
@@ -1975,6 +2078,15 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
     let launch_token = launch_url
         .split_once("#token=")
         .expect("launch token fragment")
+        .1;
+    let unused_launch_url = first
+        .browser_client()
+        .unwrap()
+        .issue_development_launch_url()
+        .unwrap();
+    let unused_launch_token = unused_launch_url
+        .split_once("#token=")
+        .expect("unused launch token fragment")
         .1;
     let client = reqwest::Client::new();
     let authenticated = client
@@ -2007,6 +2119,21 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .await
         .unwrap();
     let restarted_client = reqwest::Client::new();
+    let rejected_stale_launch = restarted_client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {unused_launch_token}"),
+        )
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", "e".repeat(64))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected_stale_launch.status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
     let rejected = restarted_client
         .post(format!("{origin}/browser-bootstrap"))
         .header("Cookie", prior_session)

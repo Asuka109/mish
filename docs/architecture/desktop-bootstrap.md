@@ -18,7 +18,9 @@ authenticated same-origin bootstrap and renders a dedicated pairing page when
 no valid browser session exists; production startup never constructs fixture
 clients. A browser explicitly launched from the macOS status-bar menu loads the
 same offline bundle from the desktop bridge and exchanges a one-time fragment
-PIN automatically. A direct bridge URL requests a human-entered PIN from the
+capability automatically. Source development prints a separate process-lifetime
+fragment capability so the same console URL can open multiple clean browser
+contexts until a replacement process starts. A direct bridge URL requests a human-entered PIN from the
 desktop app. Both paths construct the Status, Profile, Traffic, Events,
 Diagnostics, and Settings RPC adapters only after authentication. The Tauri
 WebView uses a separate private IPC bootstrap for those adapters.
@@ -74,7 +76,8 @@ still fails closed and never selects fixtures.
    hook fills it without requiring a WebView, and the exit path later takes the
    same handle for ordered shutdown. Operational source development then prints
    one authenticated Browser Client URL and one current-process desktop-window
-   trigger URL with stable prefixes.
+   trigger URL with stable prefixes. Both development URLs remain reusable by
+   their intended flows until the process is replaced.
 7. On macOS, the shell registers the documented `NSWorkspace` will-sleep and
    did-wake notifications and an `SCDynamicStore` callback for global IPv4/IPv6
    primary-service changes. These callbacks emit only a closed lifecycle event
@@ -224,18 +227,28 @@ responses disable storage and referrers, disallow framing and privileged browser
 features, restrict scripts, styles, fonts, images, and WebSocket connections to
 the local application origin, and never depend on a CDN.
 
-Each `Open Browser Client` action creates a fresh 256-bit, 43-character
+Each production `Open Browser Client` action creates a fresh 256-bit, 43-character
 base64url launch token, stores it in a bounded two-minute process-memory queue,
 and places it in the URL fragment. The actual RPC token and endpoint never
-appear in the URL. Browser startup posts the launch token plus a fresh origin
+appear in the URL. `pnpm desktop:dev` instead prints one independently random
+development token that remains reusable only for the lifetime of that desktop
+process. Issuing a replacement development URL revokes the prior development
+token, and process replacement discards it. Production launch tokens remain
+two-minute and one-time. Browser startup posts the launch token plus a fresh origin
 proof to `/browser-bootstrap` from the
 same origin, and the bridge validates the loopback peer, exact Host, exact
-Origin, and token in constant time before consuming it. A successful token
-cannot be replayed, and an invalid token does not consume a valid pending token.
-The high-entropy token is not guarded by the low-entropy manual PIN's attempt
-lockout. The response is non-cacheable and contains the RPC bootstrap in its
-body; the Web client clears the fragment immediately and retains the RPC token
-only in memory.
+Origin, and token in constant time before consuming it. Before React Router can
+render or redirect, Browser startup accepts the fragment on the root, every
+stable product destination, and recognized Routes group paths. It removes the
+fragment with same-entry history replacement while preserving the requested
+path and query. Unknown paths and malformed tokens do not enter the launch
+exchange, but their token-shaped fragments are still removed before the
+authentication fallback renders. A successful production token cannot be replayed;
+the current development-console token can establish multiple independent browser
+sessions. An invalid token does not consume or revoke a valid pending token. The high-entropy token is
+not guarded by the low-entropy manual PIN's attempt lockout. The response is
+non-cacheable and contains the RPC bootstrap in its body; the Web client retains
+the RPC token only in memory.
 
 A direct browser visit first attempts `/browser-bootstrap`. Without a valid
 session it renders the pairing page and posts to `/browser-pairing`. The bridge
