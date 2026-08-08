@@ -1860,7 +1860,7 @@ impl ProfileActivationCoordinator {
             }
         };
         if switched_tun_backend && result.is_ok() {
-            self.host.resolve_notification("capture.failure");
+            self.host.resolve_capture_failure_notifications();
         }
         if switched_tun_backend && let Err(error) = &result {
             let original_error = error.clone();
@@ -2210,7 +2210,7 @@ impl ProfileActivationCoordinator {
                 )
                 .await);
         }
-        self.host.resolve_notification("capture.failure");
+        self.host.resolve_capture_failure_notifications();
         Ok(self.host.status_snapshot(adapter_kind).await)
     }
 

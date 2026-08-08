@@ -612,6 +612,10 @@ impl DesktopRuntimeHost {
         self.current().resolve_notification(dedupe_key)
     }
 
+    pub fn resolve_capture_failure_notifications(&self) -> NotificationSnapshot {
+        self.current().resolve_capture_failure_notifications()
+    }
+
     pub async fn support_bundle_runtime_snapshot(
         &self,
         adapter_kind: StatusAdapterKind,

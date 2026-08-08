@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 mod application_order;
 mod capture;
@@ -98,6 +99,46 @@ fn capture_failure_action_ids(
     } else {
         Vec::new()
     }
+}
+
+const CAPTURE_FAILURE_NOTIFICATION_NAMESPACE: &str = "capture.failure";
+
+fn capture_failure_notification_key(
+    capture_status: Option<&CaptureRuntimeStatus>,
+    failure: CaptureFailureKind,
+) -> String {
+    if let Some(status) = capture_status {
+        if status.system_proxy.failure == Some(failure)
+            && status.system_proxy.phase == SystemProxyPhase::Drift
+        {
+            return format!("{CAPTURE_FAILURE_NOTIFICATION_NAMESPACE}:system-proxy-state");
+        }
+        if status.tun.phase == TunPhase::Drift {
+            return format!("{CAPTURE_FAILURE_NOTIFICATION_NAMESPACE}:tun-state");
+        }
+    }
+    if let Some(operation) = capture_status
+        .map(|status| &status.capture_operation)
+        .filter(|operation| {
+            operation.failure == Some(failure)
+                && matches!(
+                    operation.phase,
+                    CaptureOperationPhase::Finalizing
+                        | CaptureOperationPhase::Failed
+                        | CaptureOperationPhase::RecoveryRequired
+                )
+        })
+        && let Some(operation_id) = operation.operation_id.as_deref()
+    {
+        return format!(
+            "{CAPTURE_FAILURE_NOTIFICATION_NAMESPACE}:{}:{operation_id}",
+            operation.scope_epoch
+        );
+    }
+    format!(
+        "{CAPTURE_FAILURE_NOTIFICATION_NAMESPACE}:{}",
+        Uuid::new_v4()
+    )
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -899,7 +940,7 @@ impl MishRuntime {
         if self.recent_traffic.snapshot().revision != recent_revision {
             self.publish_status(&core);
         }
-        self.notifications.resolve_by_dedupe_key("capture.failure");
+        self.resolve_capture_failure_notifications();
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -988,7 +1029,7 @@ impl MishRuntime {
             self.publish_status(core);
         }
         if matches!(notification_mode, CaptureNotificationMode::Immediate) {
-            self.notifications.resolve_by_dedupe_key("capture.failure");
+            self.resolve_capture_failure_notifications();
         }
         Ok(self.snapshot_from_status(core, adapter_kind))
     }
@@ -1045,7 +1086,7 @@ impl MishRuntime {
         if self.recent_traffic.snapshot().revision != recent_revision {
             self.publish_status(&core);
         }
-        self.notifications.resolve_by_dedupe_key("capture.failure");
+        self.resolve_capture_failure_notifications();
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -1389,6 +1430,11 @@ impl MishRuntime {
         self.notifications.resolve_by_dedupe_key(dedupe_key)
     }
 
+    pub fn resolve_capture_failure_notifications(&self) -> NotificationSnapshot {
+        self.notifications
+            .resolve_by_dedupe_namespace(CAPTURE_FAILURE_NOTIFICATION_NAMESPACE)
+    }
+
     pub fn record_capture_failure(&self, error: &CaptureTransitionError) {
         self.record_capture_failure_with_selection(error, None);
     }
@@ -1410,6 +1456,7 @@ impl MishRuntime {
     ) {
         let failure = error.kind;
         let capture_status = self.capture.as_ref().map(|capture| capture.status());
+        let dedupe_key = capture_failure_notification_key(capture_status.as_ref(), failure);
         let action_ids = capture_failure_action_ids(
             error,
             capture_status
@@ -1420,7 +1467,7 @@ impl MishRuntime {
             error,
         ));
         let _ = self.publish_notification(NotificationPublication {
-            dedupe_key: "capture.failure".into(),
+            dedupe_key,
             pinned: false,
             presentation: ApplicationNotification::new(
                 ApplicationNotificationContent::CaptureFailure(

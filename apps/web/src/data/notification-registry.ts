@@ -296,6 +296,13 @@ function captureFailurePresentation(
       message: LL.capture.configurationRequired(),
       title: LL.capture.configurationRequiredTitle(),
     };
+  } else if (failure === "capability-unavailable") {
+    presentation = {
+      message:
+        captureMode === "tun"
+          ? LL.capabilities.tunUnavailable()
+          : LL.capabilities.systemProxyUnavailable(),
+    };
   } else if (isTakeoverRejection(takeoverReason)) {
     presentation = {
       message: LL.settingsPage.systemProxyTakeoverRejected(),
