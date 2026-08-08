@@ -385,6 +385,10 @@ impl ManagedActivationState {
         self.active_revision.as_deref()
     }
 
+    pub fn active_runtime_id(&self) -> Option<&str> {
+        self.active_runtime_id.as_deref()
+    }
+
     pub fn last_successful_profile_id(&self) -> Option<&str> {
         self.last_successful_profile_id.as_deref()
     }
@@ -398,10 +402,12 @@ impl ManagedActivationState {
     }
 }
 
+#[derive(Clone)]
 pub struct ActivationCommit {
     fingerprint: String,
     profile_id: String,
     revision: String,
+    runtime_id: String,
 }
 
 impl ActivationCommit {
@@ -414,6 +420,7 @@ impl ActivationCommit {
             fingerprint: fingerprint.into(),
             profile_id: profile_id.into(),
             revision: revision.into(),
+            runtime_id: Uuid::new_v4().to_string(),
         }
     }
 
@@ -427,6 +434,10 @@ impl ActivationCommit {
 
     pub fn revision(&self) -> &str {
         &self.revision
+    }
+
+    pub fn runtime_id(&self) -> &str {
+        &self.runtime_id
     }
 }
 
@@ -708,6 +719,26 @@ impl MihomoActivationManager {
         progress: Option<&crate::ProfileActivationProgressObserver>,
         final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
+        self.activate_cancellable_observed_for_operation(
+            record,
+            policy,
+            cancellation,
+            progress,
+            final_capture,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn activate_cancellable_observed_for_operation(
+        &self,
+        record: &ProfileRecord,
+        policy: &ManagedRuntimePolicy,
+        cancellation: CancellationToken,
+        progress: Option<&crate::ProfileActivationProgressObserver>,
+        final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
+        saga_operation_id: Option<&str>,
+    ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
             return Err(MihomoActivationError::InvalidTiming);
@@ -759,7 +790,10 @@ impl MihomoActivationManager {
         }
 
         let mut capture_transition = match &self.capture {
-            Some(capture) => match capture.clone().begin_runtime_transition() {
+            Some(capture) => match capture
+                .clone()
+                .begin_runtime_transition_for_operation(saga_operation_id)
+            {
                 Ok(transition) => Some(transition),
                 Err(_) => {
                     rollback_candidate(candidate).await;
@@ -1087,6 +1121,11 @@ impl MihomoActivationManager {
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
             revision: record.metadata.revision.id.as_str().to_owned(),
+            runtime_id: state
+                .managed
+                .active_runtime_id
+                .clone()
+                .expect("committed activation must retain its runtime authority"),
         })
     }
 

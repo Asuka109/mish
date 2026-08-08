@@ -306,15 +306,22 @@ The desktop `ProfileActivationCoordinator` owns one transport-neutral aggregate
 launch command. The authenticated Web RPC supplies the explicitly selected
 Profile when launching from the sidebar; application startup and a future
 native status-menu caller supply no Profile and therefore resume the last
-successful Profile. The coordinator publishes the existing Profile pending and
-terminal lifecycle, then performs Capture only after activation succeeds.
+successful Profile. The coordinator runs Profile activation through the
+repository state-machine kernel: the pure reducer owns command scope/revision,
+Profile revision/fingerprint, runtime authority, cancellation, finalization,
+and compensation, while bounded effects own Core and Capture work. A running
+Capture switch is admitted as the same saga and reaches Success only after the
+new runtime is authoritative and the requested Capture state is observed as
+Applied against it. An activation without running Capture retains the existing
+separate Capture behavior.
 If Capture fails after that command started a previously stopped Core, the same
 aggregate operation restores Capture, stops and reaps that Core, clears its
 active managed identity, and publishes a capture-typed safe-stopped activation
 state before returning the original failure. If safe stop itself fails, the
-aggregate result becomes a typed rollback failure and retains the authoritative
-partial state. A Core that was already active before the aggregate command is
-not stopped by a later Capture failure.
+aggregate result becomes Recovery Required with the last authoritative runtime
+and Capture evidence. A Core that was already active before the aggregate
+command is restored as the exact prior runtime instance after a failed atomic
+backend switch and is not stopped by a later independent Capture failure.
 Stopping continues to use the established Capture stop path so System Proxy
 restoration is unchanged.
 

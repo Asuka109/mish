@@ -1502,7 +1502,7 @@ impl ScenarioRuntime {
         capture
     }
 
-    pub fn terminate_and_restart(self) -> Self {
+    pub async fn terminate_and_restart(self) -> Self {
         let Self {
             _root,
             activation,
@@ -1515,6 +1515,10 @@ impl ScenarioRuntime {
         drop(capture);
         drop(runtime_host);
         host.detach_process();
+        // The Profile coordinator owns a Tokio actor. Abrupt process termination aborts that
+        // actor from `Drop`; yield once so the executor releases its manager/Capture authority
+        // before the replacement process is composed.
+        tokio::task::yield_now().await;
 
         let platform: Arc<dyn CapturePlatform> = host.clone();
         let journal: Arc<dyn CaptureJournalStore> = host.clone();

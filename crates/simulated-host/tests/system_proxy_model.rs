@@ -404,7 +404,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .unwrap();
     let writes_before = complete.host.observation().proxy_actual_revision;
     let terminated_capture = Arc::downgrade(&complete.capture);
-    let complete = complete.terminate_and_restart();
+    let complete = complete.terminate_and_restart().await;
     assert!(terminated_capture.upgrade().is_none());
     complete
         .runtime_host
@@ -439,7 +439,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
         .await
         .unwrap();
-    let compensate = compensate.terminate_and_restart();
+    let compensate = compensate.terminate_and_restart().await;
     compensate
         .runtime_host
         .audit_capture(CaptureAuditReason::Restart)
@@ -469,7 +469,7 @@ async fn restart_reobserves_the_real_journal_and_completes_compensates_or_expose
         .unwrap();
     drift.host.advance_to(3).unwrap();
     let external = drift.host.actual_proxy_state();
-    let drift = drift.terminate_and_restart();
+    let drift = drift.terminate_and_restart().await;
     let error = drift
         .runtime_host
         .audit_capture(CaptureAuditReason::Restart)

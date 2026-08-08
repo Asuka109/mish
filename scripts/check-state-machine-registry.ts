@@ -39,6 +39,7 @@ const conformingSources = new Map([
   ["updater-continuation", "impl Machine for ContinuationMachine"],
   ["internal-tun-alpha-package", "impl Machine for PackageMachine"],
   ["tun-helper-core-network", "impl Machine for TunLifecycleMachine"],
+  ["runtime-profile-activation", "impl Machine for ProfileActivationMachine"],
   ["capture-system-proxy", "impl Machine for CaptureMachine"],
   ["android-fixture-vpn-lifecycle", "impl Machine for LifecycleMachine"],
 ]);

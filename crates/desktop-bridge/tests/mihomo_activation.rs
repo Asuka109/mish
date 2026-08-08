@@ -1371,7 +1371,10 @@ async fn failed_tun_backend_switches_restore_the_prior_core_and_capture_state() 
         status["runtime"]["captureSelection"],
         json!({"systemProxy":true,"tun":false})
     );
-    assert!(!before_launch.is_same_instance(&host.current()));
+    assert!(
+        before_launch.is_same_instance(&host.current()),
+        "the atomic Profile/Capture saga must restore the exact prior runtime instance"
+    );
     assert_eq!(only_candidate_config(root.path())["tun"]["enable"], false);
     assert!(!coordinator.activation_snapshot().await.safe_stopped);
     assert_eq!(candidate_count(root.path()), 1);
