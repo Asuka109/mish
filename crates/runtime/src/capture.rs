@@ -2341,6 +2341,7 @@ pub struct CaptureReconciler {
 }
 
 pub struct CaptureRuntimeTransition {
+    operation_prefix: Option<String>,
     reconciler: Arc<CaptureReconciler>,
 }
 
@@ -2348,6 +2349,7 @@ pub struct CaptureRuntimeTransition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureCorrelationSnapshot {
     pub admitted_revision: u64,
+    pub internal_operation_id: Option<String>,
     pub operation_id: Option<String>,
     pub scope_epoch: u64,
 }
@@ -2429,10 +2431,25 @@ impl CaptureReconciler {
     pub fn begin_runtime_transition(
         self: &Arc<Self>,
     ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+        self.begin_runtime_transition_for_operation(None)
+    }
+
+    /// Reserves Capture replacement for a larger Runtime saga while retaining Capture's own
+    /// public operation sequence. The optional prefix is internal correlation evidence only.
+    pub fn begin_runtime_transition_for_operation(
+        self: &Arc<Self>,
+        operation_prefix: Option<&str>,
+    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+        if operation_prefix.is_some_and(|value| {
+            value.is_empty() || value.len() > 128 || value.chars().any(char::is_control)
+        }) {
+            return Err(runtime_transition_error());
+        }
         self.runtime_transition
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| runtime_transition_error())?;
         Ok(CaptureRuntimeTransition {
+            operation_prefix: operation_prefix.map(str::to_owned),
             reconciler: self.clone(),
         })
     }
@@ -2453,6 +2470,9 @@ impl CaptureReconciler {
         let state = self.runner.snapshot();
         CaptureCorrelationSnapshot {
             admitted_revision: state.revision(),
+            internal_operation_id: state
+                .active_operation()
+                .map(|operation| operation.correlation.operation_id.clone()),
             operation_id: state.projection().capture_operation.operation_id.clone(),
             scope_epoch: self.identity,
         }
@@ -2619,7 +2639,7 @@ impl CaptureReconciler {
         if self.runtime_transition.load(Ordering::Acquire) {
             return Err(runtime_transition_error());
         }
-        self.start_and_wait(request, core_healthy, None, TransitionMode::Ordinary)
+        self.start_and_wait(request, core_healthy, None, TransitionMode::Ordinary, None)
             .await
     }
 
@@ -2694,6 +2714,7 @@ impl CaptureReconciler {
             core_healthy,
             Some(preflight),
             TransitionMode::Ordinary,
+            None,
         )
         .await
     }
@@ -2743,6 +2764,7 @@ impl CaptureReconciler {
             core_healthy,
             None,
             TransitionMode::RuntimeReplacement,
+            transition.operation_prefix.as_deref(),
         )
         .await
     }
@@ -2753,6 +2775,7 @@ impl CaptureReconciler {
         core_healthy: bool,
         preflight: Option<CapturePreflight>,
         mode: TransitionMode,
+        operation_prefix: Option<&str>,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
         let mut machine_updates = self.machine_updates.clone();
         let admission = self
@@ -2760,6 +2783,7 @@ impl CaptureReconciler {
             .admit(CaptureInput::Start {
                 core_healthy,
                 mode,
+                operation_prefix: operation_prefix.map(str::to_owned),
                 preflight: preflight.map(Box::new),
                 request,
             })

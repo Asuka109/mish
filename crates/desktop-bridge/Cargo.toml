@@ -23,6 +23,7 @@ mish-profile = { path = "../profile" }
 mish-runtime = { path = "../runtime" }
 mish-settings = { path = "../settings" }
 mish-state-authority = { path = "../state-authority" }
+mish-state-machine = { path = "../state-machine" }
 mish-updater = { path = "../updater" }
 nix = { version = "0.31.3", features = ["signal"] }
 serde = { version = "1.0.228", features = ["derive"] }

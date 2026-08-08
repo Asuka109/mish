@@ -1379,7 +1379,10 @@ async fn failed_tun_backend_switches_restore_the_prior_core_and_capture_state() 
         status["runtime"]["captureSelection"],
         json!({"systemProxy":true,"tun":false})
     );
-    assert!(!before_launch.is_same_instance(&host.current()));
+    assert!(
+        before_launch.is_same_instance(&host.current()),
+        "the atomic Profile/Capture saga must restore the exact prior runtime instance"
+    );
     assert_eq!(only_candidate_config(root.path())["tun"]["enable"], false);
     assert!(!coordinator.activation_snapshot().await.safe_stopped);
     assert_eq!(candidate_count(root.path()), 1);
@@ -4362,7 +4365,7 @@ async fn aggregate_launch_finishes_after_early_listener_failure_notification() {
         )
         .unwrap()
         .unwrap_err();
-    assert_eq!(launch_error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(launch_error.kind, CaptureFailureKind::ListenerUnavailable);
     assert_eq!(
         host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["captureOperation"]["phase"],
         "failed"
@@ -4461,7 +4464,7 @@ async fn aggregate_listener_failure_cancels_blocked_capture_preflight_before_fin
         .unwrap()
         .unwrap_err();
 
-    assert_eq!(launch_error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(launch_error.kind, CaptureFailureKind::ListenerUnavailable);
     let terminal = host.status_snapshot(StatusAdapterKind::Rpc).await;
     assert_eq!(terminal["runtime"]["captureOperation"]["phase"], "failed");
     assert_eq!(terminal["runtime"]["systemProxy"]["phase"], "off");

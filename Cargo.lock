@@ -2711,6 +2711,7 @@ dependencies = [
  "mish-runtime",
  "mish-settings",
  "mish-state-authority",
+ "mish-state-machine",
  "mish-updater",
  "nix",
  "regex",

@@ -215,6 +215,7 @@ pub(super) enum CaptureInput {
     Start {
         core_healthy: bool,
         mode: TransitionMode,
+        operation_prefix: Option<String>,
         preflight: Option<Box<CapturePreflight>>,
         request: CaptureRequest,
     },
@@ -858,13 +859,15 @@ impl Machine for CaptureMachine {
             CaptureInput::Start {
                 core_healthy,
                 mode,
+                operation_prefix,
                 preflight,
                 request,
             } => {
                 let Some(base) = state.base() else {
                     return Transition::Rejected(super::runtime_transition_error());
                 };
-                let Ok((stable, operation)) = self.operation(&base, request.clone(), *mode, None)
+                let Ok((stable, operation)) =
+                    self.operation(&base, request.clone(), *mode, operation_prefix.as_deref())
                 else {
                     return Transition::Rejected(super::runtime_transition_error());
                 };
@@ -1658,6 +1661,7 @@ mod tests {
             &CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             },
@@ -1712,6 +1716,37 @@ mod tests {
     }
 
     #[test]
+    fn runtime_replacement_prefixes_internal_correlation_without_changing_public_operation_id() {
+        let machine = machine();
+        let transitioning = transition_state(machine.reduce(
+            &initial(),
+            &CaptureInput::Start {
+                core_healthy: true,
+                mode: TransitionMode::RuntimeReplacement,
+                operation_prefix: Some("profile-command".into()),
+                preflight: None,
+                request: request(),
+            },
+        ));
+        let CaptureState::Transitioning(current) = transitioning else {
+            panic!("runtime replacement must enter the Capture transition machine");
+        };
+        assert_eq!(
+            current.operation.correlation.operation_id,
+            "profile-command-1"
+        );
+        assert_eq!(
+            current
+                .operation
+                .pending
+                .capture_operation
+                .operation_id
+                .as_deref(),
+            Some("1")
+        );
+    }
+
+    #[test]
     fn pending_projection_only_marks_capture_backends_involved_in_the_request() {
         let machine = machine();
         let tun_request = CaptureRequest {
@@ -1726,6 +1761,7 @@ mod tests {
             &CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: tun_request,
             },
@@ -1932,6 +1968,7 @@ mod tests {
                     &CaptureInput::Start {
                         core_healthy: true,
                         mode: TransitionMode::Ordinary,
+                        operation_prefix: None,
                         preflight: None,
                         request: request(),
                     },
@@ -1964,6 +2001,7 @@ mod tests {
                     &CaptureInput::Start {
                         core_healthy: true,
                         mode: TransitionMode::Ordinary,
+                        operation_prefix: None,
                         preflight: None,
                         request: request(),
                     },
@@ -2026,6 +2064,7 @@ mod tests {
             &CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             },
@@ -2080,6 +2119,7 @@ mod tests {
             &CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::RuntimeReplacement,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             },
@@ -2118,6 +2158,7 @@ mod tests {
                 &CaptureInput::Start {
                     core_healthy: true,
                     mode: TransitionMode::Ordinary,
+                    operation_prefix: None,
                     preflight: None,
                     request: request(),
                 },
@@ -2322,6 +2363,7 @@ mod tests {
             .admit(CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             })
@@ -2340,6 +2382,7 @@ mod tests {
             .admit(CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             })
@@ -2366,6 +2409,7 @@ mod tests {
             .admit(CaptureInput::Start {
                 core_healthy: true,
                 mode: TransitionMode::Ordinary,
+                operation_prefix: None,
                 preflight: None,
                 request: request(),
             })
