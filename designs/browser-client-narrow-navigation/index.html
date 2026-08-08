@@ -585,8 +585,12 @@
           <button type="button" data-mobile-route="Profiles" data-selected="false">Profiles</button>
           <button type="button" data-mobile-route="Activity" data-selected="false">Activity</button>
           <button type="button" data-mobile-route="Settings" data-selected="false">Settings</button>
-          <button type="button" data-observed-only="true" hidden>Settings</button>
-          <button type="button" data-observed-only="true" hidden>Proxy</button>
+          <button type="button" data-mobile-route="Settings" data-observed-only="true" hidden>
+            Settings
+          </button>
+          <button type="button" data-mobile-route="Proxy" data-observed-only="true" hidden>
+            Proxy
+          </button>
         </nav>
 
         <p class="observed-collision" role="status">
@@ -607,8 +611,16 @@
       const activityTabs = document.querySelector("#activity-tabs");
       const contentFocus = document.querySelector("#content-focus");
       const observedOnly = [...document.querySelectorAll("[data-observed-only]")];
-      const candidateMobileLabels = ["Status", "Routes", "Profiles", "Activity", "Settings"];
-      const observedMobileLabels = ["Status", "Routes", "Profiles", "Traffic", "Events"];
+      const candidateMobileRoutes = ["Status", "Routes", "Profiles", "Activity", "Settings"];
+      const observedMobileRoutes = [
+        "Status",
+        "Routes",
+        "Profiles",
+        "Traffic",
+        "Events",
+        "Settings",
+        "Proxy",
+      ];
 
       const routeCopy = {
         Status:
@@ -621,13 +633,16 @@
         Rules: "Effective rules remain one tap from Activity.",
         Events: "Runtime events remain one tap from Activity.",
         Settings: "Application and platform preferences remain a persistent destination.",
+        Proxy: "System proxy control remains available in the observed Browser Client navigation.",
       };
 
-      function selectRoute(route) {
+      function selectRoute(route, { focus = true } = {}) {
         const effectiveRoute = route === "Activity" ? "Traffic" : route;
-        const mobileRoute = ["Traffic", "Rules", "Events"].includes(effectiveRoute)
-          ? "Activity"
-          : effectiveRoute;
+        const candidate = stage.dataset.mode === "candidate";
+        const mobileRoute =
+          candidate && ["Traffic", "Rules", "Events"].includes(effectiveRoute)
+            ? "Activity"
+            : effectiveRoute;
         document.querySelectorAll("[data-route]").forEach((button) => {
           button.dataset.selected = String(button.dataset.route === effectiveRoute);
         });
@@ -640,11 +655,11 @@
             String(button.dataset.activityRoute === effectiveRoute),
           );
         });
-        activityTabs.dataset.visible = String(mobileRoute === "Activity");
+        activityTabs.dataset.visible = String(candidate && mobileRoute === "Activity");
         toolbarTitle.textContent = mobileRoute === "Activity" ? "Activity" : effectiveRoute;
         pageTitle.textContent = effectiveRoute === "Traffic" ? "Connections" : effectiveRoute;
         screenCopy.textContent = routeCopy[effectiveRoute];
-        contentFocus.focus({ preventScroll: true });
+        if (focus) contentFocus.focus({ preventScroll: true });
       }
 
       function setMode(mode) {
@@ -655,12 +670,17 @@
           : "candidate-five-destination-shell";
         candidateView.setAttribute("aria-pressed", String(!observed));
         observedView.setAttribute("aria-pressed", String(observed));
+        const routes = observed ? observedMobileRoutes : candidateMobileRoutes;
         document.querySelectorAll("[data-mobile-route]").forEach((button, index) => {
-          button.textContent = (observed ? observedMobileLabels : candidateMobileLabels)[index];
+          if (routes[index]) {
+            button.dataset.mobileRoute = routes[index];
+            button.textContent = routes[index];
+          }
         });
         observedOnly.forEach((button) => {
           button.hidden = !observed;
         });
+        selectRoute("Status", { focus: false });
       }
 
       candidateView.addEventListener("click", () => setMode("candidate"));
