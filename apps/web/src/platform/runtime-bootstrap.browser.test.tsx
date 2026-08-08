@@ -38,8 +38,12 @@ function routeElement(label: string) {
   return <main data-testid="authenticated-route">{label}</main>;
 }
 
-async function authenticateAndRender(path: string, expectedPath: string, expectedLabel: string) {
-  const launchToken = crypto.randomUUID().replaceAll("-", "").padEnd(43, "a").slice(0, 43);
+async function authenticateAndRender(
+  path: string,
+  expectedPath: string,
+  expectedLabel: string,
+  launchToken = crypto.randomUUID().replaceAll("-", "").padEnd(43, "a").slice(0, 43),
+) {
   window.history.replaceState({ source: "browser-test" }, "", `${path}#token=${launchToken}`);
   const events: string[] = [];
 
@@ -112,8 +116,26 @@ describe("Browser Client launch startup in Chromium", () => {
     await authenticateAndRender(path, path, label);
   });
 
+  test("reuses one development-process launch token across direct routes", async () => {
+    const launchToken = crypto.randomUUID().replaceAll("-", "").padEnd(43, "a").slice(0, 43);
+
+    await authenticateAndRender("/", "/status", "Status", launchToken);
+    await authenticateAndRender(
+      "/routes?sort=latency",
+      "/routes?sort=latency",
+      "Routes",
+      launchToken,
+    );
+    await authenticateAndRender(
+      "/settings?section=application",
+      "/settings?section=application",
+      "Settings",
+      launchToken,
+    );
+  });
+
   test.each([
-    ["replayed", `#token=${"r".repeat(43)}`],
+    ["rejected one-time replay", `#token=${"r".repeat(43)}`],
     ["invalid", "#token=short"],
   ])(
     "cleans a %s token and falls back to browser authentication after rejection",
@@ -147,8 +169,8 @@ describe("Browser Client launch startup in Chromium", () => {
       expect(window.location.href).not.toContain("token");
       expect(window.location.pathname).toBe("/routes");
       expect(fetchBootstrap).toHaveBeenCalledWith(
-        _case === "replayed" ? "r".repeat(43) : null,
-        _case === "replayed" ? "e".repeat(64) : null,
+        _case === "rejected one-time replay" ? "r".repeat(43) : null,
+        _case === "rejected one-time replay" ? "e".repeat(64) : null,
       );
       expect(clearProof).toHaveBeenCalledOnce();
     },

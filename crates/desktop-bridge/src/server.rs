@@ -112,8 +112,26 @@ struct BrowserPairing {
 }
 
 struct PendingLaunchToken {
-    expires_at: Instant,
+    policy: BrowserLaunchTokenPolicy,
     token: String,
+}
+
+enum BrowserLaunchTokenPolicy {
+    DevelopmentProcess,
+    OneTime { expires_at: Instant },
+}
+
+impl PendingLaunchToken {
+    fn is_current(&self, now: Instant) -> bool {
+        match self.policy {
+            BrowserLaunchTokenPolicy::DevelopmentProcess => true,
+            BrowserLaunchTokenPolicy::OneTime { expires_at } => expires_at > now,
+        }
+    }
+
+    fn is_development_process(&self) -> bool {
+        matches!(self.policy, BrowserLaunchTokenPolicy::DevelopmentProcess)
+    }
 }
 
 #[cfg(feature = "development-window-trigger")]
@@ -179,6 +197,19 @@ pub struct BrowserClientHandle {
 
 impl BrowserClientHandle {
     pub fn issue_launch_url(&self) -> Result<String, String> {
+        self.issue_launch_url_with_policy(BrowserLaunchTokenPolicy::OneTime {
+            expires_at: Instant::now() + BROWSER_PAIRING_LIFETIME,
+        })
+    }
+
+    pub fn issue_development_launch_url(&self) -> Result<String, String> {
+        self.issue_launch_url_with_policy(BrowserLaunchTokenPolicy::DevelopmentProcess)
+    }
+
+    fn issue_launch_url_with_policy(
+        &self,
+        policy: BrowserLaunchTokenPolicy,
+    ) -> Result<String, String> {
         let token = generate_browser_launch_token()
             .map_err(|_| "the operating system did not provide entropy")?;
         let mut pending = self
@@ -186,12 +217,21 @@ impl BrowserClientHandle {
             .lock()
             .map_err(|_| "Browser launch state is unavailable")?;
         let now = Instant::now();
-        pending.retain(|candidate| candidate.expires_at > now);
+        let replacing_development_token =
+            matches!(policy, BrowserLaunchTokenPolicy::DevelopmentProcess);
+        pending.retain(|candidate| {
+            candidate.is_current(now)
+                && !(replacing_development_token && candidate.is_development_process())
+        });
         if pending.len() >= BROWSER_SESSION_LIMIT {
-            pending.pop_front();
+            let evicted = pending
+                .iter()
+                .position(|candidate| !candidate.is_development_process())
+                .unwrap_or_default();
+            pending.remove(evicted);
         }
         pending.push_back(PendingLaunchToken {
-            expires_at: now + BROWSER_PAIRING_LIFETIME,
+            policy,
             token: token.clone(),
         });
         Ok(format!("http://{}/#token={token}", self.address))
@@ -905,11 +945,15 @@ async fn browser_bootstrap(
             .ok()
             .and_then(|mut pending| {
                 let now = Instant::now();
-                pending.retain(|candidate| candidate.expires_at > now);
+                pending.retain(|candidate| candidate.is_current(now));
                 let index = pending.iter().position(|candidate| {
                     bool::from(candidate.token.as_bytes().ct_eq(token.as_bytes()))
                 })?;
-                pending.remove(index).map(|candidate| candidate.token)
+                if pending[index].is_development_process() {
+                    Some(pending[index].token.clone())
+                } else {
+                    pending.remove(index).map(|candidate| candidate.token)
+                }
             })
     });
     if launch_token.is_some() && accepted_launch.is_none() {

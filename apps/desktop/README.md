@@ -33,6 +33,11 @@ Mish Browser Client URL: http://127.0.0.1:<port>/#token=<capability>
 Mish Desktop Window Trigger URL: http://127.0.0.1:<port>/__openWindow#token=<capability>
 ```
 
+The printed Browser Client URL can authenticate multiple clean browser contexts
+for the lifetime of this development process. A replacement process prints a
+new URL and invalidates the prior capability. This development behavior does
+not change the short-lived one-time URL issued by the production status bar.
+
 Open the Browser Client for the primary no-window development surface. Open the
 desktop-window trigger when the native WebView is needed. A current trigger
 creates, reveals, or focuses the single `main` window. Closing that development
@@ -97,7 +102,8 @@ authorization.
 The shell composes, but does not reimplement:
 
 - an authenticated in-process desktop bridge on ephemeral loopback;
-- process-only RPC bootstrap for the main WebView and one-time browser launch;
+- process-only RPC bootstrap for the main WebView, one-time production browser
+  launch, and current-process reusable development launch;
 - native window, application menu, status bar, launch-at-login, material, and
   lifecycle behavior;
 - the macOS System Proxy adapter and explicit development TUN service;

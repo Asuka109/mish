@@ -1561,7 +1561,7 @@ fn initialize(
             .ok_or_else(|| io::Error::other("browser client host is unavailable"))?;
         let development_readiness = if tauri::is_dev() {
             let launch_url = browser_client
-                .issue_launch_url()
+                .issue_development_launch_url()
                 .map_err(io::Error::other)?;
             #[cfg(feature = "development-window-trigger")]
             let trigger_url = if development_window_on_demand {
