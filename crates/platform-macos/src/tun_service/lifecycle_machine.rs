@@ -353,6 +353,18 @@ impl Machine for TunLifecycleMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        let (operation, effect_id) = match state {
+            TunLifecycleState::Starting { operation }
+            | TunLifecycleState::Applying { operation }
+            | TunLifecycleState::Observing { operation }
+            | TunLifecycleState::Restoring { operation } => (operation, EXECUTE_EFFECT_ID),
+            TunLifecycleState::Verifying { operation, .. } => (operation, VERIFY_EFFECT_ID),
+            _ => return false,
+        };
+        operation.correlation.same_operation(correlation) && correlation.effect_id == effect_id
+    }
+
     fn task_failed(&self, correlation: Correlation, _failure: TaskFailure) -> Self::Input {
         TunLifecycleInput::EffectCompleted {
             correlation,

@@ -43,6 +43,36 @@ recovery-required transitions.
 - a bounded evidence ring containing hashed authority/operation identity and
   state/input/disposition labels.
 
+The runner checks a completed task against the correlation it owned and asks
+the machine whether that owned effect is still current for the present state
+before it calls the reducer. A foreign completion and an otherwise well-formed
+completion from an operation that has since been replaced are never domain
+inputs: the runner records one bounded `effect-completion-conflict` retirement
+entry and constructs exactly one domain finalizer from the owned original
+correlation. Every machine must implement this current-effect predicate from
+its own State and Effect vocabulary.
+Domain correlation guards remain required as defense in depth for inputs that
+arrive through ordinary admission rather than an owned effect task.
+
+Callers that need recovery-specific admission behavior use `try_admit`: a
+domain rejection, a saturated inbox, and a retired runner are distinct typed
+results. Domain adapters may deliberately map those cases back into their own
+error vocabulary; for example, Profile activation treats saturation as a
+conflict that may be retried and retirement as unavailable authority.
+
+Runner shutdown returns a typed retirement record containing the last snapshot,
+transition disposition, and terminal reason. Rejected shutdown transitions and
+an actor that panicked, was aborted, or retired before replying are data rather
+than `expect`/panic paths. Effect panic and bounded-grace abort still enter the
+domain through one owned `task_failed` finalizer. Repeating explicit shutdown is
+idempotent. Dropping the last runner owner requests the same bounded shutdown
+and drain path; it detaches rather than aborting the actor, so compensation and
+owned finalizers are not silently bypassed. Owners that must observe completion
+still call and await explicit shutdown before releasing their last handle.
+Crash/restart harnesses use the separately named process-termination abort,
+which intentionally runs neither shutdown nor finalizers and cannot be confused
+with ordinary last-owner retirement.
+
 Effect adapters own platform and network I/O. They return explicit inputs to
 the reducer. Adapter resource locks do not become machine authority, and no
 detached task or lock held across an await can mutate the reducer-owned state.

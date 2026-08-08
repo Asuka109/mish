@@ -628,6 +628,7 @@ fn record_projected_check_evidence(
     }
     let disposition = match (disposition, previous.label(), input.label()) {
         (Disposition::Unchanged, "committing-available", "cancel-requested") => "cancel-too-late",
+        (_, _, "effect-completion-conflict") => "retired-completion",
         (Disposition::Unchanged, _, _) => "duplicate",
         (Disposition::Retired, _, _) => "retired-completion",
         _ => "applied",
@@ -963,6 +964,7 @@ fn record_continuation_evidence(
     }
     let disposition = match (disposition, previous.label(), input.label()) {
         (Disposition::Unchanged, "committing-candidate", "cancel-requested") => "cancel-too-late",
+        (_, _, "effect-completion-conflict") => "retired-completion",
         (Disposition::Unchanged, _, _) => "duplicate",
         (Disposition::Retired, _, _) => "retired-completion",
         _ => disposition.label(),

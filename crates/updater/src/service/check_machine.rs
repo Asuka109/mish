@@ -681,6 +681,18 @@ impl Machine for CheckMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        match state {
+            CheckState::Checking { operation, .. } => {
+                operation.accepts(correlation, DISCOVER_EFFECT_ID)
+            }
+            CheckState::CommittingAvailable { operation, .. } => {
+                operation.accepts(correlation, COMMIT_AVAILABLE_EFFECT_ID)
+            }
+            _ => false,
+        }
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         CheckInput::EffectCompleted(CheckCompletion {
             correlation,
