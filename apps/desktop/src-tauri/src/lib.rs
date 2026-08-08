@@ -47,8 +47,8 @@ use mish_runtime::{
 };
 use mish_settings::{
     ApplicationLaunchBehavior, FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences,
-    SettingsAdapterKind, SettingsAvailability, SettingsBuildInfo, SettingsCapabilities,
-    SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform, StartupPlatformError,
+    SettingsAdapterKind, SettingsAvailability, SettingsCapabilities, SettingsService,
+    SettingsServiceError, SettingsSnapshot, StartupPlatform, StartupPlatformError,
     WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use mish_state_authority::StateMutationAuthority;
@@ -132,21 +132,21 @@ enum DevtoolsStartupSource {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StartupOptionsError {
-    MalformedDevtoolsArgument,
-    MalformedDevtoolsEnvironment,
-    MalformedTartTunAcceptanceEnvironment,
+    DevtoolsArgument,
+    DevtoolsEnvironment,
+    TartTunAcceptanceEnvironment,
 }
 
 impl std::fmt::Display for StartupOptionsError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MalformedDevtoolsArgument => formatter.write_str(
+            Self::DevtoolsArgument => formatter.write_str(
                 "--devtools does not accept a value; the WebView Inspector remains disabled",
             ),
-            Self::MalformedDevtoolsEnvironment => formatter.write_str(
+            Self::DevtoolsEnvironment => formatter.write_str(
                 "MISH_DEVTOOLS must be exactly 1 or 0; the WebView Inspector remains disabled",
             ),
-            Self::MalformedTartTunAcceptanceEnvironment => formatter.write_str(
+            Self::TartTunAcceptanceEnvironment => formatter.write_str(
                 "MISH_TART_TUN_ACCEPTANCE must be exactly 1 or 0; development TUN remains disabled",
             ),
         }
@@ -178,7 +178,7 @@ impl StartupOptions {
                 .to_str()
                 .is_some_and(|argument| argument.starts_with("--devtools="))
             {
-                return Err(StartupOptionsError::MalformedDevtoolsArgument);
+                return Err(StartupOptionsError::DevtoolsArgument);
             }
         }
 
@@ -187,7 +187,7 @@ impl StartupOptions {
                 devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::CommandLine),
                 tart_tun_acceptance: exact_process_opt_in(
                     tart_tun_acceptance_environment,
-                    StartupOptionsError::MalformedTartTunAcceptanceEnvironment,
+                    StartupOptionsError::TartTunAcceptanceEnvironment,
                 )?,
             });
         }
@@ -198,13 +198,13 @@ impl StartupOptions {
             Some(value) if value == OsStr::new("1") => {
                 DevtoolsStartup::Enabled(DevtoolsStartupSource::Environment)
             }
-            Some(_) => return Err(StartupOptionsError::MalformedDevtoolsEnvironment),
+            Some(_) => return Err(StartupOptionsError::DevtoolsEnvironment),
         };
         Ok(Self {
             devtools,
             tart_tun_acceptance: exact_process_opt_in(
                 tart_tun_acceptance_environment,
-                StartupOptionsError::MalformedTartTunAcceptanceEnvironment,
+                StartupOptionsError::TartTunAcceptanceEnvironment,
             )?,
         })
     }
@@ -1296,7 +1296,7 @@ fn initialize(
     };
     let tun_helper = Arc::new(TunHelperController::new(tun_helper_platform));
     let settings_service = Arc::new(
-        SettingsService::load_with_platforms_and_authority_and_build(
+        SettingsService::load_with_platforms_and_authority(
             Arc::new(FileSettingsRepository::new(
                 profile_root.join("settings.json"),
             )),
@@ -1309,7 +1309,6 @@ fn initialize(
                     as Arc<dyn mish_settings::NetworkDnsPlatform>
             }),
             mutation_authority.clone(),
-            SettingsBuildInfo::packaged(env!("CARGO_PKG_VERSION")),
         )
         .map_err(settings_initialization_error)?,
     );

@@ -90,10 +90,20 @@ git diff --check
 
 `pnpm check:pr` is the rapid pull-request gate. It keeps Android project and
 workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
-unit tests, Rust formatting, the bounded Rust-authoritative simulated application
-command, design tokens, and documentation links blocking. It intentionally
-excludes workspace-wide Rust compilation and tests, Clippy, production builds,
-Design.md lint, and the broad responsive browser suite.
+unit tests, Rust formatting, portable workspace/all-target Clippy, the bounded
+Rust-authoritative simulated application command, design tokens, and
+documentation links blocking. The PR contract excludes the Desktop, Mobile,
+mobile Tauri plugin, macOS platform, and simulated macOS host crates whose Linux
+builds either require host WebKit/GTK libraries or intentionally compile out
+their product code. The simulated-host behavior remains covered by its separate
+Rust-authoritative test contract. The gate checks the Updater library separately
+because its all-target test seam also imports a Tauri plugin; the macOS main
+inspection retains every target. Agents can reproduce the complete inspection
+warning contract with one command:
+`pnpm check:rust:clippy`; Cargo identifies the owning crate and target in
+failure output. The gate intentionally excludes Rust test execution beyond the
+simulated application contract, production builds, Design.md lint, and the broad
+responsive browser suite.
 
 `pnpm check:all` runs the complete non-browser repository checks for local work
 and main-branch inspection. Browser installation, the browser suite, and
@@ -111,10 +121,12 @@ suite and then that browser journey.
 Mish separates merge latency from broad regression detection during rapid
 preview development:
 
-- pull requests install pinned Chromium and run `pnpm check:pr` on an isolated
-  GitHub-hosted Ubuntu runner with a ten-minute job ceiling; they never require
-  root, Tauri, WebDriver, Tart, a real Core/Helper/TUN, host-network mutation, or
-  application package upload;
+- pull requests install pinned Chromium and run `pnpm check:pr`, including the
+  portable workspace/all-target Rust Clippy contract, on an isolated
+  GitHub-hosted Ubuntu runner with a ten-minute job ceiling; they never install
+  host WebKit/GTK application-build dependencies or require root, WebDriver,
+  Tart, a real Core/Helper/TUN, signing, publication, physical devices,
+  host-network mutation, or application package upload;
 - every push to `main` independently builds the macOS ARM64 and Android test
   packages but does not repeat the complete validation suite;
 - a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out

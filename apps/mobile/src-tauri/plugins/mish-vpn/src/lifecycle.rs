@@ -1086,10 +1086,10 @@ fn reduce_shutdown(
         return Transition::Unchanged;
     }
     let mut next = state.clone();
-    if state.active.is_some() {
-        if let Some(next_active) = next.active.as_mut() {
-            next_active.cancellation = Some(LifecycleOperationOutcome::Unknown);
-        }
+    if state.active.is_some()
+        && let Some(next_active) = next.active.as_mut()
+    {
+        next_active.cancellation = Some(LifecycleOperationOutcome::Unknown);
     }
     next.phase = if state.active.is_some() {
         LifecyclePhase::Stopping

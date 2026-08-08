@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  optimizeDeps: {
+    entries: ["src/system-tests/simulated-host.browser.test.tsx"],
+  },
   plugins: [react(), tailwindcss()],
   publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
   test: {

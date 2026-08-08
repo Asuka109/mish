@@ -147,6 +147,7 @@ describe("narrow Settings layout", () => {
       "覆盖系统代理",
       "安装虚拟网卡",
       "识别连接进程",
+      "切换后重启连接",
       "代理端口",
       "Controller 端口",
     ]);

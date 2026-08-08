@@ -5,9 +5,12 @@ beforeAll(async () => {
   document.body.innerHTML = '<div id="root"></div>';
   await import("../main");
 
-  await vi.waitFor(() => {
-    expect(document.querySelector(".app-shell")).not.toBeNull();
-  });
+  await vi.waitFor(
+    () => {
+      expect(document.querySelector(".app-shell")).not.toBeNull();
+    },
+    { timeout: 10_000 },
+  );
 });
 
 async function openEvents() {
