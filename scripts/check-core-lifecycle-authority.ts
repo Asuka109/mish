@@ -44,6 +44,9 @@ export function checkCoreLifecycleAuthority(): void {
   const mobileKotlin = source(
     "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishMobileCoreProbe.kt",
   );
+  const mobileService = source(
+    "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt",
+  );
   const mobileCore = source("mobile-core/wrapper/runtime.go");
   const productSources = ["apps", "crates", "mobile-core", "packages"].flatMap(productionSources);
 
@@ -137,6 +140,15 @@ export function checkCoreLifecycleAuthority(): void {
       mobileCore.includes("strconv.ParseUint(current.EffectIdentity, 10, 64)") &&
       !mobileCore.includes('current.EffectIdentity+".cleanup"'),
     "Mobile Core mutations are not validating coordinator authority.",
+  );
+  const mobileNotification = mobileService.slice(
+    mobileService.indexOf("private fun buildNotification"),
+    mobileService.indexOf("private fun createNotificationChannel"),
+  );
+  invariant(
+    !mobileNotification.includes("ACTION_STOP") &&
+      !mobileNotification.includes("PendingIntent.getService"),
+    "Android notification exposes a bare Core stop outside the Shared Rust coordinator.",
   );
 }
 

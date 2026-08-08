@@ -410,13 +410,6 @@ class MishVpnService : VpnService() {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stopIntent = Intent(this, MishVpnService::class.java).setAction(ACTION_STOP)
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            REQUEST_STOP,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mish_vpn_notification)
             .setContentTitle(getString(R.string.mish_vpn_notification_title))
@@ -426,13 +419,6 @@ class MishVpnService : VpnService() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    getString(R.string.mish_vpn_stop),
-                    stopPendingIntent,
-                ).build(),
-            )
             .build()
     }
 
@@ -520,7 +506,6 @@ class MishVpnService : VpnService() {
         private const val PUBLIC_PROBE_WAIT_MILLIS = 20_000L
         private const val PUBLIC_PROBE_URL = "http://1.1.1.1/cdn-cgi/trace"
         private const val REQUEST_OPEN = 4108
-        private const val REQUEST_STOP = 4109
         private const val TUN_IPV4_ADDRESS = "172.19.0.1"
         private const val TUN_IPV4_DNS = "1.1.1.1"
         private const val TUN_IPV4_PREFIX = 30

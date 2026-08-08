@@ -172,7 +172,9 @@ file descriptor, protects outbound Core sockets from recursive capture, and
 starts the embedded Core only after configuration validation.
 
 The service promotes itself to the foreground with an honest persistent
-notification. Its state machine covers unavailable, permission-required,
+notification. The notification opens the product but does not expose a native
+Stop action: Stop must first be admitted and finalized by Shared Rust, and the
+platform adapter receives only that scoped effect. Its state machine covers unavailable, permission-required,
 starting, running, stopping, failed, and recovery-required phases. Repeated
 start and stop commands are idempotent, and lifecycle transitions are
 serialized with profile activation and configuration replacement.
