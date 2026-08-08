@@ -127,6 +127,18 @@ class DeferredRoutingClient extends FixtureStatusClient {
   }
 }
 
+class InitialLoadingClient extends FixtureStatusClient {
+  override getSnapshot(): Promise<StatusSnapshotDto> {
+    return new Promise(() => undefined);
+  }
+}
+
+class InitialFailureClient extends FixtureStatusClient {
+  override getSnapshot(): Promise<StatusSnapshotDto> {
+    return Promise.reject(new StatusClientError("remote", "Initial status failed"));
+  }
+}
+
 class CancellableRoutingClient extends FixtureStatusClient {
   aborted = false;
 
@@ -935,6 +947,31 @@ describe("production routes", () => {
     expect(screen.getByLabelText("Mish")).toBeInTheDocument();
     expect(container.querySelector(".route-loading")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Status" })).toBeInTheDocument();
+  });
+
+  it.each(["/status", "/routes"])(
+    "gives %s eager provider loading exactly one accessible owner",
+    async (path) => {
+      const view = renderRoute(path, "en", new InitialLoadingClient());
+
+      expect(await screen.findByText("Loading typed fixture data…")).toBeInTheDocument();
+      const statusOwners = view.container.querySelectorAll('[role="status"]');
+      const busyOwners = view.container.querySelectorAll('[aria-busy="true"]');
+      expect(statusOwners).toHaveLength(1);
+      expect(busyOwners).toHaveLength(0);
+      expect(view.container.querySelector(".route-loading")).not.toBeInTheDocument();
+
+      view.unmount();
+    },
+  );
+
+  it.each(["/status", "/routes"])("keeps %s eager provider errors as alerts", async (path) => {
+    const view = renderRoute(path, "en", new InitialFailureClient());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load Status data.");
+    expect(view.container.querySelector('[role="status"]')).not.toBeInTheDocument();
+
+    view.unmount();
   });
 
   it("presents Mish as the product brand", () => {
