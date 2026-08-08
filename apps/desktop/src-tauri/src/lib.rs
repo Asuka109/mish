@@ -1300,7 +1300,7 @@ fn initialize(
     let resource_directory = app.path().resource_dir()?;
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
-        tun_helper.refresh().await;
+        let _ = settings_service.refresh_tun_helper().await;
         if maintenance_capture_recovery_required {
             tun_helper.mark_runtime_unavailable(TunHelperFailureKind::IdentityRejected);
             eprintln!("Internal TUN maintenance Recovery Required: restore evidence was rejected");
@@ -1654,6 +1654,7 @@ fn initialize(
             application_launch_behavior,
             maintenance_capture_restore,
             tun_helper,
+            settings_service,
         );
     }
     open_main_webview_inspector(app, open_devtools, development_window_on_demand)?;
@@ -1757,6 +1758,7 @@ fn launch_on_application_start(
     behavior: ApplicationLaunchBehavior,
     maintenance_capture_restore: Option<InternalTunCaptureRestore>,
     tun_helper: Arc<TunHelperController>,
+    settings_service: Arc<SettingsService>,
 ) {
     tauri::async_runtime::spawn(async move {
         if let Some(restore) = maintenance_capture_restore {
@@ -1773,7 +1775,10 @@ fn launch_on_application_start(
                     tokio::time::sleep(INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY).await;
                     continue;
                 }
-                let helper = tun_helper.refresh().await;
+                let helper = match settings_service.refresh_tun_helper().await {
+                    Ok(snapshot) => snapshot.tun_helper,
+                    Err(_) => return,
+                };
                 if !helper.is_healthy() {
                     if attempt + 1 == INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS {
                         eprintln!(
@@ -1794,7 +1799,7 @@ fn launch_on_application_start(
                     .await
                 {
                     Ok(_) => {
-                        tun_helper.refresh().await;
+                        let _ = settings_service.refresh_tun_helper().await;
                         match maintenance_capture_stably_restored(
                             &activation,
                             &tun_helper,
@@ -1810,6 +1815,7 @@ fn launch_on_application_start(
                                 let disabled = maintenance_capture_disable_unconfirmed(
                                     &activation,
                                     &tun_helper,
+                                    &settings_service,
                                     &restore.selection,
                                 )
                                 .await;
@@ -1836,6 +1842,7 @@ fn launch_on_application_start(
                                 if !maintenance_capture_disable_unconfirmed(
                                     &activation,
                                     &tun_helper,
+                                    &settings_service,
                                     &restore.selection,
                                 )
                                 .await
@@ -1851,6 +1858,7 @@ fn launch_on_application_start(
                                 let _ = maintenance_capture_disable_unconfirmed(
                                     &activation,
                                     &tun_helper,
+                                    &settings_service,
                                     &restore.selection,
                                 )
                                 .await;
@@ -1869,6 +1877,7 @@ fn launch_on_application_start(
                         if !maintenance_capture_disable_unconfirmed(
                             &activation,
                             &tun_helper,
+                            &settings_service,
                             &restore.selection,
                         )
                         .await
@@ -1884,6 +1893,7 @@ fn launch_on_application_start(
                         let _ = maintenance_capture_disable_unconfirmed(
                             &activation,
                             &tun_helper,
+                            &settings_service,
                             &restore.selection,
                         )
                         .await;
@@ -1994,6 +2004,7 @@ async fn maintenance_capture_stably_restored(
 async fn maintenance_capture_disable_unconfirmed(
     activation: &Arc<ProfileActivationCoordinator>,
     tun_helper: &TunHelperController,
+    settings_service: &SettingsService,
     selection: &CaptureSelection,
 ) -> bool {
     let request = mish_runtime::CaptureRequest {
@@ -2004,7 +2015,7 @@ async fn maintenance_capture_disable_unconfirmed(
         .set_capture(request.clone(), RuntimeStatusAdapterKind::Rpc)
         .await;
     if selection.tun {
-        tun_helper.refresh().await;
+        let _ = settings_service.refresh_tun_helper().await;
         if tun_helper.set_tun_enabled(false).await.is_err() {
             return false;
         }

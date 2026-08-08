@@ -14,9 +14,9 @@ use std::{
 use futures_util::future::BoxFuture;
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
-    CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability, TunHelperController,
-    TunHelperFailureKind, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
-    TunHelperRemovalCapability, TunHelperSnapshot,
+    ApplicationSnapshotOrder, CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability,
+    TunHelperController, TunHelperFailureKind, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperRemovalCapability, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -315,6 +315,7 @@ pub struct StartupRegistrationSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsSnapshot {
     pub adapter_kind: SettingsAdapterKind,
+    pub application_order: ApplicationSnapshotOrder,
     pub build: SettingsBuildInfo,
     pub capabilities: SettingsCapabilities,
     pub network_dns: NetworkDnsSnapshot,
@@ -512,6 +513,7 @@ pub struct SettingsService {
     network_dns: NetworkDnsCoordinator,
     operation: Mutex<()>,
     repository: Arc<dyn SettingsRepository>,
+    snapshot_authority: SettingsSnapshotAuthority,
     startup_platform: Option<Arc<dyn StartupPlatform>>,
     state: Mutex<SettingsState>,
     tun_helper: Option<Arc<TunHelperController>>,
@@ -548,6 +550,61 @@ struct SettingsState {
     storage_recovered: bool,
 }
 
+#[derive(Debug)]
+struct SettingsSnapshotAuthority {
+    authority_id: String,
+    state: Mutex<SettingsSnapshotAuthorityState>,
+}
+
+#[derive(Debug)]
+struct SettingsSnapshotAuthorityState {
+    latest: Option<(serde_json::Value, u64)>,
+    next_order: u64,
+}
+
+impl SettingsSnapshotAuthority {
+    fn new() -> Self {
+        Self {
+            authority_id: uuid::Uuid::new_v4().to_string(),
+            state: Mutex::new(SettingsSnapshotAuthorityState {
+                latest: None,
+                next_order: 1,
+            }),
+        }
+    }
+
+    fn begin(&self) -> u64 {
+        let mut state = self
+            .state
+            .lock()
+            .expect("settings snapshot authority poisoned");
+        let order = state.next_order;
+        state.next_order = state.next_order.saturating_add(1);
+        order
+    }
+
+    fn stamp(&self, ticket: u64, snapshot: &SettingsSnapshot) -> ApplicationSnapshotOrder {
+        let content = serde_json::to_value(snapshot).expect("settings snapshot must serialize");
+        let mut state = self
+            .state
+            .lock()
+            .expect("settings snapshot authority poisoned");
+        let order = match &state.latest {
+            Some((previous, order)) if previous == &content => *order,
+            Some((_, order)) if *order > ticket => ticket,
+            _ => {
+                state.latest = Some((content, ticket));
+                ticket
+            }
+        };
+        ApplicationSnapshotOrder {
+            authority_id: self.authority_id.clone(),
+            epoch: 1,
+            order,
+        }
+    }
+}
+
 struct NetworkDnsCoordinator {
     authority: AtomicU64,
     completed: AtomicU64,
@@ -572,9 +629,9 @@ impl NetworkDnsCoordinator {
         }
     }
 
-    fn invalidate(&self) {
+    fn invalidate(&self) -> bool {
         if self.platform.is_none() {
-            return;
+            return false;
         }
         self.authority.fetch_add(1, Ordering::AcqRel);
         let mut snapshot = self.state.lock().expect("network DNS state lock poisoned");
@@ -584,6 +641,7 @@ impl NetworkDnsCoordinator {
         } else {
             NetworkDnsPhase::Unknown
         };
+        true
     }
 
     fn snapshot(&self) -> NetworkDnsSnapshot {
@@ -593,19 +651,19 @@ impl NetworkDnsCoordinator {
             .clone()
     }
 
-    async fn refresh(&self) -> NetworkDnsSnapshot {
+    async fn refresh(&self) -> (NetworkDnsSnapshot, bool) {
         let Some(platform) = &self.platform else {
-            return self.snapshot();
+            return (self.snapshot(), false);
         };
         let completed_before = self.completed.load(Ordering::Acquire);
         let _operation = self.operation.lock().await;
         if self.completed.load(Ordering::Acquire) != completed_before {
-            return self.snapshot();
+            return (self.snapshot(), false);
         }
         let authority = self.authority.load(Ordering::Acquire);
         let result = platform.observe().await;
         if self.authority.load(Ordering::Acquire) != authority {
-            return self.snapshot();
+            return (self.snapshot(), false);
         }
         let mut snapshot = self.state.lock().expect("network DNS state lock poisoned");
         match result {
@@ -623,7 +681,7 @@ impl NetworkDnsCoordinator {
             }
         }
         self.completed.fetch_add(1, Ordering::AcqRel);
-        snapshot.clone()
+        (snapshot.clone(), true)
     }
 }
 
@@ -762,6 +820,7 @@ impl SettingsService {
             network_dns: NetworkDnsCoordinator::new(network_dns_platform),
             operation: Mutex::new(()),
             repository,
+            snapshot_authority: SettingsSnapshotAuthority::new(),
             startup_platform,
             state: Mutex::new(SettingsState {
                 preferences: loaded.preferences,
@@ -775,6 +834,7 @@ impl SettingsService {
     }
 
     pub fn snapshot(&self, adapter_kind: SettingsAdapterKind) -> SettingsSnapshot {
+        let snapshot_ticket = self.snapshot_authority.begin();
         let state = *self.state.lock().expect("settings state lock poisoned");
         let observed = self
             .startup_platform
@@ -827,8 +887,9 @@ impl SettingsService {
             },
         };
 
-        SettingsSnapshot {
+        let mut snapshot = SettingsSnapshot {
             adapter_kind,
+            application_order: ApplicationSnapshotOrder::detached(),
             build: self.build.clone(),
             capabilities,
             network_dns: self.network_dns.snapshot(),
@@ -838,7 +899,9 @@ impl SettingsService {
             startup_registration,
             storage_recovered: state.storage_recovered,
             tun_helper,
-        }
+        };
+        snapshot.application_order = self.snapshot_authority.stamp(snapshot_ticket, &snapshot);
+        snapshot
     }
 
     /// Bounded authoritative snapshots for native surfaces and authenticated RPC subscribers.
@@ -873,8 +936,7 @@ impl SettingsService {
         }
         *lifecycle = Some(operation);
         drop(lifecycle);
-        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
-        self.publish_tun_helper_snapshot_value(snapshot);
+        self.publish_current_snapshot();
         Ok(TunHelperLifecyclePublication {
             active: true,
             service: self.clone(),
@@ -886,58 +948,66 @@ impl SettingsService {
     }
 
     pub fn invalidate_network_dns(&self) {
-        self.network_dns.invalidate();
+        if self.network_dns.invalidate() {
+            self.publish_current_snapshot();
+        }
     }
 
     pub async fn refresh_network_dns(&self) -> SettingsSnapshot {
-        self.network_dns.refresh().await;
-        self.snapshot(SettingsAdapterKind::Rpc)
+        let (_, accepted) = self.network_dns.refresh().await;
+        if accepted {
+            self.publish_current_snapshot()
+        } else {
+            self.snapshot(SettingsAdapterKind::Rpc)
+        }
     }
 
     pub async fn refresh_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         self.tun_helper()?.refresh().await;
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        Ok(self.publish_current_snapshot())
     }
 
     /// Performs the early, side-effect-free removal admission read against the controller's
     /// observed state. The public Settings snapshot may already project the admitted removal as
     /// maintenance-pending, so it must not decide whether that same removal may start.
     pub async fn refresh_tun_helper_removal_available(&self) -> Result<bool, SettingsServiceError> {
-        Ok(self.tun_helper()?.refresh().await.removal_available())
+        let removal_available = self.tun_helper()?.refresh().await.removal_available();
+        self.publish_current_snapshot();
+        Ok(removal_available)
     }
 
     pub async fn confirm_tun_helper_removal_safe(
         &self,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
-        self.tun_helper()?
-            .confirm_removal_safe()
-            .await
-            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        let result = self.tun_helper()?.confirm_removal_safe().await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
     pub async fn install_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
-        self.tun_helper()?
-            .install()
-            .await
-            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        let result = self.tun_helper()?.install().await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
     pub async fn repair_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
-        self.tun_helper()?
-            .repair()
-            .await
-            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        let result = self.tun_helper()?.repair().await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
     pub async fn remove_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
-        self.tun_helper()?
-            .remove()
-            .await
-            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        let result = self.tun_helper()?.remove().await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
     pub fn set_appearance(
@@ -1283,7 +1353,7 @@ impl SettingsService {
         state.storage_recovered = false;
         state.revision = state.revision.saturating_add(1);
         drop(state);
-        let _ = self.changes.send(self.snapshot(SettingsAdapterKind::Rpc));
+        self.publish_current_snapshot();
         Ok(())
     }
 
@@ -1307,9 +1377,7 @@ impl SettingsService {
         state.storage_recovered = false;
         state.revision = state.revision.saturating_add(1);
         drop(state);
-        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
-        let _ = self.changes.send(snapshot.clone());
-        Ok(snapshot)
+        Ok(self.publish_current_snapshot())
     }
 
     fn tun_helper(&self) -> Result<&TunHelperController, SettingsServiceError> {
@@ -1318,9 +1386,13 @@ impl SettingsService {
             .ok_or(SettingsServiceError::CapabilityUnavailable)
     }
 
-    fn publish_tun_helper_snapshot_value(&self, snapshot: SettingsSnapshot) -> SettingsSnapshot {
+    fn publish_snapshot_value(&self, snapshot: SettingsSnapshot) -> SettingsSnapshot {
         let _ = self.changes.send(snapshot.clone());
         snapshot
+    }
+
+    fn publish_current_snapshot(&self) -> SettingsSnapshot {
+        self.publish_snapshot_value(self.snapshot(SettingsAdapterKind::Rpc))
     }
 
     fn finish_tun_helper_lifecycle(&self) -> SettingsSnapshot {
@@ -1330,8 +1402,7 @@ impl SettingsService {
             .expect("TUN helper lifecycle lock poisoned");
         *lifecycle = None;
         drop(lifecycle);
-        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
-        self.publish_tun_helper_snapshot_value(snapshot)
+        self.publish_current_snapshot()
     }
 }
 
@@ -3052,6 +3123,119 @@ mod tests {
                 .language,
             LanguagePreference::En
         );
+    }
+
+    #[test]
+    fn process_replacement_gets_a_new_authority_without_overloading_preference_revision() {
+        let (_root, repository) = repository();
+        let first = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("first settings authority");
+        first
+            .set_language(LanguagePreference::Zh)
+            .expect("first preference mutation");
+        let first_snapshot = first
+            .set_appearance(AppearancePreference::Dark)
+            .expect("second preference mutation");
+        assert_eq!(first_snapshot.revision, 3);
+        drop(first);
+
+        let replacement =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("replacement settings authority")
+                .snapshot(SettingsAdapterKind::Rpc);
+
+        assert_eq!(replacement.revision, 1);
+        assert_eq!(replacement.preferences.language, LanguagePreference::Zh);
+        assert_eq!(
+            replacement.preferences.appearance,
+            AppearancePreference::Dark
+        );
+        assert_ne!(
+            replacement.application_order.authority_id,
+            first_snapshot.application_order.authority_id
+        );
+        assert_eq!(replacement.application_order.epoch, 1);
+        assert_eq!(replacement.application_order.order, 1);
+    }
+
+    #[tokio::test]
+    async fn derived_network_observations_keep_preference_revision_and_publish_complete_order() {
+        let (_root, repository) = repository();
+        let platform = Arc::new(BlockingNetworkDnsPlatform {
+            calls: AtomicUsize::new(0),
+            first_started: Notify::new(),
+            release_first: Notify::new(),
+        });
+        let service = SettingsService::load_with_platforms(
+            repository,
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+            None,
+            Some(platform.clone()),
+        )
+        .expect("settings service");
+        let (mut desktop, initial) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+        let mut browser = service.subscribe();
+        let mut native = service.subscribe();
+
+        platform.release_first.notify_one();
+        let ready = service.refresh_network_dns().await;
+        assert_eq!(ready.revision, initial.revision);
+        assert!(ready.application_order.order > initial.application_order.order);
+        assert_eq!(ready.network_dns.phase, NetworkDnsPhase::Ready);
+        for receiver in [&mut desktop, &mut browser, &mut native] {
+            let published = receiver.try_recv().expect("published ready snapshot");
+            assert_eq!(published, ready);
+        }
+
+        service.invalidate_network_dns();
+        let stale = desktop.try_recv().expect("published stale snapshot");
+        assert_eq!(stale.revision, ready.revision);
+        assert_eq!(stale.network_dns.phase, NetworkDnsPhase::Stale);
+        assert!(stale.application_order.order > ready.application_order.order);
+        assert_eq!(browser.try_recv().expect("browser stale snapshot"), stale);
+        assert_eq!(native.try_recv().expect("native stale snapshot"), stale);
+    }
+
+    #[tokio::test]
+    async fn accepted_tun_helper_observation_publishes_to_every_subscriber() {
+        let (_root, repository) = repository();
+        let helper = Arc::new(TunHelperController::new(Arc::new(FakeTunHelperPlatform)));
+        let service = SettingsService::load_with_platforms(
+            repository,
+            None,
+            Some(window_surface_platform()),
+            SettingsCapabilities::macos(true),
+            Some(helper),
+            None,
+        )
+        .expect("settings service");
+        let (mut desktop, initial) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+        let mut browser = service.subscribe();
+        let mut native = service.subscribe();
+
+        let observed = service
+            .refresh_tun_helper()
+            .await
+            .expect("helper observation");
+        assert_eq!(observed.revision, initial.revision);
+        assert!(observed.application_order.order > initial.application_order.order);
+        assert_eq!(
+            observed.tun_helper.health,
+            mish_runtime::TunHelperHealth::NotInstalled
+        );
+        for receiver in [&mut desktop, &mut browser, &mut native] {
+            assert_eq!(
+                receiver.try_recv().expect("published helper snapshot"),
+                observed
+            );
+        }
     }
 
     #[test]

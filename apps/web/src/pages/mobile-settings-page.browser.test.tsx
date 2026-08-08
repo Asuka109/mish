@@ -176,6 +176,10 @@ class BrowserSettingsTransport implements MobileSettingsTransport {
     if (command === "mobile_settings_set_appearance" && request?.appearance) {
       this.snapshot = {
         ...this.snapshot,
+        applicationOrder: {
+          ...this.snapshot.applicationOrder,
+          order: this.snapshot.applicationOrder.order + 1,
+        },
         preferences: { ...this.snapshot.preferences, appearance: request.appearance },
         revision: this.snapshot.revision + 1,
       };
@@ -184,6 +188,10 @@ class BrowserSettingsTransport implements MobileSettingsTransport {
     if (command === "mobile_settings_set_language" && request?.language) {
       this.snapshot = {
         ...this.snapshot,
+        applicationOrder: {
+          ...this.snapshot.applicationOrder,
+          order: this.snapshot.applicationOrder.order + 1,
+        },
         preferences: { ...this.snapshot.preferences, language: request.language },
         revision: this.snapshot.revision + 1,
       };

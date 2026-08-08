@@ -8,6 +8,7 @@ import {
   type OnboardingWelcomeAction,
   type ProcessDiscoveryMode,
   type SettingsClient,
+  type SettingsSnapshotDelivery,
   type SettingsSnapshotDto,
   type StartupPreferencesDto,
   type SystemProxyTakeoverPolicy,
@@ -16,6 +17,7 @@ import {
   type WindowSurfacePreference,
 } from "@mish/contracts";
 import { invoke } from "@tauri-apps/api/core";
+import { ApplicationSnapshotAcceptance } from "../data/application-snapshot-acceptance";
 
 export interface MobileSettingsTransport {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -38,8 +40,10 @@ function unavailableError(operation: string) {
  * the complete snapshot; this client only retains the last accepted projection.
  */
 export class MobileSettingsClient implements SettingsClient {
-  private snapshot: SettingsSnapshotDto | undefined;
-  private readonly snapshotListeners = new Set<(snapshot: SettingsSnapshotDto) => void>();
+  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<SettingsSnapshotDto>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void
+  >();
 
   constructor(private readonly transport: MobileSettingsTransport = defaultTransport) {}
 
@@ -125,9 +129,12 @@ export class MobileSettingsClient implements SettingsClient {
     return Promise.reject<SettingsSnapshotDto>(unavailableError("Desktop window surface"));
   }
 
-  subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
-    if (this.snapshot) listener(this.snapshot);
+    const snapshot = this.snapshotAcceptance.snapshot();
+    if (snapshot) listener(snapshot, "baseline");
     return () => this.snapshotListeners.delete(listener);
   }
 
@@ -139,13 +146,13 @@ export class MobileSettingsClient implements SettingsClient {
     if (options?.signal?.aborted) throw abortedError();
     const snapshot = SettingsSnapshotSchema.parse(await this.transport.invoke(command, args));
     if (options?.signal?.aborted) throw abortedError();
-    this.acceptSnapshot(snapshot);
-    return snapshot;
+    return this.acceptSnapshot(snapshot);
   }
 
   private acceptSnapshot(snapshot: SettingsSnapshotDto) {
-    if (this.snapshot && snapshot.revision < this.snapshot.revision) return;
-    this.snapshot = snapshot;
-    for (const listener of this.snapshotListeners) listener(snapshot);
+    const result = this.snapshotAcceptance.accept(snapshot, "request");
+    if (result.kind !== "accepted") return result.snapshot;
+    for (const listener of this.snapshotListeners) listener(result.snapshot, "request");
+    return result.snapshot;
   }
 }

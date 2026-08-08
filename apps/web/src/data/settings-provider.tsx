@@ -6,6 +6,7 @@ import type {
   OnboardingWelcomeAction,
   ProcessDiscoveryMode,
   SettingsClient,
+  SettingsSnapshotDelivery,
   SettingsSnapshotDto,
   StartupPreferencesDto,
   SystemProxyTakeoverPolicy,
@@ -19,6 +20,7 @@ import type {
 import { TunHelperFailureKindSchema } from "@mish/contracts";
 import { RpcRemoteError } from "@mish/rpc-client";
 import { UnavailableLocalBackupClient } from "../platform/local-backup";
+import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 import TypesafeI18n from "../i18n/i18n-react";
 import { projectLocale } from "../i18n/locale";
 import {
@@ -41,7 +43,7 @@ export interface TunHelperSetupOptions {
 }
 
 interface SettingsContextValue {
-  acceptSnapshot(snapshot: SettingsSnapshotDto): void;
+  acceptSnapshot(snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery): void;
   error: string | null;
   pending: boolean;
   installTunHelper(options?: TunHelperSetupOptions): Promise<TunHelperOperationResult>;
@@ -81,14 +83,28 @@ export function SettingsProvider({
   localBackupClient?: LocalBackupClient;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const acceptSnapshot = useCallback((next: SettingsSnapshotDto) => {
-    setSnapshot((current) => (next.revision < current.revision ? current : next));
-  }, []);
+  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<SettingsSnapshotDto>());
+  const initializedAcceptance = useRef(false);
+  if (!initializedAcceptance.current) {
+    snapshotAcceptance.current.accept(initialSnapshot, "baseline");
+    initializedAcceptance.current = true;
+  }
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const networkRefreshController = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tunHelperFailure, setTunHelperFailure] = useState<TunHelperFailureKind | null>(null);
+  const acceptSnapshot = useCallback(
+    (next: SettingsSnapshotDto, delivery: SettingsSnapshotDelivery = "update") => {
+      const result = snapshotAcceptance.current.accept(next, delivery);
+      if (result.kind === "conflict") {
+        setError("settings-snapshot-conflict");
+        return;
+      }
+      if (result.kind === "accepted") setSnapshot(result.snapshot);
+    },
+    [],
+  );
 
   const run = useCallback(
     async (operation: () => Promise<SettingsSnapshotDto>) => {
@@ -102,12 +118,12 @@ export function SettingsProvider({
       setPending(true);
       setError(null);
       try {
-        acceptSnapshot(await operation());
+        acceptSnapshot(await operation(), "command");
         return { ok: true } as const;
       } catch (operationError) {
         setError("settings-update-failed");
         try {
-          acceptSnapshot(await client.getSnapshot());
+          acceptSnapshot(await client.getSnapshot(), "request");
         } catch {
           // Keep the last confirmed snapshot when refresh also fails.
         }
@@ -141,7 +157,10 @@ export function SettingsProvider({
     [],
   );
 
-  useEffect(() => client.subscribeSnapshots(acceptSnapshot), [acceptSnapshot, client]);
+  useEffect(
+    () => client.subscribeSnapshots((next, delivery) => acceptSnapshot(next, delivery ?? "update")),
+    [acceptSnapshot, client],
+  );
 
   const runTunHelper = useCallback(
     async (operation: () => Promise<SettingsSnapshotDto>): Promise<TunHelperOperationResult> => {

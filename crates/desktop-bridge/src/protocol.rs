@@ -863,7 +863,14 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
             }
             update = subscriptions.settings_updates.recv(), if authenticated && !subscriptions.settings_ids.is_empty() => {
-                let Ok(snapshot) = update else { continue };
+                let snapshot = match update {
+                    Ok(snapshot) => snapshot,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        let Some(service) = &state.settings_service else { continue };
+                        state.settings_snapshot(service)
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                };
                 for subscription_id in &subscriptions.settings_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
@@ -1001,7 +1008,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 34,
+            "protocolVersion": 35,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.provides_status_command(StatusCommand::Group),

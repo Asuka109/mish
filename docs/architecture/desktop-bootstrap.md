@@ -280,6 +280,13 @@ same Connect path. The scan stops after 10 occupied non-Mish ports or 5 empty
 ports, whichever occurs first, and retains bounded per-request timeouts and an
 overall deadline.
 
+Settings reconnects remain stale until a complete protocol-35 baseline is
+accepted. That baseline carries the replacement Rust authority and may have a
+lower durable preference revision than the retired process. Socket-local
+subscription IDs, client subscription generations, and the Settings authority
+order jointly reject late responses or notifications from the retired
+transport without clearing a global revision or resetting React state.
+
 Browser-hosting bridges expose `GET /browser-discovery` solely as a versioned
 service marker. The marker contains no RPC token, PIN, proof, session, settings,
 or process data. Cross-port reads accept only HTTP origins on

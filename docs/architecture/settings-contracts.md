@@ -12,6 +12,23 @@ bridge maps a closed set of authenticated RPC methods to that service. The Web
 client renders the snapshot and continues to use the existing Status client for
 System Proxy and TUN desired, observed, drift, failure, and recovery state.
 
+Protocol version 35 scopes every complete Settings snapshot with one
+process-local Rust `applicationOrder`: a random `authorityId`, epoch `1` for
+that Settings service, and a monotonic complete-snapshot `order`. The separate
+`revision` remains only the durable preference-mutation version. Network/DNS,
+startup, capability, privacy, and TUN Helper observations can therefore advance
+the complete snapshot order without manufacturing a preference mutation.
+
+Every accepted preference mutation or derived Network/DNS and TUN Helper
+observation publishes one complete snapshot through the shared Rust stream.
+Desktop WebView sockets, paired Browser Client sockets, and native projections
+subscribe to that same publication source. Reconnect baselines may replace a
+prior Rust authority even when their preference revision is lower; ordinary
+updates and command/request completions must match the accepted authority and
+advance its order. Retired subscription IDs, transport generations, and Rust
+authorities cannot publish over the replacement baseline. Equal order with
+different content is a contract conflict, not a compatibility fallback.
+
 Android uses a separate, local Tauri adapter over the same `SettingsService`.
 It exposes only a complete `native` snapshot plus portable appearance and
 language mutations. The adapter writes through the Shared Rust service and
@@ -164,7 +181,7 @@ stopped. Neither behavior bypasses Profile validation, Core ownership, capture
 rollback, or the shared mutation authority.
 
 The Settings service remains the single authority for the preference. It
-provides a bounded in-process snapshot subscription and authenticated
+provides a bounded in-process complete-snapshot subscription and authenticated
 `settings.subscribe` / `settings.snapshot` notifications consumed by the Web
 Settings provider. The resulting proxy lifecycle is owned by
 `ProfileActivationCoordinator`: its bounded activation snapshot exposes the

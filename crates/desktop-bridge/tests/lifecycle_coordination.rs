@@ -493,7 +493,18 @@ async fn lifecycle_boundaries_mark_network_dns_stale_before_reobservation() {
         DesktopRuntimeHost::new(fixture.runtime.clone()),
         Some(settings.clone()),
     );
-    settings.refresh_network_dns().await;
+    let mut updates = settings.subscribe();
+    let initial = settings.snapshot(SettingsAdapterKind::Rpc);
+    let ready = settings.refresh_network_dns().await;
+    assert_eq!(
+        updates
+            .recv()
+            .await
+            .expect("startup observation publication"),
+        ready
+    );
+    assert_eq!(ready.revision, initial.revision);
+    assert!(ready.application_order.order > initial.application_order.order);
     assert_eq!(
         settings
             .snapshot(SettingsAdapterKind::Rpc)
@@ -509,6 +520,13 @@ async fn lifecycle_boundaries_mark_network_dns_stale_before_reobservation() {
         })
         .await
         .unwrap();
+    let sleep_stale = updates
+        .recv()
+        .await
+        .expect("sleep invalidation publication");
+    assert_eq!(sleep_stale.network_dns.phase, NetworkDnsPhase::Stale);
+    assert_eq!(sleep_stale.revision, ready.revision);
+    assert!(sleep_stale.application_order.order > ready.application_order.order);
     assert_eq!(
         settings
             .snapshot(SettingsAdapterKind::Rpc)
@@ -524,6 +542,12 @@ async fn lifecycle_boundaries_mark_network_dns_stale_before_reobservation() {
         })
         .await
         .unwrap();
+    let wake_stale = updates.recv().await.expect("wake invalidation publication");
+    let wake_ready = updates.recv().await.expect("wake refresh publication");
+    assert_eq!(wake_stale.network_dns.phase, NetworkDnsPhase::Stale);
+    assert_eq!(wake_ready.network_dns.phase, NetworkDnsPhase::Ready);
+    assert_eq!(wake_ready.revision, ready.revision);
+    assert!(wake_ready.application_order.order > wake_stale.application_order.order);
     assert_eq!(
         settings
             .snapshot(SettingsAdapterKind::Rpc)

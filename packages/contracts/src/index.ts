@@ -21,6 +21,7 @@ export interface ApplicationSnapshotOrderDto extends z.infer<
   typeof ApplicationSnapshotOrderSchema
 > {}
 export type ApplicationSnapshotDelivery = "baseline" | "update";
+export type SettingsSnapshotDelivery = ApplicationSnapshotDelivery | "command" | "request";
 
 export const RoutingModeSchema = z.enum(["rule", "global", "direct"]);
 export type RoutingMode = z.infer<typeof RoutingModeSchema>;
@@ -2070,6 +2071,7 @@ export interface TunHelperSnapshotDto extends z.infer<typeof TunHelperSnapshotSc
 export const SettingsSnapshotSchema = z
   .object({
     adapterKind: SettingsAdapterKindSchema,
+    applicationOrder: ApplicationSnapshotOrderSchema,
     build: z
       .object({
         appVersion: z.string().min(1).max(64),
@@ -2123,7 +2125,7 @@ export const SettingsSnapshotSchema = z
       .strict(),
     preferences: SettingsPreferencesSchema,
     privacy: PrivacyAccessSnapshotSchema,
-    revision: z.number().int().nonnegative().default(0),
+    revision: z.number().int().nonnegative(),
     startupRegistration: StartupRegistrationSnapshotSchema,
     storageRecovered: z.boolean(),
     tunHelper: TunHelperSnapshotSchema,
@@ -2443,7 +2445,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(34),
+    protocolVersion: z.literal(35),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -3954,7 +3956,9 @@ export interface SettingsClient {
     enabled: boolean,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
-  subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;
+  subscribeSnapshots(
+    listener: (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void,
+  ): () => void;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,
     options?: { signal?: AbortSignal },
