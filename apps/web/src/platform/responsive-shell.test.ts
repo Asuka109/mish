@@ -32,10 +32,10 @@ describe("responsive shell CSS", () => {
     expect(mobileViewportRule).toContain("min-height: 0");
   });
 
-  it("keeps the notification icon aligned with the toolbar color states", () => {
-    expect(notifications).toContain("notification-trigger relative inline-flex");
-    expect(notifications).toContain("text-muted-foreground");
-    expect(notifications).toContain("hover:text-fg");
+  it("keeps the notification icon on the shared adaptive toolbar recipe", () => {
+    expect(notifications).toContain('trigger: "notification-trigger relative"');
+    expect(notifications).toContain('touchTarget="adaptive"');
+    expect(notifications).toContain('variant="toolbar"');
   });
 
   it("keeps notification messages wrappable and exposes remove controls on interaction", () => {

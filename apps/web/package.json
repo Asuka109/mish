@@ -14,7 +14,7 @@
     "dev:mobile": "vite --mode mobile",
     "preview": "vite preview",
     "test": "vitest",
-    "test:browser": "vitest run --config vitest.browser.config.ts && vitest run --config vitest.simulated-host-browser.config.ts",
+    "test:browser": "vitest run --config vitest.browser.config.ts && vitest run --config vitest.coarse-pointer-browser.config.ts && vitest run --config vitest.simulated-host-browser.config.ts",
     "test:browser:simulated-host": "vitest run --config vitest.simulated-host-browser.config.ts",
     "test:browser:startup": "vitest run --config vitest.startup-browser.config.ts",
     "test:browser:install": "playwright install chromium",
