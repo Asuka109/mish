@@ -398,7 +398,7 @@ async fn runtime_replacement_does_not_restore_an_inactive_capture_selection() {
         .runtime
         .status_snapshot_typed(StatusAdapterKind::Rpc)
         .await;
-    assert_eq!(status.runtime.capture_selection.system_proxy, true);
+    assert!(status.runtime.capture_selection.system_proxy);
     assert_eq!(status.runtime.system_proxy.phase, SystemProxyPhase::Off);
     assert!(!status.runtime.system_proxy.desired);
     assert_eq!(

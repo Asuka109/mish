@@ -8,6 +8,9 @@ export default defineConfig({
   define: {
     "import.meta.env.VITE_MISH_TEST_COARSE_POINTER": JSON.stringify("true"),
   },
+  optimizeDeps: {
+    entries: ["src/platform/coarse-pointer-controls.browser.test.ts"],
+  },
   plugins: [react(), tailwindcss()],
   publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
   test: {

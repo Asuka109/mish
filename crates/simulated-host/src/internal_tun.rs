@@ -1161,11 +1161,11 @@ impl MaintenanceEngine {
             self.fail_after_mutation(&host, operation_id, admitted_revision, fault)?;
             unreachable!("failure injection always returns an error");
         }
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::ServiceStarted) {
-            if fault.kind == MaintenanceFaultKind::CleanupFailure {
-                self.mark_bounded_disabled(&host, "cleanup-failed")?;
-                return Err("cleanup-failed".into());
-            }
+        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::ServiceStarted)
+            && fault.kind == MaintenanceFaultKind::CleanupFailure
+        {
+            self.mark_bounded_disabled(&host, "cleanup-failed")?;
+            return Err("cleanup-failed".into());
         }
         self.with_maintenance(&host, |maintenance| {
             let journal = maintenance
