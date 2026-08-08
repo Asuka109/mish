@@ -29,8 +29,9 @@ use mish_runtime::{
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use mish_state_machine::{
-    CorrelatedEffect, Correlation, Disposition, EffectBatch, EffectExecutor, EffectMode, Machine,
-    RunnerConfig, RunnerHandle, TaskFailure, Transition, TransitionObserver, spawn_runner,
+    AdmissionError, CorrelatedEffect, Correlation, Disposition, EffectBatch, EffectExecutor,
+    EffectMode, Machine, RunnerConfig, RunnerHandle, TaskFailure, Transition, TransitionObserver,
+    spawn_runner,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -1312,6 +1313,17 @@ enum ProfileActivationMachineError {
     Unavailable,
 }
 
+fn profile_activation_admission_error(
+    error: AdmissionError<ProfileActivationMachineError>,
+) -> ProfileActivationCoordinatorError {
+    match error {
+        AdmissionError::Rejected(ProfileActivationMachineError::Conflict)
+        | AdmissionError::InboxSaturated => ProfileActivationCoordinatorError::Conflict,
+        AdmissionError::Rejected(ProfileActivationMachineError::Unavailable)
+        | AdmissionError::Retired => ProfileActivationCoordinatorError::Unavailable,
+    }
+}
+
 struct ProfileActivationMachine;
 
 impl ProfileActivationMachine {
@@ -1747,6 +1759,31 @@ impl Machine for ProfileActivationMachine {
             | ProfileActivationMachineInput::Retire { .. }
             | ProfileActivationMachineInput::Cancel { .. }
             | ProfileActivationMachineInput::Shutdown => None,
+        }
+    }
+
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        match state {
+            ProfileActivationState::Pending(pending)
+            | ProfileActivationState::Retrying { pending, .. } => {
+                let expected = match pending.stage {
+                    ProfileActivationStage::Effect => PROFILE_ACTIVATION_EFFECT_ID,
+                    ProfileActivationStage::Finalizing => PROFILE_ACTIVATION_FINALIZER_EFFECT_ID,
+                    ProfileActivationStage::Recovering => PROFILE_ACTIVATION_RECOVERY_EFFECT_ID,
+                };
+                correlation.effect_id == expected
+                    && pending
+                        .command
+                        .correlation(expected)
+                        .same_operation(correlation)
+            }
+            ProfileActivationState::Compensating { command, .. } => {
+                correlation.effect_id == PROFILE_ACTIVATION_COMPENSATION_EFFECT_ID
+                    && command
+                        .correlation(PROFILE_ACTIVATION_COMPENSATION_EFFECT_ID)
+                        .same_operation(correlation)
+            }
+            _ => false,
         }
     }
 
@@ -2647,7 +2684,7 @@ impl ProfileActivationCoordinator {
             .flatten();
         let admission = self
             .activation
-            .admit(ProfileActivationMachineInput::Begin {
+            .try_admit(ProfileActivationMachineInput::Begin {
                 attempted_at: now_unix_milliseconds(),
                 command_id: command_id.to_owned(),
                 operation: ProfileActivationOperation::Activate,
@@ -2671,14 +2708,7 @@ impl ProfileActivationCoordinator {
                 },
             })
             .await
-            .map_err(|error| match error {
-                ProfileActivationMachineError::Conflict => {
-                    ProfileActivationCoordinatorError::Conflict
-                }
-                ProfileActivationMachineError::Unavailable => {
-                    ProfileActivationCoordinatorError::Unavailable
-                }
-            })?;
+            .map_err(profile_activation_admission_error)?;
         if let Some(previous_command_id) = previous_command_id {
             self.host
                 .resolve_notification(&format!("profile.activation-failure:{previous_command_id}"));
@@ -2784,11 +2814,11 @@ impl ProfileActivationCoordinator {
         let preparation_capture = self.cancel_proxy_preparation();
         let admission = self
             .activation
-            .admit(ProfileActivationMachineInput::Cancel {
+            .try_admit(ProfileActivationMachineInput::Cancel {
                 command_id: command_id.to_owned(),
             })
             .await
-            .map_err(|_| ProfileActivationCoordinatorError::Unavailable)?;
+            .map_err(profile_activation_admission_error)?;
         if let Some(operation) = preparation_capture {
             let error = CaptureTransitionError::new(
                 CaptureFailureKind::RuntimeTransition,
@@ -3928,7 +3958,7 @@ impl ProfileActivationCoordinator {
         };
         let admission = self
             .activation
-            .admit(ProfileActivationMachineInput::Begin {
+            .try_admit(ProfileActivationMachineInput::Begin {
                 attempted_at: now_unix_milliseconds(),
                 command_id: command_id.to_owned(),
                 operation: ProfileActivationOperation::Stop,
@@ -3958,14 +3988,7 @@ impl ProfileActivationCoordinator {
                 work: ProfileActivationWork::Stop,
             })
             .await
-            .map_err(|error| match error {
-                ProfileActivationMachineError::Conflict => {
-                    ProfileActivationCoordinatorError::Conflict
-                }
-                ProfileActivationMachineError::Unavailable => {
-                    ProfileActivationCoordinatorError::Unavailable
-                }
-            })?;
+            .map_err(profile_activation_admission_error)?;
         Ok(admission.state.to_snapshot(self.availability))
     }
 
@@ -4198,6 +4221,12 @@ impl ProfileActivationCoordinator {
 
     pub fn mutation_authority(&self) -> StateMutationAuthority {
         self.authority.clone()
+    }
+
+    /// Simulates destruction of the containing process for restart recovery tests.
+    #[cfg(feature = "test-activation-host")]
+    pub fn abort_for_process_termination(&self) {
+        self.activation.abort_for_process_termination();
     }
 
     pub async fn active_profile_id_authorized(
@@ -4476,6 +4505,30 @@ mod activation_machine_tests {
     const PROFILE_ID: &str = "33333333-3333-4333-8333-333333333333";
     const FINGERPRINT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const REVISION: &str = "44444444-4444-4444-8444-444444444444";
+
+    #[test]
+    fn kernel_admission_failures_keep_profile_recovery_vocabulary() {
+        assert!(matches!(
+            profile_activation_admission_error(AdmissionError::Rejected(
+                ProfileActivationMachineError::Conflict,
+            )),
+            ProfileActivationCoordinatorError::Conflict
+        ));
+        assert!(matches!(
+            profile_activation_admission_error(AdmissionError::InboxSaturated),
+            ProfileActivationCoordinatorError::Conflict
+        ));
+        assert!(matches!(
+            profile_activation_admission_error(AdmissionError::Rejected(
+                ProfileActivationMachineError::Unavailable,
+            )),
+            ProfileActivationCoordinatorError::Unavailable
+        ));
+        assert!(matches!(
+            profile_activation_admission_error(AdmissionError::Retired),
+            ProfileActivationCoordinatorError::Unavailable
+        ));
+    }
 
     fn pending_activation() -> (ProfileActivationState, ProfileActivationCommand) {
         let mut state = ProfileActivationState::idle();

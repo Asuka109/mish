@@ -394,6 +394,20 @@ impl Machine for PackageMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        let (operation, effect_id) = match state {
+            PackageState::Staging { operation } => (operation, STAGE_EFFECT_ID),
+            PackageState::AwaitingAuthorization { operation } => (operation, AUTHORIZE_EFFECT_ID),
+            PackageState::Installing { operation } => (operation, COMMIT_EFFECT_ID),
+            PackageState::Starting { operation } => (operation, START_EFFECT_ID),
+            PackageState::Verifying { operation, .. } => (operation, VERIFY_EFFECT_ID),
+            PackageState::RollingBack { operation, .. } => (operation, ROLLBACK_EFFECT_ID),
+            PackageState::Uninstalling { operation } => (operation, FINALIZE_UNINSTALL_EFFECT_ID),
+            _ => return false,
+        };
+        operation.accepts(correlation, effect_id)
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         let code = match failure {
             TaskFailure::Aborted => "effect-aborted",

@@ -1520,6 +1520,33 @@ impl Machine for CaptureMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        match state {
+            CaptureState::Transitioning(current) => {
+                let effect_matches_stage = match current.stage {
+                    TransitionStage::Reserved => false,
+                    TransitionStage::Preflighting => correlation.effect_id == PREFLIGHT_EFFECT_ID,
+                    TransitionStage::Mutating => matches!(
+                        correlation.effect_id,
+                        MUTATION_EFFECT_ID | RECOVERY_EFFECT_ID | AUDIT_COMMIT_EFFECT_ID
+                    ),
+                    TransitionStage::Finalizing => correlation.effect_id == FINALIZER_EFFECT_ID,
+                };
+                effect_matches_stage && current.operation.correlation.same_operation(correlation)
+            }
+            CaptureState::Reconciling(current) => {
+                matches!(
+                    correlation.effect_id,
+                    PREFLIGHT_EFFECT_ID | OBSERVATION_EFFECT_ID | AUDIT_EFFECT_ID
+                ) && current.operation.correlation.same_operation(correlation)
+            }
+            CaptureState::ShuttingDown(current) => current.correlation == *correlation,
+            CaptureState::Stable(_)
+            | CaptureState::RecoveryRequired(_)
+            | CaptureState::Retired(_) => false,
+        }
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         CaptureInput::TaskFailed {
             correlation,

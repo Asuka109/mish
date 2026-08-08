@@ -492,6 +492,23 @@ impl Machine for LifecycleMachine {
         }
     }
 
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+        if let Some(active) = state.active.as_ref() {
+            let expected_effect_id = if active.cancellation.is_some() {
+                2
+            } else {
+                active.correlation.effect_id
+            };
+            return active.correlation.same_operation(correlation)
+                && correlation.effect_id == expected_effect_id;
+        }
+        state.phase == LifecyclePhase::RecoveryRequired
+            && correlation.machine_authority == state.authority_id
+            && correlation.operation_id == "shutdown-cleanup"
+            && correlation.admitted_revision == state.revision
+            && correlation.effect_id == 1
+    }
+
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
         LifecycleInput::TaskFailed {
             correlation,

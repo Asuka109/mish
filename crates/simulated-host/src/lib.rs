@@ -1511,13 +1511,15 @@ impl ScenarioRuntime {
             profile_service,
             runtime_host,
         } = self;
+        activation.abort_for_process_termination();
+        capture.abort_for_process_termination();
         drop(activation);
         drop(capture);
         drop(runtime_host);
         host.detach_process();
-        // The Profile coordinator owns a Tokio actor. Abrupt process termination aborts that
-        // actor from `Drop`; yield once so the executor releases its manager/Capture authority
-        // before the replacement process is composed.
+        // Abrupt process termination is distinct from last-owner retirement: explicitly abort
+        // both actors, then yield once so their executors release prior-process authority before
+        // the replacement process is composed.
         tokio::task::yield_now().await;
 
         let platform: Arc<dyn CapturePlatform> = host.clone();
