@@ -3062,6 +3062,74 @@ async fn native_settings_rpc_installs_the_development_tun_helper() {
 }
 
 #[tokio::test]
+async fn accepted_settings_observation_reaches_desktop_browser_and_native_subscribers() {
+    let settings = settings_service();
+    let mut native_updates = settings.subscribe();
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+
+    let mut desktop = socket(bridge.address).await;
+    let browser_origin = format!("http://{}", bridge.address);
+    let mut browser = socket_with_origin(bridge.address, &browser_origin).await;
+    let mut command = socket(bridge.address).await;
+    authenticate(&mut desktop).await;
+    authenticate(&mut browser).await;
+    authenticate(&mut command).await;
+    let desktop_subscription = request(
+        &mut desktop,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    let browser_subscription = request(
+        &mut browser,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.subscribe", "params":{}}),
+    )
+    .await;
+    let preference_revision = desktop_subscription["result"]["snapshot"]["revision"].clone();
+
+    let refreshed = request(
+        &mut command,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"settings.refreshNetworkDns", "params":{}
+        }),
+    )
+    .await;
+    let desktop_update = next_json(&mut desktop).await;
+    let browser_update = next_json(&mut browser).await;
+    let native_update = native_updates.recv().await.expect("native settings update");
+
+    assert_eq!(refreshed["result"]["networkDns"]["phase"], "ready");
+    assert_eq!(refreshed["result"]["revision"], preference_revision);
+    assert_eq!(desktop_update["method"], "settings.snapshot");
+    assert_eq!(browser_update["method"], "settings.snapshot");
+    assert_eq!(
+        desktop_update["params"]["subscriptionId"],
+        desktop_subscription["result"]["subscriptionId"]
+    );
+    assert_eq!(
+        browser_update["params"]["subscriptionId"],
+        browser_subscription["result"]["subscriptionId"]
+    );
+    assert_eq!(
+        desktop_update["params"]["snapshot"]["applicationOrder"],
+        refreshed["result"]["applicationOrder"]
+    );
+    assert_eq!(
+        browser_update["params"]["snapshot"]["applicationOrder"],
+        refreshed["result"]["applicationOrder"]
+    );
+    assert_eq!(
+        serde_json::to_value(native_update.application_order).unwrap(),
+        refreshed["result"]["applicationOrder"]
+    );
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn native_healthy_helper_reinstall_reconciles_capture_after_success() {
     let platform = Arc::new(HealthyTunHelperPlatform::default());
     let helper = Arc::new(TunHelperController::new(platform.clone()));
@@ -3510,7 +3578,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 34);
+    assert_eq!(info["result"]["protocolVersion"], 35);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],

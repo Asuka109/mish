@@ -213,6 +213,11 @@ class DesktopSettingsClient implements SettingsClient {
     startupRegistration: { desired: false, observed: false, phase: "applied" },
   };
 
+  private advanceSnapshot(preferenceChanged = true) {
+    this.snapshot.applicationOrder.order += 1;
+    if (preferenceChanged) this.snapshot.revision += 1;
+  }
+
   getSnapshot = vi.fn(async () => structuredClone(this.snapshot));
   refreshNetworkDns = vi.fn(async () => {
     this.snapshot.networkDns = {
@@ -236,6 +241,7 @@ class DesktopSettingsClient implements SettingsClient {
       phase: "ready",
       source: "macos-system-configuration",
     };
+    this.advanceSnapshot(false);
     return this.getSnapshot();
   });
   installTunHelper = vi.fn(async () => this.getSnapshot());
@@ -243,16 +249,19 @@ class DesktopSettingsClient implements SettingsClient {
   removeTunHelper = vi.fn(async () => this.getSnapshot());
   setAppearance = vi.fn(async (appearance: AppearancePreference) => {
     this.snapshot.preferences.appearance = appearance;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setLanguage = vi.fn(async (language: LanguagePreference) => {
     this.snapshot.preferences.language = language;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setOnboardingWelcomeState = vi.fn(async (action: OnboardingWelcomeAction) => {
     const invitation = this.snapshot.preferences.onboarding.welcomeInvitation;
     if (action === "remove") {
       this.snapshot.preferences.onboarding.welcomeInvitation = null;
+      this.advanceSnapshot();
       return this.getSnapshot();
     }
     if (!invitation || invitation.completedAt !== null) return this.getSnapshot();
@@ -261,6 +270,7 @@ class DesktopSettingsClient implements SettingsClient {
     if (action !== "prompt") invitation.firstOpenedAt ??= observedAt;
     if (action === "dismiss") invitation.lastDismissedAt = observedAt;
     if (action === "complete") invitation.completedAt = observedAt;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setStartup = vi.fn(async (startup: StartupPreferencesDto) => {
@@ -270,36 +280,44 @@ class DesktopSettingsClient implements SettingsClient {
       observed: startup.launchAtLogin,
       phase: "applied",
     };
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setApplicationLaunchBehavior = vi.fn(async (launchBehavior: ApplicationLaunchBehavior) => {
     this.snapshot.preferences.startup.launchBehavior = launchBehavior;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setManagedPorts = vi.fn(async (managedPorts: { controller: number; proxy: number }) => {
     this.snapshot.preferences.managedPorts = managedPorts;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setSystemProxyTakeoverPolicy = vi.fn(
     async (policy: "protect-existing" | "replace-reversible-pac-or-auto-discovery") => {
       this.snapshot.preferences.systemProxyTakeoverPolicy = policy;
+      this.advanceSnapshot();
       return this.getSnapshot();
     },
   );
   setProcessDiscoveryMode = vi.fn(async (mode: "always" | "strict" | "off") => {
     this.snapshot.preferences.processDiscoveryMode = mode;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setCloseOldConnectionsAfterGroupSwitch = vi.fn(async (enabled: boolean) => {
     this.snapshot.preferences.closeOldConnectionsAfterGroupSwitch = enabled;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   findManagedPorts = vi.fn(async () => {
     this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   findManagedPort = vi.fn(async (kind: ManagedPortKind) => {
     this.snapshot.preferences.managedPorts[kind] = kind === "proxy" ? 27890 : 29090;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   subscribeSnapshots = vi.fn(
@@ -307,10 +325,12 @@ class DesktopSettingsClient implements SettingsClient {
   );
   setWindowCloseBehavior = vi.fn(async (behavior: "hide-to-status-bar" | "quit") => {
     this.snapshot.preferences.windowCloseBehavior = behavior;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
   setWindowSurface = vi.fn(async (surface: WindowSurfacePreference) => {
     this.snapshot.preferences.windowSurface = surface;
+    this.advanceSnapshot();
     return this.getSnapshot();
   });
 }

@@ -45,6 +45,7 @@ function storedWindowSurface(): WindowSurfacePreference {
 export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
   return {
     adapterKind: "fixture",
+    applicationOrder: { authorityId: "fixture-settings-authority", epoch: 1, order: 1 },
     build: { appVersion: "0.1.0", mihomoVersion: "v1.19.29" },
     capabilities: {
       backgroundLaunch: "unavailable",
@@ -131,12 +132,13 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setAppearance(appearance: AppearancePreference) {
     this.snapshot.preferences.appearance = appearance;
+    this.advancePreferenceRevision();
     return this.getSnapshot();
   }
 
   async setLanguage(language: LanguagePreference) {
     this.snapshot.preferences.language = language;
-    this.snapshot.revision += 1;
+    this.advancePreferenceRevision();
     return this.getSnapshot();
   }
 
@@ -190,11 +192,17 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setWindowSurface(surface: WindowSurfacePreference) {
     this.snapshot.preferences.windowSurface = surface;
+    this.advancePreferenceRevision();
     try {
       globalThis.localStorage?.setItem("mish.window-surface", surface);
     } catch {
       // The in-memory preference still works when persistence is unavailable.
     }
     return this.getSnapshot();
+  }
+
+  private advancePreferenceRevision() {
+    this.snapshot.revision += 1;
+    this.snapshot.applicationOrder.order += 1;
   }
 }
