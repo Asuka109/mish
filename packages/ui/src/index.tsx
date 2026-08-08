@@ -39,16 +39,26 @@ const buttonRecipe = tv({
       default: "ui-button--default",
       outline: "ui-button--outline border-hairline bg-canvas text-ink hover:bg-accent",
       ghost: "ui-button--ghost border-transparent bg-transparent text-fg hover:bg-accent",
+      toolbar: cx(
+        "ui-button--toolbar border-transparent bg-transparent text-muted-foreground",
+        "hover:border-hairline hover:bg-accent hover:text-fg data-popup-open:border-hairline",
+        "data-popup-open:bg-accent data-popup-open:text-fg",
+      ),
       destructive:
         "ui-button--destructive border-transparent bg-button-destructive-subtle text-error",
     },
     size: {
       default: "ui-button--default",
       sm: "ui-button--sm",
+      icon: "ui-button--icon size-8.5 p-0",
       "icon-sm": "ui-button--icon-sm size-7.5 p-0",
     },
+    touchTarget: {
+      default: "",
+      adaptive: "touch-manipulation pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+    },
   },
-  defaultVariants: { variant: "default", size: "default" },
+  defaultVariants: { variant: "default", size: "default", touchTarget: "default" },
 });
 
 const badgeRecipe = tv({
@@ -135,8 +145,12 @@ const toggleRecipe = tv({
       ),
       "icon-capture": "size-7.5 p-0 [&_svg]:size-3.75 [&_svg]:text-muted-soft",
     },
+    touchTarget: {
+      default: "",
+      adaptive: "touch-manipulation pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+    },
   },
-  defaultVariants: { variant: "default" },
+  defaultVariants: { variant: "default", touchTarget: "default" },
 });
 
 const toggleGroupRecipe = tv({
@@ -157,8 +171,12 @@ const toggleGroupItemRecipe = tv({
         "disabled:opacity-50",
       ),
     },
+    touchTarget: {
+      default: "",
+      adaptive: "touch-manipulation pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+    },
   },
-  defaultVariants: { variant: "default" },
+  defaultVariants: { variant: "default", touchTarget: "default" },
 });
 
 const inputRecipe = tv({
@@ -209,9 +227,19 @@ const selectRecipe = tv({
     item: cx(
       "ui-select-item grid min-h-8 grid-cols-[minmax(0,1fr)_16px] items-center gap-2 rounded-sm",
       "px-2 text-metadata outline-none data-highlighted:bg-accent data-highlighted:text-ink",
+      "pointer-coarse:min-h-11 pointer-coarse:touch-manipulation",
     ),
     indicator: "ui-select-item-indicator size-3.5 [&_svg]:size-3.5",
   },
+  variants: {
+    touchTarget: {
+      default: {},
+      adaptive: {
+        trigger: "touch-manipulation pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+      },
+    },
+  },
+  defaultVariants: { touchTarget: "default" },
 });
 
 const tableRecipe = tv({
@@ -282,7 +310,8 @@ const menuRecipe = tv({
     item: cx(
       "menu-item relative flex min-h-8.5 items-center gap-2 rounded-sm px-2.25 text-metadata",
       "text-fg outline-none select-none hover:bg-accent hover:text-ink data-highlighted:bg-accent",
-      "data-highlighted:text-ink [&_svg]:size-3.75",
+      "data-highlighted:text-ink [&_svg]:size-3.75 pointer-coarse:min-h-11",
+      "pointer-coarse:touch-manipulation",
     ),
     radioItem: "menu-radio-item pr-7.5",
     indicator: "menu-radio-indicator absolute right-2 grid place-items-center [&_svg]:size-3.5",
@@ -353,8 +382,9 @@ export interface ButtonProps extends ComponentProps<typeof ButtonPrimitive> {
   disableWhileLoading?: boolean;
   loading?: boolean | PromiseLike<unknown>;
   loadingText?: ReactNode;
-  size?: "default" | "sm" | "icon-sm";
-  variant?: "default" | "outline" | "ghost" | "destructive";
+  size?: "default" | "sm" | "icon" | "icon-sm";
+  touchTarget?: "default" | "adaptive";
+  variant?: "default" | "outline" | "ghost" | "toolbar" | "destructive";
 }
 
 export function Button({
@@ -366,6 +396,7 @@ export function Button({
   loading = false,
   loadingText,
   size = "default",
+  touchTarget = "default",
   variant = "default",
   ...props
 }: ButtonProps) {
@@ -375,7 +406,7 @@ export function Button({
     <ButtonPrimitive
       aria-busy={loadingPending ? true : ariaBusy}
       className={resolveClassName(className, (override) =>
-        buttonRecipe({ variant, size, className: override }),
+        buttonRecipe({ variant, size, touchTarget, className: override }),
       )}
       data-loading={loadingPending || undefined}
       data-slot="button"
@@ -510,14 +541,20 @@ export function SettingsRowControl({ className, ...props }: HTMLAttributes<HTMLD
 }
 
 export interface ToggleProps extends ComponentProps<typeof TogglePrimitive> {
+  touchTarget?: "default" | "adaptive";
   variant?: "default" | "outline" | "capture" | "icon-capture";
 }
 
-export function Toggle({ className, variant = "default", ...props }: ToggleProps) {
+export function Toggle({
+  className,
+  touchTarget = "default",
+  variant = "default",
+  ...props
+}: ToggleProps) {
   return (
     <TogglePrimitive
       className={resolveClassName(className, (override) =>
-        toggleRecipe({ variant, className: override }),
+        toggleRecipe({ variant, touchTarget, className: override }),
       )}
       data-slot="toggle"
       {...props}
@@ -527,16 +564,19 @@ export function Toggle({ className, variant = "default", ...props }: ToggleProps
 
 interface ToggleGroupContextValue {
   spacing: number;
+  touchTarget: "default" | "adaptive";
   variant: "default" | "outline" | "segmented";
 }
 
 const ToggleGroupContext = createContext<ToggleGroupContextValue>({
   spacing: 2,
+  touchTarget: "default",
   variant: "default",
 });
 
 export interface ToggleGroupProps extends ComponentProps<typeof ToggleGroupPrimitive> {
   spacing?: number;
+  touchTarget?: "default" | "adaptive";
   variant?: "default" | "outline" | "segmented";
 }
 
@@ -544,6 +584,7 @@ export function ToggleGroup({
   children,
   className,
   spacing = 2,
+  touchTarget = "default",
   variant = "default",
   ...props
 }: ToggleGroupProps) {
@@ -556,7 +597,7 @@ export function ToggleGroup({
       data-variant={variant}
       {...props}
     >
-      <ToggleGroupContext.Provider value={{ spacing, variant }}>
+      <ToggleGroupContext.Provider value={{ spacing, touchTarget, variant }}>
         {children}
       </ToggleGroupContext.Provider>
     </ToggleGroupPrimitive>
@@ -571,7 +612,11 @@ export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
   return (
     <TogglePrimitive
       className={resolveClassName(className, (override) =>
-        toggleGroupItemRecipe({ variant: context.variant, className: override }),
+        toggleGroupItemRecipe({
+          variant: context.variant,
+          touchTarget: context.touchTarget,
+          className: override,
+        }),
       )}
       data-spacing={context.spacing}
       data-variant={context.variant}
@@ -917,12 +962,15 @@ export const SelectValue = SelectPrimitive.Value;
 export function SelectTrigger({
   children,
   className,
+  touchTarget = "default",
   ...props
-}: ComponentProps<typeof SelectPrimitive.Trigger>) {
+}: ComponentProps<typeof SelectPrimitive.Trigger> & {
+  touchTarget?: "default" | "adaptive";
+}) {
   return (
     <SelectPrimitive.Trigger
       className={resolveClassName(className, (override) =>
-        selectRecipe().trigger({ className: override }),
+        selectRecipe({ touchTarget }).trigger({ className: override }),
       )}
       data-slot="select-trigger"
       {...props}
