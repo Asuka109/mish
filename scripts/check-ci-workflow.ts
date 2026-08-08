@@ -158,7 +158,7 @@ const simulatedApplicationContract =
   "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
 const rustInspectionContract = "cargo clippy --workspace --all-targets -- -D warnings";
 const rustPullRequestContract =
-  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn -- -D warnings";
+  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
 const expectedPrValidation =
   "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
 invariant(
