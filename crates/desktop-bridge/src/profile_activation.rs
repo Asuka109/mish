@@ -1824,6 +1824,14 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                             operations.get(&command.command_id).cloned()
                         }
                     };
+                    if recovering {
+                        // A recovery finalizer can only publish failure or RecoveryRequired.
+                        // Release the committed Capture reservation before any fallible
+                        // observation so a second finalizer failure cannot block the retry that
+                        // the terminal Profile state explicitly permits. Operation resources
+                        // retain the mutation permit until this finalizer exits.
+                        manager.complete_runtime_handoff().await;
+                    }
                     let finalization = match resources.as_ref() {
                         Some(resources) => {
                             finalize_profile_activation(
@@ -1841,6 +1849,17 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                             runtime: command_runtime_fallback(&command),
                         },
                     };
+                    if !recovering
+                        && matches!(
+                            &finalization,
+                            ProfileActivationFinalization::RecoveryRequired { .. }
+                        )
+                    {
+                        // RecoveryRequired is terminal for this attempt but retryable by the
+                        // Profile machine. The reservation cannot remain owned by a completed
+                        // operation after all authoritative observations have finished.
+                        manager.complete_runtime_handoff().await;
+                    }
                     let resources = if recovering {
                         resources
                     } else {
@@ -4286,7 +4305,10 @@ fn now_unix_milliseconds() -> u64 {
 
 #[cfg(test)]
 mod activation_machine_tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
 
     use mish_runtime::{CaptureSelection, MishRuntime, StatusAdapterKind};
     use mish_state_machine::{Machine, TaskFailure, Transition};
@@ -4332,6 +4354,82 @@ mod activation_machine_tests {
                 config_file: None,
             },
         )))
+    }
+
+    #[derive(Default)]
+    struct RecoveryBoundaryEffects {
+        handoff_releases: AtomicUsize,
+        panic_on_observation: AtomicBool,
+    }
+
+    impl ProfileActivationEffects for RecoveryBoundaryEffects {
+        fn availability(&self) -> Result<(), MihomoResolveError> {
+            Ok(())
+        }
+
+        fn activate_cancellable<'a>(
+            &'a self,
+            _operation_id: &'a str,
+            _record: &'a ProfileRecord,
+            _policy: &'a ManagedRuntimePolicy,
+            _cancellation: CancellationToken,
+            _progress: ProfileActivationProgressObserver,
+            _final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
+        ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>> {
+            Box::pin(async { unreachable!("recovery-boundary tests execute only finalizers") })
+        }
+
+        fn active_runtime(&self) -> BoxFuture<'_, Option<MishRuntime>> {
+            Box::pin(async { None })
+        }
+
+        fn active_backend_matches(&self, _tun_enabled: bool) -> BoxFuture<'_, Option<bool>> {
+            Box::pin(async { None })
+        }
+
+        fn managed_state(&self) -> BoxFuture<'_, crate::ManagedActivationState> {
+            Box::pin(async move {
+                assert!(
+                    !self.panic_on_observation.load(Ordering::SeqCst),
+                    "synthetic recovery observation panic"
+                );
+                crate::ManagedActivationState::default()
+            })
+        }
+
+        fn complete_runtime_handoff(&self) -> BoxFuture<'_, ()> {
+            Box::pin(async move {
+                self.handoff_releases.fetch_add(1, Ordering::SeqCst);
+            })
+        }
+
+        fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn route_selections(&self, _record: &ProfileRecord) -> HashMap<String, String> {
+            HashMap::new()
+        }
+
+        fn delete_route_selections(&self, _profile_id: &str) {}
+    }
+
+    fn recovery_boundary_executor(
+        manager: Arc<RecoveryBoundaryEffects>,
+        runtime: &MishRuntime,
+        command: &ProfileActivationCommand,
+    ) -> ProfileActivationMachineExecutor {
+        let resources = fallback_operation_resources(runtime);
+        let operations = Arc::new(std::sync::Mutex::new(HashMap::from([(
+            command.command_id.clone(),
+            resources,
+        )])));
+        ProfileActivationMachineExecutor {
+            host: DesktopRuntimeHost::new(runtime.clone()),
+            manager,
+            operations,
+            safe_runtime: runtime.clone(),
+        }
     }
 
     #[test]
@@ -4461,6 +4559,62 @@ mod activation_machine_tests {
                 .await,
             "a live runtime cannot satisfy a safe-stopped compensation contract"
         );
+    }
+
+    #[tokio::test]
+    async fn recovery_required_releases_the_completed_capture_reservation() {
+        let runtime = safe_runtime();
+        let manager = Arc::new(RecoveryBoundaryEffects::default());
+        let (_, command) = pending_activation();
+        let executor = recovery_boundary_executor(manager.clone(), &runtime, &command);
+
+        let result = executor
+            .execute(
+                ProfileActivationMachineEffect::Finalize {
+                    correlation: command.correlation(PROFILE_ACTIVATION_FINALIZER_EFFECT_ID),
+                    command,
+                    outcome: ProfileActivationTaskOutcome::Activate(Ok(
+                        crate::ActivationCommit::new(FINGERPRINT, PROFILE_ID, REVISION),
+                    )),
+                },
+                CancellationToken::new(),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            ProfileActivationMachineInput::Finalized {
+                finalization: ProfileActivationFinalization::RecoveryRequired { .. },
+                ..
+            }
+        ));
+        assert_eq!(manager.handoff_releases.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_finalizer_releases_capture_before_a_second_observation_panic() {
+        let runtime = safe_runtime();
+        let manager = Arc::new(RecoveryBoundaryEffects::default());
+        manager.panic_on_observation.store(true, Ordering::SeqCst);
+        let (_, command) = pending_activation();
+        let executor = recovery_boundary_executor(manager.clone(), &runtime, &command);
+
+        let result = tokio::spawn(executor.execute(
+            ProfileActivationMachineEffect::Finalize {
+                correlation: command.correlation(PROFILE_ACTIVATION_RECOVERY_EFFECT_ID),
+                command,
+                outcome: ProfileActivationTaskOutcome::Failed(TaskFailure::Panicked),
+            },
+            CancellationToken::new(),
+        ))
+        .await;
+
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("the synthetic recovery observation must panic"),
+        };
+        assert!(error.is_panic());
+        assert_eq!(manager.handoff_releases.load(Ordering::SeqCst), 1);
     }
 
     #[test]
