@@ -26,7 +26,7 @@
     "check:rust": "cargo check --workspace",
     "check:rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",
     "check:rust:format": "cargo fmt --all -- --check",
-    "check:rust:pr": "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings",
+    "check:rust:pr": "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings",
     "check:styles": "node scripts/check-tailwind-sources.ts",
     "check:tokens": "node scripts/check-design-tokens.ts",
     "check:trusted-ci": "node scripts/check-trusted-ci-policy.ts",
