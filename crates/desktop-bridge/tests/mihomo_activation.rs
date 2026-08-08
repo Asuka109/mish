@@ -4884,7 +4884,7 @@ async fn measures_pinned_core_global_home_activation_paths() {
             )
     };
     let profile = profile_record(P0_PROFILE);
-    let manager = MihomoActivationManager::new(resolver(), timing.clone());
+    let manager = MihomoActivationManager::new(resolver(), timing);
 
     let cold_started = Instant::now();
     manager.activate(&profile, &policy()).await.unwrap();
@@ -4895,7 +4895,7 @@ async fn measures_pinned_core_global_home_activation_paths() {
     let warm = warm_started.elapsed();
 
     manager.shutdown().await.unwrap();
-    let relaunched = MihomoActivationManager::new(resolver(), timing.clone());
+    let relaunched = MihomoActivationManager::new(resolver(), timing);
     let relaunch_started = Instant::now();
     relaunched.activate(&profile, &policy()).await.unwrap();
     let relaunch = relaunch_started.elapsed();

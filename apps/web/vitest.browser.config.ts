@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  optimizeDeps: {
+    entries: ["src/**/*.browser.test.{ts,tsx}"],
+  },
   plugins: [react(), tailwindcss()],
   publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
   test: {
@@ -14,6 +17,7 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
       provider: playwright(),
     },
+    fileParallelism: false,
     exclude: [
       "src/appearance-bootstrap.browser.test.ts",
       "src/system-tests/**/*.browser.test.{ts,tsx}",

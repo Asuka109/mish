@@ -891,7 +891,7 @@ mod tests {
     use super::*;
 
     fn publication(key: &str, value: u64) -> NotificationPublication {
-        let content = if value % 2 == 0 {
+        let content = if value.is_multiple_of(2) {
             ApplicationNotificationContent::ProfileCreated(
                 ProfileCreatedApplicationNotificationData {},
             )
@@ -1151,7 +1151,7 @@ mod tests {
             let created = center.publish(publication).unwrap();
             let id = created.notifications[0].id.clone();
 
-            let read = center.mark_read(&[id.clone()]);
+            let read = center.mark_read(std::slice::from_ref(&id));
             assert!(
                 read.notifications
                     .iter()
@@ -1354,7 +1354,7 @@ mod tests {
             "a later queued record cannot be claimed by a concurrent client"
         );
 
-        let read = center.mark_read(&[first_claim.id.clone()]);
+        let read = center.mark_read(std::slice::from_ref(&first_claim.id));
         let refreshed_claim = center
             .claim_next_presentation(first.clone())
             .claim

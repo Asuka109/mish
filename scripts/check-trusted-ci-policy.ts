@@ -374,6 +374,13 @@ invariant(
   "check:ci must run the trusted CI drift check.",
 );
 invariant(
+  packageJson.scripts?.["check:pr"]?.includes("pnpm check:rust:pr") &&
+    packageJson.scripts?.["check:rust:pr"] === "pnpm check:rust:clippy" &&
+    packageJson.scripts?.["check:rust:clippy"] ===
+      "cargo clippy --workspace --all-targets -- -D warnings",
+  "The secretless Fast PR gate must retain the bounded workspace/all-target Clippy contract.",
+);
+invariant(
   packageJson.scripts?.["test:scripts"]?.includes("trusted-release-policy.test.ts"),
   "The Fast PR gate must run trusted release adversarial fixtures.",
 );

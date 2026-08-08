@@ -42,6 +42,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     exclude: [...configDefaults.exclude, "**/*.browser.test.ts", "**/*.browser.test.tsx"],
+    maxWorkers: 4,
     setupFiles: "./src/test/setup.ts",
   },
 });

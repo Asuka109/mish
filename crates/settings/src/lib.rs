@@ -519,6 +519,16 @@ pub struct SettingsService {
     window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
 }
 
+struct SettingsServiceConfiguration {
+    authority: StateMutationAuthority,
+    build: SettingsBuildInfo,
+    capabilities: SettingsCapabilities,
+    network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
+    startup_platform: Option<Arc<dyn StartupPlatform>>,
+    tun_helper: Option<Arc<TunHelperController>>,
+    window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+}
+
 #[must_use = "the lifecycle publication must remain alive until the operation is terminal"]
 pub struct TunHelperLifecyclePublication {
     active: bool,
@@ -698,28 +708,53 @@ impl SettingsService {
         network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
         authority: StateMutationAuthority,
     ) -> Result<Self, SettingsServiceError> {
-        Self::load_with_platforms_and_authority_and_build(
+        Self::load_with_configuration(
             repository,
-            startup_platform,
-            window_surface_platform,
-            capabilities,
-            tun_helper,
-            network_dns_platform,
-            authority,
-            SettingsBuildInfo::packaged(env!("CARGO_PKG_VERSION")),
+            SettingsServiceConfiguration {
+                authority,
+                build: SettingsBuildInfo::packaged(env!("CARGO_PKG_VERSION")),
+                capabilities,
+                network_dns_platform,
+                startup_platform,
+                tun_helper,
+                window_surface_platform,
+            },
         )
     }
 
-    pub fn load_with_platforms_and_authority_and_build(
+    #[cfg(test)]
+    fn load_with_build(
         repository: Arc<dyn SettingsRepository>,
-        startup_platform: Option<Arc<dyn StartupPlatform>>,
-        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
-        mut capabilities: SettingsCapabilities,
-        tun_helper: Option<Arc<TunHelperController>>,
-        network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
-        authority: StateMutationAuthority,
+        capabilities: SettingsCapabilities,
         build: SettingsBuildInfo,
     ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_configuration(
+            repository,
+            SettingsServiceConfiguration {
+                authority: StateMutationAuthority::new(),
+                build,
+                capabilities,
+                network_dns_platform: None,
+                startup_platform: None,
+                tun_helper: None,
+                window_surface_platform: None,
+            },
+        )
+    }
+
+    fn load_with_configuration(
+        repository: Arc<dyn SettingsRepository>,
+        configuration: SettingsServiceConfiguration,
+    ) -> Result<Self, SettingsServiceError> {
+        let SettingsServiceConfiguration {
+            authority,
+            build,
+            mut capabilities,
+            network_dns_platform,
+            startup_platform,
+            tun_helper,
+            window_surface_platform,
+        } = configuration;
         if network_dns_platform.is_none() {
             capabilities.network_dns = SettingsAvailability::Unavailable;
         }
@@ -2115,14 +2150,9 @@ mod tests {
     #[test]
     fn settings_snapshot_uses_packaged_app_and_pinned_core_versions() {
         let (_root, repository) = repository();
-        let service = SettingsService::load_with_platforms_and_authority_and_build(
+        let service = SettingsService::load_with_build(
             repository,
-            None,
-            None,
             SettingsCapabilities::macos(false),
-            None,
-            None,
-            StateMutationAuthority::new(),
             SettingsBuildInfo::packaged("9.9.9"),
         )
         .expect("settings service");
