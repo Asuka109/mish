@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -127,6 +127,53 @@ impl CoreRuntime for RunningCore {
             },
             pid: None,
             version: Some("rpc-fixture".into()),
+        })))
+    }
+}
+
+#[derive(Default)]
+struct BlockingStoppedCore {
+    block_next_status: AtomicBool,
+    status_release: Notify,
+    status_started: Notify,
+}
+
+impl CoreRuntime for BlockingStoppedCore {
+    fn configured(&self) -> bool {
+        false
+    }
+
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
+        Box::pin(ready(LocalProxyOwnership::Unowned))
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(async move {
+            if self.block_next_status.swap(false, Ordering::AcqRel) {
+                self.status_started.notify_one();
+                self.status_release.notified().await;
+            }
+            CoreStatus {
+                error: None,
+                phase: CorePhase::Stopped,
+                pid: None,
+                version: None,
+            }
+        })
+    }
+
+    fn execute_lifecycle(
+        &self,
+        _command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: CorePhase::Stopped,
+            pid: None,
+            version: None,
         })))
     }
 }
@@ -5563,4 +5610,58 @@ async fn shutdown_closes_an_active_rpc_socket_before_reporting_confirmation() {
         timeout(Duration::from_secs(1), ws.next()).await,
         Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
     ));
+}
+
+#[tokio::test]
+async fn transport_shutdown_closes_rpc_admission_before_capture_safety_proof() {
+    let platform = Arc::new(MemoryCapturePlatform(Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "shutdown-race-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let core = Arc::new(BlockingStoppedCore::default());
+    let runtime = MishRuntime::with_capture(core.clone(), capture);
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let address = bridge.address;
+    let mut ws = socket(address).await;
+    authenticate(&mut ws).await;
+
+    core.block_next_status.store(true, Ordering::Release);
+    let proof_started = core.status_started.notified();
+    let shutdown = tokio::spawn(bridge.shutdown());
+    timeout(Duration::from_secs(1), proof_started)
+        .await
+        .expect("transport safety proof did not start");
+
+    assert!(
+        timeout(
+            Duration::from_secs(1),
+            tokio::net::TcpStream::connect(address)
+        )
+        .await
+        .expect("new transport admission did not settle")
+        .is_err(),
+        "the listener admitted a new RPC connection during the Capture safety proof"
+    );
+    assert!(matches!(
+        timeout(Duration::from_secs(1), ws.next()).await,
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
+    ));
+    core.status_release.notify_one();
+    let BridgeShutdownOutcome::Confirmed(report) = shutdown.await.unwrap() else {
+        panic!("transport shutdown was not confirmed")
+    };
+    assert!(report.permits_exit());
 }

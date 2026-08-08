@@ -127,6 +127,12 @@ export function checkCoreLifecycleAuthority(): void {
     "Bridge teardown must delegate Core shutdown to the Profile coordinator.",
   );
   invariant(
+    server.indexOf("report.rpc_closed = true;") >= 0 &&
+      server.indexOf("report.rpc_closed = true;") <
+        server.indexOf("runtime.confirm_transport_shutdown_safe().await"),
+    "Bridge teardown must close and drain RPC admission before transport-only safety proof.",
+  );
+  invariant(
     profile.includes("CoreLifecycleOperation::new") &&
       profile.includes("recover_managed_startup") &&
       profile.includes("record_managed_safe_stopped"),
