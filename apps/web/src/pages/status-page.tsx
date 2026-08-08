@@ -47,7 +47,6 @@ const statusStyles = tv({
       "max-shell-mobile:p-3",
     ),
     controlLabel: "font-medium text-fg whitespace-nowrap",
-    routingItem: "px-3",
     contentGrid: cx(
       "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12",
       "max-profile-stack:gap-8 max-page-compact:grid-cols-1 runtime-mobile:grid-cols-1",
@@ -288,6 +287,7 @@ export function StatusPage() {
                   if (nextMode) void changeRoutingMode(nextMode);
                 }}
                 spacing={0}
+                touchTarget="adaptive"
                 value={[snapshot.routingMode]}
                 variant="segmented"
               >
@@ -295,7 +295,6 @@ export function StatusPage() {
                   <ToggleGroupItem
                     aria-busy={routingPending && optimisticRoutingMode === mode}
                     aria-describedby={routingDescriptionId}
-                    className={statusStyles().routingItem()}
                     disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}

@@ -216,6 +216,7 @@ export function TrafficCaptureControl({
             }
             onPressedChange={onSystemProxyChange}
             pressed={systemProxySelected}
+            touchTarget="adaptive"
             variant="capture"
           >
             {systemProxyPending ? (
@@ -243,6 +244,7 @@ export function TrafficCaptureControl({
               disabled={disabled}
               onPressedChange={requestTunChange}
               pressed={tunSelected}
+              touchTarget="adaptive"
               variant="capture"
             >
               {tunPending ? (
@@ -272,6 +274,7 @@ export function TrafficCaptureControl({
                   data-capture-state={getCaptureState(tunSelected, tunEnabled)}
                   disabled
                   pressed={tunSelected}
+                  touchTarget="adaptive"
                   variant="capture"
                 >
                   {tunPending ? (
@@ -294,6 +297,7 @@ export function TrafficCaptureControl({
             className="[&_svg]:text-muted-soft"
             onClick={() => setHelpOpen(true)}
             size="icon-sm"
+            touchTarget="adaptive"
             type="button"
             variant="outline"
           >
