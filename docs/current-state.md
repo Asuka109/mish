@@ -45,14 +45,16 @@ Evidence labels on this page have strict meanings:
   replaced-runtime completion, capture operations have explicit identities, and
   Profile activation has a typed data-bearing lifecycle. Capture's aggregate
   lifecycle is a domain-owned outer state machine whose `Applied` terminal is
-  gated by authoritative Core/platform observation; its existing System Proxy
-  journal, TUN adapter, public protocol, and cross-surface projections are
-  unchanged.
+  gated by authoritative Core/platform observation. Its existing System Proxy
+  journal and TUN adapter remain intact, while protocol version 34 exposes the
+  authoritative `Finalizing` cleanup window across surfaces.
 - Recent Traffic authority is retained on the Rust side. Web pause/resume keeps
   a presentation snapshot while continuing to receive the latest authoritative
   state.
 - Web command feedback is keyed by operation and scope instead of relying on
-  one shared optimistic boolean.
+  one shared optimistic boolean. Capture keeps Pending and Finalizing inside
+  the initiating controls without shifting the page; terminal failures reuse
+  the canonical notification and routine success adds no persistent feedback.
 - The cross-platform audit classifies Status/capture, Profile/configuration,
   Routes, Traffic, Events/Diagnostics, Settings, notifications, updater,
   lifecycle, desktop transport, Android Tauri/Kotlin/JNI, and Mobile Core state
@@ -110,11 +112,13 @@ decision.
 
 ### Desktop Startup and Settings
 
-- Desktop bridge protocol version 33 retains separate login registration,
+- Desktop bridge protocol version 34 retains separate login registration,
   login-window behavior, application-launch behavior, and the shared updater
-  projection. It adds Rust-authoritative policy-group selection availability:
-  stopped Core snapshots disable mutation consistently in Desktop WebView and
-  Browser Client, while running Controller confirmation remains unchanged.
+  projection, plus the version 33 Rust-authoritative policy-group selection
+  availability. Version 34 adds the typed Capture failure and `finalizing`
+  projection so Status, Settings, native controls, and reconnecting clients
+  stay blocked through cancellation, rollback, Core/process cleanup, and
+  network restoration.
 - Application launch behavior is one of `off`, `core`, or `proxy`. Automatic
   startup reuses the Profile activation and capture coordinators rather than
   creating a desktop-only lifecycle.

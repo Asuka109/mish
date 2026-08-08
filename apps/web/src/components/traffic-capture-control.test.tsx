@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
 import { TooltipProvider } from "@mish/ui";
 import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -63,7 +64,10 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
 
     expect(tun).toBeDisabled();
     expect(unavailableTrigger).toHaveAccessibleName("Virtual Interface");
-    expect(unavailableTrigger).toHaveAttribute("aria-describedby", "tun-unavailable-description");
+    expect(unavailableTrigger).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("tun-unavailable-description"),
+    );
 
     unavailableTrigger.focus();
     await screen.findByText("Virtual Interface is not available in this version of Mish.");
@@ -99,7 +103,10 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
 
     const tun = screen.getByRole("button", { name: /Virtual Interface, not selected/ });
     expect(tun).toBeEnabled();
-    expect(tun).toHaveAttribute("aria-describedby", "tun-permission-description");
+    expect(tun).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("tun-permission-description"),
+    );
 
     await user.click(tun);
     expect(screen.getByRole("dialog", { name: "Before enabling Virtual Interface" })).toBeVisible();
@@ -370,6 +377,65 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
+  it("keeps busy feedback accessible without reserving visible space", () => {
+    function control(
+      feedback: NonNullable<ComponentProps<typeof TrafficCaptureControl>["feedback"]>,
+    ) {
+      return (
+        <MemoryRouter>
+          <TypesafeI18n locale="en">
+            <TooltipProvider>
+              <TrafficCaptureControl
+                adapterKind="rpc"
+                capabilities={{ systemProxy: "supported", tun: "supported" }}
+                commandSupported
+                feedback={feedback}
+                onSystemProxyChange={vi.fn()}
+                onTunChange={vi.fn()}
+                systemProxyEnabled={false}
+                systemProxySelected
+                systemProxyStatus={{ ...systemProxyStatus, desired: true, phase: "pending" }}
+                tunEnabled={false}
+                tunSelected={false}
+                tunStatus={tunStatus}
+              />
+            </TooltipProvider>
+          </TypesafeI18n>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(
+      control({ busy: true, failure: "apply-failed", operationId: "7", phase: "finalizing" }),
+    );
+    const operation = document.querySelector<HTMLElement>("[data-capture-operation-phase]");
+    if (!operation) throw new Error("Missing Capture operation feedback");
+    const operationId = operation.id;
+    const systemProxy = screen.getByRole("button", { name: /System Proxy, selected/ });
+
+    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toHaveAttribute("aria-busy", "true");
+    expect(systemProxy).toHaveAttribute("aria-describedby", expect.stringContaining(operationId));
+    expect(operation).toHaveClass("sr-only");
+    expect(operation).toHaveTextContent("Finishing the change. Please wait before trying again.");
+    expect(operation).not.toHaveTextContent("System Proxy was not confirmed");
+
+    rerender(control({ busy: false, failure: "apply-failed", operationId: "7", phase: "error" }));
+    expect(document.getElementById(operationId)).toHaveAttribute(
+      "data-capture-operation-phase",
+      "error",
+    );
+    expect(document.getElementById(operationId)).toBeEmptyDOMElement();
+    expect(systemProxy).toBeEnabled();
+
+    rerender(control({ busy: false, failure: null, operationId: "8", phase: "success" }));
+    expect(document.getElementById(operationId)).toHaveAttribute(
+      "data-capture-operation-phase",
+      "success",
+    );
+    expect(document.getElementById(operationId)).toBeEmptyDOMElement();
+  });
+
   it("announces pending state only for the requested Capture mode", () => {
     render(
       <MemoryRouter>
@@ -379,10 +445,9 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
               adapterKind="rpc"
               capabilities={{ systemProxy: "supported", tun: "supported" }}
               commandSupported
+              feedback={{ busy: true, failure: null, operationId: "1", phase: "pending" }}
               onSystemProxyChange={vi.fn()}
               onTunChange={vi.fn()}
-              pending
-              pendingMode="tun"
               systemProxyEnabled={false}
               systemProxySelected={false}
               systemProxyStatus={{
@@ -401,10 +466,17 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
       </MemoryRouter>,
     );
 
-    const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("System Proxy is off and confirmed by macOS.");
-    expect(status).toHaveTextContent("Virtual Interface is waiting for helper confirmation.");
-    expect(status).not.toHaveTextContent("System Proxy is pending macOS confirmation.");
+    const status = document.querySelector<HTMLElement>("[data-capture-operation-phase]");
+    if (!status) throw new Error("Missing Capture operation feedback");
+    expect(status).toHaveClass("sr-only");
+    expect(status).toHaveTextContent("Applying the change. Please wait.");
+    const runtimeStatus = screen.getAllByRole("status").at(-1);
+    if (!runtimeStatus) throw new Error("Missing Capture runtime status");
+    expect(runtimeStatus).toHaveTextContent("System Proxy is off and confirmed by macOS.");
+    expect(runtimeStatus).toHaveTextContent(
+      "Virtual Interface is waiting for helper confirmation.",
+    );
+    expect(runtimeStatus).not.toHaveTextContent("System Proxy is pending macOS confirmation.");
   });
 
   it("leaves System Proxy actionable", async () => {

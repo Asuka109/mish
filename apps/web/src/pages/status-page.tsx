@@ -24,7 +24,7 @@ import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import type { CaptureSelectionDto, RoutingMode } from "@mish/contracts";
+import type { RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 import { buildRouteGraph, getRouteChildLatency, normalizeMeasuredLatency } from "./routes-model";
@@ -166,15 +166,12 @@ export function StatusPage() {
     setRoutingMode,
     snapshot,
   } = useProduct();
-  const { pending: capturePending, setCapture } = useCaptureCommand();
+  const { feedback: captureFeedback, setCapture } = useCaptureCommand();
   const settings = useOptionalSettings();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
   const pickerTriggerRef = useRef<HTMLElement | null>(null);
-  const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
-    useState<CaptureSelectionDto | null>(null);
   const [optimisticRoutingMode, setOptimisticRoutingMode] = useState<RoutingMode | null>(null);
-  const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
   const captureActive = Boolean(
     snapshot?.runtime.systemProxyEnabled || snapshot?.runtime.tunEnabled,
   );
@@ -246,14 +243,7 @@ export function StatusPage() {
     if (!captureSupported && captureAdapterKind !== "rpc") return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
-    setOptimisticCaptureSelection(selection);
-    setPendingCaptureMode(mode);
-    try {
-      await setCapture(selection, active);
-    } finally {
-      setOptimisticCaptureSelection(null);
-      setPendingCaptureMode(null);
-    }
+    await setCapture(selection, active);
   }
 
   async function changeRoutingMode(mode: RoutingMode) {
@@ -313,7 +303,8 @@ export function StatusPage() {
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
                 commandSupported={captureSupported}
-                disabled={capturePending || Boolean(settings?.pending)}
+                disabled={Boolean(settings?.pending)}
+                feedback={captureFeedback}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
                 onTunHelperSetup={
                   settings
@@ -324,16 +315,11 @@ export function StatusPage() {
                     : undefined
                 }
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
-                pending={capturePending}
-                pendingMode={pendingCaptureMode}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}
-                systemProxySelected={
-                  optimisticCaptureSelection?.systemProxy ??
-                  captureRuntime.captureSelection.systemProxy
-                }
+                systemProxySelected={captureRuntime.captureSelection.systemProxy}
                 systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
-                tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
+                tunSelected={captureRuntime.captureSelection.tun}
                 tunStatus={captureRuntime.tun}
               />
             </SectionGridItem>

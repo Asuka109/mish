@@ -16,7 +16,7 @@ use mish_profile::{
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
-    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind,
+    ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind, CaptureOperation,
     CaptureOperationPhase, CaptureRequest, CaptureSelection, CaptureTransitionError, MishRuntime,
     NotificationPublication, NotificationSeverity,
     ProfileActivationAsnFailedApplicationNotificationData,
@@ -1013,8 +1013,22 @@ struct CoordinatorState {
 
 struct ProxyPreparationCancellation {
     id: Uuid,
-    slot: Arc<std::sync::Mutex<Option<(Uuid, CancellationToken)>>>,
+    slot: Arc<std::sync::Mutex<Option<(Uuid, CancellationToken, Option<CaptureOperation>)>>>,
     token: CancellationToken,
+}
+
+impl ProxyPreparationCancellation {
+    fn attach_capture_operation(&self, operation: CaptureOperation) {
+        let mut slot = self
+            .slot
+            .lock()
+            .expect("proxy preparation cancellation lock poisoned");
+        if let Some((id, _, attached)) = slot.as_mut()
+            && *id == self.id
+        {
+            *attached = Some(operation);
+        }
+    }
 }
 
 impl Drop for ProxyPreparationCancellation {
@@ -1023,7 +1037,7 @@ impl Drop for ProxyPreparationCancellation {
             .slot
             .lock()
             .expect("proxy preparation cancellation lock poisoned");
-        if slot.as_ref().is_some_and(|(id, _)| *id == self.id) {
+        if slot.as_ref().is_some_and(|(id, _, _)| *id == self.id) {
             slot.take();
         }
     }
@@ -1149,6 +1163,7 @@ struct ProfileActivationOperationResources {
     _permit: Option<StateMutationPermit>,
     final_capture: Option<ProfileActivationCaptureContract>,
     owns_final_capture: bool,
+    preparation_capture: Option<CaptureOperation>,
     previous_capture: ProfileActivationCaptureContract,
     previous_host: MishRuntime,
     previous_runtime: ProfileActivationRuntime,
@@ -1779,22 +1794,36 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                     record,
                     resources,
                 } => {
+                    let progress_capture_operation = resources.preparation_capture.clone();
                     operations
                         .lock()
                         .expect("Profile activation operation lock poisoned")
                         .insert(command.command_id.clone(), resources);
                     let progress_host = host.clone();
                     let progress_command_id = command.command_id.clone();
-                    let progress: ProfileActivationProgressObserver =
-                        Arc::new(move |event| match event {
+                    let progress: ProfileActivationProgressObserver = Arc::new(move |event| {
+                        match event {
                             ProfileActivationProgress::ManagedListenerConflict(endpoint) => {
                                 publish_activation_failure_notification(
                                     &progress_host,
                                     &progress_command_id,
                                     MihomoActivationError::ManagedListenerConflict(endpoint),
                                 );
+                                if let Some(operation) = progress_capture_operation.clone() {
+                                    let runtime = progress_host.current();
+                                    tokio::spawn(async move {
+                                        let error = CaptureTransitionError::new(
+                                            CaptureFailureKind::ListenerUnavailable,
+                                            "The managed proxy listener is owned by another process",
+                                        );
+                                        runtime
+                                            .mark_capture_operation_finalizing(&operation, &error)
+                                            .await;
+                                    });
+                                }
                             }
-                        });
+                        }
+                    });
                     let result = manager
                         .activate_cancellable(
                             &command.command_id,
@@ -1956,6 +1985,7 @@ fn fallback_operation_resources(
         _permit: None,
         final_capture: None,
         owns_final_capture: false,
+        preparation_capture: None,
         previous_capture: ProfileActivationCaptureContract {
             active: false,
             adapter_kind: StatusAdapterKind::Rpc,
@@ -2090,13 +2120,13 @@ async fn capture_contract_matches(
         .pending_operation_id
         .as_deref()
         .is_some_and(|operation_id| {
-            current.capture_operation.phase == CaptureOperationPhase::Pending
+            current.capture_operation.is_busy()
                 && current.capture_operation.operation_id.as_deref() == Some(operation_id)
         });
     let operation_confirmed = if contract.active {
         current.capture_operation.phase == CaptureOperationPhase::Applied
     } else if let Some(operation_id) = contract.pending_operation_id.as_deref() {
-        (current.capture_operation.phase == CaptureOperationPhase::Pending
+        (current.capture_operation.is_busy()
             && current.capture_operation.operation_id.as_deref() == Some(operation_id))
             || matches!(
                 current.capture_operation.phase,
@@ -2409,7 +2439,8 @@ pub struct ProfileActivationCoordinator {
     manager: Arc<dyn ProfileActivationEffects>,
     policy_factory: Arc<PolicyFactory>,
     profiles: Arc<DesktopProfileService>,
-    proxy_cancellation: Arc<std::sync::Mutex<Option<(Uuid, CancellationToken)>>>,
+    proxy_cancellation:
+        Arc<std::sync::Mutex<Option<(Uuid, CancellationToken, Option<CaptureOperation>)>>>,
     proxy_operation: Arc<Mutex<()>>,
     directory_task: Mutex<Option<JoinHandle<()>>>,
     scheduler_cancellation: CancellationToken,
@@ -2491,8 +2522,16 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(&permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        self.activate_inner(command_id, profile_id, Some(permit), None, false, None)
-            .await
+        self.activate_inner(
+            command_id,
+            profile_id,
+            Some(permit),
+            None,
+            false,
+            None,
+            None,
+        )
+        .await
     }
 
     async fn activate_inner(
@@ -2503,6 +2542,7 @@ impl ProfileActivationCoordinator {
         admitted_tun_selection: Option<bool>,
         suppress_capture_failure_notification: bool,
         final_capture: Option<(CaptureRequest, StatusAdapterKind)>,
+        preparation_capture: Option<CaptureOperation>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let availability = self.availability;
@@ -2586,8 +2626,10 @@ impl ProfileActivationCoordinator {
         let previous_capture = ProfileActivationCaptureContract {
             active: before.runtime.system_proxy_enabled || before.runtime.tun_enabled,
             adapter_kind: StatusAdapterKind::Rpc,
-            pending_operation_id: (before.runtime.capture_operation.phase
-                == CaptureOperationPhase::Pending)
+            pending_operation_id: before
+                .runtime
+                .capture_operation
+                .is_busy()
                 .then(|| before.runtime.capture_operation.operation_id.clone())
                 .flatten(),
             selection: before.runtime.capture_selection,
@@ -2613,6 +2655,7 @@ impl ProfileActivationCoordinator {
                     _permit: permit,
                     final_capture: final_capture_contract,
                     owns_final_capture: final_capture.is_some(),
+                    preparation_capture,
                     previous_capture,
                     previous_host,
                     previous_runtime,
@@ -2738,6 +2781,7 @@ impl ProfileActivationCoordinator {
         if snapshot.command_id.as_deref() != Some(command_id) {
             return Ok(snapshot);
         }
+        let preparation_capture = self.cancel_proxy_preparation();
         let admission = self
             .activation
             .admit(ProfileActivationMachineInput::Cancel {
@@ -2745,6 +2789,16 @@ impl ProfileActivationCoordinator {
             })
             .await
             .map_err(|_| ProfileActivationCoordinatorError::Unavailable)?;
+        if let Some(operation) = preparation_capture {
+            let error = CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Aggregate proxy launch cancellation is finalizing",
+            );
+            self.host
+                .current()
+                .mark_capture_operation_finalizing(&operation, &error)
+                .await;
+        }
         Ok(admission.state.to_snapshot(self.availability))
     }
 
@@ -2799,6 +2853,7 @@ impl ProfileActivationCoordinator {
                 Some(admitted_tun_selection),
                 true,
                 final_capture,
+                None,
             )
             .await?;
         if pending.phase != ProfileActivationPhase::Pending {
@@ -2841,6 +2896,7 @@ impl ProfileActivationCoordinator {
                 admitted_tun_selection,
                 true,
                 final_capture,
+                None,
             )
             .await?;
         if pending.phase != ProfileActivationPhase::Pending {
@@ -3028,6 +3084,7 @@ impl ProfileActivationCoordinator {
             .current()
             .publish_capture_pending(&request)
             .await?;
+        preparation_cancellation.attach_capture_operation(capture_operation.clone());
         let preflight_request = request.clone();
         let preflight_started = Instant::now();
         let preflight_cancellation = preparation_cancellation.token.clone();
@@ -3062,6 +3119,7 @@ impl ProfileActivationCoordinator {
                     Some(request.active && request.selection.tun),
                     true,
                     None,
+                    Some(capture_operation.clone()),
                 )
                 .await
                 .map_err(profile_launch_error);
@@ -3119,15 +3177,20 @@ impl ProfileActivationCoordinator {
         tokio::pin!(preflight);
         let prepared = tokio::select! {
             _ = preparation_cancellation.token.cancelled() => {
+                let error = CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Aggregate proxy launch preparation was cancelled",
+                );
+                self.host
+                    .current()
+                    .mark_capture_operation_finalizing(&capture_operation, &error)
+                    .await;
                 let _ = preflight.await;
                 if activation_pending {
                     let _ = self.cancel(command_id).await;
                     let _ = activation.await;
                 }
-                Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RuntimeTransition,
-                    "Aggregate proxy launch preparation was cancelled",
-                ))
+                Err(error)
             }
             (completed, activation_elapsed) = &mut activation => {
                 match completed {
@@ -3141,18 +3204,34 @@ impl ProfileActivationCoordinator {
                                 ))
                             }
                             _ = preparation_cancellation.token.cancelled() => {
-                                let _ = preflight.await;
-                                Err(CaptureTransitionError::new(
+                                let error = CaptureTransitionError::new(
                                     CaptureFailureKind::RuntimeTransition,
                                     "Aggregate proxy launch preparation was cancelled",
-                                ))
+                                );
+                                self.host
+                                    .current()
+                                    .mark_capture_operation_finalizing(&capture_operation, &error)
+                                    .await;
+                                let _ = preflight.await;
+                                Err(error)
                             }
                         }
                     }
-                    Ok(_) | Err(_) => Err(CaptureTransitionError::new(
-                        CaptureFailureKind::RuntimeTransition,
-                        "Profile activation failed before Capture could be applied",
-                    )),
+                    Ok(completed) => {
+                        let error = capture_error_from_activation_snapshot(&completed);
+                        self.host
+                            .current()
+                            .mark_capture_operation_finalizing(&capture_operation, &error)
+                            .await;
+                        Err(error)
+                    }
+                    Err(error) => {
+                        self.host
+                            .current()
+                            .mark_capture_operation_finalizing(&capture_operation, &error)
+                            .await;
+                        Err(error)
+                    }
                 }
             }
             (preflight, preflight_elapsed) = &mut preflight => {
@@ -3163,13 +3242,34 @@ impl ProfileActivationCoordinator {
                             Ok(completed) if completed.phase == ProfileActivationPhase::Success => {
                                 Ok((preflight, activation_elapsed, preflight_elapsed))
                             }
-                            Ok(_) | Err(_) => Err(CaptureTransitionError::new(
-                                CaptureFailureKind::RuntimeTransition,
-                                "Profile activation failed before Capture could be applied",
-                            )),
+                            Ok(completed) => {
+                                let error = capture_error_from_activation_snapshot(&completed);
+                                self.host
+                                    .current()
+                                    .mark_capture_operation_finalizing(
+                                        &capture_operation,
+                                        &error,
+                                    )
+                                    .await;
+                                Err(error)
+                            }
+                            Err(error) => {
+                                self.host
+                                    .current()
+                                    .mark_capture_operation_finalizing(
+                                        &capture_operation,
+                                        &error,
+                                    )
+                                    .await;
+                                Err(error)
+                            }
                         }
                     }
                     Err(error) => {
+                        self.host
+                            .current()
+                            .mark_capture_operation_finalizing(&capture_operation, &error)
+                            .await;
                         if activation_pending {
                             let _ = self.cancel(command_id).await;
                             let _ = activation.await;
@@ -3260,7 +3360,7 @@ impl ProfileActivationCoordinator {
             }
         };
         if switched_tun_backend && result.is_ok() {
-            self.host.resolve_notification("capture.failure");
+            self.host.resolve_capture_failure_notifications();
         }
         if switched_tun_backend && let Err(error) = &result {
             let original_error = error.clone();
@@ -3375,7 +3475,8 @@ impl ProfileActivationCoordinator {
         *self
             .proxy_cancellation
             .lock()
-            .expect("proxy preparation cancellation lock poisoned") = Some((id, token.clone()));
+            .expect("proxy preparation cancellation lock poisoned") =
+            Some((id, token.clone(), None));
         ProxyPreparationCancellation {
             id,
             slot: self.proxy_cancellation.clone(),
@@ -3383,7 +3484,7 @@ impl ProfileActivationCoordinator {
         }
     }
 
-    fn cancel_proxy_preparation(&self) {
+    fn cancel_proxy_preparation(&self) -> Option<CaptureOperation> {
         if let Some(cancellation) = self
             .proxy_cancellation
             .lock()
@@ -3391,7 +3492,9 @@ impl ProfileActivationCoordinator {
             .as_ref()
         {
             cancellation.1.cancel();
+            return cancellation.2.clone();
         }
+        None
     }
 
     fn record_launch_timing(
@@ -3438,11 +3541,14 @@ impl ProfileActivationCoordinator {
                     _permit: None,
                     final_capture: None,
                     owns_final_capture: false,
+                    preparation_capture: None,
                     previous_capture: ProfileActivationCaptureContract {
                         active: before.runtime.system_proxy_enabled || before.runtime.tun_enabled,
                         adapter_kind: StatusAdapterKind::Rpc,
-                        pending_operation_id: (before.runtime.capture_operation.phase
-                            == CaptureOperationPhase::Pending)
+                        pending_operation_id: before
+                            .runtime
+                            .capture_operation
+                            .is_busy()
                             .then(|| before.runtime.capture_operation.operation_id.clone())
                             .flatten(),
                         selection: before.runtime.capture_selection,
@@ -3502,11 +3608,21 @@ impl ProfileActivationCoordinator {
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
         if !request.active {
-            self.cancel_proxy_preparation();
+            let preparation_capture = self.cancel_proxy_preparation();
             let pending = self.activation_snapshot().await;
             let pending_command = (pending.phase == ProfileActivationPhase::Pending)
                 .then_some(pending.command_id)
                 .flatten();
+            if let Some(operation) = preparation_capture {
+                let error = CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Aggregate proxy launch cancellation is finalizing",
+                );
+                self.host
+                    .current()
+                    .mark_capture_operation_finalizing(&operation, &error)
+                    .await;
+            }
             if let Some(command_id) = pending_command {
                 let _ = self.cancel(&command_id).await;
             }
@@ -3619,7 +3735,7 @@ impl ProfileActivationCoordinator {
                 )
                 .await);
         }
-        self.host.resolve_notification("capture.failure");
+        self.host.resolve_capture_failure_notifications();
         Ok(self.host.status_snapshot(adapter_kind).await)
     }
 
@@ -3820,11 +3936,14 @@ impl ProfileActivationCoordinator {
                     _permit: Some(permit),
                     final_capture: None,
                     owns_final_capture: false,
+                    preparation_capture: None,
                     previous_capture: ProfileActivationCaptureContract {
                         active: before.runtime.system_proxy_enabled || before.runtime.tun_enabled,
                         adapter_kind: StatusAdapterKind::Rpc,
-                        pending_operation_id: (before.runtime.capture_operation.phase
-                            == CaptureOperationPhase::Pending)
+                        pending_operation_id: before
+                            .runtime
+                            .capture_operation
+                            .is_busy()
                             .then(|| before.runtime.capture_operation.operation_id.clone())
                             .flatten(),
                         selection: before.runtime.capture_selection,
@@ -4134,7 +4253,7 @@ impl ProfileActivationCoordinator {
         if self.shutting_down.swap(true, Ordering::AcqRel) {
             return Err(ProfileActivationShutdownFailure::MutationBusy);
         }
-        self.cancel_proxy_preparation();
+        let _ = self.cancel_proxy_preparation();
         self.scheduler_cancellation.cancel();
         if let Some(task) = self.scheduler_task.lock().await.take()
             && task.await.is_err()
@@ -4681,6 +4800,7 @@ mod activation_machine_tests {
                 },
             }),
             owns_final_capture: true,
+            preparation_capture: None,
             previous_capture: ProfileActivationCaptureContract {
                 active: false,
                 adapter_kind: StatusAdapterKind::Rpc,
@@ -4840,6 +4960,7 @@ mod activation_machine_tests {
             _permit: None,
             final_capture: None,
             owns_final_capture: false,
+            preparation_capture: None,
             previous_capture: ProfileActivationCaptureContract {
                 active: false,
                 adapter_kind: StatusAdapterKind::Rpc,

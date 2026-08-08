@@ -626,6 +626,10 @@ const en = {
     modeAria: "{mode:string}, {selection:string}, {runtime:string}",
     notRunning: "not running",
     notSelected: "not selected",
+    operationFeedback: {
+      finalizingDescription: "Finishing the change. Please wait before trying again.",
+      pendingDescription: "Applying the change. Please wait.",
+    },
     openProfiles: "Open Profiles",
     running: "running",
     selected: "selected",

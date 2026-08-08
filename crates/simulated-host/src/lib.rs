@@ -1603,6 +1603,23 @@ mod tests {
         panic!("deterministic scenario did not settle within the scheduler budget");
     }
 
+    async fn settle_capture_phase(
+        runtime_host: &DesktopRuntimeHost,
+        expected: CaptureOperationPhase,
+    ) {
+        for _ in 0..256 {
+            let snapshot = runtime_host
+                .current()
+                .status_snapshot_typed(StatusAdapterKind::Rpc)
+                .await;
+            if snapshot.runtime.capture_operation.phase == expected {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("Capture did not reach {expected:?} within the scheduler budget");
+    }
+
     fn system_proxy_selection() -> CaptureSelection {
         CaptureSelection {
             system_proxy: true,
@@ -1611,7 +1628,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn early_conflict_notification_precedes_cleanup_and_pending_survives_finalization() {
+    async fn early_conflict_notification_precedes_cleanup_and_projects_finalization() {
         let scenario = ScenarioRuntime::build(SimulatedHostScenario::initial_foreign_listener())
             .await
             .unwrap();
@@ -1658,6 +1675,7 @@ mod tests {
                 .contains("profile.activation-listener-conflict")
         })
         .await;
+        settle_capture_phase(&scenario.runtime_host, CaptureOperationPhase::Finalizing).await;
 
         let pending = scenario
             .runtime_host
@@ -1666,7 +1684,11 @@ mod tests {
             .await;
         assert_eq!(
             pending.runtime.capture_operation.phase,
-            CaptureOperationPhase::Pending
+            CaptureOperationPhase::Finalizing
+        );
+        assert_eq!(
+            pending.runtime.capture_operation.failure,
+            Some(CaptureFailureKind::ListenerUnavailable)
         );
         assert_eq!(
             scenario.activation.activation_snapshot().await.phase,
@@ -1790,6 +1812,7 @@ mod tests {
                 .contains("profile.activation-listener-conflict")
         })
         .await;
+        settle_capture_phase(&scenario.runtime_host, CaptureOperationPhase::Finalizing).await;
         assert!(!launch.is_finished());
         assert_eq!(
             scenario
@@ -1800,7 +1823,7 @@ mod tests {
                 .runtime
                 .capture_operation
                 .phase,
-            CaptureOperationPhase::Pending
+            CaptureOperationPhase::Finalizing
         );
 
         scenario.host.advance_to(20).unwrap();
@@ -1862,9 +1885,32 @@ mod tests {
             .unwrap();
         assert_eq!(stale_cancel.phase, ProfileActivationPhase::Pending);
         scenario.activation.cancel(command_id).await.unwrap();
+        settle_capture_phase(&scenario.runtime_host, CaptureOperationPhase::Finalizing).await;
+        let finalizing = scenario
+            .runtime_host
+            .current()
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await;
+        assert_eq!(
+            finalizing.runtime.capture_operation.failure,
+            Some(CaptureFailureKind::RuntimeTransition)
+        );
         assert_eq!(
             scenario.activation.activation_snapshot().await.phase,
             ProfileActivationPhase::Pending
+        );
+        let finalizing_duplicate = scenario
+            .activation
+            .launch_proxy(
+                "99999999-9999-4999-8999-999999999999",
+                system_proxy_selection(),
+                StatusAdapterKind::Rpc,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            finalizing_duplicate.kind,
+            CaptureFailureKind::RuntimeTransition
         );
         scenario.host.advance_to(20).unwrap();
         assert!(launch.await.unwrap().is_err());
@@ -1914,6 +1960,16 @@ mod tests {
             scenario.host.observation().preparation_phase == PreparationPhase::Finalizing
         })
         .await;
+        settle_capture_phase(&scenario.runtime_host, CaptureOperationPhase::Finalizing).await;
+        let finalizing = scenario
+            .runtime_host
+            .current()
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await;
+        assert_eq!(
+            finalizing.runtime.capture_operation.failure,
+            Some(CaptureFailureKind::ListenerUnavailable)
+        );
         scenario.host.advance_to(20).unwrap();
         assert!(launch.await.unwrap().is_err());
         let transcript = scenario.host.observation().transcript;

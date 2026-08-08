@@ -563,6 +563,10 @@ const zh: Translation = {
     modeAria: "{mode}，{selection}，{runtime}",
     notRunning: "未运行",
     notSelected: "未选择",
+    operationFeedback: {
+      finalizingDescription: "正在完成更改，请稍候再试。",
+      pendingDescription: "正在应用更改，请稍候。",
+    },
     openProfiles: "打开配置",
     running: "运行中",
     selected: "已选择",

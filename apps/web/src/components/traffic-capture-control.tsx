@@ -1,7 +1,7 @@
 import { Desktop } from "@phosphor-icons/react/Desktop";
 import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import {
@@ -28,6 +28,7 @@ import type {
   TunRuntimeStatusDto,
 } from "@mish/contracts";
 import type { TunHelperOperationResult } from "../data/settings-provider";
+import type { CaptureActionFeedback } from "../data/capture-command";
 import {
   getCaptureModeDescriptionId,
   isCaptureCapabilityAvailable,
@@ -62,11 +63,10 @@ interface TrafficCaptureControlProps {
   capabilities: PlatformCapabilitiesDto;
   commandSupported: boolean;
   disabled?: boolean;
+  feedback?: CaptureActionFeedback;
   onSystemProxyChange(value: boolean): void;
   onTunHelperSetup?(operation: "install" | "repair"): Promise<TunHelperOperationResult>;
   onTunChange(value: boolean): void;
-  pending?: boolean;
-  pendingMode?: "systemProxy" | "tun" | null;
   systemProxyEnabled: boolean;
   systemProxySelected: boolean;
   systemProxyStatus: SystemProxyRuntimeStatusDto;
@@ -88,11 +88,10 @@ export function TrafficCaptureControl({
   capabilities,
   commandSupported,
   disabled = false,
+  feedback = { busy: false, failure: null, operationId: null, phase: "idle" },
   onSystemProxyChange,
   onTunHelperSetup,
   onTunChange,
-  pending = false,
-  pendingMode = null,
   systemProxyEnabled,
   systemProxySelected,
   systemProxyStatus,
@@ -105,6 +104,7 @@ export function TrafficCaptureControl({
   const [tunGuideOperation, setTunGuideOperation] = useState<TunSetupOperation | null>(null);
   const [tunSetupPending, setTunSetupPending] = useState(false);
   const tunGuideReturnFocus = useRef<HTMLElement | null>(null);
+  const operationStatusId = useId();
   const { LL } = useI18nContext();
   const navigate = useNavigate();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
@@ -122,15 +122,31 @@ export function TrafficCaptureControl({
   const tunSetupRequired = tunSetupOperation !== null;
   const guideTunSetupOperation = tunGuideOperation ?? tunSetupOperation;
   const guideTunSetupRequired = guideTunSetupOperation !== null;
-  const tunActionable = tunAvailable || tunSetupRequired;
+  const tunActionable = canRequestAuthoritativeCaptureCheck || tunAvailable || tunSetupRequired;
   const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
     : statusDescriptionIds.tunUnavailable;
-  const systemProxyPending =
-    pending &&
-    (pendingMode === "systemProxy" ||
-      (pendingMode === null && systemProxySelected && !tunSelected));
-  const tunPending = pending && (pendingMode === "tun" || (pendingMode === null && tunSelected));
+  const systemProxyPending = feedback.busy && systemProxyStatus.phase === "pending";
+  const tunPending = feedback.busy && tunStatus.phase === "pending";
+  const captureDisabled = disabled || feedback.busy;
+
+  function describedBy(...ids: Array<string | undefined>) {
+    return ids.filter(Boolean).join(" ");
+  }
+
+  const operationAnnouncement = (() => {
+    const copy = LL.capture.operationFeedback;
+    switch (feedback.phase) {
+      case "pending":
+        return copy.pendingDescription();
+      case "finalizing":
+        return copy.finalizingDescription();
+      case "error":
+      case "success":
+      case "idle":
+        return "";
+    }
+  })();
 
   useEffect(() => {
     if (tunGuideOpen || !tunGuideReturnFocus.current) return;
@@ -195,14 +211,17 @@ export function TrafficCaptureControl({
   return (
     <>
       <div className={captureStyles().stack()}>
-        <div className={captureStyles().control()}>
+        <div aria-busy={feedback.busy} className={captureStyles().control()}>
           <Toggle
             aria-busy={systemProxyPending}
-            aria-describedby={getCaptureModeDescriptionId(
-              adapterKind,
-              capabilities.systemProxy,
-              commandSupported,
-              "systemProxy",
+            aria-describedby={describedBy(
+              getCaptureModeDescriptionId(
+                adapterKind,
+                capabilities.systemProxy,
+                commandSupported,
+                "systemProxy",
+              ),
+              operationStatusId,
             )}
             aria-label={LL.capture.modeAria({
               mode: LL.capture.systemProxy(),
@@ -211,7 +230,7 @@ export function TrafficCaptureControl({
             })}
             data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
             disabled={
-              disabled ||
+              captureDisabled ||
               (!canRequestAuthoritativeCaptureCheck && (!commandSupported || !systemProxyAvailable))
             }
             onPressedChange={onSystemProxyChange}
@@ -229,11 +248,9 @@ export function TrafficCaptureControl({
           {tunActionable ? (
             <Toggle
               aria-busy={tunPending}
-              aria-describedby={getCaptureModeDescriptionId(
-                adapterKind,
-                capabilities.tun,
-                commandSupported,
-                "tun",
+              aria-describedby={describedBy(
+                getCaptureModeDescriptionId(adapterKind, capabilities.tun, commandSupported, "tun"),
+                operationStatusId,
               )}
               aria-label={LL.capture.modeAria({
                 mode: LL.capture.tun(),
@@ -241,7 +258,7 @@ export function TrafficCaptureControl({
                 selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
               })}
               data-capture-state={getCaptureState(tunSelected, tunEnabled)}
-              disabled={disabled}
+              disabled={captureDisabled}
               onPressedChange={requestTunChange}
               pressed={tunSelected}
               touchTarget="adaptive"
@@ -257,7 +274,7 @@ export function TrafficCaptureControl({
           ) : (
             <Tooltip>
               <TooltipTrigger
-                aria-describedby={tunDescriptionId}
+                aria-describedby={describedBy(tunDescriptionId, operationStatusId)}
                 aria-label={LL.capture.tun()}
                 className="inline-flex rounded-md"
                 data-capture-unavailable-trigger="true"
@@ -304,6 +321,16 @@ export function TrafficCaptureControl({
             <Question aria-hidden="true" />
           </Button>
         </div>
+        <span
+          aria-atomic="true"
+          aria-live="polite"
+          className="sr-only"
+          data-capture-operation-phase={feedback.phase}
+          id={operationStatusId}
+          role="status"
+        >
+          {operationAnnouncement}
+        </span>
         {adapterKind === "fixture" ? null : (
           <span aria-live="polite" className="sr-only" role="status">
             {systemProxyStatusMessage(LL, systemProxyStatus, systemProxyPending)}{" "}

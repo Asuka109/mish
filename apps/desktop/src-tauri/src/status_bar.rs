@@ -799,7 +799,7 @@ fn proxy_title(
     if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
         tr(locale, NativeMessage::StatusStopProxy)
     } else if activation.phase == ProfileActivationPhase::Pending
-        || status.runtime.capture_operation.phase == mish_runtime::CaptureOperationPhase::Pending
+        || status.runtime.capture_operation.is_busy()
     {
         tr(locale, NativeMessage::StatusLaunchProxyPending)
     } else if activation.phase == ProfileActivationPhase::Failure
@@ -826,7 +826,7 @@ fn proxy_title(
 fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> bool {
     activation.availability == ProfileActivationAvailability::Available
         && activation.phase != ProfileActivationPhase::Pending
-        && status.runtime.capture_operation.phase != mish_runtime::CaptureOperationPhase::Pending
+        && !status.runtime.capture_operation.is_busy()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

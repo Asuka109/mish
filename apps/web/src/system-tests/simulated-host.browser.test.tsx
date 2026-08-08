@@ -52,6 +52,7 @@ interface HarnessEvidence {
   };
   terminalAuthority: {
     captureOperation: {
+      failure: string | null;
       operationId: string | null;
       phase: string;
       scopeEpoch: number | null;
@@ -250,6 +251,10 @@ test("early managed-port failure survives reconnect/remount and delayed cleanup"
   await vi.waitFor(async () => {
     expect((await observation(scenario)).signals.preparationPhase).toBe("finalizing");
   });
+  expect((await observation(scenario)).terminalAuthority.captureOperation).toMatchObject({
+    failure: "listener-unavailable",
+    phase: "finalizing",
+  });
   await expect.element(systemProxy).toBeDisabled();
   await expect.element(systemProxy).toHaveAttribute("aria-busy", "true");
   await expect
@@ -267,6 +272,11 @@ test("early managed-port failure survives reconnect/remount and delayed cleanup"
   await mountScenario(scenario);
   await expect.element(systemProxyButton()).toBeDisabled();
   await expect.element(systemProxyButton()).toHaveAttribute("aria-busy", "true");
+  const finalizingFeedback = document.querySelector<HTMLElement>(
+    '[data-capture-operation-phase="finalizing"]',
+  );
+  expect(finalizingFeedback).toHaveClass("sr-only");
+  expect(finalizingFeedback).toHaveTextContent("Finishing the change");
 
   await advanceTo(scenario, 20);
   await vi.waitFor(async () => {
@@ -306,6 +316,11 @@ test("commit-time managed-port drift never reaches Applied", async () => {
     .element(page.getByText("Mish could not use 127.0.0.1:7890.", { exact: true }))
     .toBeVisible();
   await expect.element(systemProxyButton()).toBeDisabled();
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).terminalAuthority.captureOperation.phase).toBe(
+      "finalizing",
+    );
+  });
 
   await advanceTo(scenario, 20);
   await vi.waitFor(async () => {
@@ -330,13 +345,9 @@ test("confirmed rollback retains the prior System Proxy authority", async () => 
   });
   await expect.element(systemProxyButton()).toBeEnabled();
   await expect.element(systemProxyButton()).toHaveAttribute("aria-pressed", "false");
-  await expect
-    .element(
-      page.getByText("System Proxy was not confirmed. The prior state was retained or restored.", {
-        exact: false,
-      }),
-    )
-    .toBeInTheDocument();
+  expect(
+    document.querySelector<HTMLElement>('[data-capture-operation-phase="error"]'),
+  ).toBeEmptyDOMElement();
   const terminal = await observation(scenario);
   expect(terminal.signals.journalPresent).toBe(false);
   expect(terminal.terminalAuthority.systemProxy).toMatchObject({
@@ -428,7 +439,7 @@ test("cancellation keeps single-flight ownership through finalization", async ()
   const scenario = "cancelled";
   registerFailureEvidence(
     scenario,
-    "matching Rust cancellation remains Pending until one owned finalizer reaches terminal",
+    "matching Rust cancellation remains Finalizing until one owned finalizer reaches terminal",
   );
   await mountScenario(scenario);
   await userEvent.click(systemProxyButton());
@@ -441,6 +452,11 @@ test("cancellation keeps single-flight ownership through finalization", async ()
   });
   await control(scenario, "cancel-activation");
   await expect.element(systemProxyButton()).toBeDisabled();
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).terminalAuthority.captureOperation.phase).toBe(
+      "finalizing",
+    );
+  });
   await advanceTo(scenario, 20);
   await vi.waitFor(async () => {
     expect((await observation(scenario)).terminalAuthority.captureOperation.phase).toBe("failed");

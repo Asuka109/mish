@@ -44,6 +44,13 @@ operation ID and reuse that dedupe key from pinned `pending` to `applied` or
 typed failure category. It replaces the generic Settings failure publication,
 so install, repair, and remove cannot create duplicate frontend-only errors.
 
+Capture failures follow the same occurrence rule rather than treating
+`capture.failure` as a singleton. An admitted Capture operation reuses its
+scope-and-operation key only for updates to that operation; every pre-admission
+rejection receives a fresh occurrence key. A later successful Capture lifecycle
+resolves the outstanding Capture-failure namespace without collapsing its
+retained occurrence history.
+
 Every profile launch/preflight/runtime failure publishes one specific
 `profile.activation-failed` semantic record. Retryable Rust failure categories
 allowlist only `retry-profile-activation`; terminal categories expose no inert

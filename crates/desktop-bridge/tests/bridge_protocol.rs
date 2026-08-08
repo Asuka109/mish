@@ -3460,7 +3460,7 @@ async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
     )
     .await;
     let records = notifications["result"]["notifications"].as_array().unwrap();
-    assert_eq!(records.len(), 2, "{notifications}");
+    assert_eq!(records.len(), 3, "{notifications}");
     assert!(
         records
             .iter()
@@ -3477,12 +3477,20 @@ async fn repaired_helper_stays_healthy_when_serialized_tun_resume_fails() {
         .iter()
         .filter(|record| record["presentation"]["kind"] == "capture.failure")
         .collect::<Vec<_>>();
-    assert_eq!(capture.len(), 1);
-    assert_eq!(capture[0]["id"], earlier_id);
-    assert_eq!(capture[0]["presentationState"]["phase"], "folded");
-    assert_eq!(capture[0]["presentation"]["data"]["captureMode"], "tun");
+    assert_eq!(capture.len(), 2);
+    let earlier = capture
+        .iter()
+        .find(|record| record["id"] == earlier_id)
+        .expect("earlier folded Capture failure remains in history");
+    let resumed = capture
+        .iter()
+        .find(|record| record["id"] != earlier_id)
+        .expect("TUN resume failure is a new occurrence");
+    assert_eq!(earlier["presentationState"]["phase"], "folded");
+    assert_eq!(resumed["presentationState"]["phase"], "unpresented");
+    assert_eq!(resumed["presentation"]["data"]["captureMode"], "tun");
     assert_eq!(
-        capture[0]["presentation"]["data"]["failure"],
+        resumed["presentation"]["data"]["failure"],
         "confirmation-failed"
     );
 
@@ -3502,7 +3510,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 33);
+    assert_eq!(info["result"]["protocolVersion"], 34);
     assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],
@@ -4727,9 +4735,37 @@ async fn authenticated_browser_capture_without_a_tun_backend_stays_unavailable()
         "capability-unavailable"
     );
     assert!(unavailable_combination.get("result").is_none());
+    let notifications = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":7, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let capture_failures = notifications["result"]["notifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|record| record["presentation"]["kind"] == "capture.failure")
+        .collect::<Vec<_>>();
+    assert_eq!(capture_failures.len(), 2);
+    assert_ne!(capture_failures[0]["id"], capture_failures[1]["id"]);
+    assert_ne!(
+        capture_failures[0]["dedupeKey"],
+        capture_failures[1]["dedupeKey"]
+    );
+    for capture_failure in capture_failures {
+        assert_eq!(
+            capture_failure["presentation"]["data"]["failure"],
+            "capability-unavailable"
+        );
+        assert_eq!(
+            capture_failure["presentation"]["data"]["captureMode"],
+            "tun"
+        );
+        assert_eq!(capture_failure["resolved"], false);
+    }
     let after_rejected_tun = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":7, "method":"status.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":8, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(

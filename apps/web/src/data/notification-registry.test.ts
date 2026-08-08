@@ -203,6 +203,17 @@ describe("notification presentation registry", () => {
     expect(presentation.actions).toEqual([]);
   });
 
+  it("reports unavailable TUN capability without claiming a failed network rollback", () => {
+    const presentation = presentNotification(
+      record("capture.failure", { captureMode: "tun", failure: "capability-unavailable" }),
+      i18nObject("zh"),
+    );
+
+    expect(presentation.message).toBe("此版本的 Mish 暂不支持虚拟网卡。");
+    expect(presentation.message).not.toContain("恢复");
+    expect(presentation.actions).toEqual([]);
+  });
+
   it("presents a failed TUN confirmation without Core or System Proxy terminology", () => {
     const presentation = presentNotification(
       record("capture.failure", { captureMode: "tun", failure: "confirmation-failed" }),

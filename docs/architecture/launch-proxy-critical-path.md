@@ -67,12 +67,14 @@ changed service, field, or journal produces the existing typed drift/rejection
 path with zero OS writes.
 
 A preflight rejection is published to the Rust Notification Center as soon as
-the read-only check returns it. Capture and Profile activation remain Pending
-while the coordinator cancels and joins the Profile/Core branch, so the user
-can see the actionable failure without waiting for GeoData/Core cleanup while
-single-flight launch ownership still prevents another operation from crossing
-the cleanup boundary. The launch RPC returns the same typed error only after
-cleanup is complete.
+the read-only check returns it. The same Capture operation then projects
+`Finalizing` with its typed failure while Profile activation remains Pending
+and the coordinator cancels and joins the Profile/Core branch. Status,
+Settings, reconnecting clients, and the native menu therefore keep the action
+blocked and explain the cleanup without treating a notification or React state
+as command authority. The launch RPC and terminal `Failed` or
+`RecoveryRequired` projection arrive only after cancellation, rollback,
+Core/process cleanup, and network restoration complete.
 
 The Profile/Core branch follows the same fail-fast rule. A cold TUN selection
 must prove current Helper health before candidate preparation, so an install or

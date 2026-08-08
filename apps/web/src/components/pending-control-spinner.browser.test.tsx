@@ -74,10 +74,9 @@ beforeAll(async () => {
           capabilities={{ systemProxy: "supported", tun: "supported" }}
           commandSupported
           disabled
+          feedback={{ busy: true, failure: null, operationId: "1", phase: "pending" }}
           onSystemProxyChange={vi.fn()}
           onTunChange={vi.fn()}
-          pending
-          pendingMode="systemProxy"
           systemProxyEnabled={false}
           systemProxySelected
           systemProxyStatus={systemProxyStatus}

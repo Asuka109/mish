@@ -1997,6 +1997,16 @@ type RootTranslation = {
 		 * n​o​t​ ​s​e​l​e​c​t​e​d
 		 */
 		notSelected: string
+		operationFeedback: {
+			/**
+			 * F​i​n​i​s​h​i​n​g​ ​t​h​e​ ​c​h​a​n​g​e​.​ ​P​l​e​a​s​e​ ​w​a​i​t​ ​b​e​f​o​r​e​ ​t​r​y​i​n​g​ ​a​g​a​i​n​.
+			 */
+			finalizingDescription: string
+			/**
+			 * A​p​p​l​y​i​n​g​ ​t​h​e​ ​c​h​a​n​g​e​.​ ​P​l​e​a​s​e​ ​w​a​i​t​.
+			 */
+			pendingDescription: string
+		}
 		/**
 		 * O​p​e​n​ ​P​r​o​f​i​l​e​s
 		 */
@@ -7208,6 +7218,16 @@ export type TranslationFunctions = {
 		 * not selected
 		 */
 		notSelected: () => LocalizedString
+		operationFeedback: {
+			/**
+			 * Finishing the change. Please wait before trying again.
+			 */
+			finalizingDescription: () => LocalizedString
+			/**
+			 * Applying the change. Please wait.
+			 */
+			pendingDescription: () => LocalizedString
+		}
 		/**
 		 * Open Profiles
 		 */

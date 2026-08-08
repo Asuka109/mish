@@ -32,6 +32,8 @@ pub enum NotificationSeverity {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NotificationPublication {
+    /// Identifies one occurrence or explicit multi-stage lifecycle. Producers should generate a
+    /// fresh key by default and reuse a key only when updating that same lifecycle.
     pub dedupe_key: String,
     #[serde(default)]
     pub pinned: bool,
@@ -402,6 +404,36 @@ impl NotificationCenter {
         record.resolved = true;
         record.revision = revision;
         fold_resolved_unpresented_record(record, now);
+        self.publish_snapshot(&state)
+    }
+
+    pub fn resolve_by_dedupe_namespace(&self, namespace: &str) -> NotificationSnapshot {
+        let prefix = format!("{namespace}:");
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("notification state poisoned");
+        if !state.records.iter().any(|record| {
+            !record.resolved
+                && (record.dedupe_key == namespace || record.dedupe_key.starts_with(&prefix))
+        }) {
+            return snapshot(&state);
+        }
+        state.revision = state.revision.saturating_add(1);
+        let revision = state.revision;
+        let now = self.now();
+        for record in &mut state.records {
+            if record.resolved
+                || (record.dedupe_key != namespace && !record.dedupe_key.starts_with(&prefix))
+            {
+                continue;
+            }
+            record.pinned = false;
+            record.resolved = true;
+            record.revision = revision;
+            fold_resolved_unpresented_record(record, now);
+        }
         self.publish_snapshot(&state)
     }
 
@@ -959,6 +991,37 @@ mod tests {
         assert_ne!(second.notifications[0].id, first_id);
         assert!(!second.notifications[0].resolved);
         assert!(second.notifications[1].resolved);
+    }
+
+    #[test]
+    fn resolving_a_namespace_ends_each_occurrence_without_touching_other_notifications() {
+        let center = NotificationCenter::new();
+        center
+            .publish(publication("capture.failure:scope-1:operation-1", 1))
+            .unwrap();
+        center
+            .publish(publication("capture.failure:occurrence-2", 1))
+            .unwrap();
+        center.publish(publication("independent", 1)).unwrap();
+
+        let resolved = center.resolve_by_dedupe_namespace("capture.failure");
+
+        assert_eq!(
+            resolved
+                .notifications
+                .iter()
+                .filter(
+                    |record| record.dedupe_key.starts_with("capture.failure:") && record.resolved
+                )
+                .count(),
+            2
+        );
+        assert!(
+            resolved
+                .notifications
+                .iter()
+                .any(|record| record.dedupe_key == "independent" && !record.resolved)
+        );
     }
 
     #[test]

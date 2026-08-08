@@ -295,6 +295,7 @@ const initialSnapshot: StatusSnapshotDto = {
   routingMode: "rule",
   runtime: {
     captureOperation: {
+      failure: null,
       operationId: null,
       phase: "idle",
       scopeEpoch: "fixture-capture-scope",
@@ -436,6 +437,7 @@ export class FixtureStatusClient implements StatusClient {
     this.snapshot.metrics.uptimeSeconds = captureActive ? 1 : 0;
     this.snapshot.runtime = {
       captureOperation: {
+        failure: null,
         operationId: this.captureOperationId.toString(),
         phase: "applied",
         scopeEpoch: "fixture-capture-scope",

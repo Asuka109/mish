@@ -171,7 +171,9 @@ impl CaptureState {
 
     fn base(&self) -> Option<StableCapture> {
         match self {
-            Self::Stable(state) => Some(state.clone()),
+            Self::Stable(state) if !state.projection.capture_operation.is_busy() => {
+                Some(state.clone())
+            }
             Self::RecoveryRequired(state) => Some(StableCapture {
                 last_error: state.error.clone(),
                 projection: state.projection.clone(),
@@ -224,6 +226,10 @@ pub(super) enum CaptureInput {
         request: CaptureRequest,
     },
     FailReserved {
+        error: CaptureTransitionError,
+        operation: CaptureOperation,
+    },
+    MarkFinalizing {
         error: CaptureTransitionError,
         operation: CaptureOperation,
     },
@@ -572,6 +578,7 @@ impl CaptureMachine {
         };
         let mut pending = stable.projection.clone();
         pending.capture_operation = CaptureOperationStatus {
+            failure: None,
             operation_id: Some(public_operation_id.clone()),
             phase: CaptureOperationPhase::Pending,
             scope_epoch: self.machine_authority.clone(),
@@ -623,6 +630,7 @@ impl CaptureMachine {
         phase: CaptureOperationPhase,
     ) -> CaptureState {
         projection.capture_operation = CaptureOperationStatus {
+            failure: None,
             operation_id: Some(operation.public_operation_id.clone()),
             phase,
             scope_epoch: operation.pending.capture_operation.scope_epoch.clone(),
@@ -650,7 +658,21 @@ impl CaptureMachine {
         mut projection: CaptureRuntimeStatus,
         error: CaptureTransitionError,
     ) -> CaptureState {
+        if operation.mode == TransitionMode::Prepared {
+            projection.capture_operation = CaptureOperationStatus {
+                failure: Some(error.kind),
+                operation_id: Some(operation.public_operation_id.clone()),
+                phase: CaptureOperationPhase::Finalizing,
+                scope_epoch: operation.pending.capture_operation.scope_epoch.clone(),
+            };
+            return CaptureState::Stable(StableCapture {
+                last_error: Some(error),
+                projection,
+                ..stable
+            });
+        }
         projection.capture_operation = CaptureOperationStatus {
+            failure: Some(error.kind),
             operation_id: Some(operation.public_operation_id.clone()),
             phase: CaptureOperationPhase::RecoveryRequired,
             scope_epoch: operation.pending.capture_operation.scope_epoch.clone(),
@@ -671,8 +693,13 @@ impl CaptureMachine {
         error: CaptureTransitionError,
     ) -> CaptureState {
         projection.capture_operation = CaptureOperationStatus {
+            failure: Some(error.kind),
             operation_id: Some(operation.public_operation_id.clone()),
-            phase: CaptureOperationPhase::Failed,
+            phase: if operation.mode == TransitionMode::Prepared {
+                CaptureOperationPhase::Finalizing
+            } else {
+                CaptureOperationPhase::Failed
+            },
             scope_epoch: operation.pending.capture_operation.scope_epoch.clone(),
         };
         CaptureState::Stable(StableCapture {
@@ -689,10 +716,13 @@ impl CaptureMachine {
     fn finalizer(
         &self,
         stable: StableCapture,
-        operation: ActiveOperation,
+        mut operation: ActiveOperation,
     ) -> Transition<CaptureState, CaptureEffect, CaptureTransitionError> {
         let correlation = operation.correlation.with_effect(FINALIZER_EFFECT_ID);
         let request = operation.request.clone();
+        operation.pending.capture_operation.failure =
+            Some(super::CaptureFailureKind::RuntimeTransition);
+        operation.pending.capture_operation.phase = CaptureOperationPhase::Finalizing;
         Transition::EffectEmitting {
             state: CaptureState::Transitioning(TransitioningCapture {
                 deferred_failure: None,
@@ -902,6 +932,46 @@ impl Machine for CaptureMachine {
                 operation: token,
             } => {
                 let terminal = state.projection();
+                let matches_operation = terminal.capture_operation.scope_epoch
+                    == token.correlation.machine_authority
+                    && terminal.capture_operation.operation_id.as_deref()
+                        == Some(token.public_operation_id.as_str());
+                if matches_operation
+                    && terminal.capture_operation.phase == CaptureOperationPhase::Finalizing
+                {
+                    let stable = match state {
+                        CaptureState::Stable(current) => current.clone(),
+                        CaptureState::Transitioning(current) => current.stable.clone(),
+                        CaptureState::Reconciling(current) => current.stable.clone(),
+                        _ => return Transition::Retired,
+                    };
+                    if error.kind == super::CaptureFailureKind::RollbackFailed {
+                        let mut projection = terminal.clone();
+                        projection.capture_operation.failure = Some(error.kind);
+                        projection.capture_operation.phase =
+                            CaptureOperationPhase::RecoveryRequired;
+                        return Transition::RecoveryRequired(CaptureState::RecoveryRequired(
+                            RecoveryRequiredCapture {
+                                error: Some(error.clone()),
+                                next_operation_id: stable.next_operation_id,
+                                projection,
+                                revision: stable.revision,
+                            },
+                        ));
+                    }
+                    let mut projection = token.previous.clone();
+                    projection.capture_operation = CaptureOperationStatus {
+                        failure: Some(error.kind),
+                        operation_id: Some(token.public_operation_id.clone()),
+                        phase: CaptureOperationPhase::Failed,
+                        scope_epoch: token.correlation.machine_authority.clone(),
+                    };
+                    return Transition::Failed(CaptureState::Stable(StableCapture {
+                        last_error: Some(error.clone()),
+                        projection,
+                        ..stable
+                    }));
+                }
                 let matches_terminal = terminal.capture_operation.scope_epoch
                     == token.correlation.machine_authority
                     && terminal.capture_operation.operation_id.as_deref()
@@ -937,6 +1007,7 @@ impl Machine for CaptureMachine {
                     }
                     let mut projection = token.previous.clone();
                     projection.capture_operation = CaptureOperationStatus {
+                        failure: Some(error.kind),
                         operation_id: Some(token.public_operation_id.clone()),
                         phase: CaptureOperationPhase::Failed,
                         scope_epoch: token.correlation.machine_authority.clone(),
@@ -978,21 +1049,58 @@ impl Machine for CaptureMachine {
                 if current.stage != TransitionStage::Reserved {
                     return Transition::Retired;
                 }
+                // A reserved operation rejected before either preparation branch starts has no
+                // outer cleanup window. Publish its terminal result immediately; prepared
+                // operations that reached preflight or mutation still defer their terminal until
+                // the coordinator finishes the matching cleanup.
+                let mut terminal_operation = current.operation.clone();
+                terminal_operation.mode = TransitionMode::Ordinary;
                 if error.kind == super::CaptureFailureKind::RollbackFailed {
                     Transition::RecoveryRequired(self.recovery(
                         current.stable.clone(),
-                        &current.operation,
+                        &terminal_operation,
                         current.operation.previous.clone(),
                         error.clone(),
                     ))
                 } else {
                     Transition::Failed(self.failed(
                         current.stable.clone(),
-                        &current.operation,
+                        &terminal_operation,
                         current.operation.previous.clone(),
                         error.clone(),
                     ))
                 }
+            }
+            CaptureInput::MarkFinalizing {
+                error,
+                operation: token,
+            } => {
+                let mut next = state.clone();
+                match &mut next {
+                    CaptureState::Transitioning(current) if token.matches(&current.operation) => {
+                        current.operation.pending.capture_operation.failure = Some(error.kind);
+                        current.operation.pending.capture_operation.phase =
+                            CaptureOperationPhase::Finalizing;
+                    }
+                    CaptureState::Reconciling(current) if token.matches(&current.operation) => {
+                        current.operation.pending.capture_operation.failure = Some(error.kind);
+                        current.operation.pending.capture_operation.phase =
+                            CaptureOperationPhase::Finalizing;
+                    }
+                    CaptureState::Stable(current)
+                        if current.projection.capture_operation.scope_epoch
+                            == token.correlation.machine_authority
+                            && current.projection.capture_operation.operation_id.as_deref()
+                                == Some(token.public_operation_id.as_str())
+                            && current.projection.capture_operation.phase
+                                == CaptureOperationPhase::Finalizing =>
+                    {
+                        current.last_error = Some(error.clone());
+                        current.projection.capture_operation.failure = Some(error.kind);
+                    }
+                    _ => return Transition::Retired,
+                }
+                Transition::Accepted(next)
             }
             CaptureInput::MutationFinished {
                 correlation,
@@ -1368,6 +1476,7 @@ impl Machine for CaptureMachine {
             CaptureInput::Start { .. } => "start",
             CaptureInput::ExecuteReserved { .. } => "execute-reserved",
             CaptureInput::FailReserved { .. } => "fail-reserved",
+            CaptureInput::MarkFinalizing { .. } => "mark-finalizing",
             CaptureInput::MutationFinished { .. } => "mutation-finished",
             CaptureInput::ObservationFinished { .. } => "observation-finished",
             CaptureInput::Audit { .. } => "audit",
@@ -1391,7 +1500,8 @@ impl Machine for CaptureMachine {
         match input {
             CaptureInput::PreflightFinished { correlation } => Some(correlation.clone()),
             CaptureInput::ExecuteReserved { operation, .. }
-            | CaptureInput::FailReserved { operation, .. } => Some(operation.correlation.clone()),
+            | CaptureInput::FailReserved { operation, .. }
+            | CaptureInput::MarkFinalizing { operation, .. } => Some(operation.correlation.clone()),
             CaptureInput::MutationFinished { correlation, .. }
             | CaptureInput::ObservationFinished { correlation, .. }
             | CaptureInput::AuditFinished { correlation, .. }
@@ -1450,7 +1560,7 @@ impl TransitionObserver<CaptureMachine> for CaptureProjectionObserver {
         }
         if !matches!(
             after.capture_operation.phase,
-            CaptureOperationPhase::Pending
+            CaptureOperationPhase::Pending | CaptureOperationPhase::Finalizing
         ) && !matches!(
             current,
             CaptureState::ShuttingDown(_) | CaptureState::Retired(_)
@@ -1737,7 +1847,7 @@ mod tests {
     }
 
     #[test]
-    fn reserved_failure_cancels_preflight_before_publishing_terminal_state() {
+    fn reserved_failure_cancels_preflight_and_waits_for_coordinator_finalization() {
         let machine = machine();
         let reserved = transition_state(machine.reduce(
             &initial(),
@@ -1782,11 +1892,94 @@ mod tests {
             "the public operation stays Pending until preflight cleanup finishes"
         );
 
-        let terminal = machine.reduce(
+        let finalizing = machine.reduce(
             &cancellation,
             &CaptureInput::PreflightFinished {
                 correlation: operation.correlation.with_effect(PREFLIGHT_EFFECT_ID),
             },
+        );
+        assert_eq!(finalizing.disposition(), Disposition::Failed);
+        let finalizing = transition_state(finalizing);
+        assert_eq!(
+            finalizing.projection().capture_operation.phase,
+            CaptureOperationPhase::Finalizing
+        );
+        assert_eq!(
+            finalizing.projection().capture_operation.failure,
+            Some(CaptureFailureKind::RuntimeTransition)
+        );
+
+        let terminal = machine.reduce(
+            &finalizing,
+            &CaptureInput::FailReserved {
+                error: CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Profile activation cleanup completed",
+                ),
+                operation,
+            },
+        );
+        assert_eq!(terminal.disposition(), Disposition::Failed);
+        assert_eq!(
+            transition_state(terminal)
+                .projection()
+                .capture_operation
+                .phase,
+            CaptureOperationPhase::Failed
+        );
+    }
+
+    #[test]
+    fn known_early_failure_projects_finalizing_until_matching_cleanup_completes() {
+        let machine = machine();
+        let reserved = transition_state(machine.reduce(
+            &initial(),
+            &CaptureInput::Reserve {
+                request: request(),
+                mode: TransitionMode::Prepared,
+            },
+        ));
+        let operation = reserved.operation().unwrap();
+        let error = CaptureTransitionError::new(
+            CaptureFailureKind::ListenerUnavailable,
+            "The managed listener is unavailable",
+        );
+        let finalizing = machine.reduce(
+            &reserved,
+            &CaptureInput::MarkFinalizing {
+                error: error.clone(),
+                operation: operation.clone(),
+            },
+        );
+        assert_eq!(finalizing.disposition(), Disposition::Accepted);
+        let finalizing = transition_state(finalizing);
+        assert_eq!(
+            finalizing.projection().capture_operation.phase,
+            CaptureOperationPhase::Finalizing
+        );
+        assert_eq!(
+            finalizing.projection().capture_operation.failure,
+            Some(CaptureFailureKind::ListenerUnavailable)
+        );
+        assert_eq!(
+            machine
+                .reduce(
+                    &finalizing,
+                    &CaptureInput::Start {
+                        core_healthy: true,
+                        mode: TransitionMode::Ordinary,
+                        operation_prefix: None,
+                        preflight: None,
+                        request: request(),
+                    },
+                )
+                .disposition(),
+            Disposition::Rejected,
+        );
+
+        let terminal = machine.reduce(
+            &finalizing,
+            &CaptureInput::FailReserved { error, operation },
         );
         assert_eq!(terminal.disposition(), Disposition::Failed);
         assert_eq!(

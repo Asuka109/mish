@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { installFocusVisibility } from "../platform/focus-visibility";
+import type { CaptureActionFeedback } from "../data/capture-command";
 import { TrafficCaptureControl } from "./traffic-capture-control";
 import "../styles.css";
 
@@ -36,6 +37,7 @@ function renderHost(
     operation: "install" | "repair",
   ) => Promise<{ ok: true } | { ok: false; failure: null }>,
   locale: "en" | "zh" = "en",
+  feedback?: CaptureActionFeedback,
 ) {
   const onTunChange = vi.fn();
   root.render(
@@ -54,6 +56,7 @@ function renderHost(
               adapterKind="rpc"
               capabilities={{ systemProxy: "supported", tun }}
               commandSupported
+              feedback={feedback}
               onSystemProxyChange={vi.fn()}
               onTunHelperSetup={onTunHelperSetup}
               onTunChange={onTunChange}
@@ -87,37 +90,31 @@ afterAll(() => {
 });
 
 describe("Virtual Interface native setup boundary", () => {
-  test("keeps an unsupported Virtual Interface unavailable in Status", async () => {
+  test("lets native RPC recheck an unavailable Virtual Interface in Status", async () => {
     const onTunChange = renderHost("Status");
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
-    await expect.element(tun).toBeDisabled();
-    expect(onTunChange).not.toHaveBeenCalled();
+    await expect.element(tun).toBeEnabled();
+    await userEvent.click(tun);
+    expect(onTunChange).toHaveBeenCalledWith(true);
   });
 
-  test("keeps an unavailable reason accessible from the narrow Settings host", async () => {
+  test("keeps the native recheck reason and focus path accessible in narrow Settings", async () => {
     renderHost("Settings");
     const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
-    const unavailableTrigger = document.querySelector<HTMLElement>(
-      "[data-capture-unavailable-trigger]",
-    );
 
     await expect.element(tun).toHaveAccessibleDescription(unavailableMessage);
-    await expect.element(tun).toBeDisabled();
-    expect(unavailableTrigger).not.toHaveAttribute("aria-disabled");
-    expect(unavailableTrigger?.tabIndex).toBe(0);
+    await expect.element(tun).toBeEnabled();
+    expect(document.querySelector("[data-capture-unavailable-trigger]")).toBeNull();
 
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await userEvent.keyboard("{Tab}");
     expect(document.activeElement).toBe(systemProxy.element());
     await userEvent.keyboard("{Tab}");
-    const focusedTrigger = document.querySelector<HTMLElement>(
-      "[data-capture-unavailable-trigger]",
-    );
-    expect(document.activeElement).toBe(focusedTrigger);
-    expect(focusedTrigger).toHaveAttribute("data-mish-focus-visible", "keyboard");
-    expect(getComputedStyle(focusedTrigger!).outlineStyle).toBe("solid");
+    expect(document.activeElement).toBe(tun.element());
+    await expect.element(tun).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(tun.element()).outlineStyle).toBe("solid");
   });
 
   test("restores keyboard focus after cancelling the bounded setup explanation", async () => {
@@ -256,6 +253,56 @@ describe("Virtual Interface native setup boundary", () => {
         await userEvent.keyboard("{Escape}");
         await expect.element(dialog).not.toBeInTheDocument();
       }
+    },
+  );
+});
+
+describe("Capture action feedback", () => {
+  test.each(["Status", "Settings"] as const)(
+    "keeps the %s action anatomy stable and blocked through finalization",
+    async (host) => {
+      renderHost(host, "unavailable", undefined, "en", {
+        busy: true,
+        failure: "listener-unavailable",
+        operationId: "7",
+        phase: "finalizing",
+      });
+
+      const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
+      await expect.element(systemProxy).toBeDisabled();
+      const finalizing = document.querySelector<HTMLElement>(
+        '[data-capture-operation-phase="finalizing"]',
+      );
+      if (!finalizing?.id) throw new Error("Missing finalizing Capture action feedback");
+      expect(finalizing).toHaveClass("sr-only");
+      expect(finalizing).toHaveTextContent("Finishing the change");
+      expect(finalizing).not.toHaveTextContent("System Proxy was not confirmed");
+      expect(getComputedStyle(finalizing).position).toBe("absolute");
+      expect(systemProxy.element().getAttribute("aria-describedby")).toContain(finalizing.id);
+      const hostElement = document.querySelector<HTMLElement>(`[aria-label="${host}"]`);
+      if (!hostElement) throw new Error(`Missing ${host} host`);
+      const busyHeight = hostElement.getBoundingClientRect().height;
+
+      renderHost(host, "unavailable", undefined, "en", {
+        busy: false,
+        failure: "listener-unavailable",
+        operationId: "7",
+        phase: "error",
+      });
+      await expect
+        .poll(
+          () =>
+            document.querySelector<HTMLElement>("[data-capture-operation-phase]")?.dataset
+              .captureOperationPhase,
+        )
+        .toBe("error");
+      const terminal = document.querySelector<HTMLElement>(
+        '[data-capture-operation-phase="error"]',
+      );
+      expect(terminal?.id).toBe(finalizing.id);
+      expect(terminal).toBeEmptyDOMElement();
+      expect(hostElement.getBoundingClientRect().height).toBe(busyHeight);
+      await expect.element(systemProxy).toBeEnabled();
     },
   );
 });

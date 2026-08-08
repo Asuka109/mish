@@ -826,7 +826,7 @@ fn capture_diagnostics_remain_independent_from_notification_state() {
 }
 
 #[test]
-fn a_repeated_unresolved_capture_failure_does_not_requeue_its_folded_notification() {
+fn repeated_unresolved_capture_failures_are_independent_presentable_occurrences() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
     let failure = CaptureTransitionError::new(
         mish_runtime::CaptureFailureKind::ConfirmationFailed,
@@ -856,32 +856,31 @@ fn a_repeated_unresolved_capture_failure_does_not_requeue_its_folded_notificatio
     runtime.record_capture_failure(&failure);
 
     let snapshot = runtime.notification_snapshot();
-    assert_eq!(snapshot.notifications.len(), 1);
-    assert_eq!(snapshot.notifications[0].id, first.id);
+    assert_eq!(snapshot.notifications.len(), 2);
+    let retained = snapshot
+        .notifications
+        .iter()
+        .find(|record| record.id == first.id)
+        .expect("the first occurrence remains in history");
+    let latest = snapshot
+        .notifications
+        .iter()
+        .find(|record| record.id != first.id)
+        .expect("the repeated failure has a distinct occurrence");
     assert_eq!(
-        snapshot.notifications[0].presentation_state.phase,
+        retained.presentation_state.phase,
         NotificationPresentationPhase::Folded
+    );
+    assert_eq!(
+        latest.presentation_state.phase,
+        NotificationPresentationPhase::Unpresented
     );
     let repeated = runtime
         .claim_next_notification_presentation(NotificationPresentationIdentity {
             client_id: "desktop-webview".into(),
             session_id: "second-session".into(),
         })
-        .claim;
-    assert!(repeated.is_none());
-
-    runtime.resolve_notification("capture.failure");
-    runtime.record_capture_failure(&failure);
-
-    let recurred = runtime.notification_snapshot();
-    assert_eq!(recurred.notifications.len(), 2);
-    assert_ne!(recurred.notifications[0].id, recurred.notifications[1].id);
-    let next = runtime
-        .claim_next_notification_presentation(NotificationPresentationIdentity {
-            client_id: "desktop-webview".into(),
-            session_id: "third-session".into(),
-        })
         .claim
-        .expect("a failure that recurs after resolution is a new occurrence");
-    assert_ne!(next.id, first.id);
+        .expect("the repeated failure is a new presentable occurrence");
+    assert_ne!(repeated.id, first.id);
 }

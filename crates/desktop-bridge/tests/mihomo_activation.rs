@@ -1039,7 +1039,15 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         .iter()
         .filter(|record| record.presentation.kind() == "capture.failure")
         .collect::<Vec<_>>();
-    assert_eq!(capture_failures.len(), 1);
+    assert_eq!(
+        capture_failures.len(),
+        1,
+        "repeated drift keys: {:?}",
+        capture_failures
+            .iter()
+            .map(|record| record.dedupe_key.as_str())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(capture_failures[0].id, first_drift.id);
     assert_eq!(
         capture_failures[0].presentation_state.phase,
@@ -1126,7 +1134,7 @@ async fn tun_backend_switch_is_atomic_across_degraded_observation_and_caller_can
         host.notification_snapshot()
             .notifications
             .iter()
-            .filter(|record| record.dedupe_key == "capture.failure")
+            .filter(|record| record.dedupe_key.starts_with("capture.failure:"))
             .all(|record| record.resolved),
         "runtime replacement and periodic audits must not reopen a confirmed TUN disable"
     );
@@ -1325,7 +1333,7 @@ async fn failed_tun_backend_switches_restore_the_prior_core_and_capture_state() 
         .notifications
         .into_iter()
         .filter(|notification| {
-            notification.dedupe_key == "capture.failure" && !notification.resolved
+            notification.dedupe_key.starts_with("capture.failure:") && !notification.resolved
         })
         .collect::<Vec<_>>();
     assert_eq!(failures.len(), 1);
@@ -1383,7 +1391,7 @@ async fn failed_tun_backend_switches_restore_the_prior_core_and_capture_state() 
         .notifications
         .into_iter()
         .filter(|notification| {
-            notification.dedupe_key == "capture.failure" && !notification.resolved
+            notification.dedupe_key.starts_with("capture.failure:") && !notification.resolved
         })
         .collect::<Vec<_>>();
     assert_eq!(failures.len(), 1);
@@ -3002,7 +3010,8 @@ async fn aggregate_launch_without_a_profile_is_operation_keyed_and_side_effect_f
     let notifications = host.notification_snapshot();
     assert_eq!(notifications.notifications.len(), 1);
     let notification = &notifications.notifications[0];
-    assert_eq!(notification.dedupe_key, "capture.failure");
+    assert!(notification.dedupe_key.starts_with("capture.failure:"));
+    assert!(notification.dedupe_key.ends_with(&failed_operation_id));
     assert_eq!(notification.presentation.kind(), "capture.failure");
     assert_eq!(
         notification.presentation.action_ids,
@@ -3197,7 +3206,7 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
             if let Some(notification) = notifications
                 .notifications
                 .into_iter()
-                .find(|notification| notification.dedupe_key == "capture.failure")
+                .find(|notification| notification.dedupe_key.starts_with("capture.failure:"))
             {
                 break notification;
             }
@@ -4356,7 +4365,7 @@ async fn aggregate_launch_finishes_after_early_listener_failure_notification() {
         )
         .unwrap()
         .unwrap_err();
-    assert_eq!(launch_error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(launch_error.kind, CaptureFailureKind::ListenerUnavailable);
     assert_eq!(
         host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["captureOperation"]["phase"],
         "failed"
@@ -4455,7 +4464,7 @@ async fn aggregate_listener_failure_cancels_blocked_capture_preflight_before_fin
         .unwrap()
         .unwrap_err();
 
-    assert_eq!(launch_error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(launch_error.kind, CaptureFailureKind::ListenerUnavailable);
     let terminal = host.status_snapshot(StatusAdapterKind::Rpc).await;
     assert_eq!(terminal["runtime"]["captureOperation"]["phase"], "failed");
     assert_eq!(terminal["runtime"]["systemProxy"]["phase"], "off");

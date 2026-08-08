@@ -228,6 +228,7 @@ describe("command feedback authority adapters", () => {
   it("uses landed application and Capture identities without a parallel token", () => {
     const order = { authorityId: "application-a", epoch: 7, order: 11 };
     const capture = {
+      failure: null,
       operationId: "42",
       phase: "pending" as const,
       scopeEpoch: "capture-a",

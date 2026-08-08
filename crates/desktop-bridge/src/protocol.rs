@@ -1001,7 +1001,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 33,
+            "protocolVersion": 34,
             "updaterConfigured": state.updater.snapshot().configured,
             "statusCommands": {
                 "group": state.runtime.provides_status_command(StatusCommand::Group),
@@ -2518,7 +2518,15 @@ async fn set_aggregate_capture_locked(
         .await;
     }
 
-    let selection = requested_capture_selection(state, params.selection).await?;
+    let selection = match requested_capture_selection(state, params.selection.clone()).await {
+        Ok(selection) => selection,
+        Err(error) => {
+            state
+                .runtime
+                .record_capture_failure_for_selection(&error, &params.selection);
+            return Err(error);
+        }
+    };
     if let Some(settings) = &state.settings_service {
         settings
             .set_capture_selection(selection.clone())

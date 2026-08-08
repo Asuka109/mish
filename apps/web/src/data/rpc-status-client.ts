@@ -423,11 +423,13 @@ function captureOperationPhaseRank(phase: CaptureOperationStatusDto["phase"]) {
       return 0;
     case "pending":
       return 1;
+    case "finalizing":
+      return 2;
     case "applied":
     case "failed":
-      return 2;
-    case "recovery-required":
       return 3;
+    case "recovery-required":
+      return 4;
   }
 }
 
