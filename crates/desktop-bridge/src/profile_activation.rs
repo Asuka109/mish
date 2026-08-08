@@ -288,6 +288,7 @@ enum ProfileActivationFailureEvidence {
     Controller,
     Timeout,
     Capture(CaptureFailureKind),
+    CoreStop,
     PriorStop,
     StateCommit,
 }
@@ -313,6 +314,7 @@ impl ProfileActivationFailureEvidence {
             Self::Controller => ProfileActivationFailure::Controller,
             Self::Timeout => ProfileActivationFailure::Timeout,
             Self::Capture(_) => ProfileActivationFailure::Capture,
+            Self::CoreStop => ProfileActivationFailure::StateCommit,
             Self::PriorStop => ProfileActivationFailure::PriorStop,
             Self::StateCommit => ProfileActivationFailure::StateCommit,
         }
@@ -984,6 +986,25 @@ pub enum ProfileActivationShutdownFailure {
     CaptureRestoration,
     CoreStop,
     StateCommit,
+}
+
+fn profile_activation_shutdown_failure(
+    state: &ProfileActivationState,
+) -> Option<ProfileActivationShutdownFailure> {
+    let evidence = match state {
+        ProfileActivationState::Failed { evidence, .. }
+        | ProfileActivationState::RecoveryRequired { evidence, .. } => evidence,
+        _ => return None,
+    };
+    match evidence {
+        ProfileActivationFailureEvidence::Capture(_) => {
+            Some(ProfileActivationShutdownFailure::CaptureRestoration)
+        }
+        ProfileActivationFailureEvidence::CoreStop => {
+            Some(ProfileActivationShutdownFailure::CoreStop)
+        }
+        _ => None,
+    }
 }
 
 struct CoordinatorState {
@@ -4147,13 +4168,14 @@ impl ProfileActivationCoordinator {
             Err(_) => None,
         };
         let state = self.activation.snapshot();
+        let shutdown_failure = profile_activation_shutdown_failure(&state);
         if stopped
             .as_ref()
             .is_none_or(|snapshot| !snapshot.safe_stopped)
             || matches!(state, ProfileActivationState::RecoveryRequired { .. })
         {
             self.shutting_down.store(false, Ordering::Release);
-            return Err(ProfileActivationShutdownFailure::StateCommit);
+            return Err(shutdown_failure.unwrap_or(ProfileActivationShutdownFailure::StateCommit));
         }
         self.state.lock().await.busy_profiles.clear();
         self.activation
@@ -4810,6 +4832,37 @@ mod activation_machine_tests {
             ),
             Transition::Failed(ProfileActivationState::RollbackSucceeded { .. })
         ));
+    }
+
+    #[test]
+    fn shutdown_failure_keeps_capture_restoration_and_core_stop_distinct() {
+        let (_, command) = pending_activation();
+        let runtime = ProfileActivationRuntime::SafeStopped;
+        let capture = ProfileActivationState::RecoveryRequired {
+            command: command.clone(),
+            evidence: activation_failure_evidence(MihomoActivationError::CaptureFailed(
+                CaptureFailureKind::RuntimeTransition,
+            )),
+            runtime: runtime.clone(),
+        };
+        let core_stop = ProfileActivationState::Failed {
+            command,
+            evidence: activation_failure_evidence(MihomoActivationError::ShutdownFailed),
+            runtime,
+        };
+
+        assert_eq!(
+            profile_activation_shutdown_failure(&capture),
+            Some(ProfileActivationShutdownFailure::CaptureRestoration)
+        );
+        assert_eq!(
+            profile_activation_shutdown_failure(&core_stop),
+            Some(ProfileActivationShutdownFailure::CoreStop)
+        );
+        assert_eq!(
+            profile_activation_shutdown_failure(&ProfileActivationState::idle()),
+            None
+        );
     }
 }
 
@@ -5751,11 +5804,11 @@ fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivatio
         MihomoActivationError::CaptureFailed(kind) => {
             ProfileActivationFailureEvidence::Capture(kind)
         }
+        MihomoActivationError::ShutdownFailed => ProfileActivationFailureEvidence::CoreStop,
         MihomoActivationError::PriorStopFailed => ProfileActivationFailureEvidence::PriorStop,
         MihomoActivationError::Cancelled
         | MihomoActivationError::StateCommitFailed
         | MihomoActivationError::RollbackFailedSafeStopped
-        | MihomoActivationError::ShutdownFailed
         | MihomoActivationError::OwnershipFailed => ProfileActivationFailureEvidence::StateCommit,
     }
 }
