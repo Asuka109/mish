@@ -172,6 +172,10 @@ pub trait Machine: Send + Sync + 'static {
     fn state_label(&self, state: &Self::State) -> &'static str;
     fn input_label(&self, input: &Self::Input) -> &'static str;
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation>;
+    /// Returns whether an effect owned by the runner may still complete for the current state.
+    /// Implementations must reject replaced operations and superseded effect stages even when
+    /// the supplied correlation is otherwise well formed.
+    fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool;
     fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input;
     fn shutdown(&self) -> Self::Input;
     fn unavailable(&self) -> Self::Error;
@@ -222,10 +226,48 @@ pub struct TransitionEvidence {
     pub disposition: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Admission<S> {
     pub state: S,
     pub disposition: Disposition,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AdmissionError<Error> {
+    Rejected(Error),
+    InboxSaturated,
+    Retired,
+}
+
+impl<Error> AdmissionError<Error> {
+    fn into_unavailable(self, unavailable: Error) -> Error {
+        match self {
+            Self::Rejected(error) => error,
+            Self::InboxSaturated | Self::Retired => unavailable,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActorFailure {
+    Cancelled,
+    Panicked,
+    RetiredBeforeReply,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RetirementTerminal<Error> {
+    Applied,
+    AlreadyRetired,
+    ShutdownRejected(Error),
+    ActorFailed(ActorFailure),
+}
+
+#[derive(Clone, Debug)]
+pub struct Retirement<S, Error> {
+    pub state: S,
+    pub disposition: Disposition,
+    pub terminal: RetirementTerminal<Error>,
 }
 
 pub struct RunnerConfig {
@@ -250,7 +292,7 @@ enum Command<M: Machine> {
         reply: oneshot::Sender<Result<Admission<M::State>, M::Error>>,
     },
     Shutdown {
-        reply: oneshot::Sender<Admission<M::State>>,
+        reply: oneshot::Sender<Result<Admission<M::State>, M::Error>>,
     },
 }
 
@@ -283,45 +325,134 @@ impl<M: Machine> Clone for RunnerHandle<M> {
 
 impl<M: Machine> RunnerHandle<M> {
     pub async fn admit(&self, input: M::Input) -> Result<Admission<M::State>, M::Error> {
-        if self.shared.closed.load(Ordering::Acquire) {
-            return Err(self.shared.unavailable.clone());
-        }
-        let (reply, response) = oneshot::channel();
-        self.shared
-            .sender
-            .try_send(Command::Admit { input, reply })
-            .map_err(|_| self.shared.unavailable.clone())?;
-        response
+        self.try_admit(input)
             .await
-            .map_err(|_| self.shared.unavailable.clone())?
+            .map_err(|error| error.into_unavailable(self.shared.unavailable.clone()))
     }
 
-    pub async fn shutdown(&self) -> Admission<M::State> {
+    pub async fn try_admit(
+        &self,
+        input: M::Input,
+    ) -> Result<Admission<M::State>, AdmissionError<M::Error>> {
+        if self.shared.closed.load(Ordering::Acquire) {
+            return Err(AdmissionError::Retired);
+        }
+        let (reply, response) = oneshot::channel();
+        match self.shared.sender.try_send(Command::Admit { input, reply }) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                return Err(AdmissionError::InboxSaturated);
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                return Err(AdmissionError::Retired);
+            }
+        }
+        response
+            .await
+            .map_err(|_| AdmissionError::Retired)?
+            .map_err(AdmissionError::Rejected)
+    }
+
+    pub async fn shutdown(&self) -> Retirement<M::State, M::Error> {
         if self.shared.closed.swap(true, Ordering::AcqRel) {
-            return Admission {
-                state: self.snapshot(),
+            return Retirement {
+                state: self.snapshot_unpoisoned(),
                 disposition: Disposition::Unchanged,
+                terminal: RetirementTerminal::AlreadyRetired,
             };
         }
         let (reply, response) = oneshot::channel();
-        self.shared
+        if self
+            .shared
             .sender
             .send(Command::Shutdown { reply })
             .await
-            .expect("machine runner retired before shutdown");
-        let admission = response
-            .await
-            .expect("machine runner retired before shutdown reply");
+            .is_err()
+        {
+            return self.actor_failure_retirement().await;
+        }
+        let result = response.await;
+        let actor_failure = self.join_actor().await.and_then(Result::err).map(|error| {
+            if error.is_panic() {
+                ActorFailure::Panicked
+            } else {
+                ActorFailure::Cancelled
+            }
+        });
+        if let Some(failure) = actor_failure {
+            return Retirement {
+                state: self.snapshot_unpoisoned(),
+                disposition: Disposition::Retired,
+                terminal: RetirementTerminal::ActorFailed(failure),
+            };
+        }
+        match result {
+            Ok(Ok(admission)) => Retirement {
+                state: admission.state,
+                disposition: admission.disposition,
+                terminal: RetirementTerminal::Applied,
+            },
+            Ok(Err(error)) => Retirement {
+                state: self.snapshot_unpoisoned(),
+                disposition: Disposition::Rejected,
+                terminal: RetirementTerminal::ShutdownRejected(error),
+            },
+            Err(_) => Retirement {
+                state: self.snapshot_unpoisoned(),
+                disposition: Disposition::Retired,
+                terminal: RetirementTerminal::ActorFailed(ActorFailure::RetiredBeforeReply),
+            },
+        }
+    }
+
+    /// Aborts the actor without running shutdown or owned finalizers.
+    ///
+    /// This models destruction of the containing process or async runtime. Product owners that
+    /// require compensation must use and await [`Self::shutdown`] instead.
+    pub fn abort_for_process_termination(&self) {
+        if let Some(actor) = self
+            .shared
+            .actor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            actor.abort();
+        }
+    }
+
+    async fn actor_failure_retirement(&self) -> Retirement<M::State, M::Error> {
+        let failure = match self.join_actor().await {
+            Some(Err(error)) if error.is_panic() => ActorFailure::Panicked,
+            Some(Err(_)) => ActorFailure::Cancelled,
+            Some(Ok(())) | None => ActorFailure::RetiredBeforeReply,
+        };
+        Retirement {
+            state: self.snapshot_unpoisoned(),
+            disposition: Disposition::Retired,
+            terminal: RetirementTerminal::ActorFailed(failure),
+        }
+    }
+
+    async fn join_actor(&self) -> Option<Result<(), tokio::task::JoinError>> {
         let actor = self
             .shared
             .actor
             .lock()
-            .expect("machine actor lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        if let Some(actor) = actor {
-            let _ = actor.await;
+        match actor {
+            Some(actor) => Some(actor.await),
+            None => None,
         }
-        admission
+    }
+
+    fn snapshot_unpoisoned(&self) -> M::State {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     pub fn evidence(&self) -> Vec<TransitionEvidence> {
@@ -345,15 +476,16 @@ impl<M: Machine> RunnerHandle<M> {
 
 impl<M: Machine> Drop for Shared<M> {
     fn drop(&mut self) {
+        // The last owner requests the same bounded retirement path as explicit shutdown. Dropping
+        // the JoinHandle detaches the actor; aborting it here would bypass domain shutdown and
+        // owned effect finalizers for compensation-sensitive machines.
+        self.closed.store(true, Ordering::Release);
         self.shutdown.cancel();
-        if let Some(actor) = self
+        let _ = self
             .actor
             .lock()
-            .expect("machine actor lock poisoned")
-            .take()
-        {
-            actor.abort();
-        }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
     }
 }
 
@@ -419,7 +551,7 @@ async fn run_actor<M: Machine>(
         tokio::select! {
             biased;
             _ = shutdown.cancelled() => {
-                apply_shutdown(
+                let _ = apply_shutdown(
                     machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                     &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                 );
@@ -443,7 +575,7 @@ async fn run_actor<M: Machine>(
             }
             command = receiver.recv() => {
                 let Some(command) = command else {
-                    apply_shutdown(
+                    let _ = apply_shutdown(
                         machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                         &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                     );
@@ -466,7 +598,7 @@ async fn run_actor<M: Machine>(
                         let _ = reply.send(result);
                     }
                     Command::Shutdown { reply } => {
-                        let disposition = apply_shutdown(
+                        let shutdown = apply_shutdown(
                             machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
                             &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
                         );
@@ -476,7 +608,11 @@ async fn run_actor<M: Machine>(
                             &snapshot, &mut tasks, &mut owned,
                         ).await;
                         *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
-                        let _ = reply.send(Admission { state, disposition });
+                        let result = shutdown.map(|admission| Admission {
+                            state,
+                            disposition: admission.disposition,
+                        });
+                        let _ = reply.send(result);
                         return;
                     }
                 }
@@ -605,18 +741,17 @@ fn finish_effect<M: Machine>(
     match joined {
         Ok((_, input)) => {
             let completion = machine.input_correlation(state, &input);
-            if completion.as_ref() != Some(&task.correlation) {
-                let _ = apply_input(
-                    machine,
-                    state,
-                    input,
-                    executor,
-                    observer,
+            if completion.as_ref() != Some(&task.correlation)
+                || !machine.effect_is_current(state, &task.correlation)
+            {
+                record_evidence(
                     evidence,
                     evidence_limit,
-                    snapshot,
-                    tasks,
-                    owned,
+                    machine.state_label(state),
+                    "effect-completion-conflict",
+                    machine.state_label(state),
+                    Disposition::Retired,
+                    Some(&task.correlation),
                 );
                 let finalizer =
                     machine.task_failed(task.correlation, TaskFailure::CompletionConflict);
@@ -681,9 +816,9 @@ fn apply_shutdown<M: Machine>(
     snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
-) -> Disposition {
+) -> Result<Admission<M::State>, M::Error> {
     let input = machine.shutdown();
-    match apply_input(
+    apply_input(
         machine,
         state,
         input,
@@ -694,10 +829,7 @@ fn apply_shutdown<M: Machine>(
         snapshot,
         tasks,
         owned,
-    ) {
-        Ok(admission) => admission.disposition,
-        Err(_) => panic!("machine shutdown transition must be infallible"),
-    }
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -784,7 +916,11 @@ fn digest(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        mpsc as std_mpsc,
+    };
 
     use tokio::sync::Notify;
 
@@ -906,6 +1042,10 @@ mod tests {
             }
         }
 
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            matches!(state, TestState::Running(current) if current == correlation)
+        }
+
         fn task_failed(&self, _correlation: Correlation, failure: TaskFailure) -> Self::Input {
             let _ = failure;
             TestInput::Shutdown
@@ -991,6 +1131,165 @@ mod tests {
                 }),
                 ExecutorMode::Pending => Box::pin(async move { std::future::pending().await }),
             }
+        }
+    }
+
+    struct BlockingObserver {
+        entered: std_mpsc::Sender<()>,
+        first: AtomicBool,
+        release: Arc<Barrier>,
+    }
+
+    impl TransitionObserver<TestMachine> for BlockingObserver {
+        fn transitioned(
+            &self,
+            _previous: &TestState,
+            _input: &TestInput,
+            _current: &TestState,
+            _disposition: Disposition,
+        ) {
+            if self.first.swap(false, AtomicOrdering::AcqRel) {
+                let _ = self.entered.send(());
+                self.release.wait();
+            }
+        }
+    }
+
+    struct PanickingObserver;
+
+    impl TransitionObserver<TestMachine> for PanickingObserver {
+        fn transitioned(
+            &self,
+            _previous: &TestState,
+            _input: &TestInput,
+            _current: &TestState,
+            _disposition: Disposition,
+        ) {
+            panic!("injected observer panic");
+        }
+    }
+
+    struct PanickingReducer;
+
+    impl Machine for PanickingReducer {
+        type State = TestState;
+        type Input = TestInput;
+        type Effect = TestEffect;
+        type Error = &'static str;
+
+        fn reduce(
+            &self,
+            _state: &Self::State,
+            _input: &Self::Input,
+        ) -> Transition<Self::State, Self::Effect, Self::Error> {
+            panic!("injected reducer panic");
+        }
+
+        fn state_label(&self, state: &Self::State) -> &'static str {
+            TestMachine.state_label(state)
+        }
+
+        fn input_label(&self, input: &Self::Input) -> &'static str {
+            TestMachine.input_label(input)
+        }
+
+        fn input_correlation(
+            &self,
+            state: &Self::State,
+            input: &Self::Input,
+        ) -> Option<Correlation> {
+            TestMachine.input_correlation(state, input)
+        }
+
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            TestMachine.effect_is_current(state, correlation)
+        }
+
+        fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
+            TestMachine.task_failed(correlation, failure)
+        }
+
+        fn shutdown(&self) -> Self::Input {
+            TestMachine.shutdown()
+        }
+
+        fn unavailable(&self) -> Self::Error {
+            "busy"
+        }
+    }
+
+    struct RejectingShutdown;
+
+    impl Machine for RejectingShutdown {
+        type State = TestState;
+        type Input = TestInput;
+        type Effect = TestEffect;
+        type Error = &'static str;
+
+        fn reduce(
+            &self,
+            state: &Self::State,
+            input: &Self::Input,
+        ) -> Transition<Self::State, Self::Effect, Self::Error> {
+            if matches!(input, TestInput::Shutdown) {
+                Transition::Rejected("shutdown-rejected")
+            } else {
+                TestMachine.reduce(state, input)
+            }
+        }
+
+        fn state_label(&self, state: &Self::State) -> &'static str {
+            TestMachine.state_label(state)
+        }
+
+        fn input_label(&self, input: &Self::Input) -> &'static str {
+            TestMachine.input_label(input)
+        }
+
+        fn input_correlation(
+            &self,
+            state: &Self::State,
+            input: &Self::Input,
+        ) -> Option<Correlation> {
+            TestMachine.input_correlation(state, input)
+        }
+
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            TestMachine.effect_is_current(state, correlation)
+        }
+
+        fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
+            TestMachine.task_failed(correlation, failure)
+        }
+
+        fn shutdown(&self) -> Self::Input {
+            TestMachine.shutdown()
+        }
+
+        fn unavailable(&self) -> Self::Error {
+            "busy"
+        }
+    }
+
+    struct NeverTestExecutor;
+
+    impl EffectExecutor<PanickingReducer> for NeverTestExecutor {
+        fn execute(
+            &self,
+            _effect: TestEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = TestInput> + Send + 'static>> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    impl EffectExecutor<RejectingShutdown> for NeverTestExecutor {
+        fn execute(
+            &self,
+            _effect: TestEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = TestInput> + Send + 'static>> {
+            Box::pin(std::future::pending())
         }
     }
 
@@ -1166,5 +1465,549 @@ mod tests {
             runner.admit(TestInput::Start(correlation("late"))).await,
             Err("busy")
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn saturated_inbox_and_retired_runner_have_distinct_admission_errors() {
+        let actor_release = Arc::new(Barrier::new(2));
+        let effect_release = Arc::new(Notify::new());
+        let effect_started = Arc::new(Notify::new());
+        let (entered, actor_entered) = std_mpsc::channel();
+        let runner = spawn_runner(
+            Arc::new(TestMachine),
+            TestState::Idle,
+            Arc::new(TestExecutor {
+                mode: ExecutorMode::Barrier {
+                    release: effect_release.clone(),
+                    started: effect_started,
+                },
+                executions: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(BlockingObserver {
+                entered,
+                first: AtomicBool::new(true),
+                release: actor_release.clone(),
+            }),
+            RunnerConfig {
+                inbox_capacity: 1,
+                ..RunnerConfig::default()
+            },
+        );
+        let first_runner = runner.clone();
+        let operation = correlation("saturation");
+        let first_operation = operation.clone();
+        let first = tokio::spawn(async move {
+            first_runner
+                .try_admit(TestInput::Start(first_operation))
+                .await
+        });
+        actor_entered
+            .recv_timeout(Duration::from_secs(1))
+            .expect("actor must enter the blocking observer");
+        let (queued_reply, queued_response) = oneshot::channel();
+        runner
+            .shared
+            .sender
+            .try_send(Command::Admit {
+                input: TestInput::Start(operation),
+                reply: queued_reply,
+            })
+            .expect("one command must fit the bounded inbox");
+
+        assert_eq!(
+            runner.try_admit(TestInput::Cancel).await,
+            Err(AdmissionError::InboxSaturated)
+        );
+        actor_release.wait();
+        first.await.unwrap().unwrap();
+        queued_response.await.unwrap().unwrap();
+        effect_release.notify_one();
+        for _ in 0..100 {
+            if runner.snapshot() == TestState::Done {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let retirement = runner.shutdown().await;
+        assert_eq!(retirement.terminal, RetirementTerminal::Applied);
+        assert_eq!(
+            runner.try_admit(TestInput::Cancel).await,
+            Err(AdmissionError::Retired)
+        );
+    }
+
+    #[tokio::test]
+    async fn reducer_observer_and_actor_failures_return_typed_retirement() {
+        let reducer_runner = spawn_runner(
+            Arc::new(PanickingReducer),
+            TestState::Idle,
+            Arc::new(NeverTestExecutor),
+            Arc::new(NoopObserver),
+            RunnerConfig::default(),
+        );
+        assert!(
+            reducer_runner
+                .try_admit(TestInput::Start(correlation("reducer-panic")))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            reducer_runner.shutdown().await.terminal,
+            RetirementTerminal::ActorFailed(ActorFailure::Panicked)
+        );
+
+        let observer_runner = spawn_runner(
+            Arc::new(TestMachine),
+            TestState::Idle,
+            Arc::new(TestExecutor {
+                mode: ExecutorMode::Conflict,
+                executions: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(PanickingObserver),
+            RunnerConfig::default(),
+        );
+        assert!(
+            observer_runner
+                .try_admit(TestInput::Start(correlation("observer-panic")))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            observer_runner.shutdown().await.terminal,
+            RetirementTerminal::ActorFailed(ActorFailure::Panicked)
+        );
+
+        let aborted_runner = spawn_runner(
+            Arc::new(TestMachine),
+            TestState::Idle,
+            Arc::new(TestExecutor {
+                mode: ExecutorMode::Conflict,
+                executions: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(NoopObserver),
+            RunnerConfig::default(),
+        );
+        aborted_runner.abort_for_process_termination();
+        while !aborted_runner.shared.sender.is_closed() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            aborted_runner.shutdown().await.terminal,
+            RetirementTerminal::ActorFailed(ActorFailure::Cancelled)
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_panic_is_finalized_before_typed_shutdown() {
+        let runner = spawn_runner(
+            Arc::new(TestMachine),
+            TestState::Idle,
+            Arc::new(TestExecutor {
+                mode: ExecutorMode::Panic,
+                executions: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(NoopObserver),
+            RunnerConfig::default(),
+        );
+        runner
+            .admit(TestInput::Start(correlation("executor-panic")))
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            if runner.snapshot() == TestState::Retired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let retirement = runner.shutdown().await;
+        assert_eq!(retirement.state, TestState::Retired);
+        assert_eq!(retirement.terminal, RetirementTerminal::Applied);
+    }
+
+    #[tokio::test]
+    async fn rejected_shutdown_is_a_typed_terminal_result() {
+        let runner = spawn_runner(
+            Arc::new(RejectingShutdown),
+            TestState::Idle,
+            Arc::new(NeverTestExecutor),
+            Arc::new(NoopObserver),
+            RunnerConfig::default(),
+        );
+
+        let retirement = runner.shutdown().await;
+        assert_eq!(retirement.state, TestState::Idle);
+        assert_eq!(retirement.disposition, Disposition::Rejected);
+        assert_eq!(
+            retirement.terminal,
+            RetirementTerminal::ShutdownRejected("shutdown-rejected")
+        );
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum AdversarialState {
+        Idle,
+        Running(Correlation),
+        ForeignCommitted,
+        Retired,
+    }
+
+    #[derive(Clone, Debug)]
+    enum AdversarialInput {
+        Start(Correlation),
+        Replace(Correlation),
+        Complete(Correlation),
+        TaskFailed(Correlation),
+        Shutdown,
+    }
+
+    #[derive(Debug)]
+    enum AdversarialEffect {
+        Owned(Correlation),
+        Business(Correlation),
+    }
+
+    impl CorrelatedEffect for AdversarialEffect {
+        fn correlation(&self) -> &Correlation {
+            match self {
+                Self::Owned(correlation) | Self::Business(correlation) => correlation,
+            }
+        }
+    }
+
+    struct AdversarialMachine {
+        finalized: Arc<Mutex<Vec<(Correlation, TaskFailure)>>>,
+    }
+
+    impl Machine for AdversarialMachine {
+        type State = AdversarialState;
+        type Input = AdversarialInput;
+        type Effect = AdversarialEffect;
+        type Error = &'static str;
+
+        fn reduce(
+            &self,
+            state: &Self::State,
+            input: &Self::Input,
+        ) -> Transition<Self::State, Self::Effect, Self::Error> {
+            match (state, input) {
+                (AdversarialState::Idle, AdversarialInput::Start(correlation)) => {
+                    Transition::EffectEmitting {
+                        state: AdversarialState::Running(correlation.clone()),
+                        effects: EffectBatch::one(AdversarialEffect::Owned(correlation.clone())),
+                    }
+                }
+                (AdversarialState::Running(_), AdversarialInput::Replace(correlation)) => {
+                    Transition::Accepted(AdversarialState::Running(correlation.clone()))
+                }
+                // Deliberately unsafe: this reducer accepts every completion and would run a
+                // business effect if the Kernel ever offered it a foreign correlation.
+                (AdversarialState::Running(_), AdversarialInput::Complete(correlation)) => {
+                    Transition::EffectEmitting {
+                        state: AdversarialState::ForeignCommitted,
+                        effects: EffectBatch::one(AdversarialEffect::Business(correlation.clone())),
+                    }
+                }
+                (
+                    AdversarialState::Running(_) | AdversarialState::ForeignCommitted,
+                    AdversarialInput::TaskFailed(_),
+                )
+                | (_, AdversarialInput::Shutdown) => {
+                    Transition::Accepted(AdversarialState::Retired)
+                }
+                _ => Transition::Retired,
+            }
+        }
+
+        fn state_label(&self, state: &Self::State) -> &'static str {
+            match state {
+                AdversarialState::Idle => "idle",
+                AdversarialState::Running(_) => "running",
+                AdversarialState::ForeignCommitted => "foreign-committed",
+                AdversarialState::Retired => "retired",
+            }
+        }
+
+        fn input_label(&self, input: &Self::Input) -> &'static str {
+            match input {
+                AdversarialInput::Start(_) => "start",
+                AdversarialInput::Replace(_) => "replace",
+                AdversarialInput::Complete(_) => "complete",
+                AdversarialInput::TaskFailed(_) => "task-failed",
+                AdversarialInput::Shutdown => "shutdown",
+            }
+        }
+
+        fn input_correlation(
+            &self,
+            _state: &Self::State,
+            input: &Self::Input,
+        ) -> Option<Correlation> {
+            match input {
+                AdversarialInput::Start(correlation)
+                | AdversarialInput::Replace(correlation)
+                | AdversarialInput::Complete(correlation)
+                | AdversarialInput::TaskFailed(correlation) => Some(correlation.clone()),
+                AdversarialInput::Shutdown => None,
+            }
+        }
+
+        fn effect_is_current(&self, state: &Self::State, correlation: &Correlation) -> bool {
+            matches!(state, AdversarialState::Running(current) if current == correlation)
+        }
+
+        fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
+            self.finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned")
+                .push((correlation.clone(), failure));
+            AdversarialInput::TaskFailed(correlation)
+        }
+
+        fn shutdown(&self) -> Self::Input {
+            AdversarialInput::Shutdown
+        }
+
+        fn unavailable(&self) -> Self::Error {
+            "unavailable"
+        }
+    }
+
+    struct AdversarialExecutor {
+        business_effects: Arc<AtomicUsize>,
+    }
+
+    impl EffectExecutor<AdversarialMachine> for AdversarialExecutor {
+        fn execute(
+            &self,
+            effect: AdversarialEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = AdversarialInput> + Send + 'static>> {
+            match effect {
+                AdversarialEffect::Owned(mut correlation) => {
+                    correlation.scope_epoch = correlation.scope_epoch.saturating_add(1);
+                    Box::pin(async move { AdversarialInput::Complete(correlation) })
+                }
+                AdversarialEffect::Business(correlation) => {
+                    self.business_effects.fetch_add(1, AtomicOrdering::Relaxed);
+                    Box::pin(async move { AdversarialInput::Complete(correlation) })
+                }
+            }
+        }
+    }
+
+    struct ReplacementAdversarialExecutor {
+        business_effects: Arc<AtomicUsize>,
+        release: Arc<Notify>,
+        started: Arc<Notify>,
+    }
+
+    impl EffectExecutor<AdversarialMachine> for ReplacementAdversarialExecutor {
+        fn execute(
+            &self,
+            effect: AdversarialEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = AdversarialInput> + Send + 'static>> {
+            match effect {
+                AdversarialEffect::Owned(correlation) => {
+                    let release = self.release.clone();
+                    let started = self.started.clone();
+                    Box::pin(async move {
+                        started.notify_one();
+                        release.notified().await;
+                        AdversarialInput::Complete(correlation)
+                    })
+                }
+                AdversarialEffect::Business(correlation) => {
+                    self.business_effects.fetch_add(1, AtomicOrdering::Relaxed);
+                    Box::pin(async move { AdversarialInput::Complete(correlation) })
+                }
+            }
+        }
+    }
+
+    struct PendingAdversarialExecutor;
+
+    impl EffectExecutor<AdversarialMachine> for PendingAdversarialExecutor {
+        fn execute(
+            &self,
+            _effect: AdversarialEffect,
+            _cancellation: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = AdversarialInput> + Send + 'static>> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    struct AdversarialObserver {
+        foreign_commits: Arc<AtomicUsize>,
+    }
+
+    impl TransitionObserver<AdversarialMachine> for AdversarialObserver {
+        fn transitioned(
+            &self,
+            _previous: &AdversarialState,
+            _input: &AdversarialInput,
+            current: &AdversarialState,
+            _disposition: Disposition,
+        ) {
+            if *current == AdversarialState::ForeignCommitted {
+                self.foreign_commits.fetch_add(1, AtomicOrdering::Relaxed);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn foreign_completion_never_reaches_an_adversarial_reducer() {
+        let finalized = Arc::new(Mutex::new(Vec::new()));
+        let business_effects = Arc::new(AtomicUsize::new(0));
+        let foreign_commits = Arc::new(AtomicUsize::new(0));
+        let runner = spawn_runner(
+            Arc::new(AdversarialMachine {
+                finalized: finalized.clone(),
+            }),
+            AdversarialState::Idle,
+            Arc::new(AdversarialExecutor {
+                business_effects: business_effects.clone(),
+            }),
+            Arc::new(AdversarialObserver {
+                foreign_commits: foreign_commits.clone(),
+            }),
+            RunnerConfig::default(),
+        );
+        let owned = correlation("owned-operation");
+
+        runner
+            .admit(AdversarialInput::Start(owned.clone()))
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            if runner.snapshot() == AdversarialState::Retired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(runner.snapshot(), AdversarialState::Retired);
+        assert_eq!(foreign_commits.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(business_effects.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(
+            *finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned"),
+            vec![(owned, TaskFailure::CompletionConflict)]
+        );
+        let conflicts = runner
+            .evidence()
+            .into_iter()
+            .filter(|entry| entry.input == "effect-completion-conflict")
+            .collect::<Vec<_>>();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].disposition, "retired");
+        assert_eq!(conflicts[0].effect_id, Some(1));
+        let _ = runner.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn replaced_effect_completion_never_reaches_an_adversarial_reducer() {
+        let finalized = Arc::new(Mutex::new(Vec::new()));
+        let business_effects = Arc::new(AtomicUsize::new(0));
+        let foreign_commits = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(Notify::new());
+        let started = Arc::new(Notify::new());
+        let runner = spawn_runner(
+            Arc::new(AdversarialMachine {
+                finalized: finalized.clone(),
+            }),
+            AdversarialState::Idle,
+            Arc::new(ReplacementAdversarialExecutor {
+                business_effects: business_effects.clone(),
+                release: release.clone(),
+                started: started.clone(),
+            }),
+            Arc::new(AdversarialObserver {
+                foreign_commits: foreign_commits.clone(),
+            }),
+            RunnerConfig::default(),
+        );
+        let owned = correlation("replaced-operation");
+        let replacement = correlation("replacement-operation");
+
+        runner
+            .admit(AdversarialInput::Start(owned.clone()))
+            .await
+            .unwrap();
+        started.notified().await;
+        runner
+            .admit(AdversarialInput::Replace(replacement))
+            .await
+            .unwrap();
+        release.notify_one();
+        for _ in 0..100 {
+            if runner.snapshot() == AdversarialState::Retired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(runner.snapshot(), AdversarialState::Retired);
+        assert_eq!(foreign_commits.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(business_effects.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(
+            *finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned"),
+            vec![(owned, TaskFailure::CompletionConflict)]
+        );
+        assert_eq!(
+            runner
+                .evidence()
+                .into_iter()
+                .filter(|entry| entry.input == "effect-completion-conflict")
+                .count(),
+            1
+        );
+        let _ = runner.shutdown().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn last_owner_drop_runs_bounded_shutdown_and_owned_finalization() {
+        let finalized = Arc::new(Mutex::new(Vec::new()));
+        let runner = spawn_runner(
+            Arc::new(AdversarialMachine {
+                finalized: finalized.clone(),
+            }),
+            AdversarialState::Idle,
+            Arc::new(PendingAdversarialExecutor),
+            Arc::new(NoopObserver),
+            RunnerConfig {
+                shutdown_grace: Duration::from_secs(1),
+                ..RunnerConfig::default()
+            },
+        );
+        let owned = correlation("last-owner-drop");
+        runner
+            .admit(AdversarialInput::Start(owned.clone()))
+            .await
+            .unwrap();
+
+        drop(runner);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        for _ in 0..100 {
+            if !finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned")
+                .is_empty()
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            *finalized
+                .lock()
+                .expect("adversarial finalizer lock poisoned"),
+            vec![(owned, TaskFailure::Aborted)]
+        );
     }
 }
