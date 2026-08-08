@@ -2920,11 +2920,11 @@ impl CandidateStore {
         set_permissions(&temporary.join(CANDIDATE_PAYLOAD), 0o400)?;
         self.trace_store_step("sync-candidate-directory");
         sync_directory(&temporary)?;
-        self.trace_store_step("seal-candidate-directory");
-        set_permissions(&temporary, 0o500)?;
         self.trace_store_step("publish-candidate-directory");
-        fs::rename(&temporary, self.root.join(CANDIDATE_DIRECTORY))
-            .map_err(|_| UpdateOperationError::StoreIo)?;
+        let published = self.root.join(CANDIDATE_DIRECTORY);
+        fs::rename(&temporary, &published).map_err(|_| UpdateOperationError::StoreIo)?;
+        self.trace_store_step("seal-candidate-directory");
+        set_permissions(&published, 0o500)?;
         self.trace_store_step("sync-store-after-candidate");
         sync_directory(&self.root)?;
         self.trace_store_step("discard-partial");
@@ -3231,14 +3231,9 @@ fn ensure_private_directory(path: &Path) -> Result<(), UpdateOperationError> {
 
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), UpdateOperationError> {
-    match File::open(path).and_then(|directory| directory.sync_all()) {
-        Ok(()) => Ok(()),
-        // Some Unix filesystems reject fsync for directories. The file data is
-        // already synced before each rename, so retain that guarantee when the
-        // host cannot additionally make the directory entry durable.
-        Err(error) if error.raw_os_error() == Some(libc::EINVAL) => Ok(()),
-        Err(_) => Err(UpdateOperationError::StoreIo),
-    }
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| UpdateOperationError::StoreIo)
 }
 
 #[cfg(not(unix))]
