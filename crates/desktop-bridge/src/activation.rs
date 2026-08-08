@@ -1150,9 +1150,7 @@ impl MihomoActivationManager {
             .active
             .as_ref()
             .map(|active| (active.runtime.clone(), active.tun_enabled));
-        let Some((runtime, active_tun_enabled)) = active else {
-            return None;
-        };
+        let (runtime, active_tun_enabled) = active?;
         Some(
             active_tun_enabled == tun_enabled
                 && matches!(runtime.core_status().await.phase, CorePhase::Running),
@@ -1671,9 +1669,7 @@ async fn wait_for_activation_listener_release(
             .iter()
             .copied()
             .find(|endpoint| std::net::TcpListener::bind(endpoint).is_err());
-        let Some(occupied) = occupied else {
-            return None;
-        };
+        let occupied = occupied?;
         if Instant::now() >= deadline {
             return Some(occupied);
         }
@@ -2083,7 +2079,7 @@ mod bundled_geodata_tests {
         let home = root.path().join("home");
         fs::create_dir(&home).unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, content) in ASSETS {
             assert_eq!(fs::read(home.join(runtime_name)).unwrap(), content);
         }
@@ -2106,7 +2102,7 @@ mod bundled_geodata_tests {
         fs::write(home.join("GeoSite.dat"), []).unwrap();
 
         assert!(!bundled_geodata_assets_complete(&home));
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert_eq!(
             fs::read(home.join("GeoSite.dat")).unwrap(),
             b"geosite fixture"
@@ -2123,7 +2119,7 @@ mod bundled_geodata_tests {
         let stale = home.join(format!(".geodata-seed-{}", Uuid::new_v4()));
         fs::write(&stale, b"interrupted").unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert!(!stale.exists());
         assert!(bundled_geodata_assets_complete(&home));
     }
@@ -2143,10 +2139,7 @@ mod bundled_geodata_tests {
         );
 
         let source = snapshot(root.path());
-        assert_eq!(
-            seed_bundled_geodata(Some(&source), root.path()).unwrap(),
-            true
-        );
+        assert!(seed_bundled_geodata(Some(&source), root.path()).unwrap());
         assert_eq!(
             candidate_readiness_timeout(root.path(), &timing),
             Duration::from_secs(15)
@@ -2161,7 +2154,7 @@ mod bundled_geodata_tests {
         fs::create_dir(&home).unwrap();
         fs::write(home.join("GeoSite.dat"), b"newer runtime asset").unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(seed_bundled_geodata(Some(&source), &home).unwrap());
         assert_eq!(
             fs::read(home.join("GeoSite.dat")).unwrap(),
             b"newer runtime asset"
@@ -2182,7 +2175,7 @@ mod bundled_geodata_tests {
             fs::write(home.join(runtime_name), b"runtime-owned").unwrap();
         }
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        assert!(!seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, _) in ASSETS {
             assert_eq!(fs::read(home.join(runtime_name)).unwrap(), b"runtime-owned");
         }
@@ -2196,7 +2189,7 @@ mod bundled_geodata_tests {
         let home = root.path().join("home");
         fs::create_dir(&home).unwrap();
 
-        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        assert!(!seed_bundled_geodata(Some(&source), &home).unwrap());
         for (_, runtime_name, _) in ASSETS {
             assert!(!home.join(runtime_name).exists());
         }
@@ -2535,10 +2528,12 @@ fn load_managed_state(runtime_root: &Path) -> ManagedActivationState {
         return ManagedActivationState::default();
     }
     #[cfg(unix)]
-    if {
+    let has_insecure_permissions = {
         use std::os::unix::fs::PermissionsExt;
         metadata.permissions().mode() & 0o777 != 0o600
-    } {
+    };
+    #[cfg(unix)]
+    if has_insecure_permissions {
         return ManagedActivationState::default();
     }
     let Ok(contents) = fs::read(path) else {
@@ -2963,7 +2958,7 @@ fn namespace_explicit_provider_paths(
                 .split('/')
                 .filter(|component| !component.is_empty() && *component != ".")
                 .collect::<Vec<_>>();
-            if components.is_empty() || components.iter().any(|component| *component == "..") {
+            if components.is_empty() || components.contains(&"..") {
                 return Err(RuntimeConfigGenerationError::UnsafeManagedPath);
             }
             mapping.insert(

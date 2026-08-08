@@ -929,9 +929,9 @@ impl ControllerStatusSource {
         })
     }
 
-    fn require_command_ready(&self) -> Result<(), StatusCommandError> {
+    fn command_readiness_error(&self) -> Option<StatusCommandError> {
         if !self.inner.observations_active.load(Ordering::Acquire) {
-            return Err(StatusCommandError::new(
+            return Some(StatusCommandError::new(
                 StatusCommandErrorKind::Disconnected,
                 "Controller observations are paused",
             ));
@@ -944,9 +944,9 @@ impl ControllerStatusSource {
         if state.initial_observation == ControllerInitialObservation::Ready
             && state.mapper.is_some()
         {
-            Ok(())
+            None
         } else {
-            Err(StatusCommandError::new(
+            Some(StatusCommandError::new(
                 StatusCommandErrorKind::Disconnected,
                 "Controller commands are unavailable until the initial catalog is confirmed",
             ))
@@ -970,7 +970,9 @@ impl ControllerStatusSource {
     }
 
     async fn confirm_routing_command(&self, mode: RoutingMode) -> Result<(), StatusCommandError> {
-        self.require_command_ready()?;
+        if let Some(error) = self.command_readiness_error() {
+            return Err(error);
+        }
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
                 StatusCommandErrorKind::Conflict,
@@ -1122,7 +1124,9 @@ impl ControllerStatusSource {
         child_id: &str,
         operation_id: u64,
     ) -> Result<Option<GroupSelectionCleanupContext>, StatusCommandError> {
-        self.require_command_ready()?;
+        if let Some(error) = self.command_readiness_error() {
+            return Err(error);
+        }
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
                 StatusCommandErrorKind::Conflict,
@@ -1357,7 +1361,9 @@ impl ControllerStatusSource {
     }
 
     async fn begin_group_delay_test(&self, group_id: String) -> Result<(), StatusCommandError> {
-        self.require_command_ready()?;
+        if let Some(error) = self.command_readiness_error() {
+            return Err(error);
+        }
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
                 StatusCommandErrorKind::Conflict,
@@ -2156,7 +2162,7 @@ fn map_command_error(error: ControllerError) -> StatusCommandError {
     if matches!(
         &error,
         ControllerError::HttpStatus {
-            status: 502 | 503 | 504,
+            status: 502..=504,
             ..
         }
     ) {

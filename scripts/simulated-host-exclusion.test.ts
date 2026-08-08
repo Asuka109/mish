@@ -11,6 +11,8 @@ const boundedSimulatedApplicationContract =
   "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
 const approvedCiContractDeclaration = `const simulatedApplicationContract =
   "${boundedSimulatedApplicationContract}";`;
+const boundedPortableRustClippyContract =
+  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
 const forbiddenArtifactMarkers = [
   "MISH_SIMULATED_SCENARIO",
   "TEST_AUTH_TOKEN",
@@ -196,9 +198,15 @@ test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude
     // The CI contract validator may name this one bounded test command solely to reject drift.
     // Strip that exact declaration, then retain the product-input exclusion for every other
     // simulator reference in the validator and all other release inputs.
-    const checkedContent = file.endsWith("check-ci-workflow.ts")
+    let checkedContent = file.endsWith("check-ci-workflow.ts")
       ? content.replace(approvedCiContractDeclaration, "")
       : content;
+    if (file.endsWith("check-ci-workflow.ts") || file.endsWith("check-trusted-ci-policy.ts")) {
+      checkedContent = checkedContent.replaceAll(
+        JSON.stringify(boundedPortableRustClippyContract),
+        "",
+      );
+    }
     const leakedMarkers = forbiddenArtifactMarkers.filter((marker) =>
       checkedContent.includes(marker),
     );
