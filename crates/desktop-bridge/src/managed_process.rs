@@ -397,7 +397,7 @@ impl DesktopMihomoProcess {
         drop(inner);
         let _ = self.clear_owned_process(owned_process.as_ref());
         if let Some(update) = update {
-            self.publish_status(update);
+            self.publish_exit_observation(update);
         }
         if let (Some(host), Some(process)) = (&self.privileged_host, privileged_process) {
             match host.observe(process.clone()).await {
@@ -748,7 +748,7 @@ impl DesktopMihomoProcess {
                     let _ = ownership.clear_process(process);
                 }
                 if let Some(events) = status_events.get() {
-                    events.publish(update);
+                    events.publish_exit_observation(update);
                 }
                 return;
             }
@@ -815,6 +815,12 @@ impl DesktopMihomoProcess {
     fn publish_status(&self, status: CoreStatus) {
         if let Some(events) = self.status_events.get() {
             events.publish(status);
+        }
+    }
+
+    fn publish_exit_observation(&self, status: CoreStatus) {
+        if let Some(events) = self.status_events.get() {
+            events.publish_exit_observation(status);
         }
     }
 
@@ -1034,6 +1040,7 @@ impl CoreRuntime for DesktopMihomoProcess {
 mod validation_output_tests {
     use super::*;
     use crate::{ManagedRuntimeLease, RealManagedProcessPlatform};
+    use mish_runtime::MishRuntime;
     use std::sync::{
         Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
@@ -1041,6 +1048,38 @@ mod validation_output_tests {
 
     struct TransientlyUnavailablePrivilegedHost {
         stops: AtomicUsize,
+    }
+
+    #[tokio::test]
+    async fn unexpected_clean_child_exit_publishes_observed_stopped() {
+        let process = Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        }));
+        let runtime = MishRuntime::new(process.clone());
+        let mut updates = runtime.subscribe_status();
+        let child = Command::new("true").spawn().unwrap();
+        {
+            let mut inner = process.inner.lock().await;
+            inner.child = Some(child);
+            inner.generation = 1;
+            inner.status = CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: None,
+                version: Some("test".into()),
+            };
+        }
+
+        process.monitor_child(1);
+
+        let observed = timeout(Duration::from_secs(1), updates.recv())
+            .await
+            .expect("managed process observation timed out")
+            .unwrap();
+        assert!(matches!(observed.phase, CorePhase::Stopped));
+        assert!(observed.error.is_none());
     }
 
     impl PrivilegedCoreHost for TransientlyUnavailablePrivilegedHost {

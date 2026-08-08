@@ -500,6 +500,15 @@ impl EventReportingCore {
             .unwrap()
             .publish(status);
     }
+
+    fn report_exit_observation(&self, status: CoreStatus) {
+        self.events
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .publish_exit_observation(status);
+    }
 }
 
 impl CoreRuntime for EventReportingCore {
@@ -782,6 +791,39 @@ async fn adapter_cannot_publish_terminal_success_without_owned_finalization() {
             .await
             .is_err()
     );
+
+    core.report(CoreStatus {
+        error: None,
+        phase: CorePhase::Stopped,
+        pid: None,
+        version: Some("unowned".into()),
+    });
+
+    assert!(
+        timeout(Duration::from_millis(20), updates.recv())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn runtime_forwards_an_authoritatively_observed_unexpected_stop() {
+    let core = Arc::new(EventReportingCore {
+        events: Mutex::new(None),
+    });
+    let runtime = MishRuntime::new(core.clone());
+    let mut updates = runtime.subscribe_status();
+
+    core.report_exit_observation(CoreStatus {
+        error: None,
+        phase: CorePhase::Stopped,
+        pid: None,
+        version: Some("embedded-test".into()),
+    });
+
+    let update = updates.recv().await.unwrap();
+    assert!(matches!(update.phase, CorePhase::Stopped));
+    assert!(update.error.is_none());
 }
 
 #[tokio::test]

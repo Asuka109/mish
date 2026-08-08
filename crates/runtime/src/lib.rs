@@ -229,6 +229,18 @@ impl CoreStatusEventSink {
         }
         publish_runtime_status(&self.events, status);
     }
+
+    /// Publishes an asynchronous process observation, not a lifecycle mutation completion.
+    ///
+    /// Core adapters may use this only after their owned process observer has authoritatively
+    /// confirmed exit. Running still belongs exclusively to exact lifecycle task finalization;
+    /// Stopped is admitted here so an unexpected clean exit reaches Capture and status consumers.
+    pub fn publish_exit_observation(&self, status: CoreStatus) {
+        if !matches!(status.phase, CorePhase::Stopped | CorePhase::Failed) {
+            return;
+        }
+        publish_runtime_status(&self.events, status);
+    }
 }
 
 impl StatusProjectionEventSink {

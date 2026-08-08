@@ -115,6 +115,12 @@ export function checkCoreLifecycleAuthority(): void {
     "DesktopMihomoProcess exposes a public bare Core mutation.",
   );
   invariant(
+    managedProcess.includes("events.publish_exit_observation(update)") &&
+      runtime.includes("pub fn publish_exit_observation(&self, status: CoreStatus)") &&
+      runtime.includes("!matches!(status.phase, CorePhase::Stopped | CorePhase::Failed)"),
+    "Unexpected managed Core exits must use the bounded observation-only publication path.",
+  );
+  invariant(
     !protocol.includes('"core.start" =>') && !protocol.includes('"core.stop" =>'),
     "Desktop Bridge exposes a bare Core mutation RPC.",
   );
