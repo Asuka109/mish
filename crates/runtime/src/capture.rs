@@ -2478,6 +2478,12 @@ impl CaptureReconciler {
         }
     }
 
+    /// Simulates destruction of the containing process for restart recovery tests.
+    #[cfg(feature = "test-correlation")]
+    pub fn abort_for_process_termination(&self) {
+        self.runner.abort_for_process_termination();
+    }
+
     /// Returns the last state confirmed by the capture platforms, excluding any public pending
     /// operation projection. Runtime handoff and rollback decisions must use this state so a
     /// newly requested launch is not mistaken for capture already owned by the previous runtime.
