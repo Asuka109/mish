@@ -4976,7 +4976,7 @@ async fn measures_pinned_core_global_home_activation_paths() {
             )
     };
     let profile = profile_record(P0_PROFILE);
-    let manager = MihomoActivationManager::new(resolver(), timing.clone());
+    let manager = MihomoActivationManager::new(resolver(), timing);
 
     let cold_started = Instant::now();
     manager
