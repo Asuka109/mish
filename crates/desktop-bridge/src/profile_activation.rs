@@ -2348,6 +2348,13 @@ async fn finalize_profile_activation(
                     runtime: observed_runtime,
                 })
             } else {
+                if managed.is_safe_stopped() && active_runtime.is_none() {
+                    // The manager may successfully retire the active runtime before persisting
+                    // the cleared managed state fails. RecoveryRequired is still necessary, but
+                    // host consumers must not retain the closed runtime after the authoritative
+                    // in-memory state has reached the safe-stopped boundary.
+                    host.replace(safe_runtime.clone());
+                }
                 let evidence = activation_failure_evidence(*error);
                 report_profile_activation_recovery_required(
                     host,
@@ -4710,6 +4717,41 @@ mod activation_machine_tests {
         assert!(
             host.current().is_same_instance(&candidate),
             "the host must follow the committed runtime before RecoveryRequired is visible"
+        );
+    }
+
+    #[tokio::test]
+    async fn safe_host_is_installed_when_stop_commits_before_state_persistence_fails() {
+        let retired = safe_runtime();
+        let safe = safe_runtime();
+        let host = DesktopRuntimeHost::new(retired.clone());
+        let manager = RecoveryBoundaryEffects::default();
+        let (_, command) = pending_activation();
+        let mut resources = Arc::into_inner(fallback_operation_resources(&safe))
+            .expect("fallback resources must have one owner");
+        resources.previous_host = retired;
+        resources.previous_runtime = active_runtime("retired-runtime");
+
+        let finalization = finalize_profile_activation(
+            &manager,
+            &host,
+            &safe,
+            &command,
+            &ProfileActivationTaskOutcome::Stop(Err(MihomoActivationError::StateCommitFailed)),
+            &resources,
+        )
+        .await;
+
+        assert!(matches!(
+            finalization,
+            ProfileActivationFinalization::RecoveryRequired {
+                evidence: ProfileActivationFailureEvidence::StateCommit,
+                runtime: ProfileActivationRuntime::SafeStopped,
+            }
+        ));
+        assert!(
+            host.current().is_same_instance(&safe),
+            "safe-stopped recovery must not leave the retired runtime installed in the host"
         );
     }
 
