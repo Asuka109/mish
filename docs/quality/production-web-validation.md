@@ -93,10 +93,11 @@ workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
 unit tests, Rust formatting, portable workspace/all-target Clippy, the bounded
 Rust-authoritative simulated application command, design tokens, and
 documentation links blocking. The PR contract excludes the Desktop, Mobile,
-and mobile Tauri plugin application crates whose Linux builds require host
-WebKit/GTK libraries. It checks the Updater library separately because its
-all-target test seam also imports a Tauri plugin; the macOS main inspection
-retains every target. Agents can reproduce the complete inspection warning contract with one command:
+mobile Tauri plugin, and macOS platform crates whose Linux builds either require
+host WebKit/GTK libraries or intentionally compile out their product code. It
+checks the Updater library separately because its all-target test seam also
+imports a Tauri plugin; the macOS main inspection retains every target. Agents
+can reproduce the complete inspection warning contract with one command:
 `pnpm check:rust:clippy`; Cargo identifies the owning crate and target in
 failure output. The gate intentionally excludes Rust test execution beyond the
 simulated application contract, production builds, Design.md lint, and the broad
