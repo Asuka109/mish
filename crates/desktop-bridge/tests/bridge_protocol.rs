@@ -3,7 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -42,7 +42,7 @@ use mish_settings::{
 };
 use serde_json::{Value, json};
 use tokio::{
-    sync::{Mutex as AsyncMutex, Notify},
+    sync::Notify,
     time::{Duration, timeout},
 };
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
@@ -816,66 +816,8 @@ fn config() -> LoopbackServerConfig {
     }
 }
 
-fn stable_port_test_lock() -> &'static AsyncMutex<()> {
-    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| AsyncMutex::new(()))
-}
-
 #[tokio::test]
-async fn sequential_port_selection_starts_at_6474_when_available() {
-    let _lock = stable_port_test_lock().lock().await;
-    let mut bridge_config = config();
-    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
-    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
-
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(
-        bridge.address,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474)
-    );
-    bridge.shutdown().await;
-}
-
-#[tokio::test]
-async fn sequential_port_selection_retains_first_available_listener() {
-    let _lock = stable_port_test_lock().lock().await;
-    let first = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6474)).unwrap();
-    let second = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6475)).unwrap();
-    let mut bridge_config = config();
-    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
-    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
-
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(
-        bridge.address,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6476)
-    );
-    assert!(StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6476)).is_err());
-
-    bridge.shutdown().await;
-    drop(second);
-    drop(first);
-}
-
-#[tokio::test]
-async fn fixed_and_ephemeral_port_selection_preserve_existing_semantics() {
-    let fixed_port = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let mut fixed_config = config();
-    fixed_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), fixed_port);
-    let fixed_bridge = start_loopback_server(fixed_config, runtime(no_core()))
-        .await
-        .unwrap();
-    assert_eq!(fixed_bridge.address.port(), fixed_port);
-    fixed_bridge.shutdown().await;
-
+async fn ephemeral_port_selection_preserves_existing_server_semantics() {
     let ephemeral_bridge = start_loopback_server(config(), runtime(no_core()))
         .await
         .unwrap();

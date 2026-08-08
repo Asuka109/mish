@@ -70,6 +70,7 @@ mod status_bar;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
+const DESKTOP_BRIDGE_START_PORT: u16 = 6474;
 const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
 const DEVELOPMENT_CORE_SOURCE_ENV: &str = "MISH_DEVELOPMENT_CORE_SOURCE";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
@@ -1499,6 +1500,7 @@ fn initialize(
         ));
         activation.start_scheduler().await;
         activation.start_directory_reconciler().await;
+        let (bridge_bind, bridge_port_selection) = desktop_bridge_port_policy();
         let bridge_config = LoopbackServerConfig {
             allowed_origins: allowed_origins(
                 tauri::is_dev(),
@@ -1506,8 +1508,8 @@ fn initialize(
             )
             .map_err(io::Error::other)?,
             auth_token: auth_token.clone(),
-            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 6474)),
-            port_selection: LoopbackPortSelection::SequentialFallback,
+            bind: bridge_bind,
+            port_selection: bridge_port_selection,
             browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
             browser_pairing_prompt: Some(Arc::new(TauriBrowserPairingPrompt(app.handle().clone()))),
             max_message_bytes: 1_048_576,
@@ -2436,6 +2438,13 @@ fn allowed_origins(
     Ok(PRODUCTION_ORIGINS.into_iter().map(str::to_owned).collect())
 }
 
+fn desktop_bridge_port_policy() -> (SocketAddr, LoopbackPortSelection) {
+    (
+        SocketAddr::from((Ipv4Addr::LOCALHOST, DESKTOP_BRIDGE_START_PORT)),
+        LoopbackPortSelection::SequentialFallback,
+    )
+}
+
 fn generate_auth_token() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
     getrandom::fill(&mut bytes).map_err(|_| "the operating system did not provide entropy")?;
@@ -2712,19 +2721,21 @@ impl Drop for TemporarySupportBundle {
 mod tests {
     use std::{
         fs,
+        net::{Ipv4Addr, SocketAddr},
         os::unix::fs::PermissionsExt,
         path::{Path, PathBuf},
         sync::Mutex,
     };
 
     use super::{
-        AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
-        DevtoolsStartupSource, InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES,
-        MainWindowCloseAction, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
-        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, desktop_demo_requested,
-        development_tun_service_not_installed, development_tun_startup_admission,
-        generate_auth_token, internal_tun_alpha_package_root_from_executable,
+        AtomicWriteFailurePoint, DESKTOP_BRIDGE_START_PORT, DEV_ORIGIN,
+        DesktopWebviewInspectorSupport, DevtoolsStartup, DevtoolsStartupSource,
+        InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction,
+        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus,
+        allowed_origins, atomic_write_bounded, atomic_write_support_bundle_with_failure,
+        desktop_bridge_port_policy, desktop_demo_requested, development_tun_service_not_installed,
+        development_tun_startup_admission, generate_auth_token,
+        internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
         main_window_close_action, maintenance_capture_observation_restored,
@@ -3150,6 +3161,18 @@ mod tests {
         assert_eq!(
             allowed_origins(true, Some("http://127.0.0.1:4174")).unwrap(),
             ["http://127.0.0.1:4174"]
+        );
+    }
+
+    #[test]
+    fn desktop_bridge_product_policy_starts_at_6474_and_scans_upward() {
+        let (bind, selection) = desktop_bridge_port_policy();
+
+        assert_eq!(bind, SocketAddr::from((Ipv4Addr::LOCALHOST, 6474)));
+        assert_eq!(bind.port(), DESKTOP_BRIDGE_START_PORT);
+        assert_eq!(
+            selection,
+            mish_bridge::LoopbackPortSelection::SequentialFallback
         );
     }
 
