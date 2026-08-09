@@ -18,6 +18,7 @@ mod server;
 mod service_probes;
 mod snapshot_order;
 mod support_bundle;
+mod traffic_source_machine;
 
 pub use activation::{
     ActivationAttempt, ActivationCommit, ActivationFailureKind, ActivationOutcome,

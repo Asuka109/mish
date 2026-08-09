@@ -105,6 +105,16 @@ rule count.
 
 ## Sequence, reconnect, and stale semantics
 
+Internally, the consequential source lifecycle is one repository-owned typed
+reducer/effect aggregate. Its data-bearing authority distinguishes `binding`,
+`live`, `replacing`, `ended`, `failed/reconciling`, and `retired`, scoped by a
+machine authority, Profile, runtime, optional aggregate capture session,
+Controller observation generation/session, and monotonic source sequence. A
+gap cannot be repaired by an incremental connections-only observation: a
+complete Controller baseline is required before the source becomes live again.
+Rows, rules, Closed history, filters, sorting, pause, selection, and display
+snapshots are deliberately not machine state.
+
 Traffic observation has three phases:
 
 | Phase         | Meaning                                                                                      |
@@ -177,6 +187,23 @@ remaining targets, and inconsistent observation. Failures refresh authority
 when possible and never synthesize success from a 2xx response. The desktop
 runtime host checks identity again after command reconciliation; replacement
 returns `runtime-replaced` with the replacement runtime's snapshot.
+
+Close admission and effects use the repository bounded runner. Correlation
+includes machine authority, scope epoch, operation ID, admitted revision, and
+effect ID in addition to the source authority above. Reusing an identical
+operation identity is idempotent; conflicting reuse is rejected. Source loss,
+replacement, cancellation, shutdown, task panic/abort, and correlation conflict
+finalize or retire the owned operation exactly once. The effect adapter checks
+the current runtime/capture/Controller session before mutation and again after
+every awaited preflight, mutation, and confirmation observation. A terminal
+completion can update the machine only while its exact owned effect and source
+session remain current.
+
+The machine retains at most 32 terminal command records for process-local
+idempotency and 64 transition evidence records. Support evidence contains only
+phase, disposition, monotonic revision, operation/failure labels, effect
+sequence, and target count. It never contains connection IDs or payloads,
+credentials, Profile/configuration content, source identities, or paths.
 
 “Close all active connections” always means the complete active collection in
 the current profile and observation session. It is not limited by text search,

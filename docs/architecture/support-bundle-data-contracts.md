@@ -40,8 +40,17 @@ crosses the Web boundary.
 The JSON contains application/Core version status, the last activation outcome,
 platform version, capability status, non-sensitive active-profile identifiers,
 capture desired/observed/drift state, direct service-probe aggregates, bounded
-event counts by source and severity, a redaction report, and bounded termination
-or recovery evidence.
+event counts by source and severity, a redaction report, bounded termination or
+recovery evidence, and bounded Traffic source-session transition evidence.
+
+Format version 3 and protocol version 10 add `trafficSourceTransitions`. Each
+entry uses closed enums plus only the transition disposition, source authority,
+source revision, effect sequence, close-operation kind, failure kind, and target
+count. The evidence records correlation outcomes such as committed, duplicate,
+cancelled, retired, or reconciliation-required without recording the correlated
+Profile, runtime, capture, Controller session, connection, destination, or
+process identities themselves. Preview reports only the closed category and its
+count.
 
 It excludes raw profiles and YAML, subscription URLs, credentials, full paths,
 node and policy labels, connection destinations, process paths, network

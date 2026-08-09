@@ -85,6 +85,52 @@ impl TrafficDataSnapshot {
     }
 }
 
+/// Private runtime/capture authority supplied to a Traffic source. This is not a DTO and is
+/// never serialized; it lets the source machine reject completions from a replaced runtime or
+/// capture scope without moving Traffic rows or presentation state into that machine.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrafficSourceRuntimeContext {
+    pub capture_session_id: Option<String>,
+    pub runtime_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficSupportEvidence {
+    pub disposition: TrafficTransitionDisposition,
+    pub effect_sequence: Option<u64>,
+    pub failure: Option<TrafficCommandFailureKind>,
+    pub operation: Option<TrafficCommandOperation>,
+    pub phase: TrafficSourceEvidencePhase,
+    pub revision: u64,
+    pub target_count: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrafficSourceEvidencePhase {
+    Binding,
+    Live,
+    Replacing,
+    Ended,
+    FailedReconciling,
+    Retired,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrafficTransitionDisposition {
+    Accepted,
+    Rejected,
+    Unchanged,
+    EffectEmitting,
+    Committed,
+    Cancelled,
+    Failed,
+    Retired,
+    RecoveryRequired,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TrafficCommandAuthority {

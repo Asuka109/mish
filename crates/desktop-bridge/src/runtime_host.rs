@@ -422,6 +422,17 @@ impl DesktopRuntimeHost {
             .expect("Traffic state must serialize")
     }
 
+    pub fn traffic_support_evidence(&self) -> Vec<mish_runtime::TrafficSupportEvidence> {
+        loop {
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let evidence = runtime.traffic_support_evidence();
+            if !changes.has_changed().unwrap_or(false) {
+                return evidence;
+            }
+        }
+    }
+
     pub fn traffic_snapshot_typed(
         &self,
         adapter_kind: StatusAdapterKind,

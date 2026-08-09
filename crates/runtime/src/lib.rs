@@ -611,6 +611,10 @@ impl fmt::Display for StatusCommandError {
 impl std::error::Error for StatusCommandError {}
 
 pub trait TrafficDataSource: Send + Sync {
+    fn set_runtime_context(&self, _context: TrafficSourceRuntimeContext) {}
+    fn traffic_support_evidence(&self) -> Vec<TrafficSupportEvidence> {
+        Vec::new()
+    }
     fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot;
     fn supports_traffic_command(&self, _operation: TrafficCommandOperation) -> bool {
         false
@@ -726,7 +730,7 @@ pub struct MishRuntime {
     shutdown_confirmed: Arc<AtomicBool>,
     traffic_source: Arc<dyn TrafficDataSource>,
     uptime: Arc<Mutex<ProxySessionUptime>>,
-    identity: Arc<()>,
+    identity: Arc<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -827,6 +831,7 @@ impl MishRuntime {
         status_source.attach_status_event_sink(StatusProjectionEventSink {
             events: Arc::downgrade(&events),
         });
+        let identity = Arc::new(Uuid::new_v4().to_string());
         let runtime = Self {
             capture,
             core,
@@ -839,8 +844,9 @@ impl MishRuntime {
             shutdown_confirmed: Arc::new(AtomicBool::new(false)),
             traffic_source,
             uptime: Arc::new(Mutex::new(ProxySessionUptime { started_at: None })),
-            identity: Arc::new(()),
+            identity,
         };
+        runtime.sync_traffic_source_context();
         runtime.install_recent_traffic_source_observer();
         runtime.install_recent_traffic_capture_observer();
         runtime
@@ -865,6 +871,7 @@ impl MishRuntime {
 
     pub fn with_recent_traffic(mut self, recent_traffic: RecentTraffic) -> Self {
         self.recent_traffic = recent_traffic;
+        self.sync_traffic_source_context();
         self.install_recent_traffic_source_observer();
         self.install_recent_traffic_capture_observer();
         self
@@ -892,6 +899,8 @@ impl MishRuntime {
         };
         let recent_traffic = self.recent_traffic.clone();
         let status_source = self.status_source.clone();
+        let traffic_source = self.traffic_source.clone();
+        let runtime_id = self.identity.as_ref().clone();
         capture.set_confirmed_observer(Arc::new(move |capture_status| {
             let active = capture_status.system_proxy_enabled || capture_status.tun_enabled;
             if active {
@@ -912,7 +921,19 @@ impl MishRuntime {
             } else {
                 recent_traffic.stop();
             }
+            traffic_source.set_runtime_context(TrafficSourceRuntimeContext {
+                capture_session_id: recent_traffic.snapshot().session_id,
+                runtime_id: runtime_id.clone(),
+            });
         }));
+    }
+
+    fn sync_traffic_source_context(&self) {
+        self.traffic_source
+            .set_runtime_context(TrafficSourceRuntimeContext {
+                capture_session_id: self.recent_traffic.snapshot().session_id,
+                runtime_id: self.identity.as_ref().clone(),
+            });
     }
 
     pub fn active_profile_identity(&self) -> Option<String> {
@@ -920,37 +941,45 @@ impl MishRuntime {
     }
 
     pub fn suspend_recent_traffic(&self) -> RecentTrafficSnapshot {
-        self.recent_traffic.suspend()
+        let snapshot = self.recent_traffic.suspend();
+        self.sync_traffic_source_context();
+        snapshot
     }
 
     pub fn discontinue_recent_traffic(&self) -> RecentTrafficSnapshot {
-        self.recent_traffic.stop()
+        let snapshot = self.recent_traffic.stop();
+        self.sync_traffic_source_context();
+        snapshot
     }
 
     pub fn resume_recent_traffic(
         &self,
         continuity: RecentTrafficContinuity,
     ) -> RecentTrafficSnapshot {
-        if continuity == RecentTrafficContinuity::Discontinue {
-            return self.recent_traffic.stop();
-        }
-        let Some(capture) = &self.capture else {
-            return self.recent_traffic.stop();
-        };
-        let capture = capture.status();
-        if !capture.system_proxy_enabled && !capture.tun_enabled {
-            if !capture.capture_selection.system_proxy && !capture.capture_selection.tun {
-                return self.recent_traffic.stop();
+        let snapshot = if continuity == RecentTrafficContinuity::Discontinue {
+            self.recent_traffic.stop()
+        } else if let Some(capture) = &self.capture {
+            let capture = capture.status();
+            if !capture.system_proxy_enabled && !capture.tun_enabled {
+                if !capture.capture_selection.system_proxy && !capture.capture_selection.tun {
+                    self.recent_traffic.stop()
+                } else {
+                    self.recent_traffic.snapshot()
+                }
+            } else {
+                let observation = self.status_source.recent_traffic_observation();
+                let profile_id = observation
+                    .as_ref()
+                    .map(|value| value.profile_id.clone())
+                    .or_else(|| self.status_source.profile_id());
+                self.recent_traffic
+                    .resume(continuity, profile_id.as_deref(), observation)
             }
-            return self.recent_traffic.snapshot();
-        }
-        let observation = self.status_source.recent_traffic_observation();
-        let profile_id = observation
-            .as_ref()
-            .map(|value| value.profile_id.clone())
-            .or_else(|| self.status_source.profile_id());
-        self.recent_traffic
-            .resume(continuity, profile_id.as_deref(), observation)
+        } else {
+            self.recent_traffic.stop()
+        };
+        self.sync_traffic_source_context();
+        snapshot
     }
 
     pub async fn core_status(&self) -> CoreStatus {
@@ -1540,6 +1569,10 @@ impl MishRuntime {
 
     pub fn traffic_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
         self.traffic_source.traffic_snapshot(adapter_kind)
+    }
+
+    pub fn traffic_support_evidence(&self) -> Vec<TrafficSupportEvidence> {
+        self.traffic_source.traffic_support_evidence()
     }
 
     pub fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {

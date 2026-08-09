@@ -26,7 +26,8 @@ use mish_runtime::{
     GroupSelectionCleanupPhase, MishRuntime, PolicyGroupConnectionCleanupPreference,
     ProviderCommandOperation, ProviderCommandPhase, ProviderCommandResult, ProviderKind,
     ProviderUpdateFailure, ProviderUpdatePhase, RoutingMode, RuntimeObservationPauseReason,
-    StatusAdapterKind, StatusCommand, StatusCommandErrorKind, StatusDataSource,
+    StatusAdapterKind, StatusCommand, StatusCommandErrorKind, StatusDataSource, TrafficDataSource,
+    TrafficSourceEvidencePhase, TrafficSourceRuntimeContext,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -1157,6 +1158,66 @@ async fn lifecycle_pause_invalidates_old_controller_authority_before_a_new_sessi
     let recovered = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
     assert_ne!(recovered["sessionId"], initial_session);
     assert_eq!(recovered["activeConnections"][0]["id"], "connection-b");
+
+    source.close().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_and_capture_replacement_require_a_complete_internal_traffic_baseline() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_secs(10);
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"] == "ready"
+    })
+    .await;
+    let before = runtime.traffic_snapshot_typed(StatusAdapterKind::Rpc);
+
+    source.set_runtime_context(TrafficSourceRuntimeContext {
+        capture_session_id: Some("replacement-capture-private".into()),
+        runtime_id: "replacement-runtime-private".into(),
+    });
+    assert_eq!(
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"],
+        "stale"
+    );
+    assert!(
+        !runtime.supports_traffic_command(mish_runtime::TrafficCommandOperation::CloseConnection)
+    );
+
+    let execution = runtime
+        .close_connection(
+            mish_runtime::TrafficCommandAuthority {
+                profile_id: before.profile_id,
+                sequence: before.sequence,
+                session_id: before.session_id.unwrap(),
+            },
+            "connection-a".into(),
+        )
+        .await;
+    assert_eq!(execution.failure, None);
+    assert_eq!(execution.target_count, 1);
+    let evidence = source.traffic_support_evidence();
+    assert!(
+        evidence
+            .iter()
+            .any(|record| record.phase == TrafficSourceEvidencePhase::Replacing)
+    );
+    let serialized = serde_json::to_string(&evidence).unwrap();
+    for secret in [
+        "replacement-capture-private",
+        "replacement-runtime-private",
+        "connection-a",
+    ] {
+        assert!(!serialized.contains(secret));
+    }
 
     source.close().await;
     fake.shutdown().await;
