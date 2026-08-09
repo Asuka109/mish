@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "Asuka109/mish",
-  "readBackAt": "2026-08-09T07:19:19Z",
+  "readBackAt": "2026-08-09T07:40:13Z",
   "readBackSource": "gh issue list --repo Asuka109/mish --state all --limit 1000 --json number,title,state,stateReason,closedAt,updatedAt,url",
   "ordinaryCheckNetwork": "forbidden",
   "canonicalPaths": [
