@@ -134,7 +134,17 @@ const profileStyles = tv({
   },
 });
 
-export function ProfilesPage() {
+interface ProfilesPageProps {
+  onSelectProfile?(profileId: string): void;
+  selectedProfileId?: string | null;
+  selectionPending?: boolean;
+}
+
+export function ProfilesPage({
+  onSelectProfile,
+  selectedProfileId,
+  selectionPending = false,
+}: ProfilesPageProps = {}) {
   const { LL, locale } = useI18nContext();
   const profiles = useProfiles();
   const { publish } = useNotificationDelivery();
@@ -344,11 +354,14 @@ export function ProfilesPage() {
               onDetach={() => void detachSubscription(profile)}
               onRefresh={() => void refreshProfile(profile)}
               onOpenDirectory={() => void openDirectory()}
+              onSelect={onSelectProfile ? () => onSelectProfile(profile.id) : undefined}
               onSchedule={(policy) => void setRefreshPolicy(profile.id, policy)}
               profile={profile}
               refreshPending={profiles.isPending("refresh", profile.id)}
               refreshSupported={snapshot.capabilities.refresh === "supported"}
               schedulePending={profiles.isPending("schedule", profile.id)}
+              selected={profile.id === selectedProfileId}
+              selectionPending={selectionPending}
               schedulingSupported={snapshot.capabilities.scheduling === "supported"}
             />
           ))}
@@ -505,11 +518,14 @@ interface ProfileCardProps {
   onDetach(): void;
   onRefresh(): void;
   onOpenDirectory(): void;
+  onSelect?(): void;
   onSchedule(policy: ProfileRefreshPolicy): void;
   profile: ProfileListItemDto;
   refreshPending: boolean;
   refreshSupported: boolean;
   schedulePending: boolean;
+  selected: boolean;
+  selectionPending: boolean;
   schedulingSupported: boolean;
 }
 
@@ -520,11 +536,14 @@ function ProfileCard({
   onDetach,
   onRefresh,
   onOpenDirectory,
+  onSelect,
   onSchedule,
   profile,
   refreshPending,
   refreshSupported,
   schedulePending,
+  selected,
+  selectionPending,
   schedulingSupported,
 }: ProfileCardProps) {
   const subscription = profile.source.sourceType === "https";
@@ -542,6 +561,16 @@ function ProfileCard({
           {profile.status.active ? <Badge variant="outline">{LL.profiles.active()}</Badge> : null}
         </div>
         <div className={profileStyles().cardActions()}>
+          {onSelect ? (
+            <Button
+              aria-pressed={selected}
+              disabled={selected || selectionPending}
+              onClick={onSelect}
+              variant="outline"
+            >
+              {selected ? LL.profiles.currentProfile() : LL.profiles.switchProfile()}
+            </Button>
+          ) : null}
           {subscription ? (
             <Button
               disabled={!refreshSupported || refreshPending}

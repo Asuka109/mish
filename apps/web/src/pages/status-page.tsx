@@ -210,7 +210,7 @@ export function StatusPage() {
 
   if (isLoading) {
     return (
-      <div className={statusStyles().loading()}>
+      <div className={statusStyles().loading()} role="status">
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );

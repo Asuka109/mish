@@ -56,6 +56,12 @@ import { loadAllLocales } from "./i18n/i18n-util.sync";
 
 loadAllLocales();
 
+function desktopNavigation() {
+  const navigation = document.querySelector<HTMLElement>(".desktop-navigation");
+  if (!navigation) throw new Error("Missing desktop navigation");
+  return within(navigation);
+}
+
 function renderRoute(
   path: string,
   locale: Locales = "en",
@@ -124,6 +130,18 @@ class DeferredRoutingClient extends FixtureStatusClient {
       this.rejectCommand = () =>
         reject(new StatusClientError("conflict", "Routing command failed", true));
     });
+  }
+}
+
+class InitialLoadingClient extends FixtureStatusClient {
+  override getSnapshot(): Promise<StatusSnapshotDto> {
+    return new Promise(() => undefined);
+  }
+}
+
+class InitialFailureClient extends FixtureStatusClient {
+  override getSnapshot(): Promise<StatusSnapshotDto> {
+    return Promise.reject(new StatusClientError("remote", "Initial status failed"));
   }
 }
 
@@ -937,6 +955,47 @@ describe("production routes", () => {
     expect(await screen.findByRole("heading", { name: "Status" })).toBeInTheDocument();
   });
 
+  it.each(["/status", "/routes"])(
+    "gives %s eager provider loading exactly one accessible owner",
+    async (path) => {
+      const view = renderRoute(path, "en", new InitialLoadingClient());
+
+      expect(await screen.findByText("Loading typed fixture data…")).toBeInTheDocument();
+      const statusOwners = view.container.querySelectorAll('[role="status"]');
+      const busyOwners = view.container.querySelectorAll('[aria-busy="true"]');
+      expect(statusOwners).toHaveLength(1);
+      expect(busyOwners).toHaveLength(0);
+      expect(view.container.querySelector(".route-loading")).not.toBeInTheDocument();
+
+      view.unmount();
+    },
+  );
+
+  it("keeps the narrow Profiles drawer reachable while status is still loading", async () => {
+    const user = userEvent.setup();
+    const view = renderRoute(
+      "/status",
+      "en",
+      new InitialLoadingClient(),
+      new FixtureProfileClient(),
+    );
+
+    const trigger = await screen.findByRole("button", { name: "Profiles" });
+    await user.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Profiles" })).toBeInTheDocument();
+
+    view.unmount();
+  });
+
+  it.each(["/status", "/routes"])("keeps %s eager provider errors as alerts", async (path) => {
+    const view = renderRoute(path, "en", new InitialFailureClient());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load Status data.");
+    expect(view.container.querySelector('[role="status"]')).not.toBeInTheDocument();
+
+    view.unmount();
+  });
+
   it("presents Mish as the product brand", () => {
     const { container } = renderRoute("/status");
     const brandImages = screen.getByLabelText("Mish").querySelectorAll("img");
@@ -1745,7 +1804,7 @@ describe("production routes", () => {
     await waitFor(() => expect(document.title).toBe("Status — Mish"));
     expect(initialHeading).not.toHaveFocus();
 
-    const routesLink = screen.getByRole("link", { name: "Routes" });
+    const routesLink = desktopNavigation().getByRole("link", { name: "Routes" });
     expect(routesLink).toHaveAttribute("href", "/routes");
     await user.click(routesLink);
     const routesHeading = await screen.findByRole("heading", { name: "Routes" });
@@ -1757,10 +1816,10 @@ describe("production routes", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    const status = screen.getByRole("link", { name: "Status" });
-    const routes = screen.getByRole("link", { name: "Routes" });
-    const profiles = screen.getByRole("link", { name: "Profiles" });
-    const settings = screen.getByRole("link", { name: "Settings" });
+    const status = desktopNavigation().getByRole("link", { name: "Status" });
+    const routes = desktopNavigation().getByRole("link", { name: "Routes" });
+    const profiles = desktopNavigation().getByRole("link", { name: "Profiles" });
+    const settings = desktopNavigation().getByRole("link", { name: "Settings" });
 
     status.focus();
     await user.keyboard("{ArrowDown}");
@@ -1788,10 +1847,10 @@ describe("production routes", () => {
     statusScroller!.scrollTop = 180;
     fireEvent.scroll(statusScroller!);
 
-    await user.click(screen.getByRole("link", { name: "Routes" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Routes" }));
     const routesHeading = await screen.findByRole("heading", { name: "Routes" });
     await waitFor(() => expect(routesHeading).toHaveFocus());
-    await user.click(screen.getByRole("link", { name: "Status" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Status" }));
 
     await screen.findByRole("heading", { name: "Status" });
     await waitFor(() =>
@@ -2443,7 +2502,7 @@ describe("desktop RPC experience", () => {
         name: "Switch profile. Current profile: Concurrent route set",
       }),
     ).toBeEnabled();
-    expect(profileClient.selectProfile).toHaveBeenLastCalledWith("fixture-profile-studio", {
+    expect(profileClient.selectProfile).toHaveBeenLastCalledWith("work", {
       expectedSelection: { profileId: "fixture-profile-travel", revision: 2 },
       signal: expect.any(AbortSignal),
     });
@@ -2950,7 +3009,7 @@ describe("Status fixture experience", () => {
     });
     expect(configuredNode).toBeDisabled();
     expect(configuredNode).not.toHaveTextContent("Read-only");
-    expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
+    expect(profileClient.getRoutes).toHaveBeenCalledWith("work");
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {
@@ -2978,7 +3037,7 @@ describe("Status fixture experience", () => {
     renderRoute("/status");
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
     await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
-    await user.click(screen.getByRole("link", { name: "Routes" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Routes" }));
     await user.click(await screen.findByRole("button", { name: "Browse 🌐 Proxy" }));
 
     expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
@@ -3775,7 +3834,7 @@ describe("Status fixture experience", () => {
       preferences: { language: "zh-CN" },
     });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "Routes" })).toBeInTheDocument();
+    expect(desktopNavigation().getByRole("link", { name: "Routes" })).toBeInTheDocument();
     expect(localStorage.getItem("mish.locale")).toBeNull();
     expect(
       [...view.container.querySelectorAll(".user-authored-label")].map(

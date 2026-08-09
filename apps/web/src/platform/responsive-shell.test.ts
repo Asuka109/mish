@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const styles = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+const ui = readFileSync("../../packages/ui/src/index.tsx", "utf8");
 const notifications = readFileSync("src/components/notification-bubble.tsx", "utf8");
 const patchEditor = readFileSync("src/components/profile-patch-editor.tsx", "utf8");
 const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
@@ -21,6 +22,47 @@ describe("responsive shell CSS", () => {
     expect(viewportRootRule).not.toContain("min-width: 700px");
     expect(shell).toContain("app-shell relative grid h-screen h-dvh min-h-0");
     expect(shell).not.toContain("min-h-[620px]");
+  });
+
+  it("keeps narrow Browser navigation in explicit safe-area-aware rows", () => {
+    expect(shell).toContain("max-shell-mobile:row-start-2");
+    expect(shell).toContain("max-shell-mobile:row-start-1");
+    expect(shell).toContain("safe-area-inset-left");
+    expect(shell).toContain("safe-area-inset-right");
+    expect(shell).toContain("safe-area-inset-bottom");
+    expect(shell).not.toContain("max-shell-mobile:grid-row-");
+    expect(shell).toContain("narrow-navigation-primary grid-cols-3");
+    expect(shell).toContain("narrow-navigation-utility min-w-16 grid-cols-1");
+    expect(shell).toContain("grid-cols-[minmax(0,320px)_64px] justify-between");
+    expect(shell).not.toContain("max-shell-mobile:grid-cols-7");
+    expect(shell).toContain("const narrowDestinations = [");
+    expect(shell).toContain('{ icon: House, key: "home", path: "/status" }');
+    expect(shell).toContain('{ icon: Pulse, key: "activity", path: "/traffic" }');
+  });
+
+  it("reserves the bottom safe area inside shared drawers", () => {
+    expect(ui).toContain('"pb-[env(safe-area-inset-bottom)]"');
+  });
+
+  it("keeps proxy ownership in Home on narrow Browser layouts", () => {
+    expect(shell).toContain("desktop-navigation nav-list");
+    expect(shell).toContain("max-shell-mobile:hidden");
+    expect(shell).toContain("<ProxyControlButton />");
+    expect(shell).not.toContain("max-shell-mobile:contents");
+    expect(shell).toContain("if (!isActivityPath(location.pathname)) return null");
+    expect(shell).toContain("<DrawerProfilesPage");
+    expect(shell).toContain(
+      "profileSupported ? (profileId) => void selectProfile(profileId) : undefined",
+    );
+    expect(shell).not.toContain(
+      "className={shellStyles().profileDrawerTrigger()}\n              disabled=",
+    );
+    expect(shell).toContain("profile-drawer-trigger");
+    expect(shell).not.toContain("max-shell-mobile:border-b-0");
+    expect(shell).not.toContain("max-shell-mobile:rounded-b-none");
+    expect(shell).not.toContain("max-shell-mobile:border-t");
+    expect(shell).toContain("bg-canvas p-1");
+    expect(shell).toContain("narrow-nav-item grid min-h-11");
   });
 
   it("bounds the mobile root to the dynamic viewport", () => {

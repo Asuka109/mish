@@ -141,7 +141,7 @@ class ConfiguredRoutesProfileClient extends FixtureProfileClient {
         { id: "node-z", label: "Zulu node", latencyMilliseconds: null, protocol: "ss" },
         { id: "node-a", label: "Alpha node", latencyMilliseconds: null, protocol: "trojan" },
       ],
-      profileId: "fixture-profile-studio",
+      profileId: "work",
       routingMode: "rule",
     };
   }

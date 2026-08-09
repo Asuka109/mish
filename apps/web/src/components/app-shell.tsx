@@ -1,18 +1,25 @@
 import { Circle } from "@phosphor-icons/react/Circle";
+import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { Gauge } from "@phosphor-icons/react/Gauge";
 import { GearSix } from "@phosphor-icons/react/GearSix";
+import { House } from "@phosphor-icons/react/House";
 import { ListBullets } from "@phosphor-icons/react/ListBullets";
 import { Moon } from "@phosphor-icons/react/Moon";
 import { PlugsConnected } from "@phosphor-icons/react/PlugsConnected";
 import { Power } from "@phosphor-icons/react/Power";
+import { Pulse } from "@phosphor-icons/react/Pulse";
 import { Sun } from "@phosphor-icons/react/Sun";
 import { Translate } from "@phosphor-icons/react/Translate";
 import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
 import { XCircle } from "@phosphor-icons/react/XCircle";
 import {
   Button,
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  DrawerTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -29,8 +36,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
-import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { lazy, Suspense, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Link, Outlet, useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
@@ -63,15 +70,50 @@ const destinations = [
   { icon: ListBullets, key: "events", path: "/events" },
 ] as const;
 
+const narrowDestinations = [
+  { icon: House, key: "home", path: "/status" },
+  { icon: CirclesFour, key: "routes", path: "/routes" },
+  { icon: Pulse, key: "activity", path: "/traffic" },
+] as const;
+
+const DrawerProfilesPage = lazy(() =>
+  import("../pages/profiles-page").then(({ ProfilesPage }) => ({ default: ProfilesPage })),
+);
+
 function getNavigationLabel(LL: TranslationFunctions, key: (typeof destinations)[number]["key"]) {
   return LL.navigation[key]();
 }
 
+function normalizePathname(pathname: string) {
+  return (pathname.replace(/\/+$/, "") || "/").toLowerCase();
+}
+
 function getPageTitle(LL: TranslationFunctions, pathname: string) {
-  const title = destinations.find((destination) => destination.path === pathname);
+  const normalizedPathname = normalizePathname(pathname);
+  const title = destinations.find((destination) => destination.path === normalizedPathname);
   if (title) return getNavigationLabel(LL, title.key);
-  if (pathname === "/settings") return LL.navigation.settings();
+  if (normalizedPathname === "/settings") return LL.navigation.settings();
   return "Mish";
+}
+
+function isActivityPath(pathname: string) {
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/traffic" || normalizedPathname === "/events";
+}
+
+function isHomePath(pathname: string) {
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/status" || normalizedPathname === "/profiles";
+}
+
+function isRoutesPath(pathname: string) {
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/routes" || normalizedPathname.startsWith("/routes/");
+}
+
+function isSettingsPath(pathname: string) {
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/settings" || normalizedPathname.startsWith("/settings/");
 }
 
 const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Locales }> = [
@@ -91,8 +133,10 @@ const shellStyles = tv({
     sidebar: cx(
       "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg",
       "@container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14",
-      "max-shell-mobile:grid-row-2 max-shell-mobile:grid-cols-[minmax(0,1fr)]",
-      "max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-2",
+      "max-shell-mobile:row-start-2 max-shell-mobile:grid-cols-[minmax(0,1fr)]",
+      "max-shell-mobile:px-0",
+      "max-shell-mobile:ps-[max(6px,env(safe-area-inset-left))]",
+      "max-shell-mobile:pe-[max(6px,env(safe-area-inset-right))]",
       "max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
     ),
     sidebarHeader:
@@ -105,25 +149,40 @@ const shellStyles = tv({
     brandLight: "brand-image-light theme-dark:hidden",
     brandDark: "brand-image-dark hidden theme-dark:block",
     navList: cx(
-      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid",
-      "max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0.5 max-shell-mobile:p-0",
+      "desktop-navigation nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75",
+      "max-shell-mobile:hidden",
     ),
     navItem: cx(
-      "nav-item grid h-sidebar-row-height w-full flex-none",
+      "nav-item desktop-nav-item grid h-sidebar-row-height w-full flex-none",
       "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
       "rounded-md border border-transparent px-sidebar-row-inset text-body font-medium",
       "text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
-      "max-shell-mobile:h-11 max-shell-mobile:gap-0.5 max-shell-mobile:text-micro",
-      "max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
-      "[&>span]:whitespace-nowrap max-shell-mobile:[&>span]:block",
-      "max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
+      "[&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
+      "[&>span]:whitespace-nowrap [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
       "[&_svg]:justify-self-center",
     ),
-    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75 max-shell-mobile:contents",
+    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75",
+    narrowNavigation: cx(
+      "narrow-navigation hidden min-w-0 grid-cols-[minmax(0,320px)_64px] justify-between gap-2",
+      "max-shell-mobile:grid",
+    ),
+    narrowNavigationIsland: cx(
+      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas p-1",
+      "shadow-sidebar-item-active",
+    ),
+    narrowNavigationPrimary: "narrow-navigation-primary grid-cols-3",
+    narrowNavigationUtility: "narrow-navigation-utility min-w-16 grid-cols-1",
+    narrowNavItem: cx(
+      "nav-item narrow-nav-item grid min-h-11 min-w-0 grid-rows-[20px_14px] content-center",
+      "justify-items-center gap-0 rounded-md border border-transparent px-1 text-micro leading-3",
+      "font-medium text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
+      "[&>span]:block [&>span]:max-w-full [&>span]:overflow-hidden",
+      "[&>span]:text-ellipsis [&>span]:whitespace-nowrap [&_svg]:size-5",
+    ),
     workspace: cx(
       "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
       "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
-      "max-shell-mobile:grid-row-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
+      "max-shell-mobile:row-start-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
       "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact",
     ),
     toolbar: cx(
@@ -141,11 +200,19 @@ const shellStyles = tv({
       "max-shell-mobile:gap-0.5",
     ),
     profileTrigger: cx(
-      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5",
-      "max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden",
+      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent",
       "[&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden",
       "[&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
     ),
+    desktopProfileMenu: "desktop-profile-menu max-shell-mobile:hidden",
+    profileDrawerTrigger: cx(
+      "profile-drawer-trigger hidden min-w-28 max-w-55 justify-between bg-transparent",
+      "max-shell-mobile:inline-flex [&>.user-authored-label]:min-w-0",
+      "[&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis",
+      "[&>.user-authored-label]:whitespace-nowrap",
+    ),
+    profileDrawerScroller: "profile-drawer-scroller min-h-0 flex-1 overflow-auto",
+    profileDrawerLoading: "grid min-h-full place-items-center text-muted-foreground",
     menuContent: "min-w-39",
     menuLabel:
       "profile-menu-label block px-2.25 pt-1.5 pb-1.75 text-metadata text-muted-foreground",
@@ -155,13 +222,26 @@ const shellStyles = tv({
       "max-toolbar-compact:hidden",
     ),
     loading: "toolbar-loading text-metadata text-muted-foreground max-shell-mobile:hidden",
-    contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
+    workspaceBody: "workspace-body grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]",
+    sectionNavigation: cx(
+      "narrow-section-navigation hidden min-w-0 gap-1 overflow-x-auto border-b border-hairline",
+      "bg-canvas px-3 py-1 scrollbar-none max-shell-mobile:flex",
+    ),
+    sectionNavigationLink: cx(
+      "narrow-section-navigation-link inline-flex min-h-11 min-w-max items-center rounded-full",
+      "px-3 text-metadata font-medium text-muted-foreground no-underline hover:bg-accent",
+      "hover:text-ink",
+    ),
+    contentScroll: "workspace-page-scroll row-start-2 min-h-0 min-w-0 overflow-auto",
   },
   variants: {
     active: {
       true: {
         navItem:
           "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink shadow-sidebar-item-active",
+        narrowNavItem:
+          "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink",
+        sectionNavigationLink: "is-active bg-accent text-ink",
       },
       false: {},
     },
@@ -173,8 +253,7 @@ export const proxyControlStyles = tv({
     proxyControl: cx(
       "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden",
       "rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium",
-      "text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11",
-      "max-shell-mobile:text-micro max-shell-mobile:leading-3",
+      "text-muted-foreground isolate disabled:opacity-100",
       "[&:not([data-status=healthy]):hover]:bg-sidebar-item-hover",
       "[&:not([data-status=healthy]):hover]:text-fg",
     ),
@@ -183,7 +262,7 @@ export const proxyControlStyles = tv({
       "proxy-control-state relative z-2 grid w-full min-w-0",
       "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
       "px-sidebar-row-inset transition-opacity duration-160 ease-proxy-crossfade",
-      "max-shell-mobile:gap-0.5 max-shell-mobile:px-0 [&>:first-child]:col-start-1",
+      "[&>:first-child]:col-start-1",
       "[&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
     ),
     defaultState: "proxy-control-default",
@@ -228,9 +307,9 @@ function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (currentIndex < 0) return;
 
   let next: HTMLAnchorElement | undefined;
-  if (event.key === "ArrowDown") {
+  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
     next = destinations[(currentIndex + 1) % destinations.length];
-  } else if (event.key === "ArrowUp") {
+  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
     next = destinations[(currentIndex - 1 + destinations.length) % destinations.length];
   } else if (event.key === "Home") {
     next = destinations[0];
@@ -249,6 +328,9 @@ function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (!next) return;
   event.preventDefault();
   next.focus({ preventScroll: true });
+  if (event.currentTarget.classList.contains("narrow-section-navigation")) {
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 function ProxyControlButton() {
@@ -393,6 +475,8 @@ function ProxyControlButton() {
 
 function Sidebar() {
   const { LL } = useI18nContext();
+  const location = useLocation();
+  const normalizedPathname = normalizePathname(location.pathname);
 
   return (
     <SurfaceScope
@@ -435,35 +519,140 @@ function Sidebar() {
         className={shellStyles().navList()}
         onKeyDown={handleSidebarKeyDown}
       >
-        {destinations.map(({ icon: Icon, key, path }) => (
-          <NavLink
-            aria-label={getNavigationLabel(LL, key)}
-            className={({ isActive }) => shellStyles({ active: isActive }).navItem()}
-            end
-            key={path}
-            title={getNavigationLabel(LL, key)}
-            to={path}
-          >
-            <Icon aria-hidden="true" />
-            <span>{getNavigationLabel(LL, key)}</span>
-          </NavLink>
-        ))}
+        {destinations.map(({ icon: Icon, key, path }) => {
+          const selected =
+            path === "/routes" ? isRoutesPath(location.pathname) : normalizedPathname === path;
+          return (
+            <Link
+              aria-current={selected ? "page" : undefined}
+              aria-label={getNavigationLabel(LL, key)}
+              className={shellStyles({ active: selected }).navItem()}
+              key={path}
+              title={getNavigationLabel(LL, key)}
+              to={path}
+            >
+              <Icon aria-hidden="true" />
+              <span>{getNavigationLabel(LL, key)}</span>
+            </Link>
+          );
+        })}
         <div className={shellStyles().sidebarBottom()}>
-          <NavLink
+          <Link
+            aria-current={isSettingsPath(location.pathname) ? "page" : undefined}
             aria-label={LL.navigation.settings()}
-            className={({ isActive }) =>
-              shellStyles({ active: isActive }).navItem({ className: "settings-link" })
-            }
+            className={shellStyles({ active: isSettingsPath(location.pathname) }).navItem({
+              className: "settings-link",
+            })}
             title={LL.navigation.settings()}
             to="/settings"
           >
             <GearSix aria-hidden="true" />
             <span>{LL.navigation.settings()}</span>
-          </NavLink>
+          </Link>
           <ProxyControlButton />
         </div>
       </nav>
+      <nav
+        aria-label={LL.mobileNavigation.primary()}
+        className={shellStyles().narrowNavigation()}
+        onKeyDown={handleSidebarKeyDown}
+      >
+        <div
+          className={shellStyles().narrowNavigationIsland({
+            className: shellStyles().narrowNavigationPrimary(),
+          })}
+        >
+          {narrowDestinations.map(({ icon: Icon, key, path }) => {
+            const label = LL.mobileNavigation[key]();
+            const selected =
+              key === "home"
+                ? isHomePath(location.pathname)
+                : key === "activity"
+                  ? isActivityPath(location.pathname)
+                  : isRoutesPath(location.pathname);
+            return (
+              <Link
+                aria-current={selected ? "page" : undefined}
+                aria-label={label}
+                className={shellStyles({ active: selected }).narrowNavItem()}
+                key={path}
+                title={label}
+                to={path}
+              >
+                <Icon aria-hidden="true" weight={selected ? "fill" : "regular"} />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
+        </div>
+        <div
+          className={shellStyles().narrowNavigationIsland({
+            className: shellStyles().narrowNavigationUtility(),
+          })}
+        >
+          <Link
+            aria-current={isSettingsPath(location.pathname) ? "page" : undefined}
+            aria-label={LL.mobileNavigation.settings()}
+            className={shellStyles({
+              active: isSettingsPath(location.pathname),
+            }).narrowNavItem()}
+            title={LL.mobileNavigation.settings()}
+            to="/settings"
+          >
+            <GearSix
+              aria-hidden="true"
+              weight={isSettingsPath(location.pathname) ? "fill" : "regular"}
+            />
+            <span>{LL.mobileNavigation.settings()}</span>
+          </Link>
+        </div>
+      </nav>
     </SurfaceScope>
+  );
+}
+
+function NarrowSectionNavigation() {
+  const { LL } = useI18nContext();
+  const location = useLocation();
+  if (!isActivityPath(location.pathname)) return null;
+
+  const normalizedPathname = normalizePathname(location.pathname);
+  const rules =
+    normalizedPathname === "/traffic" &&
+    new URLSearchParams(location.search).get("tab") === "rules";
+  const links = [
+    {
+      label: LL.mobileNavigation.connections(),
+      selected: normalizedPathname === "/traffic" && !rules,
+      to: "/traffic?tab=active",
+    },
+    { label: LL.mobileNavigation.rules(), selected: rules, to: "/traffic?tab=rules" },
+    {
+      label: LL.mobileNavigation.events(),
+      selected: normalizedPathname === "/events",
+      to: "/events",
+    },
+  ];
+
+  return (
+    <nav
+      aria-label={LL.mobileNavigation.activity()}
+      className={shellStyles().sectionNavigation()}
+      onKeyDown={handleSidebarKeyDown}
+    >
+      {links.map(({ label, selected, to }) => (
+        <Link
+          aria-current={selected ? "page" : undefined}
+          className={shellStyles({ active: selected }).sectionNavigationLink({
+            className: "nav-item",
+          })}
+          key={to}
+          to={to}
+        >
+          {label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 
@@ -474,28 +663,21 @@ function ProfileMenu() {
   const { pending: currentProfilePending, selectCurrentProfile } = useCurrentProfileCommand();
   const { LL } = useI18nContext();
   const { publish } = useNotificationDelivery();
-  if (!snapshot) {
-    return (
-      <span className={shellStyles().loading()}>
-        {connection.phase === "fixture" ? LL.toolbar.loadingFixture() : LL.toolbar.loadingDesktop()}
-      </span>
-    );
-  }
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const fixtureSelectionSupported =
-    snapshot.adapterKind === "fixture" && isCommandSupported("profile");
+    snapshot?.adapterKind === "fixture" && isCommandSupported("profile");
   const savedProfiles = profiles?.snapshot?.profiles ?? [];
   const useSavedProfiles =
-    snapshot.adapterKind === "rpc" &&
     profiles?.snapshot?.adapterKind === "rpc" &&
     profiles?.connection.phase === "connected" &&
     !profiles.connection.stale;
-  const managedProfiles = useSavedProfiles ? savedProfiles : snapshot.profiles;
+  const managedProfiles = useSavedProfiles ? savedProfiles : (snapshot?.profiles ?? []);
   const selectedProfileId = useSavedProfiles
     ? profiles?.selectedProfileId
-    : snapshot.activeProfileId;
+    : snapshot?.activeProfileId;
   const selectedProfile = managedProfiles.find((profile) => profile.id === selectedProfileId);
-  const statusProfile = snapshot.profiles.find(
+  const statusProfile = snapshot?.profiles.find(
     (profile) => profile.id === snapshot.activeProfileId,
   );
   const displayedProfile = useSavedProfiles
@@ -505,11 +687,19 @@ function ProfileMenu() {
     displayedProfile?.label ??
     (useSavedProfiles && managedProfiles.length === 0
       ? LL.profiles.emptyLabel()
-      : LL.profiles.safeStopped());
+      : snapshot
+        ? LL.profiles.safeStopped()
+        : LL.profiles.title());
 
-  const profilePending = useSavedProfiles ? currentProfilePending : isCommandPending("profile");
+  const profilePending = useSavedProfiles
+    ? currentProfilePending
+    : snapshot
+      ? isCommandPending("profile")
+      : false;
   const profileSupported = useSavedProfiles || fixtureSelectionSupported;
-  const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
+  const actionDescriptionId = snapshot
+    ? getCommandDescriptionId(snapshot.adapterKind, profileSupported)
+    : undefined;
 
   async function selectProfile(profileId: string) {
     if (useSavedProfiles) {
@@ -526,42 +716,101 @@ function ProfileMenu() {
     }
   }
 
+  const profileLabel =
+    snapshot || useSavedProfiles
+      ? LL.toolbar.switchProfile({ profile: activeLabel })
+      : LL.profiles.title();
+
   return (
-    <Select
-      onValueChange={(profileId) =>
-        typeof profileId === "string" ? void selectProfile(profileId) : undefined
-      }
-      value={selectedProfile?.id ?? ""}
-    >
-      <SelectTrigger
-        aria-busy={profilePending}
-        aria-describedby={actionDescriptionId}
-        aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
-        className={shellStyles().profileTrigger()}
-        disabled={profilePending || !profileSupported || managedProfiles.length === 0}
-        touchTarget="adaptive"
-      >
-        {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
-        <span className="user-authored-label">{activeLabel}</span>
-      </SelectTrigger>
-      <SelectContent align="end" className="profile-menu" sideOffset={8}>
-        <SelectGroup>
-          {managedProfiles.map((profile) => (
-            <SelectItem
-              className={cx(
-                "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
-                "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
-                "data-highlighted:bg-accent data-highlighted:text-ink",
-              )}
-              key={profile.id}
-              value={profile.id}
+    <>
+      <div className={shellStyles().desktopProfileMenu()}>
+        {snapshot ? (
+          <Select
+            onValueChange={(profileId) =>
+              typeof profileId === "string" ? void selectProfile(profileId) : undefined
+            }
+            value={selectedProfile?.id ?? ""}
+          >
+            <SelectTrigger
+              aria-busy={profilePending}
+              aria-describedby={actionDescriptionId}
+              aria-label={profileLabel}
+              className={shellStyles().profileTrigger()}
+              disabled={profilePending || !profileSupported || managedProfiles.length === 0}
+              touchTarget="adaptive"
             >
-              <span className="user-authored-label">{profile.label}</span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+              {profilePending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              <span className="user-authored-label">{activeLabel}</span>
+            </SelectTrigger>
+            <SelectContent align="end" className="profile-menu" sideOffset={8}>
+              <SelectGroup>
+                {managedProfiles.map((profile) => (
+                  <SelectItem
+                    className={cx(
+                      "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
+                      "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
+                      "data-highlighted:bg-accent data-highlighted:text-ink",
+                    )}
+                    key={profile.id}
+                    value={profile.id}
+                  >
+                    <span className="user-authored-label">{profile.label}</span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className={shellStyles().loading()}>
+            {connection.phase === "fixture"
+              ? LL.toolbar.loadingFixture()
+              : LL.toolbar.loadingDesktop()}
+          </span>
+        )}
+      </div>
+      <Drawer onOpenChange={setDrawerOpen} open={drawerOpen}>
+        <DrawerTrigger
+          render={
+            <Button
+              aria-busy={profilePending}
+              aria-label={profileLabel}
+              className={shellStyles().profileDrawerTrigger()}
+              touchTarget="adaptive"
+              variant="outline"
+            />
+          }
+        >
+          <FileText aria-hidden="true" />
+          <span className="user-authored-label">{activeLabel}</span>
+          <CaretDown aria-hidden="true" />
+        </DrawerTrigger>
+        <DrawerContent aria-describedby={undefined} closeLabel={LL.common.close()}>
+          <DrawerTitle className="sr-only">{LL.profiles.title()}</DrawerTitle>
+          <div className={shellStyles().profileDrawerScroller()}>
+            <Suspense
+              fallback={
+                <div className={shellStyles().profileDrawerLoading()} role="status">
+                  <Spinner />
+                  <span className="sr-only">{LL.common.loading()}</span>
+                </div>
+              }
+            >
+              <DrawerProfilesPage
+                onSelectProfile={
+                  profileSupported ? (profileId) => void selectProfile(profileId) : undefined
+                }
+                selectedProfileId={selectedProfileId}
+                selectionPending={profilePending}
+              />
+            </Suspense>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 
@@ -733,8 +982,11 @@ export function AppShell() {
       <SurfaceScope as="main" className={shellStyles().workspace()} surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
-        <div className={shellStyles().contentScroll()}>
-          <Outlet />
+        <div className={shellStyles().workspaceBody()}>
+          <NarrowSectionNavigation />
+          <div className={shellStyles().contentScroll()}>
+            <Outlet />
+          </div>
         </div>
       </SurfaceScope>
     </div>
