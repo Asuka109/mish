@@ -125,7 +125,7 @@ const shellStyles = tv({
       "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg",
       "@container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14",
       "max-shell-mobile:row-start-2 max-shell-mobile:grid-cols-[minmax(0,1fr)]",
-      "max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-0",
+      "max-shell-mobile:px-0",
       "max-shell-mobile:ps-[max(6px,env(safe-area-inset-left))]",
       "max-shell-mobile:pe-[max(6px,env(safe-area-inset-right))]",
       "max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
@@ -174,8 +174,7 @@ const shellStyles = tv({
       "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
       "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
       "max-shell-mobile:row-start-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
-      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact max-shell-mobile:rounded-b-none",
-      "max-shell-mobile:border-b-0",
+      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact",
     ),
     toolbar: cx(
       "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6",

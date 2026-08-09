@@ -53,7 +53,9 @@ describe("responsive shell CSS", () => {
       "className={shellStyles().profileDrawerTrigger()}\n              disabled=",
     );
     expect(shell).toContain("profile-drawer-trigger");
-    expect(shell).toContain("max-shell-mobile:border-b-0");
+    expect(shell).not.toContain("max-shell-mobile:border-b-0");
+    expect(shell).not.toContain("max-shell-mobile:rounded-b-none");
+    expect(shell).not.toContain("max-shell-mobile:border-t");
   });
 
   it("bounds the mobile root to the dynamic viewport", () => {

@@ -80,7 +80,12 @@ function expectNarrowNavigationGeometry(context: string) {
   expect(workspaceRect.bottom, `${context}: workspace ends before navigation`).toBeLessThanOrEqual(
     sidebarRect.top + 0.5,
   );
-  expect(getComputedStyle(workspace).borderBottomWidth, `${context}: no duplicate divider`).toBe(
+  expect(getComputedStyle(workspace).borderBottomWidth, `${context}: card bottom edge`).toBe("1px");
+  expect(
+    Number.parseFloat(getComputedStyle(workspace).borderBottomLeftRadius),
+    `${context}: rounded card bottom edge`,
+  ).toBeGreaterThan(0);
+  expect(getComputedStyle(sidebar).borderTopWidth, `${context}: no divider outside card`).toBe(
     "0px",
   );
   expect(sidebarRect.height, `${context}: reachable navigation row`).toBeGreaterThanOrEqual(56);
