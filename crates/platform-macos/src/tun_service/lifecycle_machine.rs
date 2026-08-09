@@ -123,19 +123,6 @@ impl TunLifecycleState {
         }
     }
 
-    pub(super) fn label(&self) -> &'static str {
-        match self {
-            Self::Disabled { .. } => "disabled",
-            Self::Starting { .. } => "starting",
-            Self::Applying { .. } => "applying",
-            Self::Verifying { .. } | Self::Observing { .. } => "verifying",
-            Self::Enabled { .. } => "enabled",
-            Self::Restoring { .. } => "restoring",
-            Self::RecoveryRequired { .. } => "recovery-required",
-            Self::Retired => "retired",
-        }
-    }
-
     pub(super) fn terminal(&self, operation_id: &str) -> Option<TunLifecycleProjection> {
         let terminal = match self {
             Self::Disabled {
@@ -235,28 +222,6 @@ pub(super) enum TunLifecycleInput {
     Shutdown,
 }
 
-impl TunLifecycleInput {
-    fn label(&self) -> &'static str {
-        match self {
-            Self::Command(_) => "command",
-            Self::EffectCompleted {
-                outcome: TunLifecycleOutcome::Executed { .. },
-                ..
-            } => "operation-executed",
-            Self::EffectCompleted {
-                outcome: TunLifecycleOutcome::Verified { .. },
-                ..
-            } => "observation-verified",
-            Self::EffectCompleted {
-                outcome: TunLifecycleOutcome::Failed { .. },
-                ..
-            } => "effect-failed",
-            Self::Acknowledge { .. } => "acknowledge",
-            Self::Shutdown => "shutdown",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TunLifecycleError {
     Busy,
@@ -333,14 +298,6 @@ impl Machine for TunLifecycleMachine {
                 }
             }
         }
-    }
-
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        state.label()
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        input.label()
     }
 
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation> {
@@ -564,7 +521,7 @@ mod tests {
         else {
             panic!("start must emit an owned effect");
         };
-        assert_eq!(starting.label(), "starting");
+        assert!(matches!(starting, TunLifecycleState::Starting { .. }));
         assert!(starting.terminal("operation-a").is_none());
         let Transition::EffectEmitting {
             state: verifying, ..
@@ -581,7 +538,7 @@ mod tests {
         else {
             panic!("start completion must be re-observed");
         };
-        assert_eq!(verifying.label(), "verifying");
+        assert!(matches!(verifying, TunLifecycleState::Verifying { .. }));
         let Transition::Committed(enabled) = machine.reduce(
             &verifying,
             &TunLifecycleInput::EffectCompleted {
@@ -595,7 +552,7 @@ mod tests {
         ) else {
             panic!("verified enabled observation must commit");
         };
-        assert_eq!(enabled.label(), "enabled");
+        assert!(matches!(enabled, TunLifecycleState::Enabled { .. }));
         assert!(enabled.terminal("operation-a").is_some());
 
         let Transition::Accepted(enabled) = acknowledge(&enabled, "operation-a") else {
@@ -608,7 +565,7 @@ mod tests {
         else {
             panic!("disable must enter restoring");
         };
-        assert_eq!(restoring.label(), "restoring");
+        assert!(matches!(restoring, TunLifecycleState::Restoring { .. }));
     }
 
     #[test]
@@ -622,7 +579,7 @@ mod tests {
         else {
             panic!("enable must apply");
         };
-        assert_eq!(applying.label(), "applying");
+        assert!(matches!(applying, TunLifecycleState::Applying { .. }));
         assert!(matches!(
             machine.reduce(&applying, &TunLifecycleInput::Command(operation.clone())),
             Transition::Unchanged

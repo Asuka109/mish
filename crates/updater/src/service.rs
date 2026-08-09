@@ -533,7 +533,6 @@ impl CheckRuntime {
             Arc::new(CheckKernelExecutor { inner: executor }),
             observer,
             RunnerConfig {
-                evidence_limit: CHECK_EVIDENCE_LIMIT,
                 shutdown_grace: CHECK_SHUTDOWN_GRACE,
                 ..RunnerConfig::default()
             },
@@ -1016,7 +1015,6 @@ impl ContinuationRuntime {
                 updates,
             }),
             RunnerConfig {
-                evidence_limit: CHECK_EVIDENCE_LIMIT,
                 shutdown_grace: CHECK_SHUTDOWN_GRACE,
                 ..RunnerConfig::default()
             },

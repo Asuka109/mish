@@ -255,47 +255,6 @@ pub enum PackageInput {
     Shutdown,
 }
 
-impl PackageInput {
-    fn label(&self) -> &'static str {
-        match self {
-            Self::Begin(_) => "begin",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::Staged,
-                ..
-            } => "staged",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::Authorized,
-                ..
-            } => "authorized",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::ReceiptCommitted,
-                ..
-            } => "receipt-committed",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::Ready(_),
-                ..
-            } => "ready-observed",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::Verified(_),
-                ..
-            } => "verified",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::RolledBack,
-                ..
-            } => "rolled-back",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::UninstallFinalized,
-                ..
-            } => "uninstall-finalized",
-            Self::EffectCompleted {
-                outcome: PackageEffectOutcome::Failed(_),
-                ..
-            } => "effect-failed",
-            Self::Shutdown => "shutdown",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageMachineError {
     Busy,
@@ -374,14 +333,6 @@ impl Machine for PackageMachine {
                 _ => Transition::Accepted(PackageState::Retired),
             },
         }
-    }
-
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        state.label()
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        input.label()
     }
 
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation> {

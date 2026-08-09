@@ -1,5 +1,9 @@
 import type { PluginListener } from "@tauri-apps/api/core";
-import type { MobileVpnSnapshotDto } from "@mish/contracts";
+import {
+  ANDROID_PLATFORM_FACTS_GOLDEN,
+  AndroidPlatformFactsSchema,
+  type MobileVpnSnapshotDto,
+} from "@mish/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MOBILE_CORE_MAX_CONFIG_BYTES_V1, MobileVpnFixtureClient } from "./mobile-vpn-client";
 
@@ -111,6 +115,24 @@ function validationResult(sequence: number, overrides: Record<string, unknown> =
 }
 
 describe("MobileVpnFixtureClient", () => {
+  it("checks the complete generated Android facts schema and rejects drift", () => {
+    expect(AndroidPlatformFactsSchema.parse(ANDROID_PLATFORM_FACTS_GOLDEN)).toEqual(
+      ANDROID_PLATFORM_FACTS_GOLDEN,
+    );
+    expect(() =>
+      AndroidPlatformFactsSchema.parse({
+        ...ANDROID_PLATFORM_FACTS_GOLDEN,
+        event: "future-event",
+      }),
+    ).toThrow();
+    expect(() =>
+      AndroidPlatformFactsSchema.parse({
+        ...ANDROID_PLATFORM_FACTS_GOLDEN,
+        privatePath: "/data/user/0/example",
+      }),
+    ).toThrow();
+  });
+
   it("uses the closed plugin command set and validates snapshots", async () => {
     let sequence = 0;
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
@@ -276,6 +298,62 @@ describe("MobileVpnFixtureClient", () => {
       phase: "unavailable",
       sequence: 6,
     });
+  });
+
+  it("coalesces a pre-baseline burst to each authority's terminal-last snapshot", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    let resolveBaseline: ((value: MobileVpnSnapshotDto) => void) | undefined;
+    const baseline = new Promise<MobileVpnSnapshotDto>((resolve) => {
+      resolveBaseline = resolve;
+    });
+    const client = new MobileVpnFixtureClient({
+      invoke: async () => baseline,
+      listen: async (nextHandler) => {
+        handler = nextHandler;
+        return { unregister: vi.fn() } as unknown as PluginListener;
+      },
+    });
+    const initialization = client.initialize();
+    await vi.waitFor(() => expect(handler).toBeDefined());
+
+    for (let sequence = 5; sequence <= 80; sequence += 1) {
+      handler?.({
+        authorityId: "authority-1",
+        eventKind: "snapshot-changed",
+        eventVersion: 2,
+        revision: sequence,
+        sequence,
+        sessionId: "session-1",
+        snapshot: snapshot(sequence, sequence === 80 ? "unavailable" : "starting"),
+      });
+    }
+    resolveBaseline?.(snapshot(4));
+    await expect(initialization).resolves.toMatchObject({ phase: "unavailable", sequence: 80 });
+  });
+
+  it("fails an unknown event field explicitly instead of silently dropping it", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    const client = new MobileVpnFixtureClient({
+      invoke: async () => snapshot(1),
+      listen: async (nextHandler) => {
+        handler = nextHandler;
+        return { unregister: vi.fn() } as unknown as PluginListener;
+      },
+    });
+    await client.initialize();
+
+    expect(() =>
+      handler?.({
+        authorityId: "authority-1",
+        eventKind: "snapshot-changed",
+        eventVersion: 2,
+        revision: 2,
+        sequence: 2,
+        sessionId: "session-1",
+        snapshot: snapshot(2),
+        futureField: true,
+      }),
+    ).toThrow();
   });
 
   it("accepts runtime replacement once and rejects late events from the retired session", async () => {

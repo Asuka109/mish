@@ -2903,11 +2903,6 @@ dependencies = [
 name = "mish-state-machine"
 version = "0.1.0"
 dependencies = [
- "libc",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
  "tokio",
  "tokio-util",
 ]

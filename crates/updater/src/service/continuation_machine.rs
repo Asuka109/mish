@@ -1336,14 +1336,6 @@ impl Machine for ContinuationMachine {
         }
     }
 
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        state.label()
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        input.label()
-    }
-
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation> {
         match input {
             ContinuationInput::DownloadRequested { operation, .. } => {

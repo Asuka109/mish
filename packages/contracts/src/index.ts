@@ -1,11 +1,18 @@
 import * as z from "zod";
 import {
+  AndroidCoreConfigStateSchema,
+  AndroidNotificationPermissionSchema,
+  AndroidPlatformAvailabilitySchema,
+  AndroidVpnPermissionSchema,
+} from "./generated/android-platform-facts";
+import {
   BRIDGE_MINIMUM_BACKEND_PROTOCOL_VERSION,
   BRIDGE_PROTOCOL_VERSION,
   BridgeProtocolCompatibilitySchema,
 } from "./generated/bridge-protocol";
 import { applicationEventSchema, applicationNotificationSchema } from "./generated/presentation";
 export * from "./generated/bridge-protocol";
+export * from "./generated/android-platform-facts";
 export * from "./generated/presentation";
 
 const IdentifierSchema = z.string().min(1);
@@ -83,15 +90,10 @@ export const MobileVpnPhaseSchema = z.enum([
 ]);
 export type MobileVpnPhase = z.infer<typeof MobileVpnPhaseSchema>;
 
-export const MobileVpnPermissionSchema = z.enum(["unknown", "required", "granted"]);
+export const MobileVpnPermissionSchema = AndroidVpnPermissionSchema;
 export type MobileVpnPermission = z.infer<typeof MobileVpnPermissionSchema>;
 
-export const MobileVpnNotificationPermissionSchema = z.enum([
-  "not-required",
-  "required",
-  "granted",
-  "denied",
-]);
+export const MobileVpnNotificationPermissionSchema = AndroidNotificationPermissionSchema;
 export type MobileVpnNotificationPermission = z.infer<typeof MobileVpnNotificationPermissionSchema>;
 
 export const MobileVpnLifecycleCommandKindSchema = z.enum([
@@ -153,10 +155,10 @@ export const MobileVpnSnapshotSchema = z
     backendKind: z.enum(["fixture", "native"]),
     contractVersion: z.literal(1),
     coreAbiVersion: z.literal(1).nullable(),
-    coreAvailability: z.enum(["unavailable", "available"]),
+    coreAvailability: AndroidPlatformAvailabilitySchema,
     coreCommit: z.string().min(7).max(64).nullable(),
     configFailureInjectionAvailable: z.boolean(),
-    coreConfigState: z.enum(["unloaded", "loaded", "unknown"]),
+    coreConfigState: AndroidCoreConfigStateSchema,
     coreRunning: z.boolean(),
     coreVersion: z.string().min(1).max(32).nullable(),
     coreWrapperRevision: z.string().min(1).max(64).nullable(),
@@ -187,8 +189,8 @@ export const MobileVpnSnapshotSchema = z
       .nullable(),
     validatedConfigRevision: z.string().min(1).max(128).nullable(),
     vpnActive: z.boolean(),
-    vpnAvailability: z.enum(["available", "unavailable"]),
-    tunAvailability: z.enum(["available", "unavailable"]),
+    vpnAvailability: AndroidPlatformAvailabilitySchema,
+    tunAvailability: AndroidPlatformAvailabilitySchema,
   })
   .strict()
   .superRefine((snapshot, context) => {
