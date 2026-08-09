@@ -253,6 +253,17 @@ test("direct negated implementation claims are future residue", () => {
   );
 });
 
+test("completion-needed wording is future residue", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nIssue #288 needs to be completed.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
 test("closed Issues cannot be described as open or planned", () => {
   const { registry, sources } = repositoryFixture();
   for (const claim of ["Issue #185 remains open.", "Rejected Issue #343 is planned for release."]) {
@@ -392,6 +403,29 @@ test("implemented wording contradicts an active dependency", () => {
     validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
     /docs\/current-state.md:#999 contains contradictory completed dependency context/u,
   );
+});
+
+test("future and negated passive verbs remain valid active dependency context", () => {
+  const { registry, sources } = repositoryFixture();
+  for (const claim of [
+    "Open Issue #999 is not yet implemented.",
+    "Issue #999 remains to be implemented.",
+    "Open Issue #999 will be implemented later.",
+  ]) {
+    const fixture = structuredClone(registry);
+    fixture.issues.push({
+      number: 999,
+      title: "Future delivery",
+      state: "OPEN",
+      stateReason: null,
+      closedAt: null,
+      updatedAt: "2026-08-09T07:00:00Z",
+      references: [{ path: "docs/current-state.md", role: "active-dependency" }],
+    });
+    const fixtureSources = { ...sources };
+    fixtureSources["docs/current-state.md"] += `\n${claim}\n`;
+    assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), [], claim);
+  }
 });
 
 test("durable requirements near completed Issues are not future work", () => {

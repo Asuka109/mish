@@ -37,7 +37,7 @@ const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
 const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/giu;
 const futureClaimPattern =
-  /\b(?:(?:open|active|pending|planned|unresolved) Issue|future work|follow-up work|later change|must be implemented|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|are) not (?:implemented|delivered|completed|closed|shipped)|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
+  /\b(?:(?:open|active|pending|planned|unresolved) Issue|future work|follow-up work|later change|must be implemented|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be (?:implemented|completed|delivered|closed|shipped))|remains? unimplemented|(?:is|are) not (?:implemented|delivered|completed|closed|shipped)|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern =
   /\b(?:accepted|closed|completed|delivered|implemented|shipped|released|fixed|resolved|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
@@ -167,6 +167,19 @@ function hasClaimForIssue(source: string, issueNumber: number, pattern: RegExp):
 
 function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
   return hasClaimForIssue(source, issueNumber, futureClaimPattern);
+}
+
+function hasCompletedClaimForIssue(source: string, issueNumber: number): boolean {
+  const completedPattern = new RegExp(completedContextPattern.source, "giu");
+  const positiveSource = source.replace(completedPattern, (match, offset: number) => {
+    const prefix = source.slice(Math.max(0, offset - 40), offset);
+    const futureOrNegated =
+      /(?:\b(?:will|must|may|should|needs? to|remains? to|is yet to|has yet to|to) (?:be )?|\bnot(?: yet)? |\bnever )$/iu.test(
+        prefix,
+      );
+    return futureOrNegated ? " ".repeat(match.length) : match;
+  });
+  return hasClaimForIssue(positiveSource, issueNumber, completedContextPattern);
 }
 
 function referenceContexts(
@@ -315,9 +328,7 @@ export function validateDocumentationTrackers(
       }
       if (
         reference.role === "completed-delivery" &&
-        contexts.some(
-          (context) => !hasClaimForIssue(context.claim, issue.number, completedContextPattern),
-        )
+        contexts.some((context) => !hasCompletedClaimForIssue(context.claim, issue.number))
       ) {
         errors.push(`${key} lacks explicit completed delivery context`);
       }
@@ -347,9 +358,7 @@ export function validateDocumentationTrackers(
       }
       if (
         reference.role === "active-dependency" &&
-        contexts.some((context) =>
-          hasClaimForIssue(context.claim, issue.number, completedContextPattern),
-        )
+        contexts.some((context) => hasCompletedClaimForIssue(context.claim, issue.number))
       ) {
         errors.push(`${key} contains contradictory completed dependency context`);
       }
