@@ -391,6 +391,11 @@ retain their existing owned-task finalizers. The pure repository-kernel
 journal authority executes each accepted commit and has no detached task or
 platform effect to replay.
 
+Terminal commit and cleanup are separate durable boundaries. If unlink or the
+following directory fsync fails, the in-memory authority retains the exact
+terminal operation/revision with automatic activation blocked; the identical
+command retries only operation-owned cleanup and never recommits the outcome.
+
 `updater-maintenance/journal.json` is schema version 1 and is capped at 4 KiB.
 It contains only canonical previous/expected application versions, the bounded
 operation key and revisions, digested process authority, `none` or

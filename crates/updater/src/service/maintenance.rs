@@ -6,6 +6,9 @@ use std::{
     sync::Mutex,
 };
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -475,8 +478,15 @@ impl UpdaterMaintenanceAuthority {
             && state.operation_id.as_deref() == Some(operation_id)
             && expected_revision.checked_add(1) == Some(state.revision)
         {
-            self.record_evidence(state.phase, "cancel", state.phase, "duplicate", None);
-            return Ok(state.revision);
+            let from = state.phase;
+            return self.finish_terminal_cleanup(
+                &mut state,
+                operation_id,
+                MaintenanceJournalPhase::Cancelled,
+                "cancel",
+                from,
+                "cleanup-retried",
+            );
         }
         let mut record = self.owned_record(operation_id, expected_revision)?;
         let next_phase =
@@ -508,18 +518,23 @@ impl UpdaterMaintenanceAuthority {
         advance_revision(&mut record)?;
         record.phase = next_phase;
         self.store.write_record(&record)?;
-        self.store.clear_owned(&record)?;
         state.phase = Some(record.phase);
         state.operation_id = Some(record.operation.operation_id.clone());
         state.revision = record.revision;
         state.terminal_reason = Some("cancelled".into());
         state.snapshot = Some(self.snapshot_for(
             &record,
-            UpdaterMaintenanceReconciliation::TerminalCleared,
-            true,
+            UpdaterMaintenanceReconciliation::UnknownOutcome,
+            false,
         ));
-        self.record_evidence(previous, "cancel", state.phase, "applied", Some(&record));
-        Ok(record.revision)
+        self.finish_terminal_cleanup(
+            &mut state,
+            operation_id,
+            MaintenanceJournalPhase::Cancelled,
+            "cancel",
+            previous,
+            "applied",
+        )
     }
 
     pub fn complete_recovery(
@@ -849,8 +864,15 @@ impl UpdaterMaintenanceAuthority {
             && state.operation_id.as_deref() == Some(operation_id)
             && expected_revision.checked_add(1) == Some(state.revision)
         {
-            self.record_evidence(state.phase, input, state.phase, "duplicate", None);
-            return Ok(state.revision);
+            let from = state.phase;
+            return self.finish_terminal_cleanup(
+                &mut state,
+                operation_id,
+                terminal,
+                input,
+                from,
+                "cleanup-retried",
+            );
         }
         let mut record = self.owned_record(operation_id, expected_revision)?;
         let machine_input = if terminal == MaintenanceJournalPhase::Completed {
@@ -864,18 +886,89 @@ impl UpdaterMaintenanceAuthority {
         advance_revision(&mut record)?;
         record.phase = next_phase;
         self.store.write_record(&record)?;
-        self.store.clear_owned(&record)?;
         state.phase = Some(record.phase);
+        state.operation_id = Some(record.operation.operation_id.clone());
         state.revision = record.revision;
         state.terminal_reason =
             (terminal == MaintenanceJournalPhase::Failed).then(|| "failed".to_owned());
         state.snapshot = Some(self.snapshot_for(
             &record,
-            UpdaterMaintenanceReconciliation::TerminalCleared,
-            true,
+            UpdaterMaintenanceReconciliation::UnknownOutcome,
+            false,
         ));
-        self.record_evidence(previous, input, state.phase, "applied", Some(&record));
-        Ok(record.revision)
+        self.finish_terminal_cleanup(
+            &mut state,
+            operation_id,
+            terminal,
+            input,
+            previous,
+            "applied",
+        )
+    }
+
+    fn finish_terminal_cleanup(
+        &self,
+        state: &mut MaintenanceRuntimeState,
+        operation_id: &str,
+        terminal: MaintenanceJournalPhase,
+        input: &'static str,
+        from: Option<MaintenanceJournalPhase>,
+        disposition: &'static str,
+    ) -> Result<u64, UpdaterMaintenanceError> {
+        let revision = state.revision;
+        if state.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.reconciliation == UpdaterMaintenanceReconciliation::TerminalCleared
+                && snapshot.automatic_activation_allowed
+        }) {
+            self.record_evidence(state.phase, input, state.phase, "duplicate", None);
+            return Ok(revision);
+        }
+        let cleared = match self.clear_terminal_owned(operation_id, revision, terminal) {
+            Ok(cleared) => cleared,
+            Err(error) => {
+                self.record_evidence(from, input, state.phase, "terminal-cleanup-pending", None);
+                return Err(error);
+            }
+        };
+        let snapshot = state
+            .snapshot
+            .as_mut()
+            .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
+        snapshot.reconciliation = UpdaterMaintenanceReconciliation::TerminalCleared;
+        snapshot.automatic_activation_allowed = true;
+        self.record_evidence(from, input, state.phase, disposition, cleared.as_ref());
+        Ok(revision)
+    }
+
+    fn clear_terminal_owned(
+        &self,
+        operation_id: &str,
+        revision: u64,
+        terminal: MaintenanceJournalPhase,
+    ) -> Result<Option<MaintenanceJournalRecord>, UpdaterMaintenanceError> {
+        let Some(record) = self.store.read_record()? else {
+            sync_directory(&self.store.root)?;
+            return Ok(None);
+        };
+        let owns_terminal = match terminal {
+            MaintenanceJournalPhase::Cancelled => {
+                record.operation.machine_authority_sha256 == self.machine_authority_sha256
+            }
+            MaintenanceJournalPhase::Completed | MaintenanceJournalPhase::Failed => {
+                record.operation.recovery_authority_sha256.as_deref()
+                    == Some(&self.machine_authority_sha256)
+            }
+            _ => false,
+        };
+        if record.operation.operation_id != operation_id
+            || record.revision != revision
+            || record.phase != terminal
+            || !owns_terminal
+        {
+            return Err(UpdaterMaintenanceError::OperationMismatch);
+        }
+        self.store.clear_owned(&record)?;
+        Ok(Some(record))
     }
 
     fn owned_record(
@@ -1054,6 +1147,15 @@ enum LoadedJournal {
 
 struct MaintenanceJournalStore {
     root: PathBuf,
+    #[cfg(test)]
+    fail_next_clear: AtomicU8,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum ClearFailurePoint {
+    BeforeUnlink = 1,
+    AfterUnlink = 2,
 }
 
 impl MaintenanceJournalStore {
@@ -1064,7 +1166,11 @@ impl MaintenanceJournalStore {
         ensure_private_directory(&root)?;
         let root = fs::canonicalize(root).map_err(|_| UpdaterMaintenanceError::JournalIo)?;
         validate_private_directory(&root)?;
-        let store = Self { root };
+        let store = Self {
+            root,
+            #[cfg(test)]
+            fail_next_clear: AtomicU8::new(0),
+        };
         store.cleanup_temporary_files()?;
         Ok(store)
     }
@@ -1149,12 +1255,27 @@ impl MaintenanceJournalStore {
         let current = self
             .read_record()?
             .ok_or(UpdaterMaintenanceError::OperationMismatch)?;
-        if current.operation != expected.operation || current.revision != expected.revision {
+        if current != *expected {
             return Err(UpdaterMaintenanceError::OperationMismatch);
+        }
+        #[cfg(test)]
+        let failure = self.fail_next_clear.swap(0, Ordering::SeqCst);
+        #[cfg(test)]
+        if failure == ClearFailurePoint::BeforeUnlink as u8 {
+            return Err(UpdaterMaintenanceError::JournalIo);
         }
         fs::remove_file(self.root.join(JOURNAL_FILE))
             .map_err(|_| UpdaterMaintenanceError::JournalIo)?;
+        #[cfg(test)]
+        if failure == ClearFailurePoint::AfterUnlink as u8 {
+            return Err(UpdaterMaintenanceError::JournalIo);
+        }
         sync_directory(&self.root)
+    }
+
+    #[cfg(test)]
+    fn fail_next_clear(&self, point: ClearFailurePoint) {
+        self.fail_next_clear.store(point as u8, Ordering::SeqCst);
     }
 
     fn cleanup_temporary_files(&self) -> Result<(), UpdaterMaintenanceError> {
@@ -1449,6 +1570,67 @@ mod tests {
             UpdaterMaintenanceReconciliation::PreInstallAborted
         );
         assert!(restarted.automatic_activation_allowed());
+        assert!(!root.path().join("maintenance/journal.json").exists());
+    }
+
+    #[test]
+    fn terminal_cleanup_retries_before_and_after_unlink_without_recommitting() {
+        for failure in [
+            ClearFailurePoint::BeforeUnlink,
+            ClearFailurePoint::AfterUnlink,
+        ] {
+            let root = TempDir::new().unwrap();
+            let authority = authority(&root, "0.1.0");
+            let revision = authority.begin(request("operation-a")).unwrap();
+            let revision = authority
+                .mark_installing_intent("operation-a", revision)
+                .unwrap();
+            authority.retire_runtime().unwrap();
+            let recovering_revision = revision.checked_add(1).unwrap();
+            authority.store.fail_next_clear(failure);
+
+            assert_eq!(
+                authority.complete_recovery("operation-a", recovering_revision),
+                Err(UpdaterMaintenanceError::JournalIo)
+            );
+            let pending = authority.runtime_state();
+            assert_eq!(pending.phase, Some(MaintenanceJournalPhase::Completed));
+            assert_eq!(pending.revision, recovering_revision + 1);
+            assert!(!authority.automatic_activation_allowed());
+
+            assert_eq!(
+                authority.complete_recovery("operation-a", recovering_revision),
+                Ok(recovering_revision + 1)
+            );
+            assert!(authority.automatic_activation_allowed());
+            assert!(!root.path().join("maintenance/journal.json").exists());
+            assert_eq!(
+                authority.transition_evidence().last().unwrap().disposition,
+                "cleanup-retried"
+            );
+        }
+    }
+
+    #[test]
+    fn cancellation_cleanup_retries_the_same_linearized_terminal_revision() {
+        let root = TempDir::new().unwrap();
+        let authority = authority(&root, "0.1.0");
+        let revision = authority.begin(request("operation-a")).unwrap();
+        authority
+            .store
+            .fail_next_clear(ClearFailurePoint::BeforeUnlink);
+
+        assert_eq!(
+            authority.cancel("operation-a", revision),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::Cancelled)
+        );
+        assert!(!authority.automatic_activation_allowed());
+        assert_eq!(authority.cancel("operation-a", revision), Ok(revision + 1));
+        assert!(authority.automatic_activation_allowed());
         assert!(!root.path().join("maintenance/journal.json").exists());
     }
 
