@@ -354,10 +354,14 @@ impl Machine for TrafficSourceMachine {
         state: &Self::State,
         input: &Self::Input,
     ) -> Transition<Self::State, Self::Effect, Self::Error> {
-        if matches!(state.authority, TrafficSourceAuthority::Retired { .. })
-            && !matches!(input, TrafficSourceInput::Shutdown)
-        {
-            return Transition::Rejected(TrafficSourceMachineError::Retired);
+        if matches!(state.authority, TrafficSourceAuthority::Retired { .. }) {
+            return match input {
+                TrafficSourceInput::Shutdown => Transition::Unchanged,
+                TrafficSourceInput::Request(_) => {
+                    Transition::Rejected(TrafficSourceMachineError::Retired)
+                }
+                _ => Transition::Retired,
+            };
         }
         match input {
             TrafficSourceInput::BeginBinding(context) => {
@@ -565,9 +569,6 @@ impl Machine for TrafficSourceMachine {
                 Transition::RecoveryRequired(next)
             }
             TrafficSourceInput::Shutdown => {
-                if matches!(state.authority, TrafficSourceAuthority::Retired { .. }) {
-                    return Transition::Unchanged;
-                }
                 let (mut next, cancel) =
                     state.fail_pending(TrafficCommandFailureKind::Disconnected);
                 next.authority = TrafficSourceAuthority::Retired {
@@ -963,6 +964,91 @@ mod tests {
                     ),
                     source,
                 }
+            ),
+            Transition::Retired
+        ));
+    }
+
+    #[test]
+    fn end_requires_rebinding_and_a_complete_reconnect_baseline() {
+        let state = live();
+        let ended = match TrafficSourceMachine.reduce(
+            &state,
+            &TrafficSourceInput::End(TrafficSourceEndReason::CoreExited),
+        ) {
+            Transition::Committed(state) => state,
+            _ => panic!("Core exit must end the current source"),
+        };
+        assert!(matches!(
+            ended.authority,
+            TrafficSourceAuthority::Ended {
+                reason: TrafficSourceEndReason::CoreExited,
+                ..
+            }
+        ));
+        assert!(matches!(
+            TrafficSourceMachine
+                .reduce(&ended, &TrafficSourceInput::Observation(stamp(1, "s1", 2))),
+            Transition::Retired
+        ));
+        assert!(matches!(
+            TrafficSourceMachine.reduce(&ended, &TrafficSourceInput::Baseline(stamp(1, "s2", 1))),
+            Transition::Rejected(TrafficSourceMachineError::InvalidAuthority)
+        ));
+        let binding = match TrafficSourceMachine
+            .reduce(&ended, &TrafficSourceInput::BeginBinding(context(2)))
+        {
+            Transition::Committed(state) => state,
+            _ => panic!("reconnect must establish a new binding"),
+        };
+        let live = match TrafficSourceMachine
+            .reduce(&binding, &TrafficSourceInput::Baseline(stamp(2, "s2", 1)))
+        {
+            Transition::Committed(state) => state,
+            _ => panic!("complete reconnect baseline must restore live authority"),
+        };
+        assert_eq!(live.authority.live().unwrap(), &stamp(2, "s2", 1));
+    }
+
+    #[test]
+    fn shutdown_finalizes_pending_work_and_retires_late_completion() {
+        let state = live();
+        let pending = match TrafficSourceMachine.reduce(
+            &state,
+            &TrafficSourceInput::Request(request("operation-1", state.authority.live().unwrap())),
+        ) {
+            Transition::EffectEmitting { state, .. } => state,
+            _ => panic!("command must be pending"),
+        };
+        let active = pending.pending.as_ref().unwrap();
+        let correlation = active.correlation.clone();
+        let source = active.source.clone();
+        let retired = match TrafficSourceMachine.reduce(&pending, &TrafficSourceInput::Shutdown) {
+            Transition::EffectEmitting { state, .. } => state,
+            _ => panic!("shutdown must cancel owned work"),
+        };
+        assert!(matches!(
+            retired.authority,
+            TrafficSourceAuthority::Retired {
+                reason: TrafficSourceEndReason::Shutdown,
+                ..
+            }
+        ));
+        assert_eq!(
+            retired.command_result("operation-1").unwrap().failure,
+            Some(TrafficCommandFailureKind::Disconnected)
+        );
+        assert!(matches!(
+            TrafficSourceMachine.reduce(
+                &retired,
+                &TrafficSourceInput::Completed {
+                    correlation,
+                    execution: TrafficCommandExecution::success(
+                        TrafficCommandOperation::CloseConnection,
+                        1,
+                    ),
+                    source,
+                },
             ),
             Transition::Retired
         ));
