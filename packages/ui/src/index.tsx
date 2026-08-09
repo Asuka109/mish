@@ -185,6 +185,27 @@ const inputRecipe = tv({
   ),
 });
 
+const searchInputRecipe = tv({
+  slots: {
+    root: "ui-search-control relative flex min-w-0 items-center",
+    icon: cx(
+      "ui-search-control-icon pointer-events-none absolute start-2.75 grid size-4 place-items-center",
+      "text-muted-foreground [&_svg]:size-full",
+    ),
+    input: "ps-8.5",
+  },
+  variants: {
+    touchTarget: {
+      default: {},
+      adaptive: {
+        icon: "start-3 size-4.5",
+        input: "min-h-11 ps-9.5",
+      },
+    },
+  },
+  defaultVariants: { touchTarget: "default" },
+});
+
 const spinnerRecipe = tv({
   base: cx(
     "ui-spinner spinner-border size-3.5 shrink-0 animate-spin rounded-full border-current",
@@ -247,7 +268,7 @@ const tableRecipe = tv({
       "ui-table-container w-full overflow-auto rounded-md border border-hairline bg-canvas",
     table: "ui-table w-full border-collapse text-metadata",
     head: cx(
-      "ui-table-head h-9 border-b border-hairline bg-surface-soft px-2.5 text-left text-caption",
+      "ui-table-head h-9 border-b border-hairline bg-surface-soft px-2.5 text-start text-caption",
       "font-medium text-muted-foreground whitespace-nowrap",
     ),
     cell: cx(
@@ -280,11 +301,11 @@ const dialogRecipe = tv({
       "overflow-auto rounded-lg border border-hairline bg-canvas shadow-float outline-none",
     ),
     close: cx(
-      "dialog-close absolute top-2.5 right-2.5 grid size-7.5 place-items-center rounded-md border-0",
+      "dialog-close absolute top-2.5 end-2.5 grid size-7.5 place-items-center rounded-md border-0",
       "bg-transparent text-muted-foreground hover:bg-accent hover:text-ink [&_svg]:size-4",
     ),
     header:
-      "dialog-header flex min-h-18.5 items-center border-b border-hairline py-3.25 pr-11 pl-4",
+      "dialog-header flex min-h-18.5 items-center border-b border-hairline py-3.25 pe-11 ps-4",
     title: "dialog-title text-body font-semibold",
     description: "dialog-description mt-0.75 text-metadata leading-4.5 text-muted-foreground",
     footer:
@@ -309,7 +330,7 @@ const drawerRecipe = tv({
     ),
     handle: "drawer-handle mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-hairline",
     close: cx(
-      "drawer-close absolute top-2.5 right-2.5 grid size-7.5 place-items-center rounded-md border-0",
+      "drawer-close absolute top-2.5 end-2.5 grid size-7.5 place-items-center rounded-md border-0",
       "bg-transparent text-muted-foreground hover:bg-accent hover:text-ink [&_svg]:size-4",
     ),
     title: "drawer-title text-body font-semibold",
@@ -331,8 +352,8 @@ const menuRecipe = tv({
       "data-highlighted:text-ink [&_svg]:size-3.75 pointer-coarse:min-h-11",
       "pointer-coarse:touch-manipulation",
     ),
-    radioItem: "menu-radio-item pr-7.5",
-    indicator: "menu-radio-indicator absolute right-2 grid place-items-center [&_svg]:size-3.5",
+    radioItem: "menu-radio-item pe-7.5",
+    indicator: "menu-radio-indicator absolute end-2 grid place-items-center [&_svg]:size-3.5",
     separator: "menu-separator my-1.25 mx-0.75 h-px bg-hairline",
   },
 });
@@ -964,6 +985,33 @@ export function Input({ className, ...props }: ComponentProps<typeof InputPrimit
       data-slot="input"
       {...props}
     />
+  );
+}
+
+export interface SearchInputProps extends ComponentProps<typeof InputPrimitive> {
+  icon: ReactNode;
+  rootClassName?: string;
+  touchTarget?: "default" | "adaptive";
+}
+
+export function SearchInput({
+  className,
+  icon,
+  rootClassName,
+  touchTarget = "default",
+  ...props
+}: SearchInputProps) {
+  const styles = searchInputRecipe({ touchTarget });
+  return (
+    <span className={styles.root({ className: rootClassName })} data-slot="search-control">
+      <span aria-hidden="true" className={styles.icon()} data-slot="search-control-icon">
+        {icon}
+      </span>
+      <Input
+        className={resolveClassName(className, (override) => styles.input({ className: override }))}
+        {...props}
+      />
+    </span>
   );
 }
 

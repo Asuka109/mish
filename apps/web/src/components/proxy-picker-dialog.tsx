@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@mish/ui";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -12,8 +12,7 @@ const pickerStyles = tv({
       "w-[min(560px,calc(100vw_-_32px))] overflow-hidden overscroll-contain",
       "max-shell-mobile:max-h-[calc(100vh_-_12px)] max-shell-mobile:w-[calc(100vw_-_12px)]",
     ),
-    header:
-      "policy-picker-header flex min-h-18.5 items-center gap-2 border-b border-hairline py-3.25 pr-11 pl-4",
+    header: "policy-picker-header gap-2",
     title: "text-body font-semibold",
     description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
     list: "min-h-0 overflow-auto overscroll-contain",
@@ -79,7 +78,7 @@ export function PolicyPickerDialog({
         onKeyDownCapture={handleDialogKeys}
         ref={dialogRef}
       >
-        <div className={pickerStyles().header()}>
+        <DialogHeader className={pickerStyles().header()}>
           <div>
             <DialogTitle className={pickerStyles().title({ className: "user-authored-label" })}>
               {group.label}
@@ -88,7 +87,7 @@ export function PolicyPickerDialog({
               {LL.proxyPicker.description()}
             </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         <PolicyGroupBrowser
           commandsDisabled={commandsDisabled}
           emptyClassName={pickerStyles().empty()}
