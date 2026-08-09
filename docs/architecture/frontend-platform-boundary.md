@@ -134,6 +134,55 @@ or invalidates observation authority, restarts collectors, reconciles explicit
 capture intent, and rejects stale concurrent event sequences. Neither Tauri nor
 the native callback owns those rules.
 
+### Desktop platform dependency direction
+
+The privileged Core host and process-icon adapter follow the same dependency
+direction as the lifecycle facts. Runtime owns the narrow
+`PrivilegedCoreHost` launch/observe/stop/listener-proof port and its redacted
+values. A separate Runtime module owns bounded PNG icon bytes and the
+`ProcessIconResolver` port. `crates/platform-macos` implements both ports, and
+`apps/desktop/src-tauri` injects those concrete implementations into the
+managed-process and loopback-server consumers. Bridge consumes the ports and
+contains no macOS implementation detail.
+
+The Issue #402 delivery checkpoint changed the macOS normal Cargo graph as
+follows. Both default features and `development-core-host` retain this
+direction:
+
+```text
+before: mish-platform-macos -> mish-bridge
+                              -> axum / WebSocket transport
+                              -> mihomo-controller / profile / updater / settings
+
+after:  apps/desktop/src-tauri -> mish-bridge -> mish-runtime ports
+                               -> mish-platform-macos -> mish-runtime ports
+                                                       -> mish-settings
+                                                       -> mish-state-machine
+```
+
+On the delivery baseline,
+`cargo tree -p mish-platform-macos --edges normal --prefix none --format
+'{p}'` normalized from 208 unique package/version entries to 89. The 119 removed
+entries include `mish-bridge`, `mish-mihomo-controller`, `mish-profile`,
+`mish-updater`, Axum, Hyper, Reqwest, and both previously reachable WebSocket
+stacks. `mish-settings` remains a direct, intentional dependency because the
+macOS crate implements Settings platform effects; its build-version projection
+now consumes the authoritative Runtime Core pin and no longer pulls Controller
+transport into the platform graph.
+
+The shipped consumer inventory is deliberately small:
+
+| Contract                                                                    | Lower owner                             | macOS implementation       | Shipped composition/consumer                                                                                                      |
+| --------------------------------------------------------------------------- | --------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Privileged Core launch, observe, stop/cleanup, and listener ownership proof | `crates/runtime/src/privileged_core.rs` | `MacOsTunServiceClient`    | Desktop host injects it into `DesktopMihomoProcess`; the development Core-host CLI and focused lifecycle tests use the same port. |
+| Bounded process-icon PNG bytes and resolver                                 | `crates/runtime/src/process_icon.rs`    | `MacOsProcessIconResolver` | Desktop host injects it into the loopback server; the Traffic icon RPC only encodes validated bytes.                              |
+
+`scripts/check-platform-dependency-boundary.ts` traverses workspace normal
+dependencies and fails if `mish-platform-macos` can reach full `mish-bridge`.
+It also checks that Runtime owns the two contracts, macOS owns their concrete
+implementations, Bridge only consumes them, and desktop host composition stays
+explicit.
+
 `crates/desktop-bridge` is the desktop implementation of the platform seam. It
 binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
 message size and subscriptions, requires an authentication-first handshake, and
