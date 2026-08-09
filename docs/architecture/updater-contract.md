@@ -403,6 +403,8 @@ operation key and revisions, digested process authority, `none` or
 revision. It contains no endpoint or credential, signature, candidate or raw
 metadata/body, Profile/configuration data, capture configuration, or path.
 Directories/files are current-user-owned `0700`/`0600` entries with no links.
+Opening the authority validates the journal root and fsyncs its parent, including
+immediately after first creation, before any journal commit can be admitted.
 Each commit writes a create-new same-directory temporary file, fsyncs it,
 atomically replaces the journal, revalidates its private ownership/mode/link
 count, and fsyncs the directory. Cleanup rereads and matches operation ownership

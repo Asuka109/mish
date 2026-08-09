@@ -1417,6 +1417,13 @@ impl MaintenanceJournalStore {
 }
 
 fn ensure_private_directory(path: &Path) -> Result<(), UpdaterMaintenanceError> {
+    ensure_private_directory_and_sync_parent(path, sync_directory)
+}
+
+fn ensure_private_directory_and_sync_parent(
+    path: &Path,
+    sync_parent: impl FnOnce(&Path) -> Result<(), UpdaterMaintenanceError>,
+) -> Result<(), UpdaterMaintenanceError> {
     match fs::symlink_metadata(path) {
         Ok(_) => validate_private_directory(path)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1424,7 +1431,11 @@ fn ensure_private_directory(path: &Path) -> Result<(), UpdaterMaintenanceError> 
         }
         Err(_) => return Err(UpdaterMaintenanceError::JournalIo),
     }
-    validate_private_directory(path)
+    validate_private_directory(path)?;
+    let parent = path
+        .parent()
+        .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
+    sync_parent(parent)
 }
 
 #[cfg(unix)]
@@ -1552,6 +1563,26 @@ mod tests {
                 revision: 12,
             }),
         }
+    }
+
+    #[test]
+    fn fresh_journal_root_requires_retryable_parent_durability_confirmation() {
+        let root = TempDir::new().unwrap();
+        let journal_root = root.path().join("maintenance");
+        let mut observed_parent = None;
+
+        assert_eq!(
+            ensure_private_directory_and_sync_parent(&journal_root, |parent| {
+                observed_parent = Some(parent.to_path_buf());
+                Err(UpdaterMaintenanceError::JournalIo)
+            }),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(observed_parent.as_deref(), Some(root.path()));
+        validate_private_directory(&journal_root).unwrap();
+
+        ensure_private_directory(&journal_root).unwrap();
+        assert!(authority(&root, "0.1.0").automatic_activation_allowed());
     }
 
     #[test]
