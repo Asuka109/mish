@@ -291,6 +291,26 @@ test("active dependencies cannot be described as completed", () => {
   );
 });
 
+test("active keywords cannot mask contradictory completed wording", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/current-state.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/current-state.md"] += "\nOpen Issue #999 tracks the completed delivery.\n";
+  assert.match(
+    validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
+    /docs\/current-state.md:#999 contains contradictory completed dependency context/u,
+  );
+});
+
 test("durable requirements near completed Issues are not future work", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
@@ -327,5 +347,16 @@ test("bare tracker tokens cannot bypass Issue classification", () => {
   assert.match(
     validateDocumentationTrackers(registry, fixtureSources).join("\n"),
     /ambiguous tracker token in docs\/current-state.md: #288/u,
+  );
+});
+
+test("GitHub Issue URL schemes and hosts are case-insensitive", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/current-state.md"] +=
+    "\nHistorical HTTPS://GITHUB.COM/Asuka109/mish/issues/999 was completed.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /unclassified canonical tracker reference: docs\/current-state.md:#999/u,
   );
 });

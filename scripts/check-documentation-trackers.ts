@@ -35,7 +35,7 @@ export interface DocumentationTrackerRegistry {
 
 const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
-const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/gu;
+const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/giu;
 const futureClaimPattern =
   /\b(?:future work|follow-up work|later change|must be implemented|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
@@ -128,8 +128,8 @@ function hasIssueReference(source: string): boolean {
   );
 }
 
-function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
-  const futurePattern = new RegExp(futureClaimPattern.source, "giu");
+function hasClaimForIssue(source: string, issueNumber: number, pattern: RegExp): boolean {
+  const claimPattern = new RegExp(pattern.source, "giu");
   const referencePattern = new RegExp(
     "(?:\\bIssue\\s+#(\\d+)\\b|https://github\\.com/[^/\\s)]+/[^/\\s)]+/issues/(\\d+)\\b)",
     "giu",
@@ -138,7 +138,7 @@ function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
     index: match.index ?? 0,
     number: Number(match[1] ?? match[2]),
   }));
-  return [...source.matchAll(futurePattern)].some((claim) => {
+  return [...source.matchAll(claimPattern)].some((claim) => {
     const claimIndex = claim.index ?? 0;
     const nearest = references.reduce<(typeof references)[number] | null>((current, reference) => {
       if (current === null) return reference;
@@ -148,6 +148,10 @@ function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
     }, null);
     return nearest?.number === issueNumber;
   });
+}
+
+function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
+  return hasClaimForIssue(source, issueNumber, futureClaimPattern);
 }
 
 function referenceContexts(
@@ -296,27 +300,43 @@ export function validateDocumentationTrackers(
       }
       if (
         reference.role === "completed-delivery" &&
-        contexts.some((context) => !completedContextPattern.test(context.claim))
+        contexts.some(
+          (context) => !hasClaimForIssue(context.claim, issue.number, completedContextPattern),
+        )
       ) {
         errors.push(`${key} lacks explicit completed delivery context`);
       }
       if (
         reference.role === "historical-checkpoint" &&
-        contexts.some((context) => !historicalContextPattern.test(context.claim))
+        contexts.some(
+          (context) => !hasClaimForIssue(context.claim, issue.number, historicalContextPattern),
+        )
       ) {
         errors.push(`${key} lacks explicit historical checkpoint context`);
       }
       if (
         reference.role === "superseded-decision" &&
-        contexts.some((context) => !supersededContextPattern.test(context.claim))
+        contexts.some(
+          (context) => !hasClaimForIssue(context.claim, issue.number, supersededContextPattern),
+        )
       ) {
         errors.push(`${key} lacks explicit superseded or rejected context`);
       }
       if (
         reference.role === "active-dependency" &&
-        contexts.some((context) => !activeContextPattern.test(context.claim))
+        contexts.some(
+          (context) => !hasClaimForIssue(context.claim, issue.number, activeContextPattern),
+        )
       ) {
         errors.push(`${key} lacks explicit active dependency context`);
+      }
+      if (
+        reference.role === "active-dependency" &&
+        contexts.some((context) =>
+          hasClaimForIssue(context.claim, issue.number, completedContextPattern),
+        )
+      ) {
+        errors.push(`${key} contains contradictory completed dependency context`);
       }
       if (
         issue.state === "CLOSED" &&
