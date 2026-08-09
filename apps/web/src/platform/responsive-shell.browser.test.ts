@@ -286,7 +286,7 @@ function appendProxyControlFixture(
 
 async function navigate(path: string): Promise<void> {
   const target = new URL(path, window.location.origin);
-  const normalizedPathname = target.pathname.replace(/\/+$/, "") || "/";
+  const normalizedPathname = (target.pathname.replace(/\/+$/, "") || "/").toLowerCase();
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
@@ -772,9 +772,9 @@ describe("responsive application shell", () => {
     await selectLocale("English");
 
     for (const [path, primary] of [
-      ["/status/", "/status"],
+      ["/STATUS/", "/status"],
       ["/profiles/", "/status"],
-      ["/traffic/", "/traffic"],
+      ["/TRAFFIC/", "/traffic"],
       ["/events/", "/traffic"],
     ] as const) {
       await navigate(path);

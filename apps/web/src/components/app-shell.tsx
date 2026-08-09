@@ -85,7 +85,7 @@ function getNavigationLabel(LL: TranslationFunctions, key: (typeof destinations)
 }
 
 function normalizePathname(pathname: string) {
-  return pathname.replace(/\/+$/, "") || "/";
+  return (pathname.replace(/\/+$/, "") || "/").toLowerCase();
 }
 
 function getPageTitle(LL: TranslationFunctions, pathname: string) {
