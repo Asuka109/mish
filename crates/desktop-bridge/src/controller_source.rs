@@ -516,6 +516,12 @@ impl ControllerStatusSource {
     }
 
     async fn pause_observation_task(&self, reason: RuntimeObservationPauseReason) {
+        let paused_traffic_context = traffic_machine(&self.inner)
+            .snapshot()
+            .authority
+            .live()
+            .map(|source| source.context.clone())
+            .unwrap_or_else(|| current_traffic_context(&self.inner));
         self.inner
             .observation_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -547,7 +553,7 @@ impl ControllerStatusSource {
         }
         let input = match reason {
             RuntimeObservationPauseReason::Sleep => TrafficSourceInput::Gap {
-                context: current_traffic_context(&self.inner),
+                context: paused_traffic_context,
                 reason: TrafficSourceGapReason::Sleep,
             },
             RuntimeObservationPauseReason::CoreUnavailable => {

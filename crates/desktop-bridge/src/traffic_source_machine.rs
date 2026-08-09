@@ -554,7 +554,7 @@ impl Machine for TrafficSourceMachine {
                     TrafficCommandExecution::failure(
                         pending.request.operation,
                         TrafficCommandFailureKind::InconsistentObservation,
-                        target_ids.len(),
+                        pending.request.admitted_target_count,
                         target_ids,
                     ),
                 );
@@ -1136,7 +1136,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn injected_effect_panic_is_a_reconciling_failure_not_a_lost_command() {
+    async fn injected_close_all_effect_panic_preserves_count_and_requires_reconciliation() {
         let executions = Arc::new(AtomicUsize::new(0));
         let evidence = Arc::new(TrafficTransitionEvidenceBuffer::default());
         let (updates, _) = tokio::sync::broadcast::channel(8);
@@ -1151,10 +1151,17 @@ mod tests {
         );
         let source = runner.snapshot().authority.live().unwrap().clone();
         runner
-            .admit(TrafficSourceInput::Request(request(
-                "operation-panic",
-                &source,
-            )))
+            .admit(TrafficSourceInput::Request(TrafficCommandRequest {
+                admitted_target_count: 3,
+                authority: TrafficCommandAuthority {
+                    profile_id: source.context.profile_id.clone(),
+                    sequence: source.sequence,
+                    session_id: source.session_id.clone(),
+                },
+                operation: TrafficCommandOperation::CloseAllActive,
+                operation_id: "operation-panic".into(),
+                requested_ids: None,
+            }))
             .await
             .unwrap();
         tokio::time::timeout(Duration::from_secs(1), async {
@@ -1173,10 +1180,12 @@ mod tests {
         .expect("panic finalizer must be bounded");
         let state = runner.snapshot();
         assert_eq!(executions.load(Ordering::Relaxed), 1);
+        let execution = state.command_result("operation-panic").unwrap();
         assert_eq!(
-            state.command_result("operation-panic").unwrap().failure,
+            execution.failure,
             Some(TrafficCommandFailureKind::InconsistentObservation)
         );
+        assert_eq!(execution.target_count, 3);
         assert!(matches!(
             state.authority,
             TrafficSourceAuthority::FailedReconciling {

@@ -1135,6 +1135,11 @@ async fn lifecycle_pause_invalidates_old_controller_authority_before_a_new_sessi
     assert_eq!(sleeping["phase"], "stale");
     assert_eq!(sleeping["sessionId"], initial_session);
     assert_eq!(sleeping["activeConnections"][0]["id"], "connection-a");
+    assert_eq!(
+        source.traffic_support_evidence().last().unwrap().phase,
+        TrafficSourceEvidencePhase::FailedReconciling,
+        "sleep must gap the live generation before observation authority advances"
+    );
 
     source
         .pause_observations(RuntimeObservationPauseReason::NetworkChanged)
