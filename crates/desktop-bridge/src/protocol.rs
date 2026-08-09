@@ -798,21 +798,36 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.capture_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.status_ids.is_empty() => {
+            update = subscriptions.capture_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && (!subscriptions.status_ids.is_empty() || !subscriptions.traffic_ids.is_empty()) => {
                 let capture_status = match update {
                     Ok(capture_status) => capture_status,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
                 };
-                let status_snapshot = state.status_snapshot_with_capture(capture_status).await;
-                for subscription_id in &subscriptions.status_ids {
-                    let notification = json!({
-                        "jsonrpc": "2.0",
-                        "method": "status.snapshot",
-                        "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
-                    });
-                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
-                        return;
+                if !subscriptions.status_ids.is_empty() {
+                    let status_snapshot = state.status_snapshot_with_capture(capture_status).await;
+                    for subscription_id in &subscriptions.status_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "status.snapshot",
+                            "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                if !subscriptions.traffic_ids.is_empty() {
+                    let traffic_snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+                    for subscription_id in &subscriptions.traffic_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "traffic.snapshot",
+                            "params": { "snapshot": traffic_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
                     }
                 }
             }

@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    future::Future,
+    pin::Pin,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -30,7 +32,9 @@ use mish_runtime::{
     StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusProjectionEventSink,
     StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
     TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    TrafficSourceRuntimeContext, TrafficSupportEvidence,
 };
+use mish_state_machine::{EffectExecutor, RunnerConfig, RunnerHandle, spawn_runner};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{
@@ -40,11 +44,18 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use url::Url;
+use uuid::Uuid;
 
 use crate::event_redaction::redact_event_text;
 use crate::{
     ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
     SelectionTargetError, StatusMappingError,
+    traffic_source_machine::{
+        TrafficCommandRequest, TrafficSourceContext, TrafficSourceEffect, TrafficSourceEndReason,
+        TrafficSourceGapReason, TrafficSourceInput, TrafficSourceMachine,
+        TrafficSourceMachineError, TrafficSourceMachineState, TrafficSourceObserver,
+        TrafficSourceStamp, TrafficTransitionEvidenceBuffer,
+    },
 };
 
 const STARTING_MESSAGE: &str = "Connecting to the configured Mihomo Controller";
@@ -235,6 +246,10 @@ struct SourceInner {
     refresh_interval: Duration,
     state: Mutex<SourceState>,
     status_events: OnceLock<StatusProjectionEventSink>,
+    traffic_context: Mutex<TrafficSourceRuntimeContext>,
+    traffic_evidence: Arc<TrafficTransitionEvidenceBuffer>,
+    traffic_machine: OnceLock<RunnerHandle<TrafficSourceMachine>>,
+    traffic_updates: broadcast::Sender<()>,
 }
 
 pub struct ControllerStatusSource {
@@ -247,6 +262,53 @@ pub struct ControllerStatusSource {
 struct ObservationTask {
     cancellation: CancellationToken,
     join: JoinHandle<()>,
+}
+
+struct ControllerTrafficEffectExecutor {
+    inner: Weak<SourceInner>,
+}
+
+impl EffectExecutor<TrafficSourceMachine> for ControllerTrafficEffectExecutor {
+    fn execute(
+        &self,
+        effect: TrafficSourceEffect,
+        cancellation: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = TrafficSourceInput> + Send + 'static>> {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let TrafficSourceEffect::Execute(effect) = effect else {
+                unreachable!("cancel effects are consumed by the state-machine runner")
+            };
+            let crate::traffic_source_machine::TrafficCommandEffect {
+                correlation,
+                request,
+                source,
+            } = *effect;
+            let execution = match inner.upgrade() {
+                Some(inner) => {
+                    execute_traffic_command_effect(
+                        &inner,
+                        &correlation,
+                        &request,
+                        &source,
+                        &cancellation,
+                    )
+                    .await
+                }
+                None => TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::Disconnected,
+                    request.requested_ids.as_ref().map_or(0, Vec::len),
+                    request.requested_ids.clone().unwrap_or_default(),
+                ),
+            };
+            TrafficSourceInput::Completed {
+                correlation,
+                execution,
+                source,
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -288,34 +350,68 @@ impl ControllerStatusSource {
         let client =
             ControllerClient::new(shared_http_transport(transport_config)?, config.limits)?;
         let (event_updates, _) = broadcast::channel(32);
+        let (traffic_updates, _) = broadcast::channel(32);
+        let profile = config.profile;
+        let initial_runtime_id = profile.profile_fingerprint().to_owned();
+        let traffic_evidence = Arc::new(TrafficTransitionEvidenceBuffer::default());
+        let inner = Arc::new(SourceInner {
+            authority: AsyncMutex::new(()),
+            cancellation: CancellationToken::new(),
+            client,
+            command: AsyncMutex::new(()),
+            confirmation_timeout: config.confirmation_timeout,
+            group_confirmation_grace: config.group_confirmation_grace,
+            connection_cleanup_preference: config.connection_cleanup_preference,
+            cleanup_control: Mutex::new(None),
+            cleanup_execution: AsyncMutex::new(()),
+            cleanup_interval: config.cleanup_interval,
+            cleanup_quiet_scans: config.cleanup_quiet_scans,
+            cleanup_timeout: config.cleanup_timeout,
+            lifecycle,
+            observation_generation: AtomicU64::new(0),
+            observations_active: AtomicBool::new(false),
+            event_source_id: NEXT_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
+            event_updates,
+            group_delay_control: Mutex::new(None),
+            latest_group_selection_operation: AtomicU64::new(0),
+            profile,
+            reconnect_delay: config.reconnect_delay,
+            refresh_interval: config.refresh_interval,
+            state: Mutex::new(SourceState::new()),
+            status_events: OnceLock::new(),
+            traffic_context: Mutex::new(TrafficSourceRuntimeContext {
+                capture_session_id: None,
+                runtime_id: initial_runtime_id.clone(),
+            }),
+            traffic_evidence: traffic_evidence.clone(),
+            traffic_machine: OnceLock::new(),
+            traffic_updates: traffic_updates.clone(),
+        });
+        let initial_context = TrafficSourceContext {
+            capture_id: None,
+            controller_generation: 0,
+            profile_id: inner.profile.profile_id().to_owned(),
+            runtime_id: initial_runtime_id,
+        };
+        let traffic_machine = spawn_runner(
+            Arc::new(TrafficSourceMachine),
+            TrafficSourceMachineState::binding(Uuid::new_v4().to_string(), initial_context),
+            Arc::new(ControllerTrafficEffectExecutor {
+                inner: Arc::downgrade(&inner),
+            }),
+            Arc::new(TrafficSourceObserver {
+                evidence: traffic_evidence,
+                updates: traffic_updates,
+            }),
+            RunnerConfig::default(),
+        );
+        assert!(
+            inner.traffic_machine.set(traffic_machine).is_ok(),
+            "Traffic source machine must be installed once"
+        );
         Ok(Arc::new(Self {
             closed: AtomicBool::new(false),
-            inner: Arc::new(SourceInner {
-                authority: AsyncMutex::new(()),
-                cancellation: CancellationToken::new(),
-                client,
-                command: AsyncMutex::new(()),
-                confirmation_timeout: config.confirmation_timeout,
-                group_confirmation_grace: config.group_confirmation_grace,
-                connection_cleanup_preference: config.connection_cleanup_preference,
-                cleanup_control: Mutex::new(None),
-                cleanup_execution: AsyncMutex::new(()),
-                cleanup_interval: config.cleanup_interval,
-                cleanup_quiet_scans: config.cleanup_quiet_scans,
-                cleanup_timeout: config.cleanup_timeout,
-                lifecycle,
-                observation_generation: AtomicU64::new(0),
-                observations_active: AtomicBool::new(false),
-                event_source_id: NEXT_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
-                event_updates,
-                group_delay_control: Mutex::new(None),
-                latest_group_selection_operation: AtomicU64::new(0),
-                profile: config.profile,
-                reconnect_delay: config.reconnect_delay,
-                refresh_interval: config.refresh_interval,
-                state: Mutex::new(SourceState::new()),
-                status_events: OnceLock::new(),
-            }),
+            inner,
             group_delay_task: AsyncMutex::new(None),
             observation_task: AsyncMutex::new(None),
         }))
@@ -353,6 +449,7 @@ impl ControllerStatusSource {
         if let Some(task) = self.group_delay_task.lock().await.take() {
             let _ = task.await;
         }
+        let _ = traffic_machine(&self.inner).shutdown().await;
     }
 
     pub fn is_closed(&self) -> bool {
@@ -419,6 +516,12 @@ impl ControllerStatusSource {
     }
 
     async fn pause_observation_task(&self, reason: RuntimeObservationPauseReason) {
+        let paused_traffic_context = traffic_machine(&self.inner)
+            .snapshot()
+            .authority
+            .live()
+            .map(|source| source.context.clone())
+            .unwrap_or_else(|| current_traffic_context(&self.inner));
         self.inner
             .observation_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -448,6 +551,19 @@ impl ControllerStatusSource {
             let _authority = self.inner.authority.lock().await;
             invalidate_source_state(&self.inner, reason);
         }
+        let input = match reason {
+            RuntimeObservationPauseReason::Sleep => TrafficSourceInput::Gap {
+                context: paused_traffic_context,
+                reason: TrafficSourceGapReason::Sleep,
+            },
+            RuntimeObservationPauseReason::CoreUnavailable => {
+                TrafficSourceInput::End(TrafficSourceEndReason::CoreExited)
+            }
+            RuntimeObservationPauseReason::NetworkChanged => {
+                TrafficSourceInput::End(TrafficSourceEndReason::NetworkChanged)
+            }
+        };
+        let _ = traffic_machine(&self.inner).try_admit(input).await;
         publish_change(&self.inner).await;
         publish_event_change(&self.inner);
     }
@@ -2230,36 +2346,46 @@ fn command_failure_message(kind: StatusCommandErrorKind) -> &'static str {
 }
 
 impl TrafficDataSource for ControllerStatusSource {
-    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
-        let state = self
+    fn set_runtime_context(&self, context: TrafficSourceRuntimeContext) {
+        let mut current = self
             .inner
-            .state
+            .traffic_context
             .lock()
-            .expect("controller source state poisoned");
-        let Some(mapper) = &state.mapper else {
-            let mut snapshot = TrafficDataSnapshot::unavailable(adapter_kind);
-            snapshot.profile_id = self.inner.profile.profile_id().into();
-            return snapshot;
-        };
-        let stale = !self.inner.observations_active.load(Ordering::Acquire)
-            || state.diagnostics.contains_key(&ObservationChannel::Session)
-            || state.diagnostics.contains_key(&ObservationChannel::Refresh);
-        mapper.traffic_snapshot(
-            adapter_kind,
-            if stale {
-                TrafficDataPhase::Stale
-            } else {
-                TrafficDataPhase::Ready
-            },
-            state.traffic_sequence,
-            state.traffic_session_id.clone(),
-            state.traffic_reconnect_count,
-        )
+            .expect("Traffic runtime context poisoned");
+        if *current != context {
+            *current = context;
+        }
+    }
+
+    fn traffic_support_evidence(&self) -> Vec<TrafficSupportEvidence> {
+        self.inner
+            .traffic_evidence
+            .snapshot()
+            .into_iter()
+            .map(|record| TrafficSupportEvidence {
+                disposition: record.disposition,
+                effect_sequence: record.effect_sequence,
+                failure: record.failure,
+                operation: record.operation,
+                phase: record.phase,
+                revision: record.revision,
+                target_count: record.target_count,
+            })
+            .collect()
+    }
+
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        traffic_snapshot_from_inner(&self.inner, adapter_kind)
     }
 
     fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
         !self.closed.load(Ordering::Acquire)
             && self.inner.observations_active.load(Ordering::Acquire)
+            && traffic_machine(&self.inner)
+                .snapshot()
+                .authority
+                .live()
+                .is_some_and(|source| source.context == current_traffic_context(&self.inner))
             && self
                 .inner
                 .state
@@ -2324,7 +2450,7 @@ impl ControllerStatusSource {
         requested_ids: Option<Vec<String>>,
     ) -> TrafficCommandExecution {
         let execution = self
-            .confirm_traffic_command(operation, authority, requested_ids)
+            .run_traffic_machine_command(operation, authority, requested_ids)
             .await;
         if execution.failure.is_some() {
             self.refresh_connections_after_command().await;
@@ -2332,231 +2458,94 @@ impl ControllerStatusSource {
         execution
     }
 
-    async fn confirm_traffic_command(
+    async fn run_traffic_machine_command(
         &self,
         operation: TrafficCommandOperation,
         authority: TrafficCommandAuthority,
         requested_ids: Option<Vec<String>>,
     ) -> TrafficCommandExecution {
-        let Ok(_command) = self.inner.command.try_lock() else {
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::Conflict,
-                0,
-                Vec::new(),
-            );
-        };
-        let _authority_lock = self.inner.authority.lock().await;
-        let current = self.traffic_snapshot(StatusAdapterKind::Rpc);
-        let authority_matches =
-            if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
-                traffic_session_authority_matches(&current, &authority)
-            } else {
-                traffic_authority_matches(&current, &authority)
-            };
-        if !authority_matches {
-            let stale_targets =
-                if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
-                    requested_ids.clone().unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::StaleSnapshot,
-                stale_targets.len(),
-                stale_targets,
-            );
-        }
-
-        let target_ids = match operation {
-            TrafficCommandOperation::CloseConnection => {
-                let Some(connection_ids) = requested_ids else {
-                    return TrafficCommandExecution::failure(
-                        operation,
-                        TrafficCommandFailureKind::InvalidRequest,
-                        0,
-                        Vec::new(),
-                    );
-                };
-                let [connection_id] = connection_ids.as_slice() else {
-                    return TrafficCommandExecution::failure(
-                        operation,
-                        TrafficCommandFailureKind::InvalidRequest,
-                        0,
-                        Vec::new(),
-                    );
-                };
-                if !current
-                    .active_connections
-                    .iter()
-                    .any(|connection| connection.id == *connection_id)
-                {
-                    return TrafficCommandExecution::failure(
-                        operation,
-                        TrafficCommandFailureKind::StaleConnection,
-                        0,
-                        Vec::new(),
-                    );
-                }
-                connection_ids
-            }
-            TrafficCommandOperation::CloseFilteredVisible => {
-                let Some(connection_ids) = requested_ids else {
-                    return TrafficCommandExecution::failure(
-                        operation,
-                        TrafficCommandFailureKind::InvalidRequest,
-                        0,
-                        Vec::new(),
-                    );
-                };
-                let unique_ids = connection_id_set(&connection_ids);
-                if connection_ids.is_empty()
-                    || unique_ids.len() != connection_ids.len()
-                    || connection_ids.len() > 20_000
-                {
-                    return TrafficCommandExecution::failure(
-                        operation,
-                        TrafficCommandFailureKind::InvalidRequest,
-                        connection_ids.len(),
-                        connection_ids,
-                    );
-                }
-                connection_ids
-            }
-            TrafficCommandOperation::CloseAllActive => current
+        synchronize_traffic_machine(&self.inner).await;
+        let operation_id = Uuid::new_v4().to_string();
+        let admitted_target_count = if matches!(operation, TrafficCommandOperation::CloseAllActive)
+        {
+            traffic_snapshot_from_inner(&self.inner, StatusAdapterKind::Rpc)
                 .active_connections
-                .iter()
-                .map(|connection| connection.id.clone())
-                .collect(),
+                .len()
+        } else {
+            requested_ids.as_ref().map_or(0, Vec::len)
         };
-        let target_count = target_ids.len();
-        if target_count == 0 {
-            return TrafficCommandExecution::success(operation, 0);
-        }
-
-        if let Err(error) = self.inner.client.verify_version().await {
-            return traffic_controller_failure(operation, target_count, &target_ids, error);
-        }
-        let initial = match self.inner.client.connections().await {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                return traffic_controller_failure(operation, target_count, &target_ids, error);
-            }
+        let request = TrafficCommandRequest {
+            admitted_target_count,
+            authority,
+            operation,
+            operation_id: operation_id.clone(),
+            requested_ids: requested_ids.clone(),
         };
-        if apply_connection_observation(&self.inner, initial.clone())
-            .await
-            .is_err()
-        {
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::InconsistentObservation,
-                target_count,
-                target_ids,
-            );
-        }
-        let observed_ids = connection_ids(&initial);
-        if matches!(operation, TrafficCommandOperation::CloseConnection)
-            && !observed_ids.contains(&target_ids[0])
-        {
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::StaleConnection,
-                target_count,
-                Vec::new(),
-            );
-        }
-        if matches!(operation, TrafficCommandOperation::CloseAllActive)
-            && connection_id_set(&observed_ids) != connection_id_set(&target_ids)
-        {
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::StaleSnapshot,
-                target_count,
-                target_ids,
-            );
-        }
-        let filtered_mutation_ids = target_ids
-            .iter()
-            .filter(|id| observed_ids.contains(id))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let mutation = match operation {
-            TrafficCommandOperation::CloseConnection => {
-                self.inner.client.close_connection(&target_ids[0]).await
+        let mut updates = self.inner.traffic_updates.subscribe();
+        let machine = traffic_machine(&self.inner);
+        let admission = machine
+            .try_admit(TrafficSourceInput::Request(request))
+            .await;
+        match admission {
+            Ok(admission) => {
+                if let Some(result) = admission.state.command_result(&operation_id) {
+                    return result;
+                }
             }
-            TrafficCommandOperation::CloseFilteredVisible => {
-                for (index, connection_id) in filtered_mutation_ids.iter().enumerate() {
-                    if let Err(error) = self.inner.client.close_connection(connection_id).await {
-                        return traffic_controller_failure(
-                            operation,
-                            target_count,
-                            &filtered_mutation_ids[index..],
-                            error,
-                        );
+            Err(mish_state_machine::AdmissionError::Rejected(error)) => {
+                let failure = match error {
+                    TrafficSourceMachineError::Conflict => TrafficCommandFailureKind::Conflict,
+                    TrafficSourceMachineError::InvalidAuthority => {
+                        TrafficCommandFailureKind::StaleSnapshot
                     }
-                }
-                Ok(())
-            }
-            TrafficCommandOperation::CloseAllActive => {
-                self.inner.client.close_all_connections().await
-            }
-        };
-        if let Err(error) = mutation {
-            return traffic_controller_failure(operation, target_count, &target_ids, error);
-        }
-
-        let deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
-        loop {
-            if let Err(error) = self.inner.client.verify_version().await {
-                return traffic_controller_failure(operation, target_count, &target_ids, error);
-            }
-            let observed = match self.inner.client.connections().await {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    return traffic_controller_failure(operation, target_count, &target_ids, error);
-                }
-            };
-            let observed_ids = connection_ids(&observed);
-            let remaining = target_ids
-                .iter()
-                .filter(|id| observed_ids.contains(id))
-                .cloned()
-                .collect::<Vec<_>>();
-            if apply_connection_observation(&self.inner, observed)
-                .await
-                .is_err()
-            {
-                return TrafficCommandExecution::failure(
-                    operation,
-                    TrafficCommandFailureKind::InconsistentObservation,
-                    target_count,
-                    remaining,
-                );
-            }
-            if remaining.is_empty() {
-                return TrafficCommandExecution::success(operation, target_count);
-            }
-            if tokio::time::Instant::now() >= deadline {
-                let failure = if matches!(
-                    operation,
-                    TrafficCommandOperation::CloseAllActive
-                        | TrafficCommandOperation::CloseFilteredVisible
-                ) && remaining.len() < target_count
-                {
-                    TrafficCommandFailureKind::PartialRemaining
-                } else {
-                    TrafficCommandFailureKind::Timeout
+                    TrafficSourceMachineError::Retired => TrafficCommandFailureKind::Disconnected,
                 };
+                let remaining = requested_ids.unwrap_or_default();
                 return TrafficCommandExecution::failure(
                     operation,
                     failure,
-                    target_count,
+                    remaining.len(),
                     remaining,
                 );
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            Err(mish_state_machine::AdmissionError::InboxSaturated) => {
+                return TrafficCommandExecution::failure(
+                    operation,
+                    TrafficCommandFailureKind::Conflict,
+                    0,
+                    Vec::new(),
+                );
+            }
+            Err(mish_state_machine::AdmissionError::Retired) => {
+                return TrafficCommandExecution::failure(
+                    operation,
+                    TrafficCommandFailureKind::Disconnected,
+                    0,
+                    Vec::new(),
+                );
+            }
+        }
+        loop {
+            let snapshot = machine.snapshot();
+            if let Some(result) = snapshot.command_result(&operation_id) {
+                return result;
+            }
+            if !snapshot.command_is_pending(&operation_id) {
+                return TrafficCommandExecution::failure(
+                    operation,
+                    TrafficCommandFailureKind::InconsistentObservation,
+                    0,
+                    Vec::new(),
+                );
+            }
+            if !wait_for_traffic_machine_update(&mut updates).await {
+                return TrafficCommandExecution::failure(
+                    operation,
+                    TrafficCommandFailureKind::Disconnected,
+                    0,
+                    Vec::new(),
+                );
+            }
         }
     }
 
@@ -2569,6 +2558,390 @@ impl ControllerStatusSource {
             return;
         };
         let _ = apply_connection_observation(&self.inner, connections).await;
+    }
+}
+
+async fn wait_for_traffic_machine_update(updates: &mut broadcast::Receiver<()>) -> bool {
+    match updates.recv().await {
+        Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => true,
+        Err(broadcast::error::RecvError::Closed) => false,
+    }
+}
+
+fn traffic_machine(inner: &SourceInner) -> &RunnerHandle<TrafficSourceMachine> {
+    inner
+        .traffic_machine
+        .get()
+        .expect("Traffic source machine must be installed")
+}
+
+fn current_traffic_context(inner: &SourceInner) -> TrafficSourceContext {
+    let runtime = inner
+        .traffic_context
+        .lock()
+        .expect("Traffic runtime context poisoned")
+        .clone();
+    TrafficSourceContext {
+        capture_id: runtime.capture_session_id,
+        controller_generation: inner.observation_generation.load(Ordering::Acquire),
+        profile_id: inner.profile.profile_id().to_owned(),
+        runtime_id: runtime.runtime_id,
+    }
+}
+
+fn traffic_snapshot_from_inner(
+    inner: &SourceInner,
+    adapter_kind: StatusAdapterKind,
+) -> TrafficDataSnapshot {
+    let state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let Some(mapper) = &state.mapper else {
+        let mut snapshot = TrafficDataSnapshot::unavailable(adapter_kind);
+        snapshot.profile_id = inner.profile.profile_id().into();
+        return snapshot;
+    };
+    let machine_live = inner.traffic_machine.get().is_none_or(|machine| {
+        machine.snapshot().authority.live().is_some_and(|source| {
+            source.context == current_traffic_context(inner)
+                && state.traffic_session_id.as_deref() == Some(source.session_id.as_str())
+                && state.traffic_sequence == source.sequence
+        })
+    });
+    let stale = !inner.observations_active.load(Ordering::Acquire)
+        || state.diagnostics.contains_key(&ObservationChannel::Session)
+        || state.diagnostics.contains_key(&ObservationChannel::Refresh)
+        || !machine_live;
+    mapper.traffic_snapshot(
+        adapter_kind,
+        if stale {
+            TrafficDataPhase::Stale
+        } else {
+            TrafficDataPhase::Ready
+        },
+        state.traffic_sequence,
+        state.traffic_session_id.clone(),
+        state.traffic_reconnect_count,
+    )
+}
+
+async fn synchronize_traffic_machine(inner: &Arc<SourceInner>) {
+    let context = current_traffic_context(inner);
+    let machine = traffic_machine(inner);
+    let context_matches = traffic_machine_context_matches(&machine.snapshot(), &context);
+    if !context_matches {
+        let _ = machine
+            .try_admit(TrafficSourceInput::BeginBinding(context))
+            .await;
+    }
+}
+
+fn traffic_machine_context_matches(
+    state: &TrafficSourceMachineState,
+    context: &TrafficSourceContext,
+) -> bool {
+    match &state.authority {
+        crate::traffic_source_machine::TrafficSourceAuthority::Binding { context: current }
+        | crate::traffic_source_machine::TrafficSourceAuthority::Replacing {
+            candidate: current,
+            ..
+        }
+        | crate::traffic_source_machine::TrafficSourceAuthority::FailedReconciling {
+            context: current,
+            ..
+        } => current == context,
+        crate::traffic_source_machine::TrafficSourceAuthority::Live(stamp) => {
+            &stamp.context == context
+        }
+        crate::traffic_source_machine::TrafficSourceAuthority::Ended { .. }
+        | crate::traffic_source_machine::TrafficSourceAuthority::Retired { .. } => false,
+    }
+}
+
+fn traffic_effect_is_current(
+    inner: &SourceInner,
+    correlation: &mish_state_machine::Correlation,
+    source: &TrafficSourceStamp,
+    cancellation: &CancellationToken,
+) -> bool {
+    !cancellation.is_cancelled()
+        && current_traffic_context(inner) == source.context
+        && traffic_machine(inner)
+            .snapshot()
+            .effect_is_current_for_source(correlation, source)
+}
+
+fn retired_traffic_execution(request: &TrafficCommandRequest) -> TrafficCommandExecution {
+    let remaining = request.requested_ids.clone().unwrap_or_default();
+    TrafficCommandExecution::failure(
+        request.operation,
+        TrafficCommandFailureKind::RuntimeReplaced,
+        request.admitted_target_count,
+        remaining,
+    )
+}
+
+async fn execute_traffic_command_effect(
+    inner: &Arc<SourceInner>,
+    correlation: &mish_state_machine::Correlation,
+    request: &TrafficCommandRequest,
+    source: &TrafficSourceStamp,
+    cancellation: &CancellationToken,
+) -> TrafficCommandExecution {
+    let Ok(_command) = inner.command.try_lock() else {
+        return TrafficCommandExecution::failure(
+            request.operation,
+            TrafficCommandFailureKind::Conflict,
+            0,
+            Vec::new(),
+        );
+    };
+    let _authority_lock = inner.authority.lock().await;
+    if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+        return retired_traffic_execution(request);
+    }
+    let current = traffic_snapshot_from_inner(inner, StatusAdapterKind::Rpc);
+    let authority_matches = if matches!(
+        request.operation,
+        TrafficCommandOperation::CloseFilteredVisible
+    ) {
+        traffic_session_authority_matches(&current, &request.authority)
+    } else {
+        traffic_authority_matches(&current, &request.authority)
+    };
+    if !authority_matches {
+        let stale_targets = if matches!(
+            request.operation,
+            TrafficCommandOperation::CloseFilteredVisible
+        ) {
+            request.requested_ids.clone().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        return TrafficCommandExecution::failure(
+            request.operation,
+            TrafficCommandFailureKind::StaleSnapshot,
+            stale_targets.len(),
+            stale_targets,
+        );
+    }
+
+    let target_ids = match request.operation {
+        TrafficCommandOperation::CloseConnection => {
+            let Some(connection_ids) = request.requested_ids.clone() else {
+                return TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::InvalidRequest,
+                    0,
+                    Vec::new(),
+                );
+            };
+            let [connection_id] = connection_ids.as_slice() else {
+                return TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::InvalidRequest,
+                    0,
+                    Vec::new(),
+                );
+            };
+            if !current
+                .active_connections
+                .iter()
+                .any(|connection| connection.id == *connection_id)
+            {
+                return TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::StaleConnection,
+                    0,
+                    Vec::new(),
+                );
+            }
+            connection_ids
+        }
+        TrafficCommandOperation::CloseFilteredVisible => {
+            let Some(connection_ids) = request.requested_ids.clone() else {
+                return TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::InvalidRequest,
+                    0,
+                    Vec::new(),
+                );
+            };
+            let unique_ids = connection_id_set(&connection_ids);
+            if connection_ids.is_empty()
+                || unique_ids.len() != connection_ids.len()
+                || connection_ids.len() > 20_000
+            {
+                return TrafficCommandExecution::failure(
+                    request.operation,
+                    TrafficCommandFailureKind::InvalidRequest,
+                    connection_ids.len(),
+                    connection_ids,
+                );
+            }
+            connection_ids
+        }
+        TrafficCommandOperation::CloseAllActive => current
+            .active_connections
+            .iter()
+            .map(|connection| connection.id.clone())
+            .collect(),
+    };
+    let target_count = target_ids.len();
+    if target_count == 0 {
+        return TrafficCommandExecution::success(request.operation, 0);
+    }
+
+    if let Err(error) = inner.client.verify_version().await {
+        return traffic_controller_failure(request.operation, target_count, &target_ids, error);
+    }
+    if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+        return retired_traffic_execution(request);
+    }
+    let initial = match inner.client.connections().await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return traffic_controller_failure(request.operation, target_count, &target_ids, error);
+        }
+    };
+    if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+        return retired_traffic_execution(request);
+    }
+    if apply_connection_observation(inner, initial.clone())
+        .await
+        .is_err()
+    {
+        return TrafficCommandExecution::failure(
+            request.operation,
+            TrafficCommandFailureKind::InconsistentObservation,
+            target_count,
+            target_ids,
+        );
+    }
+    if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+        return retired_traffic_execution(request);
+    }
+    let observed_ids = connection_ids(&initial);
+    if matches!(request.operation, TrafficCommandOperation::CloseConnection)
+        && !observed_ids.contains(&target_ids[0])
+    {
+        return TrafficCommandExecution::failure(
+            request.operation,
+            TrafficCommandFailureKind::StaleConnection,
+            target_count,
+            Vec::new(),
+        );
+    }
+    if matches!(request.operation, TrafficCommandOperation::CloseAllActive)
+        && connection_id_set(&observed_ids) != connection_id_set(&target_ids)
+    {
+        return TrafficCommandExecution::failure(
+            request.operation,
+            TrafficCommandFailureKind::StaleSnapshot,
+            target_count,
+            target_ids,
+        );
+    }
+    let filtered_mutation_ids = target_ids
+        .iter()
+        .filter(|id| observed_ids.contains(id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mutation = match request.operation {
+        TrafficCommandOperation::CloseConnection => {
+            inner.client.close_connection(&target_ids[0]).await
+        }
+        TrafficCommandOperation::CloseFilteredVisible => {
+            for (index, connection_id) in filtered_mutation_ids.iter().enumerate() {
+                if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+                    return retired_traffic_execution(request);
+                }
+                if let Err(error) = inner.client.close_connection(connection_id).await {
+                    return traffic_controller_failure(
+                        request.operation,
+                        target_count,
+                        &filtered_mutation_ids[index..],
+                        error,
+                    );
+                }
+            }
+            Ok(())
+        }
+        TrafficCommandOperation::CloseAllActive => inner.client.close_all_connections().await,
+    };
+    if let Err(error) = mutation {
+        return traffic_controller_failure(request.operation, target_count, &target_ids, error);
+    }
+    if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+        return retired_traffic_execution(request);
+    }
+
+    let deadline = tokio::time::Instant::now() + inner.confirmation_timeout;
+    loop {
+        if let Err(error) = inner.client.verify_version().await {
+            return traffic_controller_failure(request.operation, target_count, &target_ids, error);
+        }
+        if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+            return retired_traffic_execution(request);
+        }
+        let observed = match inner.client.connections().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return traffic_controller_failure(
+                    request.operation,
+                    target_count,
+                    &target_ids,
+                    error,
+                );
+            }
+        };
+        if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+            return retired_traffic_execution(request);
+        }
+        let observed_ids = connection_ids(&observed);
+        let remaining = target_ids
+            .iter()
+            .filter(|id| observed_ids.contains(id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if apply_connection_observation(inner, observed).await.is_err() {
+            return TrafficCommandExecution::failure(
+                request.operation,
+                TrafficCommandFailureKind::InconsistentObservation,
+                target_count,
+                remaining,
+            );
+        }
+        if !traffic_effect_is_current(inner, correlation, source, cancellation) {
+            return retired_traffic_execution(request);
+        }
+        if remaining.is_empty() {
+            return TrafficCommandExecution::success(request.operation, target_count);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let failure = if matches!(
+                request.operation,
+                TrafficCommandOperation::CloseAllActive
+                    | TrafficCommandOperation::CloseFilteredVisible
+            ) && remaining.len() < target_count
+            {
+                TrafficCommandFailureKind::PartialRemaining
+            } else {
+                TrafficCommandFailureKind::Timeout
+            };
+            return TrafficCommandExecution::failure(
+                request.operation,
+                failure,
+                target_count,
+                remaining,
+            );
+        }
+        tokio::select! {
+            _ = cancellation.cancelled() => return retired_traffic_execution(request),
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
     }
 }
 
@@ -2801,6 +3174,10 @@ async fn observe_active_session(
     inner: &Arc<SourceInner>,
     generation: u64,
 ) -> Result<(), ControllerStatusSourceError> {
+    let context = current_traffic_context(inner);
+    let _ = traffic_machine(inner)
+        .try_admit(TrafficSourceInput::BeginBinding(context))
+        .await;
     let _authority = inner.authority.lock().await;
     inner.client.verify_version().await?;
     let (mut traffic, mut memory) =
@@ -3298,7 +3675,11 @@ async fn apply_observations_guarded(
 ) -> Result<(), StatusMappingError> {
     let recent_traffic_changed = batch.traffic.is_some();
     let traffic_changed = batch.connections.is_some() || batch.rules.is_some();
-    {
+    let complete_baseline = batch.runtime_config.is_some()
+        && batch.proxies.is_some()
+        && batch.connections.is_some()
+        && batch.rules.is_some();
+    let stamp = {
         let mut state = inner
             .state
             .lock()
@@ -3328,6 +3709,28 @@ async fn apply_observations_guarded(
             state.recent_traffic_sequence = state.recent_traffic_sequence.saturating_add(1);
         }
         state.mapper = Some(mapper);
+        state
+            .traffic_session_id
+            .clone()
+            .filter(|_| state.traffic_sequence > 0)
+            .map(|session_id| TrafficSourceStamp {
+                context: current_traffic_context(inner),
+                sequence: state.traffic_sequence,
+                session_id,
+            })
+    };
+    if let Some(stamp) = stamp.filter(|_| new_session || traffic_changed) {
+        if !traffic_machine_context_matches(&traffic_machine(inner).snapshot(), &stamp.context) {
+            let _ = traffic_machine(inner)
+                .try_admit(TrafficSourceInput::BeginBinding(stamp.context.clone()))
+                .await;
+        }
+        let input = if new_session || complete_baseline {
+            TrafficSourceInput::Baseline(stamp)
+        } else {
+            TrafficSourceInput::Observation(stamp)
+        };
+        let _ = traffic_machine(inner).try_admit(input).await;
     }
     publish_change(inner).await;
     Ok(())
@@ -3343,6 +3746,17 @@ async fn record_error(inner: &Arc<SourceInner>, channel: ObservationChannel, det
             channel,
             format!("Mihomo Controller observation failed: {detail}"),
         );
+    }
+    if matches!(
+        channel,
+        ObservationChannel::Session | ObservationChannel::Refresh
+    ) {
+        let _ = traffic_machine(inner)
+            .try_admit(TrafficSourceInput::Gap {
+                context: current_traffic_context(inner),
+                reason: TrafficSourceGapReason::ObservationFailed,
+            })
+            .await;
     }
     publish_change(inner).await;
 }
@@ -3598,6 +4012,26 @@ fn pending_snapshot(
         tun: false,
     };
     snapshot
+}
+
+#[cfg(test)]
+mod traffic_command_wait_tests {
+    use tokio::sync::broadcast;
+
+    use super::wait_for_traffic_machine_update;
+
+    #[tokio::test]
+    async fn lagged_updates_recheck_the_machine_before_a_closed_channel_disconnects() {
+        let (updates, _) = broadcast::channel(1);
+        let mut receiver = updates.subscribe();
+        updates.send(()).unwrap();
+        updates.send(()).unwrap();
+        drop(updates);
+
+        assert!(wait_for_traffic_machine_update(&mut receiver).await);
+        assert!(wait_for_traffic_machine_update(&mut receiver).await);
+        assert!(!wait_for_traffic_machine_update(&mut receiver).await);
+    }
 }
 
 #[cfg(test)]

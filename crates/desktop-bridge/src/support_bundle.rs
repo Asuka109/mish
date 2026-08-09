@@ -8,7 +8,7 @@ use std::{
 use mish_runtime::{
     CapabilityAvailability, CorePhase, CoreStatus, EventLevel, EventSource, EventSourcePhase,
     EventsDataPhase, EventsSnapshot, ProbeStatus, ServiceProbeFailureStage, StatusAdapterKind,
-    StatusSnapshot, SystemProxyObservedState, SystemProxyPhase,
+    StatusSnapshot, SystemProxyObservedState, SystemProxyPhase, TrafficSupportEvidence,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,8 +19,8 @@ use crate::{
 
 pub const SUPPORT_BUNDLE_MAX_BYTES: usize = 256 * 1_024;
 const SUPPORT_BUNDLE_EVENT_LIMIT: usize = 256;
-const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 2;
-const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 9;
+const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 3;
+const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 10;
 pub const TERMINATION_EVIDENCE_MAX_RECORDS: usize = 32;
 pub const TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const TERMINATION_EVIDENCE_MAX_RECORD_BYTES: usize = 512;
@@ -398,7 +398,7 @@ impl SupportBundleService {
         preview_id: String,
         generated_at: u64,
     ) -> Result<PreparedSupportBundle, SupportBundleError> {
-        let (core, status, events) = self
+        let (core, status, events, traffic_evidence) = self
             .runtime
             .support_bundle_runtime_snapshot(StatusAdapterKind::Rpc)
             .await;
@@ -415,6 +415,7 @@ impl SupportBundleService {
                 platform: &self.platform,
                 status: &status,
                 termination_evidence: &termination_evidence,
+                traffic_evidence: &traffic_evidence,
             },
         )
     }
@@ -460,6 +461,7 @@ struct SupportBundleManifest {
     redaction_report: SupportRedactionReport,
     service_probes: SupportServiceProbes,
     termination_recovery_evidence: Vec<TerminationEvidenceRecord>,
+    traffic_source_transitions: Vec<TrafficSupportEvidence>,
 }
 
 #[derive(Serialize)]
@@ -480,6 +482,7 @@ struct SupportBundleInput<'a> {
     platform: &'a SupportBundlePlatform,
     status: &'a StatusSnapshot,
     termination_evidence: &'a [TerminationEvidenceRecord],
+    traffic_evidence: &'a [TrafficSupportEvidence],
 }
 
 #[derive(Serialize)]
@@ -596,6 +599,7 @@ pub enum SupportBundleCategory {
     EventsSummary,
     RedactionReport,
     TerminationRecoveryEvidence,
+    TrafficSourceTransitions,
 }
 
 #[derive(Serialize)]
@@ -695,6 +699,7 @@ fn build_support_bundle(
         },
         service_probes: summarize_service_probes(input.status),
         termination_recovery_evidence: input.termination_evidence.to_vec(),
+        traffic_source_transitions: input.traffic_evidence.to_vec(),
     };
     let bytes =
         serde_json::to_vec_pretty(&manifest).map_err(|_| SupportBundleError::Serialization)?;
@@ -727,6 +732,10 @@ fn build_support_bundle(
             preview_category(
                 SupportBundleCategory::TerminationRecoveryEvidence,
                 manifest.termination_recovery_evidence.len(),
+            ),
+            preview_category(
+                SupportBundleCategory::TrafficSourceTransitions,
+                manifest.traffic_source_transitions.len(),
             ),
         ],
         content_bytes: bytes.len(),
@@ -945,6 +954,15 @@ mod tests {
         let events = malicious_events(2);
         let activation = ManagedActivationState::default();
         let platform = platform();
+        let traffic_evidence = vec![mish_runtime::TrafficSupportEvidence {
+            disposition: mish_runtime::TrafficTransitionDisposition::Committed,
+            effect_sequence: Some(1),
+            failure: None,
+            operation: Some(mish_runtime::TrafficCommandOperation::CloseConnection),
+            phase: mish_runtime::TrafficSourceEvidencePhase::Live,
+            revision: 7,
+            target_count: Some(1),
+        }];
         let input = || SupportBundleInput {
             activation: &activation,
             application_version: "0.1.0",
@@ -954,6 +972,7 @@ mod tests {
             platform: &platform,
             status: &status,
             termination_evidence: &[],
+            traffic_evidence: &traffic_evidence,
         };
 
         let first = build_support_bundle("preview-1".into(), input()).unwrap();
@@ -980,8 +999,9 @@ mod tests {
         }
         assert!(exported.contains("raw-profile-configuration"));
         assert!(exported.contains("event-text"));
-        assert!(exported.contains("\"formatVersion\": 2"));
-        assert_eq!(first.preview.format_version, 2);
+        assert!(exported.contains("trafficSourceTransitions"));
+        assert!(exported.contains("\"formatVersion\": 3"));
+        assert_eq!(first.preview.format_version, 3);
         assert!(first.preview.content_bytes < SUPPORT_BUNDLE_MAX_BYTES);
     }
 
@@ -1048,6 +1068,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                traffic_evidence: &[],
             },
         )
         .unwrap();
@@ -1080,6 +1101,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                traffic_evidence: &[],
             },
         )
         .unwrap();
@@ -1113,6 +1135,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                traffic_evidence: &[],
             },
         )
         .unwrap();
