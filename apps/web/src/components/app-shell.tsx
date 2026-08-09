@@ -158,13 +158,13 @@ const shellStyles = tv({
       "max-shell-mobile:grid",
     ),
     narrowNavigationIsland: cx(
-      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas",
+      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas p-0.5",
       "shadow-sidebar-item-active",
     ),
     narrowNavigationPrimary: "narrow-navigation-primary grid-cols-3",
     narrowNavigationUtility: "narrow-navigation-utility min-w-16 grid-cols-1",
     narrowNavItem: cx(
-      "nav-item narrow-nav-item grid min-h-12 min-w-0 grid-rows-[20px_14px] content-center",
+      "nav-item narrow-nav-item grid min-h-11 min-w-0 grid-rows-[20px_14px] content-center",
       "justify-items-center gap-0 rounded-md border border-transparent px-1 text-micro leading-3",
       "font-medium text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
       "[&>span]:block [&>span]:max-w-full [&>span]:overflow-hidden",

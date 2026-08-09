@@ -105,9 +105,24 @@ function expectNarrowNavigationGeometry(context: string) {
     ".narrow-navigation .narrow-nav-item",
   )) {
     const rect = target.getBoundingClientRect();
+    const island = target.closest<HTMLElement>(".narrow-navigation-island");
+    if (!island) throw new Error(`${context}: missing navigation island`);
+    const islandRect = island.getBoundingClientRect();
     const label = target.getAttribute("aria-label") ?? target.textContent ?? "destination";
     expect(rect.width, `${context}: ${label} target width`).toBeGreaterThanOrEqual(24);
     expect(rect.height, `${context}: ${label} target height`).toBeGreaterThanOrEqual(44);
+    expect(rect.left - islandRect.left, `${context}: ${label} left inset`).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(
+      islandRect.right - rect.right,
+      `${context}: ${label} right inset`,
+    ).toBeGreaterThanOrEqual(2);
+    expect(rect.top - islandRect.top, `${context}: ${label} top inset`).toBeGreaterThanOrEqual(2);
+    expect(
+      islandRect.bottom - rect.bottom,
+      `${context}: ${label} bottom inset`,
+    ).toBeGreaterThanOrEqual(2);
     expectTargetOwnsItsCenter(target, `${context}: ${label}`);
   }
 }

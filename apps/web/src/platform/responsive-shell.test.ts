@@ -56,6 +56,8 @@ describe("responsive shell CSS", () => {
     expect(shell).not.toContain("max-shell-mobile:border-b-0");
     expect(shell).not.toContain("max-shell-mobile:rounded-b-none");
     expect(shell).not.toContain("max-shell-mobile:border-t");
+    expect(shell).toContain("bg-canvas p-0.5");
+    expect(shell).toContain("narrow-nav-item grid min-h-11");
   });
 
   it("bounds the mobile root to the dynamic viewport", () => {
