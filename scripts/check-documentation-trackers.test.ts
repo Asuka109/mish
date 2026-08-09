@@ -257,11 +257,46 @@ test("tracker timestamps cannot describe events after their read-back", () => {
 test("reopened Issues remain valid active dependencies", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);
-  fixture.issues[0].state = "OPEN";
-  fixture.issues[0].stateReason = "REOPENED";
-  fixture.issues[0].closedAt = null;
-  fixture.issues[0].references[0].role = "active-dependency";
-  assert.deepEqual(validateDocumentationTrackers(fixture, sources), []);
+  fixture.issues.push({
+    number: 999,
+    title: "Reopened delivery",
+    state: "OPEN",
+    stateReason: "REOPENED",
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/current-state.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/current-state.md"] += "\nOpen Issue #999 tracks remaining work.\n";
+  assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
+});
+
+test("active dependencies cannot be described as completed", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/current-state.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/current-state.md"] += "\nCompleted Issue #999 delivered this behavior.\n";
+  assert.match(
+    validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
+    /docs\/current-state.md:#999 lacks explicit active dependency context/u,
+  );
+});
+
+test("durable requirements near completed Issues are not future work", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288 introduced the kernel. Existing callers must remain compatible.\n";
+  assert.deepEqual(validateDocumentationTrackers(registry, fixtureSources), []);
 });
 
 test("not-planned Issues cannot be completed delivery evidence", () => {
