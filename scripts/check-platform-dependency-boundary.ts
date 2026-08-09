@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 
@@ -9,32 +10,6 @@ function source(path: string): string {
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-
-function normalDependencies(manifest: string): Set<string> {
-  const dependencies = new Set<string>();
-  let normalSection = false;
-  let tableDependency: string | undefined;
-  for (const line of manifest.split("\n")) {
-    const header = line.trim().match(/^\[(.+)\]$/u)?.[1];
-    if (header) {
-      const dependencySection = header.match(
-        /^(?:target\..+\.)?dependencies(?:\.([A-Za-z0-9_-]+))?$/u,
-      );
-      normalSection = dependencySection !== null;
-      tableDependency = dependencySection?.[1];
-      if (tableDependency) dependencies.add(tableDependency);
-      continue;
-    }
-    if (!normalSection || line.trimStart().startsWith("#")) continue;
-    if (!tableDependency) {
-      const dependency = line.match(/^\s*([A-Za-z0-9_-]+)\s*=/u)?.[1];
-      if (dependency) dependencies.add(dependency);
-    }
-    const packageName = line.match(/\bpackage\s*=\s*"([^"]+)"/u)?.[1];
-    if (packageName) dependencies.add(packageName);
-  }
-  return dependencies;
 }
 
 function rustSources(relative: string): string[] {
@@ -51,22 +26,25 @@ function rustSources(relative: string): string[] {
 }
 
 function workspaceDependencyGraph(): Map<string, Set<string>> {
+  const metadata = JSON.parse(
+    execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }),
+  ) as {
+    packages: Array<{
+      name: string;
+      dependencies: Array<{ kind: string | null; name: string }>;
+    }>;
+  };
   const graph = new Map<string, Set<string>>();
-  for (const root of ["crates", "apps"]) {
-    const visit = (relative: string): void => {
-      for (const entry of readdirSync(resolve(repositoryRoot, relative), { withFileTypes: true })) {
-        const path = `${relative}/${entry.name}`;
-        if (entry.isDirectory()) {
-          visit(path);
-          continue;
-        }
-        if (entry.name !== "Cargo.toml") continue;
-        const manifest = source(path);
-        const packageName = manifest.match(/^name\s*=\s*"([^"]+)"/mu)?.[1];
-        if (packageName) graph.set(packageName, normalDependencies(manifest));
-      }
-    };
-    visit(root);
+  for (const pkg of metadata.packages) {
+    graph.set(
+      pkg.name,
+      new Set(
+        pkg.dependencies.filter((dependency) => dependency.kind === null).map(({ name }) => name),
+      ),
+    );
   }
   return graph;
 }
