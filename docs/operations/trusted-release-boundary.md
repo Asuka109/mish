@@ -9,11 +9,21 @@ reviewer-protected Environments, the selected Action allowlist, full-SHA
 pinning, and the OIDC subject all match the checked-in policy. No production
 secret or signing identity may be configured while that flag is false.
 
-The latest reviewed hosted `main` run for `cecdf798`
-([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
-created macOS and Android jobs, but GitHub allocated neither job: both completed
-with zero steps and no logs. Local checks and credential-free fixtures are the
-available evidence. They are not a runner-executed protected gate.
+The latest reviewed hosted `main` run for
+`d925f0abd09c1f153cc54f2e2bcea054b6477b1e`
+([CI run 31294286763](https://github.com/Asuka109/mish/actions/runs/31294286763))
+completed its macOS ARM64 and Android packaging jobs with 15 and 20 executed
+steps. Credential-free Internal TUN Alpha
+[staging run 31296492082](https://github.com/Asuka109/mish/actions/runs/31296492082)
+also completed its candidate, independent verification, final binding, and
+fresh-runner confirmation jobs. These are runner-executed packaging and private
+staging evidence, not a protected production signing or publication gate.
+
+The live trust-settings audit remains `disabled-fail-closed`: required
+main-branch review and CODEOWNERS enforcement are unavailable, the protected
+signing/publication Environments do not exist, and OIDC does not bind the exact
+workflow identity. No production credential or signing identity may be added
+or inferred from the successful credential-free runs.
 
 ## Threat model
 
