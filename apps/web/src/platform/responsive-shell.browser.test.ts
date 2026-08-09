@@ -287,6 +287,9 @@ function appendProxyControlFixture(
 async function navigate(path: string): Promise<void> {
   const target = new URL(path, window.location.origin);
   const normalizedPathname = (target.pathname.replace(/\/+$/, "") || "/").toLowerCase();
+  const desktopPathname = normalizedPathname.startsWith("/routes/")
+    ? "/routes"
+    : normalizedPathname;
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
@@ -299,7 +302,7 @@ async function navigate(path: string): Promise<void> {
       document
         .querySelector(".desktop-navigation .desktop-nav-item.is-active")
         ?.getAttribute("href"),
-    ).toBe(normalizedPathname);
+    ).toBe(desktopPathname);
 
     if (normalizedPathname === "/traffic") {
       expect(document.querySelector(".traffic-table")).not.toBeNull();
@@ -787,6 +790,14 @@ describe("responsive application shell", () => {
         expect(document.querySelector(".narrow-section-navigation")).not.toBeNull();
       }
     }
+
+    await navigate("/ROUTES/proxy");
+    expect(
+      document.querySelector('.desktop-navigation .desktop-nav-item[aria-current="page"]'),
+    ).toHaveAttribute("href", "/routes");
+    expect(
+      document.querySelector('.narrow-navigation .narrow-nav-item[aria-current="page"]'),
+    ).toHaveAttribute("href", "/routes");
   });
 
   test("preserves the compact desktop sidebar at the 600px boundary", async () => {

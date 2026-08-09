@@ -520,7 +520,8 @@ function Sidebar() {
         onKeyDown={handleSidebarKeyDown}
       >
         {destinations.map(({ icon: Icon, key, path }) => {
-          const selected = normalizedPathname === path;
+          const selected =
+            path === "/routes" ? isRoutesPath(location.pathname) : normalizedPathname === path;
           return (
             <Link
               aria-current={selected ? "page" : undefined}
