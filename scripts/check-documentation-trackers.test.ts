@@ -170,7 +170,9 @@ test("calendar-invalid timestamps fail exact read-back validation", () => {
 test("tracker timestamps cannot describe events after their read-back", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);
-  fixture.issues[0].updatedAt = "2026-08-09T07:19:20Z";
+  fixture.issues[0].updatedAt = new Date(
+    new Date(fixture.readBackAt).getTime() + 1000,
+  ).toISOString();
   fixture.issues[1].closedAt = "2026-08-09T07:00:00Z";
   fixture.issues[1].updatedAt = "2026-08-09T06:59:59Z";
   const errors = validateDocumentationTrackers(fixture, sources).join("\n");
