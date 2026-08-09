@@ -146,6 +146,21 @@ Profile, generated Core configuration, or private installation key. A separate
 mode-`0700` root backup contains only the last verified bounded
 Helper/Core/plist/enrollment/receipt set.
 
+Helper removal additionally keeps one user-private, domain-specific occurrence
+journal because cancellation, Capture shutdown, and incomplete observation can
+terminate before a privileged maintenance journal exists. Rust admits one
+removal operation ID and monotonic revision, records the closed admitted Helper
+state, lifecycle phase, typed failure, observation, and cleanup outcome, and
+atomically makes the terminal occurrence durable before the serialized RPC
+boundary admits another removal. A process restart reconciles one interrupted
+active occurrence to `observation-incomplete` before a retry; it never infers
+that privileged cleanup succeeded. The journal retains at most 16 occurrences
+in a mode-`0600` file and contains no credentials, keys, raw command output,
+Profiles, arbitrary paths, or host/network values. It is diagnostic evidence,
+not maintenance or cleanup authority: the existing Helper, package, Capture,
+and network owners still decide current state, so a successful retry may
+truthfully publish removed/not-installed without rewriting the earlier failure.
+
 Before any artifact replacement, the controller uses the existing installation
 key and one accepted operation identity to authenticate Status and, when
 needed, Disable. It confirms the exact disabled network observation and

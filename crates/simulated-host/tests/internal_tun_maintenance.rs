@@ -1,5 +1,7 @@
 use std::{
+    fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    os::unix::fs::PermissionsExt,
     sync::Arc,
     time::Duration,
 };
@@ -7,7 +9,9 @@ use std::{
 use futures_util::{SinkExt, StreamExt};
 use mish_bridge::{
     BridgeShutdownOutcome, LoopbackPortSelection, LoopbackServerConfig,
-    start_loopback_server_with_runtime_host,
+    TunHelperRemovalCleanupOutcome, TunHelperRemovalLifecyclePhase,
+    TunHelperRemovalObservationOutcome, TunHelperRemovalOccurrenceFailure,
+    TunHelperRemovalOccurrenceStore, start_loopback_server_with_runtime_host,
 };
 use mish_platform_macos::internal_tun_maintenance::{
     EnrollmentTransition, MaintenanceCommitPoint, MaintenanceKind, MaintenanceTerminalOutcome,
@@ -122,6 +126,16 @@ async fn rpc_authenticate(socket: &mut RpcSocket) {
 }
 
 fn rpc_config(scenario: &MaintenanceScenarioRuntime) -> LoopbackServerConfig {
+    rpc_config_with_occurrences(
+        scenario,
+        Arc::new(TunHelperRemovalOccurrenceStore::in_memory()),
+    )
+}
+
+fn rpc_config_with_occurrences(
+    scenario: &MaintenanceScenarioRuntime,
+    occurrences: Arc<TunHelperRemovalOccurrenceStore>,
+) -> LoopbackServerConfig {
     LoopbackServerConfig {
         allowed_origins: vec![RPC_ORIGIN.into()],
         auth_token: TEST_AUTH_TOKEN.into(),
@@ -139,6 +153,7 @@ fn rpc_config(scenario: &MaintenanceScenarioRuntime) -> LoopbackServerConfig {
         process_icon_resolver: None,
         service_probes: None,
         settings_service: Some(scenario.settings_service.clone()),
+        tun_helper_removal_occurrences: Some(occurrences),
         updater_service: None,
     }
 }
@@ -1134,8 +1149,9 @@ async fn authenticated_active_tun_removal_hands_off_capture_before_authorization
     );
     assert!(scenario.capture.status().tun_enabled);
     let unrelated = scenario.host.maintenance_observation().unwrap().unrelated;
+    let occurrences = Arc::new(TunHelperRemovalOccurrenceStore::in_memory());
     let bridge = start_loopback_server_with_runtime_host(
-        rpc_config(&scenario),
+        rpc_config_with_occurrences(&scenario, occurrences.clone()),
         scenario.runtime_host.clone(),
     )
     .await
@@ -1186,6 +1202,14 @@ async fn authenticated_active_tun_removal_hands_off_capture_before_authorization
     assert_eq!(lifecycle["severity"], "success");
     assert_eq!(lifecycle["pinned"], false);
 
+    let retained = occurrences.records();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].admitted_revision, 1);
+    assert!(retained.iter().all(|record| {
+        record.outcome == mish_runtime::TunHelperRemovalOutcome::Removed
+            && record.cleanup == TunHelperRemovalCleanupOutcome::ConfirmedAbsent
+    }));
+
     shutdown_with_profile_coordinator(&scenario).await;
     drop(socket);
     assert!(matches!(
@@ -1215,8 +1239,9 @@ async fn incomplete_cleanup_observation_blocks_removal_before_maintenance() {
         )
         .unwrap();
     let before = scenario.host.maintenance_observation().unwrap();
+    let occurrences = Arc::new(TunHelperRemovalOccurrenceStore::in_memory());
     let bridge = start_loopback_server_with_runtime_host(
-        rpc_config(&scenario),
+        rpc_config_with_occurrences(&scenario, occurrences.clone()),
         scenario.runtime_host.clone(),
     )
     .await
@@ -1235,6 +1260,18 @@ async fn incomplete_cleanup_observation_blocks_removal_before_maintenance() {
     );
     assert_eq!(rejected["error"]["data"]["kind"], "observation-partial");
     assert!(scenario.maintenance.journal_snapshot().is_none());
+    let retained = occurrences.records();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(
+        retained[0].failure,
+        Some(TunHelperRemovalOccurrenceFailure::Helper(
+            TunHelperFailureKind::ObservationPartial
+        ))
+    );
+    assert_eq!(
+        retained[0].observation,
+        TunHelperRemovalObservationOutcome::Incomplete
+    );
     let after = scenario.host.maintenance_observation().unwrap();
     assert_eq!(after.installation_id, before.installation_id);
     assert_eq!(after.route, SyntheticOwnership::Partial);
@@ -1258,6 +1295,72 @@ async fn incomplete_cleanup_observation_blocks_removal_before_maintenance() {
         notification(&notifications, "tun-helper.lifecycle")["presentation"]["data"]["outcome"],
         "observation-incomplete"
     );
+
+    drop(socket);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Failed { .. }
+    ));
+}
+
+#[tokio::test]
+async fn foreign_cleanup_observation_is_retained_without_mutating_owned_state() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    handoff_capture(&scenario).await;
+    scenario
+        .maintenance
+        .set_network_ownership(
+            SyntheticOwnership::Absent,
+            SyntheticOwnership::Absent,
+            SyntheticOwnership::Unrelated,
+            SyntheticOwnership::Absent,
+        )
+        .unwrap();
+    let before = scenario.host.maintenance_observation().unwrap();
+    let occurrences = Arc::new(TunHelperRemovalOccurrenceStore::in_memory());
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config_with_occurrences(&scenario, occurrences.clone()),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+
+    let rejected = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        rejected["error"]["data"]["outcome"],
+        "observation-incomplete"
+    );
+    assert_eq!(rejected["error"]["data"]["kind"], "observation-foreign");
+    assert!(scenario.maintenance.journal_snapshot().is_none());
+    let retained = occurrences.records();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(
+        retained[0].failure,
+        Some(TunHelperRemovalOccurrenceFailure::Helper(
+            TunHelperFailureKind::ObservationForeign
+        ))
+    );
+    assert_eq!(
+        retained[0].observation,
+        TunHelperRemovalObservationOutcome::Foreign
+    );
+    let after = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(after.installation_id, before.installation_id);
+    assert_eq!(after.route, SyntheticOwnership::Unrelated);
+    assert_eq!(after.unrelated, before.unrelated);
 
     drop(socket);
     assert!(matches!(
@@ -1298,8 +1401,9 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
             .await,
         );
         let unrelated = scenario.host.maintenance_observation().unwrap().unrelated;
+        let occurrences = Arc::new(TunHelperRemovalOccurrenceStore::in_memory());
         let bridge = start_loopback_server_with_runtime_host(
-            rpc_config(&scenario),
+            rpc_config_with_occurrences(&scenario, occurrences.clone()),
             scenario.runtime_host.clone(),
         )
         .await
@@ -1319,6 +1423,35 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
         let after = scenario.host.maintenance_observation().unwrap();
         assert_eq!(after.unrelated, unrelated, "{kind:?}");
         assert!(after.installation_id.is_some(), "{kind:?}");
+        let retained_failure = occurrences.records();
+        assert_eq!(retained_failure.len(), 1, "{kind:?}");
+        assert_eq!(retained_failure[0].admitted_revision, 1, "{kind:?}");
+        assert_eq!(
+            retained_failure[0].lifecycle_phase,
+            TunHelperRemovalLifecyclePhase::PrivilegedMaintenance,
+            "{kind:?}"
+        );
+        assert_eq!(
+            retained_failure[0].observation,
+            TunHelperRemovalObservationOutcome::ConfirmedSafe,
+            "{kind:?}"
+        );
+        assert_eq!(
+            retained_failure[0].cleanup,
+            if expected_outcome == "removal-failed" {
+                TunHelperRemovalCleanupOutcome::Incomplete
+            } else {
+                TunHelperRemovalCleanupOutcome::NotRequired
+            },
+            "{kind:?}"
+        );
+        assert!(
+            matches!(
+                retained_failure[0].failure,
+                Some(TunHelperRemovalOccurrenceFailure::Helper(_))
+            ),
+            "{kind:?}"
+        );
 
         let notifications = rpc_request(
             &mut socket,
@@ -1348,6 +1481,61 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
             )
             .await;
             assert_eq!(retried["result"]["tunHelper"]["removal"], "not-installed");
+            let retained = occurrences.records();
+            assert_eq!(retained.len(), 2);
+            assert_eq!(retained[0], retained_failure[0]);
+            assert_eq!(retained[1].admitted_revision, 2);
+            assert_ne!(retained[0].operation_id, retained[1].operation_id);
+            assert_eq!(
+                retained[1].outcome,
+                mish_runtime::TunHelperRemovalOutcome::Removed
+            );
+            assert_eq!(
+                retained[1].cleanup,
+                TunHelperRemovalCleanupOutcome::ConfirmedAbsent
+            );
+
+            let after_retry_notifications = rpc_request(
+                &mut socket,
+                json!({"jsonrpc":"2.0", "id":5, "method":"notifications.getSnapshot", "params":{}}),
+            )
+            .await;
+            let lifecycle_outcomes = after_retry_notifications["result"]["notifications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|record| record["presentation"]["kind"] == "tun-helper.lifecycle")
+                .map(|record| record["presentation"]["data"]["outcome"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert!(lifecycle_outcomes.contains(&expected_outcome));
+            assert!(lifecycle_outcomes.contains(&"removed"));
+
+            let duplicate_retry = rpc_request(
+                &mut socket,
+                json!({"jsonrpc":"2.0", "id":6, "method":"settings.removeTunHelper", "params":{}}),
+            )
+            .await;
+            assert_eq!(
+                duplicate_retry["error"]["data"]["outcome"],
+                "observation-incomplete"
+            );
+            let after_duplicate = occurrences.records();
+            assert_eq!(after_duplicate.len(), 3);
+            assert_eq!(after_duplicate[0], retained_failure[0]);
+            assert_eq!(after_duplicate[1], retained[1]);
+            assert_eq!(after_duplicate[2].admitted_revision, 3);
+            assert_eq!(
+                after_duplicate[2].failure,
+                Some(TunHelperRemovalOccurrenceFailure::InstallationUnconfirmed)
+            );
+            assert_eq!(
+                scenario
+                    .settings_service
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .tun_helper
+                    .removal,
+                TunHelperRemovalCapability::NotInstalled
+            );
         }
 
         shutdown_with_profile_coordinator(&scenario).await;
@@ -1357,6 +1545,103 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
             BridgeShutdownOutcome::Confirmed(_)
         ));
     }
+}
+
+#[tokio::test]
+async fn interrupted_removal_is_reconciled_and_republished_before_a_restart_retry() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    let root = tempfile::tempdir().unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let path = root.path().join("internal-tun-removal-occurrences.json");
+    {
+        let before_restart = TunHelperRemovalOccurrenceStore::open_private_file(path.clone())
+            .expect("private removal store");
+        let admission = before_restart
+            .admit(
+                "00000000-0000-0000-0000-000000000001".into(),
+                mish_bridge::TunHelperRemovalAdmittedState::Running,
+            )
+            .unwrap();
+        before_restart
+            .advance(
+                &admission,
+                TunHelperRemovalLifecyclePhase::PrivilegedMaintenance,
+                TunHelperRemovalObservationOutcome::ConfirmedSafe,
+                TunHelperRemovalCleanupOutcome::NotStarted,
+            )
+            .unwrap();
+    }
+    let occurrences = Arc::new(
+        TunHelperRemovalOccurrenceStore::open_private_file(path)
+            .expect("restart must reconcile the interrupted occurrence"),
+    );
+    let interrupted = occurrences.records();
+    assert_eq!(interrupted.len(), 1);
+    assert_eq!(
+        interrupted[0].failure,
+        Some(TunHelperRemovalOccurrenceFailure::ProcessInterrupted)
+    );
+    assert_eq!(
+        interrupted[0].cleanup,
+        TunHelperRemovalCleanupOutcome::Incomplete
+    );
+    assert_eq!(
+        interrupted[0].lifecycle_phase,
+        TunHelperRemovalLifecyclePhase::PrivilegedMaintenance
+    );
+
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config_with_occurrences(&scenario, occurrences.clone()),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+    let restored = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let restored_lifecycle = notification(&restored, "tun-helper.lifecycle");
+    assert_eq!(
+        restored_lifecycle["presentation"]["data"]["outcome"],
+        "observation-incomplete"
+    );
+    assert_eq!(
+        restored_lifecycle["presentation"]["data"]["failure"],
+        "process-interrupted"
+    );
+    assert_eq!(restored_lifecycle["resolved"], true);
+
+    let retried = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(retried["result"]["tunHelper"]["removal"], "not-installed");
+    let retained = occurrences.records();
+    assert_eq!(retained.len(), 2);
+    assert_eq!(retained[0], interrupted[0]);
+    assert_eq!(retained[1].admitted_revision, 2);
+    assert_eq!(
+        retained[1].outcome,
+        mish_runtime::TunHelperRemovalOutcome::Removed
+    );
+
+    shutdown_with_profile_coordinator(&scenario).await;
+    drop(socket);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
 }
 
 #[tokio::test]

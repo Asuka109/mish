@@ -64,6 +64,7 @@ fn config() -> LoopbackServerConfig {
         process_icon_resolver: None,
         service_probes: None,
         settings_service: None,
+        tun_helper_removal_occurrences: None,
         updater_service: None,
     }
 }

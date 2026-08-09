@@ -19,6 +19,7 @@ mod service_probes;
 mod snapshot_order;
 mod support_bundle;
 mod traffic_source_machine;
+mod tun_helper_removal_occurrences;
 
 pub use activation::{
     ActivationAttempt, ActivationCommit, ActivationFailureKind, ActivationOutcome,
@@ -84,6 +85,14 @@ pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{
     PreparedSupportBundle, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
     SupportBundlePreview, SupportBundleService, TerminationEvidenceStore,
+};
+pub use tun_helper_removal_occurrences::{
+    TUN_HELPER_REMOVAL_OCCURRENCE_LIMIT, TUN_HELPER_REMOVAL_OCCURRENCE_MAX_BYTES,
+    TunHelperRemovalAdmission, TunHelperRemovalAdmittedState, TunHelperRemovalCaptureFailure,
+    TunHelperRemovalCleanupOutcome, TunHelperRemovalLifecyclePhase,
+    TunHelperRemovalObservationOutcome, TunHelperRemovalOccurrence,
+    TunHelperRemovalOccurrenceFailure, TunHelperRemovalOccurrenceStore,
+    TunHelperRemovalOccurrenceStoreError,
 };
 
 use std::sync::Arc;

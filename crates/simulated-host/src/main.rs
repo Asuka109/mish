@@ -192,6 +192,7 @@ fn bridge_config(state: &HarnessState) -> LoopbackServerConfig {
         process_icon_resolver: None,
         service_probes: None,
         settings_service: state.runtime.settings_service(),
+        tun_helper_removal_occurrences: None,
         updater_service: None,
     }
 }

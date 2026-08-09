@@ -37,7 +37,7 @@ use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
 use crate::{
     DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator, ProfileFileActions,
-    ServiceProbeConfig,
+    ServiceProbeConfig, TunHelperRemovalOccurrenceStore,
 };
 
 #[derive(Clone)]
@@ -55,6 +55,7 @@ pub struct LoopbackServerConfig {
     pub process_icon_resolver: Option<Arc<dyn ProcessIconResolver>>,
     pub service_probes: Option<ServiceProbeConfig>,
     pub settings_service: Option<Arc<SettingsService>>,
+    pub tun_helper_removal_occurrences: Option<Arc<TunHelperRemovalOccurrenceStore>>,
     pub updater_service: Option<Arc<mish_updater::UpdaterService>>,
 }
 
@@ -641,27 +642,32 @@ async fn start_loopback_server_internal(
             None => (None, None),
         };
     let socket_shutdown = CancellationToken::new();
+    let protocol = ProtocolState {
+        auth_token: config.auth_token,
+        capture_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        profile_activation: config.profile_activation,
+        profile_file_actions: config.profile_file_actions,
+        profile_service: config.profile_service,
+        process_icon_resolver: config.process_icon_resolver,
+        notification_presentation_sessions: Default::default(),
+        runtime: runtime.clone(),
+        service_probes: service_probes.clone(),
+        settings_service: config.settings_service,
+        socket_shutdown: socket_shutdown.clone(),
+        tun_helper_lifecycle_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        tun_helper_removal_occurrences: config
+            .tun_helper_removal_occurrences
+            .unwrap_or_else(|| Arc::new(TunHelperRemovalOccurrenceStore::in_memory())),
+        updater: updater_service.clone(),
+    };
+    protocol.restore_tun_helper_removal_occurrence_notifications();
     let state = Arc::new(HttpState {
         #[cfg(feature = "development-window-trigger")]
         authority,
         allowed_hosts,
         allowed_origins,
         browser,
-        protocol: ProtocolState {
-            auth_token: config.auth_token,
-            capture_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            profile_activation: config.profile_activation,
-            profile_file_actions: config.profile_file_actions,
-            profile_service: config.profile_service,
-            process_icon_resolver: config.process_icon_resolver,
-            notification_presentation_sessions: Default::default(),
-            runtime: runtime.clone(),
-            service_probes: service_probes.clone(),
-            settings_service: config.settings_service,
-            socket_shutdown: socket_shutdown.clone(),
-            tun_helper_lifecycle_transaction: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            updater: updater_service.clone(),
-        },
+        protocol,
         max_message_bytes: config.max_message_bytes,
         #[cfg(feature = "development-window-trigger")]
         development_window_trigger: development_window_trigger_state,
