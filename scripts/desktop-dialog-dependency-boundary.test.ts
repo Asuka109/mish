@@ -44,10 +44,9 @@ test("one registered desktop dialog backend owns open and save pickers", () => {
   assert.match(desktopSource, /\.plugin\(tauri_plugin_dialog::init\(\)\)/u);
   assert.equal([...desktopSource.matchAll(/\.blocking_pick_file\(\)/gu)].length, 2);
   assert.equal([...desktopSource.matchAll(/\.blocking_save_file\(\)/gu)].length, 2);
-  assert.equal(
-    [...desktopSource.matchAll(/spawn_blocking\(move \|\| \{\n\s+app\.dialog\(\)/gu)].length,
-    4,
-  );
+  assert.equal([...desktopSource.matchAll(/app\s*\.dialog\(\)/gu)].length, 4);
+  assert.match(desktopSource, /app\.path\(\)\.download_dir\(\)/u);
+  assert.match(desktopSource, /\.set_file_name\(&suggested_file_name\)/u);
 });
 
 test("native picker commands remain desktop-only capabilities", () => {

@@ -91,7 +91,6 @@ const SUPPORT_BUNDLE_DIALOG_FILTER: (&str, [&str; 1]) = ("Mish support bundle", 
 const SUPPORT_BUNDLE_DIALOG_FILE_NAME: &str = "mish-support-bundle.json";
 const SUPPORT_BUNDLE_DIALOG_TITLE: &str = "Save Mish support bundle";
 const LOCAL_BACKUP_DIALOG_FILTER: (&str, [&str; 1]) = ("Mish local backup", ["json"]);
-const LOCAL_BACKUP_SAVE_DIALOG_FILE_NAME: &str = "mish-local-backup.json";
 const LOCAL_BACKUP_SAVE_DIALOG_TITLE: &str = "Save Mish local backup";
 const LOCAL_BACKUP_OPEN_DIALOG_TITLE: &str = "Choose a Mish local backup";
 
@@ -823,13 +822,18 @@ async fn local_backup_export_save(
         }
         pending.take().ok_or_else(local_backup_state_error)?
     };
+    let suggested_file_name = prepared.suggested_file_name.clone();
     let selected = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog()
+        let mut dialog = app
+            .dialog()
             .file()
             .add_filter(LOCAL_BACKUP_DIALOG_FILTER.0, &LOCAL_BACKUP_DIALOG_FILTER.1)
-            .set_file_name(LOCAL_BACKUP_SAVE_DIALOG_FILE_NAME)
-            .set_title(LOCAL_BACKUP_SAVE_DIALOG_TITLE)
-            .blocking_save_file()
+            .set_file_name(&suggested_file_name)
+            .set_title(LOCAL_BACKUP_SAVE_DIALOG_TITLE);
+        if let Ok(downloads) = app.path().download_dir() {
+            dialog = dialog.set_directory(downloads);
+        }
+        dialog.blocking_save_file()
     })
     .await
     .map_err(|_| LocalBackupCommandError {
@@ -846,13 +850,9 @@ async fn local_backup_export_save(
             status: SupportBundleSaveStatus::Cancelled,
         });
     };
+    let bytes = prepared.bytes;
     tauri::async_runtime::spawn_blocking(move || {
-        atomic_write_bounded(
-            &destination,
-            &prepared.bytes,
-            LOCAL_BACKUP_MAX_BYTES,
-            "mish-backup",
-        )
+        atomic_write_bounded(&destination, &bytes, LOCAL_BACKUP_MAX_BYTES, "mish-backup")
     })
     .await
     .map_err(|_| local_backup_write_error())?
@@ -926,6 +926,14 @@ async fn local_backup_restore_commit(
 ) -> Result<LocalRestoreResult, LocalBackupCommandError> {
     let service = state.service.clone();
     let permit = service.try_begin_restore().map_err(local_backup_error)?;
+    let active_profile_id = state
+        .activation
+        .active_profile_id_authorized(&permit)
+        .await
+        .map_err(|_| LocalBackupCommandError {
+            code: "busy",
+            message: "Another Profile or Settings mutation is in progress",
+        })?;
     let prepared = {
         let mut pending = state
             .pending_restore
@@ -942,14 +950,6 @@ async fn local_backup_restore_commit(
         }
         pending.take().ok_or_else(local_backup_state_error)?
     };
-    let active_profile_id = state
-        .activation
-        .active_profile_id_authorized(&permit)
-        .await
-        .map_err(|_| LocalBackupCommandError {
-            code: "busy",
-            message: "Another Profile or Settings mutation is in progress",
-        })?;
     let (result, permit) = tauri::async_runtime::spawn_blocking(move || {
         let result = service.commit_restore_authorized(
             &permit,
@@ -2761,11 +2761,11 @@ mod tests {
         AtomicWriteFailurePoint, DESKTOP_BRIDGE_START_PORT, DEV_ORIGIN,
         DesktopWebviewInspectorSupport, DevtoolsStartup, DevtoolsStartupSource,
         InternalTunCaptureRestore, LOCAL_BACKUP_DIALOG_FILTER, LOCAL_BACKUP_MAX_BYTES,
-        LOCAL_BACKUP_OPEN_DIALOG_TITLE, LOCAL_BACKUP_SAVE_DIALOG_FILE_NAME,
-        LOCAL_BACKUP_SAVE_DIALOG_TITLE, MIHOMO_PROFILE_DIALOG_FILTER, MIHOMO_PROFILE_DIALOG_TITLE,
-        MainWindowCloseAction, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME,
-        SUPPORT_BUNDLE_DIALOG_FILTER, SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES,
-        StartupOptions, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        LOCAL_BACKUP_OPEN_DIALOG_TITLE, LOCAL_BACKUP_SAVE_DIALOG_TITLE,
+        MIHOMO_PROFILE_DIALOG_FILTER, MIHOMO_PROFILE_DIALOG_TITLE, MainWindowCloseAction,
+        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME, SUPPORT_BUNDLE_DIALOG_FILTER,
+        SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
+        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
         atomic_write_support_bundle_with_failure, desktop_bridge_port_policy,
         desktop_demo_requested, development_tun_service_not_installed,
         development_tun_startup_admission, dialog_selection_path, generate_auth_token,
@@ -2806,7 +2806,6 @@ mod tests {
         assert_eq!(SUPPORT_BUNDLE_DIALOG_FILE_NAME, "mish-support-bundle.json");
         assert_eq!(SUPPORT_BUNDLE_DIALOG_TITLE, "Save Mish support bundle");
         assert_eq!(LOCAL_BACKUP_DIALOG_FILTER, ("Mish local backup", ["json"]));
-        assert_eq!(LOCAL_BACKUP_SAVE_DIALOG_FILE_NAME, "mish-local-backup.json");
         assert_eq!(LOCAL_BACKUP_SAVE_DIALOG_TITLE, "Save Mish local backup");
         assert_eq!(LOCAL_BACKUP_OPEN_DIALOG_TITLE, "Choose a Mish local backup");
     }
