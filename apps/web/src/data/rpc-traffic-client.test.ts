@@ -1,4 +1,9 @@
-import { mishRpcMethods, type TrafficDataSnapshotDto } from "@mish/contracts";
+import {
+  BRIDGE_INFO_REQUEST,
+  BRIDGE_PROTOCOL_VERSION,
+  mishRpcMethods,
+  type TrafficDataSnapshotDto,
+} from "@mish/contracts";
 import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RpcTrafficClient } from "./rpc-traffic-client";
@@ -93,14 +98,23 @@ async function advertiseTrafficCommands(
 ) {
   const request = await waitForRequest(transport, requestIndex);
   expect(request.method).toBe("bridge.getInfo");
+  expect(request.params).toEqual(BRIDGE_INFO_REQUEST);
   transport.respond({
     id: request.id,
     jsonrpc: "2.0",
     result: {
       bridgeVersion: "test",
+      compatibility: "compatible",
       coreConfigured: true,
-      protocolVersion: 35,
-      statusCommands: { group: false, groupDelay: false, routing: false, services: false },
+      minimumClientProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      statusCommands: {
+        group: false,
+        groupDelay: false,
+        profile: false,
+        routing: false,
+        services: false,
+      },
       trafficCommands: {
         closeAllActive: supported,
         closeConnection: supported,

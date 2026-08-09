@@ -1,0 +1,62 @@
+# Bridge Protocol Contract
+
+## Checked metadata source
+
+`packages/bridge-protocol/bridge-protocol.json` is the repository-owned source
+for the desktop bridge protocol version, supported compatibility bounds,
+compatibility outcomes, capability-field names, public JSON-RPC methods, and
+the transport-only mock's explicitly implemented method set. The source is
+deliberately smaller than the DTO contract. Status, Traffic, Profiles,
+Settings, Events, Notifications, and Updater DTOs remain owned by their domain
+Modules.
+
+`scripts/generate-bridge-protocol.ts` produces the TypeScript metadata binding
+in `packages/contracts` and the Rust binding in `mish-bridge`.
+`pnpm check:bridge-protocol` regenerates both files and fails when either is
+stale. TypeScript tests compare the generated public method list with
+`mishRpcMethods`; Rust integration tests send every generated public method to
+the real server and reject any method-not-found result. The mock classifies
+every generated method as either explicitly implemented or explicitly
+capability-unavailable, so an unclassified default cannot silently expand its
+contract.
+
+## Compatibility negotiation
+
+Protocol 36 adds a mandatory compatibility negotiation after authentication
+and before any product method or subscription. The client calls
+`bridge.getInfo` with its protocol version. The response contains the backend
+protocol version, the minimum accepted client version, and exactly one outcome:
+
+- `compatible` — product requests and subscriptions may proceed;
+- `client-too-old` — the backend requires a newer client;
+- `backend-too-old` — the client requires a newer backend.
+
+The server records the outcome per authenticated WebSocket and rejects every
+product method until that socket has negotiated `compatible`. Reauthentication
+clears the prior outcome. The TypeScript RPC client repeats negotiation after
+every reconnect and exposes `client-too-old` or `backend-too-old` as terminal,
+stale connection phases. It does not retry with an older protocol, infer a
+fallback capability set, or accept product snapshots before compatibility is
+confirmed.
+
+All production product clients share the same `RpcClient`, so Status, Traffic,
+Profiles, Settings, Events, Notifications, and Updater cross one transport and
+protocol gate. Their domain-specific command capabilities, errors,
+subscription identity, snapshot acceptance, authority ordering, and reconnect
+baselines remain separately owned. `bridge.getInfo.statusCommands` and
+`trafficCommands` describe only those domain command capabilities; they do not
+replace protocol compatibility.
+
+## Public method and mock boundary
+
+Every method in the generated public list has a dedicated Rust dispatch arm.
+`status.setActiveProfile` uses the Profile selection service and returns a
+confirmed Status projection; it is no longer covered by a generic `status.*`
+capability fallback. Capability-unavailable handlers use application error
+codes rather than JSON-RPC's method-not-found code.
+
+The TypeScript mock remains loopback-only, authenticated, and transport-only.
+It performs the same compatibility negotiation and refuses product requests
+after an incompatible result. Its fixture snapshots and explicit
+capability-unavailable command results are contract evidence only; they do not
+claim Core, Capture, native, or updater authority.

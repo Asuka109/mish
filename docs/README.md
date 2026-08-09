@@ -34,6 +34,9 @@ of treating an implementation accident as intent.
 
 - [`frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) —
   ownership across Web, RPC, desktop bridge, Tauri, and native layers.
+- [`bridge-protocol-contract.md`](architecture/bridge-protocol-contract.md) —
+  checked protocol metadata, mandatory compatibility negotiation, public RPC
+  method parity, and the transport-only mock boundary.
 - [`tailwind-variants.md`](architecture/tailwind-variants.md) — production
   styling ownership, merge/source rules, and bounded CSS exceptions.
 - [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md) — offline assets,

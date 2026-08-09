@@ -1,4 +1,5 @@
 import {
+  BRIDGE_INFO_REQUEST,
   TrafficClientError,
   mishRpcMethods,
   trafficRpcNotifications,
@@ -211,7 +212,7 @@ export class RpcTrafficClient implements TrafficClient {
     if (this.capabilitiesLoaded) return Promise.resolve();
     if (this.capabilitiesPromise) return this.capabilitiesPromise;
     this.capabilitiesPromise = this.rpc
-      .request("bridge.getInfo", {})
+      .request("bridge.getInfo", BRIDGE_INFO_REQUEST)
       .then((info) => {
         this.supportedCommands.clear();
         if (info.trafficCommands.closeAllActive) this.supportedCommands.add("close-all-active");
@@ -286,7 +287,11 @@ export class RpcTrafficClient implements TrafficClient {
 }
 
 function mapConnectionState(state: RpcConnectionState): TrafficConnectionState {
-  if (state.phase === "authenticating" || state.phase === "connecting") {
+  if (
+    state.phase === "authenticating" ||
+    state.phase === "connecting" ||
+    state.phase === "negotiating"
+  ) {
     return { attempt: state.attempt, phase: "connecting", stale: true };
   }
   return { attempt: state.attempt, phase: state.phase, stale: state.stale };
