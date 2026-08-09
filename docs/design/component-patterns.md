@@ -91,6 +91,22 @@ Full-width dialog lists should use the borderless treatment.
 Pressed fills stay close to white. Selection should be clear through border,
 icon, and text changes without becoming a dark gray trough.
 
+### Flow-relative shared geometry
+
+Dialog and drawer close controls, dialog header padding, menu selection
+indicators, table text alignment, and icon-leading search controls express
+semantic geometry as inline start/end. Direct consumers may change density or
+width, but must not restore physical left/right inset, padding, margin, or text
+alignment that competes with the shared primitive contract. Direction overrides
+exist only in browser tests; they are not a shipped locale or preference.
+
+Physical coordinates remain intentional for direction-independent viewport
+centering, screen-corner notification placement, macOS traffic lights and
+workspace chrome, safe-area environment values, and test rectangle
+measurements. Chart time progression and network download/upload direction also
+remain physical domain semantics and do not mirror with interface reading
+direction.
+
 ## Abnormal state feedback
 
 An abnormal state must explain itself at the control where the user encounters

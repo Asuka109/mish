@@ -7,7 +7,7 @@ import {
   EmptyTitle,
   Field,
   FieldLabel,
-  Input,
+  SearchInput,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -52,10 +52,6 @@ const routeStyles = tv({
       "no-underline hover:text-ink hover:underline",
     ),
     searchField: "routes-search-field mt-5 max-w-130",
-    searchControl: cx(
-      "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
-      "[&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
-    ),
     graph: "routes-graph mt-5 overflow-hidden rounded-md border border-hairline bg-canvas",
     graphError: cx(
       "routes-graph-error mt-5 rounded-md border border-route-graph-error-border p-4 [&_p]:mt-1.25",
@@ -291,20 +287,19 @@ export function RoutesPage() {
           {!standaloneGroup ? (
             <Field className={routeStyles().searchField()}>
               <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
-              <span className={routeStyles().searchControl()}>
-                <MagnifyingGlass aria-hidden="true" />
-                <Input
-                  autoComplete="off"
-                  data-native-search
-                  id="routes-search"
-                  name="routes-search"
-                  onValueChange={setQuery}
-                  placeholder={LL.routes.searchPlaceholder()}
-                  spellCheck={false}
-                  type="search"
-                  value={query}
-                />
-              </span>
+              <SearchInput
+                autoComplete="off"
+                data-native-search
+                icon={<MagnifyingGlass />}
+                id="routes-search"
+                name="routes-search"
+                onValueChange={setQuery}
+                placeholder={LL.routes.searchPlaceholder()}
+                rootClassName="routes-search-control"
+                spellCheck={false}
+                type="search"
+                value={query}
+              />
               <span aria-live="polite" className="sr-only" role="status">
                 {LL.routes.searchResultCount({ count: visibleGroupIds.length })}
               </span>

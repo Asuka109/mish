@@ -39,8 +39,8 @@ const welcomeStyles = tv({
       "max-dialog-compact:[&_img]:h-50",
     ),
     header: cx(
-      "welcome-dialog-header min-h-22 flex-none border-b-0 px-6 pt-4.5 pb-4 max-dialog-compact:pl-4",
-      "max-dialog-compact:pr-11 [&_.dialog-title]:text-title [&_.dialog-description]:mt-1.5",
+      "welcome-dialog-header min-h-22 flex-none border-b-0 px-6 pt-4.5 pb-4 max-dialog-compact:ps-4",
+      "max-dialog-compact:pe-11 [&_.dialog-title]:text-title [&_.dialog-description]:mt-1.5",
       "[&_.dialog-description]:max-w-welcome-description [&_.dialog-description]:text-body",
       "[&_.dialog-description]:leading-5.25",
     ),
@@ -66,7 +66,7 @@ const welcomeStyles = tv({
       "[&_p]:text-metadata [&_p]:leading-5 [&_p]:text-muted-foreground [&_p+p]:mt-2",
     ),
     footer: "welcome-dialog-footer min-h-16.5 flex-none px-6 max-dialog-compact:px-4",
-    dismiss: "welcome-dialog-dismiss mr-auto",
+    dismiss: "welcome-dialog-dismiss me-auto",
     primary: "welcome-dialog-primary w-33",
   },
 });
