@@ -82,6 +82,28 @@ test("ordinary future wording for a closed Issue fails deterministically", () =>
   );
 });
 
+test("passive future wording for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nIssue #288 will be implemented in a later change.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
+test("URL-only Issue occurrences receive independent context validation", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nFuture work: https://github.com/Asuka109/mish/issues/288 will be implemented later.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
 test("each superseded occurrence needs its own decision context", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
