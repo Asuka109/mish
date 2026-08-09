@@ -63,6 +63,12 @@ export type ProfileRouteCatalogResult =
   | { catalog: ProfileRouteCatalogDto; ok: true }
   | { error: ProfileClientError; ok: false };
 
+export interface ProfileDerivedAuthority {
+  profileId: string;
+  selectionRevision: number;
+  semanticRevision: string;
+}
+
 interface ProfileContextValue {
   activateProfile(profileId: string): Promise<ProfileOperationResult>;
   cancelActivation(): Promise<ProfileOperationResult>;
@@ -76,7 +82,10 @@ interface ProfileContextValue {
   isLoading: boolean;
   isPending(operation: ProfileOperation, profileId?: string): boolean;
   loadPatches(authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult>;
-  loadRoutes(profileId: string): Promise<ProfileRouteCatalogResult>;
+  loadRoutes(
+    authority: ProfileDerivedAuthority,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileRouteCatalogResult>;
   openProfileDirectory(): Promise<ProfileOperationResult>;
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
@@ -91,6 +100,7 @@ interface ProfileContextValue {
   ): Promise<ProfileOperationResult>;
   savePreview(previewId: string): Promise<ProfileOperationResult>;
   selectedProfileId: string | null;
+  selectedProfileAuthority: ProfileDerivedAuthority | null;
   selectedProfileRevision: number;
   selectProfile(
     profileId: string,
@@ -466,7 +476,10 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   );
 
   const loadRoutes = useCallback(
-    async (profileId: string): Promise<ProfileRouteCatalogResult> => {
+    async (
+      authority: ProfileDerivedAuthority,
+      options?: { signal?: AbortSignal },
+    ): Promise<ProfileRouteCatalogResult> => {
       if (!resolvedClient.getRoutes) {
         return {
           error: new ProfileClientError(
@@ -477,8 +490,27 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         };
       }
       try {
-        return { catalog: await resolvedClient.getRoutes(profileId), ok: true };
+        const catalog = await resolvedClient.getRoutes(authority.profileId, options);
+        if (
+          catalog.profileId !== authority.profileId ||
+          catalog.fingerprint !== authority.semanticRevision
+        ) {
+          return {
+            error: new ProfileClientError(
+              "validation",
+              "Configured routes do not match the selected Profile authority",
+            ),
+            ok: false,
+          };
+        }
+        return { catalog, ok: true };
       } catch (failure) {
+        if (options?.signal?.aborted) {
+          return {
+            error: new ProfileClientError("cancelled", "Configured route loading was cancelled"),
+            ok: false,
+          };
+        }
         const typedError = toProfileClientError(failure);
         setError(typedError);
         return { error: typedError, ok: false };
@@ -727,6 +759,26 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     selectionProjection.operation.operationId === pendingFeedback.operationId
       ? selectionProjection.profileId
       : (snapshot?.selection.profileId ?? null);
+  const selectedProfileAuthority = useMemo<ProfileDerivedAuthority | null>(() => {
+    if (
+      !snapshot ||
+      connection.stale ||
+      (connection.phase !== "connected" && connection.phase !== "fixture")
+    ) {
+      return null;
+    }
+    const profileId = snapshot.selection.profileId;
+    if (!profileId) return null;
+    const selectedProfile = snapshot.profiles.find(
+      (profile) => profile.id === profileId && profile.status.valid,
+    );
+    if (!selectedProfile) return null;
+    return {
+      profileId,
+      selectionRevision: snapshot.selection.revision,
+      semanticRevision: selectedProfile.effectiveFingerprint,
+    };
+  }, [connection.phase, connection.stale, snapshot]);
 
   const value = useMemo<ProfileContextValue>(
     () => ({
@@ -812,6 +864,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
           resolvedClient.savePreview(previewId, { signal }),
         ),
       selectedProfileId,
+      selectedProfileAuthority,
       selectedProfileRevision: snapshot?.selection.revision ?? 0,
       selectProfile,
       snapshot,
@@ -843,6 +896,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       runProviderMutation,
       runFileAction,
       selectedProfileId,
+      selectedProfileAuthority,
       selectProfile,
       snapshot,
       waitForProfileActivation,

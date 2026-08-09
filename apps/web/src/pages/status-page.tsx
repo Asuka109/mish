@@ -185,7 +185,7 @@ export function StatusPage() {
         uploadSeries: snapshot.recentTraffic.samples.map((sample) => sample.uploadBytesPerSecond),
       }
     : null;
-  const configuredRoutes = useConfiguredRouteCatalog(snapshot);
+  const configuredRoutes = useConfiguredRouteCatalog(snapshot, connection);
   const groups = configuredRoutes?.groups ?? snapshot?.groups ?? [];
   const nodes = configuredRoutes?.nodes ?? snapshot?.nodes ?? [];
   const routeGraph = useMemo(() => buildRouteGraph(groups, nodes), [groups, nodes]);

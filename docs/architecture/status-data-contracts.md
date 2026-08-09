@@ -440,6 +440,16 @@ latency, health, or expanded proxy-provider membership and therefore remains
 read-only. Once Controller observations are available, they replace the
 configuration fallback.
 
+The fallback is derived only from the accepted Profile selection authority. Its
+cache identity combines the selected Profile ID, selection revision, and the
+selected record's effective fingerprint. A same-ID refresh therefore replaces
+the fallback, while an optimistic selection never publishes one. Each request
+is cancelled when that identity changes, Profile or Status authority becomes
+stale, the selection disappears, or live runtime groups supersede the fallback.
+The response must carry the requested Profile ID and effective fingerprint
+before it can be published, so a delayed completion cannot restore an older
+catalog.
+
 The Controller response is a keyed map and does not carry authoritative
 top-level policy-group order. Desktop activation therefore records the ordered
 `proxy-groups` names from the generated effective configuration and applies

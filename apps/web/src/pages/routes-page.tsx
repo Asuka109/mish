@@ -189,7 +189,7 @@ export function RoutesPage() {
   const pickerTriggerRef = useRef<HTMLElement | null>(null);
   const browserSession = usePolicyGroupBrowserSession();
   const preSearchScrollTop = useRef<number | null>(null);
-  const configuredRoutes = useConfiguredRouteCatalog(snapshot);
+  const configuredRoutes = useConfiguredRouteCatalog(snapshot, connection);
   const configuredRoutesActive = configuredRoutes !== null;
   const groups = configuredRoutesActive ? configuredRoutes.groups : (snapshot?.groups ?? []);
   const nodes = configuredRoutesActive ? configuredRoutes.nodes : (snapshot?.nodes ?? []);
