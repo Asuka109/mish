@@ -989,6 +989,19 @@ async fn authenticate(
     )
     .await;
     assert_eq!(response["result"]["authenticated"], true);
+    let compatibility = request(
+        socket,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "bridge.getInfo",
+            "params": {
+                "clientProtocolVersion": mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+            }
+        }),
+    )
+    .await;
+    assert_eq!(compatibility["result"]["compatibility"], "compatible");
 }
 
 async fn next_json(
@@ -3571,14 +3584,46 @@ async fn authenticates_and_serves_contract_compatible_status() {
 
     let info = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"bridge.getInfo",
+            "params":{
+                "clientProtocolVersion": mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+            }
+        }),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 35);
+    assert_eq!(info["result"]["compatibility"], "compatible");
+    assert_eq!(
+        info["result"]["minimumClientProtocolVersion"],
+        mish_bridge::bridge_protocol::BRIDGE_MINIMUM_CLIENT_PROTOCOL_VERSION
+    );
+    assert_eq!(
+        info["result"]["protocolVersion"],
+        mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+    );
     assert_eq!(info["result"]["updaterConfigured"], false);
+    let mut status_capability_fields = info["result"]["statusCommands"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    status_capability_fields.sort_unstable();
+    assert_eq!(
+        status_capability_fields,
+        mish_bridge::bridge_protocol::BRIDGE_STATUS_COMMAND_CAPABILITY_FIELDS
+    );
     assert_eq!(
         info["result"]["statusCommands"],
-        json!({"group": false, "groupDelay": false, "routing": false, "services": false})
+        json!({
+            "group": false,
+            "groupDelay": false,
+            "profile": false,
+            "routing": false,
+            "services": false
+        })
     );
     assert_eq!(
         info["result"]["trafficCommands"],
@@ -3587,6 +3632,17 @@ async fn authenticates_and_serves_contract_compatible_status() {
             "closeConnection": false,
             "closeFilteredVisible": false
         })
+    );
+    let mut traffic_capability_fields = info["result"]["trafficCommands"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    traffic_capability_fields.sort_unstable();
+    assert_eq!(
+        traffic_capability_fields,
+        mish_bridge::bridge_protocol::BRIDGE_TRAFFIC_COMMAND_CAPABILITY_FIELDS
     );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
@@ -3778,6 +3834,222 @@ async fn updater_snapshot_authority_is_shared_across_webview_browser_and_reconne
 }
 
 #[tokio::test]
+async fn bridge_protocol_negotiation_is_explicit_and_fail_closed() {
+    let bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    let authentication = request(
+        &mut ws,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "rpc.authenticate",
+            "params": {
+                "clientName": "compatibility-test",
+                "clientVersion": "1",
+                "token": TOKEN
+            }
+        }),
+    )
+    .await;
+    assert_eq!(authentication["result"]["authenticated"], true);
+
+    let before_negotiation = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(before_negotiation["error"]["code"], -32003);
+    assert!(before_negotiation["error"]["data"]["compatibility"].is_null());
+
+    for (id, client_protocol_version, expected) in [
+        (
+            3,
+            mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION - 1,
+            "client-too-old",
+        ),
+        (
+            4,
+            mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION + 1,
+            "backend-too-old",
+        ),
+        (
+            5,
+            mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION,
+            "compatible",
+        ),
+    ] {
+        let info = request(
+            &mut ws,
+            json!({
+                "jsonrpc":"2.0",
+                "id":id,
+                "method":"bridge.getInfo",
+                "params":{"clientProtocolVersion":client_protocol_version}
+            }),
+        )
+        .await;
+        assert_eq!(info["result"]["compatibility"], expected);
+        let status = request(
+            &mut ws,
+            json!({
+                "jsonrpc":"2.0",
+                "id":id + 10,
+                "method":"status.getSnapshot",
+                "params":{}
+            }),
+        )
+        .await;
+        if expected == "compatible" {
+            assert_eq!(status["result"]["adapterKind"], "rpc");
+        } else {
+            assert_eq!(status["error"]["code"], -32003);
+            assert_eq!(status["error"]["data"]["compatibility"], expected);
+        }
+    }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn generated_public_methods_all_reach_real_server_dispatch() {
+    let bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    for (index, method) in mish_bridge::bridge_protocol::BRIDGE_PUBLIC_RPC_METHODS
+        .iter()
+        .enumerate()
+    {
+        let params = if *method == "bridge.getInfo" {
+            json!({
+                "clientProtocolVersion": mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+            })
+        } else {
+            json!({})
+        };
+        let response = request(
+            &mut ws,
+            json!({
+                "jsonrpc":"2.0",
+                "id":index + 100,
+                "method":method,
+                "params":params
+            }),
+        )
+        .await;
+        assert_ne!(
+            response["error"]["code"], -32601,
+            "public method {method} reached method-not-found: {response}"
+        );
+    }
+
+    let unknown = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":999, "method":"status.notAdvertised", "params":{}}),
+    )
+    .await;
+    assert_eq!(unknown["error"]["code"], -32601);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn status_set_active_profile_uses_the_real_profile_selection_handler() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("profiles");
+    fs::create_dir_all(&directory).unwrap();
+    const PROFILE: &str = "mode: rule\nproxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n";
+    fs::write(directory.join("first.yaml"), PROFILE).unwrap();
+    fs::write(directory.join("second.yaml"), PROFILE).unwrap();
+    let service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().to_path_buf()).unwrap());
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    let before = service.snapshot().unwrap();
+    let target = before
+        .profiles
+        .iter()
+        .find(|profile| Some(profile.id.as_str()) != before.selection.profile_id.as_deref())
+        .unwrap()
+        .id
+        .clone();
+
+    let safe_runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let activation = Arc::new(ProfileActivationCoordinator::new(
+        service.clone(),
+        Arc::new(MihomoActivationManager::new(
+            ManagedMihomoResolver::development(
+                root.path().join("missing-mihomo"),
+                root.path().join("runtime"),
+            ),
+            ActivationTiming::default(),
+        )),
+        runtime_host.clone(),
+        safe_runtime,
+        || ManagedRuntimePolicy::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 1)), "unused"),
+    ));
+    let mut bridge_config = config();
+    bridge_config.profile_activation = Some(activation);
+    bridge_config.profile_service = Some(service);
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    let mut observer = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+    authenticate(&mut observer).await;
+    let subscribed = request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    assert!(subscribed["result"]["subscriptionId"].is_string());
+
+    let selected = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"status.setActiveProfile",
+            "params":{"profileId":target}
+        }),
+    )
+    .await;
+    assert!(selected.get("error").is_none(), "{selected}");
+    assert_eq!(selected["result"]["activeProfileId"], target);
+    assert!(
+        selected["result"]["profiles"]
+            .as_array()
+            .is_some_and(|profiles| profiles.len() == 2)
+    );
+
+    let status_snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(status_snapshot["result"]["activeProfileId"], target);
+
+    let notification = next_json(&mut observer).await;
+    assert_eq!(notification["method"], "status.snapshot");
+    assert_eq!(
+        notification["params"]["snapshot"]["activeProfileId"],
+        target
+    );
+
+    let profile_snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"profiles.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(profile_snapshot["result"]["selection"]["profileId"], target);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn service_probes_remain_available_while_core_is_stopped() {
     let mut bridge_config = config();
     bridge_config.service_probes = Some(ServiceProbeConfig { state_path: None });
@@ -3789,7 +4061,14 @@ async fn service_probes_remain_available_while_core_is_stopped() {
 
     let info = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"bridge.getInfo",
+            "params":{
+                "clientProtocolVersion": mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+            }
+        }),
     )
     .await;
     assert_eq!(info["result"]["statusCommands"]["services"], true);

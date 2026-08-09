@@ -6,13 +6,21 @@ runner but never build or upload an app archive. Daily and manual inspection
 own complete validation. Packaging remains independent, so a failed application
 build cannot reach artifact upload.
 
-The latest reviewed `main` package run for `cecdf798`
-([CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515))
-created both hosted package jobs, but each completed with zero executed steps.
-The repository's current Actions account state therefore still leaves CI
-packaging unavailable. This leaves current CI artifact evidence unavailable; it
-is not evidence of a product implementation failure and does not establish
-future Actions capacity.
+The latest reviewed `main` push run for
+`d925f0abd09c1f153cc54f2e2bcea054b6477b1e`
+([CI run 31294286763](https://github.com/Asuka109/mish/actions/runs/31294286763))
+completed both hosted package jobs. The macOS ARM64 job executed 15 steps and
+the Android job executed 20; the later scheduled inspection run 31295084614
+also succeeded. This replaces the earlier zero-step Actions evidence without
+claiming future runner capacity.
+
+The same frozen reviewed `main` produced private immutable Internal TUN Alpha
+artifact ID `9033283912` in
+[staging run 31296492082](https://github.com/Asuka109/mish/actions/runs/31296492082).
+The candidate build, independent read-only verification, final binding, and
+fresh-runner confirmation all succeeded. The final artifact remains
+credential-free, ad-hoc, non-public, and retained for 14 days; it is not a
+signed release or deployment.
 
 The repository-wide trust boundary is documented in
 [`trusted-release-boundary.md`](trusted-release-boundary.md). Protected signing,

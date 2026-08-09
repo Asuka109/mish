@@ -1,7 +1,7 @@
 # Current Repository State
 
-Refreshed 2026-07-28 against `main` at
-`fed0edc1be1ac1dddc0b07fef692221b20dc12ca`.
+Refreshed 2026-08-09 against `main` at
+`d925f0abd09c1f153cc54f2e2bcea054b6477b1e`.
 
 This page is the short integration checkpoint for maintainers. It summarizes
 verified implementation, intentionally unavailable capabilities, current
@@ -22,18 +22,29 @@ Evidence labels on this page have strict meanings:
 
 ## Verified Review Baseline
 
-- `pnpm check:pr` passed on the reviewed commit: 440 Web tests, 10 RPC client
-  tests, 2 mock bridge tests, 77 script tests, and the repository lint, type,
-  format, localization, token, documentation, public-release, and runtime-state
-  ownership checks.
-- `cargo test -p mish-updater` passed all 5 updater contract tests.
-- The focused signed-release and Tart TUN script suites passed all 16 tests.
-- Recent merged work from PRs #246 through #253 was reviewed together rather
-  than as isolated pull requests.
-- The required Fast PR gates for the reviewed recent pull requests passed.
-- The latest `main` CI push run for this commit failed before either packaging
-  job executed a step. This is missing hosted artifact evidence, not a
-  successful or failed product package test.
+- `pnpm check:pr` passed on the reviewed commit: 549 Web tests, 10 RPC client
+  tests, 5 mock bridge tests, 148 script tests, 38 SimulatedHost Rust scenarios,
+  8 Chromium scenarios, and the repository lint, type, format, localization,
+  token, documentation, public-release, Core-lifecycle-authority, and
+  runtime-state ownership checks.
+- The latest `main` push run,
+  [CI run 31294286763](https://github.com/Asuka109/mish/actions/runs/31294286763),
+  succeeded. Its macOS ARM64 and Android packaging jobs executed 15 and 20
+  steps respectively; the later scheduled inspection run 31295084614 also
+  succeeded.
+- The reviewed-main Internal TUN Alpha staging run
+  [31296492082](https://github.com/Asuka109/mish/actions/runs/31296492082)
+  froze source and tooling at this exact SHA, built the `.7` package, verified
+  the candidate independently, created final immutable artifact ID
+  `9033283912`, and reverified that exact artifact read-only on a fresh macOS
+  runner.
+- A separate local Apple Silicon reproduction generated two byte-identical
+  candidate sets across an intervening package verification. Both independent
+  read-only verifications matched, and the final local confirmation passed.
+- The live trust-settings audit remains `disabled-fail-closed` for production
+  signing and publication because required branch review, protected
+  Environments, and workflow-bound OIDC controls remain unavailable. The
+  credential-free Internal TUN lane does not cross that boundary.
 
 ## Implemented
 
@@ -46,8 +57,9 @@ Evidence labels on this page have strict meanings:
   Profile activation has a typed data-bearing lifecycle. Capture's aggregate
   lifecycle is a domain-owned outer state machine whose `Applied` terminal is
   gated by authoritative Core/platform observation. Its existing System Proxy
-  journal and TUN adapter remain intact, while protocol version 35 retains the
-  version-34 authoritative `Finalizing` cleanup window across surfaces.
+  journal and TUN adapter remain intact, while protocol version 36 retains the
+  version-34 authoritative `Finalizing` cleanup window across surfaces and
+  adds checked metadata plus mandatory per-connection compatibility.
 - Recent Traffic authority is retained on the Rust side. Web pause/resume keeps
   a presentation snapshot while continuing to receive the latest authoritative
   state.
@@ -112,7 +124,7 @@ decision.
 
 ### Desktop Startup and Settings
 
-- Desktop bridge protocol version 35 retains separate login registration,
+- Desktop bridge protocol version 36 retains separate login registration,
   login-window behavior, application-launch behavior, and the shared updater
   projection, plus the version 33 Rust-authoritative policy-group selection
   availability. Version 34 added the typed Capture failure and `finalizing`
@@ -123,6 +135,11 @@ decision.
   preference revision. Accepted Network/DNS and TUN Helper observations now
   publish to Desktop, Browser, and native subscribers, and a replacement
   process baseline may safely start at a lower preference revision.
+- Protocol 36 generates Rust and TypeScript metadata from one checked source,
+  verifies exact public method parity against live server dispatch, and makes
+  `compatible`, `client-too-old`, and `backend-too-old` explicit before any
+  product RPC. All product clients share that fail-closed transport gate while
+  retaining domain-specific command capabilities and snapshot ordering.
 - Application launch behavior is one of `off`, `core`, or `proxy`. Automatic
   startup reuses the Profile activation and capture coordinators rather than
   creating a desktop-only lifecycle.
@@ -179,8 +196,8 @@ See [`macos-tun-helper.md`](architecture/macos-tun-helper.md) and
   candidates to immutable artifact IDs and complete manifests, and rejects
   adversarial refs, actors, reusable callers, runners, and substitutions.
 - Protected signing, notarization, attestation, publication, and deployment are
-  fail-closed and absent from executable workflows. The private repository's
-  current plan cannot enforce protected branches or reviewer-protected
+  fail-closed and absent from executable workflows. The repository's current
+  settings do not enforce protected branches or reviewer-protected
   Environments, so the checked-in activation flag remains false.
 - The updater has a strict channel, SemVer, signature, artifact-identity,
   provenance, downgrade, bounded download, resume, private candidate staging,
@@ -208,23 +225,6 @@ See [`macos-packaging.md`](operations/macos-packaging.md) and
   relaunch, or System Proxy recovery around replacement.
 - A production-signed TUN helper and production Virtual Interface capability.
 - Intel macOS support or production Android, iOS, Windows, or Linux releases.
-- Evidence that the current `main` packaging workflow can execute under the
-  repository's present hosted Actions account state.
-- A successful hosted immutable Internal TUN Alpha stage while the repository
-  billing/spending-limit or macOS-runner allocation condition remains
-  unresolved. Local deterministic reproduction is not substituted for that
-  external artifact state.
-
-## Review Concerns
-
-### Hosted `main` Packaging Evidence
-
-The latest reviewed push run,
-[CI run 30275672515](https://github.com/Asuka109/mish/actions/runs/30275672515),
-created the macOS and Android packaging jobs but both completed with zero
-executed steps. Until the account-level Actions restriction is removed and a
-clean run succeeds, local fixture and package verification remain the current
-evidence.
 
 ## Internal-Testing Compatibility Boundary
 

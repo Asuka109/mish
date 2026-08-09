@@ -482,6 +482,8 @@ does not replace the explicit human acceptance gate.
 
 ## Immutable Internal TUN Alpha staging evidence (Issue #299)
 
+### Historical `.3` local evidence
+
 The local delivery-boundary reproduction used Apple Silicon macOS and the
 accepted `0.1.0-internal-tun-alpha.3` package. It did not install the package,
 request administrator authorization, run Mihomo Core, change network state,
@@ -543,12 +545,98 @@ verification evidence, and run identity.
 These numeric IDs are deliberately synthetic local reproduction inputs; they
 are not represented as GitHub staging evidence.
 
-The read-only live GitHub trust audit observed latest `main` run
+At that historical delivery boundary, the read-only live GitHub trust audit
+observed latest `main` run
 `30331812868` with both package jobs at zero executed steps and status
-`disabled-fail-closed`. Consequently no hosted Internal TUN Alpha artifact is
-claimed here. A billing/spending-limit or unavailable hosted runner remains
-external infrastructure state until a post-merge manual `internal-tun-alpha`
-workflow run reaches the final confirmation job.
+`disabled-fail-closed`. Consequently the `.3` evidence did not claim a hosted
+Internal TUN Alpha artifact.
+
+### Current-main hosted reconciliation, 2026-08-09
+
+The reconciled source, workflow, and tooling identity is the exact reviewed
+`main` SHA `d925f0abd09c1f153cc54f2e2bcea054b6477b1e`. This baseline includes the
+current `.7` Internal TUN Alpha package, Helper version 6, the transactional
+package and TUN lifecycle machines, the installation/enrollment boundary, the
+current CI policy, and the completed coordinator-only Core lifecycle migration.
+
+[Workflow run 31296492082](https://github.com/Asuka109/mish/actions/runs/31296492082)
+completed every substantive Internal TUN job: frozen-source admission,
+candidate build and package policy, independent read-only candidate
+verification, final immutable binding, and read-only confirmation of the exact
+final artifact on a fresh Apple Silicon runner. The other credential-free
+profiles were conditionally skipped and are not counted as Internal TUN
+successes.
+
+The run produced these immutable artifact identities:
+
+| Role         | Artifact ID  | Retention | Bound identity                                                                                                                                             |
+| ------------ | ------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate    | `9033272088` | 1 day     | `mish-internal-tun-alpha-candidate-0.1.0-internal-tun-alpha.7-d925f0abd09c1f153cc54f2e2bcea054b6477b1e-31296492082-1`                                      |
+| Verification | `9033280206` | 1 day     | `mish-internal-tun-alpha-verification-0.1.0-internal-tun-alpha.7-d925f0abd09c1f153cc54f2e2bcea054b6477b1e-31296492082-1`                                   |
+| Final stage  | `9033283912` | 14 days   | `mish-internal-tun-alpha-stage-0.1.0-internal-tun-alpha.7-d925f0abd09c1f153cc54f2e2bcea054b6477b1e-d925f0abd09c1f153cc54f2e2bcea054b6477b1e-31296492082-1` |
+
+The GitHub artifact service reports the final download digest
+`sha256:2ce13e108ac0efeac542767c70bcfa42ce2e153202ff75065a1ccc5986c0d793`.
+After download by that exact artifact identity, the repository verifier
+remounted and reverified the hosted DMG read-only. It confirmed final bundle
+SHA-256 `ac340b90f4565b62b3b576c5f28a0699b1cfedfab80227f1c1db842d83243cb2`
+and DMG SHA-256
+`8b8ea0dda5ac5d2738ff3cc0780c1f0666b20d789c2b44bcb5ace83af71751db`.
+
+The final manifest binds package manifest
+`e8d3015dc80f9b1f17bf047fca2606204b9bc20bde27d88bf5663183c1b26606`,
+SPDX SBOM
+`4ca5f5f4859c824f520c3493660a74770388179f7a393aa811961b0dfec77274`,
+in-toto/SLSA provenance
+`5962070f8c1132317e509061a2be1df1fa28636abee4cb7f65b6f5e4bc468c73`,
+verification evidence
+`8c70965b15af76e160c5343f7ed1f921b38619572694a86c214e72edc392a555`,
+and immutable input record
+`18403090edba12efa2a7b014143589a69328da650390f43d3212d87721f47f46`.
+The verified privileged identities are controller
+`96c871a6a7a94237b9de429c0fc60da9caa8f4b94e89b86e32ac6d822342c379`,
+Helper `eb7b7f0392ffdf70b542975cce6935e9fb98ef92cca5570a1df31e984b782d4f`,
+Mihomo v1.19.29 Core
+`ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936`,
+and LaunchDaemon template
+`7e30062801c96b5968f7cfc3e6afe8cf5feb5bc6da99c8c1b5d8d37a0df30ea8`.
+Protocol version 3 and installation identity scheme
+`sha256-helper-core-rendered-plist-v1` remained exact.
+
+The independent evidence records the focused install surface, closed embedded
+layout, ownership/mode/link policy, exact Helper/Core versions and digests,
+closed protocol, enrollment boundary, profile isolation, source/tooling and
+lockfiles, SBOM/provenance, and SHA-256 checks. The final DMG contains only the
+accepted drag-to-Applications surface and embedded app payload. It contains no
+Developer ID, notarization, `SMAppService`, signed XPC, secret, mutable download,
+public Release, updater installation, or deployment claim.
+
+A separate local Apple Silicon reproduction built the same frozen source twice
+with the same synthetic run identity, with a complete package verification
+between builds. Every candidate file was byte-identical; both independent
+verification evidence files were byte-identical. The local DMG SHA-256 was
+`8410ca3024870bfa6028e459f111fa77bb07b4b166e806819c51df0df3c5e774`,
+the candidate bundle SHA-256 was
+`006f4f3490d249dd4dfd7377702fb34a596a3437d14e831cf85a1ea38ad1ec0f`,
+the verification evidence SHA-256 was
+`c680dc68568c6ec4908eaa321051c702dfa403bb4b8d7d4f568fc00a163d7386`,
+and the final local bundle SHA-256 was
+`c6d0b8b52ac5c5a41ba58733604fcee1702b9c9d842d155e5c1bdab31c4cf733`.
+
+The local package verifier, Internal TUN and workflow-policy fixtures, trusted
+boundary adversarial fixture, macOS bundle/security suite, and `pnpm check:pr`
+passed. The latter covered 549 Web tests, 10 RPC client tests, 5 mock bridge
+tests, 148 script tests, 38 SimulatedHost Rust scenarios, and 8 Chromium
+scenarios, including the deterministic coordinator-only Core lifecycle check.
+
+This staging did not install the package, request administrator authorization,
+run Core, or mutate TUN, routes, DNS, or System Proxy. Operator documentation
+continues to state the ad-hoc Internal Alpha boundary, app-scoped Open Anyway
+flow, explicit administrator-authorized install/repair/removal, mode-`0600`
+same-user-key limitation, Apple Silicon macOS 13+ support, recovery/uninstall
+route, and internal non-public scope. The live production trust audit remains
+`disabled-fail-closed`; successful credential-free staging does not activate
+Developer ID signing, notarization, publication, or deployment.
 
 ## Dynamic real-host network ownership (Issue #295)
 

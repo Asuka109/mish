@@ -1,5 +1,11 @@
 import * as z from "zod";
+import {
+  BRIDGE_MINIMUM_BACKEND_PROTOCOL_VERSION,
+  BRIDGE_PROTOCOL_VERSION,
+  BridgeProtocolCompatibilitySchema,
+} from "./generated/bridge-protocol";
 import { applicationEventSchema, applicationNotificationSchema } from "./generated/presentation";
+export * from "./generated/bridge-protocol";
 export * from "./generated/presentation";
 
 const IdentifierSchema = z.string().min(1);
@@ -2433,15 +2439,22 @@ export const CoreStatusSchema = z
   .strict();
 export interface CoreStatusDto extends z.infer<typeof CoreStatusSchema> {}
 
+export const BridgeInfoCommandSchema = z
+  .object({ clientProtocolVersion: z.number().int().positive() })
+  .strict();
+
 export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
+    compatibility: BridgeProtocolCompatibilitySchema,
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(35),
+    minimumClientProtocolVersion: z.number().int().positive(),
+    protocolVersion: z.number().int().positive(),
     statusCommands: z
       .object({
         group: z.boolean(),
         groupDelay: z.boolean(),
+        profile: z.boolean(),
         routing: z.boolean(),
         services: z.boolean(),
       })
@@ -2457,6 +2470,15 @@ export const BridgeInfoSchema = z
   })
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
+
+export function resolveBridgeProtocolCompatibility(
+  info: BridgeInfoDto,
+): BridgeInfoDto["compatibility"] {
+  if (info.compatibility !== "compatible") return info.compatibility;
+  if (info.protocolVersion < BRIDGE_MINIMUM_BACKEND_PROTOCOL_VERSION) return "backend-too-old";
+  if (BRIDGE_PROTOCOL_VERSION < info.minimumClientProtocolVersion) return "client-too-old";
+  return "compatible";
+}
 
 export const UpdateChannelSchema = z.enum(["alpha", "stable"]);
 export type UpdateChannel = z.infer<typeof UpdateChannelSchema>;
@@ -3310,7 +3332,7 @@ export const ProfileActivationControlCommandSchema = z
   .strict();
 
 export const bridgeRpcMethods = {
-  "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
+  "bridge.getInfo": { params: BridgeInfoCommandSchema, result: BridgeInfoSchema },
   "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
 } as const;
 
@@ -3787,6 +3809,8 @@ export type StatusConnectionPhase =
   | "fixture"
   | "connecting"
   | "connected"
+  | "client-too-old"
+  | "backend-too-old"
   | "reconnecting"
   | "disconnected"
   | "disposed";
@@ -3995,6 +4019,8 @@ export type TrafficConnectionPhase =
   | "fixture"
   | "connecting"
   | "connected"
+  | "client-too-old"
+  | "backend-too-old"
   | "reconnecting"
   | "disconnected"
   | "disposed";

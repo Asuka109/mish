@@ -1,4 +1,10 @@
-import { StatusClientError, mishRpcMethods, type StatusSnapshotDto } from "@mish/contracts";
+import {
+  BRIDGE_INFO_REQUEST,
+  BRIDGE_PROTOCOL_VERSION,
+  StatusClientError,
+  mishRpcMethods,
+  type StatusSnapshotDto,
+} from "@mish/contracts";
 import {
   RpcClient,
   RpcRemoteError,
@@ -451,14 +457,23 @@ describe("RpcStatusClient", () => {
     await snapshotRequestPromise;
     const infoRequest = await waitForRequest(transport, 2);
     expect(infoRequest.method).toBe("bridge.getInfo");
+    expect(infoRequest.params).toEqual(BRIDGE_INFO_REQUEST);
     transport.respond({
       id: infoRequest.id,
       jsonrpc: "2.0",
       result: {
         bridgeVersion: "test",
+        compatibility: "compatible",
         coreConfigured: true,
-        protocolVersion: 35,
-        statusCommands: { group: true, groupDelay: true, routing: true, services: true },
+        minimumClientProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        statusCommands: {
+          group: true,
+          groupDelay: true,
+          profile: true,
+          routing: true,
+          services: true,
+        },
         trafficCommands: {
           closeAllActive: true,
           closeConnection: true,
@@ -495,9 +510,17 @@ describe("RpcStatusClient", () => {
       jsonrpc: "2.0",
       result: {
         bridgeVersion: "test",
+        compatibility: "compatible",
         coreConfigured: true,
-        protocolVersion: 35,
-        statusCommands: { group: true, groupDelay: true, routing: true, services: true },
+        minimumClientProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        statusCommands: {
+          group: true,
+          groupDelay: true,
+          profile: true,
+          routing: true,
+          services: true,
+        },
         trafficCommands: {
           closeAllActive: true,
           closeConnection: true,
@@ -524,9 +547,17 @@ describe("RpcStatusClient", () => {
       jsonrpc: "2.0",
       result: {
         bridgeVersion: "test",
+        compatibility: "compatible",
         coreConfigured: false,
-        protocolVersion: 35,
-        statusCommands: { group: false, groupDelay: false, routing: false, services: false },
+        minimumClientProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        statusCommands: {
+          group: false,
+          groupDelay: false,
+          profile: false,
+          routing: false,
+          services: false,
+        },
         trafficCommands: {
           closeAllActive: false,
           closeConnection: false,
