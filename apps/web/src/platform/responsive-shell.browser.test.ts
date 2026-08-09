@@ -655,6 +655,23 @@ describe("responsive application shell", () => {
         expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
         expect(getComputedStyle(expected).outlineStyle).toBe("solid");
       }
+
+      if (links.length === 3) {
+        const navigation = links[0]?.closest<HTMLElement>(".narrow-section-navigation");
+        if (!navigation) throw new Error("Missing activity navigation");
+        navigation.style.width = "150px";
+        navigation.scrollLeft = 0;
+        links[0]?.focus({ preventScroll: true });
+        expect(navigation.scrollWidth).toBeGreaterThan(navigation.clientWidth);
+
+        await userEvent.keyboard("{End}");
+        await vi.waitFor(() => expect(navigation.scrollLeft).toBeGreaterThan(0));
+        const navigationRect = navigation.getBoundingClientRect();
+        const focusedRect = links.at(-1)?.getBoundingClientRect();
+        expect(focusedRect?.left).toBeGreaterThanOrEqual(navigationRect.left);
+        expect(focusedRect?.right).toBeLessThanOrEqual(navigationRect.right);
+        navigation.style.removeProperty("width");
+      }
     }
 
     await navigate("/status");

@@ -302,6 +302,9 @@ function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (!next) return;
   event.preventDefault();
   next.focus({ preventScroll: true });
+  if (event.currentTarget.classList.contains("narrow-section-navigation")) {
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 function ProxyControlButton() {
