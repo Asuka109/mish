@@ -2565,7 +2565,7 @@ export interface UpdateProgressDto extends z.infer<typeof UpdateProgressSchema> 
 export const UpdaterSnapshotSchema = z
   .object({
     authorityId: IdentifierSchema,
-    revision: NonNegativeIntegerSchema,
+    revision: NonNegativeIntegerSchema.max(Number.MAX_SAFE_INTEGER),
     configured: z.boolean(),
     phase: UpdatePhaseSchema,
     operationId: UpdaterOperationIdSchema.nullable(),

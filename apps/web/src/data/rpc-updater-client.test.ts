@@ -127,6 +127,12 @@ describe("RpcUpdaterClient", () => {
   it("accepts bounded maintenance facts and rejects private journal additions", () => {
     const recovering = recoveringSnapshot(4);
     expect(UpdaterSnapshotSchema.parse(recovering)).toEqual(recovering);
+    expect(UpdaterSnapshotSchema.parse(recoveringSnapshot(Number.MAX_SAFE_INTEGER))).toEqual(
+      recoveringSnapshot(Number.MAX_SAFE_INTEGER),
+    );
+    expect(() =>
+      UpdaterSnapshotSchema.parse(recoveringSnapshot(Number.MAX_SAFE_INTEGER + 1)),
+    ).toThrow();
     expect(() =>
       UpdaterSnapshotSchema.parse({
         ...recovering,

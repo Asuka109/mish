@@ -22,6 +22,7 @@ const JOURNAL_FILE: &str = "journal.json";
 const JOURNAL_MAX_BYTES: u64 = 4 * 1024;
 const EVIDENCE_LIMIT: usize = 64;
 const MAINTENANCE_REVISION_HEADROOM: u64 = 4;
+const JSON_SAFE_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -932,6 +933,13 @@ impl UpdaterMaintenanceAuthority {
         let mut state = self.state.lock().expect("maintenance state poisoned");
         if state.phase == Some(terminal)
             && state.operation_id.as_deref() == Some(operation_id)
+            && match terminal {
+                MaintenanceJournalPhase::Completed => state.terminal_reason.is_none(),
+                MaintenanceJournalPhase::Failed => {
+                    state.terminal_reason.as_deref() == Some("failed")
+                }
+                _ => false,
+            }
             && expected_revision.checked_add(1) == Some(state.revision)
         {
             let from = state.phase;
@@ -1189,7 +1197,7 @@ fn validate_request(request: &UpdaterMaintenanceRequest) -> Result<(), UpdaterMa
     validate_operation_id(&request.operation_id)?;
     validate_version(&request.current_version)?;
     validate_version(&request.expected_version)?;
-    if request.admitted_revision > u64::MAX - MAINTENANCE_REVISION_HEADROOM {
+    if request.admitted_revision > JSON_SAFE_INTEGER_MAX - MAINTENANCE_REVISION_HEADROOM {
         return Err(UpdaterMaintenanceError::RevisionExhausted);
     }
     if parse_version(&request.expected_version).ok() <= parse_version(&request.current_version).ok()
@@ -1246,7 +1254,8 @@ fn validate_version(version: &str) -> Result<(), UpdaterMaintenanceError> {
 
 fn validate_record(record: &MaintenanceJournalRecord) -> bool {
     record.schema_version == JOURNAL_SCHEMA_VERSION
-        && record.operation.admitted_revision <= u64::MAX - MAINTENANCE_REVISION_HEADROOM
+        && record.operation.admitted_revision
+            <= JSON_SAFE_INTEGER_MAX - MAINTENANCE_REVISION_HEADROOM
         && valid_phase_revision(record)
         && valid_phase_ownership(record)
         && validate_operation_id(&record.operation.operation_id).is_ok()
@@ -1764,7 +1773,7 @@ mod tests {
 
     #[test]
     fn begin_reserves_revision_headroom_for_restart_and_terminal_recovery() {
-        for admitted_revision in [u64::MAX, u64::MAX - 3] {
+        for admitted_revision in [u64::MAX, JSON_SAFE_INTEGER_MAX - 3] {
             let root = TempDir::new().unwrap();
             let authority = authority(&root, "0.1.0");
             let mut unsafe_request = request("unsafe-headroom");
@@ -1779,7 +1788,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let first = authority(&root, "0.1.0");
         let mut safe_request = request("safe-headroom");
-        safe_request.admitted_revision = u64::MAX - MAINTENANCE_REVISION_HEADROOM;
+        safe_request.admitted_revision = JSON_SAFE_INTEGER_MAX - MAINTENANCE_REVISION_HEADROOM;
         let revision = first.begin(safe_request).unwrap();
         let revision = first
             .mark_installing_intent("safe-headroom", revision)
@@ -1795,7 +1804,7 @@ mod tests {
         )
         .unwrap();
         let recovery_revision = replacement.runtime_state().revision;
-        assert_eq!(recovery_revision, u64::MAX - 1);
+        assert_eq!(recovery_revision, JSON_SAFE_INTEGER_MAX - 1);
         drop(replacement);
 
         let second_replacement = UpdaterMaintenanceAuthority::open(
@@ -1810,7 +1819,7 @@ mod tests {
         );
         assert_eq!(
             second_replacement.complete_recovery("safe-headroom", recovery_revision),
-            Ok(u64::MAX)
+            Ok(JSON_SAFE_INTEGER_MAX)
         );
         assert!(second_replacement.automatic_activation_allowed());
         assert!(!root.path().join("maintenance/journal.json").exists());
@@ -2044,6 +2053,10 @@ mod tests {
             authority.fail_preparation("operation-b", revision),
             Err(UpdaterMaintenanceError::OperationMismatch)
         );
+        assert_eq!(
+            authority.fail_recovery("operation-a", revision),
+            Err(UpdaterMaintenanceError::StaleRevision)
+        );
 
         assert_eq!(
             authority.fail_preparation("operation-a", revision),
@@ -2054,6 +2067,10 @@ mod tests {
         assert_eq!(
             authority.fail_preparation("operation-a", revision),
             Ok(revision + 1)
+        );
+        assert_eq!(
+            authority.fail_recovery("operation-a", revision),
+            Err(UpdaterMaintenanceError::OperationMismatch)
         );
     }
 
@@ -2303,6 +2320,17 @@ mod tests {
         )
         .unwrap();
         let revision = replacement.runtime_state().revision;
+        replacement
+            .store
+            .fail_next_clear(ClearFailurePoint::BeforeUnlink);
+        assert_eq!(
+            replacement.fail_recovery("operation-a", revision),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(
+            replacement.fail_preparation("operation-a", revision),
+            Err(UpdaterMaintenanceError::StaleRevision)
+        );
         let failed = replacement.fail_recovery("operation-a", revision).unwrap();
         assert_eq!(failed, revision + 1);
         assert_eq!(

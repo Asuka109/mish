@@ -384,8 +384,10 @@ new maintenance operation is admitted only when its claimed current version
 exactly matches the version observed by that Rust authority and its admitted
 revision strictly advances the authority's last retained revision. Admission
 also reserves four revision advances for installing intent, relaunch, recovery,
-and its terminal outcome, so no accepted lifecycle can overflow after journal
-commit. A replacement runtime durably adopts recovery ownership for the same
+and its terminal outcome, with the terminal revision bounded to JavaScript's
+maximum safe integer so JSON/Web observers retain strict ordering. No accepted
+lifecycle can overflow or lose adjacent revisions after journal commit. A
+replacement runtime durably adopts recovery ownership for the same
 operation and journal revision; repeated recovery-process restarts therefore do
 not consume terminal revision headroom, while the replaced authority hash can
 no longer advance or clean the record. A
