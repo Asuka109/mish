@@ -174,6 +174,17 @@ test("nearby tracker occurrences cannot share decision context", () => {
   );
 });
 
+test("adjacent sentences cannot hide future residue for a closed Issue", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288. It remains to be implemented later.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
 test("malformed tracker states and timestamps fail runtime validation", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);

@@ -100,10 +100,34 @@ function ambiguousTrackerTokens(source: string): number[] {
   return ambiguous;
 }
 
-function referenceContexts(source: string, repository: string, issueNumber: number): string[] {
+interface ReferenceContext {
+  claim: string;
+  surrounding: string;
+}
+
+function sentenceDelimiterBefore(source: string, index: number): number {
+  return Math.max(
+    source.lastIndexOf(". ", index),
+    source.lastIndexOf("? ", index),
+    source.lastIndexOf("! ", index),
+  );
+}
+
+function sentenceEndAfter(source: string, index: number): number {
+  const candidates = [". ", "? ", "! "]
+    .map((delimiter) => source.indexOf(delimiter, index))
+    .filter((candidate) => candidate !== -1);
+  return candidates.length === 0 ? source.length : Math.min(...candidates) + 1;
+}
+
+function referenceContexts(
+  source: string,
+  repository: string,
+  issueNumber: number,
+): ReferenceContext[] {
   const repositoryUrl = `https://github\\.com/${escapeRegExp(repository)}/issues/${issueNumber}\\b`;
   const pattern = new RegExp(`(?:\\bIssue\\s+#${issueNumber}\\b|${repositoryUrl})`, "giu");
-  const contexts: string[] = [];
+  const contexts: ReferenceContext[] = [];
   for (const match of source.matchAll(pattern)) {
     const index = match.index ?? 0;
     const paragraphStart = source.lastIndexOf("\n\n", index - 1) + 2;
@@ -111,19 +135,16 @@ function referenceContexts(source: string, repository: string, issueNumber: numb
     const paragraphEnd = paragraphEndCandidate === -1 ? source.length : paragraphEndCandidate;
     const paragraph = source.slice(paragraphStart, paragraphEnd).replaceAll("\n", " ");
     const paragraphIndex = index - paragraphStart;
-    const sentenceStart = Math.max(
-      paragraph.lastIndexOf(". ", paragraphIndex - 1),
-      paragraph.lastIndexOf("? ", paragraphIndex - 1),
-      paragraph.lastIndexOf("! ", paragraphIndex - 1),
-    );
-    const sentenceEndCandidates = [". ", "? ", "! "]
-      .map((delimiter) => paragraph.indexOf(delimiter, paragraphIndex))
-      .filter((candidate) => candidate !== -1);
-    const sentenceEnd =
-      sentenceEndCandidates.length === 0
-        ? paragraph.length
-        : Math.min(...sentenceEndCandidates) + 1;
-    contexts.push(paragraph.slice(sentenceStart === -1 ? 0 : sentenceStart + 2, sentenceEnd));
+    const sentenceDelimiter = sentenceDelimiterBefore(paragraph, paragraphIndex - 1);
+    const sentenceStart = sentenceDelimiter === -1 ? 0 : sentenceDelimiter + 2;
+    const sentenceEnd = sentenceEndAfter(paragraph, paragraphIndex);
+    const previousDelimiter = sentenceDelimiterBefore(paragraph, sentenceStart - 3);
+    const surroundingStart = previousDelimiter === -1 ? 0 : previousDelimiter + 2;
+    const surroundingEnd = sentenceEndAfter(paragraph, sentenceEnd + 1);
+    contexts.push({
+      claim: paragraph.slice(sentenceStart, sentenceEnd),
+      surrounding: paragraph.slice(surroundingStart, surroundingEnd),
+    });
   }
   return contexts;
 }
@@ -229,23 +250,26 @@ export function validateDocumentationTrackers(
       }
       if (
         reference.role === "completed-delivery" &&
-        contexts.some((context) => !completedContextPattern.test(context))
+        contexts.some((context) => !completedContextPattern.test(context.claim))
       ) {
         errors.push(`${key} lacks explicit completed delivery context`);
       }
       if (
         reference.role === "historical-checkpoint" &&
-        contexts.some((context) => !historicalContextPattern.test(context))
+        contexts.some((context) => !historicalContextPattern.test(context.claim))
       ) {
         errors.push(`${key} lacks explicit historical checkpoint context`);
       }
       if (
         reference.role === "superseded-decision" &&
-        contexts.some((context) => !supersededContextPattern.test(context))
+        contexts.some((context) => !supersededContextPattern.test(context.claim))
       ) {
         errors.push(`${key} lacks explicit superseded or rejected context`);
       }
-      if (issue.state === "CLOSED" && contexts.some((value) => futureClaimPattern.test(value))) {
+      if (
+        issue.state === "CLOSED" &&
+        contexts.some((context) => futureClaimPattern.test(context.surrounding))
+      ) {
         errors.push(
           `closed Issue #${issue.number} is still described as future work in ${reference.path}`,
         );
