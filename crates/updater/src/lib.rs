@@ -12,8 +12,11 @@ use url::Url;
 pub use service::{
     LocalCandidateInstallAdapter, LocalInstallError, LocalInstallEvidence, LocalInstallRequest,
     LocalInstallSeam, LocalInstallSeamError, UpdateCandidateIdentity, UpdateOperationError,
-    UpdatePhase, UpdateProgress, UpdaterCheckTransitionEvidence, UpdaterLimits, UpdaterService,
-    UpdaterSnapshot,
+    UpdatePhase, UpdateProgress, UpdaterCaptureIntent, UpdaterCaptureOwnershipEvidence,
+    UpdaterCheckTransitionEvidence, UpdaterDiagnosticSnapshot, UpdaterLimits,
+    UpdaterMaintenanceAuthority, UpdaterMaintenanceError, UpdaterMaintenanceReconciliation,
+    UpdaterMaintenanceRequest, UpdaterMaintenanceSnapshot, UpdaterMaintenanceTransitionEvidence,
+    UpdaterService, UpdaterSnapshot,
 };
 
 pub const DARWIN_AARCH64_TARGET: &str = "darwin-aarch64";

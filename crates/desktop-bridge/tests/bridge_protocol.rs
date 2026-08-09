@@ -42,6 +42,9 @@ use mish_settings::{
     StartupPlatformError, WindowSurfacePlatform, WindowSurfacePlatformError,
     WindowSurfacePreference,
 };
+use mish_updater::{
+    UpdaterCaptureIntent, UpdaterMaintenanceAuthority, UpdaterMaintenanceRequest, UpdaterService,
+};
 use serde_json::{Value, json};
 use tokio::{
     sync::Notify,
@@ -3862,6 +3865,80 @@ async fn updater_snapshot_authority_is_shared_across_webview_browser_and_reconne
         second_subscription["result"]["snapshot"]
     );
 
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn unresolved_updater_journal_is_shared_and_cannot_be_bypassed_by_browser_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let journal_root = root.path().join("updater-maintenance");
+    let seed =
+        UpdaterMaintenanceAuthority::open(journal_root.clone(), "prior-process", "0.1.0").unwrap();
+    let revision = seed
+        .begin(UpdaterMaintenanceRequest {
+            operation_id: "maintenance-operation".into(),
+            admitted_revision: 4,
+            current_version: "0.1.0".into(),
+            expected_version: "0.1.1".into(),
+            capture_intent: UpdaterCaptureIntent::None,
+            capture_ownership: None,
+        })
+        .unwrap();
+    seed.mark_installing_intent("maintenance-operation", revision)
+        .unwrap();
+    drop(seed);
+
+    let updater = Arc::new(
+        UpdaterService::unconfigured_with_maintenance(
+            "replacement-process",
+            journal_root.clone(),
+            "0.1.0",
+        )
+        .unwrap(),
+    );
+    let mut bridge_config = config();
+    bridge_config.updater_service = Some(updater);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+
+    let first_snapshot = request(
+        &mut first,
+        json!({"jsonrpc":"2.0","id":2,"method":"updater.getSnapshot","params":{}}),
+    )
+    .await;
+    let second_snapshot = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":2,"method":"updater.subscribe","params":{}}),
+    )
+    .await;
+    assert_eq!(first_snapshot["result"]["phase"], "recovering");
+    assert_eq!(first_snapshot["result"]["configured"], false);
+    assert_eq!(
+        first_snapshot["result"]["maintenance"]["reconciliation"],
+        "old-version"
+    );
+    assert_eq!(
+        first_snapshot["result"],
+        second_snapshot["result"]["snapshot"]
+    );
+
+    let rejected = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"updater.check",
+            "params":{"operationId":"browser-bypass","channel":"alpha"}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["data"]["kind"], "not-configured");
+    assert!(journal_root.join("journal.json").exists());
     bridge.shutdown().await;
 }
 

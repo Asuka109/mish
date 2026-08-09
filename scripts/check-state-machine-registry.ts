@@ -19,6 +19,7 @@ interface Registry {
 
 const requiredMachines = [
   "updater-check",
+  "updater-maintenance",
   "internal-tun-alpha-package",
   "tun-helper-core-network",
   "runtime-profile-activation",
@@ -38,6 +39,7 @@ const requiredMachines = [
 const conformingSources = new Map([
   ["updater-check", "impl Machine for CheckMachine"],
   ["updater-continuation", "impl Machine for ContinuationMachine"],
+  ["updater-maintenance", "impl Machine for MaintenanceMachine"],
   ["internal-tun-alpha-package", "impl Machine for PackageMachine"],
   ["tun-helper-core-network", "impl Machine for TunLifecycleMachine"],
   ["runtime-profile-activation", "impl Machine for ProfileActivationMachine"],

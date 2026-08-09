@@ -170,11 +170,15 @@ describe("Events page", () => {
     await user.keyboard("{Enter}");
 
     const dialog = await screen.findByRole("dialog", { name: "Review redacted support bundle" });
-    expect(within(dialog).getByText("JSON · v2")).toBeVisible();
+    expect(within(dialog).getByText("JSON · v4")).toBeVisible();
     expect(within(dialog).getByText("Actual / maximum size").parentElement).toHaveTextContent(
       "12.0 KiB / 256.0 KiB",
     );
     expect(within(dialog).getByText("Recent event aggregates")).toBeVisible();
+    expect(
+      within(dialog).getByText("Updater maintenance and restart reconciliation"),
+    ).toBeVisible();
+    expect(within(dialog).getByText("Traffic source-session transitions")).toBeVisible();
     expect(within(dialog).getByText(/Subscription URLs/)).toBeVisible();
     expect(support.save).not.toHaveBeenCalled();
 
@@ -240,6 +244,8 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     { category: "events-summary", itemCount: 12 },
     { category: "redaction-report", itemCount: 12 },
     { category: "termination-recovery-evidence", itemCount: 0 },
+    { category: "updater", itemCount: 1 },
+    { category: "traffic-source-transitions", itemCount: 0 },
   ],
   contentBytes: 12_288,
   excludedOrRedacted: [
@@ -257,7 +263,7 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     "event-text",
   ],
   fileType: "application/json",
-  formatVersion: 2,
+  formatVersion: 4,
   maxBytes: 256 * 1_024,
   previewId: "preview-support-bundle-1",
   timeRange: {

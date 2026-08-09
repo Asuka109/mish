@@ -1353,7 +1353,14 @@ mod tests {
                 assert!(projection.candidate.is_none());
                 assert!(projection.terminal_reason.is_some());
             }
-            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Ready => {
+            UpdatePhase::Downloading
+            | UpdatePhase::Verifying
+            | UpdatePhase::Ready
+            | UpdatePhase::PreparingMaintenance
+            | UpdatePhase::InstallingIntent
+            | UpdatePhase::Relaunching
+            | UpdatePhase::Recovering
+            | UpdatePhase::Completed => {
                 panic!("Check projection may not manufacture download-owned phases")
             }
         }

@@ -60,3 +60,11 @@ It performs the same compatibility negotiation and refuses product requests
 after an incompatible result. Its fixture snapshots and explicit
 capability-unavailable command results are contract evidence only; they do not
 claim Core, Capture, native, or updater authority.
+
+Protocol 37 adds the bounded updater maintenance and restart-reconciliation
+projection. It carries only semantic phase, operation presence, revision,
+capture intent, version classification, and the automatic-activation barrier.
+It adds no public method: Browser Client and WebView callers retain only the
+existing non-privileged updater check, download, cancel, snapshot, and
+subscription surface. Installation, relaunch, Capture, System Proxy, and TUN
+mutation remain unavailable through the bridge.

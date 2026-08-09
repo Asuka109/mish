@@ -30,6 +30,9 @@ Preview creates the exact bounded in-memory JSON and returns only:
 - closed category names with item counts; and
 - closed redaction categories.
 
+The closed preview categories include `updater`, so the confirmation surface
+discloses the bounded updater diagnostic before the exact bytes can be saved.
+
 Save accepts only the preview ID. The desktop Tauri host owns destination selection,
 private atomic writing, cancellation, and stale-preview cleanup. No path,
 contents, upload target, arbitrary file read, Core command, or capture command
@@ -37,11 +40,17 @@ crosses the Web boundary.
 
 ## Included evidence
 
-The JSON contains application/Core version status, the last activation outcome,
+The format-version 4 JSON contains application/Core version status, the last activation outcome,
 platform version, capability status, non-sensitive active-profile identifiers,
 capture desired/observed/drift state, direct service-probe aggregates, bounded
-event counts by source and severity, a redaction report, bounded termination or
-recovery evidence, and bounded Traffic source-session transition evidence.
+event counts by source and severity, a redaction report, and bounded termination
+or recovery evidence. It also contains one candidate-free updater diagnostic:
+configured flag, semantic phase, revision, operation-presence boolean, and the
+bounded maintenance reconciliation/version/capture-intent projection. It never
+contains the candidate identity, journal ownership digest, metadata, signature,
+endpoint, credential, or path.
+
+It also contains bounded Traffic source-session transition evidence.
 
 Format version 3 and protocol version 10 add `trafficSourceTransitions`. Each
 entry uses closed enums plus only the transition disposition, source authority,
@@ -51,6 +60,9 @@ cancelled, retired, or reconciliation-required without recording the correlated
 Profile, runtime, capture, Controller session, connection, destination, or
 process identities themselves. Preview reports only the closed category and its
 count.
+
+Format version 4 and protocol version 11 add the candidate-free `updater`
+diagnostic and preview category on top of that version-3 Traffic contract.
 
 It excludes raw profiles and YAML, subscription URLs, credentials, full paths,
 node and policy labels, connection destinations, process paths, network

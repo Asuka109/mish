@@ -1458,6 +1458,7 @@ mod tests {
             progress: None,
             resumable: false,
             terminal_reason: None,
+            maintenance: None,
         })
     }
 
@@ -1886,7 +1887,14 @@ mod tests {
             UpdatePhase::Failed | UpdatePhase::Cancelled => {
                 assert!(projection.terminal_reason.is_some());
             }
-            UpdatePhase::Idle | UpdatePhase::Checking | UpdatePhase::Available => {
+            UpdatePhase::Idle
+            | UpdatePhase::Checking
+            | UpdatePhase::Available
+            | UpdatePhase::PreparingMaintenance
+            | UpdatePhase::InstallingIntent
+            | UpdatePhase::Relaunching
+            | UpdatePhase::Recovering
+            | UpdatePhase::Completed => {
                 panic!("continuation projection manufactured a Check-owned phase")
             }
         }

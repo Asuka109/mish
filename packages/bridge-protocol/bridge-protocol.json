@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "protocolVersion": 36,
-  "minimumClientProtocolVersion": 36,
-  "minimumBackendProtocolVersion": 36,
+  "protocolVersion": 37,
+  "minimumClientProtocolVersion": 37,
+  "minimumBackendProtocolVersion": 37,
   "compatibilityOutcomes": ["compatible", "client-too-old", "backend-too-old"],
   "capabilityFields": {
     "statusCommands": ["group", "groupDelay", "profile", "routing", "services"],

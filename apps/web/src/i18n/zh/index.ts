@@ -23,6 +23,14 @@ const zh: Translation = {
     light: "浅色",
     system: "跟随系统",
   },
+  updaterMaintenance: {
+    corrupt: "无法验证更新恢复记录，自动启动将保持关闭。",
+    expectedVersion: "预期的新版本已经启动；完成恢复前不会自动启动代理。",
+    incompatible: "更新恢复记录的格式不受支持，自动启动将保持关闭。",
+    oldVersion: "安装结果未知且旧版本重新启动；完成恢复前不会自动启动代理。",
+    preInstallAborted: "更新在进入安装意图前中止，原版本可以正常启动。",
+    unexpectedVersion: "启动了非预期版本；解决恢复状态前不会自动启动代理。",
+  },
   settingsPage: {
     advancedDescription: "不常用的高级功能将在准备好后提供。",
     advancedSupport: "高级与支持",
@@ -1302,6 +1310,8 @@ const zh: Translation = {
         "events-summary": "近期事件摘要",
         "redaction-report": "已隐藏的信息说明",
         "termination-recovery-evidence": "终止与恢复证据",
+        updater: "更新维护与重启恢复",
+        "traffic-source-transitions": "流量来源会话转换",
       },
       confirmSave: "选择位置并保存",
       description: "先确认文件中包含和排除了哪些信息，再生成本地 JSON 文件。Mish 不会上传该文件。",

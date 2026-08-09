@@ -1229,14 +1229,28 @@ fn initialize(
         app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
     let profile_root = app.path().app_data_dir()?;
+    // The process-held lease prevents a second live desktop from adopting updater recovery
+    // ownership. It performs no Profile, Core, Capture, or platform reconciliation.
+    let runtime_root = profile_root.join("runtime");
+    let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    // Updater maintenance is the first application-owned startup reconciliation.
+    // It is deliberately constructed before Profile, Core, Capture, or bridge services so an
+    // unknown install outcome can keep every later automatic activation behind one barrier.
+    let updater_service = Arc::new(
+        mish_updater::UpdaterService::unconfigured_with_maintenance(
+            format!("updater-{}", Uuid::new_v4()),
+            profile_root.join("updater-maintenance"),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .map_err(|error| io::Error::other(error.to_string()))?,
+    );
+    let updater_automatic_activation_allowed = updater_service.automatic_activation_allowed();
     let (maintenance_capture_restore, maintenance_capture_recovery_required) =
         match internal_tun_capture_restore_marker(&profile_root) {
             Ok(restore) => (restore, false),
             Err(_) => (None, true),
         };
-    let runtime_root = profile_root.join("runtime");
-    let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
-        .map_err(|error| io::Error::other(error.to_string()))?;
     let core_ownership = Arc::new(
         ManagedCoreOwnership::new(
             runtime_root,
@@ -1504,6 +1518,7 @@ fn initialize(
                 operating_system_version: tauri_plugin_os::version().to_string(),
             },
             termination_evidence,
+            updater_service.clone(),
         );
         support_bundle.start_managed_core_exit_observation();
         let policy_capture = capture.clone();
@@ -1554,9 +1569,7 @@ fn initialize(
                 state_path: Some(profile_root.join("service-monitors.json")),
             }),
             settings_service: Some(settings_service.clone()),
-            updater_service: Some(Arc::new(mish_updater::UpdaterService::unconfigured(
-                format!("updater-{}", Uuid::new_v4()),
-            ))),
+            updater_service: Some(updater_service.clone()),
         };
         #[cfg(feature = "development-window-trigger")]
         let bridge = match development_window_controller.clone() {
@@ -1677,9 +1690,11 @@ fn initialize(
         .preferences
         .startup
         .launch_behavior;
-    if maintenance_capture_restore.is_some()
-        || application_launch_behavior != ApplicationLaunchBehavior::Off
-    {
+    if automatic_application_launch_allowed(
+        updater_automatic_activation_allowed,
+        maintenance_capture_restore.is_some(),
+        application_launch_behavior,
+    ) {
         launch_on_application_start(
             activation,
             application_launch_behavior,
@@ -1687,6 +1702,8 @@ fn initialize(
             tun_helper,
             settings_service,
         );
+    } else if !updater_automatic_activation_allowed {
+        eprintln!("Updater maintenance recovery blocks automatic startup activation");
     }
     open_main_webview_inspector(app, open_devtools, development_window_on_demand)?;
     if let Some((browser_url, trigger_url)) = development_readiness {
@@ -1956,6 +1973,15 @@ fn launch_on_application_start(
             ApplicationLaunchBehavior::Off => {}
         }
     });
+}
+
+fn automatic_application_launch_allowed(
+    updater_automatic_activation_allowed: bool,
+    maintenance_capture_restore_present: bool,
+    behavior: ApplicationLaunchBehavior,
+) -> bool {
+    updater_automatic_activation_allowed
+        && (maintenance_capture_restore_present || behavior != ApplicationLaunchBehavior::Off)
 }
 
 fn development_tun_service_not_installed(snapshot: &TunHelperSnapshot) -> bool {
@@ -2762,11 +2788,11 @@ mod tests {
         InternalTunCaptureRestore, LOCAL_BACKUP_DIALOG_FILTER, LOCAL_BACKUP_MAX_BYTES,
         LOCAL_BACKUP_OPEN_DIALOG_TITLE, LOCAL_BACKUP_SAVE_DIALOG_TITLE,
         MIHOMO_PROFILE_DIALOG_FILTER, MIHOMO_PROFILE_DIALOG_TITLE, MainWindowCloseAction,
-        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME, SUPPORT_BUNDLE_DIALOG_FILTER,
-        SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
-        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, desktop_bridge_port_policy,
-        desktop_demo_requested, development_tun_service_not_installed,
+        ManagedRuntimeLease, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME,
+        SUPPORT_BUNDLE_DIALOG_FILTER, SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES,
+        StartupOptions, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        atomic_write_support_bundle_with_failure, automatic_application_launch_allowed,
+        desktop_bridge_port_policy, desktop_demo_requested, development_tun_service_not_installed,
         development_tun_startup_admission, dialog_selection_path, generate_auth_token,
         internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
@@ -2788,7 +2814,7 @@ mod tests {
         TunHelperFailureKind, TunHelperHealth, TunHelperLifecyclePhase, TunHelperRemovalCapability,
         TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
     };
-    use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
+    use mish_settings::{ApplicationLaunchBehavior, LoginLaunchBehavior, WindowCloseBehavior};
     use tauri_plugin_dialog::FilePath;
 
     #[test]
@@ -3036,6 +3062,53 @@ mod tests {
         let selection = system_proxy_only_capture_selection();
         assert!(selection.system_proxy);
         assert!(!selection.tun);
+    }
+
+    #[test]
+    fn updater_reconciliation_barrier_precedes_every_automatic_launch_path() {
+        for behavior in [
+            ApplicationLaunchBehavior::Off,
+            ApplicationLaunchBehavior::Core,
+            ApplicationLaunchBehavior::Proxy,
+        ] {
+            assert!(!automatic_application_launch_allowed(
+                false, false, behavior
+            ));
+            assert!(!automatic_application_launch_allowed(false, true, behavior));
+        }
+        assert!(!automatic_application_launch_allowed(
+            true,
+            false,
+            ApplicationLaunchBehavior::Off
+        ));
+        assert!(automatic_application_launch_allowed(
+            true,
+            false,
+            ApplicationLaunchBehavior::Core
+        ));
+        assert!(automatic_application_launch_allowed(
+            true,
+            true,
+            ApplicationLaunchBehavior::Off
+        ));
+    }
+
+    #[test]
+    fn fresh_app_data_is_created_by_the_instance_lease_before_updater_reconciliation() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("fresh/application/data");
+        assert!(!app_data.exists());
+
+        let _lease = ManagedRuntimeLease::acquire(&app_data.join("runtime")).unwrap();
+        let updater = mish_updater::UpdaterService::unconfigured_with_maintenance(
+            "fresh-process",
+            app_data.join("updater-maintenance"),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .unwrap();
+
+        assert!(updater.automatic_activation_allowed());
+        assert!(app_data.join("updater-maintenance").is_dir());
     }
 
     #[test]
