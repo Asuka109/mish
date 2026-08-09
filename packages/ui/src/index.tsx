@@ -304,6 +304,7 @@ const drawerRecipe = tv({
     content: cx(
       "drawer-content fixed inset-x-0 bottom-0 z-71 flex w-full flex-col overflow-hidden",
       "h-[calc(100dvh_-_max(16px,env(safe-area-inset-top)))] overscroll-contain",
+      "pb-[env(safe-area-inset-bottom)]",
       "rounded-t-lg border border-b-0 border-hairline bg-canvas shadow-float outline-none",
     ),
     handle: "drawer-handle mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-hairline",

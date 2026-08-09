@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const styles = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+const ui = readFileSync("../../packages/ui/src/index.tsx", "utf8");
 const notifications = readFileSync("src/components/notification-bubble.tsx", "utf8");
 const patchEditor = readFileSync("src/components/profile-patch-editor.tsx", "utf8");
 const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
@@ -37,6 +38,10 @@ describe("responsive shell CSS", () => {
     expect(shell).toContain("const narrowDestinations = [");
     expect(shell).toContain('{ icon: House, key: "home", path: "/status" }');
     expect(shell).toContain('{ icon: Pulse, key: "activity", path: "/traffic" }');
+  });
+
+  it("reserves the bottom safe area inside shared drawers", () => {
+    expect(ui).toContain('"pb-[env(safe-area-inset-bottom)]"');
   });
 
   it("keeps proxy ownership in Home on narrow Browser layouts", () => {
