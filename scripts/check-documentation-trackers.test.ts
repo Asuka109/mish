@@ -93,6 +93,17 @@ test("passive future wording for a closed Issue fails deterministically", () => 
   );
 });
 
+test("need-based future wording for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/candidate-home-isolation.md"] +=
+    "\nIssue #185 still needs implementation and remains unimplemented.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #185 is still described as future work/u,
+  );
+});
+
 test("URL-only Issue occurrences receive independent context validation", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };

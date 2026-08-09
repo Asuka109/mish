@@ -37,7 +37,7 @@ const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
 const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/gu;
 const futureClaimPattern =
-  /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
+  /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
 const supersededContextPattern = /\b(?:not planned|rejected|retired|superseded)\b/iu;
