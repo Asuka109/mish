@@ -380,6 +380,9 @@ impl UpdaterMaintenanceAuthority {
         request: UpdaterMaintenanceRequest,
     ) -> Result<u64, UpdaterMaintenanceError> {
         validate_request(&request)?;
+        if request.current_version != self.observed_version {
+            return Err(UpdaterMaintenanceError::InvalidVersion);
+        }
         let mut state = self.state.lock().expect("maintenance state poisoned");
         if let Some(current) = self.store.read_record()? {
             let duplicate = current.operation.operation_id == request.operation_id
@@ -1355,6 +1358,21 @@ mod tests {
         assert_eq!(state.phase, Some(MaintenanceJournalPhase::Recovering));
         assert_eq!(state.revision, 10);
         assert!(!authority.automatic_activation_allowed());
+    }
+
+    #[test]
+    fn begin_rejects_a_current_version_not_observed_by_the_authority() {
+        let root = TempDir::new().unwrap();
+        let authority = authority(&root, "0.1.0");
+        let mut stale = request("stale-version");
+        stale.current_version = "0.0.9".into();
+
+        assert_eq!(
+            authority.begin(stale),
+            Err(UpdaterMaintenanceError::InvalidVersion)
+        );
+        assert_eq!(authority.store.read_record().unwrap(), None);
+        assert_eq!(authority.runtime_state().phase, None);
     }
 
     #[test]
