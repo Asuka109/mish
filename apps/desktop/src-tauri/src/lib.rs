@@ -1573,7 +1573,7 @@ fn initialize(
                 mish_bridge::TunHelperRemovalOccurrenceStore::open_private_file(
                     profile_root.join("internal-tun-removal-occurrences.json"),
                 )
-                .map_err(|_| io::Error::other("Internal TUN removal evidence is unavailable"))?,
+                .unwrap_or_else(|_| mish_bridge::TunHelperRemovalOccurrenceStore::unavailable()),
             )),
             updater_service: Some(updater_service.clone()),
         };

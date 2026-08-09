@@ -280,6 +280,7 @@ pub enum TunHelperRemovalOccurrenceStoreError {
 enum TunHelperRemovalOccurrencePersistence {
     Memory,
     PrivateFile(PathBuf),
+    Unavailable,
 }
 
 pub struct TunHelperRemovalOccurrenceStore {
@@ -292,6 +293,13 @@ impl TunHelperRemovalOccurrenceStore {
         Self {
             journal: Mutex::new(TunHelperRemovalOccurrenceJournal::default()),
             persistence: TunHelperRemovalOccurrencePersistence::Memory,
+        }
+    }
+
+    pub fn unavailable() -> Self {
+        Self {
+            journal: Mutex::new(TunHelperRemovalOccurrenceJournal::default()),
+            persistence: TunHelperRemovalOccurrencePersistence::Unavailable,
         }
     }
 
@@ -449,6 +457,9 @@ impl TunHelperRemovalOccurrenceStore {
             TunHelperRemovalOccurrencePersistence::Memory => Ok(()),
             TunHelperRemovalOccurrencePersistence::PrivateFile(path) => {
                 write_private_journal(path, journal)
+            }
+            TunHelperRemovalOccurrencePersistence::Unavailable => {
+                Err(TunHelperRemovalOccurrenceStoreError::Storage)
             }
         }
     }
@@ -833,5 +844,15 @@ mod tests {
             .admit(operation(1), TunHelperRemovalAdmittedState::Running)
             .unwrap();
         assert_eq!(admission.admitted_revision, 1);
+    }
+
+    #[test]
+    fn unavailable_store_fails_removal_admission_closed() {
+        let store = TunHelperRemovalOccurrenceStore::unavailable();
+        assert_eq!(
+            store.admit(operation(1), TunHelperRemovalAdmittedState::Running),
+            Err(TunHelperRemovalOccurrenceStoreError::Storage)
+        );
+        assert!(store.records().is_empty());
     }
 }

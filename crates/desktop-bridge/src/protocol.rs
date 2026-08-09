@@ -2204,25 +2204,22 @@ async fn handle_message(
                 Ok(removal_available) => removal_available,
                 Err(error) => {
                     let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
-                    if state
-                        .tun_helper_removal_occurrences
-                        .finish(
-                            &removal_admission,
-                            outcome,
-                            Some(tun_helper_removal_settings_occurrence_failure(&error)),
-                            tun_helper_removal_settings_observation(&error),
-                            TunHelperRemovalCleanupOutcome::NotRequired,
-                        )
-                        .is_err()
-                    {
-                        return Some(tun_helper_removal_evidence_error_response(id));
-                    }
+                    let evidence = state.tun_helper_removal_occurrences.finish(
+                        &removal_admission,
+                        outcome,
+                        Some(tun_helper_removal_settings_occurrence_failure(&error)),
+                        tun_helper_removal_settings_observation(&error),
+                        TunHelperRemovalCleanupOutcome::NotRequired,
+                    );
                     publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
+                    if evidence.is_err() {
+                        return Some(tun_helper_removal_evidence_error_response(id));
+                    }
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
@@ -2230,25 +2227,22 @@ async fn handle_message(
             };
             if !removal_available {
                 let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
-                if state
-                    .tun_helper_removal_occurrences
-                    .finish(
-                        &removal_admission,
-                        outcome,
-                        Some(TunHelperRemovalOccurrenceFailure::InstallationUnconfirmed),
-                        TunHelperRemovalObservationOutcome::Incomplete,
-                        TunHelperRemovalCleanupOutcome::NotRequired,
-                    )
-                    .is_err()
-                {
-                    return Some(tun_helper_removal_evidence_error_response(id));
-                }
+                let evidence = state.tun_helper_removal_occurrences.finish(
+                    &removal_admission,
+                    outcome,
+                    Some(TunHelperRemovalOccurrenceFailure::InstallationUnconfirmed),
+                    TunHelperRemovalObservationOutcome::Incomplete,
+                    TunHelperRemovalCleanupOutcome::NotRequired,
+                );
                 publish_tun_helper_removal_outcome(
                     state,
                     &operation_id,
                     outcome,
                     Some("helper-installation-unconfirmed".into()),
                 );
+                if evidence.is_err() {
+                    return Some(tun_helper_removal_evidence_error_response(id));
+                }
                 return Some(error_response(
                     id,
                     -32055,
@@ -2266,32 +2260,33 @@ async fn handle_message(
                 )
                 .is_err()
             {
-                return Some(tun_helper_removal_evidence_error_response(id));
+                return Some(tun_helper_removal_evidence_error_response_after_admission(
+                    state,
+                    &operation_id,
+                    id,
+                ));
             }
             if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
                 let outcome = removal_outcome_for_capture_failure(error.kind);
                 state.runtime.record_capture_failure(&error);
-                if state
-                    .tun_helper_removal_occurrences
-                    .finish(
-                        &removal_admission,
-                        outcome,
-                        Some(TunHelperRemovalOccurrenceFailure::Capture(
-                            TunHelperRemovalCaptureFailure::from(error.kind),
-                        )),
-                        tun_helper_removal_capture_observation(error.kind),
-                        TunHelperRemovalCleanupOutcome::NotRequired,
-                    )
-                    .is_err()
-                {
-                    return Some(tun_helper_removal_evidence_error_response(id));
-                }
+                let evidence = state.tun_helper_removal_occurrences.finish(
+                    &removal_admission,
+                    outcome,
+                    Some(TunHelperRemovalOccurrenceFailure::Capture(
+                        TunHelperRemovalCaptureFailure::from(error.kind),
+                    )),
+                    tun_helper_removal_capture_observation(error.kind),
+                    TunHelperRemovalCleanupOutcome::NotRequired,
+                );
                 publish_tun_helper_removal_outcome(
                     state,
                     &operation_id,
                     outcome,
                     Some(capture_failure_id(error.kind)),
                 );
+                if evidence.is_err() {
+                    return Some(tun_helper_removal_evidence_error_response(id));
+                }
                 return Some(tun_helper_removal_capture_error_response(
                     id, error, outcome,
                 ));
@@ -2306,29 +2301,30 @@ async fn handle_message(
                 )
                 .is_err()
             {
-                return Some(tun_helper_removal_evidence_error_response(id));
+                return Some(tun_helper_removal_evidence_error_response_after_admission(
+                    state,
+                    &operation_id,
+                    id,
+                ));
             }
             if let Err(error) = service.confirm_tun_helper_removal_safe().await {
                 let outcome = TunHelperRemovalOutcome::ObservationIncomplete;
-                if state
-                    .tun_helper_removal_occurrences
-                    .finish(
-                        &removal_admission,
-                        outcome,
-                        Some(tun_helper_removal_settings_occurrence_failure(&error)),
-                        tun_helper_removal_settings_observation(&error),
-                        TunHelperRemovalCleanupOutcome::NotRequired,
-                    )
-                    .is_err()
-                {
-                    return Some(tun_helper_removal_evidence_error_response(id));
-                }
+                let evidence = state.tun_helper_removal_occurrences.finish(
+                    &removal_admission,
+                    outcome,
+                    Some(tun_helper_removal_settings_occurrence_failure(&error)),
+                    tun_helper_removal_settings_observation(&error),
+                    TunHelperRemovalCleanupOutcome::NotRequired,
+                );
                 publish_tun_helper_removal_outcome(
                     state,
                     &operation_id,
                     outcome,
                     Some(settings_failure_id(&error)),
                 );
+                if evidence.is_err() {
+                    return Some(tun_helper_removal_evidence_error_response(id));
+                }
                 return Some(tun_helper_removal_settings_error_response(
                     state, id, error, outcome,
                 ));
@@ -2343,55 +2339,53 @@ async fn handle_message(
                 )
                 .is_err()
             {
-                return Some(tun_helper_removal_evidence_error_response(id));
+                return Some(tun_helper_removal_evidence_error_response_after_admission(
+                    state,
+                    &operation_id,
+                    id,
+                ));
             }
             publish_tun_helper_lifecycle(state, &operation_id, "remove", "finalizing", None);
             match service.remove_tun_helper().await {
                 Ok(_) => {
-                    if state
-                        .tun_helper_removal_occurrences
-                        .finish(
-                            &removal_admission,
-                            TunHelperRemovalOutcome::Removed,
-                            None,
-                            TunHelperRemovalObservationOutcome::Removed,
-                            TunHelperRemovalCleanupOutcome::ConfirmedAbsent,
-                        )
-                        .is_err()
-                    {
-                        return Some(tun_helper_removal_evidence_error_response(id));
-                    }
+                    let evidence = state.tun_helper_removal_occurrences.finish(
+                        &removal_admission,
+                        TunHelperRemovalOutcome::Removed,
+                        None,
+                        TunHelperRemovalObservationOutcome::Removed,
+                        TunHelperRemovalCleanupOutcome::ConfirmedAbsent,
+                    );
                     publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
                         TunHelperRemovalOutcome::Removed,
                         None,
                     );
+                    if evidence.is_err() {
+                        return Some(tun_helper_removal_evidence_error_response(id));
+                    }
                     let snapshot = helper_lifecycle_publication.finish();
                     drop(helper_lifecycle_transaction);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
                 Err(error) => {
                     let outcome = removal_outcome_for_settings_failure(&error);
-                    if state
-                        .tun_helper_removal_occurrences
-                        .finish(
-                            &removal_admission,
-                            outcome,
-                            Some(tun_helper_removal_settings_occurrence_failure(&error)),
-                            TunHelperRemovalObservationOutcome::ConfirmedSafe,
-                            tun_helper_removal_cleanup_outcome(outcome),
-                        )
-                        .is_err()
-                    {
-                        return Some(tun_helper_removal_evidence_error_response(id));
-                    }
+                    let evidence = state.tun_helper_removal_occurrences.finish(
+                        &removal_admission,
+                        outcome,
+                        Some(tun_helper_removal_settings_occurrence_failure(&error)),
+                        TunHelperRemovalObservationOutcome::ConfirmedSafe,
+                        tun_helper_removal_cleanup_outcome(outcome),
+                    );
                     publish_tun_helper_removal_outcome(
                         state,
                         &operation_id,
                         outcome,
                         Some(settings_failure_id(&error)),
                     );
+                    if evidence.is_err() {
+                        return Some(tun_helper_removal_evidence_error_response(id));
+                    }
                     return Some(tun_helper_removal_settings_error_response(
                         state, id, error, outcome,
                     ));
@@ -3178,6 +3172,21 @@ fn tun_helper_removal_evidence_error_response(id: Value) -> Value {
         "TUN helper removal evidence is unavailable",
         Some(json!({ "kind": "removal-evidence-unavailable" })),
     )
+}
+
+fn tun_helper_removal_evidence_error_response_after_admission(
+    state: &ProtocolState,
+    operation_id: &str,
+    id: Value,
+) -> Value {
+    publish_tun_helper_lifecycle(
+        state,
+        operation_id,
+        "remove",
+        "recovery-required",
+        Some("removal-evidence-unavailable".into()),
+    );
+    tun_helper_removal_evidence_error_response(id)
 }
 
 fn removal_outcome_for_capture_failure(kind: CaptureFailureKind) -> TunHelperRemovalOutcome {

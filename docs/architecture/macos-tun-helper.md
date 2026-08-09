@@ -160,6 +160,8 @@ Profiles, arbitrary paths, or host/network values. It is diagnostic evidence,
 not maintenance or cleanup authority: the existing Helper, package, Capture,
 and network owners still decide current state, so a successful retry may
 truthfully publish removed/not-installed without rewriting the earlier failure.
+If the private journal cannot be validated or written, desktop startup and
+unrelated Settings remain available while removal admission fails closed.
 
 Before any artifact replacement, the controller uses the existing installation
 key and one accepted operation identity to authenticate Status and, when

@@ -1219,6 +1219,134 @@ async fn authenticated_active_tun_removal_hands_off_capture_before_authorization
 }
 
 #[tokio::test]
+async fn removal_evidence_write_failure_keeps_the_terminal_notification_truthful() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    scenario
+        .maintenance
+        .pause_at(MaintenanceCommitPoint::IntentPersisted, 1)
+        .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let occurrences = Arc::new(
+        TunHelperRemovalOccurrenceStore::open_private_file(
+            root.path().join("internal-tun-removal-occurrences.json"),
+        )
+        .unwrap(),
+    );
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config_with_occurrences(&scenario, occurrences.clone()),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut commander = rpc_socket(bridge.address).await;
+    let mut observer = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut commander).await;
+    rpc_authenticate(&mut observer).await;
+
+    let removal = tokio::spawn(async move {
+        rpc_request(
+            &mut commander,
+            json!({"jsonrpc":"2.0", "id":2, "method":"settings.removeTunHelper", "params":{}}),
+        )
+        .await
+    });
+    settle_until(|| scenario.maintenance.journal_snapshot().is_some()).await;
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    scenario.host.advance_to(1).unwrap();
+
+    let rejected = tokio::time::timeout(Duration::from_secs(2), removal)
+        .await
+        .expect("removal must settle after the evidence write fails")
+        .unwrap();
+    assert_eq!(rejected["error"]["code"], -32057);
+    assert_eq!(
+        rejected["error"]["data"]["kind"],
+        "removal-evidence-unavailable"
+    );
+    assert_eq!(
+        scenario
+            .settings_service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .tun_helper
+            .removal,
+        TunHelperRemovalCapability::NotInstalled
+    );
+    assert!(occurrences.records().is_empty());
+
+    let notifications = rpc_request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":3, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
+    let lifecycle = notification(&notifications, "tun-helper.lifecycle");
+    assert_eq!(lifecycle["presentation"]["data"]["outcome"], "removed");
+    assert_eq!(lifecycle["pinned"], false);
+
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    shutdown_with_profile_coordinator(&scenario).await;
+    drop(observer);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
+}
+
+#[tokio::test]
+async fn unavailable_removal_evidence_disables_only_removal_admission() {
+    let scenario = Arc::new(
+        build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await,
+    );
+    let bridge = start_loopback_server_with_runtime_host(
+        rpc_config_with_occurrences(
+            &scenario,
+            Arc::new(TunHelperRemovalOccurrenceStore::unavailable()),
+        ),
+        scenario.runtime_host.clone(),
+    )
+    .await
+    .unwrap();
+    let mut socket = rpc_socket(bridge.address).await;
+    rpc_authenticate(&mut socket).await;
+
+    let snapshot = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert!(snapshot["result"].is_object());
+    let rejected = rpc_request(
+        &mut socket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(rejected["error"]["code"], -32057);
+    assert_eq!(
+        rejected["error"]["data"]["kind"],
+        "removal-evidence-unavailable"
+    );
+
+    shutdown_with_profile_coordinator(&scenario).await;
+    drop(socket);
+    assert!(matches!(
+        bridge.shutdown().await,
+        BridgeShutdownOutcome::Confirmed(_)
+    ));
+}
+
+#[tokio::test]
 async fn incomplete_cleanup_observation_blocks_removal_before_maintenance() {
     let scenario = Arc::new(
         build(
