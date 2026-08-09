@@ -44,7 +44,10 @@ describe("responsive shell CSS", () => {
     expect(shell).toContain("max-shell-mobile:hidden");
     expect(shell).toContain("<ProxyControlButton />");
     expect(shell).not.toContain("max-shell-mobile:contents");
-    expect(shell).toContain("<NarrowSectionNavigation />");
+    expect(shell).toContain("if (!isActivityPath(location.pathname)) return null");
+    expect(shell).toContain("<DrawerProfilesPage />");
+    expect(shell).toContain("profile-drawer-trigger");
+    expect(shell).toContain("max-shell-mobile:border-b-0");
   });
 
   it("bounds the mobile root to the dynamic viewport", () => {

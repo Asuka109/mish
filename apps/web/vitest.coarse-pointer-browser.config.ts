@@ -25,6 +25,7 @@ export default defineConfig({
         },
       }),
     },
+    fileParallelism: false,
     include: [
       "src/platform/coarse-pointer-controls.browser.test.ts",
       "src/platform/responsive-shell.browser.test.ts",

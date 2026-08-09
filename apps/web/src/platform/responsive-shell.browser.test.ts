@@ -80,6 +80,9 @@ function expectNarrowNavigationGeometry(context: string) {
   expect(workspaceRect.bottom, `${context}: workspace ends before navigation`).toBeLessThanOrEqual(
     sidebarRect.top + 0.5,
   );
+  expect(getComputedStyle(workspace).borderBottomWidth, `${context}: no duplicate divider`).toBe(
+    "0px",
+  );
   expect(sidebarRect.height, `${context}: reachable navigation row`).toBeGreaterThanOrEqual(56);
   expect(sidebarRect.bottom, `${context}: safe viewport bottom`).toBeLessThanOrEqual(
     window.innerHeight + 0.5,
@@ -616,76 +619,87 @@ describe("responsive application shell", () => {
     }
   });
 
-  test("keeps grouped Home and Activity destinations discoverable and reachable", async () => {
+  test("opens Profiles in a narrow drawer and keeps Activity destinations reachable", async () => {
     await page.viewport(390, 844);
     await selectLocale("English");
-
-    for (const group of [
-      {
-        path: "/status",
-        targets: ["/status", "/profiles"],
-      },
-      {
-        path: "/traffic",
-        targets: ["/traffic?tab=active", "/traffic?tab=rules", "/events"],
-      },
-    ]) {
-      await navigate(group.path);
-      const links = [
-        ...document.querySelectorAll<HTMLAnchorElement>(".narrow-section-navigation .nav-item"),
-      ];
-      expect(links.map((link) => link.getAttribute("href"))).toEqual(group.targets);
-      expect(
-        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
-      ).toHaveLength(1);
-
-      for (const link of links) {
-        expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-        expectTargetOwnsItsCenter(link, `grouped destination ${link.textContent}`);
-      }
-
-      links[0]?.focus({ preventScroll: true });
-      await userEvent.keyboard("{Tab}");
-      expect(document.activeElement).toBe(links[1]);
-      expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
-      expect(getComputedStyle(links[1] as HTMLAnchorElement).outlineStyle).toBe("solid");
-      for (const expected of links.slice(2)) {
-        await userEvent.keyboard("{ArrowRight}");
-        expect(document.activeElement).toBe(expected);
-        expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
-        expect(getComputedStyle(expected).outlineStyle).toBe("solid");
-      }
-
-      if (links.length === 3) {
-        const navigation = links[0]?.closest<HTMLElement>(".narrow-section-navigation");
-        if (!navigation) throw new Error("Missing activity navigation");
-        navigation.style.width = "150px";
-        navigation.scrollLeft = 0;
-        links[0]?.focus({ preventScroll: true });
-        expect(navigation.scrollWidth).toBeGreaterThan(navigation.clientWidth);
-
-        await userEvent.keyboard("{End}");
-        await vi.waitFor(() => expect(navigation.scrollLeft).toBeGreaterThan(0));
-        const navigationRect = navigation.getBoundingClientRect();
-        const focusedRect = links.at(-1)?.getBoundingClientRect();
-        expect(focusedRect?.left).toBeGreaterThanOrEqual(navigationRect.left);
-        expect(focusedRect?.right).toBeLessThanOrEqual(navigationRect.right);
-        navigation.style.removeProperty("width");
-      }
-    }
-
     await navigate("/status");
-    await page
-      .elementLocator(
-        document.querySelector('.narrow-section-navigation a[href="/profiles"]') as Element,
-      )
-      .click();
-    await vi.waitFor(() => expect(window.location.pathname).toBe("/profiles"));
+
+    expect(document.querySelector(".narrow-section-navigation")).toBeNull();
+    const profileTrigger = document.querySelector<HTMLButtonElement>(".profile-drawer-trigger");
+    if (!profileTrigger) throw new Error("Missing narrow profile drawer trigger");
+    expect(profileTrigger.getBoundingClientRect().width).toBeGreaterThanOrEqual(100);
+    expect(profileTrigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(34);
+    expect(profileTrigger.scrollWidth - profileTrigger.clientWidth).toBeLessThanOrEqual(1);
+    expect(profileTrigger.querySelector(".user-authored-label")).toHaveTextContent("Home");
+    expectTargetOwnsItsCenter(profileTrigger, "profile drawer trigger");
+
+    await page.elementLocator(profileTrigger).click();
+    await vi.waitFor(() => {
+      const drawer = document.querySelector<HTMLElement>(".drawer-content");
+      const heading = drawer?.querySelector("h1");
+      expect(drawer).not.toBeNull();
+      expect(heading).toHaveTextContent("Profiles");
+      expect(drawer?.getBoundingClientRect().width).toBeCloseTo(window.innerWidth, 0);
+      expect(drawer?.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+        window.innerHeight - 20,
+      );
+    });
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.querySelector('[role="dialog"]')).toHaveAccessibleName("Profiles");
+
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(document.querySelector(".drawer-content")).toBeNull());
+    expect(document.activeElement).toBe(profileTrigger);
+
+    await navigate("/profiles");
+    expect(document.querySelector(".narrow-section-navigation")).toBeNull();
     expect(
       document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
     ).toBe("/status");
 
     await navigate("/traffic");
+    const links = [
+      ...document.querySelectorAll<HTMLAnchorElement>(".narrow-section-navigation .nav-item"),
+    ];
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/traffic?tab=active",
+      "/traffic?tab=rules",
+      "/events",
+    ]);
+    expect(
+      document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+    ).toHaveLength(1);
+
+    for (const link of links) {
+      expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expectTargetOwnsItsCenter(link, `grouped destination ${link.textContent}`);
+    }
+
+    links[0]?.focus({ preventScroll: true });
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(links[1]);
+    expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(links[1] as HTMLAnchorElement).outlineStyle).toBe("solid");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(links[2]);
+    expect(links[2]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(links[2] as HTMLAnchorElement).outlineStyle).toBe("solid");
+
+    const navigation = links[0]?.closest<HTMLElement>(".narrow-section-navigation");
+    if (!navigation) throw new Error("Missing activity navigation");
+    navigation.style.width = "150px";
+    navigation.scrollLeft = 0;
+    links[0]?.focus({ preventScroll: true });
+    expect(navigation.scrollWidth).toBeGreaterThan(navigation.clientWidth);
+
+    await userEvent.keyboard("{End}");
+    await vi.waitFor(() => expect(navigation.scrollLeft).toBeGreaterThan(0));
+    const navigationRect = navigation.getBoundingClientRect();
+    const focusedRect = links.at(-1)?.getBoundingClientRect();
+    expect(focusedRect?.left).toBeGreaterThanOrEqual(navigationRect.left);
+    expect(focusedRect?.right).toBeLessThanOrEqual(navigationRect.right);
+    navigation.style.removeProperty("width");
+
     await page
       .elementLocator(
         document.querySelector('.narrow-section-navigation a[href="/events"]') as Element,
@@ -725,11 +739,17 @@ describe("responsive application shell", () => {
     const shell = document.querySelector<HTMLElement>(".app-shell");
     const sidebar = document.querySelector<HTMLElement>(".sidebar");
     const navigationItem = document.querySelector<HTMLElement>(".desktop-nav-item");
-    if (!shell || !sidebar || !navigationItem) throw new Error("Missing desktop boundary shell");
+    const profileSelect = document.querySelector<HTMLElement>(".profile-select-trigger");
+    const profileDrawerTrigger = document.querySelector<HTMLElement>(".profile-drawer-trigger");
+    if (!shell || !sidebar || !navigationItem || !profileSelect || !profileDrawerTrigger) {
+      throw new Error("Missing desktop boundary shell");
+    }
 
     expect(Math.round(sidebar.getBoundingClientRect().width)).toBe(164);
     expect(getComputedStyle(shell).gridTemplateColumns).toMatch(/^164px /);
     expect(Math.round(navigationItem.getBoundingClientRect().height)).toBe(36);
+    expect(profileSelect.getBoundingClientRect().width).toBeGreaterThan(1);
+    expect(profileDrawerTrigger.getBoundingClientRect().width).toBe(0);
   });
 
   test("centers deferred route loading in the visible workspace scroller", async () => {

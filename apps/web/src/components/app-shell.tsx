@@ -1,4 +1,5 @@
 import { Circle } from "@phosphor-icons/react/Circle";
+import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { Gauge } from "@phosphor-icons/react/Gauge";
@@ -15,6 +16,10 @@ import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
 import { XCircle } from "@phosphor-icons/react/XCircle";
 import {
   Button,
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  DrawerTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -31,7 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
-import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { lazy, Suspense, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
@@ -70,6 +75,10 @@ const narrowDestinations = [
   { icon: CirclesFour, key: "routes", path: "/routes" },
   { icon: Pulse, key: "activity", path: "/traffic" },
 ] as const;
+
+const DrawerProfilesPage = lazy(() =>
+  import("../pages/profiles-page").then(({ ProfilesPage }) => ({ default: ProfilesPage })),
+);
 
 function getNavigationLabel(LL: TranslationFunctions, key: (typeof destinations)[number]["key"]) {
   return LL.navigation[key]();
@@ -165,7 +174,8 @@ const shellStyles = tv({
       "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
       "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
       "max-shell-mobile:row-start-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
-      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact",
+      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact max-shell-mobile:rounded-b-none",
+      "max-shell-mobile:border-b-0",
     ),
     toolbar: cx(
       "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6",
@@ -182,11 +192,19 @@ const shellStyles = tv({
       "max-shell-mobile:gap-0.5",
     ),
     profileTrigger: cx(
-      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5",
-      "max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden",
+      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent",
       "[&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden",
       "[&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
     ),
+    desktopProfileMenu: "desktop-profile-menu max-shell-mobile:hidden",
+    profileDrawerTrigger: cx(
+      "profile-drawer-trigger hidden min-w-28 max-w-55 justify-between bg-transparent",
+      "max-shell-mobile:inline-flex [&>.user-authored-label]:min-w-0",
+      "[&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis",
+      "[&>.user-authored-label]:whitespace-nowrap",
+    ),
+    profileDrawerScroller: "profile-drawer-scroller min-h-0 flex-1 overflow-auto",
+    profileDrawerLoading: "grid min-h-full place-items-center text-muted-foreground",
     menuContent: "min-w-39",
     menuLabel:
       "profile-menu-label block px-2.25 pt-1.5 pb-1.75 text-metadata text-muted-foreground",
@@ -582,38 +600,27 @@ function Sidebar() {
 function NarrowSectionNavigation() {
   const { LL } = useI18nContext();
   const location = useLocation();
-  const home = isHomePath(location.pathname);
-  const activity = isActivityPath(location.pathname);
-  if (!home && !activity) return null;
+  if (!isActivityPath(location.pathname)) return null;
 
   const rules =
     location.pathname === "/traffic" && new URLSearchParams(location.search).get("tab") === "rules";
-  const links = home
-    ? [
-        { label: LL.navigation.status(), selected: location.pathname === "/status", to: "/status" },
-        {
-          label: LL.navigation.profiles(),
-          selected: location.pathname === "/profiles",
-          to: "/profiles",
-        },
-      ]
-    : [
-        {
-          label: LL.mobileNavigation.connections(),
-          selected: location.pathname === "/traffic" && !rules,
-          to: "/traffic?tab=active",
-        },
-        { label: LL.mobileNavigation.rules(), selected: rules, to: "/traffic?tab=rules" },
-        {
-          label: LL.mobileNavigation.events(),
-          selected: location.pathname === "/events",
-          to: "/events",
-        },
-      ];
+  const links = [
+    {
+      label: LL.mobileNavigation.connections(),
+      selected: location.pathname === "/traffic" && !rules,
+      to: "/traffic?tab=active",
+    },
+    { label: LL.mobileNavigation.rules(), selected: rules, to: "/traffic?tab=rules" },
+    {
+      label: LL.mobileNavigation.events(),
+      selected: location.pathname === "/events",
+      to: "/events",
+    },
+  ];
 
   return (
     <nav
-      aria-label={home ? LL.mobileNavigation.home() : LL.mobileNavigation.activity()}
+      aria-label={LL.mobileNavigation.activity()}
       className={shellStyles().sectionNavigation()}
       onKeyDown={handleSidebarKeyDown}
     >
@@ -640,6 +647,7 @@ function ProfileMenu() {
   const { pending: currentProfilePending, selectCurrentProfile } = useCurrentProfileCommand();
   const { LL } = useI18nContext();
   const { publish } = useNotificationDelivery();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   if (!snapshot) {
     return (
       <span className={shellStyles().loading()}>
@@ -692,42 +700,83 @@ function ProfileMenu() {
     }
   }
 
+  const profileLabel = LL.toolbar.switchProfile({ profile: activeLabel });
+
   return (
-    <Select
-      onValueChange={(profileId) =>
-        typeof profileId === "string" ? void selectProfile(profileId) : undefined
-      }
-      value={selectedProfile?.id ?? ""}
-    >
-      <SelectTrigger
-        aria-busy={profilePending}
-        aria-describedby={actionDescriptionId}
-        aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
-        className={shellStyles().profileTrigger()}
-        disabled={profilePending || !profileSupported || managedProfiles.length === 0}
-        touchTarget="adaptive"
-      >
-        {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
-        <span className="user-authored-label">{activeLabel}</span>
-      </SelectTrigger>
-      <SelectContent align="end" className="profile-menu" sideOffset={8}>
-        <SelectGroup>
-          {managedProfiles.map((profile) => (
-            <SelectItem
-              className={cx(
-                "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
-                "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
-                "data-highlighted:bg-accent data-highlighted:text-ink",
-              )}
-              key={profile.id}
-              value={profile.id}
+    <>
+      <div className={shellStyles().desktopProfileMenu()}>
+        <Select
+          onValueChange={(profileId) =>
+            typeof profileId === "string" ? void selectProfile(profileId) : undefined
+          }
+          value={selectedProfile?.id ?? ""}
+        >
+          <SelectTrigger
+            aria-busy={profilePending}
+            aria-describedby={actionDescriptionId}
+            aria-label={profileLabel}
+            className={shellStyles().profileTrigger()}
+            disabled={profilePending || !profileSupported || managedProfiles.length === 0}
+            touchTarget="adaptive"
+          >
+            {profilePending ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <FileText aria-hidden="true" />
+            )}
+            <span className="user-authored-label">{activeLabel}</span>
+          </SelectTrigger>
+          <SelectContent align="end" className="profile-menu" sideOffset={8}>
+            <SelectGroup>
+              {managedProfiles.map((profile) => (
+                <SelectItem
+                  className={cx(
+                    "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
+                    "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
+                    "data-highlighted:bg-accent data-highlighted:text-ink",
+                  )}
+                  key={profile.id}
+                  value={profile.id}
+                >
+                  <span className="user-authored-label">{profile.label}</span>
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <Drawer onOpenChange={setDrawerOpen} open={drawerOpen}>
+        <DrawerTrigger
+          render={
+            <Button
+              aria-label={profileLabel}
+              className={shellStyles().profileDrawerTrigger()}
+              touchTarget="adaptive"
+              variant="outline"
+            />
+          }
+        >
+          <FileText aria-hidden="true" />
+          <span className="user-authored-label">{activeLabel}</span>
+          <CaretDown aria-hidden="true" />
+        </DrawerTrigger>
+        <DrawerContent aria-describedby={undefined} closeLabel={LL.common.close()}>
+          <DrawerTitle className="sr-only">{LL.profiles.title()}</DrawerTitle>
+          <div className={shellStyles().profileDrawerScroller()}>
+            <Suspense
+              fallback={
+                <div className={shellStyles().profileDrawerLoading()} role="status">
+                  <Spinner />
+                  <span className="sr-only">{LL.common.loading()}</span>
+                </div>
+              }
             >
-              <span className="user-authored-label">{profile.label}</span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+              <DrawerProfilesPage />
+            </Suspense>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 
