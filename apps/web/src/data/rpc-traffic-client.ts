@@ -1,7 +1,6 @@
 import {
   BRIDGE_INFO_REQUEST,
   TrafficClientError,
-  mishRpcMethods,
   trafficRpcNotifications,
   type ApplicationSnapshotDelivery,
   type TrafficClient,
@@ -12,11 +11,16 @@ import {
   type TrafficDataSnapshotDto,
   type TrafficSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcClient, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
-import { mapRpcError } from "./rpc-status-client";
+import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
+import {
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-export type TrafficRpcClient = RpcClient<typeof mishRpcMethods>;
+export type TrafficRpcClient = WebRpcTransport;
 
 export class RpcTrafficClient implements TrafficClient {
   private readonly connectionListeners = new Set<(state: TrafficConnectionState) => void>();
@@ -37,7 +41,7 @@ export class RpcTrafficClient implements TrafficClient {
   private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>();
 
   constructor(private readonly rpc: TrafficRpcClient) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "traffic.snapshot",
       trafficRpcNotifications["traffic.snapshot"],
@@ -194,8 +198,8 @@ export class RpcTrafficClient implements TrafficClient {
     await this.subscriptionPromise;
   }
 
-  private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+  private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.snapshotAcceptance.armReconnect();
       this.capabilitiesLoaded = false;
@@ -286,19 +290,9 @@ export class RpcTrafficClient implements TrafficClient {
   }
 }
 
-function mapConnectionState(state: RpcConnectionState): TrafficConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return { attempt: state.attempt, phase: state.phase, stale: state.stale };
-}
-
 function toTrafficClientError(error: unknown) {
   if (error instanceof TrafficClientError) return error;
-  const mapped = mapRpcError(error);
+  const mapped =
+    error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
   return new TrafficClientError(mapped.code, mapped.message, mapped.retryable);
 }

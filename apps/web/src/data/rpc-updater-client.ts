@@ -1,6 +1,5 @@
 import {
   UpdaterClientError,
-  mishRpcMethods,
   updaterRpcNotifications,
   type StatusConnectionState,
   type UpdateChannel,
@@ -8,15 +7,15 @@ import {
   type UpdaterSnapshotDto,
   type UpdaterSnapshotNotificationDto,
 } from "@mish/contracts";
+import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import {
-  RpcClient,
-  RpcRemoteError,
-  type RpcConnectionState,
-  type RpcRequestOptions,
-} from "@mish/rpc-client";
-import { mapRpcError } from "./rpc-status-client";
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-type UpdaterRpcClient = RpcClient<typeof mishRpcMethods>;
+export type UpdaterRpcClient = WebRpcTransport;
 
 export class RpcUpdaterClient implements UpdaterClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
@@ -31,7 +30,7 @@ export class RpcUpdaterClient implements UpdaterClient {
   private readonly unsubscribeRpcConnection: () => void;
 
   constructor(private readonly rpc: UpdaterRpcClient) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "updater.snapshot",
       updaterRpcNotifications["updater.snapshot"],
@@ -156,8 +155,8 @@ export class RpcUpdaterClient implements UpdaterClient {
     await this.subscriptionPromise;
   }
 
-  private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+  private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.remoteSubscriptionId = null;
       this.emitConnectionState({ ...mapped, stale: true });
@@ -181,19 +180,9 @@ export class RpcUpdaterClient implements UpdaterClient {
   }
 }
 
-function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return { attempt: state.attempt, phase: state.phase, stale: state.stale };
-}
-
 function mapUpdaterError(error: unknown) {
-  const mapped = mapRpcError(error);
+  const mapped =
+    error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
   const kind =
     error instanceof RpcRemoteError &&
     error.data &&
