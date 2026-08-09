@@ -298,6 +298,25 @@ const dialogRecipe = tv({
   },
 });
 
+const drawerRecipe = tv({
+  slots: {
+    backdrop: "drawer-backdrop fixed inset-0 z-70 bg-dialog-backdrop backdrop-blur-dialog-backdrop",
+    content: cx(
+      "drawer-content fixed inset-x-0 bottom-0 z-71 flex w-full flex-col overflow-hidden",
+      "h-[calc(100dvh_-_max(16px,env(safe-area-inset-top)))] overscroll-contain",
+      "pb-[env(safe-area-inset-bottom)]",
+      "rounded-t-lg border border-b-0 border-hairline bg-canvas shadow-float outline-none",
+    ),
+    handle: "drawer-handle mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-hairline",
+    close: cx(
+      "drawer-close absolute top-2.5 right-2.5 grid size-7.5 place-items-center rounded-md border-0",
+      "bg-transparent text-muted-foreground hover:bg-accent hover:text-ink [&_svg]:size-4",
+    ),
+    title: "drawer-title text-body font-semibold",
+    description: "drawer-description text-metadata leading-4.5 text-muted-foreground",
+  },
+});
+
 const menuRecipe = tv({
   slots: {
     positioner: "menu-positioner z-60 outline-none",
@@ -665,6 +684,68 @@ export function DialogContent({
         {children}
         {showCloseButton ? (
           <DialogPrimitive.Close aria-label={closeLabel} className={dialogRecipe().close()}>
+            <X aria-hidden="true" />
+          </DialogPrimitive.Close>
+        ) : null}
+      </DialogPrimitive.Popup>
+    </DialogPrimitive.Portal>
+  );
+}
+
+export const Drawer = DialogPrimitive.Root;
+export const DrawerTrigger = DialogPrimitive.Trigger;
+export const DrawerClose = DialogPrimitive.Close;
+
+export function DrawerTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      {...props}
+      className={resolveClassName(className, (override) =>
+        drawerRecipe().title({ className: override }),
+      )}
+    />
+  );
+}
+
+export function DrawerDescription({
+  className,
+  ...props
+}: ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      {...props}
+      className={resolveClassName(className, (override) =>
+        drawerRecipe().description({ className: override }),
+      )}
+    />
+  );
+}
+
+export interface DrawerContentProps extends ComponentProps<typeof DialogPrimitive.Popup> {
+  closeLabel?: string;
+  showCloseButton?: boolean;
+}
+
+export function DrawerContent({
+  children,
+  className,
+  closeLabel = "Close",
+  showCloseButton = true,
+  ...props
+}: DrawerContentProps) {
+  return (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Backdrop className={drawerRecipe().backdrop()} />
+      <DialogPrimitive.Popup
+        className={resolveClassName(className, (override) =>
+          drawerRecipe().content({ className: override }),
+        )}
+        {...props}
+      >
+        <div aria-hidden="true" className={drawerRecipe().handle()} />
+        {children}
+        {showCloseButton ? (
+          <DialogPrimitive.Close aria-label={closeLabel} className={drawerRecipe().close()}>
             <X aria-hidden="true" />
           </DialogPrimitive.Close>
         ) : null}

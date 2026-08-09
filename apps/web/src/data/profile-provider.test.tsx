@@ -95,7 +95,7 @@ function SelectionProbe() {
       <output data-testid="result">{result}</output>
       <button
         onClick={() => {
-          void profiles.selectProfile("fixture-profile-home").then((next) => {
+          void profiles.selectProfile("home").then((next) => {
             setResult(next.ok ? "success" : "failure");
           });
         }}
@@ -118,13 +118,13 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
 
-    expect(await screen.findByTestId("selection")).toHaveTextContent("fixture-profile-studio:1");
+    expect(await screen.findByTestId("selection")).toHaveTextContent("work:1");
     fireEvent.click(screen.getByRole("button", { name: "Select Home" }));
-    expect(screen.getByTestId("selection")).toHaveTextContent("fixture-profile-home:1");
+    expect(screen.getByTestId("selection")).toHaveTextContent("home:1");
 
     client.confirm("fixture-profile-travel", 3);
     expect(await screen.findByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
-    client.resolvePending("fixture-profile-home", 2);
+    client.resolvePending("home", 2);
 
     await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("failure"));
     expect(screen.getByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
@@ -152,13 +152,9 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
 
-    await waitFor(() =>
-      expect(screen.getByTestId("configured-route")).toHaveTextContent("fixture-profile-studio"),
-    );
-    client.confirm("fixture-profile-studio", 2);
-    await waitFor(() =>
-      expect(client.routeRequests).toEqual(["fixture-profile-studio", "fixture-profile-studio"]),
-    );
-    expect(screen.getByTestId("configured-route")).toHaveTextContent("fixture-profile-studio");
+    await waitFor(() => expect(screen.getByTestId("configured-route")).toHaveTextContent("work"));
+    client.confirm("work", 2);
+    await waitFor(() => expect(client.routeRequests).toEqual(["work", "work"]));
+    expect(screen.getByTestId("configured-route")).toHaveTextContent("work");
   });
 });

@@ -45,7 +45,7 @@ const fixtureSnapshot = {
     {
       effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       fileName: "studio-route-set.yaml",
-      id: "fixture-profile-studio",
+      id: "work",
       label: "Studio route set",
       lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
       lastKnownValid: true,
@@ -113,7 +113,7 @@ const fixtureSnapshot = {
     {
       effectiveFingerprint: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       fileName: "home.yaml",
-      id: "fixture-profile-home",
+      id: "home",
       label: "home.yaml",
       lastAttempt: { attemptedAt: 1_721_292_400_000, outcome: "succeeded" },
       lastKnownValid: true,
@@ -160,7 +160,7 @@ const fixtureSnapshot = {
     remotelyCancellable: false,
   },
   selection: {
-    profileId: "fixture-profile-studio",
+    profileId: "work",
     revision: 1,
   },
 } satisfies ProfileSnapshotDto;
@@ -206,7 +206,7 @@ export class FixtureProfileClient implements ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfilePatchEditorDto> {
     if (options?.signal?.aborted) throw cancelled();
-    if (authority.profileId !== "fixture-profile-studio") throw unsupported();
+    if (authority.profileId !== "work") throw unsupported();
     return structuredClone(fixturePatchEditor);
   }
 
@@ -215,7 +215,7 @@ export class FixtureProfileClient implements ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileRouteCatalogDto> {
     if (options?.signal?.aborted) throw cancelled();
-    if (profileId !== "fixture-profile-studio") throw unsupported();
+    if (profileId !== "work") throw unsupported();
     return structuredClone(fixtureRouteCatalog);
   }
 
@@ -353,7 +353,7 @@ const fixturePatchEditor = {
   activationBlocked: false,
   authority: {
     artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    profileId: "fixture-profile-studio",
+    profileId: "work",
     sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   },
   catalog: {
@@ -399,7 +399,7 @@ const fixtureRouteCatalog = {
   fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   groups: [],
   nodes: [],
-  profileId: "fixture-profile-studio",
+  profileId: "work",
   routingMode: "rule",
 } satisfies ProfileRouteCatalogDto;
 

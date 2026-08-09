@@ -885,6 +885,7 @@ const zh: Translation = {
     createDescription: "输入文件名，创建一份默认直连的基础 YAML 配置。",
     createFailed: "无法创建配置，请检查文件名或换一个名称。",
     createProfile: "新建配置",
+    currentProfile: "当前配置",
     createTitle: "新建本地配置",
     createdToast: "配置已创建",
     creating: "正在创建…",
