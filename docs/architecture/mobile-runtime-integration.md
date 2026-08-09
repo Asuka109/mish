@@ -229,6 +229,41 @@ Consequential commands are never replayed automatically after an unknown
 disconnect. The client reconciles the current snapshot first and then asks the
 user to retry when the original outcome cannot be established.
 
+Android platform facts use the repository-owned
+[`android-platform-facts.json`](../../packages/android-platform-facts/android-platform-facts.json)
+as their narrow wire authority. Generation produces the Kotlin enum and
+serializer guard, the Rust strict deserializer and bounded validator, and the
+TypeScript Zod schema. The generated check is part of the pull-request gate.
+Unknown fields, unknown enum values, unsafe integers, invalid session IDs,
+incomplete Core/config identities, and values outside the declared bounds fail
+explicitly; they are not converted to an “unknown” observation or omitted.
+This contract is subordinate to the public bridge protocol and does not define
+bridge methods or capabilities.
+
+Passive Kotlin observations enter a single-slot latest-authoritative mailbox.
+An empty slot is `accepted`; replacement by a newer same-session sequence is
+`coalesced`; duplicate or older input is `stale`. If the state-machine inbox is
+saturated, the same observation is retained and retried while an even newer
+observation may replace it. This keeps memory bounded and preserves
+terminal-last convergence for revoke, Core exit, network loss, cleanup, and
+service destruction. A different platform session or a retired Runner is
+`rebind-required`, not ordinary backpressure. A malformed or unknown contract
+is `schema-rejected` and explicitly fails the next native boundary before a
+later call may construct a fresh adapter authority from `getPlatformFacts`.
+
+Command responses and `getPlatformFacts` remain authoritative reconciliation
+paths. They use the same ingress ordering: a same-session sequence at or below
+the delivered high-water is idempotently stale, and a newer event that arrives
+while a command is pending cannot be overwritten by the older command result.
+React similarly retains only the newest pre-baseline candidate per bounded
+authority/session key and applies the existing authority, session, revision,
+and sequence checks after the complete baseline.
+
+The facts contract contains only fixed enums, booleans, bounded identifiers,
+bounded version evidence, bounded counters, timestamps, and digests. Raw
+configuration bytes, credentials, private paths, native response text, and
+unbounded platform payloads are excluded from facts and admission diagnostics.
+
 ## Profile and configuration ownership
 
 The shared Profile contract remains source-first and transactional. Mobile
