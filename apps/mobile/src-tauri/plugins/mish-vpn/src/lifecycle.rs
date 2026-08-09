@@ -477,7 +477,6 @@ pub(crate) enum LifecycleInput {
     },
     TaskFailed {
         correlation: Correlation,
-        failure: TaskFailure,
     },
     Shutdown,
 }
@@ -520,36 +519,8 @@ impl Machine for LifecycleMachine {
                 operation_id,
                 timed_out,
             } => reduce_cancel(state, operation_id, *timed_out),
-            LifecycleInput::TaskFailed {
-                correlation,
-                failure: _,
-            } => reduce_task_failed(state, correlation),
+            LifecycleInput::TaskFailed { correlation } => reduce_task_failed(state, correlation),
             LifecycleInput::Shutdown => reduce_shutdown(state),
-        }
-    }
-
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        match state.phase {
-            LifecyclePhase::Stopped => "stopped",
-            LifecyclePhase::PermissionRequired => "permission-required",
-            LifecyclePhase::Starting => "starting",
-            LifecyclePhase::Running => "running",
-            LifecyclePhase::Stopping => "stopping",
-            LifecyclePhase::Failed => "failed",
-            LifecyclePhase::RecoveryRequired => "recovery-required",
-            LifecyclePhase::Unavailable => "unavailable",
-        }
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        match input {
-            LifecycleInput::Command { .. } => "command",
-            LifecycleInput::EffectCompleted { .. } => "effect-completed",
-            LifecycleInput::EffectFailed { .. } => "effect-failed",
-            LifecycleInput::PlatformObserved(_) => "platform-observed",
-            LifecycleInput::Cancel { .. } => "cancel",
-            LifecycleInput::TaskFailed { .. } => "task-failed",
-            LifecycleInput::Shutdown => "shutdown",
         }
     }
 
@@ -585,11 +556,8 @@ impl Machine for LifecycleMachine {
             && correlation.effect_id == 1
     }
 
-    fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
-        LifecycleInput::TaskFailed {
-            correlation,
-            failure,
-        }
+    fn task_failed(&self, correlation: Correlation, _failure: TaskFailure) -> Self::Input {
+        LifecycleInput::TaskFailed { correlation }
     }
 
     fn shutdown(&self) -> Self::Input {
@@ -1778,21 +1746,6 @@ mod tests {
                 .unwrap()
                 .failure,
             Some(LifecycleFailure::InvalidRecoveryEvidence)
-        );
-    }
-
-    #[test]
-    fn evidence_labels_and_failures_never_include_platform_payloads() {
-        let machine = LifecycleMachine;
-        let mut secret = facts(2);
-        secret.core_commit = Some("credential-user:password@example.invalid".into());
-        assert_eq!(
-            machine.input_label(&LifecycleInput::PlatformObserved(secret)),
-            "platform-observed"
-        );
-        assert_eq!(
-            LifecycleFailure::PlatformFailure,
-            LifecycleFailure::PlatformFailure
         );
     }
 }
