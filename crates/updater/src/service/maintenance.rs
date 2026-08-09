@@ -21,7 +21,7 @@ const JOURNAL_SCHEMA_VERSION: u8 = 1;
 const JOURNAL_FILE: &str = "journal.json";
 const JOURNAL_MAX_BYTES: u64 = 4 * 1024;
 const EVIDENCE_LIMIT: usize = 64;
-const MAINTENANCE_REVISION_HEADROOM: u64 = 5;
+const MAINTENANCE_REVISION_HEADROOM: u64 = 4;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -752,10 +752,7 @@ impl UpdaterMaintenanceAuthority {
                             MaintenanceMachineInput::Startup,
                         )?
                         .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
-                        let recovery_authority_changed =
-                            record.operation.recovery_authority_sha256.as_deref()
-                                != Some(&self.machine_authority_sha256);
-                        if next_phase != record.phase || recovery_authority_changed {
+                        if next_phase != record.phase {
                             advance_revision(&mut record)?;
                         }
                         record.phase = next_phase;
@@ -1678,7 +1675,7 @@ mod tests {
 
     #[test]
     fn begin_reserves_revision_headroom_for_restart_and_terminal_recovery() {
-        for admitted_revision in [u64::MAX, u64::MAX - 4] {
+        for admitted_revision in [u64::MAX, u64::MAX - 3] {
             let root = TempDir::new().unwrap();
             let authority = authority(&root, "0.1.0");
             let mut unsafe_request = request("unsafe-headroom");
@@ -1710,11 +1707,23 @@ mod tests {
         .unwrap();
         let recovery_revision = replacement.runtime_state().revision;
         assert_eq!(recovery_revision, u64::MAX - 1);
+        drop(replacement);
+
+        let second_replacement = UpdaterMaintenanceAuthority::open(
+            root.path().join("maintenance"),
+            "second-replacement-authority",
+            "0.1.1",
+        )
+        .unwrap();
         assert_eq!(
-            replacement.complete_recovery("safe-headroom", recovery_revision),
+            second_replacement.runtime_state().revision,
+            recovery_revision
+        );
+        assert_eq!(
+            second_replacement.complete_recovery("safe-headroom", recovery_revision),
             Ok(u64::MAX)
         );
-        assert!(replacement.automatic_activation_allowed());
+        assert!(second_replacement.automatic_activation_allowed());
         assert!(!root.path().join("maintenance/journal.json").exists());
     }
 
@@ -2073,9 +2082,9 @@ mod tests {
         .unwrap();
         replacement.retire_runtime().unwrap();
         first.retire_runtime().unwrap();
-        assert_eq!(second_replacement.runtime_state().revision, 10);
+        assert_eq!(second_replacement.runtime_state().revision, 9);
         assert_eq!(
-            first.complete_recovery("operation-a", 10),
+            first.complete_recovery("operation-a", 9),
             Err(UpdaterMaintenanceError::OperationMismatch)
         );
         assert_eq!(
@@ -2083,19 +2092,23 @@ mod tests {
             Err(UpdaterMaintenanceError::OperationMismatch)
         );
         assert_eq!(
+            replacement.complete_recovery("operation-a", 9),
+            Err(UpdaterMaintenanceError::OperationMismatch)
+        );
+        assert_eq!(
             replacement.complete_recovery("operation-a", 8),
             Err(UpdaterMaintenanceError::OperationMismatch)
         );
         assert_eq!(
-            second_replacement.complete_recovery("operation-a", 9),
+            second_replacement.complete_recovery("operation-a", 8),
             Err(UpdaterMaintenanceError::StaleRevision)
         );
         let completed = second_replacement
-            .complete_recovery("operation-a", 10)
+            .complete_recovery("operation-a", 9)
             .unwrap();
-        assert_eq!(completed, 11);
+        assert_eq!(completed, 10);
         assert_eq!(
-            second_replacement.complete_recovery("operation-a", 10),
+            second_replacement.complete_recovery("operation-a", 9),
             Ok(completed)
         );
         assert!(!root.path().join("maintenance/journal.json").exists());
