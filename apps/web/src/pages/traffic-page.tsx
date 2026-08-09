@@ -30,7 +30,7 @@ import {
   EmptyTitle,
   Field,
   FieldLabel,
-  Input,
+  SearchInput,
   Select,
   SelectContent,
   SelectGroup,
@@ -115,10 +115,6 @@ const trafficStyles = tv({
       "my-3 flex flex-wrap items-center gap-2 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch",
     searchRow: "flex min-w-60 flex-1 items-center gap-2 max-shell-mobile:min-w-0",
     searchField: "min-w-0 flex-1",
-    searchControl: cx(
-      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
-      "[&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
-    ),
     searchHelp: "shrink-0 text-muted-foreground hover:text-fg",
     searchHelpDialog: "w-[min(520px,calc(100vw_-_32px))]",
     searchHelpContent: "grid gap-3 px-4 py-1 text-metadata leading-5 text-fg",
@@ -426,18 +422,17 @@ export function TrafficPage() {
               <FieldLabel className="sr-only" htmlFor="traffic-search">
                 {LL.traffic.searchLabel()}
               </FieldLabel>
-              <div className={trafficStyles().searchControl()}>
-                <MagnifyingGlass aria-hidden="true" />
-                <Input
-                  autoComplete="off"
-                  data-native-search
-                  id="traffic-search"
-                  onValueChange={setQuery}
-                  placeholder={LL.traffic.searchPlaceholder()}
-                  spellCheck={false}
-                  value={query}
-                />
-              </div>
+              <SearchInput
+                autoComplete="off"
+                data-native-search
+                icon={<MagnifyingGlass />}
+                id="traffic-search"
+                onValueChange={setQuery}
+                placeholder={LL.traffic.searchPlaceholder()}
+                rootClassName="traffic-search-control"
+                spellCheck={false}
+                value={query}
+              />
             </Field>
             <Button
               aria-label={LL.traffic.searchHelpAria()}

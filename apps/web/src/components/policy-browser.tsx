@@ -10,7 +10,7 @@ import {
   Button,
   Field,
   FieldLabel,
-  Input,
+  SearchInput,
   Select,
   SelectContent,
   SelectGroup,
@@ -578,22 +578,22 @@ export function PolicyBrowserToolbar<Sort extends string>({
           <FieldLabel className="sr-only" htmlFor={searchId}>
             {searchLabel}
           </FieldLabel>
-          <span className="policy-browser-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75 [&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5">
-            <MagnifyingGlass aria-hidden="true" />
-            <Input
-              aria-label={searchLabel}
-              autoComplete="off"
-              data-native-search
-              id={searchId}
-              name="policy-group-search"
-              onValueChange={onQueryChange}
-              placeholder={searchPlaceholder}
-              spellCheck={false}
-              type="search"
-              value={query}
-              className={mobile ? "min-h-11 text-body" : undefined}
-            />
-          </span>
+          <SearchInput
+            aria-label={searchLabel}
+            autoComplete="off"
+            className={mobile ? "text-body" : undefined}
+            data-native-search
+            icon={<MagnifyingGlass />}
+            id={searchId}
+            name="policy-group-search"
+            onValueChange={onQueryChange}
+            placeholder={searchPlaceholder}
+            rootClassName="policy-browser-search-control"
+            spellCheck={false}
+            touchTarget={mobile ? "adaptive" : "default"}
+            type="search"
+            value={query}
+          />
         </Field>
       ) : null}
       <div
