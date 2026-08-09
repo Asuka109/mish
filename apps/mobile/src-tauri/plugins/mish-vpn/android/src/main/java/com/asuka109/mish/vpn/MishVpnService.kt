@@ -52,6 +52,9 @@ class MishVpnService : VpnService() {
         )
         core = runtime.coreProbe
         store = runtime.store
+        val recovered = store.current()
+        activeLifecycleAuthority = recovered.lifecycleAuthority
+        productSessionId = recovered.activationSessionId
         connectivity = getSystemService(ConnectivityManager::class.java)
         ProcessRuntimeRegistry.serviceActive = true
         executor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -77,6 +80,7 @@ class MishVpnService : VpnService() {
                         activeLifecycleAuthority,
                     )
                 ) {
+                    store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
                     requestedStopAuthority = authority
                     stopRequested.set(true)
                     executor.execute { stopExplicitly(startId) }
@@ -112,7 +116,11 @@ class MishVpnService : VpnService() {
         productSessionId = request.productSessionId
         activeLifecycleAuthority = request.lifecycleAuthority
         promoteToForeground()
-        store.activationStarting(serviceInstanceId, request.productSessionId)
+        store.activationStarting(
+            serviceInstanceId,
+            request.productSessionId,
+            request.lifecycleAuthority,
+        )
 
         try {
             registerUnderlyingNetworkObservation()
@@ -322,6 +330,9 @@ class MishVpnService : VpnService() {
         val session = productSessionId
         val activeAuthority = activeLifecycleAuthority
         val authority = requestedStopAuthority ?: activeAuthority?.nextEffect()
+        if (authority != null && store.current().lifecycleAuthority != authority) {
+            store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
+        }
         return cleanup.cleanup(
             stopCore = {
                 if (activeAuthority != null && authority == null) {

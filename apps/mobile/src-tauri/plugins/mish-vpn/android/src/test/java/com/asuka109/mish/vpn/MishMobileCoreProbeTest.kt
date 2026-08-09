@@ -1,5 +1,6 @@
 package com.asuka109.mish.vpn
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -62,5 +63,27 @@ class MishMobileCoreProbeTest {
         assertFalse(lifecycleAuthorityIsSuccessor(active.copy(effectIdentity = "3"), active))
         assertFalse(lifecycleAuthorityIsSuccessor(active.copy(operationId = "foreign"), active))
         assertNull(active.copy(effectIdentity = ULong.MAX_VALUE.toString()).nextEffect())
+    }
+
+    @Test
+    fun `round trips only a complete persisted lifecycle authority`() {
+        val authority = CoreLifecycleAuthority("authority", 7, "start", 23, "1")
+
+        assertEquals(authority, CoreLifecycleAuthority.fromJson(authority.toJson()))
+        assertNull(
+            CoreLifecycleAuthority.fromJson(
+                JSONObject(authority.toJson().toString()).put("unexpected", true),
+            ),
+        )
+        assertNull(
+            CoreLifecycleAuthority.fromJson(
+                JSONObject(authority.toJson().toString()).put("effectIdentity", "0"),
+            ),
+        )
+        assertNull(
+            CoreLifecycleAuthority.fromJson(
+                JSONObject(authority.toJson().toString()).put("admittedRevision", Long.MAX_VALUE),
+            ),
+        )
     }
 }

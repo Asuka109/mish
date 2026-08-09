@@ -42,6 +42,35 @@ internal data class CoreLifecycleAuthority(
         if (effect == ULong.MAX_VALUE) return null
         return copy(effectIdentity = (effect + 1u).toString())
     }
+
+    fun isValid(): Boolean =
+        machineAuthority.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
+            scopeEpoch > 0 &&
+            operationId.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
+            admittedRevision in 1 until Long.MAX_VALUE &&
+            effectIdentity.toULongOrNull()?.let { it > 0uL } == true
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("admittedRevision", admittedRevision)
+        .put("effectIdentity", effectIdentity)
+        .put("machineAuthority", machineAuthority)
+        .put("operationId", operationId)
+        .put("scopeEpoch", scopeEpoch)
+
+    companion object {
+        private val LIFECYCLE_IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
+
+        fun fromJson(value: JSONObject): CoreLifecycleAuthority? = runCatching {
+            check(value.length() == 5)
+            CoreLifecycleAuthority(
+                machineAuthority = value.getString("machineAuthority"),
+                scopeEpoch = value.getLong("scopeEpoch"),
+                operationId = value.getString("operationId"),
+                admittedRevision = value.getLong("admittedRevision"),
+                effectIdentity = value.getString("effectIdentity"),
+            ).takeIf { it.isValid() }
+        }.getOrNull()
+    }
 }
 
 internal fun lifecycleAuthorityIsSuccessor(

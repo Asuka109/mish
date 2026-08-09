@@ -41,11 +41,15 @@ export function checkCoreLifecycleAuthority(): void {
   const server = source("crates/desktop-bridge/src/server.rs");
   const profile = source("crates/desktop-bridge/src/profile_activation.rs");
   const mobileRust = source("apps/mobile/src-tauri/plugins/mish-vpn/src/android.rs");
+  const mobileLifecycle = source("apps/mobile/src-tauri/plugins/mish-vpn/src/lifecycle.rs");
   const mobileKotlin = source(
     "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishMobileCoreProbe.kt",
   );
   const mobileService = source(
     "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt",
+  );
+  const mobileStore = source(
+    "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnStateStore.kt",
   );
   const mobileCore = source("mobile-core/wrapper/runtime.go");
   const productSources = ["apps", "crates", "mobile-core", "packages"].flatMap(productionSources);
@@ -152,6 +156,17 @@ export function checkCoreLifecycleAuthority(): void {
       mobileCore.includes("strconv.ParseUint(current.EffectIdentity, 10, 64)") &&
       !mobileCore.includes('current.EffectIdentity+".cleanup"'),
     "Mobile Core mutations are not validating coordinator authority.",
+  );
+  invariant(
+    mobileStore.includes('.put("lifecycleAuthority", lifecycleAuthority.toJson())') &&
+      mobileStore.includes("lifecycleAuthority = recovery.lifecycleAuthority") &&
+      mobileStore.includes("fun lifecycleAuthorityAdvanced(") &&
+      mobileService.includes("activeLifecycleAuthority = recovered.lifecycleAuthority") &&
+      mobileService.includes("store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)") &&
+      mobileLifecycle.includes("authority.machine_authority.clone()") &&
+      mobileLifecycle.includes("authority.admitted_revision") &&
+      mobileRust.includes("scope_epoch: initial.scope_epoch"),
+    "Android lifecycle recreation must recover the exact active Core authority before Stop.",
   );
   const mobileNotification = mobileService.slice(
     mobileService.indexOf("private fun buildNotification"),

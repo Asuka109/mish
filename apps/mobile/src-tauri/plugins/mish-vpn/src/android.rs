@@ -345,7 +345,7 @@ impl<R: Runtime> MishVpn<R> {
         let admitted_revision = initial.revision.saturating_add(1);
         let correlation = mish_state_machine::Correlation {
             machine_authority: initial.authority_id.clone(),
-            scope_epoch: 1,
+            scope_epoch: initial.scope_epoch,
             operation_id: request.operation_id.clone(),
             admitted_revision,
             effect_id: 1,

@@ -54,6 +54,7 @@ internal data class MobilePlatformFacts(
     val factSequence: Long = 0,
     val loadedConfigDigest: String? = null,
     val loadedConfigRevision: String? = null,
+    val lifecycleAuthority: CoreLifecycleAuthority? = null,
     val notificationPermission: String = "not-required",
     val observedAtMillis: Long = System.currentTimeMillis(),
     val platformSessionId: String = UUID.randomUUID().toString(),
@@ -84,6 +85,7 @@ internal data class MobilePlatformFacts(
         .put("factSequence", factSequence)
         .put("loadedConfigDigest", loadedConfigDigest)
         .put("loadedConfigRevision", loadedConfigRevision)
+        .put("lifecycleAuthority", lifecycleAuthority?.toJson())
         .put("notificationPermission", notificationPermission)
         .put("observedAtMillis", observedAtMillis)
         .put("platformSessionId", platformSessionId)
