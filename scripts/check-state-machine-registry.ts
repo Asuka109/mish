@@ -19,6 +19,7 @@ interface Registry {
 
 const requiredMachines = [
   "updater-check",
+  "updater-maintenance",
   "internal-tun-alpha-package",
   "tun-helper-core-network",
   "runtime-profile-activation",
