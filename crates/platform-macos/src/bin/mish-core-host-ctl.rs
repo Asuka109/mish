@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use mish_bridge::{PrivilegedCoreHost, PrivilegedCoreLaunchRequest};
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, MacOsTunServiceClient, development_pinned_core_version,
 };
+use mish_runtime::{PrivilegedCoreHost, PrivilegedCoreLaunchRequest};
 use serde_json::json;
 
 fn print_result(value: serde_json::Value) {

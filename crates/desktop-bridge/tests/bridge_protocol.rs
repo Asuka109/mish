@@ -16,22 +16,22 @@ use mish_bridge::{
     ActivationTiming, BridgeShutdownOutcome, BrowserAsset, BrowserAssetSource,
     BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
     LoopbackPortSelection, LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy,
-    MihomoActivationManager, ProcessIcon, ProcessIconResolver, ProfileActivationCoordinator,
-    ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
-    ReqwestHttpsSourceReader, ServiceProbeConfig, initialize_onboarding_welcome_notification,
-    start_loopback_server, start_loopback_server_with_runtime_host,
+    MihomoActivationManager, ProfileActivationCoordinator, ProfileFileActionError,
+    ProfileFileActionPlatform, ProfileFileActions, ReqwestHttpsSourceReader, ServiceProbeConfig,
+    initialize_onboarding_welcome_notification, start_loopback_server,
+    start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureTransitionError, CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase,
     CoreRuntime, CoreStatus, LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
-    NetworkServiceProxyState, NotificationPublication, NotificationSeverity, RoutingMode,
-    StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource, StatusSnapshot,
-    TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource, TrafficMatchedRule, TunHelperAvailability, TunHelperController,
-    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
-    TunNetworkObservation, tun_observation_now,
+    NetworkServiceProxyState, NotificationPublication, NotificationSeverity, ProcessIcon,
+    ProcessIconResolver, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusDataSource, StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection,
+    TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
+    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -302,9 +302,7 @@ struct RecordingProcessIconResolver(Mutex<Vec<PathBuf>>);
 impl ProcessIconResolver for RecordingProcessIconResolver {
     fn resolve(&self, process_path: &Path) -> Option<ProcessIcon> {
         self.0.lock().unwrap().push(process_path.to_owned());
-        Some(ProcessIcon {
-            bytes: Arc::from(&b"\x89PNG\r\n\x1a\n"[..]),
-        })
+        ProcessIcon::from_png(&b"\x89PNG\r\n\x1a\n"[..])
     }
 }
 

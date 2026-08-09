@@ -16,11 +16,11 @@ use tokio_util::sync::CancellationToken;
 
 use mish_runtime::{
     CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
-    CoreStatusEventSink, LocalProxyOwnership,
+    CoreStatusEventSink, LocalProxyOwnership, PrivilegedCoreHost, PrivilegedCoreHostError,
+    PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
 };
 use serde::Serialize;
 use thiserror::Error;
-use uuid::Uuid;
 
 use crate::{MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreOwnership, ManagedCoreProcess};
 
@@ -72,110 +72,6 @@ pub struct DesktopMihomoProcessConfig {
     pub binary: Option<PathBuf>,
     pub config_directory: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PrivilegedCoreLaunchRequest {
-    binary: PathBuf,
-    config_directory: PathBuf,
-    config_file: PathBuf,
-    expected_version: String,
-    launch_token: String,
-}
-
-impl PrivilegedCoreLaunchRequest {
-    pub fn new(
-        binary: PathBuf,
-        config_directory: PathBuf,
-        config_file: PathBuf,
-        expected_version: impl Into<String>,
-    ) -> Self {
-        Self {
-            binary,
-            config_directory,
-            config_file,
-            expected_version: expected_version.into(),
-            launch_token: Uuid::new_v4().to_string(),
-        }
-    }
-
-    pub fn binary(&self) -> &std::path::Path {
-        &self.binary
-    }
-
-    pub fn config_directory(&self) -> &std::path::Path {
-        &self.config_directory
-    }
-
-    pub fn config_file(&self) -> &std::path::Path {
-        &self.config_file
-    }
-
-    pub fn expected_version(&self) -> &str {
-        &self.expected_version
-    }
-
-    pub fn launch_token(&self) -> &str {
-        &self.launch_token
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PrivilegedCoreProcess {
-    launch_token: String,
-    pid: u32,
-}
-
-impl PrivilegedCoreProcess {
-    pub fn new(pid: u32, launch_token: impl Into<String>) -> Self {
-        Self {
-            launch_token: launch_token.into(),
-            pid,
-        }
-    }
-
-    pub fn launch_token(&self) -> &str {
-        &self.launch_token
-    }
-
-    pub fn pid(&self) -> u32 {
-        self.pid
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
-pub enum PrivilegedCoreHostError {
-    #[error("the privileged Core host is unavailable")]
-    Unavailable,
-    #[error("the privileged Core host found externally owned TUN network state")]
-    NetworkOwnershipConflict,
-    #[error("the privileged Core host rejected the launch request")]
-    Rejected,
-    #[error("the privileged Core host operation failed")]
-    OperationFailed,
-}
-
-pub trait PrivilegedCoreHost: Send + Sync {
-    fn start(
-        &self,
-        request: PrivilegedCoreLaunchRequest,
-    ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>>;
-
-    fn observe(
-        &self,
-        process: PrivilegedCoreProcess,
-    ) -> BoxFuture<'_, Result<Option<PrivilegedCoreProcess>, PrivilegedCoreHostError>>;
-
-    fn stop(
-        &self,
-        process: PrivilegedCoreProcess,
-    ) -> BoxFuture<'_, Result<(), PrivilegedCoreHostError>>;
-
-    fn owns_listener(
-        &self,
-        process: PrivilegedCoreProcess,
-        endpoint: mish_runtime::LoopbackProxyEndpoint,
-    ) -> BoxFuture<'_, Result<bool, PrivilegedCoreHostError>>;
 }
 
 impl std::fmt::Debug for DesktopMihomoProcessConfig {

@@ -53,8 +53,7 @@ pub use local_backup::{
 };
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, GeodataAsset, GeodataValidationEvent,
-    GeodataValidationObserver, ManagedProcessValidationError, PrivilegedCoreHost,
-    PrivilegedCoreHostError, PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
+    GeodataValidationObserver, ManagedProcessValidationError,
 };
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
@@ -71,9 +70,9 @@ pub use runtime_host::DesktopRuntimeHost;
 pub use server::{
     BridgeShutdownFailure, BridgeShutdownOutcome, BridgeShutdownReport, BrowserAsset,
     BrowserAssetSource, BrowserClientHandle, BrowserPairingPrompt, LoopbackPortSelection,
-    LoopbackServerConfig, LoopbackServerHandle, ProcessIcon, ProcessIconResolver,
-    initialize_onboarding_welcome_notification, start_loopback_server,
-    start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
+    LoopbackServerConfig, LoopbackServerHandle, initialize_onboarding_welcome_notification,
+    start_loopback_server, start_loopback_server_with_runtime_host,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 #[cfg(feature = "development-window-trigger")]
 pub use server::{

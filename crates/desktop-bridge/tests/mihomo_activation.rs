@@ -25,8 +25,7 @@ use mish_bridge::{
     ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopLifecycleCoordinator,
     DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedCoreOwnership,
     ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationError,
-    MihomoActivationManager, MihomoResolveError, PrivilegedCoreHost, PrivilegedCoreHostError,
-    PrivilegedCoreLaunchRequest, PrivilegedCoreProcess, ProfileActivationCoordinator,
+    MihomoActivationManager, MihomoResolveError, ProfileActivationCoordinator,
     ProfileActivationEvidenceKind, ProfileActivationFailure, ProfileActivationPhase,
     RealManagedProcessPlatform, ReqwestHttpsSourceReader, RuntimeConfigGenerator,
 };
@@ -45,10 +44,12 @@ use mish_runtime::{
     CaptureTransitionError, CoreLifecycleOperation, LoopbackProxyEndpoint, ManualProxyState,
     MishRuntime, NetworkServiceProxyState, NotificationPresentationCompletion,
     NotificationPresentationFoldReason, NotificationPresentationIdentity,
-    NotificationPresentationPhase, RoutingMode, StatusAdapterKind, SystemProxyPhase,
-    TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
-    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
-    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
+    NotificationPresentationPhase, PrivilegedCoreHost, PrivilegedCoreHostError,
+    PrivilegedCoreLaunchRequest, PrivilegedCoreProcess, RoutingMode, StatusAdapterKind,
+    SystemProxyPhase, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController,
+    TunHelperError, TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation,
+    tun_observation_now,
 };
 use mish_settings::ProcessDiscoveryMode;
 use serde_json::json;
