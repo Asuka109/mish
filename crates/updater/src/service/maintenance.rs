@@ -1068,10 +1068,13 @@ impl MaintenanceJournalStore {
 
     fn load_for_reconciliation(&self) -> Result<LoadedJournal, UpdaterMaintenanceError> {
         let path = self.root.join(JOURNAL_FILE);
-        if !path.exists() {
-            return Ok(LoadedJournal::Absent);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => validate_private_file(&path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(LoadedJournal::Absent);
+            }
+            Err(_) => return Err(UpdaterMaintenanceError::JournalIo),
         }
-        validate_private_file(&path)?;
         let metadata = fs::metadata(&path).map_err(|_| UpdaterMaintenanceError::JournalIo)?;
         if metadata.len() > JOURNAL_MAX_BYTES {
             return Ok(LoadedJournal::Corrupt);
@@ -1505,6 +1508,17 @@ mod tests {
             Some(UpdaterMaintenanceError::JournalUnsafe)
         );
         assert_eq!(fs::read(&external).unwrap(), b"external-private-data");
+
+        fs::remove_file(directory.join(JOURNAL_FILE)).unwrap();
+        symlink(
+            root.path().join("missing-target.json"),
+            directory.join(JOURNAL_FILE),
+        )
+        .unwrap();
+        assert_eq!(
+            UpdaterMaintenanceAuthority::open(directory.clone(), "replacement", "0.1.0").err(),
+            Some(UpdaterMaintenanceError::JournalUnsafe)
+        );
 
         fs::remove_file(directory.join(JOURNAL_FILE)).unwrap();
         let seed = authority(&root, "0.1.0");

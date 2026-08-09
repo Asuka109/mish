@@ -1230,6 +1230,11 @@ fn initialize(
         app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
     let profile_root = app.path().app_data_dir()?;
+    // The process-held lease prevents a second live desktop from adopting updater recovery
+    // ownership. It performs no Profile, Core, Capture, or platform reconciliation.
+    let runtime_root = profile_root.join("runtime");
+    let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
+        .map_err(|error| io::Error::other(error.to_string()))?;
     // Updater maintenance is the first application-owned startup reconciliation.
     // It is deliberately constructed before Profile, Core, Capture, or bridge services so an
     // unknown install outcome can keep every later automatic activation behind one barrier.
@@ -1247,9 +1252,6 @@ fn initialize(
             Ok(restore) => (restore, false),
             Err(_) => (None, true),
         };
-    let runtime_root = profile_root.join("runtime");
-    let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
-        .map_err(|error| io::Error::other(error.to_string()))?;
     let core_ownership = Arc::new(
         ManagedCoreOwnership::new(
             runtime_root,
