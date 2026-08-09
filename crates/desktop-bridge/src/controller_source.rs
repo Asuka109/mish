@@ -2626,16 +2626,6 @@ fn traffic_snapshot_from_inner(
     )
 }
 
-fn traffic_source_stamp(inner: &SourceInner) -> Option<TrafficSourceStamp> {
-    let snapshot = traffic_snapshot_from_inner(inner, StatusAdapterKind::Rpc);
-    let session_id = snapshot.session_id?;
-    (snapshot.sequence > 0).then(|| TrafficSourceStamp {
-        context: current_traffic_context(inner),
-        sequence: snapshot.sequence,
-        session_id,
-    })
-}
-
 async fn synchronize_traffic_machine(inner: &Arc<SourceInner>) {
     let context = current_traffic_context(inner);
     let machine = traffic_machine(inner);
@@ -2644,9 +2634,6 @@ async fn synchronize_traffic_machine(inner: &Arc<SourceInner>) {
         let _ = machine
             .try_admit(TrafficSourceInput::BeginBinding(context))
             .await;
-    }
-    if let Some(stamp) = traffic_source_stamp(inner) {
-        let _ = machine.try_admit(TrafficSourceInput::Baseline(stamp)).await;
     }
 }
 

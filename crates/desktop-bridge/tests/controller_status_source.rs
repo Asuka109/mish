@@ -1200,15 +1200,19 @@ async fn runtime_and_capture_replacement_require_a_complete_internal_traffic_bas
     let execution = runtime
         .close_connection(
             mish_runtime::TrafficCommandAuthority {
-                profile_id: before.profile_id,
+                profile_id: before.profile_id.clone(),
                 sequence: before.sequence,
-                session_id: before.session_id.unwrap(),
+                session_id: before.session_id.clone().unwrap(),
             },
             "connection-a".into(),
         )
         .await;
-    assert_eq!(execution.failure, None);
+    assert_eq!(
+        execution.failure,
+        Some(mish_runtime::TrafficCommandFailureKind::StaleSnapshot)
+    );
     assert_eq!(execution.target_count, 1);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 0);
     let evidence = source.traffic_support_evidence();
     assert!(
         evidence
@@ -1223,6 +1227,29 @@ async fn runtime_and_capture_replacement_require_a_complete_internal_traffic_bas
     ] {
         assert!(!serialized.contains(secret));
     }
+
+    source
+        .pause_observations(RuntimeObservationPauseReason::NetworkChanged)
+        .await;
+    source.resume_observations().await;
+    wait_for(Duration::from_secs(1), || {
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"] == "ready"
+    })
+    .await;
+    let replacement = runtime.traffic_snapshot_typed(StatusAdapterKind::Rpc);
+    assert_ne!(replacement.session_id, before.session_id);
+    let execution = runtime
+        .close_connection(
+            mish_runtime::TrafficCommandAuthority {
+                profile_id: replacement.profile_id,
+                sequence: replacement.sequence,
+                session_id: replacement.session_id.unwrap(),
+            },
+            "connection-a".into(),
+        )
+        .await;
+    assert_eq!(execution.failure, None);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
 
     source.close().await;
     fake.shutdown().await;

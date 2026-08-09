@@ -622,7 +622,12 @@ impl DesktopRuntimeHost {
     pub async fn support_bundle_runtime_snapshot(
         &self,
         adapter_kind: StatusAdapterKind,
-    ) -> (CoreStatus, StatusSnapshot, EventsSnapshot) {
+    ) -> (
+        CoreStatus,
+        StatusSnapshot,
+        EventsSnapshot,
+        Vec<mish_runtime::TrafficSupportEvidence>,
+    ) {
         loop {
             let status_ticket = self
                 .application_snapshots
@@ -635,12 +640,13 @@ impl DesktopRuntimeHost {
             let core = runtime.core_status().await;
             let mut status = runtime.snapshot_typed_from_status(&core, adapter_kind);
             let mut events = runtime.events_snapshot_typed(adapter_kind);
+            let traffic_evidence = runtime.traffic_support_evidence();
             if !changes.has_changed().unwrap_or(false) {
                 self.application_snapshots
                     .stamp_status(status_ticket, &mut status);
                 self.application_snapshots
                     .stamp_events(events_ticket, &mut events);
-                return (core, status, events);
+                return (core, status, events, traffic_evidence);
             }
         }
     }

@@ -398,13 +398,12 @@ impl SupportBundleService {
         preview_id: String,
         generated_at: u64,
     ) -> Result<PreparedSupportBundle, SupportBundleError> {
-        let (core, status, events) = self
+        let (core, status, events, traffic_evidence) = self
             .runtime
             .support_bundle_runtime_snapshot(StatusAdapterKind::Rpc)
             .await;
         let activation = self.activation.managed_state().await;
         let termination_evidence = self.termination_evidence.records();
-        let traffic_evidence = self.runtime.traffic_support_evidence();
         build_support_bundle(
             preview_id,
             SupportBundleInput {
