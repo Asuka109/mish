@@ -773,7 +773,9 @@ function ProfileMenu() {
               }
             >
               <DrawerProfilesPage
-                onSelectProfile={(profileId) => void selectProfile(profileId)}
+                onSelectProfile={
+                  profileSupported ? (profileId) => void selectProfile(profileId) : undefined
+                }
                 selectedProfileId={selectedProfileId}
                 selectionPending={profilePending}
               />
