@@ -7,6 +7,11 @@ use mish_state_machine::{
 };
 use serde::{Deserialize, Serialize};
 
+pub(crate) use crate::generated::platform_facts::{
+    CoreConfigState, PlatformAvailability, PlatformEventKind, PlatformFacts, PlatformFailureKind,
+    PlatformRecoveryEvidence, VpnPermission,
+};
+
 const OPERATION_HISTORY_LIMIT: usize = 16;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -70,102 +75,6 @@ pub struct LifecycleOperation {
     pub outcome: LifecycleOperationOutcome,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum PlatformEventKind {
-    Observation,
-    ConsentResult,
-    NotificationResult,
-    ActivationProgress,
-    ActivationCompleted,
-    ActivationFailed,
-    StopCompleted,
-    NetworkChanged,
-    CoreExited,
-    Revoked,
-    ServiceDestroyed,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum PlatformFailureKind {
-    CleanupFailed,
-    ConfigurationNotLoaded,
-    CoreExited,
-    CoreStartFailed,
-    CoreUnavailable,
-    NetworkUnavailable,
-    PermissionRevoked,
-    PublicRequestFailed,
-    TunEstablishFailed,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum PlatformRecoveryEvidence {
-    None,
-    ForegroundExpected,
-    Invalid,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PlatformLifecycleAuthority {
-    pub machine_authority: String,
-    pub scope_epoch: u64,
-    pub operation_id: String,
-    pub admitted_revision: u64,
-    pub effect_identity: String,
-}
-
-impl PlatformLifecycleAuthority {
-    fn valid(&self) -> bool {
-        valid_identifier(&self.machine_authority)
-            && self.scope_epoch > 0
-            && valid_identifier(&self.operation_id)
-            && self.admitted_revision > 0
-            && self.admitted_revision < u64::MAX
-            && self
-                .effect_identity
-                .parse::<u64>()
-                .is_ok_and(|effect| effect > 0)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PlatformFacts {
-    pub activation_failure: Option<PlatformFailureKind>,
-    pub activation_session_id: Option<String>,
-    pub active_network: bool,
-    pub config_failure_injection_available: bool,
-    pub core_abi_version: Option<u8>,
-    pub core_availability: String,
-    pub core_commit: Option<String>,
-    pub core_config_state: String,
-    pub core_running: bool,
-    pub core_version: Option<String>,
-    pub core_wrapper_revision: Option<String>,
-    pub event: PlatformEventKind,
-    pub fact_sequence: u64,
-    pub loaded_config_digest: Option<String>,
-    pub loaded_config_revision: Option<String>,
-    pub lifecycle_authority: Option<PlatformLifecycleAuthority>,
-    pub notification_permission: String,
-    pub observed_at_millis: u64,
-    pub platform_session_id: String,
-    pub protected_socket_count: u64,
-    pub public_request_observed: bool,
-    pub recovery_evidence: PlatformRecoveryEvidence,
-    pub routes_applied: bool,
-    pub service_foreground: bool,
-    pub dns_applied: bool,
-    pub tun_established: bool,
-    pub validated_config_digest: Option<String>,
-    pub validated_config_revision: Option<String>,
-    pub vpn_permission: String,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LifecycleState {
     pub authority_id: String,
@@ -217,7 +126,7 @@ impl LifecycleState {
                 LifecyclePhase::RecoveryRequired,
                 Some(LifecycleFailure::InvalidRecoveryEvidence),
             ),
-            PlatformRecoveryEvidence::None if facts.vpn_permission == "required" => {
+            PlatformRecoveryEvidence::None if facts.vpn_permission == VpnPermission::Required => {
                 (LifecyclePhase::PermissionRequired, None)
             }
             PlatformRecoveryEvidence::None => (LifecyclePhase::Stopped, None),
@@ -269,6 +178,9 @@ impl LifecycleState {
     }
 
     fn apply_facts(&mut self, facts: &PlatformFacts) -> Result<(), LifecycleFailure> {
+        facts
+            .validate()
+            .map_err(|_| LifecycleFailure::PlatformFailure)?;
         if facts.platform_session_id != self.facts.platform_session_id
             || facts.fact_sequence <= self.facts.fact_sequence
         {
@@ -279,6 +191,9 @@ impl LifecycleState {
     }
 
     fn apply_effect_facts(&mut self, facts: &PlatformFacts) -> Result<(), LifecycleFailure> {
+        facts
+            .validate()
+            .map_err(|_| LifecycleFailure::PlatformFailure)?;
         if facts.platform_session_id != self.facts.platform_session_id
             || facts.fact_sequence < self.facts.fact_sequence
             || (facts.fact_sequence == self.facts.fact_sequence && facts != &self.facts)
@@ -315,7 +230,7 @@ impl LifecycleState {
             && self.facts.routes_applied
             && self.facts.service_foreground
             && self.facts.tun_established
-            && self.facts.vpn_permission == "granted"
+            && self.facts.vpn_permission == VpnPermission::Granted
     }
 
     fn platform_clean(&self) -> bool {
@@ -356,14 +271,6 @@ impl LifecycleState {
         }
         self.operations.push_back(operation);
     }
-}
-
-fn valid_identifier(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -640,7 +547,7 @@ fn reduce_command(
                 });
                 return Transition::Committed(next);
             }
-            if state.facts.vpn_permission != "granted" {
+            if state.facts.vpn_permission != VpnPermission::Granted {
                 let mut next = state.clone();
                 next.phase = LifecyclePhase::PermissionRequired;
                 next.failure = Some(LifecycleFailure::PermissionDenied);
@@ -653,9 +560,10 @@ fn reduce_command(
                 );
                 return Transition::Committed(next);
             }
-            let start_failure = if state.facts.core_availability != "available" {
+            let start_failure = if state.facts.core_availability != PlatformAvailability::Available
+            {
                 Some(LifecycleFailure::CoreUnavailable)
-            } else if state.facts.core_config_state != "loaded"
+            } else if state.facts.core_config_state != CoreConfigState::Loaded
                 || state.facts.loaded_config_digest.is_none()
                 || state.facts.loaded_config_revision.is_none()
             {
@@ -759,7 +667,7 @@ fn reduce_effect_completed(
         PlatformAction::RequestNotificationPermission => {
             (next.phase, LifecycleOperationOutcome::Completed, None)
         }
-        PlatformAction::RequestVpnConsent if facts.vpn_permission == "granted" => (
+        PlatformAction::RequestVpnConsent if facts.vpn_permission == VpnPermission::Granted => (
             LifecyclePhase::Stopped,
             LifecycleOperationOutcome::Completed,
             None,
@@ -891,7 +799,7 @@ fn reduce_platform_observation(
             }
             LifecycleCommandKind::RequestVpnConsent
                 if facts.event == PlatformEventKind::ConsentResult
-                    && facts.vpn_permission == "granted" =>
+                    && facts.vpn_permission == VpnPermission::Granted =>
             {
                 Some((
                     LifecyclePhase::Stopped,
@@ -1052,7 +960,7 @@ fn reduce_platform_observation(
         PlatformEventKind::Observation
             if state.phase != LifecyclePhase::Starting
                 && state.phase != LifecyclePhase::Stopping
-                && facts.vpn_permission == "required" =>
+                && facts.vpn_permission == VpnPermission::Required =>
         {
             next.phase = LifecyclePhase::PermissionRequired;
             next.failure = None;
@@ -1202,6 +1110,7 @@ fn reduce_shutdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generated::platform_facts::PlatformLifecycleAuthority;
     use crate::models::MobileVpnCommandResult;
 
     fn facts(sequence: u64) -> PlatformFacts {
@@ -1210,15 +1119,16 @@ mod tests {
             activation_session_id: None,
             active_network: false,
             config_failure_injection_available: false,
-            core_abi_version: None,
+            core_abi_version: Some(1),
             core_availability: "available".into(),
-            core_commit: None,
+            core_commit: Some("e26714a181ac0e2fa803453c0a8e9a9ce94e31cb".into()),
             core_config_state: "loaded".into(),
             core_running: false,
-            core_version: None,
-            core_wrapper_revision: None,
+            core_version: Some("v1.19.29".into()),
+            core_wrapper_revision: Some("mish-mobile-core-v1".into()),
             event: PlatformEventKind::Observation,
             fact_sequence: sequence,
+            facts_version: crate::generated::platform_facts::ANDROID_PLATFORM_FACTS_VERSION,
             loaded_config_digest: Some("a".repeat(64)),
             loaded_config_revision: Some("revision-a".into()),
             lifecycle_authority: None,

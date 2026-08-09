@@ -9,7 +9,7 @@ use tauri::{
     ipc::{Channel, InvokeResponseBody},
     plugin::{PluginApi, PluginHandle},
 };
-use tokio::sync::{OnceCell, mpsc, watch};
+use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -24,6 +24,7 @@ use crate::{
         LifecycleMachine, LifecycleState, PlatformAction, PlatformFacts,
     },
     models::{MobileConfigValidationOutcome, MobileVpnEvent},
+    observation::{ObservationAdmission, PlatformObservationIngress},
 };
 
 const PLUGIN_IDENTIFIER: &str = "com.asuka109.mish.vpn";
@@ -32,12 +33,48 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime> {
     handle: PluginHandle<R>,
-    lifecycle: Arc<OnceCell<LifecycleRuntime>>,
+    lifecycle: Arc<Mutex<Option<Arc<LifecycleRuntime>>>>,
 }
 
 struct LifecycleRuntime {
+    ingress: PlatformObservationIngress,
     runner: RunnerHandle<LifecycleMachine>,
     updates: watch::Receiver<LifecycleState>,
+}
+
+impl LifecycleRuntime {
+    async fn reconcile(&self, facts: PlatformFacts) -> ObservationAdmission {
+        let expected_session = facts.platform_session_id.clone();
+        let expected_sequence = facts.fact_sequence;
+        let offered = self.ingress.offer(facts);
+        if matches!(
+            offered,
+            ObservationAdmission::RebindRequired | ObservationAdmission::SchemaRejected
+        ) {
+            return offered;
+        }
+        if offered == ObservationAdmission::Stale {
+            return ObservationAdmission::Stale;
+        }
+        let mut updates = self.updates.clone();
+        loop {
+            let current = self.runner.snapshot();
+            if current.facts.platform_session_id != expected_session {
+                self.ingress.require_rebind();
+                return ObservationAdmission::RebindRequired;
+            }
+            if current.facts.fact_sequence >= expected_sequence {
+                return offered;
+            }
+            if self.ingress.requires_rebind() {
+                return ObservationAdmission::RebindRequired;
+            }
+            if updates.changed().await.is_err() {
+                self.ingress.require_rebind();
+                return ObservationAdmission::RebindRequired;
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -156,26 +193,41 @@ pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishV
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "MishVpnPlugin")?;
     Ok(MishVpn {
         handle,
-        lifecycle: Arc::new(OnceCell::new()),
+        lifecycle: Arc::new(Mutex::new(None)),
     })
 }
 
 impl<R: Runtime> MishVpn<R> {
-    async fn runtime(&self) -> Result<&LifecycleRuntime> {
-        self.lifecycle
-            .get_or_try_init(|| async { self.initialize_lifecycle().await })
-            .await
+    async fn runtime(&self) -> Result<Arc<LifecycleRuntime>> {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if let Some(runtime) = lifecycle.as_ref() {
+            match runtime.ingress.terminal_admission() {
+                None => return Ok(runtime.clone()),
+                Some(ObservationAdmission::SchemaRejected) => {
+                    let runtime = lifecycle.take().expect("checked lifecycle runtime");
+                    runtime.runner.shutdown().await;
+                    return Err(crate::Error::PlatformFactsSchemaRejected);
+                }
+                Some(_) => {}
+            }
+        }
+        if let Some(runtime) = lifecycle.take() {
+            runtime.runner.shutdown().await;
+        }
+        let runtime = Arc::new(self.initialize_lifecycle().await?);
+        *lifecycle = Some(runtime.clone());
+        Ok(runtime)
     }
 
     async fn initialize_lifecycle(&self) -> Result<LifecycleRuntime> {
-        let (fact_sender, mut fact_receiver) = mpsc::channel::<PlatformFacts>(32);
+        let ingress = PlatformObservationIngress::unbound();
+        let listener_ingress = ingress.clone();
         let channel = Channel::new(move |body| {
             let InvokeResponseBody::Json(json) = body else {
+                listener_ingress.offer_json("");
                 return Ok(());
             };
-            if let Ok(facts) = serde_json::from_str::<PlatformFacts>(&json) {
-                let _ = fact_sender.try_send(facts);
-            }
+            listener_ingress.offer_json(&json);
             Ok(())
         });
         self.handle
@@ -191,6 +243,12 @@ impl<R: Runtime> MishVpn<R> {
             .handle
             .run_mobile_plugin_async("getPlatformFacts", EmptyPayload {})
             .await?;
+        facts
+            .validate()
+            .map_err(|_| crate::Error::PlatformFactsSchemaRejected)?;
+        if ingress.bind_baseline(&facts) == ObservationAdmission::SchemaRejected {
+            return Err(crate::Error::PlatformFactsSchemaRejected);
+        }
         let initial = LifecycleState::initial(
             Uuid::new_v4().to_string(),
             Uuid::new_v4().to_string(),
@@ -212,14 +270,22 @@ impl<R: Runtime> MishVpn<R> {
             RunnerConfig::default(),
         );
         let event_runner = runner.clone();
+        let event_ingress = ingress.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(facts) = fact_receiver.recv().await {
-                let _ = event_runner
-                    .admit(LifecycleInput::PlatformObserved(facts))
-                    .await;
+            loop {
+                match event_ingress.deliver_next(&event_runner).await {
+                    ObservationAdmission::Accepted
+                    | ObservationAdmission::Coalesced
+                    | ObservationAdmission::Stale => {}
+                    ObservationAdmission::Backpressured => tokio::task::yield_now().await,
+                    ObservationAdmission::RebindRequired | ObservationAdmission::SchemaRejected => {
+                        break;
+                    }
+                }
             }
         });
         Ok(LifecycleRuntime {
+            ingress,
             runner,
             updates: receiver,
         })
@@ -231,10 +297,15 @@ impl<R: Runtime> MishVpn<R> {
             .handle
             .run_mobile_plugin_async("getPlatformFacts", EmptyPayload {})
             .await?;
-        let _ = runtime
-            .runner
-            .admit(LifecycleInput::PlatformObserved(facts))
-            .await;
+        if matches!(
+            runtime.reconcile(facts).await,
+            ObservationAdmission::RebindRequired | ObservationAdmission::SchemaRejected
+        ) {
+            let rebound = self.runtime().await?;
+            return Ok(MobileVpnSnapshot::from_lifecycle(
+                &rebound.runner.snapshot(),
+            ));
+        }
         Ok(MobileVpnSnapshot::from_lifecycle(
             &runtime.runner.snapshot(),
         ))
@@ -524,10 +595,28 @@ impl<R: Runtime> MishVpn<R> {
                 )),
             );
         }
-        let _ = runtime
-            .runner
-            .admit(LifecycleInput::PlatformObserved(result.facts))
-            .await;
+        let reconciliation = runtime.reconcile(result.facts).await;
+        if reconciliation == ObservationAdmission::SchemaRejected {
+            return MobileConfigLoadResult::failure(
+                &request,
+                MobileConfigLoadFailure::PluginFailure,
+                "The Android platform facts schema was rejected.",
+                Some(MobileVpnSnapshot::from_lifecycle(
+                    &runtime.runner.snapshot(),
+                )),
+            );
+        }
+        if reconciliation == ObservationAdmission::RebindRequired {
+            let rebound = self.runtime().await.ok();
+            return MobileConfigLoadResult::failure(
+                &request,
+                MobileConfigLoadFailure::RuntimeReplaced,
+                "The Android platform adapter was replaced during configuration loading.",
+                rebound
+                    .as_ref()
+                    .map(|runtime| MobileVpnSnapshot::from_lifecycle(&runtime.runner.snapshot())),
+            );
+        }
         let current = runtime.runner.snapshot();
         if current.authority_id != initial.authority_id || current.session_id != initial.session_id
         {

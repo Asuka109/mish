@@ -77,7 +77,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private lifecycleOperationSequence = 0;
   private listener?: MobileVpnListener;
   private baselineAccepted = false;
-  private readonly pendingEvents: MobileVpnSnapshotDto[] = [];
+  private readonly pendingEvents = new Map<string, MobileVpnSnapshotDto>();
   private snapshot?: MobileVpnSnapshotDto;
   private readonly retiredAuthorityIds = new Set<string>();
   private readonly retiredSessionIds = new Set<string>();
@@ -90,8 +90,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
       this.listener = await this.transport.listen((payload) => {
         const event = MobileVpnEventSchema.parse(payload);
         if (!this.baselineAccepted) {
-          this.pendingEvents.push(event.snapshot);
-          if (this.pendingEvents.length > 16) this.pendingEvents.shift();
+          this.queuePendingSnapshot(event.snapshot);
           return;
         }
         this.acceptSnapshot(event.snapshot);
@@ -364,7 +363,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     void this.listener?.unregister().catch(() => undefined);
     this.listener = undefined;
     this.baselineAccepted = false;
-    this.pendingEvents.length = 0;
+    this.pendingEvents.clear();
     this.subscribers.clear();
   }
 
@@ -404,16 +403,16 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     this.retiredAuthorityIds.clear();
     this.retiredSessionIds.clear();
     for (const subscriber of this.subscribers) subscriber(baseline);
-    const pending = this.pendingEvents
-      .splice(0)
-      .sort((left, right) => left.sequence - right.sequence);
+    const pending = [...this.pendingEvents.values()].sort(
+      (left, right) => left.sequence - right.sequence,
+    );
+    this.pendingEvents.clear();
     for (const snapshot of pending) this.acceptSnapshot(snapshot);
   }
 
   private acceptSnapshot(snapshot: MobileVpnSnapshotDto): void {
     if (!this.baselineAccepted) {
-      this.pendingEvents.push(snapshot);
-      if (this.pendingEvents.length > 16) this.pendingEvents.shift();
+      this.queuePendingSnapshot(snapshot);
       return;
     }
     if (this.retiredAuthorityIds.has(snapshot.authorityId)) return;
@@ -437,6 +436,17 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private currentAuthority(): { sequence: number; sessionId: string } | undefined {
     if (!this.snapshot) return undefined;
     return { sequence: this.snapshot.sequence, sessionId: this.snapshot.sessionId };
+  }
+
+  private queuePendingSnapshot(snapshot: MobileVpnSnapshotDto): void {
+    const key = `${snapshot.authorityId}:${snapshot.sessionId}`;
+    const current = this.pendingEvents.get(key);
+    if (!current || snapshot.sequence > current.sequence) {
+      this.pendingEvents.set(key, snapshot);
+    }
+    while (this.pendingEvents.size > 8) {
+      this.pendingEvents.delete(this.pendingEvents.keys().next().value!);
+    }
   }
 }
 

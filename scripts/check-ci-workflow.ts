@@ -160,10 +160,10 @@ const rustInspectionContract = "cargo clippy --workspace --all-targets -- -D war
 const rustPullRequestContract =
   "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
 const expectedPrValidation =
-  "pnpm check:android && pnpm check:bridge-protocol && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
+  "pnpm check:android && pnpm check:android-platform-facts && pnpm check:bridge-protocol && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
 invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
-  "check:pr must stay bounded to its static, unit, Rust Clippy, simulated application, token, and documentation checks.",
+  "check:pr must stay bounded to its generated contracts, static, unit, Rust Clippy, simulated application, token, and documentation checks.",
 );
 invariant(
   packageJson.scripts?.["check:rust:pr"] === rustPullRequestContract &&
