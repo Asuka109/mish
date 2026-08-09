@@ -12,10 +12,9 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
-    ApplicationSnapshotOrder, CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability,
-    TunHelperController, TunHelperFailureKind, TunHelperLifecycleOperation,
+    ApplicationSnapshotOrder, CaptureSelection, PINNED_MIHOMO_VERSION, SystemProxyTakeoverPolicy,
+    TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperLifecycleOperation,
     TunHelperLifecyclePhase, TunHelperRemovalCapability, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};

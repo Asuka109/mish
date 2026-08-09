@@ -19,13 +19,14 @@ use mish_runtime::{
     CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
     CaptureSelection, CaptureTransitionError, CoreStatus, NotificationPresentationCompletion,
     NotificationPresentationCompletionResult, NotificationPresentationIdentity,
-    NotificationPublication, NotificationSeverity, ProfileSummary, ProviderAuthority, ProviderKind,
-    RoutingMode, SettingsOperationFailedApplicationNotificationData, StatusAdapterKind,
-    StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusSnapshot,
-    SystemProxyTakeoverPolicy, TrafficCommandAuthority, TrafficCommandOperation,
-    TunHelperFailureKind, TunHelperLifecycleApplicationNotificationData,
-    TunHelperLifecycleOperation, TunHelperRemovalOutcome,
-    valid_notification_presentation_completion, valid_notification_presentation_identity,
+    NotificationPublication, NotificationSeverity, ProcessIconResolver, ProfileSummary,
+    ProviderAuthority, ProviderKind, RoutingMode,
+    SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
+    TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
+    TunHelperLifecycleApplicationNotificationData, TunHelperLifecycleOperation,
+    TunHelperRemovalOutcome, valid_notification_presentation_completion,
+    valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
@@ -44,8 +45,6 @@ use uuid::Uuid;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_NOTIFICATION_PRESENTATION_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
-const PROCESS_ICON_MAX_BYTES: usize = 262_144;
-const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,7 +78,7 @@ pub(crate) struct ProtocolState {
     pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
     pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
-    pub process_icon_resolver: Option<std::sync::Arc<dyn crate::ProcessIconResolver>>,
+    pub process_icon_resolver: Option<std::sync::Arc<dyn ProcessIconResolver>>,
     pub notification_presentation_sessions: NotificationPresentationSessionRegistry,
     pub runtime: crate::DesktopRuntimeHost,
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
@@ -1334,14 +1333,10 @@ async fn handle_message(
                 .and_then(|connection| connection.process_path.as_deref());
             let icon = process_path
                 .zip(state.process_icon_resolver.as_deref())
-                .and_then(|(path, resolver)| resolver.resolve(std::path::Path::new(path)))
-                .filter(|icon| {
-                    icon.bytes.len() <= PROCESS_ICON_MAX_BYTES
-                        && icon.bytes.starts_with(PNG_SIGNATURE)
-                });
+                .and_then(|(path, resolver)| resolver.resolve(std::path::Path::new(path)));
             json!({
                 "dataUrl": icon.map(|icon| {
-                    format!("data:image/png;base64,{}", STANDARD.encode(icon.bytes))
+                    format!("data:image/png;base64,{}", STANDARD.encode(icon.bytes()))
                 })
             })
         }

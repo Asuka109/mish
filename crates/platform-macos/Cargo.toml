@@ -35,7 +35,6 @@ development-core-host = []
 base64 = "0.22.1"
 futures-util = "0.3.33"
 libc = "0.2.186"
-mish-bridge = { path = "../desktop-bridge" }
 mish-runtime = { path = "../runtime" }
 mish-settings = { path = "../settings" }
 mish-state-machine = { path = "../state-machine" }
@@ -61,4 +60,4 @@ system-configuration = "0.7.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-tokio = { version = "1.53.0", features = ["macros", "rt"] }
+tokio = { version = "1.53.0", features = ["macros", "rt", "test-util"] }

@@ -19,7 +19,8 @@ use mish_runtime::{
     CaptureFailureKind, CaptureReconciler, CaptureRequest, CaptureRuntimeTransition,
     CaptureSelection, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime,
     LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
-    PolicyGroupConnectionCleanupPreference, RuntimeObservationPauseReason, StatusAdapterKind,
+    PolicyGroupConnectionCleanupPreference, PrivilegedCoreHost, PrivilegedCoreHostError,
+    RuntimeObservationPauseReason, StatusAdapterKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -33,7 +34,7 @@ use uuid::Uuid;
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
-    ManagedCoreRecoveryOutcome, PrivilegedCoreHost, PrivilegedCoreHostError, ProfileMappingContext,
+    ManagedCoreRecoveryOutcome, ProfileMappingContext,
 };
 
 // A retired Controller generation can still be releasing its loopback sessions when its owned

@@ -5,11 +5,10 @@ use std::{
     sync::Mutex,
 };
 
-use mish_bridge::{ProcessIcon, ProcessIconResolver};
+use mish_runtime::{PROCESS_ICON_MAX_BYTES, ProcessIcon, ProcessIconResolver};
 
 const CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const CACHE_MAX_ENTRIES: usize = 256;
-const ICON_MAX_BYTES: usize = 262_144;
 const PROCESS_PATH_MAX_BYTES: usize = 16 * 1024;
 
 #[derive(Default)]
@@ -47,12 +46,12 @@ impl ProcessIconCache {
 
     fn insert(&mut self, path: PathBuf, icon: Option<ProcessIcon>) {
         if let Some(previous) = self.entries.remove(&path).flatten() {
-            self.bytes = self.bytes.saturating_sub(previous.bytes.len());
+            self.bytes = self.bytes.saturating_sub(previous.bytes().len());
         }
         self.order.retain(|candidate| candidate != &path);
         self.bytes = self
             .bytes
-            .saturating_add(icon.as_ref().map_or(0, |icon| icon.bytes.len()));
+            .saturating_add(icon.as_ref().map_or(0, |icon| icon.bytes().len()));
         self.entries.insert(path.clone(), icon);
         self.order.push_back(path);
         while self.entries.len() > CACHE_MAX_ENTRIES || self.bytes > CACHE_MAX_BYTES {
@@ -60,7 +59,7 @@ impl ProcessIconCache {
                 break;
             };
             if let Some(icon) = self.entries.remove(&oldest).flatten() {
-                self.bytes = self.bytes.saturating_sub(icon.bytes.len());
+                self.bytes = self.bytes.saturating_sub(icon.bytes().len());
             }
         }
     }
@@ -113,10 +112,10 @@ fn load_png_icon(path: &Path) -> Option<ProcessIcon> {
         bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
     }?
     .to_vec();
-    if png.is_empty() || png.len() > ICON_MAX_BYTES {
+    if png.is_empty() || png.len() > PROCESS_ICON_MAX_BYTES {
         return None;
     }
-    Some(ProcessIcon { bytes: png.into() })
+    ProcessIcon::from_png(png)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -136,8 +135,8 @@ mod tests {
         let first = resolver.resolve(finder).expect("Finder icon");
         let second = resolver.resolve(finder).expect("cached Finder icon");
 
-        assert!(first.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
-        assert!(first.bytes.len() <= ICON_MAX_BYTES);
+        assert!(first.bytes().starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(first.bytes().len() <= PROCESS_ICON_MAX_BYTES);
         assert_eq!(first, second);
         assert_eq!(resolver.cache.lock().unwrap().entries.len(), 1);
     }

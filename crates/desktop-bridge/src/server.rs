@@ -20,7 +20,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use mish_runtime::{
     ApplicationActionId, ApplicationNotification, ApplicationNotificationContent, MishRuntime,
     NotificationPublication, NotificationSeverity, OnboardingWelcomeApplicationNotificationData,
-    PlatformLifecycleEventSource, RuntimeShutdownFailure,
+    PlatformLifecycleEventSource, ProcessIconResolver, RuntimeShutdownFailure,
 };
 use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde::Deserialize;
@@ -76,15 +76,6 @@ pub trait BrowserAssetSource: Send + Sync {
 
 pub trait BrowserPairingPrompt: Send + Sync {
     fn show_pin(&self, pin: &str) -> Result<(), String>;
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProcessIcon {
-    pub bytes: Arc<[u8]>,
-}
-
-pub trait ProcessIconResolver: Send + Sync {
-    fn resolve(&self, process_path: &Path) -> Option<ProcessIcon>;
 }
 
 const BROWSER_PAIRING_ATTEMPTS: u8 = 5;

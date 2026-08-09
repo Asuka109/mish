@@ -2751,6 +2751,7 @@ dependencies = [
  "axum",
  "bytes",
  "futures-util",
+ "mish-runtime",
  "reqwest",
  "serde",
  "serde_json",
@@ -2789,7 +2790,6 @@ dependencies = [
  "core-foundation 0.10.1",
  "futures-util",
  "libc",
- "mish-bridge",
  "mish-runtime",
  "mish-settings",
  "mish-state-machine",
@@ -2853,7 +2853,6 @@ name = "mish-settings"
 version = "0.1.0"
 dependencies = [
  "futures-util",
- "mish-mihomo-controller",
  "mish-runtime",
  "mish-state-authority",
  "serde",
