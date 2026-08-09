@@ -13,10 +13,15 @@ import {
   type NotificationSnapshotDto,
   type NotificationSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcClient, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
+import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
 import { mapRpcError } from "./rpc-status-client";
+import {
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-type NotificationRpcClient = RpcClient<typeof mishRpcMethods>;
+export type NotificationRpcClient = WebRpcTransport;
 
 export class RpcNotificationClient implements NotificationClient {
   private readonly clientId = createPresentationIdentifier("notification-client");
@@ -36,7 +41,7 @@ export class RpcNotificationClient implements NotificationClient {
   private readonly unsubscribeRpcConnection: () => void;
 
   constructor(private readonly rpc: NotificationRpcClient) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "notifications.snapshot",
       notificationRpcNotifications["notifications.snapshot"],
@@ -145,7 +150,8 @@ export class RpcNotificationClient implements NotificationClient {
     try {
       return (await this.rpc.request(method, params as never, options)) as Result;
     } catch (error) {
-      const mapped = mapRpcError(error);
+      const mapped =
+        error instanceof RpcRemoteError ? mapRpcError(error) : projectRpcClientFailure(error);
       throw new Error(mapped.message, { cause: error });
     }
   }
@@ -198,8 +204,8 @@ export class RpcNotificationClient implements NotificationClient {
     await this.subscriptionPromise;
   }
 
-  private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+  private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.remoteSubscriptionId = null;
       this.subscriptionIdentity = null;
@@ -247,15 +253,4 @@ export class RpcNotificationClient implements NotificationClient {
 
 function createPresentationIdentifier(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
-}
-
-function mapConnectionState(state: RpcConnectionState): EventsConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return { attempt: state.attempt, phase: state.phase, stale: state.stale };
 }

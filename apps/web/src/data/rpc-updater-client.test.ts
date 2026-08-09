@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  mishRpcMethods,
   UpdaterSnapshotSchema,
   type UpdaterSnapshotDto,
   type UpdaterSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcClient, type RpcConnectionState } from "@mish/rpc-client";
-import { RpcUpdaterClient } from "./rpc-updater-client";
+import { type RpcConnectionState } from "@mish/rpc-client";
+import { RpcUpdaterClient, type UpdaterRpcClient } from "./rpc-updater-client";
 
 function snapshot(revision = 0, phase: UpdaterSnapshotDto["phase"] = "idle"): UpdaterSnapshotDto {
   const candidate =
@@ -72,6 +71,8 @@ class FakeUpdaterRpc {
   current = snapshot();
   subscriptionId = "updater-subscription";
 
+  dispose() {}
+
   getConnectionState() {
     return this.connection;
   }
@@ -116,7 +117,7 @@ class FakeUpdaterRpc {
 }
 
 function rpc(fake: FakeUpdaterRpc) {
-  return fake as unknown as RpcClient<typeof mishRpcMethods>;
+  return fake as UpdaterRpcClient;
 }
 
 async function flushMicrotasks() {
