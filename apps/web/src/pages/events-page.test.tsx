@@ -170,7 +170,7 @@ describe("Events page", () => {
     await user.keyboard("{Enter}");
 
     const dialog = await screen.findByRole("dialog", { name: "Review redacted support bundle" });
-    expect(within(dialog).getByText("JSON · v2")).toBeVisible();
+    expect(within(dialog).getByText("JSON · v3")).toBeVisible();
     expect(within(dialog).getByText("Actual / maximum size").parentElement).toHaveTextContent(
       "12.0 KiB / 256.0 KiB",
     );
@@ -257,7 +257,7 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     "event-text",
   ],
   fileType: "application/json",
-  formatVersion: 2,
+  formatVersion: 3,
   maxBytes: 256 * 1_024,
   previewId: "preview-support-bundle-1",
   timeRange: {

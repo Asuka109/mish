@@ -56,7 +56,13 @@ still fails closed and never selects fixtures.
    explicit trigger requests a window, preventing a windowless launch from
    activating the application or taking focus.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
-   token, resolves Tauri's application-data directory, constructs the private
+   token, and resolves Tauri's application-data directory. Its first
+   application-owned reconciliation opens the versioned private updater
+   maintenance journal. A pre-install record is safely cancelled; an unknown
+   install outcome, old/unexpected version, corrupt record, or incompatible
+   schema blocks every automatic Profile/Core/Capture launch without replaying
+   installation. The same `configured:false` updater authority is later shared
+   by the WebView and Browser Client. Only after this barrier does startup construct the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery
    journal there. It first acquires the runtime root's process-held exclusive
    lease. A second desktop instance sharing that app-data root fails startup

@@ -23,6 +23,18 @@ const en = {
     light: "Light",
     system: "Follow system",
   },
+  updaterMaintenance: {
+    corrupt: "Update recovery data could not be validated. Automatic startup remains off.",
+    expectedVersion:
+      "The expected app version started. Recovery must finish before automatic startup resumes.",
+    incompatible: "Update recovery data uses an unsupported format. Automatic startup remains off.",
+    oldVersion:
+      "The previous app version restarted after an unknown install outcome. Automatic startup remains off.",
+    preInstallAborted:
+      "Update preparation ended before installation intent. The prior app may start normally.",
+    unexpectedVersion:
+      "An unexpected app version started. Automatic startup remains off until recovery is resolved.",
+  },
   settingsPage: {
     advancedDescription: "Rare operations stay summarized until a safe, validated workflow exists.",
     advancedSupport: "Advanced and support",

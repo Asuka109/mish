@@ -1377,7 +1377,7 @@ export const SupportBundlePreviewSchema = z
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(12),
     fileType: z.literal("application/json"),
-    formatVersion: z.literal(2),
+    formatVersion: z.literal(3),
     maxBytes: z.literal(256 * 1_024),
     previewId: IdentifierSchema,
     timeRange: SupportBundleTimeRangeSchema.nullable(),
@@ -2492,11 +2492,47 @@ export const UpdatePhaseSchema = z.enum([
   "downloading",
   "verifying",
   "ready",
+  "preparing-maintenance",
+  "installing-intent",
+  "relaunching",
+  "recovering",
+  "completed",
   "failed",
   "cancelled",
 ]);
 export type UpdatePhase = z.infer<typeof UpdatePhaseSchema>;
 const UpdaterOperationIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,128}$/u);
+
+export const UpdaterCaptureIntentSchema = z.enum(["none", "restore-prior-capture"]);
+export type UpdaterCaptureIntent = z.infer<typeof UpdaterCaptureIntentSchema>;
+
+export const UpdaterMaintenanceReconciliationSchema = z.enum([
+  "none",
+  "pre-install-aborted",
+  "unknown-outcome",
+  "expected-version",
+  "old-version",
+  "unexpected-version",
+  "corrupt",
+  "incompatible",
+  "terminal-cleared",
+]);
+export type UpdaterMaintenanceReconciliation = z.infer<
+  typeof UpdaterMaintenanceReconciliationSchema
+>;
+
+export const UpdaterMaintenanceSnapshotSchema = z
+  .object({
+    reconciliation: UpdaterMaintenanceReconciliationSchema,
+    captureIntent: UpdaterCaptureIntentSchema.nullable(),
+    expectedVersion: z.string().min(1).max(128).nullable(),
+    observedVersion: z.string().min(1).max(128),
+    automaticActivationAllowed: z.boolean(),
+  })
+  .strict();
+export interface UpdaterMaintenanceSnapshotDto extends z.infer<
+  typeof UpdaterMaintenanceSnapshotSchema
+> {}
 
 export const UpdateCandidateIdentitySchema = z
   .object({
@@ -2536,12 +2572,14 @@ export const UpdaterSnapshotSchema = z
     progress: UpdateProgressSchema.nullable(),
     resumable: z.boolean(),
     terminalReason: z.string().min(1).max(128).nullable(),
+    maintenance: UpdaterMaintenanceSnapshotSchema.nullable(),
   })
   .strict()
   .superRefine((snapshot, context) => {
     const idle = snapshot.phase === "idle";
+    const maintenanceProjection = snapshot.maintenance !== null && snapshot.channel === null;
     if (
-      (!snapshot.configured && !idle) ||
+      (!snapshot.configured && !idle && !maintenanceProjection) ||
       (idle &&
         (snapshot.operationId !== null ||
           snapshot.channel !== null ||
@@ -2552,10 +2590,69 @@ export const UpdaterSnapshotSchema = z
     ) {
       context.addIssue({ code: "custom", message: "Idle updater state must be empty" });
     }
-    if (!idle && (snapshot.operationId === null || snapshot.channel === null)) {
+    if (
+      !idle &&
+      !maintenanceProjection &&
+      (snapshot.operationId === null || snapshot.channel === null)
+    ) {
       context.addIssue({
         code: "custom",
         message: "Active and terminal updater states require operation and channel identity",
+      });
+    }
+    if (
+      !idle &&
+      maintenanceProjection &&
+      snapshot.maintenance !== null &&
+      (![
+        "preparing-maintenance",
+        "installing-intent",
+        "relaunching",
+        "recovering",
+        "completed",
+        "failed",
+        "cancelled",
+      ].includes(snapshot.phase) ||
+        snapshot.channel !== null ||
+        snapshot.candidate !== null ||
+        snapshot.progress !== null ||
+        snapshot.resumable ||
+        (snapshot.operationId === null &&
+          !["corrupt", "incompatible"].includes(snapshot.maintenance.reconciliation)))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Maintenance projection must remain bounded and candidate-free",
+      });
+    }
+    if (
+      idle &&
+      snapshot.maintenance !== null &&
+      (snapshot.maintenance.reconciliation !== "none" ||
+        snapshot.maintenance.captureIntent !== null ||
+        snapshot.maintenance.expectedVersion !== null ||
+        !snapshot.maintenance.automaticActivationAllowed)
+    ) {
+      context.addIssue({ code: "custom", message: "Idle maintenance state must be empty" });
+    }
+    if (
+      snapshot.maintenance !== null &&
+      snapshot.maintenance.automaticActivationAllowed ===
+        (["preparing-maintenance", "installing-intent", "relaunching", "recovering"].includes(
+          snapshot.phase,
+        ) ||
+          [
+            "unknown-outcome",
+            "expected-version",
+            "old-version",
+            "unexpected-version",
+            "corrupt",
+            "incompatible",
+          ].includes(snapshot.maintenance.reconciliation))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Unresolved maintenance must block automatic activation",
       });
     }
     if (

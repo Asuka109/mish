@@ -47,6 +47,7 @@ use crate::{
 mod check_machine;
 mod continuation_machine;
 mod install_adapter;
+mod maintenance;
 use check_machine::{
     CheckCompletion, CheckEffect, CheckEffectOutcome, CheckInput, CheckMachine, CheckOperation,
     CheckProjection, CheckState, CheckTaskFailure,
@@ -59,6 +60,11 @@ use continuation_machine::{
 pub use install_adapter::{
     LocalCandidateInstallAdapter, LocalInstallError, LocalInstallEvidence, LocalInstallRequest,
     LocalInstallSeam, LocalInstallSeamError,
+};
+pub use maintenance::{
+    UpdaterCaptureIntent, UpdaterCaptureOwnershipEvidence, UpdaterMaintenanceAuthority,
+    UpdaterMaintenanceError, UpdaterMaintenanceReconciliation, UpdaterMaintenanceRequest,
+    UpdaterMaintenanceSnapshot, UpdaterMaintenanceTransitionEvidence,
 };
 
 const STORE_SCHEMA_VERSION: u8 = 1;
@@ -97,6 +103,11 @@ pub enum UpdatePhase {
     Downloading,
     Verifying,
     Ready,
+    PreparingMaintenance,
+    InstallingIntent,
+    Relaunching,
+    Recovering,
+    Completed,
     Failed,
     Cancelled,
 }
@@ -175,6 +186,7 @@ pub struct UpdaterSnapshot {
     pub progress: Option<UpdateProgress>,
     pub resumable: bool,
     pub terminal_reason: Option<String>,
+    pub maintenance: Option<UpdaterMaintenanceSnapshot>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -193,6 +205,16 @@ pub struct UpdaterCheckTransitionEvidence {
     pub disposition: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdaterDiagnosticSnapshot {
+    pub configured: bool,
+    pub phase: UpdatePhase,
+    pub revision: u64,
+    pub operation_present: bool,
+    pub maintenance: Option<UpdaterMaintenanceSnapshot>,
+}
+
 impl UpdaterSnapshot {
     fn idle(authority_id: String, configured: bool) -> Self {
         Self {
@@ -206,6 +228,7 @@ impl UpdaterSnapshot {
             progress: None,
             resumable: false,
             terminal_reason: None,
+            maintenance: None,
         }
     }
 }
@@ -1117,6 +1140,7 @@ pub struct UpdaterService {
     state: Arc<Mutex<RuntimeState>>,
     updates: broadcast::Sender<UpdaterSnapshot>,
     install_admission: Arc<Mutex<install_adapter::InstallAdmissionState>>,
+    maintenance: Option<Arc<UpdaterMaintenanceAuthority>>,
 }
 
 async fn download_artifact_effect(
@@ -1299,7 +1323,61 @@ impl UpdaterService {
             install_admission: Arc::new(Mutex::new(
                 install_adapter::InstallAdmissionState::default(),
             )),
+            maintenance: None,
         }
+    }
+
+    pub fn unconfigured_with_maintenance(
+        authority_id: impl Into<String>,
+        journal_root: PathBuf,
+        observed_version: &str,
+    ) -> Result<Self, UpdaterMaintenanceError> {
+        let authority_id = authority_id.into();
+        let maintenance = Arc::new(UpdaterMaintenanceAuthority::open(
+            journal_root,
+            &authority_id,
+            observed_version,
+        )?);
+        let runtime = maintenance.runtime_state();
+        let mut snapshot = UpdaterSnapshot::idle(authority_id, false);
+        snapshot.revision = runtime.revision;
+        snapshot.phase = runtime
+            .phase
+            .map_or(UpdatePhase::Idle, |phase| match phase {
+                maintenance::MaintenanceJournalPhase::PreparingMaintenance => {
+                    UpdatePhase::PreparingMaintenance
+                }
+                maintenance::MaintenanceJournalPhase::InstallingIntent => {
+                    UpdatePhase::InstallingIntent
+                }
+                maintenance::MaintenanceJournalPhase::Relaunching => UpdatePhase::Relaunching,
+                maintenance::MaintenanceJournalPhase::Recovering => UpdatePhase::Recovering,
+                maintenance::MaintenanceJournalPhase::Completed => UpdatePhase::Completed,
+                maintenance::MaintenanceJournalPhase::Failed => UpdatePhase::Failed,
+                maintenance::MaintenanceJournalPhase::Cancelled => UpdatePhase::Cancelled,
+            });
+        snapshot.operation_id = runtime.operation_id;
+        snapshot.terminal_reason = runtime.terminal_reason;
+        snapshot.maintenance = runtime.snapshot;
+        let (updates, _) = broadcast::channel(32);
+        Ok(Self {
+            check: None,
+            continuation: None,
+            check_evidence: Arc::new(Mutex::new(VecDeque::new())),
+            configured: None,
+            state: Arc::new(Mutex::new(RuntimeState {
+                snapshot,
+                accepted: AcceptedMetadata::empty(),
+                available: None,
+                release_context_bound: false,
+                operation_admission_pending: false,
+            })),
+            updates,
+            install_admission: Arc::new(Mutex::new(
+                install_adapter::InstallAdmissionState::default(),
+            )),
+            maintenance: Some(maintenance),
+        })
     }
 
     pub async fn configured(
@@ -1434,6 +1512,7 @@ impl UpdaterService {
             install_admission: Arc::new(Mutex::new(
                 install_adapter::InstallAdmissionState::default(),
             )),
+            maintenance: None,
         };
         if recovered.needs_reverification {
             service
@@ -1490,6 +1569,29 @@ impl UpdaterService {
             .iter()
             .cloned()
             .collect()
+    }
+
+    pub fn maintenance_transition_evidence(&self) -> Vec<UpdaterMaintenanceTransitionEvidence> {
+        self.maintenance
+            .as_ref()
+            .map_or_else(Vec::new, |maintenance| maintenance.transition_evidence())
+    }
+
+    pub fn automatic_activation_allowed(&self) -> bool {
+        self.maintenance
+            .as_ref()
+            .is_none_or(|maintenance| maintenance.automatic_activation_allowed())
+    }
+
+    pub fn diagnostic_snapshot(&self) -> UpdaterDiagnosticSnapshot {
+        let snapshot = self.snapshot();
+        UpdaterDiagnosticSnapshot {
+            configured: snapshot.configured,
+            phase: snapshot.phase,
+            revision: snapshot.revision,
+            operation_present: snapshot.operation_id.is_some(),
+            maintenance: snapshot.maintenance,
+        }
     }
 
     pub async fn start_check(
@@ -1558,6 +1660,9 @@ impl UpdaterService {
         }
         if let Some(continuation) = &self.continuation {
             continuation.shutdown().await;
+        }
+        if let Some(maintenance) = &self.maintenance {
+            let _ = maintenance.retire_runtime();
         }
     }
 
@@ -2550,6 +2655,7 @@ impl RecoveredState {
             progress: self.progress.clone(),
             resumable: self.resumable,
             terminal_reason: self.terminal_reason.clone(),
+            maintenance: None,
         }
     }
 }

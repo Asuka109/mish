@@ -37,11 +37,15 @@ crosses the Web boundary.
 
 ## Included evidence
 
-The JSON contains application/Core version status, the last activation outcome,
+The format-version 3 JSON contains application/Core version status, the last activation outcome,
 platform version, capability status, non-sensitive active-profile identifiers,
 capture desired/observed/drift state, direct service-probe aggregates, bounded
 event counts by source and severity, a redaction report, and bounded termination
-or recovery evidence.
+or recovery evidence. It also contains one candidate-free updater diagnostic:
+configured flag, semantic phase, revision, operation-presence boolean, and the
+bounded maintenance reconciliation/version/capture-intent projection. It never
+contains the candidate identity, journal ownership digest, metadata, signature,
+endpoint, credential, or path.
 
 It excludes raw profiles and YAML, subscription URLs, credentials, full paths,
 node and policy labels, connection destinations, process paths, network

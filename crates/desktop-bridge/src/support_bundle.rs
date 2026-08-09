@@ -10,6 +10,7 @@ use mish_runtime::{
     EventsDataPhase, EventsSnapshot, ProbeStatus, ServiceProbeFailureStage, StatusAdapterKind,
     StatusSnapshot, SystemProxyObservedState, SystemProxyPhase,
 };
+use mish_updater::{UpdaterDiagnosticSnapshot, UpdaterService};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -19,8 +20,8 @@ use crate::{
 
 pub const SUPPORT_BUNDLE_MAX_BYTES: usize = 256 * 1_024;
 const SUPPORT_BUNDLE_EVENT_LIMIT: usize = 256;
-const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 2;
-const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 9;
+const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 3;
+const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 10;
 pub const TERMINATION_EVIDENCE_MAX_RECORDS: usize = 32;
 pub const TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const TERMINATION_EVIDENCE_MAX_RECORD_BYTES: usize = 512;
@@ -296,6 +297,7 @@ pub struct SupportBundleService {
     platform: SupportBundlePlatform,
     runtime: DesktopRuntimeHost,
     termination_evidence: TerminationEvidenceStore,
+    updater: Arc<UpdaterService>,
 }
 
 impl SupportBundleService {
@@ -305,6 +307,7 @@ impl SupportBundleService {
         application_version: &'static str,
         platform: SupportBundlePlatform,
         termination_evidence: TerminationEvidenceStore,
+        updater: Arc<UpdaterService>,
     ) -> Self {
         Self {
             activation,
@@ -312,6 +315,7 @@ impl SupportBundleService {
             platform,
             runtime,
             termination_evidence,
+            updater,
         }
     }
 
@@ -404,6 +408,7 @@ impl SupportBundleService {
             .await;
         let activation = self.activation.managed_state().await;
         let termination_evidence = self.termination_evidence.records();
+        let updater = self.updater.diagnostic_snapshot();
         build_support_bundle(
             preview_id,
             SupportBundleInput {
@@ -415,6 +420,7 @@ impl SupportBundleService {
                 platform: &self.platform,
                 status: &status,
                 termination_evidence: &termination_evidence,
+                updater: &updater,
             },
         )
     }
@@ -460,6 +466,7 @@ struct SupportBundleManifest {
     redaction_report: SupportRedactionReport,
     service_probes: SupportServiceProbes,
     termination_recovery_evidence: Vec<TerminationEvidenceRecord>,
+    updater: UpdaterDiagnosticSnapshot,
 }
 
 #[derive(Serialize)]
@@ -480,6 +487,7 @@ struct SupportBundleInput<'a> {
     platform: &'a SupportBundlePlatform,
     status: &'a StatusSnapshot,
     termination_evidence: &'a [TerminationEvidenceRecord],
+    updater: &'a UpdaterDiagnosticSnapshot,
 }
 
 #[derive(Serialize)]
@@ -695,6 +703,7 @@ fn build_support_bundle(
         },
         service_probes: summarize_service_probes(input.status),
         termination_recovery_evidence: input.termination_evidence.to_vec(),
+        updater: input.updater.clone(),
     };
     let bytes =
         serde_json::to_vec_pretty(&manifest).map_err(|_| SupportBundleError::Serialization)?;
@@ -924,6 +933,7 @@ mod tests {
         TerminationEvidenceRecord, TerminationEvidenceStore, build_support_bundle,
     };
     use crate::ManagedActivationState;
+    use mish_updater::{UpdatePhase, UpdaterDiagnosticSnapshot};
 
     #[test]
     fn manifest_is_deterministic_and_excludes_sensitive_categories_at_the_source() {
@@ -945,6 +955,7 @@ mod tests {
         let events = malicious_events(2);
         let activation = ManagedActivationState::default();
         let platform = platform();
+        let updater = updater();
         let input = || SupportBundleInput {
             activation: &activation,
             application_version: "0.1.0",
@@ -954,6 +965,7 @@ mod tests {
             platform: &platform,
             status: &status,
             termination_evidence: &[],
+            updater: &updater,
         };
 
         let first = build_support_bundle("preview-1".into(), input()).unwrap();
@@ -980,8 +992,8 @@ mod tests {
         }
         assert!(exported.contains("raw-profile-configuration"));
         assert!(exported.contains("event-text"));
-        assert!(exported.contains("\"formatVersion\": 2"));
-        assert_eq!(first.preview.format_version, 2);
+        assert!(exported.contains("\"formatVersion\": 3"));
+        assert_eq!(first.preview.format_version, 3);
         assert!(first.preview.content_bytes < SUPPORT_BUNDLE_MAX_BYTES);
     }
 
@@ -1037,6 +1049,7 @@ mod tests {
         let events = malicious_events(SUPPORT_BUNDLE_EVENT_LIMIT + 40);
         let activation = ManagedActivationState::default();
         let platform = platform();
+        let updater = updater();
         let bundle = build_support_bundle(
             "preview-2".into(),
             SupportBundleInput {
@@ -1048,6 +1061,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                updater: &updater,
             },
         )
         .unwrap();
@@ -1068,6 +1082,7 @@ mod tests {
         let events = malicious_events(3);
         let activation = ManagedActivationState::default();
         let platform = platform();
+        let updater = updater();
         let before_events = serde_json::to_vec(&events).unwrap();
         build_support_bundle(
             "preview-3".into(),
@@ -1080,6 +1095,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                updater: &updater,
             },
         )
         .unwrap();
@@ -1101,6 +1117,7 @@ mod tests {
         let events = malicious_events(0);
         let activation = ManagedActivationState::default();
         let platform = platform();
+        let updater = updater();
 
         let bundle = build_support_bundle(
             "preview-probes".into(),
@@ -1113,6 +1130,7 @@ mod tests {
                 platform: &platform,
                 status: &status,
                 termination_evidence: &[],
+                updater: &updater,
             },
         )
         .unwrap();
@@ -1167,6 +1185,16 @@ mod tests {
             architecture: "aarch64".into(),
             operating_system: "macos".into(),
             operating_system_version: "26.0".into(),
+        }
+    }
+
+    fn updater() -> UpdaterDiagnosticSnapshot {
+        UpdaterDiagnosticSnapshot {
+            configured: false,
+            phase: UpdatePhase::Idle,
+            revision: 0,
+            operation_present: false,
+            maintenance: None,
         }
     }
 

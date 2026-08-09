@@ -51,6 +51,12 @@
       "recoveryBoundary": "Versioned bounded RecoveryRecord plus the private partial/candidate store, immutable release identity, resume validators, signed metadata high-water marks, and mandatory candidate re-verification after restart."
     },
     {
+      "id": "updater-maintenance",
+      "classification": "conforming",
+      "canonicalOwner": "crates/updater/src/service/maintenance.rs",
+      "recoveryBoundary": "Versioned operation-owned private maintenance journal reconciled before every automatic Profile, Core, or Capture launch; unknown outcomes are never replayed."
+    },
+    {
       "id": "settings-backup-transactions",
       "classification": "migration-required",
       "canonicalOwner": "crates/settings and crates/runtime",

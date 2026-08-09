@@ -86,6 +86,32 @@ type RootTranslation = {
 		 */
 		system: string
 	}
+	updaterMaintenance: {
+		/**
+		 * U​p​d​a​t​e​ ​r​e​c​o​v​e​r​y​ ​d​a​t​a​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​v​a​l​i​d​a​t​e​d​.​ ​A​u​t​o​m​a​t​i​c​ ​s​t​a​r​t​u​p​ ​r​e​m​a​i​n​s​ ​o​f​f​.
+		 */
+		corrupt: string
+		/**
+		 * T​h​e​ ​e​x​p​e​c​t​e​d​ ​a​p​p​ ​v​e​r​s​i​o​n​ ​s​t​a​r​t​e​d​.​ ​R​e​c​o​v​e​r​y​ ​m​u​s​t​ ​f​i​n​i​s​h​ ​b​e​f​o​r​e​ ​a​u​t​o​m​a​t​i​c​ ​s​t​a​r​t​u​p​ ​r​e​s​u​m​e​s​.
+		 */
+		expectedVersion: string
+		/**
+		 * U​p​d​a​t​e​ ​r​e​c​o​v​e​r​y​ ​d​a​t​a​ ​u​s​e​s​ ​a​n​ ​u​n​s​u​p​p​o​r​t​e​d​ ​f​o​r​m​a​t​.​ ​A​u​t​o​m​a​t​i​c​ ​s​t​a​r​t​u​p​ ​r​e​m​a​i​n​s​ ​o​f​f​.
+		 */
+		incompatible: string
+		/**
+		 * T​h​e​ ​p​r​e​v​i​o​u​s​ ​a​p​p​ ​v​e​r​s​i​o​n​ ​r​e​s​t​a​r​t​e​d​ ​a​f​t​e​r​ ​a​n​ ​u​n​k​n​o​w​n​ ​i​n​s​t​a​l​l​ ​o​u​t​c​o​m​e​.​ ​A​u​t​o​m​a​t​i​c​ ​s​t​a​r​t​u​p​ ​r​e​m​a​i​n​s​ ​o​f​f​.
+		 */
+		oldVersion: string
+		/**
+		 * U​p​d​a​t​e​ ​p​r​e​p​a​r​a​t​i​o​n​ ​e​n​d​e​d​ ​b​e​f​o​r​e​ ​i​n​s​t​a​l​l​a​t​i​o​n​ ​i​n​t​e​n​t​.​ ​T​h​e​ ​p​r​i​o​r​ ​a​p​p​ ​m​a​y​ ​s​t​a​r​t​ ​n​o​r​m​a​l​l​y​.
+		 */
+		preInstallAborted: string
+		/**
+		 * A​n​ ​u​n​e​x​p​e​c​t​e​d​ ​a​p​p​ ​v​e​r​s​i​o​n​ ​s​t​a​r​t​e​d​.​ ​A​u​t​o​m​a​t​i​c​ ​s​t​a​r​t​u​p​ ​r​e​m​a​i​n​s​ ​o​f​f​ ​u​n​t​i​l​ ​r​e​c​o​v​e​r​y​ ​i​s​ ​r​e​s​o​l​v​e​d​.
+		 */
+		unexpectedVersion: string
+	}
 	settingsPage: {
 		/**
 		 * R​a​r​e​ ​o​p​e​r​a​t​i​o​n​s​ ​s​t​a​y​ ​s​u​m​m​a​r​i​z​e​d​ ​u​n​t​i​l​ ​a​ ​s​a​f​e​,​ ​v​a​l​i​d​a​t​e​d​ ​w​o​r​k​f​l​o​w​ ​e​x​i​s​t​s​.
@@ -5377,6 +5403,32 @@ export type TranslationFunctions = {
 		 * Follow system
 		 */
 		system: () => LocalizedString
+	}
+	updaterMaintenance: {
+		/**
+		 * Update recovery data could not be validated. Automatic startup remains off.
+		 */
+		corrupt: () => LocalizedString
+		/**
+		 * The expected app version started. Recovery must finish before automatic startup resumes.
+		 */
+		expectedVersion: () => LocalizedString
+		/**
+		 * Update recovery data uses an unsupported format. Automatic startup remains off.
+		 */
+		incompatible: () => LocalizedString
+		/**
+		 * The previous app version restarted after an unknown install outcome. Automatic startup remains off.
+		 */
+		oldVersion: () => LocalizedString
+		/**
+		 * Update preparation ended before installation intent. The prior app may start normally.
+		 */
+		preInstallAborted: () => LocalizedString
+		/**
+		 * An unexpected app version started. Automatic startup remains off until recovery is resolved.
+		 */
+		unexpectedVersion: () => LocalizedString
 	}
 	settingsPage: {
 		/**

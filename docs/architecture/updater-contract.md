@@ -362,6 +362,70 @@ rejection, and task-finalization outcomes are stable redacted codes. None
 changes ready state, replaces the application, invokes an installer, exits,
 relaunches, or adds a WebView/Browser Client authority path.
 
+## Maintenance journal and restart reconciliation
+
+The third updater aggregate extends the existing Check and Continuation
+authorities without replacing their candidate store. It models the future
+installation boundary while the shipped service remains `configured: false`
+and exposes no install or restart command.
+
+| State                   | Legal next state                              | Cancellation and cleanup                                      |
+| ----------------------- | --------------------------------------------- | ------------------------------------------------------------- |
+| `ready`                 | `preparing-maintenance`                       | A duplicate operation is unchanged; another operation is busy |
+| `preparing-maintenance` | `installing-intent`, `cancelled`, or `failed` | Cancellation wins and clears only its own durable record      |
+| `installing-intent`     | `relaunching` or `recovering`                 | Cancellation is too late; restart never replays install       |
+| `relaunching`           | `recovering`                                  | Process loss becomes an unknown outcome                       |
+| `recovering`            | `completed` or `failed`                       | Evidence remains until the same operation resolves recovery   |
+| terminal                | no consequential transition                   | Terminal record is fsynced, then operation-owned cleanup runs |
+
+Every consequential input carries the bounded operation key, admitted
+revision, current journal revision, and a digest of the process authority. A
+duplicate exact input is idempotent. A stale revision, replacement authority,
+other operation key, reconnect baseline, or retired finalizer cannot advance
+or clear the retained record. Shutdown before `installing-intent` linearizes as
+cancelled; shutdown after it linearizes as `recovering`. Check and Continuation
+retain their existing owned-task finalizers. The pure repository-kernel
+`MaintenanceMachine` reducer owns the closed transition table; its synchronous
+journal authority executes each accepted commit and has no detached task or
+platform effect to replay.
+
+`updater-maintenance/journal.json` is schema version 1 and is capped at 4 KiB.
+It contains only canonical previous/expected application versions, the bounded
+operation key and revisions, digested process authority, `none` or
+`restore-prior-capture` intent, and optional digested capture authority plus
+revision. It contains no endpoint or credential, signature, candidate or raw
+metadata/body, Profile/configuration data, capture configuration, or path.
+Directories/files are current-user-owned `0700`/`0600` entries with no links.
+Each commit writes a create-new same-directory temporary file, fsyncs it,
+atomically replaces the journal, revalidates its private ownership/mode/link
+count, and fsyncs the directory. Cleanup rereads and matches operation ownership and revision before
+unlink plus directory fsync. Corrupt, incompatible, linked, foreign, or
+otherwise unsafe evidence is retained and fails closed instead of being
+guessed or deleted.
+
+Desktop constructs this authority immediately after resolving the app-data
+root, before Profile selection recovery, Core recovery, Capture audit,
+schedulers, bridge publication, or automatic launch policy. Startup outcomes
+are deterministic:
+
+- no record or an operation-owned pre-install abort permits ordinary startup;
+- `installing-intent`, `relaunching`, or `recovering` records never replay
+  installation and block automatic activation;
+- the observed application version is classified as expected, old, or
+  unexpected while the record moves to `recovering`;
+- corrupt or incompatible evidence remains retained and blocks automatic
+  activation; and
+- a valid terminal record is cleared only after its own terminal commit is
+  observed.
+
+The shared snapshot/event projection exposes only phase, revision, bounded
+operation presence, capture intent, semantic reconciliation outcome, and
+previously authenticated version facts. Support bundles use a smaller
+candidate-free projection and never include journal ownership hashes or local
+paths. Browser Client remains an observer with the existing non-privileged
+check/download/cancel methods; no maintenance, install, relaunch, System Proxy,
+TUN, or Capture mutation method exists in protocol 37.
+
 ## Provenance and diagnostics
 
 `VerifiedUpdate` contains only the signed channel, version, source SHA, payload
@@ -415,6 +479,15 @@ strong-ETag resume, crash/restart, commit-unknown observation without replay,
 RecoveryRecord redaction, and mandatory candidate re-verification before
 Ready.
 
+Maintenance-specific tests cover every legal state, duplicate and competing
+operation keys, cancellation on both sides of `installing-intent`, stale
+revision and replacement authority retirement, pre-install and unknown-outcome
+process loss, expected/old/unexpected version observation, terminal cleanup,
+partial/corrupt/incompatible journal fixtures, private mode and link checks,
+bounded redacted evidence, reconnect ordering, and the Desktop automatic-start
+barrier. These fixtures do not invoke an installer, relaunch the application,
+or mutate Capture.
+
 ## Later live and installation boundaries
 
 The following remain unavailable and require separate review and hands-on
@@ -425,7 +498,7 @@ acceptance:
 - pre-replacement System Proxy reconciliation and recovery authority;
 - enabling the proven Rust seam for real application replacement, rollback,
   and prior-app preservation;
-- relaunch and expected-version observation; and
+- live relaunch execution and post-relaunch Capture restoration; and
 - two-version signed Alpha/stable upgrade and failure testing.
 
 The existing signed-direct DMG remains the direct-distribution artifact. This

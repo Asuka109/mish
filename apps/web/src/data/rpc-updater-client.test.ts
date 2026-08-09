@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   mishRpcMethods,
+  UpdaterSnapshotSchema,
   type UpdaterSnapshotDto,
   type UpdaterSnapshotNotificationDto,
 } from "@mish/contracts";
@@ -32,6 +33,29 @@ function snapshot(revision = 0, phase: UpdaterSnapshotDto["phase"] = "idle"): Up
     progress: phase === "downloading" ? { downloadedBytes: 12, totalBytes: 48 } : null,
     resumable: false,
     terminalReason: null,
+    maintenance: null,
+  };
+}
+
+function recoveringSnapshot(revision: number): UpdaterSnapshotDto {
+  return {
+    authorityId: "updater-process",
+    revision,
+    configured: false,
+    phase: "recovering",
+    operationId: "operation-maintenance",
+    channel: null,
+    candidate: null,
+    progress: null,
+    resumable: false,
+    terminalReason: null,
+    maintenance: {
+      reconciliation: "old-version",
+      captureIntent: "restore-prior-capture",
+      expectedVersion: "0.1.1",
+      observedVersion: "0.1.0",
+      automaticActivationAllowed: false,
+    },
   };
 }
 
@@ -100,6 +124,21 @@ async function flushMicrotasks() {
 }
 
 describe("RpcUpdaterClient", () => {
+  it("accepts bounded maintenance facts and rejects private journal additions", () => {
+    const recovering = recoveringSnapshot(4);
+    expect(UpdaterSnapshotSchema.parse(recovering)).toEqual(recovering);
+    expect(() =>
+      UpdaterSnapshotSchema.parse({
+        ...recovering,
+        maintenance: {
+          ...recovering.maintenance,
+          candidatePath: "/Users/private/candidate",
+          metadata: "raw-body",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("accepts only newer authoritative revisions and reconnects without replaying commands", async () => {
     const fake = new FakeUpdaterRpc();
     const client = new RpcUpdaterClient(rpc(fake));
@@ -148,6 +187,28 @@ describe("RpcUpdaterClient", () => {
       ["updater.download", { operationId: "operation-a" }],
       ["updater.cancel", { operationId: "operation-a" }],
     ]);
+    client.dispose();
+  });
+
+  it("keeps unresolved restart recovery authoritative across stale reconnect baselines", async () => {
+    const fake = new FakeUpdaterRpc();
+    fake.current = recoveringSnapshot(9);
+    const client = new RpcUpdaterClient(rpc(fake));
+    const delivered: UpdaterSnapshotDto[] = [];
+    client.subscribeSnapshots((next) => delivered.push(next));
+    await flushMicrotasks();
+
+    fake.emit(recoveringSnapshot(10));
+    fake.current = recoveringSnapshot(9);
+    fake.reconnect();
+    await flushMicrotasks();
+
+    expect(delivered.at(-1)).toEqual(recoveringSnapshot(10));
+    expect(
+      fake.requests.filter(({ method }) =>
+        ["updater.check", "updater.download", "updater.cancel"].includes(method),
+      ),
+    ).toHaveLength(0);
     client.dispose();
   });
 });
