@@ -1,4 +1,10 @@
-import { mishRpcMethods, type SettingsSnapshotDto } from "@mish/contracts";
+import {
+  BRIDGE_INFO_REQUEST,
+  BridgeInfoSchema,
+  mishRpcMethods,
+  resolveBridgeProtocolCompatibility,
+  type SettingsSnapshotDto,
+} from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
 import { TooltipProvider } from "@mish/ui";
 import { page, userEvent } from "vitest/browser";
@@ -143,6 +149,12 @@ function createRpc(harness: SimulatedHostHarnessDescriptor) {
       clientVersion: "1",
       token: harness.authToken,
     }),
+    compatibility: {
+      method: "bridge.getInfo",
+      outcome: (result) => resolveBridgeProtocolCompatibility(BridgeInfoSchema.parse(result)),
+      params: BRIDGE_INFO_REQUEST,
+      resultSchema: BridgeInfoSchema,
+    },
     methods: mishRpcMethods,
     transportFactory: () => new WebSocket(harness.rpcUrl),
   });

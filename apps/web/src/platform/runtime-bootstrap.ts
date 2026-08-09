@@ -1,6 +1,9 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
+  BRIDGE_INFO_REQUEST,
+  BridgeInfoSchema,
   mishRpcMethods,
+  resolveBridgeProtocolCompatibility,
   SettingsSnapshotSchema,
   type LocalBackupClient,
   type LocalBackupScopeDto,
@@ -165,6 +168,12 @@ function createRpcStartup(
         clientVersion: "bootstrap-v1",
         token: bootstrap.authToken,
       }),
+      compatibility: {
+        method: "bridge.getInfo",
+        outcome: (result) => resolveBridgeProtocolCompatibility(BridgeInfoSchema.parse(result)),
+        params: BRIDGE_INFO_REQUEST,
+        resultSchema: BridgeInfoSchema,
+      },
       methods: mishRpcMethods,
       transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
     });

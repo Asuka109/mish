@@ -1,4 +1,7 @@
 mod activation;
+#[doc(hidden)]
+#[path = "generated/bridge_protocol.rs"]
+pub mod bridge_protocol;
 mod controller_source;
 mod controller_status;
 mod core_ownership;

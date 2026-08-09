@@ -250,7 +250,11 @@ function createPresentationIdentifier(prefix: string) {
 }
 
 function mapConnectionState(state: RpcConnectionState): EventsConnectionState {
-  if (state.phase === "authenticating" || state.phase === "connecting") {
+  if (
+    state.phase === "authenticating" ||
+    state.phase === "connecting" ||
+    state.phase === "negotiating"
+  ) {
     return { attempt: state.attempt, phase: "connecting", stale: true };
   }
   return { attempt: state.attempt, phase: state.phase, stale: state.stale };

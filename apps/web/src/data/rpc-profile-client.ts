@@ -17,6 +17,7 @@ import {
 import {
   RpcCancelledError,
   RpcClient,
+  RpcCompatibilityError,
   RpcDisconnectedError,
   RpcDisposedError,
   RpcMessageTooLargeError,
@@ -324,7 +325,11 @@ export class RpcProfileClient implements ProfileClient {
 }
 
 function mapConnectionState(state: RpcConnectionState): ProfileConnectionState {
-  if (state.phase === "authenticating" || state.phase === "connecting") {
+  if (
+    state.phase === "authenticating" ||
+    state.phase === "connecting" ||
+    state.phase === "negotiating"
+  ) {
     return { attempt: state.attempt, phase: "connecting", stale: true };
   }
   return { attempt: state.attempt, phase: state.phase, stale: state.stale };
@@ -333,6 +338,9 @@ function mapConnectionState(state: RpcConnectionState): ProfileConnectionState {
 function mapRpcError(error: unknown) {
   if (error instanceof RpcCancelledError) {
     return new ProfileClientError("cancelled", error.message);
+  }
+  if (error instanceof RpcCompatibilityError) {
+    return new ProfileClientError("protocol", error.message);
   }
   if (error instanceof RpcDisconnectedError || error instanceof RpcDisposedError) {
     return new ProfileClientError("disconnected", error.message, true);

@@ -1,4 +1,7 @@
 import {
+  BRIDGE_MINIMUM_CLIENT_PROTOCOL_VERSION,
+  BRIDGE_MOCK_UNAVAILABLE_RPC_METHODS,
+  BRIDGE_PROTOCOL_VERSION,
   SERVICE_ICON_URLS,
   type CoreStatusDto,
   type RpcStatusSnapshotDto,
@@ -17,6 +20,7 @@ export interface MockBridgeOptions {
   host?: string;
   maxMessageBytes?: number;
   port?: number;
+  protocolVersion?: number;
   statusSnapshot?: RpcStatusSnapshotDto;
 }
 
@@ -28,6 +32,7 @@ export interface MockBridgeHandle {
 
 type MethodDefinition = { params: z.ZodType; result: z.ZodType };
 const methods: Record<string, MethodDefinition> = mishRpcMethods;
+const mockUnavailableMethods = new Set<string>(BRIDGE_MOCK_UNAVAILABLE_RPC_METHODS);
 const unavailableFailure: RpcFailure = {
   code: -32020,
   message: "The transport-only mock does not implement application lifecycle commands",
@@ -169,6 +174,10 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
     throw new Error("The mock bridge may only bind to a loopback host");
   }
   if (options.authToken.length < 16) throw new Error("The mock token must contain 16 characters");
+  const protocolVersion = options.protocolVersion ?? BRIDGE_PROTOCOL_VERSION;
+  if (!Number.isInteger(protocolVersion) || protocolVersion < 1) {
+    throw new Error("The mock protocol version must be a positive integer");
+  }
 
   const snapshot = structuredClone(options.statusSnapshot ?? createMockStatusSnapshot());
   const core: CoreStatusDto = {
@@ -210,6 +219,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
 
   server.on("connection", (socket) => {
     let authenticated = false;
+    let protocolCompatibility: "compatible" | "client-too-old" | "backend-too-old" | null = null;
     subscriptions.set(socket, new Set());
     socket.on("message", (data, isBinary) => {
       if (isBinary) return sendError(socket, null, -32600, "Binary messages are not supported");
@@ -248,6 +258,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
       }
       if (request.method === "rpc.authenticate") {
         authenticated = false;
+        protocolCompatibility = null;
         const params = request.params;
         if (
           !params ||
@@ -264,6 +275,13 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         return sendResult(socket, id, {
           authenticated: true,
           sessionId: `mock-session-${sessionId}`,
+        });
+      }
+
+      if (request.method !== "bridge.getInfo" && protocolCompatibility !== "compatible") {
+        return sendError(socket, id, -32003, "Bridge protocol compatibility is required", {
+          compatibility: protocolCompatibility,
+          protocolVersion,
         });
       }
 
@@ -290,13 +308,23 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         const result = (() => {
           switch (request.method) {
             case "bridge.getInfo":
+              protocolCompatibility = compatibilityForClient(
+                Number(values.clientProtocolVersion),
+                protocolVersion,
+              );
               return {
                 bridgeVersion: "transport-only-mock",
+                compatibility: protocolCompatibility,
                 coreConfigured: false,
-                protocolVersion: 35,
+                minimumClientProtocolVersion: Math.min(
+                  BRIDGE_MINIMUM_CLIENT_PROTOCOL_VERSION,
+                  protocolVersion,
+                ),
+                protocolVersion,
                 statusCommands: {
                   group: false,
                   groupDelay: false,
+                  profile: false,
                   routing: false,
                   services: false,
                 },
@@ -322,7 +350,10 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             case "traffic.getProcessIcon":
               return { dataUrl: null };
             default:
-              throw new MockRpcError(unavailableFailure.code, unavailableFailure.message);
+              if (mockUnavailableMethods.has(request.method)) {
+                throw new MockRpcError(unavailableFailure.code, unavailableFailure.message);
+              }
+              throw new MockRpcError(-32601, "Method not found");
           }
         })();
         const validated = definition.result.safeParse(result);
@@ -345,6 +376,19 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
     close: () => closeServer(server),
     rpcUrl: `ws://${host}:${address.port}/rpc`,
   };
+}
+
+function compatibilityForClient(
+  clientProtocolVersion: number,
+  backendProtocolVersion: number,
+): "compatible" | "client-too-old" | "backend-too-old" {
+  const minimumClientProtocolVersion = Math.min(
+    BRIDGE_MINIMUM_CLIENT_PROTOCOL_VERSION,
+    backendProtocolVersion,
+  );
+  if (clientProtocolVersion < minimumClientProtocolVersion) return "client-too-old";
+  if (clientProtocolVersion > backendProtocolVersion) return "backend-too-old";
+  return "compatible";
 }
 
 class MockRpcError extends Error {

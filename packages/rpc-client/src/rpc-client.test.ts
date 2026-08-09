@@ -1,8 +1,18 @@
-import { StatusSnapshotSchema, statusRpcMethods } from "@mish/contracts";
+import {
+  BRIDGE_INFO_REQUEST,
+  BRIDGE_PROTOCOL_VERSION,
+  BridgeInfoSchema,
+  StatusSnapshotSchema,
+  mishRpcMethods,
+  resolveBridgeProtocolCompatibility,
+  statusRpcMethods,
+  type BridgeProtocolCompatibility,
+} from "@mish/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   RpcCancelledError,
   RpcClient,
+  RpcCompatibilityError,
   RpcDisposedError,
   RpcMessageTooLargeError,
   RpcRemoteError,
@@ -194,11 +204,124 @@ function createClient(
   });
 }
 
+function bridgeInfo(compatibility: BridgeProtocolCompatibility) {
+  return {
+    bridgeVersion: "test",
+    compatibility,
+    coreConfigured: true,
+    minimumClientProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    statusCommands: {
+      group: true,
+      groupDelay: true,
+      profile: true,
+      routing: true,
+      services: true,
+    },
+    trafficCommands: {
+      closeAllActive: true,
+      closeConnection: true,
+      closeFilteredVisible: true,
+    },
+    updaterConfigured: true,
+  };
+}
+
+function compatibilityPolicy() {
+  return {
+    method: "bridge.getInfo",
+    outcome: (result: unknown) =>
+      resolveBridgeProtocolCompatibility(BridgeInfoSchema.parse(result)),
+    params: BRIDGE_INFO_REQUEST,
+    resultSchema: BridgeInfoSchema,
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("RpcClient", () => {
+  it.each(["client-too-old", "backend-too-old"] as const)(
+    "blocks simultaneous product surfaces on explicit %s compatibility",
+    async (compatibility) => {
+      const transport = new FakeTransport();
+      const client = new RpcClient({
+        authentication: () => ({ clientName: "test", clientVersion: "1", token: "secret" }),
+        compatibility: compatibilityPolicy(),
+        methods: mishRpcMethods,
+        transportFactory: () => transport,
+      });
+      const requests = [
+        client.request("status.getSnapshot", {}),
+        client.request("traffic.getSnapshot", {}),
+        client.request("profiles.getSnapshot", {}),
+        client.request("settings.getSnapshot", {}),
+        client.request("events.getSnapshot", {}),
+        client.request("notifications.getSnapshot", {}),
+        client.request("updater.getSnapshot", {}),
+      ];
+      await authenticate(transport);
+      const negotiation = await waitForSentMessage(transport, 1);
+      expect(negotiation).toMatchObject({ method: "bridge.getInfo", params: BRIDGE_INFO_REQUEST });
+      transport.respond({
+        id: negotiation.id,
+        jsonrpc: "2.0",
+        result: bridgeInfo(compatibility),
+      });
+
+      for (const request of requests) {
+        await expect(request).rejects.toMatchObject({
+          outcome: compatibility,
+          name: "RpcCompatibilityError",
+        });
+      }
+      expect(transport.sent).toHaveLength(2);
+      expect(client.getConnectionState()).toMatchObject({ phase: compatibility, stale: true });
+      client.dispose();
+    },
+  );
+
+  it("renegotiates after reconnect and does not accept an incompatible replacement backend", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let index = 0;
+    const client = new RpcClient({
+      authentication: () => ({ clientName: "test", clientVersion: "1", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 1, maximumReconnectAttempts: 1 },
+      compatibility: compatibilityPolicy(),
+      methods: mishRpcMethods,
+      transportFactory: () => transports[index++],
+    });
+    const connecting = client.connect();
+    await authenticate(transports[0]);
+    const firstNegotiation = await waitForSentMessage(transports[0], 1);
+    transports[0].respond({
+      id: firstNegotiation.id,
+      jsonrpc: "2.0",
+      result: bridgeInfo("compatible"),
+    });
+    await connecting;
+    expect(client.getConnectionState().phase).toBe("connected");
+
+    transports[0].close(1006, "replaced");
+    await vi.advanceTimersByTimeAsync(1);
+    const reconnecting = client.connect();
+    await authenticate(transports[1]);
+    const secondNegotiation = await waitForSentMessage(transports[1], 1);
+    transports[1].respond({
+      id: secondNegotiation.id,
+      jsonrpc: "2.0",
+      result: bridgeInfo("backend-too-old"),
+    });
+    await expect(reconnecting).rejects.toBeInstanceOf(RpcCompatibilityError);
+    expect(client.getConnectionState().phase).toBe("backend-too-old");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(index).toBe(2);
+    await expect(client.connect()).rejects.toBeInstanceOf(RpcCompatibilityError);
+    client.dispose();
+  });
+
   it("authenticates before returning a validated typed result", async () => {
     const transport = new FakeTransport();
     const client = createClient(() => transport);

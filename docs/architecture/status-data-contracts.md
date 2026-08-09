@@ -581,6 +581,12 @@ Core or Capture transitions. Its `fixture-only` capability values and
 deterministic measurements must not be presented as Mihomo or operating-system
 observations.
 
+Bridge protocol metadata, compatibility negotiation, and exact public method
+parity are owned by
+[`bridge-protocol-contract.md`](bridge-protocol-contract.md). The mock consumes
+that checked method and metadata binding; it does not maintain an independent
+protocol literal or implicit default method surface.
+
 ## References
 
 - [Mihomo controller API](https://wiki.metacubex.one/en/api/)
