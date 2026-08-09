@@ -419,6 +419,9 @@ impl UpdaterMaintenanceAuthority {
             }
             return Err(UpdaterMaintenanceError::Busy);
         }
+        if request.admitted_revision <= state.revision {
+            return Err(UpdaterMaintenanceError::StaleRevision);
+        }
         let phase = reduce_maintenance_phase(None, MaintenanceMachineInput::Begin)?
             .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
         let ownership = capture_ownership(&request);
@@ -1639,6 +1642,33 @@ mod tests {
     }
 
     #[test]
+    fn begin_requires_a_strictly_advancing_authority_revision() {
+        let root = TempDir::new().unwrap();
+        let authority = authority(&root, "0.1.0");
+        let mut first = request("first-operation");
+        first.admitted_revision = 0;
+        assert_eq!(
+            authority.begin(first),
+            Err(UpdaterMaintenanceError::StaleRevision)
+        );
+
+        let revision = authority.begin(request("completed-operation")).unwrap();
+        let terminal = authority.cancel("completed-operation", revision).unwrap();
+        assert!(!root.path().join("maintenance/journal.json").exists());
+
+        let mut stale = request("stale-operation");
+        stale.admitted_revision = terminal;
+        assert_eq!(
+            authority.begin(stale),
+            Err(UpdaterMaintenanceError::StaleRevision)
+        );
+
+        let mut advancing = request("advancing-operation");
+        advancing.admitted_revision = terminal + 1;
+        assert_eq!(authority.begin(advancing), Ok(terminal + 1));
+    }
+
+    #[test]
     fn duplicate_commands_reconfirm_ambiguous_journal_write_durability() {
         let root = TempDir::new().unwrap();
         let authority = authority(&root, "0.1.0");
@@ -1710,7 +1740,9 @@ mod tests {
         assert_eq!(authority.cancel("cancel-before", revision), Ok(cancelled));
         assert!(!root.path().join("maintenance/journal.json").exists());
 
-        let revision = authority.begin(request("cancel-after")).unwrap();
+        let mut next = request("cancel-after");
+        next.admitted_revision = cancelled + 1;
+        let revision = authority.begin(next).unwrap();
         let revision = authority
             .mark_installing_intent("cancel-after", revision)
             .unwrap();
