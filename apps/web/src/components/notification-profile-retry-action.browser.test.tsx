@@ -122,11 +122,9 @@ describe("profile activation failure notification action", () => {
     await userEvent.keyboard("{Enter}");
 
     await vi.waitFor(() => {
-      expect(profileClient.activateProfile).toHaveBeenCalledWith(
-        expect.any(String),
-        "fixture-profile-studio",
-        { signal: expect.any(AbortSignal) },
-      );
+      expect(profileClient.activateProfile).toHaveBeenCalledWith(expect.any(String), "work", {
+        signal: expect.any(AbortSignal),
+      });
     });
     expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1);
     expect(

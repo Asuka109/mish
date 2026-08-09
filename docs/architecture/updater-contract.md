@@ -183,8 +183,9 @@ abort, completion conflict, cancellation, and shutdown into reducer inputs.
 Reducer admission and public projection share one synchronous outer-state
 cutover with download admission, but no aggregate lock crosses an await. Every
 effect completion carries the machine authority, scope epoch, operation ID,
-admitted revision, and effect ID; a mismatch is recorded as retired evidence
-and cannot mutate state.
+admitted revision, and effect ID; a mismatch is retired, finalized exactly once,
+and cannot mutate state. The updater's domain observer records the resulting
+redacted transition evidence.
 
 Cancellation remains a request while discovery owns the outcome.
 Checking → CommittingAvailable is the commit point: cancellation before it
@@ -194,17 +195,19 @@ Shutdown requests cancellation, waits for owned tasks for a bounded grace
 period, aborts an uncooperative task, joins it, and retires the aggregate with a
 deterministic terminal projection.
 
-Transition evidence is retained in a bounded in-memory ring. It contains only
-sequence, state/input labels, disposition, scope epoch, admitted revision,
-effect ID, and SHA-256 digests of the machine authority and operation ID.
+Updater-owned transition evidence is retained in a bounded in-memory ring. It
+contains only sequence, state/input labels, disposition, scope epoch, admitted
+revision, effect ID, and SHA-256 digests of the machine authority and operation
+ID.
 Endpoint URLs, credentials, raw metadata or payload bodies, signature material,
 private paths, Profile data, and platform observations are never included.
 
 The accepted Check vocabulary now runs through the repository-owned
 `mish-state-machine` kernel. `CheckState`, `CheckInput`, `CheckEffect`,
 projection, and updater errors remain owned by `mish-updater`; only bounded
-admission, correlation, owned effect tasks, finalizers, shutdown, and redacted
-evidence moved to the shared execution layer. This migration does not change
+admission, correlation, owned effect tasks, finalizers, shutdown, and transition
+observer dispatch moved to the shared execution layer. The updater retains its
+own bounded redacted evidence contract. This migration does not change
 the public updater DTO/RPC behavior or the discovery-to-commit cancellation
 cutoff. See
 [`state-machine-kernel.md`](state-machine-kernel.md).
@@ -223,9 +226,9 @@ cutoff. See
 The proof is **GO** on invariant clarity, failure handling, and interface
 readability: stale work is rejected by one complete correlation rule,
 cancellation has one named commit point, and every owned task exit has a
-deterministic reducer path. This conclusion authorizes dependent architecture
-work only after Issue #285 is accepted, its required gates pass, and the change
-is merged. It does not authorize Capture/TUN, download/install, UI,
+deterministic reducer path. Dependent architecture work was authorized only
+after completed Issue #285 was accepted, its required gates passed, and its
+change merged. That acceptance did not authorize Capture/TUN, download/install, UI,
 publication, or a generic state-machine framework.
 
 ### Download, Verify, and Ready typed reducer

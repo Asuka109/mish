@@ -1,7 +1,5 @@
 # Mish Documentation
 
-Refreshed 2026-07-27 against `main` at `1a6fb1b`.
-
 Load the smallest document set that answers the task. Code, tests, manifests,
 and CI describe current implementation; product and architecture documents
 describe intended contracts. When they disagree, record the difference instead
@@ -34,6 +32,11 @@ of treating an implementation accident as intent.
 
 - [`frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) —
   ownership across Web, RPC, desktop bridge, Tauri, and native layers.
+- [`documentation-evidence-contract.md`](architecture/documentation-evidence-contract.md)
+  and
+  [`documentation-tracker-registry.json`](architecture/documentation-tracker-registry.json)
+  — durable, dated, and generated claim boundaries plus the bounded offline
+  tracker read-back used by documentation checks.
 - [`bridge-protocol-contract.md`](architecture/bridge-protocol-contract.md) —
   checked protocol metadata, mandatory compatibility negotiation, public RPC
   method parity, and the transport-only mock boundary.
@@ -144,12 +147,13 @@ of treating an implementation accident as intent.
 - [`research/`](research/) preserves source-backed investigations. Load a study
   only when its upstream evidence or rationale is needed.
 - [`research/mobile-native-shell-ownership-2026-08-03.md`](research/mobile-native-shell-ownership-2026-08-03.md)
-  preserves the superseded #343/#370 native persistent-shell research and
-  prototype evidence. #373 hands-on validation rejected that product direction;
+  preserves the superseded Issue #343 / PR #370 native persistent-shell
+  research and prototype evidence. Issue #373 hands-on validation rejected that
+  product direction;
   the current decision and removed artifacts are recorded in
   [`../.out-of-scope/native-persistent-mobile-shell.md`](../.out-of-scope/native-persistent-mobile-shell.md).
 - [`research/interface-skill-suite-audit-2026-08-04.md`](research/interface-skill-suite-audit-2026-08-04.md)
-  records the accepted Issue #356 source provenance, selective integration and
+  records the completed Issue #356 source provenance, selective integration and
   applicability matrices, representative state audit, prototypes, and bounded
   follow-up Issues; it does not change production design authority by itself.
 - [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)

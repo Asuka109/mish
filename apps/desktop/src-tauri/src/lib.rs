@@ -60,7 +60,7 @@ use tauri::{
     window::{Effect, EffectState, EffectsBuilder},
 };
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 use uuid::Uuid;
 
 mod graceful_exit;
@@ -85,6 +85,14 @@ const INTERNAL_TUN_CAPTURE_RESTORE_NAME: &str = "internal-tun-capture-restore.js
 const INTERNAL_TUN_CAPTURE_RESTORE_ATTEMPTS: usize = 101;
 const INTERNAL_TUN_CAPTURE_RESTORE_RETRY_DELAY: Duration = Duration::from_millis(100);
 const INTERNAL_TUN_CAPTURE_RESTORE_STABLE_OBSERVATIONS: usize = 101;
+const MIHOMO_PROFILE_DIALOG_FILTER: (&str, [&str; 2]) = ("Mihomo profile", ["yaml", "yml"]);
+const MIHOMO_PROFILE_DIALOG_TITLE: &str = "Choose a Mihomo profile";
+const SUPPORT_BUNDLE_DIALOG_FILTER: (&str, [&str; 1]) = ("Mish support bundle", ["json"]);
+const SUPPORT_BUNDLE_DIALOG_FILE_NAME: &str = "mish-support-bundle.json";
+const SUPPORT_BUNDLE_DIALOG_TITLE: &str = "Save Mish support bundle";
+const LOCAL_BACKUP_DIALOG_FILTER: (&str, [&str; 1]) = ("Mish local backup", ["json"]);
+const LOCAL_BACKUP_SAVE_DIALOG_TITLE: &str = "Save Mish local backup";
+const LOCAL_BACKUP_OPEN_DIALOG_TITLE: &str = "Choose a Mish local backup";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct StartupOptions {
@@ -657,14 +665,19 @@ fn open_system_proxy_settings() -> mish_platform_macos::SystemProxySettingsOpenO
 
 #[tauri::command]
 async fn profile_preflight_local(
+    app: tauri::AppHandle,
     state: tauri::State<'_, ProfileState>,
     label: Option<String>,
 ) -> Result<Option<ProfilePreview>, ProfileCommandError> {
-    let selected = tauri::async_runtime::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .add_filter("Mihomo profile", &["yaml", "yml"])
-            .set_title("Choose a Mihomo profile")
-            .pick_file()
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter(
+                MIHOMO_PROFILE_DIALOG_FILTER.0,
+                &MIHOMO_PROFILE_DIALOG_FILTER.1,
+            )
+            .set_title(MIHOMO_PROFILE_DIALOG_TITLE)
+            .blocking_pick_file()
     })
     .await
     .map_err(|_| ProfileCommandError {
@@ -672,7 +685,12 @@ async fn profile_preflight_local(
         field_identity: None,
         message: "The native file picker is unavailable",
     })?;
-    let Some(path) = selected else {
+    let Some(path) = dialog_selection_path(selected).map_err(|_| ProfileCommandError {
+        code: "dialog-unavailable",
+        field_identity: None,
+        message: "The native file picker is unavailable",
+    })?
+    else {
         return Ok(None);
     };
 
@@ -727,9 +745,12 @@ async fn diagnostics_support_bundle_save(
     let selected = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .add_filter("Mish support bundle", &["json"])
-            .set_file_name("mish-support-bundle.json")
-            .set_title("Save Mish support bundle")
+            .add_filter(
+                SUPPORT_BUNDLE_DIALOG_FILTER.0,
+                &SUPPORT_BUNDLE_DIALOG_FILTER.1,
+            )
+            .set_file_name(SUPPORT_BUNDLE_DIALOG_FILE_NAME)
+            .set_title(SUPPORT_BUNDLE_DIALOG_TITLE)
             .blocking_save_file()
     })
     .await
@@ -737,18 +758,17 @@ async fn diagnostics_support_bundle_save(
         code: "dialog-unavailable",
         message: "The native save dialog is unavailable",
     })?;
-    let Some(selected) = selected else {
+    let Some(destination) =
+        dialog_selection_path(selected).map_err(|_| SupportBundleCommandError {
+            code: "unsupported-destination",
+            message: "The selected destination cannot be written by this desktop build",
+        })?
+    else {
         return Ok(SupportBundleSaveResult {
             status: save_support_bundle_selection(None, &prepared.bytes)
                 .map_err(|_| support_bundle_write_error())?,
         });
     };
-    let destination = selected
-        .into_path()
-        .map_err(|_| SupportBundleCommandError {
-            code: "unsupported-destination",
-            message: "The selected destination cannot be written by this desktop build",
-        })?;
     let bytes = prepared.bytes;
     let status = tauri::async_runtime::spawn_blocking(move || {
         save_support_bundle_selection(Some(&destination), &bytes)
@@ -802,35 +822,37 @@ async fn local_backup_export_save(
         }
         pending.take().ok_or_else(local_backup_state_error)?
     };
+    let suggested_file_name = prepared.suggested_file_name.clone();
     let selected = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog()
+        let mut dialog = app
+            .dialog()
             .file()
-            .add_filter("Mish local backup", &["json"])
-            .set_file_name("mish-local-backup.json")
-            .set_title("Save Mish local backup")
-            .blocking_save_file()
+            .add_filter(LOCAL_BACKUP_DIALOG_FILTER.0, &LOCAL_BACKUP_DIALOG_FILTER.1)
+            .set_file_name(&suggested_file_name)
+            .set_title(LOCAL_BACKUP_SAVE_DIALOG_TITLE);
+        if let Ok(downloads) = app.path().download_dir() {
+            dialog = dialog.set_directory(downloads);
+        }
+        dialog.blocking_save_file()
     })
     .await
     .map_err(|_| LocalBackupCommandError {
         code: "dialog-unavailable",
         message: "The native save dialog is unavailable",
     })?;
-    let Some(selected) = selected else {
+    let Some(destination) =
+        dialog_selection_path(selected).map_err(|_| LocalBackupCommandError {
+            code: "unsupported-destination",
+            message: "The selected destination cannot be written by this desktop build",
+        })?
+    else {
         return Ok(SupportBundleSaveResult {
             status: SupportBundleSaveStatus::Cancelled,
         });
     };
-    let destination = selected.into_path().map_err(|_| LocalBackupCommandError {
-        code: "unsupported-destination",
-        message: "The selected destination cannot be written by this desktop build",
-    })?;
+    let bytes = prepared.bytes;
     tauri::async_runtime::spawn_blocking(move || {
-        atomic_write_bounded(
-            &destination,
-            &prepared.bytes,
-            LOCAL_BACKUP_MAX_BYTES,
-            "mish-backup",
-        )
+        atomic_write_bounded(&destination, &bytes, LOCAL_BACKUP_MAX_BYTES, "mish-backup")
     })
     .await
     .map_err(|_| local_backup_write_error())?
@@ -842,21 +864,23 @@ async fn local_backup_export_save(
 
 #[tauri::command]
 async fn local_backup_restore_preview(
+    app: tauri::AppHandle,
     state: tauri::State<'_, LocalBackupState>,
 ) -> Result<Option<LocalRestorePreview>, LocalBackupCommandError> {
     invalidate_pending(&state.pending_restore)?;
-    let selected = tauri::async_runtime::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .add_filter("Mish local backup", &["json"])
-            .set_title("Choose a Mish local backup")
-            .pick_file()
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter(LOCAL_BACKUP_DIALOG_FILTER.0, &LOCAL_BACKUP_DIALOG_FILTER.1)
+            .set_title(LOCAL_BACKUP_OPEN_DIALOG_TITLE)
+            .blocking_pick_file()
     })
     .await
     .map_err(|_| LocalBackupCommandError {
         code: "dialog-unavailable",
         message: "The native file picker is unavailable",
     })?;
-    let Some(path) = selected else {
+    let Some(path) = dialog_selection_path(selected).map_err(|_| local_backup_read_error())? else {
         return Ok(None);
     };
     let bytes = tauri::async_runtime::spawn_blocking(move || read_local_backup(&path))
@@ -902,6 +926,14 @@ async fn local_backup_restore_commit(
 ) -> Result<LocalRestoreResult, LocalBackupCommandError> {
     let service = state.service.clone();
     let permit = service.try_begin_restore().map_err(local_backup_error)?;
+    let active_profile_id = state
+        .activation
+        .active_profile_id_authorized(&permit)
+        .await
+        .map_err(|_| LocalBackupCommandError {
+            code: "busy",
+            message: "Another Profile or Settings mutation is in progress",
+        })?;
     let prepared = {
         let mut pending = state
             .pending_restore
@@ -918,14 +950,6 @@ async fn local_backup_restore_commit(
         }
         pending.take().ok_or_else(local_backup_state_error)?
     };
-    let active_profile_id = state
-        .activation
-        .active_profile_id_authorized(&permit)
-        .await
-        .map_err(|_| LocalBackupCommandError {
-            code: "busy",
-            message: "Another Profile or Settings mutation is in progress",
-        })?;
     let (result, permit) = tauri::async_runtime::spawn_blocking(move || {
         let result = service.commit_restore_authorized(
             &permit,
@@ -947,6 +971,13 @@ async fn local_backup_restore_commit(
 fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCommandError> {
     *pending.lock().map_err(|_| local_backup_state_error())? = None;
     Ok(())
+}
+
+fn dialog_selection_path(selection: Option<FilePath>) -> Result<Option<PathBuf>, ()> {
+    selection
+        .map(FilePath::into_path)
+        .transpose()
+        .map_err(|_| ())
 }
 
 pub fn run() -> Result<i32, String> {
@@ -2729,11 +2760,15 @@ mod tests {
     use super::{
         AtomicWriteFailurePoint, DESKTOP_BRIDGE_START_PORT, DEV_ORIGIN,
         DesktopWebviewInspectorSupport, DevtoolsStartup, DevtoolsStartupSource,
-        InternalTunCaptureRestore, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction,
-        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus,
-        allowed_origins, atomic_write_bounded, atomic_write_support_bundle_with_failure,
-        desktop_bridge_port_policy, desktop_demo_requested, development_tun_service_not_installed,
-        development_tun_startup_admission, generate_auth_token,
+        InternalTunCaptureRestore, LOCAL_BACKUP_DIALOG_FILTER, LOCAL_BACKUP_MAX_BYTES,
+        LOCAL_BACKUP_OPEN_DIALOG_TITLE, LOCAL_BACKUP_SAVE_DIALOG_TITLE,
+        MIHOMO_PROFILE_DIALOG_FILTER, MIHOMO_PROFILE_DIALOG_TITLE, MainWindowCloseAction,
+        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME, SUPPORT_BUNDLE_DIALOG_FILTER,
+        SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
+        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        atomic_write_support_bundle_with_failure, desktop_bridge_port_policy,
+        desktop_demo_requested, development_tun_service_not_installed,
+        development_tun_startup_admission, dialog_selection_path, generate_auth_token,
         internal_tun_alpha_package_root_from_executable,
         internal_tun_alpha_package_version_for_profile,
         internal_tun_capture_restore_marker_for_profile, invalidate_pending,
@@ -2755,6 +2790,55 @@ mod tests {
         TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
     };
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
+    use tauri_plugin_dialog::FilePath;
+
+    #[test]
+    fn desktop_dialog_contract_keeps_filters_names_and_titles() {
+        assert_eq!(
+            MIHOMO_PROFILE_DIALOG_FILTER,
+            ("Mihomo profile", ["yaml", "yml"])
+        );
+        assert_eq!(MIHOMO_PROFILE_DIALOG_TITLE, "Choose a Mihomo profile");
+        assert_eq!(
+            SUPPORT_BUNDLE_DIALOG_FILTER,
+            ("Mish support bundle", ["json"])
+        );
+        assert_eq!(SUPPORT_BUNDLE_DIALOG_FILE_NAME, "mish-support-bundle.json");
+        assert_eq!(SUPPORT_BUNDLE_DIALOG_TITLE, "Save Mish support bundle");
+        assert_eq!(LOCAL_BACKUP_DIALOG_FILTER, ("Mish local backup", ["json"]));
+        assert_eq!(LOCAL_BACKUP_SAVE_DIALOG_TITLE, "Save Mish local backup");
+        assert_eq!(LOCAL_BACKUP_OPEN_DIALOG_TITLE, "Choose a Mish local backup");
+    }
+
+    #[test]
+    fn desktop_dialog_selection_preserves_cancellation_and_native_paths() {
+        assert_eq!(dialog_selection_path(None).unwrap(), None);
+
+        let path = PathBuf::from("/tmp/Mish profile.yml");
+        assert_eq!(
+            dialog_selection_path(Some(FilePath::Path(path.clone()))).unwrap(),
+            Some(path)
+        );
+
+        let url_path = PathBuf::from("/tmp/Mish backup.json");
+        let file_url = tauri::Url::from_file_path(&url_path).unwrap();
+        assert_eq!(
+            dialog_selection_path(Some(FilePath::Url(file_url))).unwrap(),
+            Some(url_path)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn desktop_dialog_selection_preserves_non_utf8_native_paths() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let path = PathBuf::from(OsString::from_vec(b"/tmp/mish-\xff.yml".to_vec()));
+        assert_eq!(
+            dialog_selection_path(Some(FilePath::Path(path.clone()))).unwrap(),
+            Some(path)
+        );
+    }
 
     #[test]
     fn development_tun_keeps_exact_not_installed_state_actionable() {

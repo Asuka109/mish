@@ -6,38 +6,6 @@ import app.tauri.annotation.InvokeArg
 
 internal const val CONTRACT_VERSION = 1
 
-internal enum class PlatformEventKind(val wireName: String) {
-    OBSERVATION("observation"),
-    CONSENT_RESULT("consent-result"),
-    NOTIFICATION_RESULT("notification-result"),
-    ACTIVATION_PROGRESS("activation-progress"),
-    ACTIVATION_COMPLETED("activation-completed"),
-    ACTIVATION_FAILED("activation-failed"),
-    STOP_COMPLETED("stop-completed"),
-    NETWORK_CHANGED("network-changed"),
-    CORE_EXITED("core-exited"),
-    REVOKED("revoked"),
-    SERVICE_DESTROYED("service-destroyed"),
-}
-
-internal enum class PlatformFailureKind(val wireName: String) {
-    CLEANUP_FAILED("cleanup-failed"),
-    CONFIGURATION_NOT_LOADED("configuration-not-loaded"),
-    CORE_EXITED("core-exited"),
-    CORE_START_FAILED("core-start-failed"),
-    CORE_UNAVAILABLE("core-unavailable"),
-    NETWORK_UNAVAILABLE("network-unavailable"),
-    PERMISSION_REVOKED("permission-revoked"),
-    PUBLIC_REQUEST_FAILED("public-request-failed"),
-    TUN_ESTABLISH_FAILED("tun-establish-failed"),
-}
-
-internal enum class PlatformRecoveryEvidence(val wireName: String) {
-    NONE("none"),
-    FOREGROUND_EXPECTED("foreground-expected"),
-    INVALID("invalid"),
-}
-
 internal data class MobilePlatformFacts(
     val activationFailure: String? = null,
     val activationSessionId: String? = null,
@@ -52,6 +20,7 @@ internal data class MobilePlatformFacts(
     val coreWrapperRevision: String? = null,
     val event: String = PlatformEventKind.OBSERVATION.wireName,
     val factSequence: Long = 0,
+    val factsVersion: Int = ANDROID_PLATFORM_FACTS_VERSION,
     val loadedConfigDigest: String? = null,
     val loadedConfigRevision: String? = null,
     val lifecycleAuthority: CoreLifecycleAuthority? = null,
@@ -69,36 +38,7 @@ internal data class MobilePlatformFacts(
     val validatedConfigRevision: String? = null,
     val vpnPermission: String = "unknown",
 ) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("activationFailure", activationFailure)
-        .put("activationSessionId", activationSessionId)
-        .put("activeNetwork", activeNetwork)
-        .put("configFailureInjectionAvailable", configFailureInjectionAvailable)
-        .put("coreAbiVersion", coreAbiVersion)
-        .put("coreAvailability", coreAvailability)
-        .put("coreCommit", coreCommit)
-        .put("coreConfigState", coreConfigState)
-        .put("coreRunning", coreRunning)
-        .put("coreVersion", coreVersion)
-        .put("coreWrapperRevision", coreWrapperRevision)
-        .put("event", event)
-        .put("factSequence", factSequence)
-        .put("loadedConfigDigest", loadedConfigDigest)
-        .put("loadedConfigRevision", loadedConfigRevision)
-        .put("lifecycleAuthority", lifecycleAuthority?.toJson())
-        .put("notificationPermission", notificationPermission)
-        .put("observedAtMillis", observedAtMillis)
-        .put("platformSessionId", platformSessionId)
-        .put("protectedSocketCount", protectedSocketCount)
-        .put("publicRequestObserved", publicRequestObserved)
-        .put("recoveryEvidence", recoveryEvidence)
-        .put("routesApplied", routesApplied)
-        .put("serviceForeground", serviceForeground)
-        .put("dnsApplied", dnsApplied)
-        .put("tunEstablished", tunEstablished)
-        .put("validatedConfigDigest", validatedConfigDigest)
-        .put("validatedConfigRevision", validatedConfigRevision)
-        .put("vpnPermission", vpnPermission)
+    fun toJson(): JSONObject = platformFactsToJson(this)
 }
 
 @InvokeArg

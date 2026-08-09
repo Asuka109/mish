@@ -33,8 +33,10 @@ const backupStyles = tv({
   slots: {
     control: "grid justify-items-end gap-1.25 @max-settings-compact:justify-items-start",
     result: cx(
-      "max-w-container-session-compact text-right text-caption leading-4.25 text-muted-foreground",
-      "data-[status=failed]:text-error data-[status=exported]:text-success-text",
+      "min-h-4.25 max-w-container-session-compact text-right text-caption leading-4.25",
+      "text-muted-foreground data-[status=busy]:text-error data-[status=failed]:text-error",
+      "data-[status=previewExpired]:text-error data-[status=recoveryRequired]:text-error",
+      "data-[status=exported]:text-success-text",
       "data-[status=restored]:text-success-text @max-settings-compact:text-left",
     ),
     dialog: cx(
@@ -53,7 +55,8 @@ const backupStyles = tv({
       "[&_small]:text-caption [&_small]:leading-4.25 [&_small]:text-muted-foreground",
       "data-[sensitive=true]:[&_strong]:text-warning",
     ),
-    boundary: "mx-4 mb-4 text-caption leading-4.5 text-muted-foreground",
+    previewRegion: "mx-4 mb-4 grid min-h-20 content-center",
+    boundary: "m-0 text-caption leading-4.5 text-muted-foreground",
     safety: cx(
       "mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-md border",
       "border-feedback-warning-border px-2.75 py-2.5 text-caption leading-4.5 text-fg",
@@ -90,7 +93,15 @@ const backupStyles = tv({
   },
 });
 
-type OperationResult = "cancelled" | "exported" | "failed" | "idle" | "restored";
+type OperationResult =
+  | "busy"
+  | "cancelled"
+  | "exported"
+  | "failed"
+  | "idle"
+  | "previewExpired"
+  | "recoveryRequired"
+  | "restored";
 type PendingOperation = "commit-restore" | "choose-restore" | "preview-export" | "save-export";
 
 export function LocalBackupControl() {
@@ -123,8 +134,8 @@ export function LocalBackupControl() {
     setResult("idle");
     try {
       setExportPreview(await client.previewExport(scope));
-    } catch {
-      setResult("failed");
+    } catch (error) {
+      setResult(operationFailure(error));
     } finally {
       setPendingOperation(null);
     }
@@ -138,8 +149,8 @@ export function LocalBackupControl() {
       setResult(save.status === "written" ? "exported" : "cancelled");
       if (save.status === "written") setExportOpen(false);
       setExportPreview(null);
-    } catch {
-      setResult("failed");
+    } catch (error) {
+      setResult(operationFailure(error));
     } finally {
       setPendingOperation(null);
     }
@@ -152,8 +163,8 @@ export function LocalBackupControl() {
       const preview = await client.previewRestore();
       setRestorePreview(preview);
       if (!preview) setResult("cancelled");
-    } catch {
-      setResult("failed");
+    } catch (error) {
+      setResult(operationFailure(error));
     } finally {
       setPendingOperation(null);
     }
@@ -167,9 +178,10 @@ export function LocalBackupControl() {
       settings.acceptSnapshot(restored.settingsSnapshot);
       setRestorePreview(null);
       setResult("restored");
-    } catch {
-      setRestorePreview(null);
-      setResult("failed");
+    } catch (error) {
+      const failure = operationFailure(error);
+      if (failure !== "busy") setRestorePreview(null);
+      setResult(failure);
     } finally {
       setPendingOperation(null);
     }
@@ -206,11 +218,14 @@ export function LocalBackupControl() {
         </Button>
         {!supported ? <Badge variant="outline">{LL.common.unavailable()}</Badge> : null}
       </div>
-      {result !== "idle" ? (
-        <span className={backupStyles().result()} data-status={result} role="status">
-          {LL.settingsPage.backupFlow.result[result]()}
-        </span>
-      ) : null}
+      <span
+        aria-live="polite"
+        className={backupStyles().result()}
+        data-status={result}
+        role="status"
+      >
+        {LL.settingsPage.backupFlow.result[result]()}
+      </span>
 
       <Dialog onOpenChange={setExportOpen} open={exportOpen}>
         <DialogContent className={backupStyles().dialog()} closeLabel={LL.common.close()}>
@@ -254,17 +269,19 @@ export function LocalBackupControl() {
               sensitive
             />
           </fieldset>
-          {exportPreview ? (
-            <BackupSummary
-              bytes={exportPreview.contentBytes}
-              counts={exportPreview.included}
-              maxBytes={exportPreview.maxBytes}
-            />
-          ) : (
-            <p className={backupStyles().boundary()}>
-              {LL.settingsPage.backupFlow.exclusionSummary()}
-            </p>
-          )}
+          <div className={backupStyles().previewRegion()} data-testid="local-backup-preview-region">
+            {exportPreview ? (
+              <BackupSummary
+                bytes={exportPreview.contentBytes}
+                counts={exportPreview.included}
+                maxBytes={exportPreview.maxBytes}
+              />
+            ) : (
+              <p className={backupStyles().boundary()}>
+                {LL.settingsPage.backupFlow.exclusionSummary()}
+              </p>
+            )}
+          </div>
           <DialogFooter>
             <Button
               disabled={pending}
@@ -274,27 +291,25 @@ export function LocalBackupControl() {
             >
               {LL.common.cancel()}
             </Button>
-            {exportPreview ? (
-              <Button
-                disabled={pending}
-                loading={pendingOperation === "save-export"}
-                loadingText={LL.common.pending()}
-                onClick={() => void saveExport()}
-                type="button"
-              >
-                {LL.settingsPage.backupFlow.save()}
-              </Button>
-            ) : (
-              <Button
-                disabled={pending || !hasScope}
-                loading={pendingOperation === "preview-export"}
-                loadingText={LL.common.pending()}
-                onClick={() => void previewExport()}
-                type="button"
-              >
-                {LL.settingsPage.backupFlow.preview()}
-              </Button>
-            )}
+            <Button
+              disabled={pending || !hasScope}
+              loading={pendingOperation === "preview-export"}
+              loadingText={LL.common.pending()}
+              onClick={() => void previewExport()}
+              type="button"
+              variant="outline"
+            >
+              {LL.settingsPage.backupFlow.preview()}
+            </Button>
+            <Button
+              disabled={pending || !exportPreview}
+              loading={pendingOperation === "save-export"}
+              loadingText={LL.common.pending()}
+              onClick={() => void saveExport()}
+              type="button"
+            >
+              {LL.settingsPage.backupFlow.save()}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -509,4 +524,18 @@ function formatBytes(bytes: number) {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KiB`;
   return `${(bytes / (1_024 * 1_024)).toFixed(1)} MiB`;
+}
+
+function operationFailure(error: unknown): OperationResult {
+  if (!error || typeof error !== "object" || !("code" in error)) return "failed";
+  switch (error.code) {
+    case "busy":
+      return "busy";
+    case "preview-expired":
+      return "previewExpired";
+    case "recovery-required":
+      return "recoveryRequired";
+    default:
+      return "failed";
+  }
 }

@@ -225,8 +225,8 @@ The lifecycle coordinator is the only Adapter allowed to classify continuity
 after Core loss. RecentTraffic does not infer it from a remembered Web
 selection, PID, Controller connection, or equal cumulative counters. This keeps
 the lifecycle policy behind the existing Rust Seam and avoids a second race
-authority. Integration work for #207 must call this Interface after its
-serialized transition decision.
+authority. The lifecycle audit completed by Issue #207 preserved this Interface
+after its serialized transition decision.
 
 ### Persistence, privacy, and retention
 
@@ -274,8 +274,8 @@ Only proven misplaced global state becomes implementation work.
 
 ### Slice A — Rust-authoritative recent capture-session Traffic (`P0`, delivered)
 
-**Dependency:** this ownership contract; coordinate transition ordering with
-#207, but keep the taxonomy and Traffic semantics canonical here.
+**Historical dependency:** this ownership contract and completed Issue #207;
+the taxonomy and Traffic semantics remain canonical here.
 
 **Delivery:** protocol version 24 implements the complete compatibility/cutover
 sequence above, including desktop/browser simultaneous consumers and the

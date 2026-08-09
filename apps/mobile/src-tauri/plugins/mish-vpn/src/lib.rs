@@ -8,8 +8,12 @@ mod android;
 mod error;
 #[cfg(not(target_os = "android"))]
 mod fallback;
+mod generated {
+    pub(crate) mod platform_facts;
+}
 mod lifecycle;
 mod models;
+mod observation;
 
 pub use lifecycle::{
     LifecycleCommandKind, LifecycleFailure, LifecycleOperation, LifecycleOperationOutcome,

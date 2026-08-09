@@ -2,11 +2,10 @@
 //!
 //! Product machines keep their own data-bearing state, input, effect, projection,
 //! and error vocabularies. This crate owns only bounded admission, effect
-//! correlation and task ownership, finalization, stale retirement evidence, and
-//! an optional durable recovery record.
+//! correlation and task ownership, finalization, and stale retirement.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     pin::Pin,
     sync::{
@@ -16,7 +15,6 @@ use std::{
     time::Duration,
 };
 
-use sha2::{Digest, Sha256};
 use tokio::{
     sync::{mpsc, oneshot},
     task::{Id as TaskId, JoinHandle, JoinSet},
@@ -24,11 +22,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-#[cfg(unix)]
-pub mod recovery;
-
 pub const DEFAULT_INBOX_CAPACITY: usize = 32;
-pub const DEFAULT_EVIDENCE_LIMIT: usize = 64;
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -169,8 +163,6 @@ pub trait Machine: Send + Sync + 'static {
         input: &Self::Input,
     ) -> Transition<Self::State, Self::Effect, Self::Error>;
 
-    fn state_label(&self, state: &Self::State) -> &'static str;
-    fn input_label(&self, input: &Self::Input) -> &'static str;
     fn input_correlation(&self, state: &Self::State, input: &Self::Input) -> Option<Correlation>;
     /// Returns whether an effect owned by the runner may still complete for the current state.
     /// Implementations must reject replaced operations and superseded effect stages even when
@@ -210,20 +202,6 @@ impl<M: Machine> TransitionObserver<M> for NoopObserver {
         _disposition: Disposition,
     ) {
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransitionEvidence {
-    pub sequence: u64,
-    pub machine_authority_sha256: Option<String>,
-    pub scope_epoch: Option<u64>,
-    pub operation_id_sha256: Option<String>,
-    pub admitted_revision: Option<u64>,
-    pub effect_id: Option<u64>,
-    pub from: String,
-    pub input: String,
-    pub to: String,
-    pub disposition: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -272,7 +250,6 @@ pub struct Retirement<S, Error> {
 
 pub struct RunnerConfig {
     pub inbox_capacity: usize,
-    pub evidence_limit: usize,
     pub shutdown_grace: Duration,
 }
 
@@ -280,7 +257,6 @@ impl Default for RunnerConfig {
     fn default() -> Self {
         Self {
             inbox_capacity: DEFAULT_INBOX_CAPACITY,
-            evidence_limit: DEFAULT_EVIDENCE_LIMIT,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
         }
     }
@@ -304,7 +280,6 @@ struct OwnedEffect {
 struct Shared<M: Machine> {
     actor: Mutex<Option<JoinHandle<()>>>,
     closed: AtomicBool,
-    evidence: Arc<Mutex<VecDeque<TransitionEvidence>>>,
     unavailable: M::Error,
     sender: mpsc::Sender<Command<M>>,
     shutdown: CancellationToken,
@@ -455,16 +430,6 @@ impl<M: Machine> RunnerHandle<M> {
             .clone()
     }
 
-    pub fn evidence(&self) -> Vec<TransitionEvidence> {
-        self.shared
-            .evidence
-            .lock()
-            .expect("machine evidence lock poisoned")
-            .iter()
-            .cloned()
-            .collect()
-    }
-
     pub fn snapshot(&self) -> M::State {
         self.shared
             .state
@@ -500,12 +465,7 @@ where
     M: Machine,
 {
     assert!(config.inbox_capacity > 0, "machine inbox must be bounded");
-    assert!(
-        config.evidence_limit > 0,
-        "machine evidence must be bounded"
-    );
     let (sender, receiver) = mpsc::channel(config.inbox_capacity);
-    let evidence = Arc::new(Mutex::new(VecDeque::new()));
     let state = Arc::new(Mutex::new(initial.clone()));
     let shutdown = CancellationToken::new();
     let unavailable = machine.unavailable();
@@ -515,7 +475,6 @@ where
         executor,
         observer,
         receiver,
-        evidence.clone(),
         state.clone(),
         shutdown.clone(),
         config,
@@ -524,7 +483,6 @@ where
         shared: Arc::new(Shared {
             actor: Mutex::new(Some(actor)),
             closed: AtomicBool::new(false),
-            evidence,
             unavailable,
             sender,
             shutdown,
@@ -540,7 +498,6 @@ async fn run_actor<M: Machine>(
     executor: Arc<dyn EffectExecutor<M>>,
     observer: Arc<dyn TransitionObserver<M>>,
     mut receiver: mpsc::Receiver<Command<M>>,
-    evidence: Arc<Mutex<VecDeque<TransitionEvidence>>>,
     snapshot: Arc<Mutex<M::State>>,
     shutdown: CancellationToken,
     config: RunnerConfig,
@@ -553,12 +510,11 @@ async fn run_actor<M: Machine>(
             _ = shutdown.cancelled() => {
                 let _ = apply_shutdown(
                     machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                    &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
+                    &snapshot, &mut tasks, &mut owned,
                 );
                 drain(
                     machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                    &evidence, config.evidence_limit, config.shutdown_grace,
-                    &snapshot, &mut tasks, &mut owned,
+                    config.shutdown_grace, &snapshot, &mut tasks, &mut owned,
                 ).await;
                 *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                 return;
@@ -567,8 +523,7 @@ async fn run_actor<M: Machine>(
                 if let Some(joined) = joined {
                     finish_effect(
                         joined, machine.as_ref(), &mut state, executor.as_ref(),
-                        observer.as_ref(), &evidence, config.evidence_limit,
-                        &snapshot, &mut tasks, &mut owned,
+                        observer.as_ref(), &snapshot, &mut tasks, &mut owned,
                     );
                     *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                 }
@@ -577,12 +532,11 @@ async fn run_actor<M: Machine>(
                 let Some(command) = command else {
                     let _ = apply_shutdown(
                         machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                        &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
+                        &snapshot, &mut tasks, &mut owned,
                     );
                     drain(
                         machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                        &evidence, config.evidence_limit, config.shutdown_grace,
-                        &snapshot, &mut tasks, &mut owned,
+                        config.shutdown_grace, &snapshot, &mut tasks, &mut owned,
                     ).await;
                     *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                     return;
@@ -591,8 +545,7 @@ async fn run_actor<M: Machine>(
                     Command::Admit { input, reply } => {
                         let result = apply_input(
                             machine.as_ref(), &mut state, input, executor.as_ref(),
-                            observer.as_ref(), &evidence, config.evidence_limit,
-                            &snapshot, &mut tasks, &mut owned,
+                            observer.as_ref(), &snapshot, &mut tasks, &mut owned,
                         );
                         *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                         let _ = reply.send(result);
@@ -600,12 +553,11 @@ async fn run_actor<M: Machine>(
                     Command::Shutdown { reply } => {
                         let shutdown = apply_shutdown(
                             machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                            &evidence, config.evidence_limit, &snapshot, &mut tasks, &mut owned,
+                            &snapshot, &mut tasks, &mut owned,
                         );
                         drain(
                             machine.as_ref(), &mut state, executor.as_ref(), observer.as_ref(),
-                            &evidence, config.evidence_limit, config.shutdown_grace,
-                            &snapshot, &mut tasks, &mut owned,
+                            config.shutdown_grace, &snapshot, &mut tasks, &mut owned,
                         ).await;
                         *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
                         let result = shutdown.map(|admission| Admission {
@@ -628,16 +580,11 @@ fn apply_input<M: Machine>(
     input: M::Input,
     executor: &dyn EffectExecutor<M>,
     observer: &dyn TransitionObserver<M>,
-    evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
-    evidence_limit: usize,
     snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) -> Result<Admission<M::State>, M::Error> {
     let previous = state.clone();
-    let from = machine.state_label(&previous);
-    let input_label = machine.input_label(&input);
-    let correlation = machine.input_correlation(&previous, &input);
     let transition = machine.reduce(&previous, &input);
     let disposition = transition.disposition();
     let effects = match transition {
@@ -657,30 +604,12 @@ fn apply_input<M: Machine>(
             Some(effects)
         }
         Transition::Rejected(error) => {
-            record_evidence(
-                evidence,
-                evidence_limit,
-                from,
-                input_label,
-                machine.state_label(state),
-                disposition,
-                correlation.as_ref(),
-            );
             *snapshot.lock().expect("machine snapshot lock poisoned") = state.clone();
             observer.transitioned(&previous, &input, state, disposition);
             return Err(error);
         }
         Transition::Unchanged | Transition::Retired => None,
     };
-    record_evidence(
-        evidence,
-        evidence_limit,
-        from,
-        input_label,
-        machine.state_label(state),
-        disposition,
-        correlation.as_ref(),
-    );
     // Publish the state before notifying observers. Consumers commonly use an observer signal
     // as the readiness edge for `snapshot()`: reversing this order can strand them on an old
     // pending snapshot with no later notification.
@@ -725,8 +654,6 @@ fn finish_effect<M: Machine>(
     state: &mut M::State,
     executor: &dyn EffectExecutor<M>,
     observer: &dyn TransitionObserver<M>,
-    evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
-    evidence_limit: usize,
     snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
@@ -744,41 +671,14 @@ fn finish_effect<M: Machine>(
             if completion.as_ref() != Some(&task.correlation)
                 || !machine.effect_is_current(state, &task.correlation)
             {
-                record_evidence(
-                    evidence,
-                    evidence_limit,
-                    machine.state_label(state),
-                    "effect-completion-conflict",
-                    machine.state_label(state),
-                    Disposition::Retired,
-                    Some(&task.correlation),
-                );
                 let finalizer =
                     machine.task_failed(task.correlation, TaskFailure::CompletionConflict);
                 let _ = apply_input(
-                    machine,
-                    state,
-                    finalizer,
-                    executor,
-                    observer,
-                    evidence,
-                    evidence_limit,
-                    snapshot,
-                    tasks,
-                    owned,
+                    machine, state, finalizer, executor, observer, snapshot, tasks, owned,
                 );
             } else {
                 let _ = apply_input(
-                    machine,
-                    state,
-                    input,
-                    executor,
-                    observer,
-                    evidence,
-                    evidence_limit,
-                    snapshot,
-                    tasks,
-                    owned,
+                    machine, state, input, executor, observer, snapshot, tasks, owned,
                 );
             }
         }
@@ -790,45 +690,24 @@ fn finish_effect<M: Machine>(
             };
             let input = machine.task_failed(task.correlation, failure);
             let _ = apply_input(
-                machine,
-                state,
-                input,
-                executor,
-                observer,
-                evidence,
-                evidence_limit,
-                snapshot,
-                tasks,
-                owned,
+                machine, state, input, executor, observer, snapshot, tasks, owned,
             );
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn apply_shutdown<M: Machine>(
     machine: &M,
     state: &mut M::State,
     executor: &dyn EffectExecutor<M>,
     observer: &dyn TransitionObserver<M>,
-    evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
-    evidence_limit: usize,
     snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
     owned: &mut HashMap<TaskId, OwnedEffect>,
 ) -> Result<Admission<M::State>, M::Error> {
     let input = machine.shutdown();
     apply_input(
-        machine,
-        state,
-        input,
-        executor,
-        observer,
-        evidence,
-        evidence_limit,
-        snapshot,
-        tasks,
-        owned,
+        machine, state, input, executor, observer, snapshot, tasks, owned,
     )
 }
 
@@ -838,8 +717,6 @@ async fn drain<M: Machine>(
     state: &mut M::State,
     executor: &dyn EffectExecutor<M>,
     observer: &dyn TransitionObserver<M>,
-    evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
-    evidence_limit: usize,
     grace: Duration,
     snapshot: &Arc<Mutex<M::State>>,
     tasks: &mut JoinSet<M::Input>,
@@ -848,16 +725,7 @@ async fn drain<M: Machine>(
     let graceful = async {
         while let Some(joined) = tasks.join_next_with_id().await {
             finish_effect(
-                joined,
-                machine,
-                state,
-                executor,
-                observer,
-                evidence,
-                evidence_limit,
-                snapshot,
-                tasks,
-                owned,
+                joined, machine, state, executor, observer, snapshot, tasks, owned,
             );
         }
     };
@@ -865,53 +733,10 @@ async fn drain<M: Machine>(
         tasks.abort_all();
         while let Some(joined) = tasks.join_next_with_id().await {
             finish_effect(
-                joined,
-                machine,
-                state,
-                executor,
-                observer,
-                evidence,
-                evidence_limit,
-                snapshot,
-                tasks,
-                owned,
+                joined, machine, state, executor, observer, snapshot, tasks, owned,
             );
         }
     }
-}
-
-fn record_evidence(
-    evidence: &Arc<Mutex<VecDeque<TransitionEvidence>>>,
-    limit: usize,
-    from: &str,
-    input: &str,
-    to: &str,
-    disposition: Disposition,
-    correlation: Option<&Correlation>,
-) {
-    let mut evidence = evidence.lock().expect("machine evidence lock poisoned");
-    let sequence = evidence
-        .back()
-        .map_or(1, |entry| entry.sequence.saturating_add(1));
-    if evidence.len() == limit {
-        evidence.pop_front();
-    }
-    evidence.push_back(TransitionEvidence {
-        sequence,
-        machine_authority_sha256: correlation.map(|value| digest(&value.machine_authority)),
-        scope_epoch: correlation.map(|value| value.scope_epoch),
-        operation_id_sha256: correlation.map(|value| digest(&value.operation_id)),
-        admitted_revision: correlation.map(|value| value.admitted_revision),
-        effect_id: correlation.map(|value| value.effect_id),
-        from: from.to_owned(),
-        input: input.to_owned(),
-        to: to.to_owned(),
-        disposition: disposition.label().to_owned(),
-    });
-}
-
-fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
 }
 
 #[cfg(test)]
@@ -1005,24 +830,6 @@ mod tests {
                 }
                 (_, TestInput::Shutdown) => Transition::Accepted(TestState::Retired),
                 _ => Transition::Rejected("invalid"),
-            }
-        }
-
-        fn state_label(&self, state: &Self::State) -> &'static str {
-            match state {
-                TestState::Idle => "idle",
-                TestState::Running(_) => "running",
-                TestState::Done => "done",
-                TestState::Retired => "retired",
-            }
-        }
-
-        fn input_label(&self, input: &Self::Input) -> &'static str {
-            match input {
-                TestInput::Start(_) => "start",
-                TestInput::Cancel => "cancel",
-                TestInput::Complete(_) => "complete",
-                TestInput::Shutdown => "shutdown",
             }
         }
 
@@ -1185,14 +992,6 @@ mod tests {
             panic!("injected reducer panic");
         }
 
-        fn state_label(&self, state: &Self::State) -> &'static str {
-            TestMachine.state_label(state)
-        }
-
-        fn input_label(&self, input: &Self::Input) -> &'static str {
-            TestMachine.input_label(input)
-        }
-
         fn input_correlation(
             &self,
             state: &Self::State,
@@ -1236,14 +1035,6 @@ mod tests {
             } else {
                 TestMachine.reduce(state, input)
             }
-        }
-
-        fn state_label(&self, state: &Self::State) -> &'static str {
-            TestMachine.state_label(state)
-        }
-
-        fn input_label(&self, input: &Self::Input) -> &'static str {
-            TestMachine.input_label(input)
         }
 
         fn input_correlation(
@@ -1346,7 +1137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn barrier_duplicate_replacement_cancel_and_redacted_evidence_are_bounded() {
+    async fn barrier_duplicate_replacement_and_cancel_are_ordered() {
         let release = Arc::new(Notify::new());
         let started = Arc::new(Notify::new());
         let executions = Arc::new(AtomicUsize::new(0));
@@ -1361,10 +1152,7 @@ mod tests {
                 executions: executions.clone(),
             }),
             Arc::new(NoopObserver),
-            RunnerConfig {
-                evidence_limit: 3,
-                ..RunnerConfig::default()
-            },
+            RunnerConfig::default(),
         );
         let operation = correlation("secret-operation");
         runner
@@ -1390,11 +1178,6 @@ mod tests {
         tokio::task::yield_now().await;
         assert_eq!(runner.snapshot(), TestState::Done);
         assert_eq!(executions.load(AtomicOrdering::Relaxed), 1);
-        let evidence = runner.evidence();
-        assert_eq!(evidence.len(), 3);
-        let rendered = format!("{evidence:?}");
-        assert!(!rendered.contains("secret-authority"));
-        assert!(!rendered.contains("secret-operation"));
         let _ = runner.shutdown().await;
     }
 
@@ -1421,16 +1204,8 @@ mod tests {
                 }
                 tokio::task::yield_now().await;
             }
-            assert_ne!(runner.snapshot(), TestState::Done);
-            assert!(
-                runner
-                    .evidence()
-                    .iter()
-                    .any(|entry| { entry.input == "complete" || entry.input == "shutdown" })
-            );
-            if !matches!(runner.snapshot(), TestState::Retired) {
-                let _ = runner.shutdown().await;
-            }
+            assert_eq!(runner.snapshot(), TestState::Retired);
+            let _ = runner.shutdown().await;
         }
     }
 
@@ -1718,25 +1493,6 @@ mod tests {
             }
         }
 
-        fn state_label(&self, state: &Self::State) -> &'static str {
-            match state {
-                AdversarialState::Idle => "idle",
-                AdversarialState::Running(_) => "running",
-                AdversarialState::ForeignCommitted => "foreign-committed",
-                AdversarialState::Retired => "retired",
-            }
-        }
-
-        fn input_label(&self, input: &Self::Input) -> &'static str {
-            match input {
-                AdversarialInput::Start(_) => "start",
-                AdversarialInput::Replace(_) => "replace",
-                AdversarialInput::Complete(_) => "complete",
-                AdversarialInput::TaskFailed(_) => "task-failed",
-                AdversarialInput::Shutdown => "shutdown",
-            }
-        }
-
         fn input_correlation(
             &self,
             _state: &Self::State,
@@ -1839,6 +1595,7 @@ mod tests {
 
     struct AdversarialObserver {
         foreign_commits: Arc<AtomicUsize>,
+        retirements: Arc<AtomicUsize>,
     }
 
     impl TransitionObserver<AdversarialMachine> for AdversarialObserver {
@@ -1852,6 +1609,9 @@ mod tests {
             if *current == AdversarialState::ForeignCommitted {
                 self.foreign_commits.fetch_add(1, AtomicOrdering::Relaxed);
             }
+            if *current == AdversarialState::Retired {
+                self.retirements.fetch_add(1, AtomicOrdering::Relaxed);
+            }
         }
     }
 
@@ -1860,6 +1620,7 @@ mod tests {
         let finalized = Arc::new(Mutex::new(Vec::new()));
         let business_effects = Arc::new(AtomicUsize::new(0));
         let foreign_commits = Arc::new(AtomicUsize::new(0));
+        let retirements = Arc::new(AtomicUsize::new(0));
         let runner = spawn_runner(
             Arc::new(AdversarialMachine {
                 finalized: finalized.clone(),
@@ -1870,6 +1631,7 @@ mod tests {
             }),
             Arc::new(AdversarialObserver {
                 foreign_commits: foreign_commits.clone(),
+                retirements: retirements.clone(),
             }),
             RunnerConfig::default(),
         );
@@ -1889,20 +1651,13 @@ mod tests {
         assert_eq!(runner.snapshot(), AdversarialState::Retired);
         assert_eq!(foreign_commits.load(AtomicOrdering::Relaxed), 0);
         assert_eq!(business_effects.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(retirements.load(AtomicOrdering::Relaxed), 1);
         assert_eq!(
             *finalized
                 .lock()
                 .expect("adversarial finalizer lock poisoned"),
             vec![(owned, TaskFailure::CompletionConflict)]
         );
-        let conflicts = runner
-            .evidence()
-            .into_iter()
-            .filter(|entry| entry.input == "effect-completion-conflict")
-            .collect::<Vec<_>>();
-        assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].disposition, "retired");
-        assert_eq!(conflicts[0].effect_id, Some(1));
         let _ = runner.shutdown().await;
     }
 
@@ -1911,6 +1666,7 @@ mod tests {
         let finalized = Arc::new(Mutex::new(Vec::new()));
         let business_effects = Arc::new(AtomicUsize::new(0));
         let foreign_commits = Arc::new(AtomicUsize::new(0));
+        let retirements = Arc::new(AtomicUsize::new(0));
         let release = Arc::new(Notify::new());
         let started = Arc::new(Notify::new());
         let runner = spawn_runner(
@@ -1925,6 +1681,7 @@ mod tests {
             }),
             Arc::new(AdversarialObserver {
                 foreign_commits: foreign_commits.clone(),
+                retirements: retirements.clone(),
             }),
             RunnerConfig::default(),
         );
@@ -1951,19 +1708,12 @@ mod tests {
         assert_eq!(runner.snapshot(), AdversarialState::Retired);
         assert_eq!(foreign_commits.load(AtomicOrdering::Relaxed), 0);
         assert_eq!(business_effects.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(retirements.load(AtomicOrdering::Relaxed), 1);
         assert_eq!(
             *finalized
                 .lock()
                 .expect("adversarial finalizer lock poisoned"),
             vec![(owned, TaskFailure::CompletionConflict)]
-        );
-        assert_eq!(
-            runner
-                .evidence()
-                .into_iter()
-                .filter(|entry| entry.input == "effect-completion-conflict")
-                .count(),
-            1
         );
         let _ = runner.shutdown().await;
     }

@@ -256,6 +256,10 @@ type RootTranslation = {
 			sourceLocatorsScope: string
 			result: {
 				/**
+				 * A​n​o​t​h​e​r​ ​P​r​o​f​i​l​e​ ​o​r​ ​S​e​t​t​i​n​g​s​ ​c​h​a​n​g​e​ ​i​s​ ​s​t​i​l​l​ ​f​i​n​i​s​h​i​n​g​.​ ​T​r​y​ ​R​e​s​t​o​r​e​ ​a​g​a​i​n​ ​s​h​o​r​t​l​y​.
+				 */
+				busy: string
+				/**
 				 * T​h​e​ ​l​o​c​a​l​ ​f​i​l​e​ ​p​a​n​e​l​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​N​o​t​h​i​n​g​ ​c​h​a​n​g​e​d​.
 				 */
 				cancelled: string
@@ -264,10 +268,18 @@ type RootTranslation = {
 				 */
 				exported: string
 				/**
-				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​p​e​r​a​t​i​o​n​ ​d​i​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​.​ ​A​n​y​ ​r​e​t​a​i​n​e​d​ ​r​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e​ ​w​i​l​l​ ​b​e​ ​r​e​s​o​l​v​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​n​e​x​t​ ​s​t​a​r​t​u​p​.
+				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​p​e​r​a​t​i​o​n​ ​d​i​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​.​ ​N​o​ ​s​u​c​c​e​s​s​f​u​l​ ​c​h​a​n​g​e​ ​w​a​s​ ​c​o​n​f​i​r​m​e​d​.
 				 */
 				failed: string
 				idle: string
+				/**
+				 * L​o​c​a​l​ ​d​a​t​a​ ​c​h​a​n​g​e​d​ ​a​f​t​e​r​ ​v​a​l​i​d​a​t​i​o​n​.​ ​C​h​o​o​s​e​ ​t​h​e​ ​b​a​c​k​u​p​ ​a​g​a​i​n​ ​t​o​ ​c​o​n​t​i​n​u​e​.
+				 */
+				previewExpired: string
+				/**
+				 * R​e​s​t​o​r​e​ ​c​l​e​a​n​u​p​ ​r​e​q​u​i​r​e​s​ ​a​ ​r​e​s​t​a​r​t​.​ ​M​i​s​h​ ​w​i​l​l​ ​r​e​s​o​l​v​e​ ​r​e​t​a​i​n​e​d​ ​r​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e​ ​b​e​f​o​r​e​ ​s​t​a​r​t​u​p​ ​c​o​n​t​i​n​u​e​s​.
+				 */
+				recoveryRequired: string
 				/**
 				 * T​h​e​ ​v​a​l​i​d​a​t​e​d​ ​b​a​c​k​u​p​ ​w​a​s​ ​r​e​s​t​o​r​e​d​ ​t​r​a​n​s​a​c​t​i​o​n​a​l​l​y​.
 				 */
@@ -3206,6 +3218,10 @@ type RootTranslation = {
 		 */
 		createProfile: string
 		/**
+		 * C​u​r​r​e​n​t​ ​P​r​o​f​i​l​e
+		 */
+		currentProfile: string
+		/**
 		 * C​r​e​a​t​e​ ​l​o​c​a​l​ ​p​r​o​f​i​l​e
 		 */
 		createTitle: string
@@ -5528,6 +5544,10 @@ export type TranslationFunctions = {
 			sourceLocatorsScope: () => LocalizedString
 			result: {
 				/**
+				 * Another Profile or Settings change is still finishing. Try Restore again shortly.
+				 */
+				busy: () => LocalizedString
+				/**
 				 * The local file panel was cancelled. Nothing changed.
 				 */
 				cancelled: () => LocalizedString
@@ -5536,10 +5556,18 @@ export type TranslationFunctions = {
 				 */
 				exported: () => LocalizedString
 				/**
-				 * The local backup operation did not complete. Any retained recovery evidence will be resolved before the next startup.
+				 * The local backup operation did not complete. No successful change was confirmed.
 				 */
 				failed: () => LocalizedString
 				idle: () => LocalizedString
+				/**
+				 * Local data changed after validation. Choose the backup again to continue.
+				 */
+				previewExpired: () => LocalizedString
+				/**
+				 * Restore cleanup requires a restart. Mish will resolve retained recovery evidence before startup continues.
+				 */
+				recoveryRequired: () => LocalizedString
 				/**
 				 * The validated backup was restored transactionally.
 				 */
@@ -8366,6 +8394,10 @@ export type TranslationFunctions = {
 		 * New Profile
 		 */
 		createProfile: () => LocalizedString
+		/**
+		 * Current Profile
+		 */
+		currentProfile: () => LocalizedString
 		/**
 		 * Create local profile
 		 */

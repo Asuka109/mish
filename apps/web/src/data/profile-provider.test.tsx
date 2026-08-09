@@ -278,7 +278,7 @@ function SelectionAndConfiguredRouteProbe({ snapshot }: { snapshot: StatusSnapsh
   return (
     <>
       <output data-testid="configured-route">{catalog?.profileId ?? "none"}</output>
-      <button onClick={() => void profiles.selectProfile("fixture-profile-home")} type="button">
+      <button onClick={() => void profiles.selectProfile("home")} type="button">
         Select Home
       </button>
     </>
@@ -296,7 +296,7 @@ function SelectionProbe() {
       <output data-testid="result">{result}</output>
       <button
         onClick={() => {
-          void profiles.selectProfile("fixture-profile-home").then((next) => {
+          void profiles.selectProfile("home").then((next) => {
             setResult(next.ok ? "success" : "failure");
           });
         }}
@@ -355,15 +355,13 @@ describe("ProfileProvider selected Profile authority", () => {
     expect(await screen.findByTestId("first-profile-selection")).toHaveTextContent("none");
     fireEvent.click(screen.getByRole("button", { name: "Save first Profile" }));
 
-    expect(await screen.findByTestId("first-profile-selection")).toHaveTextContent(
-      "fixture-profile-studio",
-    );
+    expect(await screen.findByTestId("first-profile-selection")).toHaveTextContent("work");
     await waitFor(() =>
       expect(screen.getByTestId("first-profile-routes")).toHaveTextContent(
         "First configured group",
       ),
     );
-    expect(client.routeRequests).toEqual(["fixture-profile-studio"]);
+    expect(client.routeRequests).toEqual(["work"]);
   });
 
   it("lets a newer confirmed revision supersede optimism and rejects a delayed stale result", async () => {
@@ -376,13 +374,13 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
 
-    expect(await screen.findByTestId("selection")).toHaveTextContent("fixture-profile-studio:1");
+    expect(await screen.findByTestId("selection")).toHaveTextContent("work:1");
     fireEvent.click(screen.getByRole("button", { name: "Select Home" }));
-    expect(screen.getByTestId("selection")).toHaveTextContent("fixture-profile-home:1");
+    expect(screen.getByTestId("selection")).toHaveTextContent("home:1");
 
     client.confirm("fixture-profile-travel", 3);
     expect(await screen.findByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
-    client.resolvePending("fixture-profile-home", 2);
+    client.resolvePending("home", 2);
 
     await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("failure"));
     expect(screen.getByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
@@ -410,17 +408,13 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
 
-    await waitFor(() =>
-      expect(screen.getByTestId("configured-route")).toHaveTextContent("fixture-profile-studio"),
-    );
+    await waitFor(() => expect(screen.getByTestId("configured-route")).toHaveTextContent("work"));
     client.confirmSemanticRevision(
       "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       2,
     );
-    await waitFor(() =>
-      expect(client.routeRequests).toEqual(["fixture-profile-studio", "fixture-profile-studio"]),
-    );
-    expect(screen.getByTestId("configured-route")).toHaveTextContent("fixture-profile-studio");
+    await waitFor(() => expect(client.routeRequests).toEqual(["work", "work"]));
+    expect(screen.getByTestId("configured-route")).toHaveTextContent("work");
   });
 
   it("does not derive configured routes from an unconfirmed selection projection", async () => {
@@ -436,12 +430,10 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
 
-    await waitFor(() => expect(client.routeRequests).toEqual(["fixture-profile-studio"]));
+    await waitFor(() => expect(client.routeRequests).toEqual(["work"]));
     fireEvent.click(screen.getByRole("button", { name: "Select Home" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("configured-route")).toHaveTextContent("fixture-profile-studio"),
-    );
-    expect(client.routeRequests).toEqual(["fixture-profile-studio"]);
+    await waitFor(() => expect(screen.getByTestId("configured-route")).toHaveTextContent("work"));
+    expect(client.routeRequests).toEqual(["work"]);
   });
 
   it("cancels superseded route loads and rejects delayed catalogs across revision and deletion", async () => {

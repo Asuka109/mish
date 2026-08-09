@@ -405,7 +405,7 @@ required behavior:
 - shadcn `ToggleGroup` owns the exclusive routing mode. Two standalone shadcn
   `Toggle` controls own the independent System Proxy and TUN capture states.
 - shadcn `DropdownMenu` owns profile switching and service-monitor management.
-- shadcn `Dialog`, `Command`, and `Button` compose the group-scoped proxy picker.
+- shadcn `Dialog` and `Button` compose the group-scoped `PolicyGroupBrowser` picker.
 - shadcn `Dialog`, `Field`, `Input`, and `AlertDialog` compose service editing.
 - shadcn `Badge` owns compact child counts; `Tooltip` labels icon-only expert
   controls.

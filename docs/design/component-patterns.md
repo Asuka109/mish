@@ -74,7 +74,7 @@ instead of inferring available row space from the full window width.
 ## Dialogs, menus, and forms
 
 Use shadcn Base UI `DropdownMenu` for compact action and profile menus. Compose
-selection dialogs from `Dialog` and `Command`; use `Field`, `Input`, and
+selection dialogs from `Dialog` and the shared policy browser; use `Field`, `Input`, and
 `AlertDialog` for editable service data and destructive confirmation. Validation
 must be visible in text, reflected with `aria-invalid`, and prevent an invalid
 save. Because Base UI input change callbacks expose the value directly, bind

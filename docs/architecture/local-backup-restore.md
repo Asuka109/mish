@@ -96,7 +96,10 @@ Four Tauri commands form the complete file boundary:
   bytes under an opaque preview ID;
 - export save accepts only that preview ID, opens the native save panel, and
   writes the retained bytes through a same-directory mode-0600 temporary file,
-  data flush, atomic rename, and parent-directory flush;
+  data flush, atomic rename, and parent-directory flush. The panel starts in
+  the user's Downloads directory when the platform resolves it and suggests
+  `mish-backup-YYMMDD-<content-hash:6>.json`, where the date is the local
+  export date and the hash is bound to the exact retained bytes;
 - restore preview accepts no path, opens the native file picker, rejects
   symlinks and non-regular or oversized files, reads the selected file through a
   hard byte bound, validates it, and retains the parsed manifest under an opaque
@@ -198,6 +201,9 @@ does not register login startup, apply OS preferences, start or restart Core,
 activate a profile, enable System Proxy, enable TUN, install a helper, or modify
 capture state. Publishing a profile snapshot after commit only informs the UI of
 repository changes; it does not activate or reload runtime configuration.
+When Profile contents are restored, the compatibility `profiles/` directory is
+validated and reused when it already exists; materializing restored YAML must
+not fail merely because a prior generation created that private directory.
 
 ## Verification
 
