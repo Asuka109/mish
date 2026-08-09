@@ -76,11 +76,14 @@ const en = {
       restoreScope: "Validated restore scope",
       sourceLocatorsScope: "Subscription URLs and full local paths",
       result: {
+        busy: "Another Profile or Settings change is still finishing. Try Restore again shortly.",
         cancelled: "The local file panel was cancelled. Nothing changed.",
         exported: "The local backup was written atomically.",
-        failed:
-          "The local backup operation did not complete. Any retained recovery evidence will be resolved before the next startup.",
+        failed: "The local backup operation did not complete. No successful change was confirmed.",
         idle: "",
+        previewExpired: "Local data changed after validation. Choose the backup again to continue.",
+        recoveryRequired:
+          "Restore cleanup requires a restart. Mish will resolve retained recovery evidence before startup continues.",
         restored: "The validated backup was restored transactionally.",
       },
       save: "Choose Location and Save",

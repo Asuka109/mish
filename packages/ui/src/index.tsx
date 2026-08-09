@@ -9,8 +9,7 @@ import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
 import { ToggleGroup as ToggleGroupPrimitive } from "@base-ui/react/toggle-group";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
-import { Command as CommandPrimitive } from "cmdk";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import {
   createContext,
   useContext,
@@ -357,26 +356,6 @@ const fieldRecipe = tv({
     label: "field-label text-metadata font-medium text-fg",
     description: "field-description text-caption leading-4.25 text-muted-foreground",
     error: "field-error text-caption leading-4.25 text-error",
-  },
-});
-
-const commandRecipe = tv({
-  slots: {
-    root: "command flex flex-col overflow-hidden bg-canvas",
-    inputWrapper: cx(
-      "command-input-wrapper flex h-10.5 items-center gap-2 border-b border-hairline px-3",
-      "text-muted-foreground [&_svg]:size-3.75",
-    ),
-    input: "command-input w-full border-0 bg-transparent text-metadata text-ink outline-none",
-    list: "command-list max-h-95 overflow-auto",
-    empty: "command-empty px-4 py-7 text-center text-muted-foreground",
-    group: "command-group",
-    item: cx(
-      "command-item relative flex min-h-8.5 items-center gap-2 rounded-sm px-2.25 text-metadata",
-      "text-fg outline-none data-[selected=true]:bg-accent data-[selected=true]:text-ink",
-      "data-[selected=true]:[&_.command-item-check]:opacity-100",
-    ),
-    check: "command-item-check ml-auto size-3.5 opacity-0 data-[selected=true]:opacity-100",
   },
 });
 
@@ -1228,53 +1207,6 @@ export function EmptyDescription(props: HTMLAttributes<HTMLDivElement>) {
 export function Spinner(props: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span aria-hidden="true" {...props} className={spinnerRecipe({ className: props.className })} />
-  );
-}
-
-export function Command({ className, ...props }: ComponentProps<typeof CommandPrimitive>) {
-  return <CommandPrimitive className={cn(commandRecipe().root(), className)} {...props} />;
-}
-
-export function CommandInput({
-  className,
-  ...props
-}: ComponentProps<typeof CommandPrimitive.Input>) {
-  return (
-    <div className={commandRecipe().inputWrapper()}>
-      <Search aria-hidden="true" />
-      <CommandPrimitive.Input className={cn(commandRecipe().input(), className)} {...props} />
-    </div>
-  );
-}
-
-export function CommandList({ className, ...props }: ComponentProps<typeof CommandPrimitive.List>) {
-  return <CommandPrimitive.List className={cn(commandRecipe().list(), className)} {...props} />;
-}
-
-export function CommandEmpty({
-  className,
-  ...props
-}: ComponentProps<typeof CommandPrimitive.Empty>) {
-  return <CommandPrimitive.Empty className={cn(commandRecipe().empty(), className)} {...props} />;
-}
-
-export function CommandGroup({
-  className,
-  ...props
-}: ComponentProps<typeof CommandPrimitive.Group>) {
-  return <CommandPrimitive.Group className={cn(commandRecipe().group(), className)} {...props} />;
-}
-
-export function CommandItem({
-  children,
-  className,
-  ...props
-}: ComponentProps<typeof CommandPrimitive.Item>) {
-  return (
-    <CommandPrimitive.Item className={cn(commandRecipe().item(), className)} {...props}>
-      {children}
-      <Check aria-hidden="true" className={commandRecipe().check()} />
-    </CommandPrimitive.Item>
   );
 }
 
