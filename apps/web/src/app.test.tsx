@@ -3009,7 +3009,10 @@ describe("Status fixture experience", () => {
     });
     expect(configuredNode).toBeDisabled();
     expect(configuredNode).not.toHaveTextContent("Read-only");
-    expect(profileClient.getRoutes).toHaveBeenCalledWith("work");
+    expect(profileClient.getRoutes).toHaveBeenCalledWith(
+      "work",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {
