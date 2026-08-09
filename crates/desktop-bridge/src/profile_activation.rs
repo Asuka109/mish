@@ -1247,7 +1247,6 @@ enum ProfileActivationMachineInput {
     },
     TaskFailed {
         correlation: Correlation,
-        failure: TaskFailure,
     },
     Shutdown,
 }
@@ -1256,7 +1255,7 @@ enum ProfileActivationMachineInput {
 enum ProfileActivationTaskOutcome {
     Activate(Result<crate::ActivationCommit, MihomoActivationError>),
     Stop(Result<(), MihomoActivationError>),
-    Failed(TaskFailure),
+    Failed,
 }
 
 #[derive(Clone)]
@@ -1608,10 +1607,7 @@ impl Machine for ProfileActivationMachine {
                     _ => unreachable!("terminal activation disposition must be closed"),
                 }
             }
-            ProfileActivationMachineInput::TaskFailed {
-                correlation,
-                failure,
-            } => {
+            ProfileActivationMachineInput::TaskFailed { correlation } => {
                 if let ProfileActivationState::Compensating { command, runtime } = state
                     && correlation.effect_id == PROFILE_ACTIVATION_COMPENSATION_EFFECT_ID
                     && command
@@ -1643,7 +1639,7 @@ impl Machine for ProfileActivationMachine {
                             correlation: pending
                                 .command
                                 .correlation(PROFILE_ACTIVATION_FINALIZER_EFFECT_ID),
-                            outcome: ProfileActivationTaskOutcome::Failed(*failure),
+                            outcome: ProfileActivationTaskOutcome::Failed,
                         }),
                     };
                 }
@@ -1661,7 +1657,7 @@ impl Machine for ProfileActivationMachine {
                             correlation: pending
                                 .command
                                 .correlation(PROFILE_ACTIVATION_RECOVERY_EFFECT_ID),
-                            outcome: ProfileActivationTaskOutcome::Failed(*failure),
+                            outcome: ProfileActivationTaskOutcome::Failed,
                         }),
                     };
                 }
@@ -1692,76 +1688,6 @@ impl Machine for ProfileActivationMachine {
                     )),
                 }
             }
-        }
-    }
-
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        match state.kind() {
-            ProfileActivationStateKind::Idle => "idle",
-            ProfileActivationStateKind::Pending => "pending-effect",
-            ProfileActivationStateKind::Retrying => "retrying-effect",
-            ProfileActivationStateKind::Succeeded => "succeeded",
-            ProfileActivationStateKind::Failed => "failed",
-            ProfileActivationStateKind::Cancelled => "cancelled",
-            ProfileActivationStateKind::RollbackSucceeded => "rollback-succeeded",
-            ProfileActivationStateKind::RollbackFailed => "rollback-failed",
-            ProfileActivationStateKind::RecoveryRequired => "recovery-required",
-            ProfileActivationStateKind::Compensating => "compensating",
-            ProfileActivationStateKind::ShuttingDown => "shutting-down",
-            ProfileActivationStateKind::Shutdown => "shutdown",
-        }
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        match input {
-            ProfileActivationMachineInput::Begin { operation, .. } => match operation {
-                ProfileActivationOperation::Activate => "begin-activate",
-                ProfileActivationOperation::Stop => "begin-stop",
-            },
-            ProfileActivationMachineInput::Reject { .. } => "reject-activation",
-            ProfileActivationMachineInput::Compensate { .. } => "begin-compensation",
-            ProfileActivationMachineInput::CompensationFinished { finalization, .. } => {
-                match finalization {
-                    ProfileActivationCompensation::RestoredSafe => "compensation-restored-safe",
-                    ProfileActivationCompensation::RecoveryRequired { .. } => {
-                        "compensation-recovery-required"
-                    }
-                }
-            }
-            ProfileActivationMachineInput::Retire { .. } => "retire",
-            ProfileActivationMachineInput::Cancel { .. } => "cancel",
-            ProfileActivationMachineInput::TaskFinished { outcome, .. } => match outcome {
-                ProfileActivationTaskOutcome::Activate(Ok(_)) => "activation-effect-succeeded",
-                ProfileActivationTaskOutcome::Activate(Err(_)) => "activation-effect-failed",
-                ProfileActivationTaskOutcome::Stop(Ok(())) => "stop-effect-succeeded",
-                ProfileActivationTaskOutcome::Stop(Err(_)) => "stop-effect-failed",
-                ProfileActivationTaskOutcome::Failed(TaskFailure::Aborted) => "task-aborted",
-                ProfileActivationTaskOutcome::Failed(TaskFailure::CompletionConflict) => {
-                    "task-completion-conflict"
-                }
-                ProfileActivationTaskOutcome::Failed(TaskFailure::Panicked) => "task-panicked",
-            },
-            ProfileActivationMachineInput::Finalized { finalization, .. } => match finalization {
-                ProfileActivationFinalization::Completed(
-                    ProfileActivationCompletion::Succeeded(_),
-                ) => "finalized-success",
-                ProfileActivationFinalization::Completed(
-                    ProfileActivationCompletion::Cancelled(_),
-                ) => "finalized-cancelled",
-                ProfileActivationFinalization::Completed(ProfileActivationCompletion::Failed {
-                    ..
-                })
-                | ProfileActivationFinalization::CaptureFailure { .. } => "finalized-failure",
-                ProfileActivationFinalization::RecoveryRequired { .. } => {
-                    "finalized-recovery-required"
-                }
-            },
-            ProfileActivationMachineInput::TaskFailed { failure, .. } => match failure {
-                TaskFailure::Aborted => "task-aborted",
-                TaskFailure::CompletionConflict => "task-completion-conflict",
-                TaskFailure::Panicked => "task-panicked",
-            },
-            ProfileActivationMachineInput::Shutdown => "shutdown",
         }
     }
 
@@ -1807,11 +1733,8 @@ impl Machine for ProfileActivationMachine {
         }
     }
 
-    fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
-        ProfileActivationMachineInput::TaskFailed {
-            correlation,
-            failure,
-        }
+    fn task_failed(&self, correlation: Correlation, _failure: TaskFailure) -> Self::Input {
+        ProfileActivationMachineInput::TaskFailed { correlation }
     }
 
     fn shutdown(&self) -> Self::Input {
@@ -2047,10 +1970,7 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                     }
                 }
                 ProfileActivationMachineEffect::Cancel(correlation) => {
-                    ProfileActivationMachineInput::TaskFailed {
-                        correlation,
-                        failure: TaskFailure::Aborted,
-                    }
+                    ProfileActivationMachineInput::TaskFailed { correlation }
                 }
             }
         })
@@ -2478,7 +2398,7 @@ async fn finalize_profile_activation(
                 }
             }
         }
-        ProfileActivationTaskOutcome::Failed(_) => {
+        ProfileActivationTaskOutcome::Failed => {
             if prior_runtime_and_capture_restored(
                 &managed,
                 active_runtime.as_ref(),
@@ -4817,20 +4737,17 @@ mod activation_machine_tests {
             let (state, command) = pending_activation();
             let finalizing = match machine.reduce(
                 &state,
-                &ProfileActivationMachineInput::TaskFailed {
-                    correlation: command.correlation(PROFILE_ACTIVATION_EFFECT_ID),
-                    failure,
-                },
+                &machine.task_failed(command.correlation(PROFILE_ACTIVATION_EFFECT_ID), failure),
             ) {
                 Transition::EffectEmitting { state, .. } => state,
                 _ => panic!("failed activation task must be finalized"),
             };
             let recovering = match machine.reduce(
                 &finalizing,
-                &ProfileActivationMachineInput::TaskFailed {
-                    correlation: command.correlation(PROFILE_ACTIVATION_FINALIZER_EFFECT_ID),
+                &machine.task_failed(
+                    command.correlation(PROFILE_ACTIVATION_FINALIZER_EFFECT_ID),
                     failure,
-                },
+                ),
             ) {
                 Transition::EffectEmitting { state, .. } => state,
                 _ => panic!("a failed finalizer must get one recovery observation"),
@@ -4838,10 +4755,10 @@ mod activation_machine_tests {
             assert!(matches!(
                 machine.reduce(
                     &recovering,
-                    &ProfileActivationMachineInput::TaskFailed {
-                        correlation: command.correlation(PROFILE_ACTIVATION_RECOVERY_EFFECT_ID),
+                    &machine.task_failed(
+                        command.correlation(PROFILE_ACTIVATION_RECOVERY_EFFECT_ID),
                         failure,
-                    },
+                    ),
                 ),
                 Transition::RecoveryRequired(ProfileActivationState::RecoveryRequired { .. })
             ));
@@ -5026,7 +4943,7 @@ mod activation_machine_tests {
             ProfileActivationMachineEffect::Finalize {
                 correlation: command.correlation(PROFILE_ACTIVATION_RECOVERY_EFFECT_ID),
                 command,
-                outcome: ProfileActivationTaskOutcome::Failed(TaskFailure::Panicked),
+                outcome: ProfileActivationTaskOutcome::Failed,
             },
             CancellationToken::new(),
         ))

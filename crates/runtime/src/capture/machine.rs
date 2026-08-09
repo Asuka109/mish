@@ -267,7 +267,6 @@ pub(super) enum CaptureInput {
     },
     TaskFailed {
         correlation: Correlation,
-        failure: TaskFailure,
     },
     TaskCancelled {
         correlation: Correlation,
@@ -1320,10 +1319,7 @@ impl Machine for CaptureMachine {
                     }),
                 }
             }
-            CaptureInput::TaskFailed {
-                correlation,
-                failure: _,
-            }
+            CaptureInput::TaskFailed { correlation }
             | CaptureInput::TaskCancelled { correlation } => {
                 let Some(operation) = state.active_operation() else {
                     return Transition::Retired;
@@ -1452,50 +1448,6 @@ impl Machine for CaptureMachine {
         }
     }
 
-    fn state_label(&self, state: &Self::State) -> &'static str {
-        match state {
-            CaptureState::Stable(_) => "stable",
-            CaptureState::Transitioning(state)
-                if state.operation.mode == TransitionMode::RuntimeReplacement =>
-            {
-                "transitioning-runtime-replacement"
-            }
-            CaptureState::Transitioning(_) => "transitioning",
-            CaptureState::Reconciling(_) => "reconciling",
-            CaptureState::RecoveryRequired(_) => "recovery-required",
-            CaptureState::ShuttingDown(_) => "shutting-down",
-            CaptureState::Retired(_) => "retired",
-        }
-    }
-
-    fn input_label(&self, input: &Self::Input) -> &'static str {
-        match input {
-            CaptureInput::Preflight { .. } => "preflight",
-            CaptureInput::PreflightFinished { .. } => "preflight-finished",
-            CaptureInput::Reserve { .. } => "reserve",
-            CaptureInput::Start { .. } => "start",
-            CaptureInput::ExecuteReserved { .. } => "execute-reserved",
-            CaptureInput::FailReserved { .. } => "fail-reserved",
-            CaptureInput::MarkFinalizing { .. } => "mark-finalizing",
-            CaptureInput::MutationFinished { .. } => "mutation-finished",
-            CaptureInput::ObservationFinished { .. } => "observation-finished",
-            CaptureInput::Audit { .. } => "audit",
-            CaptureInput::AuditFinished { .. } => "audit-finished",
-            CaptureInput::AuditCommitted { .. } => "audit-committed",
-            CaptureInput::Recover { .. } => "recover",
-            CaptureInput::RecoveryFinished { .. } => "recovery-finished",
-            CaptureInput::Finalized { .. } => "finalized",
-            CaptureInput::TaskFailed { failure, .. } => match failure {
-                TaskFailure::Aborted => "task-aborted",
-                TaskFailure::CompletionConflict => "task-completion-conflict",
-                TaskFailure::Panicked => "task-panicked",
-            },
-            CaptureInput::TaskCancelled { .. } => "task-cancelled",
-            CaptureInput::Shutdown => "shutdown",
-            CaptureInput::ShutdownFinished { .. } => "shutdown-finished",
-        }
-    }
-
     fn input_correlation(&self, _state: &Self::State, input: &Self::Input) -> Option<Correlation> {
         match input {
             CaptureInput::PreflightFinished { correlation } => Some(correlation.clone()),
@@ -1547,11 +1499,8 @@ impl Machine for CaptureMachine {
         }
     }
 
-    fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
-        CaptureInput::TaskFailed {
-            correlation,
-            failure,
-        }
+    fn task_failed(&self, correlation: Correlation, _failure: TaskFailure) -> Self::Input {
+        CaptureInput::TaskFailed { correlation }
     }
 
     fn shutdown(&self) -> Self::Input {
@@ -2195,13 +2144,8 @@ mod tests {
                 .unwrap()
                 .correlation
                 .with_effect(MUTATION_EFFECT_ID);
-            let finalizing = machine.reduce(
-                &transitioning,
-                &CaptureInput::TaskFailed {
-                    correlation,
-                    failure,
-                },
-            );
+            let finalizing =
+                machine.reduce(&transitioning, &machine.task_failed(correlation, failure));
             assert_eq!(finalizing.disposition(), Disposition::EffectEmitting);
             let finalizing = transition_state(finalizing);
             assert!(matches!(
