@@ -37,7 +37,7 @@ const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
 const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/gu;
 const futureClaimPattern =
-  /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
+  /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
 const supersededContextPattern = /\b(?:not planned|rejected|retired|superseded)\b/iu;
@@ -124,6 +124,28 @@ function hasIssueReference(source: string): boolean {
   return /(?:\bIssue\s+#\d+\b|https:\/\/github\.com\/[^/\s)]+\/[^/\s)]+\/issues\/\d+\b)/iu.test(
     source,
   );
+}
+
+function hasFutureClaimForIssue(source: string, issueNumber: number): boolean {
+  const futurePattern = new RegExp(futureClaimPattern.source, "giu");
+  const referencePattern = new RegExp(
+    "(?:\\bIssue\\s+#(\\d+)\\b|https://github\\.com/[^/\\s)]+/[^/\\s)]+/issues/(\\d+)\\b)",
+    "giu",
+  );
+  const references = [...source.matchAll(referencePattern)].map((match) => ({
+    index: match.index ?? 0,
+    number: Number(match[1] ?? match[2]),
+  }));
+  return [...source.matchAll(futurePattern)].some((claim) => {
+    const claimIndex = claim.index ?? 0;
+    const nearest = references.reduce<(typeof references)[number] | null>((current, reference) => {
+      if (current === null) return reference;
+      return Math.abs(reference.index - claimIndex) < Math.abs(current.index - claimIndex)
+        ? reference
+        : current;
+    }, null);
+    return nearest?.number === issueNumber;
+  });
 }
 
 function referenceContexts(
@@ -290,7 +312,7 @@ export function validateDocumentationTrackers(
       }
       if (
         issue.state === "CLOSED" &&
-        contexts.some((context) => futureClaimPattern.test(context.surrounding))
+        contexts.some((context) => hasFutureClaimForIssue(context.surrounding, issue.number))
       ) {
         errors.push(
           `closed Issue #${issue.number} is still described as future work in ${reference.path}`,

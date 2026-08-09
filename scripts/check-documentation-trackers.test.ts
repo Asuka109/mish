@@ -199,8 +199,24 @@ test("future wording for another Issue is not attributed to a closed Issue", () 
   });
   const fixtureSources = { ...sources };
   fixtureSources["docs/architecture/state-machine-kernel.md"] +=
-    "\nCompleted Issue #288 established the kernel; Issue #999 remains pending implementation.\n";
+    "\nCompleted Issue #288 established the kernel, while Issue #999 remains pending implementation.\n";
   assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
+});
+
+test("closed Issues cannot be described as open or planned", () => {
+  const { registry, sources } = repositoryFixture();
+  for (const claim of ["Issue #185 remains open.", "Rejected Issue #343 is planned for release."]) {
+    const fixtureSources = { ...sources };
+    const path = claim.includes("343")
+      ? "docs/README.md"
+      : "docs/architecture/candidate-home-isolation.md";
+    fixtureSources[path] += `\n${claim}\n`;
+    assert.match(
+      validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+      /closed Issue #(185|343) is still described as future work/u,
+      claim,
+    );
+  }
 });
 
 test("malformed tracker states and timestamps fail runtime validation", () => {
