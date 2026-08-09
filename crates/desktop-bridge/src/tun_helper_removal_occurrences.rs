@@ -785,6 +785,13 @@ mod tests {
             Err(TunHelperRemovalOccurrenceStoreError::Storage)
         ));
 
+        let hard_linked = root.path().join("hard-linked.json");
+        fs::hard_link(&target, &hard_linked).unwrap();
+        assert!(matches!(
+            TunHelperRemovalOccurrenceStore::open_private_file(hard_linked),
+            Err(TunHelperRemovalOccurrenceStoreError::Storage)
+        ));
+
         let oversized = root.path().join("oversized.json");
         fs::write(
             &oversized,
