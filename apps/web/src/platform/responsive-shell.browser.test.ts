@@ -85,7 +85,17 @@ function expectNarrowNavigationGeometry(context: string) {
     window.innerHeight + 0.5,
   );
 
-  for (const target of document.querySelectorAll<HTMLElement>(".nav-item")) {
+  const primaryIsland = document.querySelector<HTMLElement>(".narrow-navigation-primary");
+  const utilityIsland = document.querySelector<HTMLElement>(".narrow-navigation-utility");
+  if (!primaryIsland || !utilityIsland) throw new Error(`${context}: missing navigation islands`);
+  expect(
+    utilityIsland.getBoundingClientRect().left - primaryIsland.getBoundingClientRect().right,
+    `${context}: visible island separation`,
+  ).toBeGreaterThanOrEqual(7);
+
+  for (const target of document.querySelectorAll<HTMLElement>(
+    ".narrow-navigation .narrow-nav-item",
+  )) {
     const rect = target.getBoundingClientRect();
     const label = target.getAttribute("aria-label") ?? target.textContent ?? "destination";
     expect(rect.width, `${context}: ${label} target width`).toBeGreaterThanOrEqual(24);
@@ -126,7 +136,11 @@ function hasLocalHorizontalScroller(element: Element): boolean {
 function measureLayout(): LayoutMeasurement {
   const pageScroll = document.querySelector<HTMLElement>(".workspace-page-scroll");
   const sidebar = document.querySelector<HTMLElement>(".sidebar");
-  const navigationItems = [...document.querySelectorAll<HTMLElement>(".nav-item")];
+  const navigationItems = [
+    ...document.querySelectorAll<HTMLElement>(
+      ".desktop-navigation .desktop-nav-item, .narrow-navigation .narrow-nav-item",
+    ),
+  ].filter((item) => item.getBoundingClientRect().width > 1);
   const controls = [
     ...document.querySelectorAll<HTMLElement>(
       'a, button, input, select, textarea, [role="button"]',
@@ -255,7 +269,11 @@ async function navigate(path: string): Promise<void> {
     expect(window.location.pathname).toBe(path);
     expect(document.querySelector("main .workspace-page-scroll")).not.toBeNull();
     expect(document.querySelector("main .route-loading")).toBeNull();
-    expect(document.querySelector(".nav-item.is-active")?.getAttribute("href")).toBe(path);
+    expect(
+      document
+        .querySelector(".desktop-navigation .desktop-nav-item.is-active")
+        ?.getAttribute("href"),
+    ).toBe(path);
 
     if (path === "/traffic") {
       expect(document.querySelector(".traffic-table")).not.toBeNull();
@@ -341,7 +359,7 @@ describe("responsive application shell", () => {
         await selectLocale(variant.locale);
         await navigate("/status");
 
-        const rows = [...document.querySelectorAll<HTMLElement>(".nav-item")];
+        const rows = [...document.querySelectorAll<HTMLElement>(".desktop-nav-item")];
         const settings = document.querySelector<HTMLElement>(".settings-link");
         if (!settings) throw new Error("Missing Settings navigation row");
 
@@ -505,7 +523,9 @@ describe("responsive application shell", () => {
             document.querySelectorAll("main .page-scroll"),
             `${context}: no nested route page scroller`,
           ).toHaveLength(0);
-          expect(measurement.navigationCount, `${context}: primary navigation items`).toBe(6);
+          expect(measurement.navigationCount, `${context}: primary navigation items`).toBe(
+            viewport.width < 600 ? 4 : 6,
+          );
           expect(
             measurement.navigationLabelsClipped,
             `${context}: clipped navigation labels`,
@@ -516,8 +536,30 @@ describe("responsive application shell", () => {
 
           if (viewport.width < 600) {
             expectNarrowNavigationGeometry(context);
+            expect(
+              document.querySelector<HTMLElement>(".proxy-control-button")?.getBoundingClientRect()
+                .width,
+              `${context}: proxy control leaves narrow navigation`,
+            ).toBe(0);
+            const selectedTarget =
+              path === "/status" || path === "/profiles"
+                ? "/status"
+                : path === "/traffic" || path === "/events"
+                  ? "/traffic"
+                  : path;
+            expect(
+              document
+                .querySelector(".narrow-navigation .narrow-nav-item.is-active")
+                ?.getAttribute("href"),
+              `${context}: grouped primary selection`,
+            ).toBe(selectedTarget);
           } else {
             expect(measurement.sidebarWidth, `${context}: full desktop sidebar width`).toBe(164);
+            expect(
+              document.querySelector<HTMLElement>(".proxy-control-button")?.getBoundingClientRect()
+                .width,
+              `${context}: desktop proxy control remains available`,
+            ).toBeGreaterThan(1);
           }
 
           if (path === "/traffic") {
@@ -537,15 +579,17 @@ describe("responsive application shell", () => {
     for (const viewport of viewports.filter(({ width }) => width < 600)) {
       await page.viewport(viewport.width, viewport.height);
       await navigate("/status");
-      const links = [...document.querySelectorAll<HTMLAnchorElement>(".nav-item")];
-      expect(links).toHaveLength(6);
+      const links = [
+        ...document.querySelectorAll<HTMLAnchorElement>(".narrow-navigation .narrow-nav-item"),
+      ];
+      expect(links).toHaveLength(4);
 
       links[0]?.focus({ preventScroll: true });
       await userEvent.keyboard("{Tab}");
       expect(document.activeElement, `${viewport.width}px keyboard entry`).toBe(links[1]);
       expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
       for (const expected of links.slice(2).concat(links.slice(0, 2))) {
-        await userEvent.keyboard("{ArrowDown}");
+        await userEvent.keyboard("{ArrowRight}");
         expect(document.activeElement, `${viewport.width}px keyboard order`).toBe(expected);
         expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
         expect(getComputedStyle(expected).outlineStyle).toBe("solid");
@@ -560,6 +604,67 @@ describe("responsive application shell", () => {
     }
   });
 
+  test("keeps grouped Home and Activity destinations discoverable and reachable", async () => {
+    await page.viewport(390, 844);
+    await selectLocale("English");
+
+    for (const group of [
+      {
+        path: "/status",
+        targets: ["/status", "/profiles"],
+      },
+      {
+        path: "/traffic",
+        targets: ["/traffic?tab=active", "/traffic?tab=rules", "/events"],
+      },
+    ]) {
+      await navigate(group.path);
+      const links = [
+        ...document.querySelectorAll<HTMLAnchorElement>(".narrow-section-navigation .nav-item"),
+      ];
+      expect(links.map((link) => link.getAttribute("href"))).toEqual(group.targets);
+
+      for (const link of links) {
+        expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+        expectTargetOwnsItsCenter(link, `grouped destination ${link.textContent}`);
+      }
+
+      links[0]?.focus({ preventScroll: true });
+      await userEvent.keyboard("{Tab}");
+      expect(document.activeElement).toBe(links[1]);
+      expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+      expect(getComputedStyle(links[1] as HTMLAnchorElement).outlineStyle).toBe("solid");
+      for (const expected of links.slice(2)) {
+        await userEvent.keyboard("{ArrowRight}");
+        expect(document.activeElement).toBe(expected);
+        expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
+        expect(getComputedStyle(expected).outlineStyle).toBe("solid");
+      }
+    }
+
+    await navigate("/status");
+    await page
+      .elementLocator(
+        document.querySelector('.narrow-section-navigation a[href="/profiles"]') as Element,
+      )
+      .click();
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/profiles"));
+    expect(
+      document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
+    ).toBe("/status");
+
+    await navigate("/traffic");
+    await page
+      .elementLocator(
+        document.querySelector('.narrow-section-navigation a[href="/events"]') as Element,
+      )
+      .click();
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/events"));
+    expect(
+      document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
+    ).toBe("/traffic");
+  });
+
   test("preserves the compact desktop sidebar at the 600px boundary", async () => {
     await page.viewport(600, 720);
     await selectLocale("English");
@@ -567,7 +672,7 @@ describe("responsive application shell", () => {
 
     const shell = document.querySelector<HTMLElement>(".app-shell");
     const sidebar = document.querySelector<HTMLElement>(".sidebar");
-    const navigationItem = document.querySelector<HTMLElement>(".nav-item");
+    const navigationItem = document.querySelector<HTMLElement>(".desktop-nav-item");
     if (!shell || !sidebar || !navigationItem) throw new Error("Missing desktop boundary shell");
 
     expect(Math.round(sidebar.getBoundingClientRect().width)).toBe(164);

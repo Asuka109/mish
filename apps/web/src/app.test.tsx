@@ -56,6 +56,12 @@ import { loadAllLocales } from "./i18n/i18n-util.sync";
 
 loadAllLocales();
 
+function desktopNavigation() {
+  const navigation = document.querySelector<HTMLElement>(".desktop-navigation");
+  if (!navigation) throw new Error("Missing desktop navigation");
+  return within(navigation);
+}
+
 function renderRoute(
   path: string,
   locale: Locales = "en",
@@ -1782,7 +1788,7 @@ describe("production routes", () => {
     await waitFor(() => expect(document.title).toBe("Status — Mish"));
     expect(initialHeading).not.toHaveFocus();
 
-    const routesLink = screen.getByRole("link", { name: "Routes" });
+    const routesLink = desktopNavigation().getByRole("link", { name: "Routes" });
     expect(routesLink).toHaveAttribute("href", "/routes");
     await user.click(routesLink);
     const routesHeading = await screen.findByRole("heading", { name: "Routes" });
@@ -1794,10 +1800,10 @@ describe("production routes", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    const status = screen.getByRole("link", { name: "Status" });
-    const routes = screen.getByRole("link", { name: "Routes" });
-    const profiles = screen.getByRole("link", { name: "Profiles" });
-    const settings = screen.getByRole("link", { name: "Settings" });
+    const status = desktopNavigation().getByRole("link", { name: "Status" });
+    const routes = desktopNavigation().getByRole("link", { name: "Routes" });
+    const profiles = desktopNavigation().getByRole("link", { name: "Profiles" });
+    const settings = desktopNavigation().getByRole("link", { name: "Settings" });
 
     status.focus();
     await user.keyboard("{ArrowDown}");
@@ -1825,10 +1831,10 @@ describe("production routes", () => {
     statusScroller!.scrollTop = 180;
     fireEvent.scroll(statusScroller!);
 
-    await user.click(screen.getByRole("link", { name: "Routes" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Routes" }));
     const routesHeading = await screen.findByRole("heading", { name: "Routes" });
     await waitFor(() => expect(routesHeading).toHaveFocus());
-    await user.click(screen.getByRole("link", { name: "Status" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Status" }));
 
     await screen.findByRole("heading", { name: "Status" });
     await waitFor(() =>
@@ -2952,7 +2958,7 @@ describe("Status fixture experience", () => {
     renderRoute("/status");
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
     await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
-    await user.click(screen.getByRole("link", { name: "Routes" }));
+    await user.click(desktopNavigation().getByRole("link", { name: "Routes" }));
     await user.click(await screen.findByRole("button", { name: "Browse 🌐 Proxy" }));
 
     expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
@@ -3749,7 +3755,7 @@ describe("Status fixture experience", () => {
       preferences: { language: "zh-CN" },
     });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "Routes" })).toBeInTheDocument();
+    expect(desktopNavigation().getByRole("link", { name: "Routes" })).toBeInTheDocument();
     expect(localStorage.getItem("mish.locale")).toBeNull();
     expect(
       [...view.container.querySelectorAll(".user-authored-label")].map(

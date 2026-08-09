@@ -30,6 +30,21 @@ describe("responsive shell CSS", () => {
     expect(shell).toContain("safe-area-inset-right");
     expect(shell).toContain("safe-area-inset-bottom");
     expect(shell).not.toContain("max-shell-mobile:grid-row-");
+    expect(shell).toContain("narrow-navigation-primary grid-cols-3");
+    expect(shell).toContain("narrow-navigation-utility min-w-16 grid-cols-1");
+    expect(shell).toContain("grid-cols-[minmax(0,320px)_64px] justify-between");
+    expect(shell).not.toContain("max-shell-mobile:grid-cols-7");
+    expect(shell).toContain("const narrowDestinations = [");
+    expect(shell).toContain('{ icon: House, key: "home", path: "/status" }');
+    expect(shell).toContain('{ icon: Pulse, key: "activity", path: "/traffic" }');
+  });
+
+  it("keeps proxy ownership in Home on narrow Browser layouts", () => {
+    expect(shell).toContain("desktop-navigation nav-list");
+    expect(shell).toContain("max-shell-mobile:hidden");
+    expect(shell).toContain("<ProxyControlButton />");
+    expect(shell).not.toContain("max-shell-mobile:contents");
+    expect(shell).toContain("<NarrowSectionNavigation />");
   });
 
   it("bounds the mobile root to the dynamic viewport", () => {

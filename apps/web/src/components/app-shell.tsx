@@ -3,10 +3,12 @@ import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { Gauge } from "@phosphor-icons/react/Gauge";
 import { GearSix } from "@phosphor-icons/react/GearSix";
+import { House } from "@phosphor-icons/react/House";
 import { ListBullets } from "@phosphor-icons/react/ListBullets";
 import { Moon } from "@phosphor-icons/react/Moon";
 import { PlugsConnected } from "@phosphor-icons/react/PlugsConnected";
 import { Power } from "@phosphor-icons/react/Power";
+import { Pulse } from "@phosphor-icons/react/Pulse";
 import { Sun } from "@phosphor-icons/react/Sun";
 import { Translate } from "@phosphor-icons/react/Translate";
 import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
@@ -63,6 +65,12 @@ const destinations = [
   { icon: ListBullets, key: "events", path: "/events" },
 ] as const;
 
+const narrowDestinations = [
+  { icon: House, key: "home", path: "/status" },
+  { icon: CirclesFour, key: "routes", path: "/routes" },
+  { icon: Pulse, key: "activity", path: "/traffic" },
+] as const;
+
 function getNavigationLabel(LL: TranslationFunctions, key: (typeof destinations)[number]["key"]) {
   return LL.navigation[key]();
 }
@@ -72,6 +80,22 @@ function getPageTitle(LL: TranslationFunctions, pathname: string) {
   if (title) return getNavigationLabel(LL, title.key);
   if (pathname === "/settings") return LL.navigation.settings();
   return "Mish";
+}
+
+function isActivityPath(pathname: string) {
+  return pathname === "/traffic" || pathname === "/events";
+}
+
+function isHomePath(pathname: string) {
+  return pathname === "/status" || pathname === "/profiles";
+}
+
+function isRoutesPath(pathname: string) {
+  return pathname === "/routes" || pathname.startsWith("/routes/");
+}
+
+function isSettingsPath(pathname: string) {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
 }
 
 const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Locales }> = [
@@ -107,24 +131,36 @@ const shellStyles = tv({
     brandLight: "brand-image-light theme-dark:hidden",
     brandDark: "brand-image-dark hidden theme-dark:block",
     navList: cx(
-      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid",
-      "max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0 max-shell-mobile:p-0",
+      "desktop-navigation nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75",
+      "max-shell-mobile:hidden",
     ),
     navItem: cx(
-      "nav-item grid h-sidebar-row-height w-full flex-none",
+      "nav-item desktop-nav-item grid h-sidebar-row-height w-full flex-none",
       "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
       "rounded-md border border-transparent px-sidebar-row-inset text-body font-medium",
       "text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
-      "max-shell-mobile:h-11 max-shell-mobile:grid-cols-1 max-shell-mobile:grid-rows-[18px_12px]",
-      "max-shell-mobile:content-center max-shell-mobile:justify-items-center max-shell-mobile:gap-0",
-      "max-shell-mobile:px-0 max-shell-mobile:text-micro",
-      "max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
-      "[&>span]:whitespace-nowrap max-shell-mobile:[&>span]:col-start-1",
-      "max-shell-mobile:[&>span]:row-start-2 max-shell-mobile:[&>span]:block",
-      "max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
-      "[&_svg]:justify-self-center max-shell-mobile:[&_svg]:row-start-1",
+      "[&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
+      "[&>span]:whitespace-nowrap [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
+      "[&_svg]:justify-self-center",
     ),
-    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75 max-shell-mobile:contents",
+    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75",
+    narrowNavigation: cx(
+      "narrow-navigation hidden min-w-0 grid-cols-[minmax(0,320px)_64px] justify-between gap-2",
+      "max-shell-mobile:grid",
+    ),
+    narrowNavigationIsland: cx(
+      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas",
+      "shadow-sidebar-item-active",
+    ),
+    narrowNavigationPrimary: "narrow-navigation-primary grid-cols-3",
+    narrowNavigationUtility: "narrow-navigation-utility min-w-16 grid-cols-1",
+    narrowNavItem: cx(
+      "nav-item narrow-nav-item grid min-h-12 min-w-0 grid-rows-[20px_14px] content-center",
+      "justify-items-center gap-0 rounded-md border border-transparent px-1 text-micro leading-3",
+      "font-medium text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
+      "[&>span]:block [&>span]:max-w-full [&>span]:overflow-hidden",
+      "[&>span]:text-ellipsis [&>span]:whitespace-nowrap [&_svg]:size-5",
+    ),
     workspace: cx(
       "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
       "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
@@ -160,13 +196,26 @@ const shellStyles = tv({
       "max-toolbar-compact:hidden",
     ),
     loading: "toolbar-loading text-metadata text-muted-foreground max-shell-mobile:hidden",
-    contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
+    workspaceBody: "workspace-body grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]",
+    sectionNavigation: cx(
+      "narrow-section-navigation hidden min-w-0 gap-1 overflow-x-auto border-b border-hairline",
+      "bg-canvas px-3 py-1 scrollbar-none max-shell-mobile:flex",
+    ),
+    sectionNavigationLink: cx(
+      "narrow-section-navigation-link inline-flex min-h-11 min-w-max items-center rounded-full",
+      "px-3 text-metadata font-medium text-muted-foreground no-underline hover:bg-accent",
+      "hover:text-ink",
+    ),
+    contentScroll: "workspace-page-scroll row-start-2 min-h-0 min-w-0 overflow-auto",
   },
   variants: {
     active: {
       true: {
         navItem:
           "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink shadow-sidebar-item-active",
+        narrowNavItem:
+          "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink",
+        sectionNavigationLink: "is-active bg-accent text-ink",
       },
       false: {},
     },
@@ -178,8 +227,7 @@ export const proxyControlStyles = tv({
     proxyControl: cx(
       "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden",
       "rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium",
-      "text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11",
-      "max-shell-mobile:text-micro max-shell-mobile:leading-3",
+      "text-muted-foreground isolate disabled:opacity-100",
       "[&:not([data-status=healthy]):hover]:bg-sidebar-item-hover",
       "[&:not([data-status=healthy]):hover]:text-fg",
     ),
@@ -188,18 +236,12 @@ export const proxyControlStyles = tv({
       "proxy-control-state relative z-2 grid w-full min-w-0",
       "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
       "px-sidebar-row-inset transition-opacity duration-160 ease-proxy-crossfade",
-      "max-shell-mobile:grid-cols-1 max-shell-mobile:grid-rows-[18px_12px]",
-      "max-shell-mobile:content-center max-shell-mobile:justify-items-center max-shell-mobile:gap-0",
-      "max-shell-mobile:px-0 [&>:first-child]:col-start-1",
-      "max-shell-mobile:[&>:first-child]:row-start-1",
+      "[&>:first-child]:col-start-1",
       "[&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
     ),
     defaultState: "proxy-control-default",
     hoverState: "proxy-control-hover absolute inset-0 opacity-0",
-    label: cx(
-      "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-      "max-shell-mobile:col-start-1 max-shell-mobile:row-start-2 max-shell-mobile:max-w-full",
-    ),
+    label: "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
   },
   variants: {
     healthy: {
@@ -239,9 +281,9 @@ function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (currentIndex < 0) return;
 
   let next: HTMLAnchorElement | undefined;
-  if (event.key === "ArrowDown") {
+  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
     next = destinations[(currentIndex + 1) % destinations.length];
-  } else if (event.key === "ArrowUp") {
+  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
     next = destinations[(currentIndex - 1 + destinations.length) % destinations.length];
   } else if (event.key === "Home") {
     next = destinations[0];
@@ -404,6 +446,7 @@ function ProxyControlButton() {
 
 function Sidebar() {
   const { LL } = useI18nContext();
+  const location = useLocation();
 
   return (
     <SurfaceScope
@@ -474,7 +517,115 @@ function Sidebar() {
           <ProxyControlButton />
         </div>
       </nav>
+      <nav
+        aria-label={LL.mobileNavigation.primary()}
+        className={shellStyles().narrowNavigation()}
+        onKeyDown={handleSidebarKeyDown}
+      >
+        <div
+          className={shellStyles().narrowNavigationIsland({
+            className: shellStyles().narrowNavigationPrimary(),
+          })}
+        >
+          {narrowDestinations.map(({ icon: Icon, key, path }) => {
+            const label = LL.mobileNavigation[key]();
+            const selected =
+              key === "home"
+                ? isHomePath(location.pathname)
+                : key === "activity"
+                  ? isActivityPath(location.pathname)
+                  : isRoutesPath(location.pathname);
+            return (
+              <NavLink
+                aria-current={selected ? "page" : undefined}
+                aria-label={label}
+                className={shellStyles({ active: selected }).narrowNavItem()}
+                key={path}
+                title={label}
+                to={path}
+              >
+                <Icon aria-hidden="true" weight={selected ? "fill" : "regular"} />
+                <span>{label}</span>
+              </NavLink>
+            );
+          })}
+        </div>
+        <div
+          className={shellStyles().narrowNavigationIsland({
+            className: shellStyles().narrowNavigationUtility(),
+          })}
+        >
+          <NavLink
+            aria-current={isSettingsPath(location.pathname) ? "page" : undefined}
+            aria-label={LL.mobileNavigation.settings()}
+            className={shellStyles({
+              active: isSettingsPath(location.pathname),
+            }).narrowNavItem()}
+            title={LL.mobileNavigation.settings()}
+            to="/settings"
+          >
+            <GearSix
+              aria-hidden="true"
+              weight={isSettingsPath(location.pathname) ? "fill" : "regular"}
+            />
+            <span>{LL.mobileNavigation.settings()}</span>
+          </NavLink>
+        </div>
+      </nav>
     </SurfaceScope>
+  );
+}
+
+function NarrowSectionNavigation() {
+  const { LL } = useI18nContext();
+  const location = useLocation();
+  const home = isHomePath(location.pathname);
+  const activity = isActivityPath(location.pathname);
+  if (!home && !activity) return null;
+
+  const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
+  const links = home
+    ? [
+        { label: LL.navigation.status(), selected: location.pathname === "/status", to: "/status" },
+        {
+          label: LL.navigation.profiles(),
+          selected: location.pathname === "/profiles",
+          to: "/profiles",
+        },
+      ]
+    : [
+        {
+          label: LL.mobileNavigation.connections(),
+          selected: location.pathname === "/traffic" && !rules,
+          to: "/traffic?tab=active",
+        },
+        { label: LL.mobileNavigation.rules(), selected: rules, to: "/traffic?tab=rules" },
+        {
+          label: LL.mobileNavigation.events(),
+          selected: location.pathname === "/events",
+          to: "/events",
+        },
+      ];
+
+  return (
+    <nav
+      aria-label={home ? LL.mobileNavigation.home() : LL.mobileNavigation.activity()}
+      className={shellStyles().sectionNavigation()}
+      onKeyDown={handleSidebarKeyDown}
+    >
+      {links.map(({ label, selected, to }) => (
+        <NavLink
+          aria-current={selected ? "page" : undefined}
+          className={shellStyles({ active: selected }).sectionNavigationLink({
+            className: "nav-item",
+          })}
+          key={to}
+          to={to}
+        >
+          {label}
+        </NavLink>
+      ))}
+    </nav>
   );
 }
 
@@ -744,8 +895,11 @@ export function AppShell() {
       <SurfaceScope as="main" className={shellStyles().workspace()} surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
-        <div className={shellStyles().contentScroll()}>
-          <Outlet />
+        <div className={shellStyles().workspaceBody()}>
+          <NarrowSectionNavigation />
+          <div className={shellStyles().contentScroll()}>
+            <Outlet />
+          </div>
         </div>
       </SurfaceScope>
     </div>
