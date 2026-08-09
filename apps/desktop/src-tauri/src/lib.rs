@@ -2789,9 +2789,9 @@ mod tests {
         InternalTunCaptureRestore, LOCAL_BACKUP_DIALOG_FILTER, LOCAL_BACKUP_MAX_BYTES,
         LOCAL_BACKUP_OPEN_DIALOG_TITLE, LOCAL_BACKUP_SAVE_DIALOG_TITLE,
         MIHOMO_PROFILE_DIALOG_FILTER, MIHOMO_PROFILE_DIALOG_TITLE, MainWindowCloseAction,
-        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME, SUPPORT_BUNDLE_DIALOG_FILTER,
-        SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES, StartupOptions,
-        SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        ManagedRuntimeLease, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_DIALOG_FILE_NAME,
+        SUPPORT_BUNDLE_DIALOG_FILTER, SUPPORT_BUNDLE_DIALOG_TITLE, SUPPORT_BUNDLE_MAX_BYTES,
+        StartupOptions, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
         atomic_write_support_bundle_with_failure, automatic_application_launch_allowed,
         desktop_bridge_port_policy, desktop_demo_requested, development_tun_service_not_installed,
         development_tun_startup_admission, dialog_selection_path, generate_auth_token,
@@ -3092,6 +3092,24 @@ mod tests {
             true,
             ApplicationLaunchBehavior::Off
         ));
+    }
+
+    #[test]
+    fn fresh_app_data_is_created_by_the_instance_lease_before_updater_reconciliation() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = root.path().join("fresh/application/data");
+        assert!(!app_data.exists());
+
+        let _lease = ManagedRuntimeLease::acquire(&app_data.join("runtime")).unwrap();
+        let updater = mish_updater::UpdaterService::unconfigured_with_maintenance(
+            "fresh-process",
+            app_data.join("updater-maintenance"),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .unwrap();
+
+        assert!(updater.automatic_activation_allowed());
+        assert!(app_data.join("updater-maintenance").is_dir());
     }
 
     #[test]
