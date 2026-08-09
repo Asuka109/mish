@@ -28,10 +28,10 @@ use mish_runtime::{
     NetworkServiceProxyState, NotificationPublication, NotificationSeverity, RoutingMode,
     StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource, StatusSnapshot,
     TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource, TrafficMatchedRule, TunHelperAvailability, TunHelperController,
-    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
-    TunNetworkObservation, tun_observation_now,
+    TrafficDataSource, TrafficMatchedRule, TrafficSourceRuntimeContext, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
+    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -183,6 +183,39 @@ struct ProcessIconDataSource;
 impl StatusDataSource for ProcessIconDataSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
         StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+}
+
+#[derive(Default)]
+struct CaptureAwareTrafficSource {
+    capture_session_id: Mutex<Option<String>>,
+}
+
+impl StatusDataSource for CaptureAwareTrafficSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+
+    fn profile_id(&self) -> Option<String> {
+        Some("local".into())
+    }
+}
+
+impl TrafficDataSource for CaptureAwareTrafficSource {
+    fn set_runtime_context(&self, context: TrafficSourceRuntimeContext) {
+        *self.capture_session_id.lock().unwrap() = context.capture_session_id;
+    }
+
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        let mut snapshot = TrafficDataSnapshot::unavailable(adapter_kind);
+        snapshot.phase = if self.capture_session_id.lock().unwrap().is_some() {
+            TrafficDataPhase::Stale
+        } else {
+            TrafficDataPhase::Ready
+        };
+        snapshot.sequence = 1;
+        snapshot.session_id = Some("capture-aware-traffic".into());
+        snapshot
     }
 }
 
@@ -4999,6 +5032,73 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
     )
     .await;
     assert_eq!(after["result"], before["result"]);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn confirmed_capture_context_change_wakes_a_traffic_only_subscription() {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "traffic-capture-fixture".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    ));
+    let source = Arc::new(CaptureAwareTrafficSource::default());
+    let runtime = MishRuntime::with_data_sources_and_capture(
+        Arc::new(RunningCore),
+        source.clone(),
+        source,
+        Some(capture),
+    );
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut traffic_client = socket(bridge.address).await;
+    let mut command_client = socket(bridge.address).await;
+    authenticate(&mut traffic_client).await;
+    authenticate(&mut command_client).await;
+    let subscribed = request(
+        &mut traffic_client,
+        json!({"jsonrpc":"2.0", "id":2, "method":"traffic.subscribe", "params":{}}),
+    )
+    .await;
+    assert_eq!(subscribed["result"]["snapshot"]["phase"], "ready");
+    let subscription_id = subscribed["result"]["subscriptionId"].clone();
+
+    let enabled = request(
+        &mut command_client,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert!(enabled.get("error").is_none());
+
+    let mut observed_stale = false;
+    for _ in 0..3 {
+        let update = next_json(&mut traffic_client).await;
+        assert_eq!(update["method"], "traffic.snapshot");
+        assert_eq!(update["params"]["subscriptionId"], subscription_id);
+        if update["params"]["snapshot"]["phase"] == "stale" {
+            observed_stale = true;
+            break;
+        }
+    }
+    assert!(
+        observed_stale,
+        "confirmed capture authority must invalidate the subscribed Traffic snapshot"
+    );
+
     bridge.shutdown().await;
 }
 

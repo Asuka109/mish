@@ -133,6 +133,7 @@ impl TrafficSourceAuthority {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TrafficCommandRequest {
+    pub(crate) admitted_target_count: usize,
     pub(crate) authority: TrafficCommandAuthority,
     pub(crate) operation: TrafficCommandOperation,
     pub(crate) operation_id: String,
@@ -233,16 +234,12 @@ impl TrafficSourceMachineState {
             return (self.clone(), None);
         };
         let target_ids = pending.request.requested_ids.clone().unwrap_or_default();
-        let target_count = match pending.request.operation {
-            TrafficCommandOperation::CloseAllActive => 0,
-            _ => target_ids.len(),
-        };
         let next = self.finish(
             pending.request.clone(),
             TrafficCommandExecution::failure(
                 pending.request.operation,
                 failure,
-                target_count,
+                pending.request.admitted_target_count,
                 target_ids,
             ),
         );
@@ -667,7 +664,7 @@ impl TransitionObserver<TrafficSourceMachine> for TrafficSourceObserver {
                     .pending
                     .as_ref()
                     .map(|pending| pending.correlation.effect_id),
-                request.requested_ids.as_ref().map(Vec::len),
+                Some(request.admitted_target_count),
                 None,
             ),
             TrafficSourceInput::Completed { execution, .. } => (
@@ -769,6 +766,7 @@ mod tests {
 
     fn request(operation_id: &str, source: &TrafficSourceStamp) -> TrafficCommandRequest {
         TrafficCommandRequest {
+            admitted_target_count: 1,
             authority: TrafficCommandAuthority {
                 profile_id: source.context.profile_id.clone(),
                 sequence: source.sequence,
@@ -1052,6 +1050,40 @@ mod tests {
             ),
             Transition::Retired
         ));
+    }
+
+    #[test]
+    fn close_all_retirement_preserves_the_admitted_target_count() {
+        let state = live();
+        let source = state.authority.live().unwrap();
+        let request = TrafficCommandRequest {
+            admitted_target_count: 3,
+            authority: TrafficCommandAuthority {
+                profile_id: source.context.profile_id.clone(),
+                sequence: source.sequence,
+                session_id: source.session_id.clone(),
+            },
+            operation: TrafficCommandOperation::CloseAllActive,
+            operation_id: "close-all-operation".into(),
+            requested_ids: None,
+        };
+        let pending =
+            match TrafficSourceMachine.reduce(&state, &TrafficSourceInput::Request(request)) {
+                Transition::EffectEmitting { state, .. } => state,
+                _ => panic!("close-all must be admitted"),
+            };
+        let replacing = match TrafficSourceMachine
+            .reduce(&pending, &TrafficSourceInput::BeginBinding(context(2)))
+        {
+            Transition::EffectEmitting { state, .. } => state,
+            _ => panic!("replacement must cancel close-all"),
+        };
+        let execution = replacing.command_result("close-all-operation").unwrap();
+        assert_eq!(
+            execution.failure,
+            Some(TrafficCommandFailureKind::RuntimeReplaced)
+        );
+        assert_eq!(execution.target_count, 3);
     }
 
     #[test]

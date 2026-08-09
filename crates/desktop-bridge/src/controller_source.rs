@@ -2460,7 +2460,16 @@ impl ControllerStatusSource {
     ) -> TrafficCommandExecution {
         synchronize_traffic_machine(&self.inner).await;
         let operation_id = Uuid::new_v4().to_string();
+        let admitted_target_count = if matches!(operation, TrafficCommandOperation::CloseAllActive)
+        {
+            traffic_snapshot_from_inner(&self.inner, StatusAdapterKind::Rpc)
+                .active_connections
+                .len()
+        } else {
+            requested_ids.as_ref().map_or(0, Vec::len)
+        };
         let request = TrafficCommandRequest {
+            admitted_target_count,
             authority,
             operation,
             operation_id: operation_id.clone(),
@@ -2668,7 +2677,7 @@ fn retired_traffic_execution(request: &TrafficCommandRequest) -> TrafficCommandE
     TrafficCommandExecution::failure(
         request.operation,
         TrafficCommandFailureKind::RuntimeReplaced,
-        remaining.len(),
+        request.admitted_target_count,
         remaining,
     )
 }
