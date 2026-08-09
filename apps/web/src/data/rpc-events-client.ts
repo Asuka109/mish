@@ -9,7 +9,7 @@ import {
 } from "@mish/contracts";
 import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
 import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
-import { mapRpcError } from "./rpc-status-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -71,7 +71,7 @@ export class RpcEventsClient implements EventsClient {
       return result.snapshot;
     } catch (error) {
       const mapped =
-        error instanceof RpcRemoteError ? mapRpcError(error) : projectRpcClientFailure(error);
+        error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
       throw new EventsClientError(mapped.code, mapped.message, mapped.retryable);
     }
   }

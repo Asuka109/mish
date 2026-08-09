@@ -138,7 +138,7 @@ export class RpcStatusClient implements StatusClient {
       this.emitSnapshotConnectionState();
       return result;
     } catch (error) {
-      throw mapRpcError(error);
+      throw mapStatusRpcError(error);
     }
   }
 
@@ -390,7 +390,7 @@ export class RpcStatusClient implements StatusClient {
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
-      const mapped = mapRpcError(error);
+      const mapped = mapStatusRpcError(error);
       if (mapped.snapshot === null) throw mapped;
       const snapshot = this.acceptSnapshot(mapped.snapshot);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
@@ -428,7 +428,7 @@ function captureOperationPhaseRank(phase: CaptureOperationStatusDto["phase"]) {
   }
 }
 
-export function mapRpcError(error: unknown) {
+export function mapStatusRpcError(error: unknown) {
   if (error instanceof StatusClientError) return error;
   if (error instanceof RpcRemoteError) {
     const parsed = StatusCommandErrorDataSchema.safeParse(error.data);

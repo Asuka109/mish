@@ -12,7 +12,7 @@ import {
   type TrafficSnapshotNotificationDto,
 } from "@mish/contracts";
 import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
-import { mapRpcError } from "./rpc-status-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 import {
   projectRpcClientFailure,
@@ -293,6 +293,6 @@ export class RpcTrafficClient implements TrafficClient {
 function toTrafficClientError(error: unknown) {
   if (error instanceof TrafficClientError) return error;
   const mapped =
-    error instanceof RpcRemoteError ? mapRpcError(error) : projectRpcClientFailure(error);
+    error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
   return new TrafficClientError(mapped.code, mapped.message, mapped.retryable);
 }

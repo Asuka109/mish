@@ -8,7 +8,7 @@ import {
   type UpdaterSnapshotNotificationDto,
 } from "@mish/contracts";
 import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
-import { mapRpcError } from "./rpc-status-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -182,7 +182,7 @@ export class RpcUpdaterClient implements UpdaterClient {
 
 function mapUpdaterError(error: unknown) {
   const mapped =
-    error instanceof RpcRemoteError ? mapRpcError(error) : projectRpcClientFailure(error);
+    error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
   const kind =
     error instanceof RpcRemoteError &&
     error.data &&

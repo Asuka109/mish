@@ -14,7 +14,7 @@ import {
   type NotificationSnapshotNotificationDto,
 } from "@mish/contracts";
 import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
-import { mapRpcError } from "./rpc-status-client";
+import { mapStatusRpcError } from "./rpc-status-client";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -151,7 +151,7 @@ export class RpcNotificationClient implements NotificationClient {
       return (await this.rpc.request(method, params as never, options)) as Result;
     } catch (error) {
       const mapped =
-        error instanceof RpcRemoteError ? mapRpcError(error) : projectRpcClientFailure(error);
+        error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
       throw new Error(mapped.message, { cause: error });
     }
   }
