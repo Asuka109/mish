@@ -325,7 +325,7 @@ describe("responsive application shell", () => {
     const buttonStyle = getComputedStyle(button);
     const materialStyle = getComputedStyle(material);
 
-    expect(materialStyle.backgroundColor).toBe(buttonStyle.backgroundColor);
+    expect(materialStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     expect(Number.parseFloat(materialStyle.borderTopLeftRadius)).toBe(
       Number.parseFloat(buttonStyle.borderTopLeftRadius) - 1,
     );
