@@ -21,7 +21,7 @@ states to reset scopes, ordering keys, and terminal transitions without
 creating a parallel ownership model.
 
 The original audit did not introduce a state-machine library or perform a
-repository-wide state rewrite. Issue #305 later superseded only the narrow
+repository-wide state rewrite. Completed Issue #305 later superseded only the narrow
 "no generic machine wrapper" conclusion with a small repository-owned
 execution kernel. Domain states and reducers remain specific, and the
 repository-wide rewrite remains out of scope.
@@ -444,8 +444,8 @@ duplicated here.
 
 ### 4. Typed Profile activation state and atomic Runtime saga
 
-- **Delivery:** the typed DTO foundation was completed by Issue #236; Issue
-  #288 moved the lifecycle onto the repository kernel without a protocol bump.
+- **Delivery:** the typed DTO foundation was completed by Issue #236; Issue #288
+  moved the lifecycle onto the repository kernel without a protocol bump.
   One internal
   data-bearing Rust enum owns idle, pending, success, failure, cancellation,
   finalization, Recovery Required, compensation, rollback, retry, and shutdown
@@ -492,19 +492,11 @@ duplicated here.
 - **Acceptance:** confirmation-only; native projection parity and transition
   correctness are covered by deterministic Adapter and contract tests.
 
-## Closure criteria
+## Historical delivery record
 
-Issue #207 may close only when:
-
-- this inventory remains linked to executable evidence and covers every scope
-  required by the issue;
-- the five slices above exist as bounded implementation Issues after accepted
-  delivery, with dependencies, cutover, tests, and acceptance style;
-- the ownership taxonomy and cross-links remain aligned with
-  `runtime-state-ownership.md`;
-- documentation checks, `pnpm check:pr`, and the Fast PR gate pass;
-- the pull request is explicitly accepted and merged.
-
-If any item is missing, #207 must remain open with the exact remaining
-criterion. A merged audit document alone is not automatic evidence of complete
-tracker closure.
+Completed Issue #207 was accepted only after this inventory linked executable
+evidence for its required scopes, the five slices had bounded ownership, the
+ownership taxonomy and cross-links aligned, repository and Fast PR gates passed,
+and the pull request merged. The tracker was then reconciled and closed. This
+historical record does not make a later CI run evidence for a gate that was
+unavailable at delivery time.

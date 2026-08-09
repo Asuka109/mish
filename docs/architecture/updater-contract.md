@@ -226,9 +226,9 @@ cutoff. See
 The proof is **GO** on invariant clarity, failure handling, and interface
 readability: stale work is rejected by one complete correlation rule,
 cancellation has one named commit point, and every owned task exit has a
-deterministic reducer path. This conclusion authorizes dependent architecture
-work only after Issue #285 is accepted, its required gates pass, and the change
-is merged. It does not authorize Capture/TUN, download/install, UI,
+deterministic reducer path. Dependent architecture work was authorized only
+after completed Issue #285 was accepted, its required gates passed, and its
+change merged. That acceptance did not authorize Capture/TUN, download/install, UI,
 publication, or a generic state-machine framework.
 
 ### Download, Verify, and Ready typed reducer

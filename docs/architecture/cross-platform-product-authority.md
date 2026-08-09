@@ -3,8 +3,8 @@
 ## Decision and evidence baseline
 
 This contract defines the product-authority boundary required before Mish adds
-more Android behavior. It was audited from `origin/main` at
-`08b37dea328d68f3c3b83ebf7fa22947e0f7bc08` for
+more Android behavior. Its historical audit baseline was `origin/main` at
+`08b37dea328d68f3c3b83ebf7fa22947e0f7bc08` for completed
 [Issue #261](https://github.com/Asuka109/mish/issues/261). The inventory links
 to implementation evidence rather than inferring ownership from a crate,
 language, or UI name.
@@ -47,7 +47,8 @@ cross-platform: code that depends on Axum, a loopback listener, a desktop
 Mihomo process, macOS paths, or desktop bootstrap remains a desktop adapter.
 
 This is an architecture and current-state delivery. It does not move code,
-enable a production Android VPN, implement Issues #91 or #94, change desktop
+enable a production Android VPN, implement completed Issue #91 or completed
+Issue #94, change desktop
 behavior, or promise compatibility for unreleased internal behavior.
 
 ## State-scope taxonomy
@@ -109,7 +110,7 @@ references and are checked by `pnpm check:docs`.
 | `M05` | Mobile VPN client command completion and snapshot acceptance                                                                                             | React [`MobileVpnFixtureClient`](../../apps/web/src/platform/mobile-vpn-client.ts) buffers events until a complete Rust baseline, compares authority/session/revision/sequence, and consumes operation-keyed terminal-or-unknown command results.                                                                                                                 | `view-local`                     | React keeps pending display only; Shared Rust command results carry operation identity and terminal/unknown outcome, and snapshot acceptance compares authority/session plus sequence.                                                                        | Delivered. Prior-authority and retired-session events cannot replace the accepted baseline.                                                                                                                        |
 | `M06` | Persisted Android fixture lifecycle recovery record                                                                                                      | Kotlin [`MishVpnPlatformStore`](../../apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnStateStore.kt) persists a versioned foreground-expected/service-instance record plus the complete admitted lifecycle authority needed to retire an active Core after process recreation; it removes the unreleased `snapshot-v1`. | `durable installation state`     | Keep only minimum platform safety evidence. Recreated Shared Rust adopts the exact machine authority, scope epoch, and admitted-revision high-water while active resources remain, then issues a successor Stop; invalid evidence stays recovery-required.    | Delivered. Kotlin persists no product phase, message, or sequence and cannot mint replacement authority; the record is cleared with owned platform teardown.                                                       |
 | `V01` | Desktop versus mobile product routes, page layout, safe areas, touch, focus, and platform feedback                                                       | Separate [`AppShell`](../../apps/web/src/components/app-shell.tsx) and [`MobileShell`](../../apps/web/src/components/mobile-shell.tsx) compose shared React Router routes and product providers.                                                                                                                                                                  | `view-local`                     | React keeps sole ownership of product routes, internal history/Back, page/sheet state, `canGoBack`, DOM focus, and separate platform compositions.                                                                                                            | Retain separation. Mobile currently reuses desktop-oriented page bodies; production mobile composition remains not delivered.                                                                                      |
-| `V02` | Installed-mobile persistent chrome and top-level navigation                                                                                              | React [`MobileShell`](../../apps/web/src/components/mobile-shell.tsx) derives the selected destination from React Router and renders the top bar, child-route Back affordance, Activity secondary navigation, and five-destination bottom navigation.                                                                                                             | `view-local`                     | React and React Router remain the sole owners of persistent product chrome, top-level selection, child routes, history/Back, page and business overlays, scroll state, and DOM focus.                                                                         | Retain. The rejected Native persistent-shell proposal from #343/#370/#372 was retired after #373 hands-on validation exposed split navigation ownership.                                                           |
+| `V02` | Installed-mobile persistent chrome and top-level navigation                                                                                              | React [`MobileShell`](../../apps/web/src/components/mobile-shell.tsx) derives the selected destination from React Router and renders the top bar, child-route Back affordance, Activity secondary navigation, and five-destination bottom navigation.                                                                                                             | `view-local`                     | React and React Router remain the sole owners of persistent product chrome, top-level selection, child routes, history/Back, page and business overlays, scroll state, and DOM focus.                                                                         | Retain. The rejected Native persistent-shell proposal from Issue #343 / PR #370 and superseded Issue #372 was retired after rejected Issue #373 hands-on validation exposed split navigation ownership.            |
 
 ## Risk register and migration rules
 
@@ -241,8 +242,8 @@ Each node is an independently demoable vertical slice. None is a horizontal
 
 ## Exact follow-up Issue draft set
 
-These are drafts only. Issue #261 requires explicit human acceptance of this
-contract before they are created.
+These drafts preserve the planning context reviewed for completed Issue #261.
+They are not current tracker state or an instruction to create new work.
 
 ### VS-A — Make the existing Android fixture lifecycle Rust-authoritative
 
@@ -323,16 +324,16 @@ runtime acceptance remain required before the slice is accepted.
 
 ## Rejected alternatives
 
-| Alternative                                                                                   | Rejection                                                                                                                                                                                        |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Run the desktop loopback bridge inside mobile                                                 | It adds an unnecessary listener, token/bootstrap lifecycle, WebSocket reconnect model, desktop process assumptions, and a second local security boundary.                                        |
-| Let Kotlin own the Android product state machine                                              | It would duplicate Profile activation, capture/runtime transitions, command identity, ordering, redaction, notification, and recovery rules already required across platforms.                   |
-| Move permission, TUN, service lifetime, System Proxy, windows, or JNI calls into generic Rust | Those are platform facts and effects. Generic code can request and reconcile them but cannot own the OS object or callback lifetime.                                                             |
-| Move every long-lived React value into Rust                                                   | Filters, focus, sheets, navigation display, pause copies, selected rows, and animation are view-local and gain no cross-client correctness from a process authority.                             |
-| Build one universal desktop/mobile page with platform flags                                   | It couples incompatible navigation, safe-area, touch, density, lifecycle, and accessibility recipes and makes each platform harder to verify.                                                    |
-| Split persistent mobile chrome into Native while product routes remain Web                    | Child routes must cover their tab root while history, Back, overlays, sheets, and focus remain Web-owned. The exact #373 candidate demonstrated that this creates two visible navigation owners. |
-| Perform one repository-wide “move everything to Rust” refactor                                | It is not independently demoable, hides authority regressions, and prevents one-domain rollback. Use the vertical slices above.                                                                  |
-| Add compatibility layers for every internal prototype schema                                  | Mish is a rapidly iterated internal build. Preserve or migrate only data whose loss creates evidenced persistence, security, capture cleanup, or update-safety risk.                             |
+| Alternative                                                                                   | Rejection                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run the desktop loopback bridge inside mobile                                                 | It adds an unnecessary listener, token/bootstrap lifecycle, WebSocket reconnect model, desktop process assumptions, and a second local security boundary.                                                 |
+| Let Kotlin own the Android product state machine                                              | It would duplicate Profile activation, capture/runtime transitions, command identity, ordering, redaction, notification, and recovery rules already required across platforms.                            |
+| Move permission, TUN, service lifetime, System Proxy, windows, or JNI calls into generic Rust | Those are platform facts and effects. Generic code can request and reconcile them but cannot own the OS object or callback lifetime.                                                                      |
+| Move every long-lived React value into Rust                                                   | Filters, focus, sheets, navigation display, pause copies, selected rows, and animation are view-local and gain no cross-client correctness from a process authority.                                      |
+| Build one universal desktop/mobile page with platform flags                                   | It couples incompatible navigation, safe-area, touch, density, lifecycle, and accessibility recipes and makes each platform harder to verify.                                                             |
+| Split persistent mobile chrome into Native while product routes remain Web                    | Child routes must cover their tab root while history, Back, overlays, sheets, and focus remain Web-owned. The rejected Issue #373 candidate demonstrated that this creates two visible navigation owners. |
+| Perform one repository-wide “move everything to Rust” refactor                                | It is not independently demoable, hides authority regressions, and prevents one-domain rollback. Use the vertical slices above.                                                                           |
+| Add compatibility layers for every internal prototype schema                                  | Mish is a rapidly iterated internal build. Preserve or migrate only data whose loss creates evidenced persistence, security, capture cleanup, or update-safety risk.                                      |
 
 ## Persistence and compatibility policy
 
@@ -361,17 +362,10 @@ continues to permit whole-record safe recovery for unsupported internal schemas.
 implementation evidence, requires all scope classes and row IDs, checks that
 the mobile bootstrap remains separate from desktop `runtime_bootstrap`, and
 requires this contract to be indexed from current-state documentation. It is a
-drift detector, not proof that future migrations are implemented.
+drift detector, not proof that later migrations were implemented.
 
-Issue #261 is ready to close only after:
-
-- this evidence matrix, boundary, dependency graph, rejected alternatives, and
-  exact vertical slices receive explicit human acceptance;
-- documentation links/format, focused architecture inspection,
-  `pnpm check:docs`, `pnpm check:pr`, and the required Fast PR gate pass;
-- the accepted pull request is merged;
-- only the accepted bounded follow-up Issues are created with accurate
-  dependencies and the repository AI-assisted notice; and
-- Issue #261 is read back with every evidenced criterion checked, its
-  `ready-for-agent` label removed, the required notice/evidence posted, and the
-  Issue closed.
+The completed Issue #261 delivery included explicit acceptance of this evidence
+matrix and boundary, passing documentation and PR gates, a passing Fast PR gate,
+merged implementation, and final tracker reconciliation. This record is
+historical evidence; it does not make later tracker or CI state part of the old
+delivery.

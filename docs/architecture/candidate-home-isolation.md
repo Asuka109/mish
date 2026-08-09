@@ -4,7 +4,7 @@
 
 - **Decision:** Adopt one persistent global Mihomo home and UUID-scoped
   generated configuration files.
-- **Issue:** #185.
+- **Historical decision:** completed Issue #185.
 - **Scope:** Profile activation storage, provider-path isolation, startup
   validation, ownership recovery, rollback, retirement, and cleanup.
 - **Non-goals:** GeoData update/fallback policy, packaged-runtime repair,

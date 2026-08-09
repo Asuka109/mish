@@ -99,7 +99,7 @@ deep links enter the same Web-owned route hierarchy; Native adapters do not
 maintain a parallel selected-tab or product route stack.
 
 The previously delivered production-disabled Shared Rust shell-entry contract
-and Android/Apple persistent-shell prototypes were retired after hands-on #373
+and Android/Apple persistent-shell prototypes were retired after hands-on Issue #373
 validation showed that Native tabs/bars plus Web-owned child routes, history,
 Back, overlays, and focus create two navigation owners. The durable decision is
 recorded in
