@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import test from "node:test";
+import {
+  checkDocumentationTrackers,
+  type DocumentationTrackerRegistry,
+  validateDocumentationTrackers,
+} from "./check-documentation-trackers.ts";
+
+const repositoryRoot = resolve(import.meta.dirname, "..");
+
+function repositoryFixture(): {
+  registry: DocumentationTrackerRegistry;
+  sources: Record<string, string>;
+} {
+  const registry = JSON.parse(
+    readFileSync(
+      resolve(repositoryRoot, "docs/architecture/documentation-tracker-registry.json"),
+      "utf8",
+    ),
+  ) as DocumentationTrackerRegistry;
+  const sources = Object.fromEntries(
+    registry.canonicalPaths.map((path) => [
+      path,
+      readFileSync(resolve(repositoryRoot, path), "utf8"),
+    ]),
+  );
+  return { registry, sources };
+}
+
+test("repository canonical tracker references match the offline read-back", () => {
+  assert.doesNotThrow(checkDocumentationTrackers);
+});
+
+test("closed Issue classified as active future work fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  const issue = fixture.issues.find((candidate) => candidate.number === 288);
+  assert.ok(issue);
+  issue.references[0].role = "active-dependency";
+  assert.match(validateDocumentationTrackers(fixture, sources).join("\n"), /closed Issue #288/u);
+});
+
+test("future-tense residue for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nFuture work such as Issue #288 must consume this convention.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
+test("unclassified and duplicate canonical references fail deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues[0].references.push({ ...fixture.issues[0].references[0] });
+  const fixtureSources = { ...sources, "docs/current-state.md": "Future work: Issue #999." };
+  const errors = validateDocumentationTrackers(fixture, fixtureSources).join("\n");
+  assert.match(errors, /duplicate tracker reference/u);
+  assert.match(errors, /unclassified canonical tracker reference: docs\/current-state.md:#999/u);
+});
+
+test("bare tracker tokens cannot bypass Issue classification", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources, "docs/current-state.md": "Future work: #288." };
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /ambiguous tracker token in docs\/current-state.md: #288/u,
+  );
+});

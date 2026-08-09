@@ -62,7 +62,8 @@ The build inherits only `HOME`, `PATH`, `CARGO_HOME`, `RUSTUP_HOME`, and
 Rustup, invalid candidates, an absent stable Cargo, and a failed Cargo build
 produce separate typed preparation results. This remains a non-privileged
 prerequisite: it neither downloads the pinned Core nor installs a service or
-changes network state. Live administrator-operated acceptance remains #95.
+changes network state. Completed Issue #95 preserves the historical live
+administrator-operated acceptance evidence.
 The development app invokes this same bounded installer from the first-TUN
 guide and Settings lifecycle actions. Authorization uses the macOS administrator
 dialog; Mish never accepts or reads the credential. Cancellation remains a

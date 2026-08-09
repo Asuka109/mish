@@ -115,8 +115,9 @@ network observation. The adapter resumes or compensates idempotently only when
 ownership still matches. Ambiguous, foreign, partial, stale, malformed, or
 changed state becomes `RecoveryRequired` without guessing.
 
-The TUN network journal remains the canonical #295 recovery boundary and is
-reused rather than copied into a generic event log. Updater candidate recovery
+The TUN network journal delivered through completed Issue #295 remains the
+canonical recovery boundary and is reused rather than copied into a generic
+event log. Updater candidate recovery
 continues to re-verify signed metadata and staged bytes. Package receipts and
 installation enrollment remain package-domain records.
 
@@ -128,9 +129,9 @@ the Capture outer lifecycle. Updater Continuation owns Download, Verify,
 immutable candidate commit, Ready, cancellation, interruption, retirement, and
 restart re-verification. Each domain owns its `State`, `Input`, `Effect`,
 projection, and error vocabulary; the kernel supplies only bounded admission,
-task ownership, correlation, finalization, and evidence. Future work such as #288 and #289 must
-consume this convention when it introduces a high-risk lifecycle, while
-retaining its own vocabulary and recovery boundary. Migration-required
+task ownership, correlation, finalization, and evidence. Completed Issue #288
+and completed Issue #289 adopted this convention while retaining their domain
+vocabulary and recovery boundaries. Migration-required
 registry entries are independent vertical slices; this change does not rewrite
 them or imply that every enum named `State` belongs in the kernel.
 
