@@ -32,7 +32,7 @@ import {
   TooltipTrigger,
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
@@ -536,7 +536,7 @@ function Sidebar() {
                   ? isActivityPath(location.pathname)
                   : isRoutesPath(location.pathname);
             return (
-              <NavLink
+              <Link
                 aria-current={selected ? "page" : undefined}
                 aria-label={label}
                 className={shellStyles({ active: selected }).narrowNavItem()}
@@ -546,7 +546,7 @@ function Sidebar() {
               >
                 <Icon aria-hidden="true" weight={selected ? "fill" : "regular"} />
                 <span>{label}</span>
-              </NavLink>
+              </Link>
             );
           })}
         </div>
@@ -555,7 +555,7 @@ function Sidebar() {
             className: shellStyles().narrowNavigationUtility(),
           })}
         >
-          <NavLink
+          <Link
             aria-current={isSettingsPath(location.pathname) ? "page" : undefined}
             aria-label={LL.mobileNavigation.settings()}
             className={shellStyles({
@@ -569,7 +569,7 @@ function Sidebar() {
               weight={isSettingsPath(location.pathname) ? "fill" : "regular"}
             />
             <span>{LL.mobileNavigation.settings()}</span>
-          </NavLink>
+          </Link>
         </div>
       </nav>
     </SurfaceScope>
@@ -583,7 +583,8 @@ function NarrowSectionNavigation() {
   const activity = isActivityPath(location.pathname);
   if (!home && !activity) return null;
 
-  const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
+  const rules =
+    location.pathname === "/traffic" && new URLSearchParams(location.search).get("tab") === "rules";
   const links = home
     ? [
         { label: LL.navigation.status(), selected: location.pathname === "/status", to: "/status" },
@@ -614,7 +615,7 @@ function NarrowSectionNavigation() {
       onKeyDown={handleSidebarKeyDown}
     >
       {links.map(({ label, selected, to }) => (
-        <NavLink
+        <Link
           aria-current={selected ? "page" : undefined}
           className={shellStyles({ active: selected }).sectionNavigationLink({
             className: "nav-item",
@@ -623,7 +624,7 @@ function NarrowSectionNavigation() {
           to={to}
         >
           {label}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   );

@@ -262,21 +262,28 @@ function appendProxyControlFixture(
 }
 
 async function navigate(path: string): Promise<void> {
+  const target = new URL(path, window.location.origin);
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
-    expect(window.location.pathname).toBe(path);
+    expect(window.location.pathname).toBe(target.pathname);
+    expect(window.location.search).toBe(target.search);
     expect(document.querySelector("main .workspace-page-scroll")).not.toBeNull();
     expect(document.querySelector("main .route-loading")).toBeNull();
     expect(
       document
         .querySelector(".desktop-navigation .desktop-nav-item.is-active")
         ?.getAttribute("href"),
-    ).toBe(path);
+    ).toBe(target.pathname);
 
-    if (path === "/traffic") {
+    if (target.pathname === "/traffic") {
       expect(document.querySelector(".traffic-table")).not.toBeNull();
+      const expectedActivityTarget =
+        target.searchParams.get("tab") === "rules" ? "/traffic?tab=rules" : "/traffic?tab=active";
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe(expectedActivityTarget);
     }
   });
 
@@ -553,6 +560,11 @@ describe("responsive application shell", () => {
                 ?.getAttribute("href"),
               `${context}: grouped primary selection`,
             ).toBe(selectedTarget);
+            const currentPrimary = document.querySelectorAll(
+              '.narrow-navigation .narrow-nav-item[aria-current="page"]',
+            );
+            expect(currentPrimary, `${context}: one current primary destination`).toHaveLength(1);
+            expect(currentPrimary[0]?.getAttribute("href")).toBe(selectedTarget);
           } else {
             expect(measurement.sidebarWidth, `${context}: full desktop sidebar width`).toBe(164);
             expect(
@@ -623,6 +635,9 @@ describe("responsive application shell", () => {
         ...document.querySelectorAll<HTMLAnchorElement>(".narrow-section-navigation .nav-item"),
       ];
       expect(links.map((link) => link.getAttribute("href"))).toEqual(group.targets);
+      expect(
+        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+      ).toHaveLength(1);
 
       for (const link of links) {
         expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -663,6 +678,26 @@ describe("responsive application shell", () => {
     expect(
       document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
     ).toBe("/traffic");
+
+    await navigate("/traffic?tab=ruleset");
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe("/traffic?tab=active");
+      expect(
+        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+      ).toHaveLength(1);
+    });
+
+    await navigate("/traffic?tab=rules");
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe("/traffic?tab=rules");
+      expect(
+        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+      ).toHaveLength(1);
+    });
   });
 
   test("preserves the compact desktop sidebar at the 600px boundary", async () => {
