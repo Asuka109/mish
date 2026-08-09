@@ -20,6 +20,7 @@ const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
 const pluginNativeBridge = source(`${pluginRoot}/android/src/main/cpp/mish_vpn_jni.c`);
+const mobileCoreWrapper = source("mobile-core/wrapper/runtime.go");
 const mobileCoreHeader = source("mobile-core/abi/mish_mobile_core.h");
 const pluginPermission = source(`${pluginRoot}/permissions/default.toml`);
 const pluginRustModels = source(`${pluginRoot}/src/models.rs`);
@@ -241,8 +242,9 @@ for (const requirement of [
   ".addDnsServer(TUN_IPV4_DNS)",
   "setUnderlyingNetworks(networks)",
   "fun protectSocket(fileDescriptor: Int)",
-  "core.start(request.productSessionId, descriptor.fd, this)",
-  "core.stop(session)",
+  "core.start(",
+  "request.lifecycleAuthority",
+  "core.stop(authority, session)",
   "MishVpnOwnedResourceCleanup",
   "ProtectedSocketFactGate",
   "PUBLIC_PROBE_URL",
@@ -250,6 +252,22 @@ for (const requirement of [
   invariant(
     kotlin.includes(requirement),
     `The Android VPN vertical slice is missing: ${requirement}`,
+  );
+}
+for (const [authorityField, goField] of [
+  ["machineAuthority", "MachineAuthority"],
+  ["scopeEpoch", "ScopeEpoch"],
+  ["operationId", "OperationID"],
+  ["admittedRevision", "AdmittedRevision"],
+  ["effectIdentity", "EffectIdentity"],
+]) {
+  const snakeField = authorityField.replace(/[A-Z]/gu, (letter) => `_${letter.toLowerCase()}`);
+  invariant(
+    pluginRustAndroid.includes(snakeField) &&
+      kotlin.includes(authorityField) &&
+      pluginNativeBridge.includes(snakeField) &&
+      mobileCoreWrapper.includes(goField),
+    `Core lifecycle authority must cross Rust, Kotlin, JNI, and Mobile Core: ${authorityField}`,
   );
 }
 for (const forbidden of ["libmihomo", "MihomoCore", "externalController", "external-controller"]) {

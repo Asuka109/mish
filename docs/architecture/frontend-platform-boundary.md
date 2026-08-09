@@ -119,9 +119,10 @@ unavailable and cannot synthesize success.
 ## Implemented desktop local bridge slice
 
 `crates/runtime` contains the transport-neutral `MishRuntime` module and the
-`CoreRuntime` interface. The interface owns configured/status/start/stop
-semantics, stable typed error categories, Status snapshots, and lifecycle
-events. It has no Axum, Clap, Nix, executable, signal, or process dependency.
+`CoreRuntime` interface. The interface exposes observation plus one scoped
+effect adapter; only the Runtime/Profile coordinator can mint a complete Core
+lifecycle command. It has no bare start/stop method and no Axum, Clap, Nix,
+executable, signal, or process dependency.
 An adapter can publish `native` or `rpc` Status snapshots without changing the
 product view contract.
 
@@ -136,8 +137,9 @@ the native callback owns those rules.
 `crates/desktop-bridge` is the desktop implementation of the platform seam. It
 binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
 message size and subscriptions, requires an authentication-first handshake, and
-exposes explicit `bridge.getInfo`, `core.getStatus`, `core.start`, and `core.stop`
-methods. Authentication secrets come from `MISH_BRIDGE_TOKEN`; they are not CLI
+exposes `bridge.getInfo` and read-only `core.getStatus`. Product Core mutations
+enter through Profile activation/stop commands; Browser Client RPC cannot call
+bare Core start/stop. Authentication secrets come from `MISH_BRIDGE_TOKEN`; they are not CLI
 arguments and must never be stored in the repository.
 
 `DesktopMihomoProcess` implements `CoreRuntime` for the managed Mihomo process.

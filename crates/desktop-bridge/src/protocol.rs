@@ -17,10 +17,9 @@ use mish_profile::{
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
     CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
-    NotificationPresentationCompletion, NotificationPresentationCompletionResult,
-    NotificationPresentationIdentity, NotificationPublication, NotificationSeverity,
-    ProviderAuthority, ProviderKind, RoutingMode,
+    CaptureSelection, CaptureTransitionError, CoreStatus, NotificationPresentationCompletion,
+    NotificationPresentationCompletionResult, NotificationPresentationIdentity,
+    NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
     TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
@@ -954,8 +953,6 @@ async fn handle_message(
         request.method.as_str(),
         "bridge.getInfo"
             | "core.getStatus"
-            | "core.start"
-            | "core.stop"
             | "status.getSnapshot"
             | "status.subscribe"
             | "status.testLocalProxy"
@@ -1025,14 +1022,6 @@ async fn handle_message(
         "core.getStatus" => {
             serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
         }
-        "core.start" => match state.runtime.start_core().await {
-            Ok(status) => serde_json::to_value(status).expect("serializable status"),
-            Err(error) => return Some(core_error_response(id, error)),
-        },
-        "core.stop" => match state.runtime.stop_core().await {
-            Ok(status) => serde_json::to_value(status).expect("serializable status"),
-            Err(error) => return Some(core_error_response(id, error)),
-        },
         "status.getSnapshot" => state.status_snapshot().await,
         "status.setRoutingMode" => {
             let params: SetRoutingModeParams = match serde_json::from_value(request.params) {
@@ -2671,20 +2660,6 @@ fn error_response(id: Value, code: i32, message: &str, data: Option<Value>) -> V
         error["data"] = data;
     }
     json!({"jsonrpc": "2.0", "id": id, "error": error})
-}
-
-fn core_error_response(id: Value, error: CoreError) -> Value {
-    let (code, message) = match error.kind {
-        CoreErrorKind::Unavailable => (-32010, "Mihomo is not available"),
-        CoreErrorKind::StartFailed => (-32011, "Mihomo could not be started"),
-        CoreErrorKind::StopFailed => (-32011, "Mihomo could not be stopped"),
-    };
-    error_response(
-        id,
-        code,
-        message,
-        Some(json!({"detail": error.to_string(), "kind": error.kind})),
-    )
 }
 
 fn status_command_error_response(id: Value, error: StatusCommandError) -> Value {

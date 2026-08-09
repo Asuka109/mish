@@ -13,8 +13,8 @@ use mish_platform_macos::internal_tun_maintenance::{
     EnrollmentTransition, MaintenanceCommitPoint, MaintenanceKind, MaintenanceTerminalOutcome,
 };
 use mish_runtime::{
-    CaptureRequest, CaptureSelection, RuntimePhase, StatusAdapterKind, TunHelperFailureKind,
-    TunHelperRemovalCapability,
+    CaptureRequest, CaptureSelection, CoreLifecycleMutation, CoreLifecycleOperation, RuntimePhase,
+    StatusAdapterKind, TunHelperFailureKind, TunHelperRemovalCapability,
 };
 use mish_settings::{SettingsAdapterKind, SettingsServiceError};
 use mish_simulated_host::{
@@ -222,6 +222,18 @@ async fn handoff_capture(scenario: &MaintenanceScenarioRuntime) {
     .await
     .expect("application capture handoff must settle")
     .unwrap();
+}
+
+async fn shutdown_with_profile_coordinator(scenario: &MaintenanceScenarioRuntime) {
+    scenario
+        .runtime_host
+        .current()
+        .shutdown(
+            &CoreLifecycleOperation::new("simulated-profile", 100, "bridge-shutdown", 100, 100)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 }
 
 async fn repair(
@@ -1089,6 +1101,7 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
             .all(|record| { record["presentation"]["data"]["outcome"] == "applied" })
     );
 
+    shutdown_with_profile_coordinator(&scenario).await;
     drop(notifications);
     assert!(matches!(
         bridge.shutdown().await,
@@ -1160,6 +1173,7 @@ async fn authenticated_active_tun_removal_hands_off_capture_before_authorization
     assert_eq!(lifecycle["severity"], "success");
     assert_eq!(lifecycle["pinned"], false);
 
+    shutdown_with_profile_coordinator(&scenario).await;
     drop(socket);
     assert!(matches!(
         bridge.shutdown().await,
@@ -1323,6 +1337,7 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
             assert_eq!(retried["result"]["tunHelper"]["removal"], "not-installed");
         }
 
+        shutdown_with_profile_coordinator(&scenario).await;
         drop(socket);
         assert!(matches!(
             bridge.shutdown().await,
@@ -1375,6 +1390,7 @@ async fn capture_shutdown_failure_blocks_helper_removal_before_authorization() {
             .all(|event| event.effect_kind != EffectKind::MaintenanceAuthorize)
     );
 
+    shutdown_with_profile_coordinator(&scenario).await;
     drop(socket);
     assert!(matches!(
         bridge.shutdown().await,
@@ -1426,7 +1442,15 @@ async fn authenticated_rpc_projects_early_failure_actionable_recovery_and_termin
 
     // Selecting System Proxy relinquishes the initially active TUN and stops its synthetic
     // Core. Re-start through the real Core runtime before applying the authenticated repair.
-    scenario.runtime_host.current().start_core().await.unwrap();
+    scenario
+        .runtime_host
+        .current()
+        .execute_core_lifecycle(
+            &CoreLifecycleOperation::new("simulated-profile", 1, "repair-drift", 1, 1).unwrap(),
+            CoreLifecycleMutation::Start,
+        )
+        .await
+        .unwrap();
     scenario.host.advance_to(1).unwrap();
     let drift = rpc_request(
         &mut socket,
@@ -1481,6 +1505,7 @@ async fn authenticated_rpc_projects_early_failure_actionable_recovery_and_termin
         "the authenticated projection stays bounded and profile-free"
     );
 
+    shutdown_with_profile_coordinator(&scenario).await;
     drop(socket);
     assert!(matches!(
         bridge.shutdown().await,

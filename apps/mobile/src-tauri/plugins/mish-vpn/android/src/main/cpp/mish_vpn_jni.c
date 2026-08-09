@@ -313,7 +313,9 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeInspectLoadedConfig(
 
 JNIEXPORT jintArray JNICALL
 Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStartCore(
-    JNIEnv *environment, jobject instance, jstring session_id,
+    JNIEnv *environment, jobject instance, jstring machine_authority,
+    jlong scope_epoch, jstring operation_id, jlong admitted_revision,
+    jstring effect_identity, jstring session_id,
     jint tun_file_descriptor, jobject service) {
   MishVpnCoreRuntimeResult result = {
       .code = MISH_VPN_RUNTIME_CORE_UNAVAILABLE,
@@ -325,15 +327,28 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStartCore(
       .user_data = NULL,
   };
   const char *session = NULL;
+  const char *machine = NULL;
+  const char *operation = NULL;
+  const char *effect = NULL;
+  MishVpnCoreLifecycleAuthority authority;
   jobject service_reference = NULL;
   (void)instance;
-  if (session_id == NULL || service == NULL || tun_file_descriptor <= 0) {
+  if (machine_authority == NULL || scope_epoch <= 0 || operation_id == NULL ||
+      admitted_revision <= 0 || effect_identity == NULL || session_id == NULL ||
+      service == NULL || tun_file_descriptor <= 0) {
     return runtime_array(environment, result);
   }
+  machine = (*environment)->GetStringUTFChars(environment, machine_authority, NULL);
+  operation = (*environment)->GetStringUTFChars(environment, operation_id, NULL);
+  effect = (*environment)->GetStringUTFChars(environment, effect_identity, NULL);
   session = (*environment)->GetStringUTFChars(environment, session_id, NULL);
   service_reference = (*environment)->NewGlobalRef(environment, service);
-  if (session == NULL || service_reference == NULL ||
+  if (machine == NULL || operation == NULL || effect == NULL || session == NULL ||
+      service_reference == NULL ||
       (*environment)->GetJavaVM(environment, &java_vm) != JNI_OK) {
+    if (machine != NULL) (*environment)->ReleaseStringUTFChars(environment, machine_authority, machine);
+    if (operation != NULL) (*environment)->ReleaseStringUTFChars(environment, operation_id, operation);
+    if (effect != NULL) (*environment)->ReleaseStringUTFChars(environment, effect_identity, effect);
     if (session != NULL) {
       (*environment)->ReleaseStringUTFChars(environment, session_id, session);
     }
@@ -342,14 +357,19 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStartCore(
     }
     return runtime_array(environment, result);
   }
+  authority.machine_authority = machine;
+  authority.scope_epoch = (uint64_t)scope_epoch;
+  authority.operation_id = operation;
+  authority.admitted_revision = (uint64_t)admitted_revision;
+  authority.effect_identity = effect;
   pthread_once(&core_once, load_core);
   pthread_mutex_lock(&core_mutex);
   pthread_mutex_lock(&protect_mutex);
   jobject previous_service = vpn_service;
   vpn_service = service_reference;
   pthread_mutex_unlock(&protect_mutex);
-  result = mish_vpn_start_core(&core_api, &core_initialized, &platform, session,
-                               (int32_t)tun_file_descriptor);
+  result = mish_vpn_start_core(&core_api, &core_initialized, &platform,
+                               &authority, session, (int32_t)tun_file_descriptor);
   log_bounded_runtime_failure(result);
   pthread_mutex_lock(&protect_mutex);
   if (result.code == MISH_VPN_RUNTIME_RUNNING) {
@@ -362,27 +382,62 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStartCore(
   }
   pthread_mutex_unlock(&protect_mutex);
   pthread_mutex_unlock(&core_mutex);
+  (*environment)->ReleaseStringUTFChars(environment, machine_authority, machine);
+  (*environment)->ReleaseStringUTFChars(environment, operation_id, operation);
+  (*environment)->ReleaseStringUTFChars(environment, effect_identity, effect);
   (*environment)->ReleaseStringUTFChars(environment, session_id, session);
   return runtime_array(environment, result);
 }
 
 JNIEXPORT jintArray JNICALL
 Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStopCore(
-    JNIEnv *environment, jobject instance, jstring session_id) {
+    JNIEnv *environment, jobject instance, jstring machine_authority,
+    jlong scope_epoch, jstring operation_id, jlong admitted_revision,
+    jstring effect_identity, jstring session_id) {
   MishVpnCoreRuntimeResult result;
   const char *session = NULL;
+  const char *machine = NULL;
+  const char *operation = NULL;
+  const char *effect = NULL;
+  MishVpnCoreLifecycleAuthority authority;
   (void)instance;
+  if (machine_authority == NULL || scope_epoch <= 0 || operation_id == NULL ||
+      admitted_revision <= 0 || effect_identity == NULL) {
+    result.code = MISH_VPN_RUNTIME_NATIVE_FAILED;
+    result.abi_status = -1;
+    return runtime_array(environment, result);
+  }
+  machine = (*environment)->GetStringUTFChars(environment, machine_authority, NULL);
+  operation = (*environment)->GetStringUTFChars(environment, operation_id, NULL);
+  effect = (*environment)->GetStringUTFChars(environment, effect_identity, NULL);
   if (session_id != NULL) {
     session = (*environment)->GetStringUTFChars(environment, session_id, NULL);
     if (session == NULL) {
+      if (machine != NULL) (*environment)->ReleaseStringUTFChars(environment, machine_authority, machine);
+      if (operation != NULL) (*environment)->ReleaseStringUTFChars(environment, operation_id, operation);
+      if (effect != NULL) (*environment)->ReleaseStringUTFChars(environment, effect_identity, effect);
       result.code = MISH_VPN_RUNTIME_NATIVE_FAILED;
       result.abi_status = -1;
       return runtime_array(environment, result);
     }
   }
+  if (machine == NULL || operation == NULL || effect == NULL) {
+    if (machine != NULL) (*environment)->ReleaseStringUTFChars(environment, machine_authority, machine);
+    if (operation != NULL) (*environment)->ReleaseStringUTFChars(environment, operation_id, operation);
+    if (effect != NULL) (*environment)->ReleaseStringUTFChars(environment, effect_identity, effect);
+    if (session != NULL) (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+    result.code = MISH_VPN_RUNTIME_NATIVE_FAILED;
+    result.abi_status = -1;
+    return runtime_array(environment, result);
+  }
+  authority.machine_authority = machine;
+  authority.scope_epoch = (uint64_t)scope_epoch;
+  authority.operation_id = operation;
+  authority.admitted_revision = (uint64_t)admitted_revision;
+  authority.effect_identity = effect;
   pthread_once(&core_once, load_core);
   pthread_mutex_lock(&core_mutex);
-  result = mish_vpn_stop_core(&core_api, core_initialized, session);
+  result = mish_vpn_stop_core(&core_api, core_initialized, &authority, session);
   if (result.code == MISH_VPN_RUNTIME_INACTIVE) {
     pthread_mutex_lock(&protect_mutex);
     if (vpn_service != NULL) {
@@ -392,6 +447,9 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeStopCore(
     pthread_mutex_unlock(&protect_mutex);
   }
   pthread_mutex_unlock(&core_mutex);
+  (*environment)->ReleaseStringUTFChars(environment, machine_authority, machine);
+  (*environment)->ReleaseStringUTFChars(environment, operation_id, operation);
+  (*environment)->ReleaseStringUTFChars(environment, effect_identity, effect);
   if (session != NULL) {
     (*environment)->ReleaseStringUTFChars(environment, session_id, session);
   }

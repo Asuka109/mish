@@ -382,16 +382,16 @@ unconfirmed helper states remain typed unavailable or failed as defined by
 [`macos-tun-helper.md`](macos-tun-helper.md).
 
 The shared desktop-bridge contract also defines `BridgeInfoDto` and
-`CoreStatusDto`.
-`CoreStatusDto` reports a closed lifecycle phase plus optional PID, version, and
-error. Core lifecycle commands intentionally take an empty parameter object:
-the bridge process owns executable and configuration paths, so an authenticated
-browser cannot redirect process execution to an arbitrary path.
+`CoreStatusDto`. `CoreStatusDto` reports a closed lifecycle phase plus optional
+PID, version, and error. The bridge has no public Core mutation method: Profile
+activation, stop, compensation, startup recovery, and shutdown are the only
+product entries and every effect carries machine authority, scope epoch,
+operation ID, admitted revision, and effect identity.
 
-The Rust `CoreRuntime` interface mirrors these lifecycle semantics without
-depending on JSON-RPC. Its typed `unavailable`, `start-failed`, and
-`stop-failed` outcomes are mapped by the desktop transport and can be mapped by
-future Kotlin or Swift adapters without parsing English error text.
+The Rust `CoreRuntime` interface accepts only the opaque scoped effect command.
+`MishRuntime` re-observes Core after execution and publishes Running or Stopped
+only when that effect still owns finalization and the observation confirms the
+terminal phase. Replaced completions retire without publishing success.
 `MishRuntime` also attaches a transport-neutral status-event sink to the core
 adapter. Desktop child-process monitoring and future embedded mobile adapters can
 report lifecycle changes that occur outside an explicit start or stop command

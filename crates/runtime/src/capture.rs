@@ -2606,6 +2606,36 @@ impl CaptureReconciler {
         }
     }
 
+    /// Read-only shutdown proof for transport surfaces that do not own Capture mutation.
+    /// A coordinator-less bridge may close only when no System Proxy journal remains and the
+    /// Helper authoritatively observes every TUN component disabled.
+    pub async fn confirm_shutdown_safe(&self) -> Result<(), CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) || self.has_pending_operation() {
+            return Err(runtime_transition_error());
+        }
+        if self.system_proxy.load_validated_journal()?.is_some() {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "System Proxy teardown still requires coordinator-owned restoration",
+            ));
+        }
+        let Some(tun) = &self.tun else {
+            return Ok(());
+        };
+        let observed = tun
+            .helper
+            .observe_tun()
+            .await
+            .map_err(|error| capture_error_from_tun_failure(map_helper_failure(error.kind)))?;
+        if !observed.confirms_disabled_at(crate::tun_observation_now()) {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::ConfirmationFailed,
+                "TUN teardown is not authoritatively observed as disabled",
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn test_local_proxy(
         &self,
         core_healthy: bool,

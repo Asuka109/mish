@@ -13,7 +13,22 @@ use mish_bridge::{
     ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
     ManagedRuntimeLease,
 };
-use mish_runtime::{CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint};
+use mish_runtime::{
+    CoreError, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime, CoreStatus,
+    LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
+};
+
+async fn mutate_core(
+    process: &DesktopMihomoProcess,
+    mutation: CoreLifecycleMutation,
+) -> Result<CoreStatus, CoreError> {
+    MishRuntime::new(Arc::new(process.clone()))
+        .execute_core_lifecycle(
+            &CoreLifecycleOperation::new("ownership-test", 1, "owned-process", 1, 1).unwrap(),
+            mutation,
+        )
+        .await
+}
 
 #[derive(Clone)]
 struct FakeProcess {
@@ -342,11 +357,15 @@ async fn managed_process_stop_terminates_waits_reaps_and_clears_ownership() {
         ownership.clone(),
     );
 
-    let running = process.start().await.unwrap();
+    let running = mutate_core(&process, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
     assert!(matches!(running.phase, CorePhase::Running));
     assert!(ownership.has_record().unwrap());
 
-    let stopped = process.stop().await.unwrap();
+    let stopped = mutate_core(&process, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
 
     assert!(matches!(stopped.phase, CorePhase::Stopped));
     assert!(!ownership.has_record().unwrap());
@@ -375,7 +394,9 @@ async fn managed_process_preserves_ownership_when_child_inspection_fails() {
         ownership.clone(),
     );
 
-    let running = process.start().await.unwrap();
+    let running = mutate_core(&process, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
     let pid = running.pid.unwrap();
     let pid = i32::try_from(pid).unwrap();
     assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
@@ -411,7 +432,9 @@ async fn managed_process_does_not_claim_an_external_listener() {
         ownership,
     );
 
-    process.start().await.unwrap();
+    mutate_core(&process, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
 
     assert_eq!(
         process
@@ -419,7 +442,9 @@ async fn managed_process_does_not_claim_an_external_listener() {
             .await,
         LocalProxyOwnership::Unowned
     );
-    process.stop().await.unwrap();
+    mutate_core(&process, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -446,7 +471,9 @@ async fn managed_process_preserves_unknown_listener_inspection() {
         ownership,
     );
 
-    process.start().await.unwrap();
+    mutate_core(&process, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
 
     assert_eq!(
         process
@@ -454,7 +481,9 @@ async fn managed_process_preserves_unknown_listener_inspection() {
             .await,
         LocalProxyOwnership::Unknown
     );
-    process.stop().await.unwrap();
+    mutate_core(&process, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
 }
 
 #[test]

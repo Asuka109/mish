@@ -51,15 +51,23 @@ int main(void) {
   const char *forbidden_config =
       "external-controller: 127.0.0.1:9090\nproxies: []\nrules: []\n";
   const char *start =
-      "{\"sessionId\":\"session-1\",\"tunFileDescriptor\":42,\"stack\":\"mixed\","
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"start-op\",\"admittedRevision\":1,\"effectIdentity\":\"1\","
+      "\"sessionId\":\"session-1\",\"tunFileDescriptor\":42,\"stack\":\"mixed\","
       "\"addresses\":[\"172.19.0.1/30\"],\"dnsHijack\":[\"172.19.0.2:53\"],\"mtu\":1500}";
   const char *other_start =
-      "{\"sessionId\":\"session-2\",\"tunFileDescriptor\":43,\"stack\":\"mixed\","
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"start-op\",\"admittedRevision\":1,\"effectIdentity\":\"1\","
+      "\"sessionId\":\"session-2\",\"tunFileDescriptor\":43,\"stack\":\"mixed\","
       "\"addresses\":[\"172.19.0.1/30\"],\"dnsHijack\":[],\"mtu\":1500}";
   const char *status_snapshot = "{\"kind\":\"status\"}";
   const char *set_mode =
       "{\"operation\":\"set-routing-mode\",\"mode\":\"global\"}";
   const char *poll_events = "{\"afterSequence\":\"0\",\"limit\":16}";
+  const char *stop =
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"stop-op\",\"admittedRevision\":2,\"effectIdentity\":\"1\",\"sessionId\":\"session-1\"}";
+  const char *cancel_stop =
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"start-op\",\"admittedRevision\":1,\"effectIdentity\":\"2\",\"sessionId\":\"session-1\"}";
+  const char *stale_stop =
+      "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"stale-op\",\"admittedRevision\":1,\"effectIdentity\":\"1\",\"sessionId\":\"session-1\"}";
 
   assert(mish_core_abi_version_v1() == MISH_CORE_ABI_VERSION_V1);
   assert(mish_core_version_v1(&response) == MISH_CORE_OK_V1);
@@ -129,10 +137,17 @@ int main(void) {
   assert(contains(&response, "latestSequence"));
   release(&response);
 
-  assert(mish_core_stop_v1((uint8_t *)"{}", 2, &response) == MISH_CORE_OK_V1);
+  assert(mish_core_stop_v1((uint8_t *)stale_stop, strlen(stale_stop), &response) ==
+         MISH_CORE_CONFLICT_V1);
+  release(&response);
+  assert(mish_core_stop_v1((uint8_t *)cancel_stop, strlen(cancel_stop), &response) ==
+         MISH_CORE_OK_V1);
   assert(contains(&response, "\"phase\":\"inactive\""));
   release(&response);
-  assert(mish_core_stop_v1((uint8_t *)"{}", 2, &response) == MISH_CORE_OK_V1);
+  assert(mish_core_stop_v1((uint8_t *)stop, strlen(stop), &response) == MISH_CORE_OK_V1);
+  assert(contains(&response, "\"phase\":\"inactive\""));
+  release(&response);
+  assert(mish_core_stop_v1((uint8_t *)stop, strlen(stop), &response) == MISH_CORE_OK_V1);
   release(&response);
 
   puts("mobile core ABI fixture contract: ok");

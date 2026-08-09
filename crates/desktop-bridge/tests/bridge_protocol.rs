@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -23,14 +23,15 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LocalProxyOwnership,
-    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState, NotificationPublication,
-    NotificationSeverity, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusDataSource, StatusSnapshot, TUN_HELPER_EXPECTED_VERSION, TrafficConnection,
-    TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
-    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
-    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
-    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
+    CaptureTransitionError, CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase,
+    CoreRuntime, CoreStatus, LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
+    NetworkServiceProxyState, NotificationPublication, NotificationSeverity, RoutingMode,
+    StatusAdapterKind, StatusCommand, StatusCommandError, StatusDataSource, StatusSnapshot,
+    TUN_HELPER_EXPECTED_VERSION, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
+    TrafficDataSource, TrafficMatchedRule, TunHelperAvailability, TunHelperController,
+    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
+    TunNetworkObservation, tun_observation_now,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -113,16 +114,66 @@ impl CoreRuntime for RunningCore {
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move { Ok(self.status().await) })
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: if command.mutation() == CoreLifecycleMutation::Start {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
+            pid: None,
+            version: Some("rpc-fixture".into()),
+        })))
+    }
+}
+
+#[derive(Default)]
+struct BlockingStoppedCore {
+    block_next_status: AtomicBool,
+    status_release: Notify,
+    status_started: Notify,
+}
+
+impl CoreRuntime for BlockingStoppedCore {
+    fn configured(&self) -> bool {
+        false
     }
 
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn local_proxy_ownership(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, LocalProxyOwnership> {
+        Box::pin(ready(LocalProxyOwnership::Unowned))
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(async move {
+            if self.block_next_status.swap(false, Ordering::AcqRel) {
+                self.status_started.notify_one();
+                self.status_release.notified().await;
+            }
+            CoreStatus {
+                error: None,
+                phase: CorePhase::Stopped,
+                pid: None,
+                version: None,
+            }
+        })
+    }
+
+    fn execute_lifecycle(
+        &self,
+        _command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(ready(Ok(CoreStatus {
             error: None,
             phase: CorePhase::Stopped,
             pid: None,
-            version: Some("rpc-fixture".into()),
+            version: None,
         })))
     }
 }
@@ -270,14 +321,17 @@ impl CoreRuntime for RunningCoreWithoutManagedListener {
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move { Ok(self.status().await) })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(ready(Ok(CoreStatus {
             error: None,
-            phase: CorePhase::Stopped,
+            phase: if command.mutation() == CoreLifecycleMutation::Start {
+                CorePhase::Running
+            } else {
+                CorePhase::Stopped
+            },
             pid: None,
             version: Some("rpc-fixture".into()),
         })))
@@ -3669,7 +3723,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":16, "method":"core.start", "params":{}}),
     )
     .await;
-    assert_eq!(unavailable["error"]["code"], -32010);
+    assert_eq!(unavailable["error"]["code"], -32601);
     bridge.shutdown().await;
 }
 
@@ -5395,7 +5449,7 @@ async fn rejects_an_untrusted_websocket_origin() {
 }
 
 #[tokio::test]
-async fn manages_an_explicit_mihomo_process_and_stops_it_during_shutdown() {
+async fn rejects_bare_core_mutations_for_an_explicit_mihomo_process() {
     let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let bridge = start_loopback_server(
@@ -5420,37 +5474,19 @@ async fn manages_an_explicit_mihomo_process_and_stops_it_during_shutdown() {
         subscription["result"]["snapshot"]["runtime"]["phase"],
         "inactive"
     );
-    let subscription_id = subscription["result"]["subscriptionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-
     let running = request(
         &mut ws,
         json!({"jsonrpc":"2.0", "id":3, "method":"core.start", "params":{}}),
     )
     .await;
-    assert_eq!(running["result"]["phase"], "running");
-    assert_eq!(running["result"]["version"], "Mihomo Meta v-test");
-    assert!(running["result"]["pid"].as_u64().is_some());
-
-    let Message::Text(notification) = ws.next().await.unwrap().unwrap() else {
-        panic!("expected status notification")
-    };
-    let notification: Value = serde_json::from_str(&notification).unwrap();
-    assert_eq!(notification["method"], "status.snapshot");
-    assert_eq!(notification["params"]["subscriptionId"], subscription_id);
-    assert_eq!(
-        notification["params"]["snapshot"]["runtime"]["phase"],
-        "healthy"
-    );
+    assert_eq!(running["error"]["code"], -32601);
 
     let stopped = request(
         &mut ws,
         json!({"jsonrpc":"2.0", "id":4, "method":"core.stop", "params":{}}),
     )
     .await;
-    assert_eq!(stopped["result"]["phase"], "stopped");
+    assert_eq!(stopped["error"]["code"], -32601);
     bridge.shutdown().await;
 }
 
@@ -5476,13 +5512,13 @@ async fn subscription_snapshot_is_a_barrier_against_older_lifecycle_events() {
         json!({"jsonrpc":"2.0", "id":2, "method":"core.start", "params":{}}),
     )
     .await;
-    assert_eq!(running["result"]["phase"], "running");
+    assert_eq!(running["error"]["code"], -32601);
     let stopped = request(
         &mut ws,
         json!({"jsonrpc":"2.0", "id":3, "method":"core.stop", "params":{}}),
     )
     .await;
-    assert_eq!(stopped["result"]["phase"], "stopped");
+    assert_eq!(stopped["error"]["code"], -32601);
 
     let subscription = request(
         &mut ws,
@@ -5503,7 +5539,7 @@ async fn subscription_snapshot_is_a_barrier_against_older_lifecycle_events() {
 }
 
 #[tokio::test]
-async fn publishes_status_when_the_managed_process_exits_without_a_stop_command() {
+async fn does_not_start_a_managed_process_without_profile_coordinator_admission() {
     let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
     let config_file =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/unexpected-exit.yaml");
@@ -5530,37 +5566,14 @@ async fn publishes_status_when_the_managed_process_exits_without_a_stop_command(
         json!({"jsonrpc":"2.0", "id":3, "method":"core.start", "params":{}}),
     )
     .await;
-    assert!(running["result"]["pid"].as_u64().is_some());
-
-    let Message::Text(running_notification) = ws.next().await.unwrap().unwrap() else {
-        panic!("expected running status notification")
-    };
-    let running_notification: Value = serde_json::from_str(&running_notification).unwrap();
-    assert_eq!(
-        running_notification["params"]["snapshot"]["runtime"]["phase"],
-        "healthy"
-    );
-
-    let Message::Text(exit_notification) = timeout(Duration::from_secs(2), ws.next())
-        .await
-        .expect("unexpected exit was not published")
-        .unwrap()
-        .unwrap()
-    else {
-        panic!("expected exit status notification")
-    };
-    let exit_notification: Value = serde_json::from_str(&exit_notification).unwrap();
-    assert_eq!(
-        exit_notification["params"]["snapshot"]["runtime"]["phase"],
-        "error"
-    );
+    assert_eq!(running["error"]["code"], -32601);
 
     let failed = request(
         &mut ws,
         json!({"jsonrpc":"2.0", "id":4, "method":"core.getStatus", "params":{}}),
     )
     .await;
-    assert_eq!(failed["result"]["phase"], "failed");
+    assert_eq!(failed["result"]["phase"], "stopped");
     assert_eq!(failed["result"]["pid"], Value::Null);
     bridge.shutdown().await;
 }
@@ -5597,4 +5610,58 @@ async fn shutdown_closes_an_active_rpc_socket_before_reporting_confirmation() {
         timeout(Duration::from_secs(1), ws.next()).await,
         Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
     ));
+}
+
+#[tokio::test]
+async fn transport_shutdown_closes_rpc_admission_before_capture_safety_proof() {
+    let platform = Arc::new(MemoryCapturePlatform(Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "shutdown-race-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform,
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let core = Arc::new(BlockingStoppedCore::default());
+    let runtime = MishRuntime::with_capture(core.clone(), capture);
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let address = bridge.address;
+    let mut ws = socket(address).await;
+    authenticate(&mut ws).await;
+
+    core.block_next_status.store(true, Ordering::Release);
+    let proof_started = core.status_started.notified();
+    let shutdown = tokio::spawn(bridge.shutdown());
+    timeout(Duration::from_secs(1), proof_started)
+        .await
+        .expect("transport safety proof did not start");
+
+    assert!(
+        timeout(
+            Duration::from_secs(1),
+            tokio::net::TcpStream::connect(address)
+        )
+        .await
+        .expect("new transport admission did not settle")
+        .is_err(),
+        "the listener admitted a new RPC connection during the Capture safety proof"
+    );
+    assert!(matches!(
+        timeout(Duration::from_secs(1), ws.next()).await,
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
+    ));
+    core.status_release.notify_one();
+    let BridgeShutdownOutcome::Confirmed(report) = shutdown.await.unwrap() else {
+        panic!("transport shutdown was not confirmed")
+    };
+    assert!(report.permits_exit());
 }

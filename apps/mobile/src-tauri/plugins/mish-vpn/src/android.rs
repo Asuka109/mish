@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use mish_state_machine::{
-    EffectExecutor, RunnerConfig, RunnerHandle, TransitionObserver, spawn_runner,
+    Correlation, EffectExecutor, RunnerConfig, RunnerHandle, TransitionObserver, spawn_runner,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -58,6 +58,11 @@ struct PlatformStartRequest {
     fact_sequence: u64,
     platform_session_id: String,
     product_session_id: String,
+    machine_authority: String,
+    scope_epoch: u64,
+    operation_id: String,
+    admitted_revision: u64,
+    effect_identity: String,
 }
 
 impl From<ActivationAuthority> for PlatformStartRequest {
@@ -68,6 +73,33 @@ impl From<ActivationAuthority> for PlatformStartRequest {
             fact_sequence: value.fact_sequence,
             platform_session_id: value.platform_session_id,
             product_session_id: value.product_session_id,
+            machine_authority: value.machine_authority,
+            scope_epoch: value.scope_epoch,
+            operation_id: value.operation_id,
+            admitted_revision: value.admitted_revision,
+            effect_identity: value.effect_identity,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformStopRequest {
+    machine_authority: String,
+    scope_epoch: u64,
+    operation_id: String,
+    admitted_revision: u64,
+    effect_identity: String,
+}
+
+impl From<&Correlation> for PlatformStopRequest {
+    fn from(value: &Correlation) -> Self {
+        Self {
+            machine_authority: value.machine_authority.clone(),
+            scope_epoch: value.scope_epoch,
+            operation_id: value.operation_id.clone(),
+            admitted_revision: value.admitted_revision,
+            effect_identity: value.effect_id.to_string(),
         }
     }
 }
@@ -313,7 +345,7 @@ impl<R: Runtime> MishVpn<R> {
         let admitted_revision = initial.revision.saturating_add(1);
         let correlation = mish_state_machine::Correlation {
             machine_authority: initial.authority_id.clone(),
-            scope_epoch: 1,
+            scope_epoch: initial.scope_epoch,
             operation_id: request.operation_id.clone(),
             admitted_revision,
             effect_id: 1,
@@ -579,11 +611,9 @@ impl<R: Runtime> EffectExecutor<LifecycleMachine> for AndroidLifecycleExecutor<R
                         .await
                 }
                 PlatformAction::StopForegroundService => {
+                    let request = PlatformStopRequest::from(&effect.correlation);
                     handle
-                        .run_mobile_plugin_async::<PlatformFacts>(
-                            "stopPlatformLifecycle",
-                            EmptyPayload {},
-                        )
+                        .run_mobile_plugin_async::<PlatformFacts>("stopPlatformLifecycle", request)
                         .await
                 }
             };

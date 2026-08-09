@@ -247,6 +247,20 @@ int main(void) {
       .protect_socket = fake_protect_socket,
       .user_data = NULL,
   };
+  MishVpnCoreLifecycleAuthority start_authority = {
+      .machine_authority = "mobile-authority",
+      .scope_epoch = 1,
+      .operation_id = "start-op",
+      .admitted_revision = 1,
+      .effect_identity = "1",
+  };
+  MishVpnCoreLifecycleAuthority stop_authority = {
+      .machine_authority = "mobile-authority",
+      .scope_epoch = 1,
+      .operation_id = "stop-op",
+      .admitted_revision = 2,
+      .effect_identity = "1",
+  };
   size_t status_index;
   int initialized = 0;
 
@@ -402,7 +416,7 @@ int main(void) {
   reset_fake();
   initialized = 1;
   runtime = mish_vpn_start_core(&fixture_api, &initialized, &platform,
-                                "session-1", 42);
+                                &start_authority, "session-1", 42);
   assert(runtime.code == MISH_VPN_RUNTIME_MALFORMED_RESPONSE);
   assert(initialized == 0);
   assert(initialize_calls == 1);
@@ -413,7 +427,7 @@ int main(void) {
   initialized = 1;
   initialize_envelope = FAKE_STATUS_LOADED;
   runtime = mish_vpn_start_core(&fixture_api, &initialized, &platform,
-                                "session-1", 42);
+                                &start_authority, "session-1", 42);
   assert(runtime.code == MISH_VPN_RUNTIME_RUNNING);
   assert(initialize_calls == 1);
   assert(start_calls == 1);
@@ -427,7 +441,8 @@ int main(void) {
   assert(snapshot_calls == 2);
   assert(free_calls == 4);
 
-  runtime = mish_vpn_stop_core(&fixture_api, initialized, "session-1");
+  runtime = mish_vpn_stop_core(&fixture_api, initialized, &stop_authority,
+                               "session-1");
   assert(runtime.code == MISH_VPN_RUNTIME_INACTIVE);
   assert(stop_calls == 1);
   assert(free_calls == 5);
