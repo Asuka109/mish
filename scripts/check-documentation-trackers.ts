@@ -35,7 +35,7 @@ export interface DocumentationTrackerRegistry {
 
 const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
-const issueUrlPattern = /\/issues\/(\d+)\b/gu;
+const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/gu;
 const futureClaimPattern =
   /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
@@ -70,11 +70,17 @@ function referenceKey(path: string, issueNumber: number): string {
   return `${path}:#${issueNumber}`;
 }
 
-function issueNumbers(source: string): Set<number> {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function issueNumbers(source: string, repository: string): Set<number> {
   const numbers = new Set(
     [...source.matchAll(issueReferencePattern)].map((match) => Number(match[1])),
   );
-  for (const match of source.matchAll(issueUrlPattern)) numbers.add(Number(match[1]));
+  for (const match of source.matchAll(githubIssueUrlPattern)) {
+    if (match[1] === repository) numbers.add(Number(match[2]));
+  }
   for (const match of source.matchAll(trackerTokenPattern)) {
     const prefix = source.slice(Math.max(0, (match.index ?? 0) - 8), match.index);
     if (/\bPR\s*$/u.test(prefix)) continue;
@@ -93,9 +99,10 @@ function ambiguousTrackerTokens(source: string): number[] {
   return ambiguous;
 }
 
-function referenceContexts(source: string, issueNumber: number): string[] {
+function referenceContexts(source: string, repository: string, issueNumber: number): string[] {
   const lines = source.split("\n");
-  const pattern = new RegExp(`(?:\\bIssue\\s+#${issueNumber}\\b|/issues/${issueNumber}\\b)`, "u");
+  const repositoryUrl = `https://github\\.com/${escapeRegExp(repository)}/issues/${issueNumber}\\b`;
+  const pattern = new RegExp(`(?:\\bIssue\\s+#${issueNumber}\\b|${repositoryUrl})`, "u");
   const contexts: string[] = [];
   for (const [index, line] of lines.entries()) {
     if (!pattern.test(line)) continue;
@@ -116,6 +123,9 @@ export function validateDocumentationTrackers(
   if (!isIsoTimestamp(registry.readBackAt)) {
     errors.push("tracker registry readBackAt must be an ISO timestamp");
   }
+  const readBackTime = isIsoTimestamp(registry.readBackAt)
+    ? new Date(registry.readBackAt).getTime()
+    : null;
 
   const canonicalPaths = new Set<string>();
   for (const path of registry.canonicalPaths) {
@@ -134,6 +144,8 @@ export function validateDocumentationTrackers(
     issueNumbersSeen.add(issue.number);
     if (!isIsoTimestamp(issue.updatedAt)) {
       errors.push(`Issue #${issue.number} updatedAt must be an ISO timestamp`);
+    } else if (readBackTime !== null && new Date(issue.updatedAt).getTime() > readBackTime) {
+      errors.push(`Issue #${issue.number} updatedAt exceeds registry readBackAt`);
     }
     if (issue.state !== "OPEN" && issue.state !== "CLOSED") {
       errors.push(`Issue #${issue.number} has invalid state: ${String(issue.state)}`);
@@ -154,6 +166,11 @@ export function validateDocumentationTrackers(
       }
       if (!isIsoTimestamp(issue.closedAt)) {
         errors.push(`closed Issue #${issue.number} closedAt must be an ISO timestamp`);
+      } else if (
+        isIsoTimestamp(issue.updatedAt) &&
+        new Date(issue.closedAt).getTime() > new Date(issue.updatedAt).getTime()
+      ) {
+        errors.push(`closed Issue #${issue.number} closedAt exceeds updatedAt`);
       }
     }
 
@@ -188,7 +205,7 @@ export function validateDocumentationTrackers(
 
       const source = sources[reference.path];
       if (source === undefined) continue;
-      const contexts = referenceContexts(source, issue.number);
+      const contexts = referenceContexts(source, registry.repository, issue.number);
       if (contexts.length === 0) {
         errors.push(`${key} is registered but not referenced as \"Issue #${issue.number}\"`);
         continue;
@@ -222,10 +239,17 @@ export function validateDocumentationTrackers(
   for (const path of canonicalPaths) {
     const source = sources[path];
     if (source === undefined) continue;
+    for (const match of source.matchAll(githubIssueUrlPattern)) {
+      if (match[1] !== registry.repository) {
+        errors.push(
+          `external Issue URL in ${path}: ${match[1]}#${match[2]}; expected ${registry.repository}`,
+        );
+      }
+    }
     for (const issueNumber of ambiguousTrackerTokens(source)) {
       errors.push(`ambiguous tracker token in ${path}: #${issueNumber}; use Issue # or PR #`);
     }
-    for (const issueNumber of issueNumbers(source)) {
+    for (const issueNumber of issueNumbers(source, registry.repository)) {
       const key = referenceKey(path, issueNumber);
       if (!registeredReferences.has(key))
         errors.push(`unclassified canonical tracker reference: ${key}`);

@@ -104,6 +104,17 @@ test("URL-only Issue occurrences receive independent context validation", () => 
   );
 });
 
+test("Issue URLs must belong to the registered repository", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nHistorical context: https://github.com/example/other/issues/288 was closed.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /external Issue URL in docs\/architecture\/state-machine-kernel\.md: example\/other#288/u,
+  );
+});
+
 test("each superseded occurrence needs its own decision context", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
@@ -134,6 +145,17 @@ test("calendar-invalid timestamps fail exact read-back validation", () => {
     validateDocumentationTrackers(fixture, sources).join("\n"),
     /updatedAt must be an ISO timestamp/u,
   );
+});
+
+test("tracker timestamps cannot describe events after their read-back", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues[0].updatedAt = "2026-08-09T07:19:20Z";
+  fixture.issues[1].closedAt = "2026-08-09T07:00:00Z";
+  fixture.issues[1].updatedAt = "2026-08-09T06:59:59Z";
+  const errors = validateDocumentationTrackers(fixture, sources).join("\n");
+  assert.match(errors, /Issue #91 updatedAt exceeds registry readBackAt/u);
+  assert.match(errors, /closed Issue #94 closedAt exceeds updatedAt/u);
 });
 
 test("reopened Issues remain valid active dependencies", () => {
