@@ -71,6 +71,39 @@ test("multiline future-tense residue for a closed Issue fails deterministically"
   );
 });
 
+test("ordinary future wording for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nIssue #288 will implement this lifecycle in a later change.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
+test("each superseded occurrence needs its own decision context", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/README.md"] += "\nIssue #343 is the active implementation plan.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /docs\/README.md:#343 lacks explicit superseded or rejected context/u,
+  );
+});
+
+test("malformed tracker states and timestamps fail runtime validation", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.readBackAt = "2026";
+  fixture.issues[0].stateReason = "NOT_PLANED" as "NOT_PLANNED";
+  fixture.issues[0].closedAt = "not-a-date";
+  const errors = validateDocumentationTrackers(fixture, sources).join("\n");
+  assert.match(errors, /readBackAt must be an ISO timestamp/u);
+  assert.match(errors, /invalid stateReason/u);
+  assert.match(errors, /closedAt must be an ISO timestamp/u);
+});
+
 test("unclassified and duplicate canonical references fail deterministically", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);

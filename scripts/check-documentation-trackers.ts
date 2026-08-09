@@ -17,7 +17,7 @@ interface TrackerIssue {
   number: number;
   title: string;
   state: "OPEN" | "CLOSED";
-  stateReason: "COMPLETED" | "NOT_PLANNED" | null;
+  stateReason: "COMPLETED" | "NOT_PLANNED" | "" | null;
   closedAt: string | null;
   updatedAt: string;
   references: TrackerReference[];
@@ -37,7 +37,7 @@ const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
 const issueUrlPattern = /\/issues\/(\d+)\b/gu;
 const futureClaimPattern =
-  /\b(?:future work|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by)\b/iu;
+  /\b(?:future work|follow-up work|later change|requires explicit|must (?:consume|remain|stay|call|wait|be implemented)|may close|ready to close|acceptance remains|integration work for|blocked by|will (?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
 const supersededContextPattern = /\b(?:not planned|rejected|retired|superseded)\b/iu;
@@ -48,6 +48,15 @@ const trackerRoles = new Set([
   "superseded-decision",
   "decision-context",
 ]);
+const closedStateReasons = new Set(["COMPLETED", "NOT_PLANNED"]);
+
+function isIsoTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
 
 function referenceKey(path: string, issueNumber: number): string {
   return `${path}:#${issueNumber}`;
@@ -96,7 +105,7 @@ export function validateDocumentationTrackers(
   if (registry.ordinaryCheckNetwork !== "forbidden") {
     errors.push("ordinary tracker check must forbid network access");
   }
-  if (!Number.isFinite(Date.parse(registry.readBackAt))) {
+  if (!isIsoTimestamp(registry.readBackAt)) {
     errors.push("tracker registry readBackAt must be an ISO timestamp");
   }
 
@@ -110,17 +119,27 @@ export function validateDocumentationTrackers(
   const issueNumbersSeen = new Set<number>();
   const registeredReferences = new Map<string, TrackerReference>();
   for (const issue of registry.issues) {
+    if (!Number.isInteger(issue.number) || issue.number <= 0) {
+      errors.push(`invalid Issue number: ${String(issue.number)}`);
+    }
     if (issueNumbersSeen.has(issue.number)) errors.push(`duplicate Issue #${issue.number}`);
     issueNumbersSeen.add(issue.number);
-    if (!Number.isFinite(Date.parse(issue.updatedAt))) {
+    if (!isIsoTimestamp(issue.updatedAt)) {
       errors.push(`Issue #${issue.number} updatedAt must be an ISO timestamp`);
     }
-    if (issue.state === "OPEN") {
-      if (issue.stateReason !== null || issue.closedAt !== null) {
+    if (issue.state !== "OPEN" && issue.state !== "CLOSED") {
+      errors.push(`Issue #${issue.number} has invalid state: ${String(issue.state)}`);
+    } else if (issue.state === "OPEN") {
+      if ((issue.stateReason !== null && issue.stateReason !== "") || issue.closedAt !== null) {
         errors.push(`open Issue #${issue.number} must not have closure metadata`);
       }
-    } else if (issue.stateReason === null || !issue.closedAt) {
-      errors.push(`closed Issue #${issue.number} must include stateReason and closedAt`);
+    } else {
+      if (!closedStateReasons.has(String(issue.stateReason))) {
+        errors.push(`closed Issue #${issue.number} has invalid stateReason`);
+      }
+      if (!isIsoTimestamp(issue.closedAt)) {
+        errors.push(`closed Issue #${issue.number} closedAt must be an ISO timestamp`);
+      }
     }
 
     for (const reference of issue.references) {
@@ -154,14 +173,22 @@ export function validateDocumentationTrackers(
         errors.push(`${key} is registered but not referenced as \"Issue #${issue.number}\"`);
         continue;
       }
-      const context = contexts.join("\n");
-      if (reference.role === "completed-delivery" && !completedContextPattern.test(context)) {
+      if (
+        reference.role === "completed-delivery" &&
+        contexts.some((context) => !completedContextPattern.test(context))
+      ) {
         errors.push(`${key} lacks explicit completed delivery context`);
       }
-      if (reference.role === "historical-checkpoint" && !historicalContextPattern.test(context)) {
+      if (
+        reference.role === "historical-checkpoint" &&
+        contexts.some((context) => !historicalContextPattern.test(context))
+      ) {
         errors.push(`${key} lacks explicit historical checkpoint context`);
       }
-      if (reference.role === "superseded-decision" && !supersededContextPattern.test(context)) {
+      if (
+        reference.role === "superseded-decision" &&
+        contexts.some((context) => !supersededContextPattern.test(context))
+      ) {
         errors.push(`${key} lacks explicit superseded or rejected context`);
       }
       if (issue.state === "CLOSED" && contexts.some((value) => futureClaimPattern.test(value))) {
