@@ -1,18 +1,22 @@
 import {
   EventsClientError,
   eventsRpcNotifications,
-  mishRpcMethods,
   type ApplicationSnapshotDelivery,
   type EventsClient,
   type EventsConnectionState,
   type EventsSnapshotDto,
   type EventsSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcClient, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
+import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
 import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
-import { mapRpcError } from "./rpc-status-client";
+import { mapStatusRpcError } from "./rpc-status-client";
+import {
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-export type EventsRpcClient = RpcClient<typeof mishRpcMethods>;
+export type EventsRpcClient = WebRpcTransport;
 
 export class RpcEventsClient implements EventsClient {
   private readonly connectionListeners = new Set<(state: EventsConnectionState) => void>();
@@ -29,7 +33,7 @@ export class RpcEventsClient implements EventsClient {
   private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<EventsSnapshotDto>();
 
   constructor(private readonly rpc: EventsRpcClient) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "events.snapshot",
       eventsRpcNotifications["events.snapshot"],
@@ -66,7 +70,8 @@ export class RpcEventsClient implements EventsClient {
       this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
-      const mapped = mapRpcError(error);
+      const mapped =
+        error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
       throw new EventsClientError(mapped.code, mapped.message, mapped.retryable);
     }
   }
@@ -126,8 +131,8 @@ export class RpcEventsClient implements EventsClient {
     await this.subscriptionPromise;
   }
 
-  private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+  private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
@@ -161,15 +166,4 @@ export class RpcEventsClient implements EventsClient {
       stale: this.snapshotAcceptance.isReconnectPending(),
     });
   }
-}
-
-function mapConnectionState(state: RpcConnectionState): EventsConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return { attempt: state.attempt, phase: state.phase, stale: state.stale };
 }

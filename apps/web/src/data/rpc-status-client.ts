@@ -3,7 +3,6 @@ import {
   CaptureCommandErrorDataSchema,
   StatusClientError,
   StatusCommandErrorDataSchema,
-  mishRpcMethods,
   statusRpcNotifications,
   type ApplicationSnapshotDelivery,
   type CaptureSelectionDto,
@@ -20,22 +19,15 @@ import {
   type StatusSnapshotDto,
   type StatusSnapshotNotificationDto,
 } from "@mish/contracts";
-import {
-  RpcCancelledError,
-  RpcClient,
-  RpcCompatibilityError,
-  RpcDisconnectedError,
-  RpcDisposedError,
-  RpcMessageTooLargeError,
-  RpcProtocolError,
-  RpcRemoteError,
-  RpcValidationError,
-  type RpcConnectionState,
-  type RpcRequestOptions,
-} from "@mish/rpc-client";
+import { RpcRemoteError, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
 import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
+import {
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-export type StatusRpcClient = RpcClient<typeof mishRpcMethods>;
+export type StatusRpcClient = WebRpcTransport;
 
 export class RpcStatusClient implements StatusClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
@@ -64,7 +56,7 @@ export class RpcStatusClient implements StatusClient {
     private readonly rpc: StatusRpcClient,
     private readonly discoverCommandCapabilities = false,
   ) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "status.snapshot",
       statusRpcNotifications["status.snapshot"],
@@ -146,7 +138,7 @@ export class RpcStatusClient implements StatusClient {
       this.emitSnapshotConnectionState();
       return result;
     } catch (error) {
-      throw mapRpcError(error);
+      throw mapStatusRpcError(error);
     }
   }
 
@@ -217,7 +209,7 @@ export class RpcStatusClient implements StatusClient {
   }
 
   private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
@@ -398,7 +390,7 @@ export class RpcStatusClient implements StatusClient {
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
-      const mapped = mapRpcError(error);
+      const mapped = mapStatusRpcError(error);
       if (mapped.snapshot === null) throw mapped;
       const snapshot = this.acceptSnapshot(mapped.snapshot);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
@@ -436,38 +428,8 @@ function captureOperationPhaseRank(phase: CaptureOperationStatusDto["phase"]) {
   }
 }
 
-function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return {
-    attempt: state.attempt,
-    phase: state.phase,
-    stale: state.stale,
-  };
-}
-
-export function mapRpcError(error: unknown) {
+export function mapStatusRpcError(error: unknown) {
   if (error instanceof StatusClientError) return error;
-  if (error instanceof RpcCancelledError) {
-    return new StatusClientError("cancelled", error.message);
-  }
-  if (error instanceof RpcCompatibilityError) {
-    return new StatusClientError("protocol", error.message);
-  }
-  if (error instanceof RpcDisconnectedError || error instanceof RpcDisposedError) {
-    return new StatusClientError("disconnected", error.message, true);
-  }
-  if (error instanceof RpcValidationError) {
-    return new StatusClientError("validation", error.message);
-  }
-  if (error instanceof RpcMessageTooLargeError || error instanceof RpcProtocolError) {
-    return new StatusClientError("protocol", error.message);
-  }
   if (error instanceof RpcRemoteError) {
     const parsed = StatusCommandErrorDataSchema.safeParse(error.data);
     const captureParsed = CaptureCommandErrorDataSchema.safeParse(error.data);
@@ -536,8 +498,6 @@ export function mapRpcError(error: unknown) {
     const retryable = error.code >= -32_099 && error.code <= -32_000;
     return new StatusClientError("remote", error.message, retryable);
   }
-  if (error instanceof Error) {
-    return new StatusClientError("unknown", error.message);
-  }
-  return new StatusClientError("unknown", "Unknown RPC client failure");
+  const projected = projectRpcClientFailure(error);
+  return new StatusClientError(projected.code, projected.message, projected.retryable);
 }

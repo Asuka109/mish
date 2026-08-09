@@ -13,7 +13,7 @@ import {
 } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureStatusClient } from "./fixture-status-client";
-import { mapRpcError, RpcStatusClient } from "./rpc-status-client";
+import { mapStatusRpcError, RpcStatusClient } from "./rpc-status-client";
 
 class FakeTransport implements WebSocketLike {
   readonly sent: string[] = [];
@@ -575,7 +575,9 @@ describe("RpcStatusClient", () => {
 
   it("preserves typed Controller disconnect failures", () => {
     expect(
-      mapRpcError(new RpcRemoteError(-32_051, "Controller disconnected", { kind: "disconnected" })),
+      mapStatusRpcError(
+        new RpcRemoteError(-32_051, "Controller disconnected", { kind: "disconnected" }),
+      ),
     ).toEqual(
       expect.objectContaining<Partial<StatusClientError>>({
         code: "disconnected",
@@ -590,7 +592,7 @@ describe("RpcStatusClient", () => {
     snapshot.groupSelectionAvailability = "core-not-running";
 
     expect(
-      mapRpcError(
+      mapStatusRpcError(
         new RpcRemoteError(-32_021, "The proxy must be running", {
           kind: "core-not-running",
           snapshot,
@@ -607,7 +609,9 @@ describe("RpcStatusClient", () => {
 
   it("keeps runtime replacement errors compatible when an older bridge omits reconciliation", () => {
     expect(
-      mapRpcError(new RpcRemoteError(-32_054, "Runtime replaced", { kind: "runtime-replaced" })),
+      mapStatusRpcError(
+        new RpcRemoteError(-32_054, "Runtime replaced", { kind: "runtime-replaced" }),
+      ),
     ).toEqual(
       expect.objectContaining<Partial<StatusClientError>>({
         code: "runtime-replaced",
@@ -629,7 +633,7 @@ describe("RpcStatusClient", () => {
     terminal.runtime.tun.phase = "off";
 
     expect(
-      mapRpcError(
+      mapStatusRpcError(
         new RpcRemoteError(-32_050, "System Proxy reconciliation failed", {
           kind: "runtime-transition",
           snapshot: terminal,

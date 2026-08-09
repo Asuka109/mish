@@ -14,25 +14,18 @@ import {
   type ProviderAuthorityDto,
   type ProviderKind,
 } from "@mish/contracts";
-import {
-  RpcCancelledError,
-  RpcClient,
-  RpcCompatibilityError,
-  RpcDisconnectedError,
-  RpcDisposedError,
-  RpcMessageTooLargeError,
-  RpcProtocolError,
-  RpcRemoteError,
-  RpcValidationError,
-  type RpcConnectionState,
-  type RpcRequestOptions,
-} from "@mish/rpc-client";
+import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
 import {
   ApplicationSnapshotAcceptance,
   type SnapshotDelivery,
 } from "./application-snapshot-acceptance";
+import {
+  projectRpcClientFailure,
+  projectRpcConnectionState,
+  type WebRpcTransport,
+} from "./web-rpc-transport";
 
-export type MishRpcClient = RpcClient<typeof mishRpcMethods>;
+export type MishRpcClient = WebRpcTransport;
 export type LocalProfilePreflight = (label?: string) => Promise<unknown>;
 
 export class RpcProfileClient implements ProfileClient {
@@ -53,7 +46,7 @@ export class RpcProfileClient implements ProfileClient {
     private readonly rpc: MishRpcClient,
     private readonly localPreflight: LocalProfilePreflight | null,
   ) {
-    this.connectionState = mapConnectionState(rpc.getConnectionState());
+    this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "profiles.snapshot",
       profileRpcNotifications["profiles.snapshot"],
@@ -253,8 +246,8 @@ export class RpcProfileClient implements ProfileClient {
     await this.subscriptionPromise;
   }
 
-  private receiveConnectionState(state: RpcConnectionState) {
-    const mapped = mapConnectionState(state);
+  private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
+    const mapped = projectRpcConnectionState(state);
     if (mapped.phase === "connected") {
       this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
@@ -324,38 +317,19 @@ export class RpcProfileClient implements ProfileClient {
   }
 }
 
-function mapConnectionState(state: RpcConnectionState): ProfileConnectionState {
-  if (
-    state.phase === "authenticating" ||
-    state.phase === "connecting" ||
-    state.phase === "negotiating"
-  ) {
-    return { attempt: state.attempt, phase: "connecting", stale: true };
-  }
-  return { attempt: state.attempt, phase: state.phase, stale: state.stale };
-}
-
 function mapRpcError(error: unknown) {
-  if (error instanceof RpcCancelledError) {
-    return new ProfileClientError("cancelled", error.message);
-  }
-  if (error instanceof RpcCompatibilityError) {
-    return new ProfileClientError("protocol", error.message);
-  }
-  if (error instanceof RpcDisconnectedError || error instanceof RpcDisposedError) {
-    return new ProfileClientError("disconnected", error.message, true);
-  }
-  if (error instanceof RpcValidationError) {
-    return new ProfileClientError("validation", "Profile response validation failed");
-  }
-  if (error instanceof RpcMessageTooLargeError || error instanceof RpcProtocolError) {
-    return new ProfileClientError("protocol", error.message);
-  }
   if (error instanceof RpcRemoteError) {
     if (error.code === -32_602) return new ProfileClientError("invalid-request", error.message);
     if (error.code === -32_004) return new ProfileClientError("not-found", error.message);
     if (error.code === -32_009) return new ProfileClientError("conflict", error.message);
     return new ProfileClientError("remote", error.message, error.code === -32_040);
   }
-  return new ProfileClientError("unknown", "Unknown profile client failure");
+  const projected = projectRpcClientFailure(error);
+  const message =
+    projected.code === "validation"
+      ? "Profile response validation failed"
+      : projected.code === "unknown"
+        ? "Unknown profile client failure"
+        : projected.message;
+  return new ProfileClientError(projected.code, message, projected.retryable);
 }
