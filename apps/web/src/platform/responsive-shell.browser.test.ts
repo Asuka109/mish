@@ -286,6 +286,7 @@ function appendProxyControlFixture(
 
 async function navigate(path: string): Promise<void> {
   const target = new URL(path, window.location.origin);
+  const normalizedPathname = target.pathname.replace(/\/+$/, "") || "/";
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
@@ -298,9 +299,9 @@ async function navigate(path: string): Promise<void> {
       document
         .querySelector(".desktop-navigation .desktop-nav-item.is-active")
         ?.getAttribute("href"),
-    ).toBe(target.pathname);
+    ).toBe(normalizedPathname);
 
-    if (target.pathname === "/traffic") {
+    if (normalizedPathname === "/traffic") {
       expect(document.querySelector(".traffic-table")).not.toBeNull();
       const expectedActivityTarget =
         target.searchParams.get("tab") === "rules" ? "/traffic?tab=rules" : "/traffic?tab=active";
@@ -764,6 +765,28 @@ describe("responsive application shell", () => {
         document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
       ).toHaveLength(1);
     });
+  });
+
+  test("keeps grouped narrow navigation active on trailing-slash routes", async () => {
+    await page.viewport(390, 844);
+    await selectLocale("English");
+
+    for (const [path, primary] of [
+      ["/status/", "/status"],
+      ["/profiles/", "/status"],
+      ["/traffic/", "/traffic"],
+      ["/events/", "/traffic"],
+    ] as const) {
+      await navigate(path);
+      expect(
+        document.querySelector('.narrow-navigation .narrow-nav-item[aria-current="page"]'),
+        `${path}: grouped primary selection`,
+      ).toHaveAttribute("href", primary);
+      expect(document.title, `${path}: page title`).not.toBe("Mish");
+      if (primary === "/traffic") {
+        expect(document.querySelector(".narrow-section-navigation")).not.toBeNull();
+      }
+    }
   });
 
   test("preserves the compact desktop sidebar at the 600px boundary", async () => {

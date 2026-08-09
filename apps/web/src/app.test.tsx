@@ -971,6 +971,22 @@ describe("production routes", () => {
     },
   );
 
+  it("keeps the narrow Profiles drawer reachable while status is still loading", async () => {
+    const user = userEvent.setup();
+    const view = renderRoute(
+      "/status",
+      "en",
+      new InitialLoadingClient(),
+      new FixtureProfileClient(),
+    );
+
+    const trigger = await screen.findByRole("button", { name: "Profiles" });
+    await user.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Profiles" })).toBeInTheDocument();
+
+    view.unmount();
+  });
+
   it.each(["/status", "/routes"])("keeps %s eager provider errors as alerts", async (path) => {
     const view = renderRoute(path, "en", new InitialFailureClient());
 

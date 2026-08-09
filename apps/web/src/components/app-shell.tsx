@@ -37,7 +37,7 @@ import {
   TooltipTrigger,
 } from "@mish/ui";
 import { lazy, Suspense, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
@@ -84,27 +84,36 @@ function getNavigationLabel(LL: TranslationFunctions, key: (typeof destinations)
   return LL.navigation[key]();
 }
 
+function normalizePathname(pathname: string) {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+
 function getPageTitle(LL: TranslationFunctions, pathname: string) {
-  const title = destinations.find((destination) => destination.path === pathname);
+  const normalizedPathname = normalizePathname(pathname);
+  const title = destinations.find((destination) => destination.path === normalizedPathname);
   if (title) return getNavigationLabel(LL, title.key);
-  if (pathname === "/settings") return LL.navigation.settings();
+  if (normalizedPathname === "/settings") return LL.navigation.settings();
   return "Mish";
 }
 
 function isActivityPath(pathname: string) {
-  return pathname === "/traffic" || pathname === "/events";
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/traffic" || normalizedPathname === "/events";
 }
 
 function isHomePath(pathname: string) {
-  return pathname === "/status" || pathname === "/profiles";
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/status" || normalizedPathname === "/profiles";
 }
 
 function isRoutesPath(pathname: string) {
-  return pathname === "/routes" || pathname.startsWith("/routes/");
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/routes" || normalizedPathname.startsWith("/routes/");
 }
 
 function isSettingsPath(pathname: string) {
-  return pathname === "/settings" || pathname.startsWith("/settings/");
+  const normalizedPathname = normalizePathname(pathname);
+  return normalizedPathname === "/settings" || normalizedPathname.startsWith("/settings/");
 }
 
 const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Locales }> = [
@@ -467,6 +476,7 @@ function ProxyControlButton() {
 function Sidebar() {
   const { LL } = useI18nContext();
   const location = useLocation();
+  const normalizedPathname = normalizePathname(location.pathname);
 
   return (
     <SurfaceScope
@@ -509,31 +519,35 @@ function Sidebar() {
         className={shellStyles().navList()}
         onKeyDown={handleSidebarKeyDown}
       >
-        {destinations.map(({ icon: Icon, key, path }) => (
-          <NavLink
-            aria-label={getNavigationLabel(LL, key)}
-            className={({ isActive }) => shellStyles({ active: isActive }).navItem()}
-            end
-            key={path}
-            title={getNavigationLabel(LL, key)}
-            to={path}
-          >
-            <Icon aria-hidden="true" />
-            <span>{getNavigationLabel(LL, key)}</span>
-          </NavLink>
-        ))}
+        {destinations.map(({ icon: Icon, key, path }) => {
+          const selected = normalizedPathname === path;
+          return (
+            <Link
+              aria-current={selected ? "page" : undefined}
+              aria-label={getNavigationLabel(LL, key)}
+              className={shellStyles({ active: selected }).navItem()}
+              key={path}
+              title={getNavigationLabel(LL, key)}
+              to={path}
+            >
+              <Icon aria-hidden="true" />
+              <span>{getNavigationLabel(LL, key)}</span>
+            </Link>
+          );
+        })}
         <div className={shellStyles().sidebarBottom()}>
-          <NavLink
+          <Link
+            aria-current={isSettingsPath(location.pathname) ? "page" : undefined}
             aria-label={LL.navigation.settings()}
-            className={({ isActive }) =>
-              shellStyles({ active: isActive }).navItem({ className: "settings-link" })
-            }
+            className={shellStyles({ active: isSettingsPath(location.pathname) }).navItem({
+              className: "settings-link",
+            })}
             title={LL.navigation.settings()}
             to="/settings"
           >
             <GearSix aria-hidden="true" />
             <span>{LL.navigation.settings()}</span>
-          </NavLink>
+          </Link>
           <ProxyControlButton />
         </div>
       </nav>
@@ -601,18 +615,20 @@ function NarrowSectionNavigation() {
   const location = useLocation();
   if (!isActivityPath(location.pathname)) return null;
 
+  const normalizedPathname = normalizePathname(location.pathname);
   const rules =
-    location.pathname === "/traffic" && new URLSearchParams(location.search).get("tab") === "rules";
+    normalizedPathname === "/traffic" &&
+    new URLSearchParams(location.search).get("tab") === "rules";
   const links = [
     {
       label: LL.mobileNavigation.connections(),
-      selected: location.pathname === "/traffic" && !rules,
+      selected: normalizedPathname === "/traffic" && !rules,
       to: "/traffic?tab=active",
     },
     { label: LL.mobileNavigation.rules(), selected: rules, to: "/traffic?tab=rules" },
     {
       label: LL.mobileNavigation.events(),
-      selected: location.pathname === "/events",
+      selected: normalizedPathname === "/events",
       to: "/events",
     },
   ];
@@ -647,28 +663,20 @@ function ProfileMenu() {
   const { LL } = useI18nContext();
   const { publish } = useNotificationDelivery();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  if (!snapshot) {
-    return (
-      <span className={shellStyles().loading()}>
-        {connection.phase === "fixture" ? LL.toolbar.loadingFixture() : LL.toolbar.loadingDesktop()}
-      </span>
-    );
-  }
 
   const fixtureSelectionSupported =
-    snapshot.adapterKind === "fixture" && isCommandSupported("profile");
+    snapshot?.adapterKind === "fixture" && isCommandSupported("profile");
   const savedProfiles = profiles?.snapshot?.profiles ?? [];
   const useSavedProfiles =
-    snapshot.adapterKind === "rpc" &&
     profiles?.snapshot?.adapterKind === "rpc" &&
     profiles?.connection.phase === "connected" &&
     !profiles.connection.stale;
-  const managedProfiles = useSavedProfiles ? savedProfiles : snapshot.profiles;
+  const managedProfiles = useSavedProfiles ? savedProfiles : (snapshot?.profiles ?? []);
   const selectedProfileId = useSavedProfiles
     ? profiles?.selectedProfileId
-    : snapshot.activeProfileId;
+    : snapshot?.activeProfileId;
   const selectedProfile = managedProfiles.find((profile) => profile.id === selectedProfileId);
-  const statusProfile = snapshot.profiles.find(
+  const statusProfile = snapshot?.profiles.find(
     (profile) => profile.id === snapshot.activeProfileId,
   );
   const displayedProfile = useSavedProfiles
@@ -678,11 +686,19 @@ function ProfileMenu() {
     displayedProfile?.label ??
     (useSavedProfiles && managedProfiles.length === 0
       ? LL.profiles.emptyLabel()
-      : LL.profiles.safeStopped());
+      : snapshot
+        ? LL.profiles.safeStopped()
+        : LL.profiles.title());
 
-  const profilePending = useSavedProfiles ? currentProfilePending : isCommandPending("profile");
+  const profilePending = useSavedProfiles
+    ? currentProfilePending
+    : snapshot
+      ? isCommandPending("profile")
+      : false;
   const profileSupported = useSavedProfiles || fixtureSelectionSupported;
-  const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
+  const actionDescriptionId = snapshot
+    ? getCommandDescriptionId(snapshot.adapterKind, profileSupported)
+    : undefined;
 
   async function selectProfile(profileId: string) {
     if (useSavedProfiles) {
@@ -699,50 +715,61 @@ function ProfileMenu() {
     }
   }
 
-  const profileLabel = LL.toolbar.switchProfile({ profile: activeLabel });
+  const profileLabel =
+    snapshot || useSavedProfiles
+      ? LL.toolbar.switchProfile({ profile: activeLabel })
+      : LL.profiles.title();
 
   return (
     <>
       <div className={shellStyles().desktopProfileMenu()}>
-        <Select
-          onValueChange={(profileId) =>
-            typeof profileId === "string" ? void selectProfile(profileId) : undefined
-          }
-          value={selectedProfile?.id ?? ""}
-        >
-          <SelectTrigger
-            aria-busy={profilePending}
-            aria-describedby={actionDescriptionId}
-            aria-label={profileLabel}
-            className={shellStyles().profileTrigger()}
-            disabled={profilePending || !profileSupported || managedProfiles.length === 0}
-            touchTarget="adaptive"
+        {snapshot ? (
+          <Select
+            onValueChange={(profileId) =>
+              typeof profileId === "string" ? void selectProfile(profileId) : undefined
+            }
+            value={selectedProfile?.id ?? ""}
           >
-            {profilePending ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <FileText aria-hidden="true" />
-            )}
-            <span className="user-authored-label">{activeLabel}</span>
-          </SelectTrigger>
-          <SelectContent align="end" className="profile-menu" sideOffset={8}>
-            <SelectGroup>
-              {managedProfiles.map((profile) => (
-                <SelectItem
-                  className={cx(
-                    "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
-                    "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
-                    "data-highlighted:bg-accent data-highlighted:text-ink",
-                  )}
-                  key={profile.id}
-                  value={profile.id}
-                >
-                  <span className="user-authored-label">{profile.label}</span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+            <SelectTrigger
+              aria-busy={profilePending}
+              aria-describedby={actionDescriptionId}
+              aria-label={profileLabel}
+              className={shellStyles().profileTrigger()}
+              disabled={profilePending || !profileSupported || managedProfiles.length === 0}
+              touchTarget="adaptive"
+            >
+              {profilePending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              <span className="user-authored-label">{activeLabel}</span>
+            </SelectTrigger>
+            <SelectContent align="end" className="profile-menu" sideOffset={8}>
+              <SelectGroup>
+                {managedProfiles.map((profile) => (
+                  <SelectItem
+                    className={cx(
+                      "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
+                      "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
+                      "data-highlighted:bg-accent data-highlighted:text-ink",
+                    )}
+                    key={profile.id}
+                    value={profile.id}
+                  >
+                    <span className="user-authored-label">{profile.label}</span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className={shellStyles().loading()}>
+            {connection.phase === "fixture"
+              ? LL.toolbar.loadingFixture()
+              : LL.toolbar.loadingDesktop()}
+          </span>
+        )}
       </div>
       <Drawer onOpenChange={setDrawerOpen} open={drawerOpen}>
         <DrawerTrigger
