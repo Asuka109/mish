@@ -3218,6 +3218,10 @@ type RootTranslation = {
 		 */
 		createProfile: string
 		/**
+		 * C​u​r​r​e​n​t​ ​P​r​o​f​i​l​e
+		 */
+		currentProfile: string
+		/**
 		 * C​r​e​a​t​e​ ​l​o​c​a​l​ ​p​r​o​f​i​l​e
 		 */
 		createTitle: string
@@ -8390,6 +8394,10 @@ export type TranslationFunctions = {
 		 * New Profile
 		 */
 		createProfile: () => LocalizedString
+		/**
+		 * Current Profile
+		 */
+		currentProfile: () => LocalizedString
 		/**
 		 * Create local profile
 		 */
