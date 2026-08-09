@@ -402,6 +402,29 @@ mod tests {
         assert!(ingress.requires_rebind());
     }
 
+    #[tokio::test]
+    async fn pending_duplicate_does_not_mean_the_runner_has_delivered_it() {
+        let initial = LifecycleState::initial("authority-1".into(), "session-1".into(), facts(7));
+        let runner = spawn_runner(
+            Arc::new(LifecycleMachine),
+            initial,
+            Arc::new(UnusedExecutor),
+            Arc::new(NoopObserver),
+            RunnerConfig::default(),
+        );
+        let ingress = PlatformObservationIngress::new("platform-session-1".into(), 7);
+
+        assert_eq!(ingress.offer(facts(10)), ObservationAdmission::Accepted);
+        assert_eq!(ingress.offer(facts(10)), ObservationAdmission::Stale);
+        assert_eq!(runner.snapshot().facts.fact_sequence, 7);
+        assert_eq!(
+            ingress.deliver_next(&runner).await,
+            ObservationAdmission::Accepted
+        );
+        assert_eq!(runner.snapshot().facts.fact_sequence, 10);
+        runner.shutdown().await;
+    }
+
     struct UnusedExecutor;
 
     impl EffectExecutor<LifecycleMachine> for UnusedExecutor {

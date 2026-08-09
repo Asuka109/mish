@@ -53,9 +53,6 @@ impl LifecycleRuntime {
         ) {
             return offered;
         }
-        if offered == ObservationAdmission::Stale {
-            return ObservationAdmission::Stale;
-        }
         let mut updates = self.updates.clone();
         loop {
             let current = self.runner.snapshot();
