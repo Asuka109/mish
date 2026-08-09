@@ -17,7 +17,7 @@ interface TrackerIssue {
   number: number;
   title: string;
   state: "OPEN" | "CLOSED";
-  stateReason: "COMPLETED" | "NOT_PLANNED" | "" | null;
+  stateReason: "COMPLETED" | "NOT_PLANNED" | "REOPENED" | "" | null;
   closedAt: string | null;
   updatedAt: string;
   references: TrackerReference[];
@@ -51,10 +51,18 @@ const trackerRoles = new Set([
 const closedStateReasons = new Set(["COMPLETED", "NOT_PLANNED"]);
 
 function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/u.exec(value);
+  if (!match) return false;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
   return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value) &&
-    Number.isFinite(Date.parse(value))
+    parsed.getUTCFullYear() === Number(match[1]) &&
+    parsed.getUTCMonth() + 1 === Number(match[2]) &&
+    parsed.getUTCDate() === Number(match[3]) &&
+    parsed.getUTCHours() === Number(match[4]) &&
+    parsed.getUTCMinutes() === Number(match[5]) &&
+    parsed.getUTCSeconds() === Number(match[6])
   );
 }
 
@@ -130,7 +138,14 @@ export function validateDocumentationTrackers(
     if (issue.state !== "OPEN" && issue.state !== "CLOSED") {
       errors.push(`Issue #${issue.number} has invalid state: ${String(issue.state)}`);
     } else if (issue.state === "OPEN") {
-      if ((issue.stateReason !== null && issue.stateReason !== "") || issue.closedAt !== null) {
+      if (
+        issue.stateReason !== null &&
+        issue.stateReason !== "" &&
+        issue.stateReason !== "REOPENED"
+      ) {
+        errors.push(`open Issue #${issue.number} has invalid stateReason`);
+      }
+      if (issue.closedAt !== null) {
         errors.push(`open Issue #${issue.number} must not have closure metadata`);
       }
     } else {
@@ -163,6 +178,11 @@ export function validateDocumentationTrackers(
       if (reference.role !== "active-dependency" && issue.state !== "CLOSED") {
         errors.push(
           `open Issue #${issue.number} is classified as ${reference.role} in ${reference.path}`,
+        );
+      }
+      if (reference.role === "completed-delivery" && issue.stateReason !== "COMPLETED") {
+        errors.push(
+          `Issue #${issue.number} cannot be completed delivery with stateReason ${String(issue.stateReason)}`,
         );
       }
 

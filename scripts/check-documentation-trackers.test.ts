@@ -104,6 +104,38 @@ test("malformed tracker states and timestamps fail runtime validation", () => {
   assert.match(errors, /closedAt must be an ISO timestamp/u);
 });
 
+test("calendar-invalid timestamps fail exact read-back validation", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues[0].updatedAt = "2026-02-31T00:00:00Z";
+  assert.match(
+    validateDocumentationTrackers(fixture, sources).join("\n"),
+    /updatedAt must be an ISO timestamp/u,
+  );
+});
+
+test("reopened Issues remain valid active dependencies", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues[0].state = "OPEN";
+  fixture.issues[0].stateReason = "REOPENED";
+  fixture.issues[0].closedAt = null;
+  fixture.issues[0].references[0].role = "active-dependency";
+  assert.deepEqual(validateDocumentationTrackers(fixture, sources), []);
+});
+
+test("not-planned Issues cannot be completed delivery evidence", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  const issue = fixture.issues.find((candidate) => candidate.number === 373);
+  assert.ok(issue);
+  issue.references[0].role = "completed-delivery";
+  assert.match(
+    validateDocumentationTrackers(fixture, sources).join("\n"),
+    /cannot be completed delivery with stateReason NOT_PLANNED/u,
+  );
+});
+
 test("unclassified and duplicate canonical references fail deterministically", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);
