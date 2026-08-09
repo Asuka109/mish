@@ -1199,7 +1199,7 @@ fn validate_version(version: &str) -> Result<(), UpdaterMaintenanceError> {
 fn validate_record(record: &MaintenanceJournalRecord) -> bool {
     record.schema_version == JOURNAL_SCHEMA_VERSION
         && record.operation.admitted_revision <= u64::MAX - MAINTENANCE_REVISION_HEADROOM
-        && record.revision >= record.operation.admitted_revision
+        && valid_phase_revision(record)
         && validate_operation_id(&record.operation.operation_id).is_ok()
         && valid_digest(&record.operation.machine_authority_sha256)
         && record
@@ -1218,6 +1218,25 @@ fn validate_record(record: &MaintenanceJournalRecord) -> bool {
             }
             _ => false,
         }
+}
+
+fn valid_phase_revision(record: &MaintenanceJournalRecord) -> bool {
+    let Some(offset) = record
+        .revision
+        .checked_sub(record.operation.admitted_revision)
+    else {
+        return false;
+    };
+    match record.phase {
+        MaintenanceJournalPhase::PreparingMaintenance => offset == 0,
+        MaintenanceJournalPhase::InstallingIntent => offset == 1,
+        MaintenanceJournalPhase::Relaunching => offset == 2,
+        MaintenanceJournalPhase::Recovering => matches!(offset, 2 | 3),
+        MaintenanceJournalPhase::Completed | MaintenanceJournalPhase::Failed => {
+            matches!(offset, 3 | 4)
+        }
+        MaintenanceJournalPhase::Cancelled => offset == 1,
+    }
 }
 
 fn valid_digest(value: &str) -> bool {
@@ -1970,6 +1989,43 @@ mod tests {
             set_permissions(&journal, 0o600).unwrap();
             let restarted = authority(&root, "0.1.0");
             assert!(!restarted.automatic_activation_allowed());
+            assert!(journal.exists());
+        }
+    }
+
+    #[test]
+    fn unreachable_phase_revisions_are_corrupt_and_retained() {
+        for (phase, unreachable_revision) in [
+            (MaintenanceJournalPhase::PreparingMaintenance, u64::MAX),
+            (MaintenanceJournalPhase::InstallingIntent, 9),
+            (MaintenanceJournalPhase::Relaunching, 10),
+            (MaintenanceJournalPhase::Recovering, u64::MAX),
+            (MaintenanceJournalPhase::Completed, 9),
+            (MaintenanceJournalPhase::Failed, 9),
+            (MaintenanceJournalPhase::Cancelled, 9),
+        ] {
+            let root = TempDir::new().unwrap();
+            let first = authority(&root, "0.1.0");
+            first.begin(request("unreachable-revision")).unwrap();
+            let mut record = first.store.read_record().unwrap().unwrap();
+            record.phase = phase;
+            record.revision = unreachable_revision;
+            let journal = root.path().join("maintenance/journal.json");
+            fs::write(&journal, serde_json::to_vec(&record).unwrap()).unwrap();
+            drop(first);
+
+            let restarted = UpdaterMaintenanceAuthority::open(
+                root.path().join("maintenance"),
+                "replacement-authority",
+                "0.1.0",
+            )
+            .unwrap();
+            let snapshot = restarted.snapshot().unwrap();
+            assert_eq!(
+                snapshot.reconciliation,
+                UpdaterMaintenanceReconciliation::Corrupt
+            );
+            assert!(!snapshot.automatic_activation_allowed);
             assert!(journal.exists());
         }
     }

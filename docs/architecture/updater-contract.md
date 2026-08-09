@@ -404,6 +404,10 @@ terminal operation/revision with automatic activation blocked; the identical
 command retries only operation-owned cleanup and never recommits the outcome.
 
 `updater-maintenance/journal.json` is schema version 1 and is capped at 4 KiB.
+Validation binds each phase to its exact reachable revision offset from
+admission. A syntactically valid revision jump is corrupt evidence, remains on
+disk, and blocks automatic activation instead of overflowing startup or
+creating an unresolvable recovery.
 It contains only canonical previous/expected application versions, the bounded
 operation key and revisions, digested process authority, `none` or
 `restore-prior-capture` intent, and optional digested capture authority plus
