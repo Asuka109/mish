@@ -15,12 +15,12 @@ use tokio_util::sync::CancellationToken;
 
 pub use dto::*;
 pub use error::{ControllerError, ControllerErrorKind, Endpoint};
+pub use mish_runtime::PINNED_MIHOMO_VERSION;
 pub use transport::{
     ControllerTransport, HttpTransport, HttpTransportConfig, RawMessageStream,
     shared_http_transport,
 };
 
-pub const PINNED_MIHOMO_VERSION: &str = "v1.19.29";
 pub const ROUTE_DELAY_POLICY_ID: &str = "mihomo-google-204-v1";
 pub const ROUTE_DELAY_TEST_URL: &str = "https://www.gstatic.com/generate_204";
 pub const ROUTE_DELAY_TIMEOUT_MILLISECONDS: u16 = 5_000;

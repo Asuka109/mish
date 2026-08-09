@@ -523,6 +523,13 @@ process lifetime. Paths outside that shape, symlinks, loose permissions,
 foreign ownership, oversized files, malformed tokens, and unknown messages are
 rejected.
 
+The platform client's application-facing launch/observe/stop/listener-proof
+port and its redacted request/process values are owned by `crates/runtime`, not
+by Desktop Bridge. `MacOsTunServiceClient` implements that lower port without
+changing this wire protocol, installation-key enrollment, peer validation,
+private socket, process ownership, or `stop-all` service cleanup. The desktop
+host injects the implementation into the coordinator's managed Core adapter.
+
 The development service takes a pre-launch `utun` baseline, then uses the
 public macOS `libproc` descriptor APIs to enumerate kernel-control sockets held
 by the exact, unreaped child PID it started. A socket named
