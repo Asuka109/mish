@@ -203,6 +203,24 @@ test("future wording for another Issue is not attributed to a closed Issue", () 
   assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
 });
 
+test("ordinary all wording does not create a shared tracker claim", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/architecture/state-machine-kernel.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288 established all lifecycle rules, while open Issue #999 tracks remaining work.\n";
+  assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
+});
+
 test("shared claims apply to every explicitly referenced Issue", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);

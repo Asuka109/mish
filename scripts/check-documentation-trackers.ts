@@ -136,13 +136,25 @@ function hasClaimForIssue(source: string, issueNumber: number, pattern: RegExp):
     "giu",
   );
   const references = [...source.matchAll(referencePattern)].map((match) => ({
+    end: (match.index ?? 0) + match[0].length,
     index: match.index ?? 0,
     number: Number(match[1] ?? match[2]),
   }));
-  const sharedClaim = references.length > 1 && /\b(?:all|both|each)\b/iu.test(source);
   return [...source.matchAll(claimPattern)].some((claim) => {
-    if (sharedClaim) return references.some((reference) => reference.number === issueNumber);
     const claimIndex = claim.index ?? 0;
+    const firstReference = references.at(0);
+    const lastReference = references.at(-1);
+    const sharedClaim =
+      references.length > 1 &&
+      firstReference !== undefined &&
+      lastReference !== undefined &&
+      (/\bboth\b/iu.test(
+        source.slice(Math.max(0, firstReference.index - 16), firstReference.index),
+      ) ||
+        /\b(?:all|both|each)\b/iu.test(source.slice(lastReference.end, claimIndex)) ||
+        (claimIndex < firstReference.index &&
+          /\b(?:all|both)\b/iu.test(source.slice(claimIndex, firstReference.index))));
+    if (sharedClaim) return references.some((reference) => reference.number === issueNumber);
     const nearest = references.reduce<(typeof references)[number] | null>((current, reference) => {
       if (current === null) return reference;
       return Math.abs(reference.index - claimIndex) < Math.abs(current.index - claimIndex)
