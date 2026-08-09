@@ -104,7 +104,7 @@ function serializeGroupRouteSearch(searchParams: URLSearchParams, query: string,
 
 function useMobileRouteData() {
   const product = useProduct();
-  const configuredRoutes = useConfiguredRouteCatalog(product.snapshot);
+  const configuredRoutes = useConfiguredRouteCatalog(product.snapshot, product.connection);
   const configuredRoutesActive = configuredRoutes !== null;
   const groups = configuredRoutesActive
     ? configuredRoutes.groups
