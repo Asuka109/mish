@@ -749,8 +749,10 @@ function ProfileMenu() {
         <DrawerTrigger
           render={
             <Button
+              aria-busy={profilePending}
               aria-label={profileLabel}
               className={shellStyles().profileDrawerTrigger()}
+              disabled={!profileSupported || managedProfiles.length === 0}
               touchTarget="adaptive"
               variant="outline"
             />
@@ -771,7 +773,11 @@ function ProfileMenu() {
                 </div>
               }
             >
-              <DrawerProfilesPage />
+              <DrawerProfilesPage
+                onSelectProfile={(profileId) => void selectProfile(profileId)}
+                selectedProfileId={selectedProfileId}
+                selectionPending={profilePending}
+              />
             </Suspense>
           </div>
         </DrawerContent>

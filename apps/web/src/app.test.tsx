@@ -2423,7 +2423,7 @@ describe("desktop RPC experience", () => {
         name: "Switch profile. Current profile: Concurrent route set",
       }),
     ).toBeEnabled();
-    expect(profileClient.selectProfile).toHaveBeenLastCalledWith("fixture-profile-studio", {
+    expect(profileClient.selectProfile).toHaveBeenLastCalledWith("work", {
       expectedSelection: { profileId: "fixture-profile-travel", revision: 2 },
       signal: expect.any(AbortSignal),
     });
@@ -2930,7 +2930,7 @@ describe("Status fixture experience", () => {
     });
     expect(configuredNode).toBeDisabled();
     expect(configuredNode).not.toHaveTextContent("Read-only");
-    expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
+    expect(profileClient.getRoutes).toHaveBeenCalledWith("work");
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {

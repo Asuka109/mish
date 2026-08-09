@@ -978,6 +978,7 @@ const en = {
       "Enter a file name to create a basic local YAML profile with direct routing enabled.",
     createFailed: "The profile could not be created. Check the file name or choose another one.",
     createProfile: "New Profile",
+    currentProfile: "Current Profile",
     createTitle: "Create local profile",
     createdToast: "Profile created",
     creating: "Creating…",

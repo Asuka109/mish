@@ -646,6 +646,21 @@ describe("responsive application shell", () => {
     });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[role="dialog"]')).toHaveAccessibleName("Profiles");
+    const currentProfileButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((button) => button.textContent?.trim() === "Current Profile");
+    const switchProfileButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((button) => button.textContent?.trim() === "Switch Profile");
+    expect(currentProfileButton).toBeDisabled();
+    expect(currentProfileButton).toHaveAttribute("aria-pressed", "true");
+    if (!switchProfileButton) throw new Error("Missing profile switch action in drawer");
+    await page.elementLocator(switchProfileButton).click();
+    await vi.waitFor(() => {
+      expect(profileTrigger.querySelector(".user-authored-label")).toHaveTextContent("Work 工作");
+      expect(switchProfileButton).toHaveTextContent("Current Profile");
+      expect(switchProfileButton).toHaveAttribute("aria-pressed", "true");
+    });
 
     await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(document.querySelector(".drawer-content")).toBeNull());

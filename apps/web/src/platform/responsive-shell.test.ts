@@ -45,7 +45,8 @@ describe("responsive shell CSS", () => {
     expect(shell).toContain("<ProxyControlButton />");
     expect(shell).not.toContain("max-shell-mobile:contents");
     expect(shell).toContain("if (!isActivityPath(location.pathname)) return null");
-    expect(shell).toContain("<DrawerProfilesPage />");
+    expect(shell).toContain("<DrawerProfilesPage");
+    expect(shell).toContain("onSelectProfile={(profileId) => void selectProfile(profileId)}");
     expect(shell).toContain("profile-drawer-trigger");
     expect(shell).toContain("max-shell-mobile:border-b-0");
   });
