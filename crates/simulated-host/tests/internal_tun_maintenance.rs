@@ -1279,7 +1279,12 @@ async fn removal_evidence_write_failure_keeps_the_terminal_notification_truthful
             .removal,
         TunHelperRemovalCapability::NotInstalled
     );
-    assert!(occurrences.records().is_empty());
+    let pending_terminal = occurrences.records();
+    assert_eq!(pending_terminal.len(), 1);
+    assert_eq!(
+        pending_terminal[0].outcome,
+        mish_runtime::TunHelperRemovalOutcome::Removed
+    );
 
     let notifications = rpc_request(
         &mut observer,
@@ -1291,6 +1296,21 @@ async fn removal_evidence_write_failure_keeps_the_terminal_notification_truthful
     assert_eq!(lifecycle["pinned"], false);
 
     fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let retry = rpc_request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":4, "method":"settings.removeTunHelper", "params":{}}),
+    )
+    .await;
+    assert_eq!(retry["error"]["code"], -32055);
+    let persisted = occurrences.records();
+    assert_eq!(persisted.len(), 2);
+    assert_eq!(persisted[0], pending_terminal[0]);
+    assert_eq!(persisted[1].admitted_revision, 2);
+    assert_eq!(
+        persisted[1].failure,
+        Some(TunHelperRemovalOccurrenceFailure::InstallationUnconfirmed)
+    );
+
     shutdown_with_profile_coordinator(&scenario).await;
     drop(observer);
     assert!(matches!(

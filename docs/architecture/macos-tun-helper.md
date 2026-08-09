@@ -162,6 +162,9 @@ and network owners still decide current state, so a successful retry may
 truthfully publish removed/not-installed without rewriting the earlier failure.
 If the private journal cannot be validated or written, desktop startup and
 unrelated Settings remain available while removal admission fails closed.
+After a transient in-process write failure, the next removal admission first
+persists the known terminal candidate or a conservative interrupted occurrence;
+it never leaves a live-operation identity permanently busy or skips evidence.
 
 Before any artifact replacement, the controller uses the existing installation
 key and one accepted operation identity to authenticate Status and, when

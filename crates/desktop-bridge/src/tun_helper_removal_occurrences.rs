@@ -4,7 +4,10 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use mish_runtime::{CaptureFailureKind, TunHelperFailureKind, TunHelperRemovalOutcome};
@@ -286,6 +289,7 @@ enum TunHelperRemovalOccurrencePersistence {
 pub struct TunHelperRemovalOccurrenceStore {
     journal: Mutex<TunHelperRemovalOccurrenceJournal>,
     persistence: TunHelperRemovalOccurrencePersistence,
+    reconcile_active_before_admission: AtomicBool,
 }
 
 impl TunHelperRemovalOccurrenceStore {
@@ -293,6 +297,7 @@ impl TunHelperRemovalOccurrenceStore {
         Self {
             journal: Mutex::new(TunHelperRemovalOccurrenceJournal::default()),
             persistence: TunHelperRemovalOccurrencePersistence::Memory,
+            reconcile_active_before_admission: AtomicBool::new(false),
         }
     }
 
@@ -300,36 +305,21 @@ impl TunHelperRemovalOccurrenceStore {
         Self {
             journal: Mutex::new(TunHelperRemovalOccurrenceJournal::default()),
             persistence: TunHelperRemovalOccurrencePersistence::Unavailable,
+            reconcile_active_before_admission: AtomicBool::new(false),
         }
     }
 
     pub fn open_private_file(path: PathBuf) -> Result<Self, TunHelperRemovalOccurrenceStoreError> {
         validate_private_parent(&path)?;
         let mut journal = load_private_journal(&path)?.unwrap_or_default();
-        if let Some(active) = journal.active.take() {
-            journal.records.push_back(TunHelperRemovalOccurrence {
-                admitted_revision: active.admitted_revision,
-                admitted_state: active.admitted_state,
-                cleanup: if active.lifecycle_phase
-                    >= TunHelperRemovalLifecyclePhase::PrivilegedMaintenance
-                {
-                    TunHelperRemovalCleanupOutcome::Incomplete
-                } else {
-                    TunHelperRemovalCleanupOutcome::NotRequired
-                },
-                failure: Some(TunHelperRemovalOccurrenceFailure::ProcessInterrupted),
-                lifecycle_phase: active.lifecycle_phase,
-                observation: TunHelperRemovalObservationOutcome::Incomplete,
-                operation_id: active.operation_id,
-                outcome: TunHelperRemovalOutcome::ObservationIncomplete,
-            });
-            trim_records(&mut journal.records);
+        if reconcile_interrupted_active(&mut journal) {
             journal.validate()?;
             write_private_journal(&path, &journal)?;
         }
         Ok(Self {
             journal: Mutex::new(journal),
             persistence: TunHelperRemovalOccurrencePersistence::PrivateFile(path),
+            reconcile_active_before_admission: AtomicBool::new(false),
         })
     }
 
@@ -346,7 +336,18 @@ impl TunHelperRemovalOccurrenceStore {
             .lock()
             .expect("removal occurrence store poisoned");
         if journal.active.is_some() {
-            return Err(TunHelperRemovalOccurrenceStoreError::Busy);
+            if !self
+                .reconcile_active_before_admission
+                .load(Ordering::Acquire)
+            {
+                return Err(TunHelperRemovalOccurrenceStoreError::Busy);
+            }
+            let mut reconciled = journal.clone();
+            reconcile_interrupted_active(&mut reconciled);
+            self.persist(&reconciled)?;
+            *journal = reconciled;
+            self.reconcile_active_before_admission
+                .store(false, Ordering::Release);
         }
         if journal
             .records
@@ -371,6 +372,8 @@ impl TunHelperRemovalOccurrenceStore {
         });
         self.persist(&next)?;
         *journal = next;
+        self.reconcile_active_before_admission
+            .store(false, Ordering::Release);
         Ok(TunHelperRemovalAdmission {
             admitted_revision,
             operation_id,
@@ -396,9 +399,21 @@ impl TunHelperRemovalOccurrenceStore {
         active.lifecycle_phase = lifecycle_phase;
         active.observation = observation;
         active.cleanup = cleanup;
-        self.persist(&next)?;
-        *journal = next;
-        Ok(())
+        match self.persist(&next) {
+            Ok(()) => {
+                *journal = next;
+                self.reconcile_active_before_admission
+                    .store(false, Ordering::Release);
+                Ok(())
+            }
+            Err(TunHelperRemovalOccurrenceStoreError::Storage) => {
+                *journal = next;
+                self.reconcile_active_before_admission
+                    .store(true, Ordering::Release);
+                Err(TunHelperRemovalOccurrenceStoreError::Storage)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn finish(
@@ -433,9 +448,21 @@ impl TunHelperRemovalOccurrenceStore {
         next.records.push_back(occurrence.clone());
         trim_records(&mut next.records);
         next.validate()?;
-        self.persist(&next)?;
-        *journal = next;
-        Ok(occurrence)
+        match self.persist(&next) {
+            Ok(()) => {
+                *journal = next;
+                self.reconcile_active_before_admission
+                    .store(false, Ordering::Release);
+                Ok(occurrence)
+            }
+            Err(TunHelperRemovalOccurrenceStoreError::Storage) => {
+                *journal = next;
+                self.reconcile_active_before_admission
+                    .store(false, Ordering::Release);
+                Err(TunHelperRemovalOccurrenceStoreError::Storage)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn records(&self) -> Vec<TunHelperRemovalOccurrence> {
@@ -463,6 +490,29 @@ impl TunHelperRemovalOccurrenceStore {
             }
         }
     }
+}
+
+fn reconcile_interrupted_active(journal: &mut TunHelperRemovalOccurrenceJournal) -> bool {
+    let Some(active) = journal.active.take() else {
+        return false;
+    };
+    journal.records.push_back(TunHelperRemovalOccurrence {
+        admitted_revision: active.admitted_revision,
+        admitted_state: active.admitted_state,
+        cleanup: if active.lifecycle_phase >= TunHelperRemovalLifecyclePhase::PrivilegedMaintenance
+        {
+            TunHelperRemovalCleanupOutcome::Incomplete
+        } else {
+            TunHelperRemovalCleanupOutcome::NotRequired
+        },
+        failure: Some(TunHelperRemovalOccurrenceFailure::ProcessInterrupted),
+        lifecycle_phase: active.lifecycle_phase,
+        observation: TunHelperRemovalObservationOutcome::Incomplete,
+        operation_id: active.operation_id,
+        outcome: TunHelperRemovalOutcome::ObservationIncomplete,
+    });
+    trim_records(&mut journal.records);
+    true
 }
 
 fn matching_active_mut<'a>(
@@ -844,6 +894,45 @@ mod tests {
             .admit(operation(1), TunHelperRemovalAdmittedState::Running)
             .unwrap();
         assert_eq!(admission.admitted_revision, 1);
+    }
+
+    #[test]
+    fn failed_advance_is_reconciled_durably_before_retry_admission() {
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.path().join("occurrences.json");
+        let store = TunHelperRemovalOccurrenceStore::open_private_file(path).unwrap();
+        let interrupted = store
+            .admit(operation(1), TunHelperRemovalAdmittedState::Running)
+            .unwrap();
+
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o500)).unwrap();
+        assert_eq!(
+            store.advance(
+                &interrupted,
+                TunHelperRemovalLifecyclePhase::CaptureShutdown,
+                TunHelperRemovalObservationOutcome::NotStarted,
+                TunHelperRemovalCleanupOutcome::NotStarted,
+            ),
+            Err(TunHelperRemovalOccurrenceStoreError::Storage)
+        );
+
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let retry = store
+            .admit(operation(2), TunHelperRemovalAdmittedState::Running)
+            .unwrap();
+        assert_eq!(retry.admitted_revision, 2);
+        let records = store.records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].operation_id, operation(1));
+        assert_eq!(
+            records[0].failure,
+            Some(TunHelperRemovalOccurrenceFailure::ProcessInterrupted)
+        );
+        assert_eq!(
+            records[0].lifecycle_phase,
+            TunHelperRemovalLifecyclePhase::CaptureShutdown
+        );
     }
 
     #[test]
