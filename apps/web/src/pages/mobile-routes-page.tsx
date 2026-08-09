@@ -7,7 +7,7 @@ import {
   EmptyTitle,
   Field,
   FieldLabel,
-  Input,
+  SearchInput,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -59,10 +59,6 @@ const mobileRoutesStyles = tv({
     ),
     pageHeader: "grid min-w-0 gap-1 border-b border-hairline-soft pb-4",
     search: "mobile-routes-search",
-    searchControl: cx(
-      "relative flex min-w-0 items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-3",
-      "[&>svg]:size-4.5 [&>svg]:text-muted-foreground [&_.ui-input]:min-h-11 [&_.ui-input]:pl-9.5",
-    ),
   },
 });
 
@@ -227,20 +223,20 @@ export function MobileRoutesPage() {
         <FieldLabel className="sr-only" htmlFor="mobile-routes-search">
           {LL.routes.searchLabel()}
         </FieldLabel>
-        <span className={styles.searchControl()}>
-          <MagnifyingGlass aria-hidden="true" />
-          <Input
-            autoComplete="off"
-            data-native-search
-            id="mobile-routes-search"
-            name="mobile-routes-search"
-            onValueChange={setQuery}
-            placeholder={LL.routes.searchPlaceholder()}
-            spellCheck={false}
-            type="search"
-            value={query}
-          />
-        </span>
+        <SearchInput
+          autoComplete="off"
+          data-native-search
+          icon={<MagnifyingGlass />}
+          id="mobile-routes-search"
+          name="mobile-routes-search"
+          onValueChange={setQuery}
+          placeholder={LL.routes.searchPlaceholder()}
+          rootClassName="mobile-routes-search-control"
+          spellCheck={false}
+          touchTarget="adaptive"
+          type="search"
+          value={query}
+        />
         <span aria-live="polite" className="sr-only" role="status">
           {LL.routes.searchResultCount({ count: visibleGroups.length })}
         </span>
