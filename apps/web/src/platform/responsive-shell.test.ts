@@ -47,6 +47,9 @@ describe("responsive shell CSS", () => {
     expect(shell).toContain("if (!isActivityPath(location.pathname)) return null");
     expect(shell).toContain("<DrawerProfilesPage");
     expect(shell).toContain("onSelectProfile={(profileId) => void selectProfile(profileId)}");
+    expect(shell).not.toContain(
+      "className={shellStyles().profileDrawerTrigger()}\n              disabled=",
+    );
     expect(shell).toContain("profile-drawer-trigger");
     expect(shell).toContain("max-shell-mobile:border-b-0");
   });

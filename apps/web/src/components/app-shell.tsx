@@ -752,7 +752,6 @@ function ProfileMenu() {
               aria-busy={profilePending}
               aria-label={profileLabel}
               className={shellStyles().profileDrawerTrigger()}
-              disabled={!profileSupported || managedProfiles.length === 0}
               touchTarget="adaptive"
               variant="outline"
             />
