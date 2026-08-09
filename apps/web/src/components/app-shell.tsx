@@ -158,7 +158,7 @@ const shellStyles = tv({
       "max-shell-mobile:grid",
     ),
     narrowNavigationIsland: cx(
-      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas p-0.5",
+      "narrow-navigation-island grid min-w-0 rounded-md border border-hairline bg-canvas p-1",
       "shadow-sidebar-item-active",
     ),
     narrowNavigationPrimary: "narrow-navigation-primary grid-cols-3",

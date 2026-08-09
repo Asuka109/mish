@@ -112,17 +112,17 @@ function expectNarrowNavigationGeometry(context: string) {
     expect(rect.width, `${context}: ${label} target width`).toBeGreaterThanOrEqual(24);
     expect(rect.height, `${context}: ${label} target height`).toBeGreaterThanOrEqual(44);
     expect(rect.left - islandRect.left, `${context}: ${label} left inset`).toBeGreaterThanOrEqual(
-      2,
+      4,
     );
     expect(
       islandRect.right - rect.right,
       `${context}: ${label} right inset`,
-    ).toBeGreaterThanOrEqual(2);
-    expect(rect.top - islandRect.top, `${context}: ${label} top inset`).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(4);
+    expect(rect.top - islandRect.top, `${context}: ${label} top inset`).toBeGreaterThanOrEqual(4);
     expect(
       islandRect.bottom - rect.bottom,
       `${context}: ${label} bottom inset`,
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(4);
     expectTargetOwnsItsCenter(target, `${context}: ${label}`);
   }
 }
