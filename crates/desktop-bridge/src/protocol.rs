@@ -19,13 +19,13 @@ use mish_runtime::{
     CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
     CaptureSelection, CaptureTransitionError, CoreStatus, NotificationPresentationCompletion,
     NotificationPresentationCompletionResult, NotificationPresentationIdentity,
-    NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
-    SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
-    TrafficCommandAuthority, TrafficCommandOperation, TunHelperFailureKind,
-    TunHelperLifecycleApplicationNotificationData, TunHelperLifecycleOperation,
-    TunHelperRemovalOutcome, valid_notification_presentation_completion,
-    valid_notification_presentation_identity,
+    NotificationPublication, NotificationSeverity, ProfileSummary, ProviderAuthority, ProviderKind,
+    RoutingMode, SettingsOperationFailedApplicationNotificationData, StatusAdapterKind,
+    StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusSnapshot,
+    SystemProxyTakeoverPolicy, TrafficCommandAuthority, TrafficCommandOperation,
+    TunHelperFailureKind, TunHelperLifecycleApplicationNotificationData,
+    TunHelperLifecycleOperation, TunHelperRemovalOutcome,
+    valid_notification_presentation_completion, valid_notification_presentation_identity,
 };
 use mish_settings::{
     AppearancePreference, ApplicationLaunchBehavior, LanguagePreference, ManagedPortKind,
@@ -64,6 +64,12 @@ struct Authentication {
     client_name: String,
     client_version: String,
     token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BridgeInfoParams {
+    client_protocol_version: u32,
 }
 
 #[derive(Clone)]
@@ -146,6 +152,7 @@ impl ProtocolState {
         ticket: crate::snapshot_order::SnapshotTicket,
         mut snapshot: StatusSnapshot,
     ) -> Value {
+        self.overlay_profile_selection(&mut snapshot);
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
@@ -165,9 +172,30 @@ impl ProtocolState {
             service_probes.overlay(snapshot);
         }
         if let Some(snapshot) = error.reconciliation.as_mut() {
+            self.overlay_profile_selection(snapshot);
             self.runtime.stamp_status_snapshot(ticket, snapshot);
         }
         status_command_error_response(id, error)
+    }
+
+    fn overlay_profile_selection(&self, snapshot: &mut StatusSnapshot) {
+        let Some(service) = &self.profile_service else {
+            return;
+        };
+        let Ok(profile_snapshot) = service.snapshot() else {
+            return;
+        };
+        if let Some(profile_id) = profile_snapshot.selection.profile_id {
+            snapshot.active_profile_id = profile_id;
+        }
+        snapshot.profiles = profile_snapshot
+            .profiles
+            .iter()
+            .map(|profile| ProfileSummary {
+                id: profile.id.clone(),
+                label: profile.label.clone(),
+            })
+            .collect();
     }
 
     async fn status_snapshot_with_capture(
@@ -178,7 +206,7 @@ impl ProtocolState {
         let mut changes = self.runtime.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let core = runtime.core_status().await;
-        let mut snapshot = runtime.snapshot_typed_with_capture_status(
+        let snapshot = runtime.snapshot_typed_with_capture_status(
             &core,
             StatusAdapterKind::Rpc,
             capture_status,
@@ -189,11 +217,7 @@ impl ProtocolState {
             // The publisher retired while this projection was in flight.
             return self.status_snapshot().await;
         }
-        if let Some(service_probes) = &self.service_probes {
-            service_probes.overlay(&mut snapshot);
-        }
-        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
-        serde_json::to_value(snapshot).expect("Status state must serialize")
+        self.status_snapshot_value(ticket, snapshot)
     }
 
     fn settings_snapshot(&self, service: &SettingsService) -> mish_settings::SettingsSnapshot {
@@ -632,6 +656,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let mut notification_lease_sweep = tokio::time::interval(Duration::from_secs(1));
     notification_lease_sweep.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut authenticated = false;
+    let mut protocol_compatibility = None;
     let (command_responses, mut command_response_updates) = mpsc::unbounded_channel();
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
@@ -673,7 +698,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 subscriptions.event_updates = runtime.subscribe_events();
                 let (notification_updates, _) = runtime.subscribe_notifications_with_snapshot();
                 subscriptions.notification_updates = notification_updates;
-                if authenticated && !subscriptions.status_ids.is_empty() {
+                if authenticated
+                    && protocol_compatibility == Some("compatible")
+                    && !subscriptions.status_ids.is_empty()
+                {
                     let snapshot = state.status_snapshot().await;
                     for subscription_id in &subscriptions.status_ids {
                         let notification = json!({
@@ -686,7 +714,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                         }
                     }
                 }
-                if authenticated && !subscriptions.traffic_ids.is_empty() {
+                if authenticated
+                    && protocol_compatibility == Some("compatible")
+                    && !subscriptions.traffic_ids.is_empty()
+                {
                     let snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
                     for subscription_id in &subscriptions.traffic_ids {
                         let notification = json!({
@@ -699,7 +730,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                         }
                     }
                 }
-                if authenticated && !subscriptions.event_ids.is_empty() {
+                if authenticated
+                    && protocol_compatibility == Some("compatible")
+                    && !subscriptions.event_ids.is_empty()
+                {
                     let snapshot = state.runtime.events_snapshot(StatusAdapterKind::Rpc);
                     for subscription_id in &subscriptions.event_ids {
                         let notification = json!({
@@ -719,7 +753,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     if matches!(message, Message::Close(_)) { break; }
                     continue;
                 };
-                if authenticated && aggregate_capture_request(&text) {
+                if authenticated
+                    && protocol_compatibility == Some("compatible")
+                    && aggregate_capture_request(&text)
+                {
                     let state = state.clone();
                     let responses = command_responses.clone();
                     tokio::spawn(async move {
@@ -731,6 +768,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     &text,
                     &state,
                     &mut authenticated,
+                    &mut protocol_compatibility,
                     &mut subscriptions,
                 ).await;
                 if let Some(response) = response
@@ -747,7 +785,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     break;
                 }
             }
-            update = subscriptions.status_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+            update = subscriptions.status_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.status_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let status_snapshot = state.status_snapshot().await;
                 for subscription_id in &subscriptions.status_ids {
@@ -761,7 +799,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.capture_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+            update = subscriptions.capture_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.status_ids.is_empty() => {
                 let capture_status = match update {
                     Ok(capture_status) => capture_status,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -779,7 +817,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = service_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+            update = service_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.status_ids.is_empty() => {
                 match update {
                     Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
@@ -796,7 +834,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.traffic_updates.recv(), if authenticated && !subscriptions.traffic_ids.is_empty() => {
+            update = subscriptions.traffic_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.traffic_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let traffic_snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
                 for subscription_id in &subscriptions.traffic_ids {
@@ -810,7 +848,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.event_updates.recv(), if authenticated && !subscriptions.event_ids.is_empty() => {
+            update = subscriptions.event_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.event_ids.is_empty() => {
                 match update {
                     Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
@@ -827,7 +865,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.notification_updates.recv(), if authenticated && !subscriptions.notification_ids.is_empty() => {
+            update = subscriptions.notification_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.notification_ids.is_empty() => {
                 let notification_snapshot = match update {
                     Ok(snapshot) => snapshot,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => state.runtime.notification_snapshot(),
@@ -844,24 +882,39 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            _ = notification_lease_sweep.tick(), if authenticated && !subscriptions.notification_ids.is_empty() => {
+            _ = notification_lease_sweep.tick(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.notification_ids.is_empty() => {
                 let _ = state.runtime.notification_snapshot();
             }
-            update = subscriptions.profile_updates.recv(), if authenticated && !subscriptions.profile_ids.is_empty() => {
+            update = subscriptions.profile_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && (!subscriptions.profile_ids.is_empty() || !subscriptions.status_ids.is_empty()) => {
                 let Ok(_) = update else { continue };
-                let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
-                for subscription_id in &subscriptions.profile_ids {
-                    let notification = json!({
-                        "jsonrpc": "2.0",
-                        "method": "profiles.snapshot",
-                        "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
-                    });
-                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
-                        return;
+                if !subscriptions.profile_ids.is_empty() {
+                    let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
+                    for subscription_id in &subscriptions.profile_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "profiles.snapshot",
+                            "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                if !subscriptions.status_ids.is_empty() {
+                    let status_snapshot = state.status_snapshot().await;
+                    for subscription_id in &subscriptions.status_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "status.snapshot",
+                            "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
                     }
                 }
             }
-            update = subscriptions.settings_updates.recv(), if authenticated && !subscriptions.settings_ids.is_empty() => {
+            update = subscriptions.settings_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.settings_ids.is_empty() => {
                 let snapshot = match update {
                     Ok(snapshot) => snapshot,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -881,7 +934,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = subscriptions.updater_updates.recv(), if authenticated && !subscriptions.updater_ids.is_empty() => {
+            update = subscriptions.updater_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.updater_ids.is_empty() => {
                 let snapshot = match update {
                     Ok(snapshot) => snapshot,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => state.updater.snapshot(),
@@ -926,6 +979,7 @@ async fn handle_message(
     text: &str,
     state: &ProtocolState,
     authenticated: &mut bool,
+    protocol_compatibility: &mut Option<&'static str>,
     subscriptions: &mut SocketSubscriptions,
 ) -> Option<Value> {
     let request: Request = match serde_json::from_str(text) {
@@ -949,10 +1003,25 @@ async fn handle_message(
     if !*authenticated && request.method != "rpc.authenticate" {
         return Some(error_response(id, -32001, "Authentication required", None));
     }
+    if *authenticated
+        && request.method != "rpc.authenticate"
+        && request.method != "bridge.getInfo"
+        && request.method != "rpc.cancel"
+        && *protocol_compatibility != Some("compatible")
+    {
+        return Some(error_response(
+            id,
+            -32003,
+            "Bridge protocol compatibility is required",
+            Some(json!({
+                "compatibility": protocol_compatibility,
+                "protocolVersion": crate::bridge_protocol::BRIDGE_PROTOCOL_VERSION,
+            })),
+        ));
+    }
     if matches!(
         request.method.as_str(),
-        "bridge.getInfo"
-            | "core.getStatus"
+        "core.getStatus"
             | "status.getSnapshot"
             | "status.subscribe"
             | "status.testLocalProxy"
@@ -979,6 +1048,7 @@ async fn handle_message(
     let result = match request.method.as_str() {
         "rpc.authenticate" => {
             *authenticated = false;
+            *protocol_compatibility = None;
             let auth: Authentication = match serde_json::from_value(request.params) {
                 Ok(value) => value,
                 Err(error) => {
@@ -1002,27 +1072,55 @@ async fn handle_message(
                 "sessionId": format!("session-{}", NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)),
             })
         }
-        "bridge.getInfo" => json!({
-            "bridgeVersion": env!("CARGO_PKG_VERSION"),
-            "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 35,
-            "updaterConfigured": state.updater.snapshot().configured,
-            "statusCommands": {
-                "group": state.runtime.provides_status_command(StatusCommand::Group),
-                "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
-                "routing": state.runtime.supports_status_command(StatusCommand::Routing),
-                "services": state.service_probes.is_some(),
-            },
-            "trafficCommands": {
-                "closeAllActive": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseAllActive),
-                "closeConnection": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseConnection),
-                "closeFilteredVisible": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseFilteredVisible),
-            },
-        }),
+        "bridge.getInfo" => {
+            let params = match serde_json::from_value::<BridgeInfoParams>(request.params) {
+                Ok(params) if params.client_protocol_version > 0 => params,
+                _ => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            let compatibility =
+                crate::bridge_protocol::compatibility_for_client(params.client_protocol_version);
+            *protocol_compatibility = Some(compatibility);
+            json!({
+                "bridgeVersion": env!("CARGO_PKG_VERSION"),
+                "compatibility": compatibility,
+                "coreConfigured": state.runtime.core_configured(),
+                "minimumClientProtocolVersion": crate::bridge_protocol::BRIDGE_MINIMUM_CLIENT_PROTOCOL_VERSION,
+                "protocolVersion": crate::bridge_protocol::BRIDGE_PROTOCOL_VERSION,
+                "updaterConfigured": state.updater.snapshot().configured,
+                "statusCommands": {
+                    "group": state.runtime.provides_status_command(StatusCommand::Group),
+                    "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
+                    "profile": state.profile_service.is_some(),
+                    "routing": state.runtime.supports_status_command(StatusCommand::Routing),
+                    "services": state.service_probes.is_some(),
+                },
+                "trafficCommands": {
+                    "closeAllActive": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseAllActive),
+                    "closeConnection": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseConnection),
+                    "closeFilteredVisible": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseFilteredVisible),
+                },
+            })
+        }
         "core.getStatus" => {
             serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
         }
         "status.getSnapshot" => state.status_snapshot().await,
+        "status.setActiveProfile" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams =
+                match serde_json::from_value::<ProfileIdParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.profile_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service.select_profile(&params.profile_id).await {
+                Ok(_) => {}
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+            publish_profile_update(state).await;
+            state.status_snapshot().await
+        }
         "status.setRoutingMode" => {
             let params: SetRoutingModeParams = match serde_json::from_value(request.params) {
                 Ok(params) => params,
@@ -1108,9 +1206,9 @@ async fn handle_message(
             let Some(service_probes) = &state.service_probes else {
                 return Some(error_response(
                     id,
-                    -32601,
+                    -32020,
                     "Service probes are unavailable",
-                    None,
+                    Some(json!({"kind": "capability-unavailable"})),
                 ));
             };
             if let Err(error) = service_probes.upsert(params.draft).await {
@@ -1127,9 +1225,9 @@ async fn handle_message(
             let Some(service_probes) = &state.service_probes else {
                 return Some(error_response(
                     id,
-                    -32601,
+                    -32020,
                     "Service probes are unavailable",
-                    None,
+                    Some(json!({"kind": "capability-unavailable"})),
                 ));
             };
             if let Err(error) = service_probes.remove(&params.monitor_id) {
@@ -1145,9 +1243,9 @@ async fn handle_message(
             let Some(service_probes) = &state.service_probes else {
                 return Some(error_response(
                     id,
-                    -32601,
+                    -32020,
                     "Service probes are unavailable",
-                    None,
+                    Some(json!({"kind": "capability-unavailable"})),
                 ));
             };
             if let Err(error) = service_probes.test(&params.monitor_id).await {
@@ -1163,9 +1261,9 @@ async fn handle_message(
             let Some(service_probes) = &state.service_probes else {
                 return Some(error_response(
                     id,
-                    -32601,
+                    -32020,
                     "Service probes are unavailable",
-                    None,
+                    Some(json!({"kind": "capability-unavailable"})),
                 ));
             };
             if let Err(error) = service_probes.restore_defaults() {
@@ -1182,9 +1280,9 @@ async fn handle_message(
             let Some(service_probes) = &state.service_probes else {
                 return Some(error_response(
                     id,
-                    -32601,
+                    -32020,
                     "Service probes are unavailable",
-                    None,
+                    Some(json!({"kind": "capability-unavailable"})),
                 ));
             };
             if let Err(error) = service_probes.set_interval(params.interval_seconds) {
@@ -2419,14 +2517,6 @@ async fn handle_message(
             json!(subscriptions.updater_ids.remove(subscription_id))
         }
         "rpc.cancel" => json!(false),
-        method if method.starts_with("status.") => {
-            return Some(error_response(
-                id,
-                -32020,
-                "Capability is not implemented by the desktop bridge",
-                None,
-            ));
-        }
         _ => return Some(error_response(id, -32601, "Method not found", None)),
     };
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))

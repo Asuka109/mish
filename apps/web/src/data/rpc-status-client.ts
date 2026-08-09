@@ -1,4 +1,5 @@
 import {
+  BRIDGE_INFO_REQUEST,
   CaptureCommandErrorDataSchema,
   StatusClientError,
   StatusCommandErrorDataSchema,
@@ -22,6 +23,7 @@ import {
 import {
   RpcCancelledError,
   RpcClient,
+  RpcCompatibilityError,
   RpcDisconnectedError,
   RpcDisposedError,
   RpcMessageTooLargeError,
@@ -334,7 +336,7 @@ export class RpcStatusClient implements StatusClient {
 
     const requestedProfileId = this.capabilityPendingProfileId;
     this.capabilityPromise = this.rpc
-      .request("bridge.getInfo", {})
+      .request("bridge.getInfo", BRIDGE_INFO_REQUEST)
       .then((info) => {
         if (this.disposed || this.capabilityPendingProfileId !== requestedProfileId) return;
         this.supportedCommands.clear();
@@ -342,6 +344,7 @@ export class RpcStatusClient implements StatusClient {
         this.capabilityProfileId = requestedProfileId;
         if (info.statusCommands.group) this.supportedCommands.add("group");
         if (info.statusCommands.groupDelay) this.supportedCommands.add("group-delay");
+        if (info.statusCommands.profile) this.supportedCommands.add("profile");
         if (info.statusCommands.routing) this.supportedCommands.add("routing");
         if (info.statusCommands.services) this.supportedCommands.add("services");
         this.emitConnectionState(this.getConnectionState());
@@ -434,7 +437,11 @@ function captureOperationPhaseRank(phase: CaptureOperationStatusDto["phase"]) {
 }
 
 function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
-  if (state.phase === "authenticating" || state.phase === "connecting") {
+  if (
+    state.phase === "authenticating" ||
+    state.phase === "connecting" ||
+    state.phase === "negotiating"
+  ) {
     return { attempt: state.attempt, phase: "connecting", stale: true };
   }
   return {
@@ -448,6 +455,9 @@ export function mapRpcError(error: unknown) {
   if (error instanceof StatusClientError) return error;
   if (error instanceof RpcCancelledError) {
     return new StatusClientError("cancelled", error.message);
+  }
+  if (error instanceof RpcCompatibilityError) {
+    return new StatusClientError("protocol", error.message);
   }
   if (error instanceof RpcDisconnectedError || error instanceof RpcDisposedError) {
     return new StatusClientError("disconnected", error.message, true);

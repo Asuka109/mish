@@ -62,9 +62,14 @@ export type RpcConnectionPhase =
   | "disconnected"
   | "connecting"
   | "authenticating"
+  | "negotiating"
   | "connected"
+  | "client-too-old"
+  | "backend-too-old"
   | "reconnecting"
   | "disposed";
+
+export type RpcCompatibilityOutcome = "compatible" | "client-too-old" | "backend-too-old";
 
 export interface RpcConnectionState {
   attempt: number;
@@ -87,10 +92,18 @@ export interface RpcClientOptions<Methods extends RpcMethodDefinitions> {
     maximumDelayMilliseconds?: number;
     maximumReconnectAttempts?: number;
   };
+  compatibility?: RpcCompatibilityPolicy;
   maxMessageBytes?: number;
   methods: Methods;
   onProtocolError?: (error: RpcProtocolError) => void;
   transportFactory: () => WebSocketLike;
+}
+
+export interface RpcCompatibilityPolicy {
+  method: string;
+  params: unknown;
+  resultSchema: z.ZodType;
+  outcome(result: unknown): RpcCompatibilityOutcome;
 }
 
 export interface RpcRequestOptions {
@@ -146,6 +159,17 @@ export class RpcDisconnectedError extends RpcClientError {
   }
 }
 
+export class RpcCompatibilityError extends RpcClientError {
+  constructor(
+    readonly outcome: Exclude<RpcCompatibilityOutcome, "compatible">,
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "RpcCompatibilityError";
+  }
+}
+
 export class RpcMessageTooLargeError extends RpcClientError {
   constructor(
     readonly size: number,
@@ -198,6 +222,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   private readonly authentication: RpcClientOptions<Methods>["authentication"];
   private readonly authenticationMethod: string;
   private readonly backoffFactor: number;
+  private readonly compatibility?: RpcCompatibilityPolicy;
   private readonly initialDelayMilliseconds: number;
   private readonly maximumDelayMilliseconds: number;
   private readonly maximumReconnectAttempts: number;
@@ -211,6 +236,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private state: RpcConnectionState = { attempt: 0, phase: "disconnected", stale: true };
   private desiredConnection = false;
+  private compatibilityError: RpcCompatibilityError | null = null;
   private disposed = false;
   private nextRequestId = 1;
   private reconnectAttempts = 0;
@@ -222,6 +248,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     this.authentication = options.authentication;
     this.authenticationMethod = options.authenticationMethod ?? "rpc.authenticate";
     this.backoffFactor = options.backoff?.factor ?? 2;
+    this.compatibility = options.compatibility;
     this.initialDelayMilliseconds = options.backoff?.initialDelayMilliseconds ?? 250;
     this.maximumDelayMilliseconds = options.backoff?.maximumDelayMilliseconds ?? 5_000;
     this.maximumReconnectAttempts = options.backoff?.maximumReconnectAttempts ?? 5;
@@ -234,6 +261,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   connect(options: RpcRequestOptions = {}) {
     if (this.disposed) return Promise.reject(new RpcDisposedError());
     if (options.signal?.aborted) return Promise.reject(new RpcCancelledError());
+    if (this.compatibilityError) return Promise.reject(this.compatibilityError);
     if (this.state.phase === "connected") return Promise.resolve();
 
     this.desiredConnection = true;
@@ -333,11 +361,52 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
       );
       if (this.transport !== transport || this.disposed) return;
       AuthenticationResultSchema.parse(result);
+      if (this.compatibility) {
+        this.updateState({
+          attempt: this.reconnectAttempts,
+          phase: "negotiating",
+          stale: true,
+        });
+        let compatibilityResult: unknown;
+        try {
+          compatibilityResult = await this.sendRequestNow(
+            this.compatibility.method,
+            this.compatibility.params,
+            this.compatibility.resultSchema,
+          );
+        } catch (error) {
+          throw new RpcCompatibilityError(
+            "backend-too-old",
+            "The backend does not implement the required bridge protocol",
+            error,
+          );
+        }
+        const outcome = this.compatibility.outcome(compatibilityResult);
+        if (outcome !== "compatible") {
+          throw new RpcCompatibilityError(
+            outcome,
+            outcome === "client-too-old"
+              ? "This client is too old for the bridge protocol"
+              : "The backend is too old for this client",
+          );
+        }
+      }
       this.reconnectAttempts = 0;
       this.updateState({ attempt: 0, phase: "connected", stale: false });
       this.resolveConnectionWaiters();
     } catch (error) {
       if (this.transport !== transport || this.disposed) return;
+      if (error instanceof RpcCompatibilityError) {
+        this.compatibilityError = error;
+        this.desiredConnection = false;
+        this.detachTransportListeners(transport);
+        this.transport = null;
+        transport.close(4002, "Bridge protocol incompatible");
+        this.updateState({ attempt: 0, phase: error.outcome, stale: true });
+        this.rejectConnectionWaiters(error);
+        this.reportProtocolError(new RpcProtocolError(error.message, error));
+        return;
+      }
       this.reportProtocolError(
         error instanceof RpcProtocolError
           ? error
@@ -401,6 +470,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
 
   private openTransport(reconnecting: boolean) {
     if (this.disposed || this.transport) return;
+    this.compatibilityError = null;
     this.updateState({
       attempt: this.reconnectAttempts,
       phase: reconnecting ? "reconnecting" : "connecting",

@@ -69,6 +69,19 @@ async fn authenticate(socket: &mut Socket) {
     )
     .await;
     assert_eq!(response["result"]["authenticated"], true);
+    let compatibility = request(
+        socket,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "bridge.getInfo",
+            "params": {
+                "clientProtocolVersion": mish_bridge::bridge_protocol::BRIDGE_PROTOCOL_VERSION
+            }
+        }),
+    )
+    .await;
+    assert_eq!(compatibility["result"]["compatibility"], "compatible");
 }
 
 fn config(scenario: &ScenarioRuntime) -> LoopbackServerConfig {
