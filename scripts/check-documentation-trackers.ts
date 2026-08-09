@@ -41,6 +41,13 @@ const futureClaimPattern =
 const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
 const supersededContextPattern = /\b(?:not planned|rejected|retired|superseded)\b/iu;
+const trackerRoles = new Set([
+  "active-dependency",
+  "completed-delivery",
+  "historical-checkpoint",
+  "superseded-decision",
+  "decision-context",
+]);
 
 function referenceKey(path: string, issueNumber: number): string {
   return `${path}:#${issueNumber}`;
@@ -69,7 +76,7 @@ function ambiguousTrackerTokens(source: string): number[] {
   return ambiguous;
 }
 
-function referenceContext(source: string, issueNumber: number): string {
+function referenceContexts(source: string, issueNumber: number): string[] {
   const lines = source.split("\n");
   const pattern = new RegExp(`\\bIssue\\s+#${issueNumber}\\b`, "u");
   const contexts: string[] = [];
@@ -77,14 +84,7 @@ function referenceContext(source: string, issueNumber: number): string {
     if (!pattern.test(line)) continue;
     contexts.push(lines.slice(Math.max(0, index - 2), index + 3).join("\n"));
   }
-  return contexts.join("\n");
-}
-
-function futureClaimLines(source: string, issueNumber: number): string[] {
-  const issuePattern = new RegExp(`\\bIssue\\s+#${issueNumber}\\b`, "u");
-  return source
-    .split("\n")
-    .filter((line) => issuePattern.test(line) && futureClaimPattern.test(line));
+  return contexts;
 }
 
 export function validateDocumentationTrackers(
@@ -131,6 +131,11 @@ export function validateDocumentationTrackers(
       if (registeredReferences.has(key)) errors.push(`duplicate tracker reference: ${key}`);
       registeredReferences.set(key, reference);
 
+      if (!trackerRoles.has(reference.role)) {
+        errors.push(`${key} has unknown tracker role: ${String(reference.role)}`);
+        continue;
+      }
+
       if (reference.role === "active-dependency" && issue.state !== "OPEN") {
         errors.push(
           `closed Issue #${issue.number} is classified as active future work in ${reference.path}`,
@@ -144,11 +149,12 @@ export function validateDocumentationTrackers(
 
       const source = sources[reference.path];
       if (source === undefined) continue;
-      const context = referenceContext(source, issue.number);
-      if (!context) {
+      const contexts = referenceContexts(source, issue.number);
+      if (contexts.length === 0) {
         errors.push(`${key} is registered but not referenced as \"Issue #${issue.number}\"`);
         continue;
       }
+      const context = contexts.join("\n");
       if (reference.role === "completed-delivery" && !completedContextPattern.test(context)) {
         errors.push(`${key} lacks explicit completed delivery context`);
       }
@@ -158,7 +164,7 @@ export function validateDocumentationTrackers(
       if (reference.role === "superseded-decision" && !supersededContextPattern.test(context)) {
         errors.push(`${key} lacks explicit superseded or rejected context`);
       }
-      if (issue.state === "CLOSED" && futureClaimLines(source, issue.number).length > 0) {
+      if (issue.state === "CLOSED" && contexts.some((value) => futureClaimPattern.test(value))) {
         errors.push(
           `closed Issue #${issue.number} is still described as future work in ${reference.path}`,
         );

@@ -42,11 +42,29 @@ test("closed Issue classified as active future work fails deterministically", ()
   assert.match(validateDocumentationTrackers(fixture, sources).join("\n"), /closed Issue #288/u);
 });
 
+test("unknown tracker roles fail instead of relying on a TypeScript cast", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues[0].references[0].role = "completed-deliveryy" as "completed-delivery";
+  assert.match(validateDocumentationTrackers(fixture, sources).join("\n"), /unknown tracker role/u);
+});
+
 test("future-tense residue for a closed Issue fails deterministically", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
   fixtureSources["docs/architecture/state-machine-kernel.md"] +=
     "\nFuture work such as Issue #288 must consume this convention.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
+test("multiline future-tense residue for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nFuture work requires the follow-up tracked in\nIssue #288.\n";
   assert.match(
     validateDocumentationTrackers(registry, fixtureSources).join("\n"),
     /closed Issue #288 is still described as future work/u,
