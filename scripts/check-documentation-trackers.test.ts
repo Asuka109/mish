@@ -203,6 +203,38 @@ test("future wording for another Issue is not attributed to a closed Issue", () 
   assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
 });
 
+test("shared claims apply to every explicitly referenced Issue", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/architecture/state-machine-kernel.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288 and open Issue #999 each remain pending implementation.\n";
+  assert.match(
+    validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
+test("direct negated implementation claims are future residue", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288 is not implemented.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #288 is still described as future work/u,
+  );
+});
+
 test("closed Issues cannot be described as open or planned", () => {
   const { registry, sources } = repositoryFixture();
   for (const claim of ["Issue #185 remains open.", "Rejected Issue #343 is planned for release."]) {
@@ -305,6 +337,27 @@ test("active keywords cannot mask contradictory completed wording", () => {
   });
   const fixtureSources = { ...sources };
   fixtureSources["docs/current-state.md"] += "\nOpen Issue #999 tracks the completed delivery.\n";
+  assert.match(
+    validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
+    /docs\/current-state.md:#999 contains contradictory completed dependency context/u,
+  );
+});
+
+test("implemented wording contradicts an active dependency", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/current-state.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/current-state.md"] +=
+    "\nOpen Issue #999 is already implemented but awaits closure.\n";
   assert.match(
     validateDocumentationTrackers(fixture, fixtureSources).join("\n"),
     /docs\/current-state.md:#999 contains contradictory completed dependency context/u,

@@ -37,8 +37,9 @@ const issueReferencePattern = /\bIssue\s+#(\d+)\b/gu;
 const trackerTokenPattern = /#(\d+)\b/gu;
 const githubIssueUrlPattern = /https:\/\/github\.com\/([^/\s)]+\/[^/\s)]+)\/issues\/(\d+)\b/giu;
 const futureClaimPattern =
-  /\b(?:future work|follow-up work|later change|must be implemented|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
-const completedContextPattern = /\b(?:accepted|closed|completed|delivered|moved|adopted)\b/iu;
+  /\b(?:future work|follow-up work|later change|must be implemented|may close|ready to close|acceptance remains|integration work for|blocked by|remains? open|is planned(?: for)?|(?:still )?needs (?:implementation|work|to be implemented)|remains? unimplemented|(?:is|are) not (?:implemented|delivered|completed|closed|shipped)|(?:is|remains?) (?:still )?(?:pending|awaiting) (?:implementation|delivery|completion|closure)|(?:has )?not yet been (?:implemented|delivered|completed|closed|shipped)|(?:is yet|remains?) to be (?:implemented|delivered|completed|closed|shipped)|(?:implementation|delivery|work) (?:is|remains) outstanding|outstanding (?:implementation|delivery|work)|will (?:(?:implement|deliver|add|complete|replace|migrate|adopt|fix|resolve|close|ship|create)|be (?:implemented|delivered|added|completed|replaced|migrated|adopted|fixed|resolved|closed|shipped|created))|is (?:the )?(?:active|future|planned) (?:implementation )?(?:plan|work|dependency))\b/iu;
+const completedContextPattern =
+  /\b(?:accepted|closed|completed|delivered|implemented|shipped|released|fixed|resolved|moved|adopted)\b/iu;
 const historicalContextPattern = /\b(?:historical|baseline|checkpoint|evidence|completed)\b/iu;
 const supersededContextPattern = /\b(?:not planned|rejected|retired|superseded)\b/iu;
 const activeContextPattern =
@@ -138,7 +139,9 @@ function hasClaimForIssue(source: string, issueNumber: number, pattern: RegExp):
     index: match.index ?? 0,
     number: Number(match[1] ?? match[2]),
   }));
+  const sharedClaim = references.length > 1 && /\b(?:all|both|each)\b/iu.test(source);
   return [...source.matchAll(claimPattern)].some((claim) => {
+    if (sharedClaim) return references.some((reference) => reference.number === issueNumber);
     const claimIndex = claim.index ?? 0;
     const nearest = references.reduce<(typeof references)[number] | null>((current, reference) => {
       if (current === null) return reference;
