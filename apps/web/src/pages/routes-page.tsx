@@ -239,7 +239,7 @@ export function RoutesPage() {
 
   if (isLoading) {
     return (
-      <div className={routeStyles().loading()}>
+      <div className={routeStyles().loading()} role="status">
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );

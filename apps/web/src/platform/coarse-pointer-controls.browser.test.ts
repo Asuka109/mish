@@ -112,7 +112,9 @@ describe("input-aware shared controls", () => {
         await navigate("/status");
         const context = `${expectsCoarsePointer ? "coarse" : "fine"}, ${viewport.label}, ${variant.locale}, ${variant.theme}`;
 
-        const toolbar = [...document.querySelectorAll<HTMLElement>(".toolbar-actions button")];
+        const toolbar = [
+          ...document.querySelectorAll<HTMLElement>(".toolbar-actions button"),
+        ].filter((control) => control.getBoundingClientRect().width > 1);
         const routing = [
           ...document.querySelectorAll<HTMLElement>(
             ".status-primary-control .ui-toggle-group-item",
@@ -158,7 +160,11 @@ describe("input-aware shared controls", () => {
         expectNoTargetOverlap(capture, `${context}: capture`);
         expectViewportContainment(context);
 
-        const profile = document.querySelector<HTMLElement>(".profile-select-trigger");
+        const profile = [
+          ...document.querySelectorAll<HTMLElement>(
+            ".profile-select-trigger, .profile-drawer-trigger",
+          ),
+        ].find((control) => control.getBoundingClientRect().width > 1);
         const appearance = document.querySelector<HTMLElement>(".appearance-menu-trigger");
         const language = document.querySelector<HTMLElement>(".language-menu-trigger");
         const scroller = document.querySelector<HTMLElement>(".workspace-page-scroll");

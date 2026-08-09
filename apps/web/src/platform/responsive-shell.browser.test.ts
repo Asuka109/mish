@@ -8,6 +8,7 @@ const routes = ["/status", "/routes", "/profiles", "/traffic", "/events", "/sett
 const viewports = [
   { height: 568, name: "compact mobile", width: 320 },
   { height: 844, name: "mobile", width: 390 },
+  { height: 720, name: "narrow boundary", width: 599 },
   { height: 600, name: "Tauri minimum", width: 800 },
 ];
 
@@ -49,6 +50,83 @@ function centerOf(element: HTMLElement): Center {
   };
 }
 
+function expectTargetOwnsItsCenter(target: HTMLElement, context: string) {
+  const center = centerOf(target);
+  const hit = document.elementFromPoint(center.x, center.y);
+
+  expect(
+    hit === target || (hit !== null && target.contains(hit)),
+    `${context}: center hit ${hit?.className || hit?.tagName || "nothing"}`,
+  ).toBe(true);
+}
+
+function expectNarrowNavigationGeometry(context: string) {
+  const shell = document.querySelector<HTMLElement>(".app-shell");
+  const sidebar = document.querySelector<HTMLElement>(".sidebar");
+  const workspace = document.querySelector<HTMLElement>("main.workspace");
+  if (!shell || !sidebar || !workspace) throw new Error(`${context}: missing shell geometry`);
+
+  const sidebarRect = sidebar.getBoundingClientRect();
+  const workspaceRect = workspace.getBoundingClientRect();
+  const gridRows = getComputedStyle(shell)
+    .gridTemplateRows.split(" ")
+    .map((value) => Number.parseFloat(value));
+
+  expect(gridRows, `${context}: two explicit nonzero rows`).toHaveLength(2);
+  expect(
+    gridRows.every((height) => height > 0),
+    `${context}: nonzero rows`,
+  ).toBe(true);
+  expect(workspaceRect.bottom, `${context}: workspace ends before navigation`).toBeLessThanOrEqual(
+    sidebarRect.top + 0.5,
+  );
+  expect(getComputedStyle(workspace).borderBottomWidth, `${context}: card bottom edge`).toBe("1px");
+  expect(
+    Number.parseFloat(getComputedStyle(workspace).borderBottomLeftRadius),
+    `${context}: rounded card bottom edge`,
+  ).toBeGreaterThan(0);
+  expect(getComputedStyle(sidebar).borderTopWidth, `${context}: no divider outside card`).toBe(
+    "0px",
+  );
+  expect(sidebarRect.height, `${context}: reachable navigation row`).toBeGreaterThanOrEqual(56);
+  expect(sidebarRect.bottom, `${context}: safe viewport bottom`).toBeLessThanOrEqual(
+    window.innerHeight + 0.5,
+  );
+
+  const primaryIsland = document.querySelector<HTMLElement>(".narrow-navigation-primary");
+  const utilityIsland = document.querySelector<HTMLElement>(".narrow-navigation-utility");
+  if (!primaryIsland || !utilityIsland) throw new Error(`${context}: missing navigation islands`);
+  expect(
+    utilityIsland.getBoundingClientRect().left - primaryIsland.getBoundingClientRect().right,
+    `${context}: visible island separation`,
+  ).toBeGreaterThanOrEqual(7);
+
+  for (const target of document.querySelectorAll<HTMLElement>(
+    ".narrow-navigation .narrow-nav-item",
+  )) {
+    const rect = target.getBoundingClientRect();
+    const island = target.closest<HTMLElement>(".narrow-navigation-island");
+    if (!island) throw new Error(`${context}: missing navigation island`);
+    const islandRect = island.getBoundingClientRect();
+    const label = target.getAttribute("aria-label") ?? target.textContent ?? "destination";
+    expect(rect.width, `${context}: ${label} target width`).toBeGreaterThanOrEqual(24);
+    expect(rect.height, `${context}: ${label} target height`).toBeGreaterThanOrEqual(44);
+    expect(rect.left - islandRect.left, `${context}: ${label} left inset`).toBeGreaterThanOrEqual(
+      4,
+    );
+    expect(
+      islandRect.right - rect.right,
+      `${context}: ${label} right inset`,
+    ).toBeGreaterThanOrEqual(4);
+    expect(rect.top - islandRect.top, `${context}: ${label} top inset`).toBeGreaterThanOrEqual(4);
+    expect(
+      islandRect.bottom - rect.bottom,
+      `${context}: ${label} bottom inset`,
+    ).toBeGreaterThanOrEqual(4);
+    expectTargetOwnsItsCenter(target, `${context}: ${label}`);
+  }
+}
+
 function appendRoutePending(scroller: HTMLElement) {
   const pending = document.createElement("div");
   pending.ariaBusy = "true";
@@ -81,7 +159,11 @@ function hasLocalHorizontalScroller(element: Element): boolean {
 function measureLayout(): LayoutMeasurement {
   const pageScroll = document.querySelector<HTMLElement>(".workspace-page-scroll");
   const sidebar = document.querySelector<HTMLElement>(".sidebar");
-  const navigationItems = [...document.querySelectorAll<HTMLElement>(".nav-item")];
+  const navigationItems = [
+    ...document.querySelectorAll<HTMLElement>(
+      ".desktop-navigation .desktop-nav-item, .narrow-navigation .narrow-nav-item",
+    ),
+  ].filter((item) => item.getBoundingClientRect().width > 1);
   const controls = [
     ...document.querySelectorAll<HTMLElement>(
       'a, button, input, select, textarea, [role="button"]',
@@ -203,17 +285,32 @@ function appendProxyControlFixture(
 }
 
 async function navigate(path: string): Promise<void> {
+  const target = new URL(path, window.location.origin);
+  const normalizedPathname = (target.pathname.replace(/\/+$/, "") || "/").toLowerCase();
+  const desktopPathname = normalizedPathname.startsWith("/routes/")
+    ? "/routes"
+    : normalizedPathname;
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
-    expect(window.location.pathname).toBe(path);
+    expect(window.location.pathname).toBe(target.pathname);
+    expect(window.location.search).toBe(target.search);
     expect(document.querySelector("main .workspace-page-scroll")).not.toBeNull();
     expect(document.querySelector("main .route-loading")).toBeNull();
-    expect(document.querySelector(".nav-item.is-active")?.getAttribute("href")).toBe(path);
+    expect(
+      document
+        .querySelector(".desktop-navigation .desktop-nav-item.is-active")
+        ?.getAttribute("href"),
+    ).toBe(desktopPathname);
 
-    if (path === "/traffic") {
+    if (normalizedPathname === "/traffic") {
       expect(document.querySelector(".traffic-table")).not.toBeNull();
+      const expectedActivityTarget =
+        target.searchParams.get("tab") === "rules" ? "/traffic?tab=rules" : "/traffic?tab=active";
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe(expectedActivityTarget);
     }
   });
 
@@ -262,7 +359,7 @@ describe("responsive application shell", () => {
     const buttonStyle = getComputedStyle(button);
     const materialStyle = getComputedStyle(material);
 
-    expect(materialStyle.backgroundColor).toBe(buttonStyle.backgroundColor);
+    expect(materialStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     expect(Number.parseFloat(materialStyle.borderTopLeftRadius)).toBe(
       Number.parseFloat(buttonStyle.borderTopLeftRadius) - 1,
     );
@@ -296,7 +393,7 @@ describe("responsive application shell", () => {
         await selectLocale(variant.locale);
         await navigate("/status");
 
-        const rows = [...document.querySelectorAll<HTMLElement>(".nav-item")];
+        const rows = [...document.querySelectorAll<HTMLElement>(".desktop-nav-item")];
         const settings = document.querySelector<HTMLElement>(".settings-link");
         if (!settings) throw new Error("Missing Settings navigation row");
 
@@ -437,6 +534,7 @@ describe("responsive application shell", () => {
       await page.viewport(viewport.width, viewport.height);
 
       for (const locale of ["English", "简体中文"] as const) {
+        document.documentElement.dataset.theme = locale === "English" ? "light" : "dark";
         await selectLocale(locale);
 
         for (const path of routes) {
@@ -459,7 +557,9 @@ describe("responsive application shell", () => {
             document.querySelectorAll("main .page-scroll"),
             `${context}: no nested route page scroller`,
           ).toHaveLength(0);
-          expect(measurement.navigationCount, `${context}: primary navigation items`).toBe(6);
+          expect(measurement.navigationCount, `${context}: primary navigation items`).toBe(
+            viewport.width < 600 ? 4 : 6,
+          );
           expect(
             measurement.navigationLabelsClipped,
             `${context}: clipped navigation labels`,
@@ -468,8 +568,37 @@ describe("responsive application shell", () => {
             [],
           );
 
-          if (viewport.name === "Tauri minimum") {
+          if (viewport.width < 600) {
+            expectNarrowNavigationGeometry(context);
+            expect(
+              document.querySelector<HTMLElement>(".proxy-control-button")?.getBoundingClientRect()
+                .width,
+              `${context}: proxy control leaves narrow navigation`,
+            ).toBe(0);
+            const selectedTarget =
+              path === "/status" || path === "/profiles"
+                ? "/status"
+                : path === "/traffic" || path === "/events"
+                  ? "/traffic"
+                  : path;
+            expect(
+              document
+                .querySelector(".narrow-navigation .narrow-nav-item.is-active")
+                ?.getAttribute("href"),
+              `${context}: grouped primary selection`,
+            ).toBe(selectedTarget);
+            const currentPrimary = document.querySelectorAll(
+              '.narrow-navigation .narrow-nav-item[aria-current="page"]',
+            );
+            expect(currentPrimary, `${context}: one current primary destination`).toHaveLength(1);
+            expect(currentPrimary[0]?.getAttribute("href")).toBe(selectedTarget);
+          } else {
             expect(measurement.sidebarWidth, `${context}: full desktop sidebar width`).toBe(164);
+            expect(
+              document.querySelector<HTMLElement>(".proxy-control-button")?.getBoundingClientRect()
+                .width,
+              `${context}: desktop proxy control remains available`,
+            ).toBeGreaterThan(1);
           }
 
           if (path === "/traffic") {
@@ -480,6 +609,216 @@ describe("responsive application shell", () => {
         }
       }
     }
+    delete document.documentElement.dataset.theme;
+  });
+
+  test("keeps narrow destinations pointer- and keyboard-reachable with visible focus", async () => {
+    await selectLocale("English");
+
+    for (const viewport of viewports.filter(({ width }) => width < 600)) {
+      await page.viewport(viewport.width, viewport.height);
+      await navigate("/status");
+      const links = [
+        ...document.querySelectorAll<HTMLAnchorElement>(".narrow-navigation .narrow-nav-item"),
+      ];
+      expect(links).toHaveLength(4);
+
+      links[0]?.focus({ preventScroll: true });
+      await userEvent.keyboard("{Tab}");
+      expect(document.activeElement, `${viewport.width}px keyboard entry`).toBe(links[1]);
+      expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+      for (const expected of links.slice(2).concat(links.slice(0, 2))) {
+        await userEvent.keyboard("{ArrowRight}");
+        expect(document.activeElement, `${viewport.width}px keyboard order`).toBe(expected);
+        expect(expected).toHaveAttribute("data-mish-focus-visible", "keyboard");
+        expect(getComputedStyle(expected).outlineStyle).toBe("solid");
+        expectTargetOwnsItsCenter(expected, `${viewport.width}px focused ${expected.ariaLabel}`);
+      }
+
+      for (const link of links) {
+        expectTargetOwnsItsCenter(link, `${viewport.width}px pointer ${link.ariaLabel}`);
+        await page.elementLocator(link).click();
+        await vi.waitFor(() => expect(window.location.pathname).toBe(link.pathname));
+      }
+    }
+  });
+
+  test("opens Profiles in a narrow drawer and keeps Activity destinations reachable", async () => {
+    await page.viewport(390, 844);
+    await selectLocale("English");
+    await navigate("/status");
+
+    expect(document.querySelector(".narrow-section-navigation")).toBeNull();
+    const profileTrigger = document.querySelector<HTMLButtonElement>(".profile-drawer-trigger");
+    if (!profileTrigger) throw new Error("Missing narrow profile drawer trigger");
+    expect(profileTrigger.getBoundingClientRect().width).toBeGreaterThanOrEqual(100);
+    expect(profileTrigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(34);
+    expect(profileTrigger.scrollWidth - profileTrigger.clientWidth).toBeLessThanOrEqual(1);
+    expect(profileTrigger.querySelector(".user-authored-label")).toHaveTextContent("Home");
+    expectTargetOwnsItsCenter(profileTrigger, "profile drawer trigger");
+
+    await page.elementLocator(profileTrigger).click();
+    await vi.waitFor(() => {
+      const drawer = document.querySelector<HTMLElement>(".drawer-content");
+      const heading = drawer?.querySelector("h1");
+      expect(drawer).not.toBeNull();
+      expect(heading).toHaveTextContent("Profiles");
+      expect(drawer?.getBoundingClientRect().width).toBeCloseTo(window.innerWidth, 0);
+      expect(drawer?.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+        window.innerHeight - 20,
+      );
+    });
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.querySelector('[role="dialog"]')).toHaveAccessibleName("Profiles");
+    const currentProfileButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((button) => button.textContent?.trim() === "Current Profile");
+    const switchProfileButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((button) => button.textContent?.trim() === "Switch Profile");
+    expect(currentProfileButton).toBeDisabled();
+    expect(currentProfileButton).toHaveAttribute("aria-pressed", "true");
+    if (!switchProfileButton) throw new Error("Missing profile switch action in drawer");
+    await page.elementLocator(switchProfileButton).click();
+    await vi.waitFor(() => {
+      expect(profileTrigger.querySelector(".user-authored-label")).toHaveTextContent("Work 工作");
+      expect(switchProfileButton).toHaveTextContent("Current Profile");
+      expect(switchProfileButton).toHaveAttribute("aria-pressed", "true");
+    });
+
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(document.querySelector(".drawer-content")).toBeNull());
+    expect(document.activeElement).toBe(profileTrigger);
+
+    await navigate("/profiles");
+    expect(document.querySelector(".narrow-section-navigation")).toBeNull();
+    expect(
+      document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
+    ).toBe("/status");
+
+    await navigate("/traffic");
+    const links = [
+      ...document.querySelectorAll<HTMLAnchorElement>(".narrow-section-navigation .nav-item"),
+    ];
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/traffic?tab=active",
+      "/traffic?tab=rules",
+      "/events",
+    ]);
+    expect(
+      document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+    ).toHaveLength(1);
+
+    for (const link of links) {
+      expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expectTargetOwnsItsCenter(link, `grouped destination ${link.textContent}`);
+    }
+
+    links[0]?.focus({ preventScroll: true });
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(links[1]);
+    expect(links[1]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(links[1] as HTMLAnchorElement).outlineStyle).toBe("solid");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(links[2]);
+    expect(links[2]).toHaveAttribute("data-mish-focus-visible", "keyboard");
+    expect(getComputedStyle(links[2] as HTMLAnchorElement).outlineStyle).toBe("solid");
+
+    const navigation = links[0]?.closest<HTMLElement>(".narrow-section-navigation");
+    if (!navigation) throw new Error("Missing activity navigation");
+    navigation.style.width = "150px";
+    navigation.scrollLeft = 0;
+    links[0]?.focus({ preventScroll: true });
+    expect(navigation.scrollWidth).toBeGreaterThan(navigation.clientWidth);
+
+    await userEvent.keyboard("{End}");
+    await vi.waitFor(() => expect(navigation.scrollLeft).toBeGreaterThan(0));
+    const navigationRect = navigation.getBoundingClientRect();
+    const focusedRect = links.at(-1)?.getBoundingClientRect();
+    expect(focusedRect?.left).toBeGreaterThanOrEqual(navigationRect.left);
+    expect(focusedRect?.right).toBeLessThanOrEqual(navigationRect.right);
+    navigation.style.removeProperty("width");
+
+    await page
+      .elementLocator(
+        document.querySelector('.narrow-section-navigation a[href="/events"]') as Element,
+      )
+      .click();
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/events"));
+    expect(
+      document.querySelector(".narrow-navigation .narrow-nav-item.is-active")?.getAttribute("href"),
+    ).toBe("/traffic");
+
+    await navigate("/traffic?tab=ruleset");
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe("/traffic?tab=active");
+      expect(
+        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+      ).toHaveLength(1);
+    });
+
+    await navigate("/traffic?tab=rules");
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector(".narrow-section-navigation .is-active")?.getAttribute("href"),
+      ).toBe("/traffic?tab=rules");
+      expect(
+        document.querySelectorAll('.narrow-section-navigation .nav-item[aria-current="page"]'),
+      ).toHaveLength(1);
+    });
+  });
+
+  test("keeps grouped narrow navigation active on trailing-slash routes", async () => {
+    await page.viewport(390, 844);
+    await selectLocale("English");
+
+    for (const [path, primary] of [
+      ["/STATUS/", "/status"],
+      ["/profiles/", "/status"],
+      ["/TRAFFIC/", "/traffic"],
+      ["/events/", "/traffic"],
+    ] as const) {
+      await navigate(path);
+      expect(
+        document.querySelector('.narrow-navigation .narrow-nav-item[aria-current="page"]'),
+        `${path}: grouped primary selection`,
+      ).toHaveAttribute("href", primary);
+      expect(document.title, `${path}: page title`).not.toBe("Mish");
+      if (primary === "/traffic") {
+        expect(document.querySelector(".narrow-section-navigation")).not.toBeNull();
+      }
+    }
+
+    await navigate("/ROUTES/proxy");
+    expect(
+      document.querySelector('.desktop-navigation .desktop-nav-item[aria-current="page"]'),
+    ).toHaveAttribute("href", "/routes");
+    expect(
+      document.querySelector('.narrow-navigation .narrow-nav-item[aria-current="page"]'),
+    ).toHaveAttribute("href", "/routes");
+  });
+
+  test("preserves the compact desktop sidebar at the 600px boundary", async () => {
+    await page.viewport(600, 720);
+    await selectLocale("English");
+    await navigate("/status");
+
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    const navigationItem = document.querySelector<HTMLElement>(".desktop-nav-item");
+    const profileSelect = document.querySelector<HTMLElement>(".profile-select-trigger");
+    const profileDrawerTrigger = document.querySelector<HTMLElement>(".profile-drawer-trigger");
+    if (!shell || !sidebar || !navigationItem || !profileSelect || !profileDrawerTrigger) {
+      throw new Error("Missing desktop boundary shell");
+    }
+
+    expect(Math.round(sidebar.getBoundingClientRect().width)).toBe(164);
+    expect(getComputedStyle(shell).gridTemplateColumns).toMatch(/^164px /);
+    expect(Math.round(navigationItem.getBoundingClientRect().height)).toBe(36);
+    expect(profileSelect.getBoundingClientRect().width).toBeGreaterThan(1);
+    expect(profileDrawerTrigger.getBoundingClientRect().width).toBe(0);
   });
 
   test("centers deferred route loading in the visible workspace scroller", async () => {
