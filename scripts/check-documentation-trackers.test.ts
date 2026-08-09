@@ -251,6 +251,18 @@ test("closed Issues cannot be described as open or planned", () => {
   }
 });
 
+test("adjectival open-state claims fail for closed Issues", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/candidate-home-isolation.md"] = fixtureSources[
+    "docs/architecture/candidate-home-isolation.md"
+  ].replace("completed Issue #185", "Open Issue #185");
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /closed Issue #185 is still described as future work/u,
+  );
+});
+
 test("malformed tracker states and timestamps fail runtime validation", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);
