@@ -21,6 +21,7 @@ const JOURNAL_SCHEMA_VERSION: u8 = 1;
 const JOURNAL_FILE: &str = "journal.json";
 const JOURNAL_MAX_BYTES: u64 = 4 * 1024;
 const EVIDENCE_LIMIT: usize = 64;
+const MAINTENANCE_REVISION_HEADROOM: u64 = 5;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -90,6 +91,7 @@ pub enum UpdaterMaintenanceError {
     JournalIo,
     JournalUnsafe,
     OperationMismatch,
+    RevisionExhausted,
     StaleRevision,
     TooLateToCancel,
 }
@@ -104,6 +106,7 @@ impl UpdaterMaintenanceError {
             Self::JournalIo => "journal-io",
             Self::JournalUnsafe => "journal-unsafe",
             Self::OperationMismatch => "operation-mismatch",
+            Self::RevisionExhausted => "revision-exhausted",
             Self::StaleRevision => "stale-revision",
             Self::TooLateToCancel => "too-late-to-cancel",
         }
@@ -1141,6 +1144,9 @@ fn validate_request(request: &UpdaterMaintenanceRequest) -> Result<(), UpdaterMa
     validate_operation_id(&request.operation_id)?;
     validate_version(&request.current_version)?;
     validate_version(&request.expected_version)?;
+    if request.admitted_revision > u64::MAX - MAINTENANCE_REVISION_HEADROOM {
+        return Err(UpdaterMaintenanceError::RevisionExhausted);
+    }
     if parse_version(&request.expected_version).ok() <= parse_version(&request.current_version).ok()
     {
         return Err(UpdaterMaintenanceError::InvalidVersion);
@@ -1195,6 +1201,8 @@ fn validate_version(version: &str) -> Result<(), UpdaterMaintenanceError> {
 
 fn validate_record(record: &MaintenanceJournalRecord) -> bool {
     record.schema_version == JOURNAL_SCHEMA_VERSION
+        && record.operation.admitted_revision <= u64::MAX - MAINTENANCE_REVISION_HEADROOM
+        && record.revision >= record.operation.admitted_revision
         && validate_operation_id(&record.operation.operation_id).is_ok()
         && valid_digest(&record.operation.machine_authority_sha256)
         && record
@@ -1666,6 +1674,48 @@ mod tests {
         let mut advancing = request("advancing-operation");
         advancing.admitted_revision = terminal + 1;
         assert_eq!(authority.begin(advancing), Ok(terminal + 1));
+    }
+
+    #[test]
+    fn begin_reserves_revision_headroom_for_restart_and_terminal_recovery() {
+        for admitted_revision in [u64::MAX, u64::MAX - 4] {
+            let root = TempDir::new().unwrap();
+            let authority = authority(&root, "0.1.0");
+            let mut unsafe_request = request("unsafe-headroom");
+            unsafe_request.admitted_revision = admitted_revision;
+            assert_eq!(
+                authority.begin(unsafe_request),
+                Err(UpdaterMaintenanceError::RevisionExhausted)
+            );
+            assert_eq!(authority.store.read_record().unwrap(), None);
+        }
+
+        let root = TempDir::new().unwrap();
+        let first = authority(&root, "0.1.0");
+        let mut safe_request = request("safe-headroom");
+        safe_request.admitted_revision = u64::MAX - MAINTENANCE_REVISION_HEADROOM;
+        let revision = first.begin(safe_request).unwrap();
+        let revision = first
+            .mark_installing_intent("safe-headroom", revision)
+            .unwrap();
+        first.mark_relaunching("safe-headroom", revision).unwrap();
+        first.retire_runtime().unwrap();
+        drop(first);
+
+        let replacement = UpdaterMaintenanceAuthority::open(
+            root.path().join("maintenance"),
+            "replacement-authority",
+            "0.1.1",
+        )
+        .unwrap();
+        let recovery_revision = replacement.runtime_state().revision;
+        assert_eq!(recovery_revision, u64::MAX - 1);
+        assert_eq!(
+            replacement.complete_recovery("safe-headroom", recovery_revision),
+            Ok(u64::MAX)
+        );
+        assert!(replacement.automatic_activation_allowed());
+        assert!(!root.path().join("maintenance/journal.json").exists());
     }
 
     #[test]
