@@ -13,6 +13,7 @@ const preview = {
     { category: "events-summary", itemCount: 0 },
     { category: "redaction-report", itemCount: 12 },
     { category: "termination-recovery-evidence", itemCount: 0 },
+    { category: "updater", itemCount: 1 },
   ],
   contentBytes: 4_096,
   excludedOrRedacted: [

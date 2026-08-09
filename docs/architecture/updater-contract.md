@@ -405,10 +405,15 @@ metadata/body, Profile/configuration data, capture configuration, or path.
 Directories/files are current-user-owned `0700`/`0600` entries with no links.
 Each commit writes a create-new same-directory temporary file, fsyncs it,
 atomically replaces the journal, revalidates its private ownership/mode/link
-count, and fsyncs the directory. Cleanup rereads and matches operation ownership and revision before
-unlink plus directory fsync. Corrupt, incompatible, linked, foreign, or
+count, and fsyncs the directory. Cleanup rereads and matches operation ownership
+and revision before unlink plus directory fsync. Corrupt, incompatible, linked, foreign, or
 otherwise unsafe evidence is retained and fails closed instead of being
 guessed or deleted.
+
+If rename succeeds but the directory fsync reports failure, the command remains
+ambiguous rather than accepted. Its exact duplicate must reread the complete
+record, reconfirm directory durability, and restore the in-memory authority
+before it may report success or advance to another maintenance boundary.
 
 Desktop constructs this authority immediately after resolving the app-data
 root, before Profile selection recovery, Core recovery, Capture audit,

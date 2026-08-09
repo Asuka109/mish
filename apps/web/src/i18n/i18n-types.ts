@@ -4830,6 +4830,10 @@ type RootTranslation = {
 				 * T​e​r​m​i​n​a​t​i​o​n​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e
 				 */
 				'termination-recovery-evidence': string
+				/**
+				 * U​p​d​a​t​e​r​ ​m​a​i​n​t​e​n​a​n​c​e​ ​a​n​d​ ​r​e​s​t​a​r​t​ ​r​e​c​o​n​c​i​l​i​a​t​i​o​n
+				 */
+				updater: string
 			}
 			/**
 			 * C​h​o​o​s​e​ ​L​o​c​a​t​i​o​n​ ​a​n​d​ ​S​a​v​e
@@ -9994,6 +9998,10 @@ export type TranslationFunctions = {
 				 * Termination and recovery evidence
 				 */
 				'termination-recovery-evidence': () => LocalizedString
+				/**
+				 * Updater maintenance and restart reconciliation
+				 */
+				updater: () => LocalizedString
 			}
 			/**
 			 * Choose Location and Save

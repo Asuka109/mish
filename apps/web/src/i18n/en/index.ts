@@ -1457,6 +1457,7 @@ const en = {
         "events-summary": "Recent event aggregates",
         "redaction-report": "Redaction report entries",
         "termination-recovery-evidence": "Termination and recovery evidence",
+        updater: "Updater maintenance and restart reconciliation",
       },
       confirmSave: "Choose Location and Save",
       description:

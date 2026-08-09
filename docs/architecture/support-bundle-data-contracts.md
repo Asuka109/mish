@@ -30,6 +30,9 @@ Preview creates the exact bounded in-memory JSON and returns only:
 - closed category names with item counts; and
 - closed redaction categories.
 
+The closed preview categories include `updater`, so the confirmation surface
+discloses the bounded updater diagnostic before the exact bytes can be saved.
+
 Save accepts only the preview ID. The desktop Tauri host owns destination selection,
 private atomic writing, cancellation, and stale-preview cleanup. No path,
 contents, upload target, arbitrary file read, Core command, or capture command

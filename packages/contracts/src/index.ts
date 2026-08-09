@@ -1341,6 +1341,7 @@ export const SupportBundleCategorySchema = z.enum([
   "events-summary",
   "redaction-report",
   "termination-recovery-evidence",
+  "updater",
 ]);
 export type SupportBundleCategory = z.infer<typeof SupportBundleCategorySchema>;
 
@@ -1373,7 +1374,7 @@ export const SupportBundleCategoryPreviewSchema = z
 
 export const SupportBundlePreviewSchema = z
   .object({
-    categories: z.array(SupportBundleCategoryPreviewSchema).length(10),
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(11),
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(12),
     fileType: z.literal("application/json"),
@@ -1384,7 +1385,7 @@ export const SupportBundlePreviewSchema = z
   })
   .strict()
   .superRefine((preview, context) => {
-    if (new Set(preview.categories.map(({ category }) => category)).size !== 10) {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 11) {
       context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
     }
     if (new Set(preview.excludedOrRedacted).size !== 12) {

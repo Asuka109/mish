@@ -604,6 +604,7 @@ pub enum SupportBundleCategory {
     EventsSummary,
     RedactionReport,
     TerminationRecoveryEvidence,
+    Updater,
 }
 
 #[derive(Serialize)]
@@ -737,6 +738,7 @@ fn build_support_bundle(
                 SupportBundleCategory::TerminationRecoveryEvidence,
                 manifest.termination_recovery_evidence.len(),
             ),
+            preview_category(SupportBundleCategory::Updater, 1),
         ],
         content_bytes: bytes.len(),
         excluded_or_redacted: redaction_categories(),
@@ -1158,6 +1160,17 @@ mod tests {
                 .any(|category| category
                     == &serde_json::json!({
                         "category": "service-probes",
+                        "itemCount": 1,
+                    }))
+        );
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "updater",
                         "itemCount": 1,
                     }))
         );

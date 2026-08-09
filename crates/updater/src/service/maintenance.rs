@@ -7,7 +7,7 @@ use std::{
 };
 
 #[cfg(test)]
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -397,11 +397,22 @@ impl UpdaterMaintenanceAuthority {
                 && current.capture.ownership == capture_ownership(&request)
                 && current.phase == MaintenanceJournalPhase::PreparingMaintenance;
             if duplicate {
+                let previous = state.phase;
+                self.store.reconfirm_record_durability(&current)?;
+                state.phase = Some(current.phase);
+                state.operation_id = Some(current.operation.operation_id.clone());
+                state.revision = current.revision;
+                state.terminal_reason = None;
+                state.snapshot = Some(self.snapshot_for(
+                    &current,
+                    UpdaterMaintenanceReconciliation::None,
+                    false,
+                ));
                 self.record_evidence(
-                    state.phase,
+                    previous,
                     "begin",
                     state.phase,
-                    "duplicate",
+                    "duplicate-durability-reconfirmed",
                     Some(&current),
                 );
                 return Ok(current.revision);
@@ -487,6 +498,33 @@ impl UpdaterMaintenanceAuthority {
                 from,
                 "cleanup-retried",
             );
+        }
+        if let Some(record) = self.store.read_record()? {
+            let duplicate_terminal = record.operation.operation_id == operation_id
+                && record.operation.machine_authority_sha256 == self.machine_authority_sha256
+                && record.phase == MaintenanceJournalPhase::Cancelled
+                && expected_revision.checked_add(1) == Some(record.revision);
+            if duplicate_terminal {
+                let previous = state.phase;
+                self.store.reconfirm_record_durability(&record)?;
+                state.phase = Some(record.phase);
+                state.operation_id = Some(record.operation.operation_id.clone());
+                state.revision = record.revision;
+                state.terminal_reason = Some("cancelled".into());
+                state.snapshot = Some(self.snapshot_for(
+                    &record,
+                    UpdaterMaintenanceReconciliation::UnknownOutcome,
+                    false,
+                ));
+                return self.finish_terminal_cleanup(
+                    &mut state,
+                    operation_id,
+                    MaintenanceJournalPhase::Cancelled,
+                    "cancel",
+                    previous,
+                    "cleanup-retried",
+                );
+            }
         }
         let mut record = self.owned_record(operation_id, expected_revision)?;
         let next_phase =
@@ -780,8 +818,7 @@ impl UpdaterMaintenanceAuthority {
         if record.phase == duplicate_phase
             && expected_revision.checked_add(1) == Some(record.revision)
         {
-            self.record_evidence(state.phase, input, state.phase, "duplicate", Some(&record));
-            return Ok(record.revision);
+            return self.reconfirm_nonterminal_duplicate(&mut state, &record, input);
         }
         if record.revision != expected_revision {
             return Err(UpdaterMaintenanceError::StaleRevision);
@@ -789,8 +826,7 @@ impl UpdaterMaintenanceAuthority {
         let next_phase = reduce_maintenance_phase(Some(record.phase), machine_input)?
             .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
         if record.phase == next_phase {
-            self.record_evidence(state.phase, input, state.phase, "duplicate", Some(&record));
-            return Ok(record.revision);
+            return self.reconfirm_nonterminal_duplicate(&mut state, &record, input);
         }
         let previous = state.phase;
         advance_revision(&mut record)?;
@@ -820,14 +856,7 @@ impl UpdaterMaintenanceAuthority {
             reduce_maintenance_phase(Some(record.phase), MaintenanceMachineInput::RuntimeRetired)?
                 .ok_or(UpdaterMaintenanceError::JournalUnsafe)?;
         if record.phase == next_phase {
-            self.record_evidence(
-                state.phase,
-                "runtime-retired",
-                state.phase,
-                "duplicate",
-                Some(&record),
-            );
-            return Ok(record.revision);
+            return self.reconfirm_nonterminal_duplicate(&mut state, &record, "runtime-retired");
         }
         let previous = state.phase;
         advance_revision(&mut record)?;
@@ -874,6 +903,35 @@ impl UpdaterMaintenanceAuthority {
                 "cleanup-retried",
             );
         }
+        if let Some(record) = self.store.read_record()? {
+            let duplicate_terminal = record.operation.operation_id == operation_id
+                && record.operation.recovery_authority_sha256.as_deref()
+                    == Some(&self.machine_authority_sha256)
+                && record.phase == terminal
+                && expected_revision.checked_add(1) == Some(record.revision);
+            if duplicate_terminal {
+                let previous = state.phase;
+                self.store.reconfirm_record_durability(&record)?;
+                state.phase = Some(record.phase);
+                state.operation_id = Some(record.operation.operation_id.clone());
+                state.revision = record.revision;
+                state.terminal_reason =
+                    (terminal == MaintenanceJournalPhase::Failed).then(|| "failed".to_owned());
+                state.snapshot = Some(self.snapshot_for(
+                    &record,
+                    UpdaterMaintenanceReconciliation::UnknownOutcome,
+                    false,
+                ));
+                return self.finish_terminal_cleanup(
+                    &mut state,
+                    operation_id,
+                    terminal,
+                    input,
+                    previous,
+                    "cleanup-retried",
+                );
+            }
+        }
         let mut record = self.owned_record(operation_id, expected_revision)?;
         let machine_input = if terminal == MaintenanceJournalPhase::Completed {
             MaintenanceMachineInput::Complete
@@ -904,6 +962,33 @@ impl UpdaterMaintenanceAuthority {
             previous,
             "applied",
         )
+    }
+
+    fn reconfirm_nonterminal_duplicate(
+        &self,
+        state: &mut MaintenanceRuntimeState,
+        record: &MaintenanceJournalRecord,
+        input: &'static str,
+    ) -> Result<u64, UpdaterMaintenanceError> {
+        let previous = state.phase;
+        self.store.reconfirm_record_durability(record)?;
+        state.phase = Some(record.phase);
+        state.operation_id = Some(record.operation.operation_id.clone());
+        state.revision = record.revision;
+        state.terminal_reason = None;
+        state.snapshot = Some(self.snapshot_for(
+            record,
+            UpdaterMaintenanceReconciliation::UnknownOutcome,
+            false,
+        ));
+        self.record_evidence(
+            previous,
+            input,
+            state.phase,
+            "duplicate-durability-reconfirmed",
+            Some(record),
+        );
+        Ok(record.revision)
     }
 
     fn finish_terminal_cleanup(
@@ -1149,6 +1234,8 @@ struct MaintenanceJournalStore {
     root: PathBuf,
     #[cfg(test)]
     fail_next_clear: AtomicU8,
+    #[cfg(test)]
+    fail_next_write_sync: AtomicBool,
 }
 
 #[cfg(test)]
@@ -1170,6 +1257,8 @@ impl MaintenanceJournalStore {
             root,
             #[cfg(test)]
             fail_next_clear: AtomicU8::new(0),
+            #[cfg(test)]
+            fail_next_write_sync: AtomicBool::new(false),
         };
         store.cleanup_temporary_files()?;
         Ok(store)
@@ -1245,6 +1334,23 @@ impl MaintenanceJournalStore {
             return Err(UpdaterMaintenanceError::JournalIo);
         }
         validate_private_file(&self.root.join(JOURNAL_FILE))?;
+        #[cfg(test)]
+        if self.fail_next_write_sync.swap(false, Ordering::SeqCst) {
+            return Err(UpdaterMaintenanceError::JournalIo);
+        }
+        sync_directory(&self.root)
+    }
+
+    fn reconfirm_record_durability(
+        &self,
+        expected: &MaintenanceJournalRecord,
+    ) -> Result<(), UpdaterMaintenanceError> {
+        let current = self
+            .read_record()?
+            .ok_or(UpdaterMaintenanceError::OperationMismatch)?;
+        if current != *expected {
+            return Err(UpdaterMaintenanceError::OperationMismatch);
+        }
         sync_directory(&self.root)
     }
 
@@ -1276,6 +1382,11 @@ impl MaintenanceJournalStore {
     #[cfg(test)]
     fn fail_next_clear(&self, point: ClearFailurePoint) {
         self.fail_next_clear.store(point as u8, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    fn fail_next_write_sync(&self) {
+        self.fail_next_write_sync.store(true, Ordering::SeqCst);
     }
 
     fn cleanup_temporary_files(&self) -> Result<(), UpdaterMaintenanceError> {
@@ -1494,6 +1605,69 @@ mod tests {
         );
         assert_eq!(authority.store.read_record().unwrap(), None);
         assert_eq!(authority.runtime_state().phase, None);
+    }
+
+    #[test]
+    fn duplicate_commands_reconfirm_ambiguous_journal_write_durability() {
+        let root = TempDir::new().unwrap();
+        let authority = authority(&root, "0.1.0");
+        authority.store.fail_next_write_sync();
+        assert_eq!(
+            authority.begin(request("operation-a")),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(authority.runtime_state().phase, None);
+        let preparing = authority.begin(request("operation-a")).unwrap();
+        assert_eq!(preparing, 7);
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::PreparingMaintenance)
+        );
+
+        authority.store.fail_next_write_sync();
+        assert_eq!(
+            authority.mark_installing_intent("operation-a", preparing),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::PreparingMaintenance)
+        );
+        let installing = authority
+            .mark_installing_intent("operation-a", preparing)
+            .unwrap();
+        assert_eq!(installing, 8);
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::InstallingIntent)
+        );
+
+        authority.store.fail_next_write_sync();
+        assert_eq!(
+            authority.retire_runtime(),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::InstallingIntent)
+        );
+        authority.retire_runtime().unwrap();
+        let recovering = authority.runtime_state().revision;
+        authority.store.fail_next_write_sync();
+        assert_eq!(
+            authority.complete_recovery("operation-a", recovering),
+            Err(UpdaterMaintenanceError::JournalIo)
+        );
+        assert_eq!(
+            authority.runtime_state().phase,
+            Some(MaintenanceJournalPhase::Recovering)
+        );
+        assert_eq!(
+            authority.complete_recovery("operation-a", recovering),
+            Ok(recovering + 1)
+        );
+        assert!(authority.automatic_activation_allowed());
+        assert!(!root.path().join("maintenance/journal.json").exists());
     }
 
     #[test]

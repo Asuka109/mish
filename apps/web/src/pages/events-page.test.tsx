@@ -240,6 +240,7 @@ const supportBundlePreview: SupportBundlePreviewDto = {
     { category: "events-summary", itemCount: 12 },
     { category: "redaction-report", itemCount: 12 },
     { category: "termination-recovery-evidence", itemCount: 0 },
+    { category: "updater", itemCount: 1 },
   ],
   contentBytes: 12_288,
   excludedOrRedacted: [
