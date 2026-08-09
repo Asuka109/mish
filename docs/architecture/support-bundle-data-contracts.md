@@ -40,7 +40,7 @@ crosses the Web boundary.
 
 ## Included evidence
 
-The format-version 3 JSON contains application/Core version status, the last activation outcome,
+The format-version 4 JSON contains application/Core version status, the last activation outcome,
 platform version, capability status, non-sensitive active-profile identifiers,
 capture desired/observed/drift state, direct service-probe aggregates, bounded
 event counts by source and severity, a redaction report, and bounded termination
@@ -49,6 +49,20 @@ configured flag, semantic phase, revision, operation-presence boolean, and the
 bounded maintenance reconciliation/version/capture-intent projection. It never
 contains the candidate identity, journal ownership digest, metadata, signature,
 endpoint, credential, or path.
+
+It also contains bounded Traffic source-session transition evidence.
+
+Format version 3 and protocol version 10 add `trafficSourceTransitions`. Each
+entry uses closed enums plus only the transition disposition, source authority,
+source revision, effect sequence, close-operation kind, failure kind, and target
+count. The evidence records correlation outcomes such as committed, duplicate,
+cancelled, retired, or reconciliation-required without recording the correlated
+Profile, runtime, capture, Controller session, connection, destination, or
+process identities themselves. Preview reports only the closed category and its
+count.
+
+Format version 4 and protocol version 11 add the candidate-free `updater`
+diagnostic and preview category on top of that version-3 Traffic contract.
 
 It excludes raw profiles and YAML, subscription URLs, credentials, full paths,
 node and policy labels, connection destinations, process paths, network

@@ -75,7 +75,7 @@ class DelayedSupportBundleClient implements SupportBundleClient {
       contentBytes: 0,
       excludedOrRedacted: [],
       fileType: "application/json",
-      formatVersion: 3,
+      formatVersion: 4,
       maxBytes: 1024,
       previewId,
       timeRange: { endedAt: 2, startedAt: 1 },

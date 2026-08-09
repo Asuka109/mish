@@ -8,7 +8,7 @@ use std::{
 use mish_runtime::{
     CapabilityAvailability, CorePhase, CoreStatus, EventLevel, EventSource, EventSourcePhase,
     EventsDataPhase, EventsSnapshot, ProbeStatus, ServiceProbeFailureStage, StatusAdapterKind,
-    StatusSnapshot, SystemProxyObservedState, SystemProxyPhase,
+    StatusSnapshot, SystemProxyObservedState, SystemProxyPhase, TrafficSupportEvidence,
 };
 use mish_updater::{UpdaterDiagnosticSnapshot, UpdaterService};
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,8 @@ use crate::{
 
 pub const SUPPORT_BUNDLE_MAX_BYTES: usize = 256 * 1_024;
 const SUPPORT_BUNDLE_EVENT_LIMIT: usize = 256;
-const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 3;
-const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 10;
+const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 4;
+const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 11;
 pub const TERMINATION_EVIDENCE_MAX_RECORDS: usize = 32;
 pub const TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const TERMINATION_EVIDENCE_MAX_RECORD_BYTES: usize = 512;
@@ -402,7 +402,7 @@ impl SupportBundleService {
         preview_id: String,
         generated_at: u64,
     ) -> Result<PreparedSupportBundle, SupportBundleError> {
-        let (core, status, events) = self
+        let (core, status, events, traffic_evidence) = self
             .runtime
             .support_bundle_runtime_snapshot(StatusAdapterKind::Rpc)
             .await;
@@ -421,6 +421,7 @@ impl SupportBundleService {
                 status: &status,
                 termination_evidence: &termination_evidence,
                 updater: &updater,
+                traffic_evidence: &traffic_evidence,
             },
         )
     }
@@ -467,6 +468,7 @@ struct SupportBundleManifest {
     service_probes: SupportServiceProbes,
     termination_recovery_evidence: Vec<TerminationEvidenceRecord>,
     updater: UpdaterDiagnosticSnapshot,
+    traffic_source_transitions: Vec<TrafficSupportEvidence>,
 }
 
 #[derive(Serialize)]
@@ -488,6 +490,7 @@ struct SupportBundleInput<'a> {
     status: &'a StatusSnapshot,
     termination_evidence: &'a [TerminationEvidenceRecord],
     updater: &'a UpdaterDiagnosticSnapshot,
+    traffic_evidence: &'a [TrafficSupportEvidence],
 }
 
 #[derive(Serialize)]
@@ -605,6 +608,7 @@ pub enum SupportBundleCategory {
     RedactionReport,
     TerminationRecoveryEvidence,
     Updater,
+    TrafficSourceTransitions,
 }
 
 #[derive(Serialize)]
@@ -705,6 +709,7 @@ fn build_support_bundle(
         service_probes: summarize_service_probes(input.status),
         termination_recovery_evidence: input.termination_evidence.to_vec(),
         updater: input.updater.clone(),
+        traffic_source_transitions: input.traffic_evidence.to_vec(),
     };
     let bytes =
         serde_json::to_vec_pretty(&manifest).map_err(|_| SupportBundleError::Serialization)?;
@@ -739,6 +744,10 @@ fn build_support_bundle(
                 manifest.termination_recovery_evidence.len(),
             ),
             preview_category(SupportBundleCategory::Updater, 1),
+            preview_category(
+                SupportBundleCategory::TrafficSourceTransitions,
+                manifest.traffic_source_transitions.len(),
+            ),
         ],
         content_bytes: bytes.len(),
         excluded_or_redacted: redaction_categories(),
@@ -958,6 +967,15 @@ mod tests {
         let activation = ManagedActivationState::default();
         let platform = platform();
         let updater = updater();
+        let traffic_evidence = vec![mish_runtime::TrafficSupportEvidence {
+            disposition: mish_runtime::TrafficTransitionDisposition::Committed,
+            effect_sequence: Some(1),
+            failure: None,
+            operation: Some(mish_runtime::TrafficCommandOperation::CloseConnection),
+            phase: mish_runtime::TrafficSourceEvidencePhase::Live,
+            revision: 7,
+            target_count: Some(1),
+        }];
         let input = || SupportBundleInput {
             activation: &activation,
             application_version: "0.1.0",
@@ -968,6 +986,7 @@ mod tests {
             status: &status,
             termination_evidence: &[],
             updater: &updater,
+            traffic_evidence: &traffic_evidence,
         };
 
         let first = build_support_bundle("preview-1".into(), input()).unwrap();
@@ -994,8 +1013,10 @@ mod tests {
         }
         assert!(exported.contains("raw-profile-configuration"));
         assert!(exported.contains("event-text"));
-        assert!(exported.contains("\"formatVersion\": 3"));
-        assert_eq!(first.preview.format_version, 3);
+        assert!(exported.contains("trafficSourceTransitions"));
+        assert!(exported.contains("\"formatVersion\": 4"));
+        assert!(exported.contains("\"protocolVersion\": 11"));
+        assert_eq!(first.preview.format_version, 4);
         assert!(first.preview.content_bytes < SUPPORT_BUNDLE_MAX_BYTES);
     }
 
@@ -1064,6 +1085,7 @@ mod tests {
                 status: &status,
                 termination_evidence: &[],
                 updater: &updater,
+                traffic_evidence: &[],
             },
         )
         .unwrap();
@@ -1098,6 +1120,7 @@ mod tests {
                 status: &status,
                 termination_evidence: &[],
                 updater: &updater,
+                traffic_evidence: &[],
             },
         )
         .unwrap();
@@ -1133,6 +1156,7 @@ mod tests {
                 status: &status,
                 termination_evidence: &[],
                 updater: &updater,
+                traffic_evidence: &[],
             },
         )
         .unwrap();
@@ -1172,6 +1196,17 @@ mod tests {
                     == &serde_json::json!({
                         "category": "updater",
                         "itemCount": 1,
+                    }))
+        );
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "traffic-source-transitions",
+                        "itemCount": 0,
                     }))
         );
         assert!(

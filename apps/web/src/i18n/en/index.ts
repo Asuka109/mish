@@ -1458,6 +1458,7 @@ const en = {
         "redaction-report": "Redaction report entries",
         "termination-recovery-evidence": "Termination and recovery evidence",
         updater: "Updater maintenance and restart reconciliation",
+        "traffic-source-transitions": "Traffic source-session transitions",
       },
       confirmSave: "Choose Location and Save",
       description:

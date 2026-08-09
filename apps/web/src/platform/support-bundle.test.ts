@@ -14,6 +14,7 @@ const preview = {
     { category: "redaction-report", itemCount: 12 },
     { category: "termination-recovery-evidence", itemCount: 0 },
     { category: "updater", itemCount: 1 },
+    { category: "traffic-source-transitions", itemCount: 0 },
   ],
   contentBytes: 4_096,
   excludedOrRedacted: [
@@ -31,7 +32,7 @@ const preview = {
     "event-text",
   ],
   fileType: "application/json",
-  formatVersion: 3,
+  formatVersion: 4,
   maxBytes: 256 * 1_024,
   previewId: "preview-1",
   timeRange: null,

@@ -32,6 +32,7 @@ const requiredMachines = [
   "platform-observation-adapters",
   "ephemeral-react-interactions",
   "android-fixture-vpn-lifecycle",
+  "traffic-source-session",
 ] as const;
 
 const conformingSources = new Map([
@@ -43,6 +44,7 @@ const conformingSources = new Map([
   ["runtime-profile-activation", "impl Machine for ProfileActivationMachine"],
   ["capture-system-proxy", "impl Machine for CaptureMachine"],
   ["android-fixture-vpn-lifecycle", "impl Machine for LifecycleMachine"],
+  ["traffic-source-session", "impl Machine for TrafficSourceMachine"],
 ]);
 
 const failures: string[] = [];

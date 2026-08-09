@@ -39,6 +39,12 @@
       "recoveryBoundary": "A minimal Kotlin-owned foreground-service recovery record plus fresh VPN permission, foreground, TUN, route, DNS, Core, protected-socket, public-request, and validated-network facts; invalid, ambiguous, or prior-process evidence becomes safely stopped or recovery-required under the new Rust authority."
     },
     {
+      "id": "traffic-source-session",
+      "classification": "conforming",
+      "canonicalOwner": "crates/desktop-bridge/src/traffic_source_machine.rs",
+      "recoveryBoundary": "Process-local Profile/runtime/capture/Controller-session identity plus a complete fresh Controller baseline; rows and presentation remain outside the machine, and gaps require another complete baseline before command authority returns."
+    },
+    {
       "id": "application-core-lifecycle",
       "classification": "migration-required",
       "canonicalOwner": "crates/desktop-bridge",

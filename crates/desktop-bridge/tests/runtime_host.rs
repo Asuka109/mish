@@ -12,6 +12,7 @@ use mish_runtime::{
     RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError,
     StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
     TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
+    TrafficSourceEvidencePhase, TrafficSupportEvidence, TrafficTransitionDisposition,
 };
 use mish_state_authority::StateMutationAuthority;
 use tokio::sync::{Notify, broadcast};
@@ -50,6 +51,37 @@ impl CoreRuntime for RunningCore {
                 version: Some("v1.19.29".into()),
             })
         })
+    }
+}
+
+struct BlockingCore {
+    continue_status: Arc<Notify>,
+    status_started: Arc<Notify>,
+}
+
+impl CoreRuntime for BlockingCore {
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(async move {
+            self.status_started.notify_one();
+            self.continue_status.notified().await;
+            CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(1),
+                version: Some("v1.19.29".into()),
+            }
+        })
+    }
+
+    fn execute_lifecycle(
+        &self,
+        _command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move { unreachable!("support snapshot does not mutate Core lifecycle") })
     }
 }
 
@@ -187,6 +219,18 @@ impl TrafficDataSource for ProfileSource {
         self.command_started.is_some()
     }
 
+    fn traffic_support_evidence(&self) -> Vec<TrafficSupportEvidence> {
+        vec![TrafficSupportEvidence {
+            disposition: TrafficTransitionDisposition::Committed,
+            effect_sequence: None,
+            failure: None,
+            operation: None,
+            phase: TrafficSourceEvidencePhase::Live,
+            revision: if self.profile_id == "profile-a" { 1 } else { 2 },
+            target_count: None,
+        }]
+    }
+
     fn close_connection(
         &self,
         _authority: TrafficCommandAuthority,
@@ -279,6 +323,32 @@ fn blocking_runtime(
     )
 }
 
+fn blocking_support_snapshot_runtime(
+    profile_id: &'static str,
+    status_started: Arc<Notify>,
+    continue_status: Arc<Notify>,
+) -> MishRuntime {
+    let (event_updates, _) = broadcast::channel(1);
+    let source = Arc::new(ProfileSource {
+        command_continue: None,
+        command_started: None,
+        event_updates,
+        provider_continue: None,
+        provider_started: None,
+        profile_id,
+        status_command_barrier: None,
+    });
+    MishRuntime::with_data_sources_and_events(
+        Arc::new(BlockingCore {
+            continue_status,
+            status_started,
+        }),
+        source.clone(),
+        source.clone(),
+        source,
+    )
+}
+
 fn blocking_provider_runtime(
     profile_id: &'static str,
     provider_started: Arc<Notify>,
@@ -365,6 +435,32 @@ async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_
     assert_eq!(status["recentTraffic"]["authorityId"], recent.authority_id);
     assert_eq!(status["recentTraffic"]["phase"], "idle");
     assert!(status["recentTraffic"]["revision"].as_u64().unwrap() > recent.revision);
+}
+
+#[tokio::test]
+async fn support_bundle_snapshot_retries_all_evidence_against_one_runtime() {
+    let status_started = Arc::new(Notify::new());
+    let continue_status = Arc::new(Notify::new());
+    let host = DesktopRuntimeHost::new(blocking_support_snapshot_runtime(
+        "profile-a",
+        status_started.clone(),
+        continue_status.clone(),
+    ));
+    let snapshot_host = host.clone();
+    let snapshot = tokio::spawn(async move {
+        snapshot_host
+            .support_bundle_runtime_snapshot(StatusAdapterKind::Rpc)
+            .await
+    });
+
+    status_started.notified().await;
+    host.replace(runtime("profile-b"));
+    continue_status.notify_one();
+    let (_, status, events, traffic_evidence) = snapshot.await.unwrap();
+
+    assert_eq!(status.active_profile_id, "profile-b");
+    assert_eq!(events.profile_id, "profile-b");
+    assert_eq!(traffic_evidence[0].revision, 2);
 }
 
 #[test]

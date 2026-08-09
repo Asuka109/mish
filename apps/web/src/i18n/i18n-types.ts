@@ -4834,6 +4834,10 @@ type RootTranslation = {
 				 * U​p​d​a​t​e​r​ ​m​a​i​n​t​e​n​a​n​c​e​ ​a​n​d​ ​r​e​s​t​a​r​t​ ​r​e​c​o​n​c​i​l​i​a​t​i​o​n
 				 */
 				updater: string
+				/**
+				 * T​r​a​f​f​i​c​ ​s​o​u​r​c​e​-​s​e​s​s​i​o​n​ ​t​r​a​n​s​i​t​i​o​n​s
+				 */
+				'traffic-source-transitions': string
 			}
 			/**
 			 * C​h​o​o​s​e​ ​L​o​c​a​t​i​o​n​ ​a​n​d​ ​S​a​v​e
@@ -10002,6 +10006,10 @@ export type TranslationFunctions = {
 				 * Updater maintenance and restart reconciliation
 				 */
 				updater: () => LocalizedString
+				/**
+				 * Traffic source-session transitions
+				 */
+				'traffic-source-transitions': () => LocalizedString
 			}
 			/**
 			 * Choose Location and Save
