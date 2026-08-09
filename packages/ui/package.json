@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
-    "cmdk": "1.1.1",
     "lucide-react": "1.25.0",
     "react": "19.2.7",
     "tailwind-variants": "3.3.0"

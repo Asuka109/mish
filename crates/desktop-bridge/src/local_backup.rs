@@ -9,6 +9,7 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use chrono::{Local, TimeZone};
 use mish_profile::{
     FileProfileRepository, Fingerprint, NORMALIZED_ARTIFACT_SCHEMA_VERSION,
     PROFILE_PATCH_SCHEMA_VERSION, PROFILE_SCHEMA_VERSION, ProfileId, ProfileMetadata,
@@ -91,6 +92,7 @@ pub struct LocalBackupIncludedCounts {
 pub struct PreparedLocalBackup {
     pub bytes: Vec<u8>,
     pub preview: LocalBackupPreview,
+    pub suggested_file_name: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -260,6 +262,7 @@ impl LocalBackupService {
             return Err(LocalBackupError::SizeLimitExceeded);
         }
         let included = included_counts(&manifest);
+        let suggested_file_name = local_backup_file_name(created_at, &bytes);
         Ok(PreparedLocalBackup {
             preview: LocalBackupPreview {
                 content_bytes: bytes.len(),
@@ -273,6 +276,7 @@ impl LocalBackupService {
                 scope,
             },
             bytes,
+            suggested_file_name,
         })
     }
 
@@ -425,13 +429,23 @@ impl LocalBackupService {
 
     fn materialize_profile_directory(&self) -> Result<(), LocalBackupError> {
         let directory = self.root.join("profiles");
-        create_private_restore_dir(&directory)?;
+        if directory.exists() {
+            prepare_existing_profile_directory(&self.root, &directory)?;
+        } else {
+            create_private_restore_dir(&directory)?;
+        }
         for entry in fs::read_dir(&directory).map_err(|_| LocalBackupError::Storage)? {
-            let path = entry.map_err(|_| LocalBackupError::Storage)?.path();
-            if matches!(
-                path.extension().and_then(|extension| extension.to_str()),
-                Some("yaml" | "yml")
-            ) {
+            let entry = entry.map_err(|_| LocalBackupError::Storage)?;
+            let path = entry.path();
+            if entry
+                .file_type()
+                .map_err(|_| LocalBackupError::Storage)?
+                .is_file()
+                && matches!(
+                    path.extension().and_then(|extension| extension.to_str()),
+                    Some("yaml" | "yml")
+                )
+            {
                 fs::remove_file(path).map_err(|_| LocalBackupError::Storage)?;
             }
         }
@@ -510,6 +524,17 @@ impl LocalBackupService {
         update_digest(&mut hasher, &active_profile_id)?;
         Ok(format!("{:x}", hasher.finalize()))
     }
+}
+
+fn local_backup_file_name(created_at: u64, bytes: &[u8]) -> String {
+    let date = i64::try_from(created_at)
+        .ok()
+        .and_then(|milliseconds| Local.timestamp_millis_opt(milliseconds).single())
+        .map(|created_at| created_at.format("%y%m%d").to_string())
+        .unwrap_or_else(|| "000000".to_owned());
+    let digest = Sha256::digest(bytes);
+    let content_hash = format!("{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2]);
+    format!("mish-backup-{date}-{content_hash}.json")
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1409,6 +1434,24 @@ fn create_private_restore_dir(path: &Path) -> Result<(), LocalBackupError> {
     Ok(())
 }
 
+fn prepare_existing_profile_directory(root: &Path, path: &Path) -> Result<(), LocalBackupError> {
+    ensure_safe_component(root, path)?;
+    let metadata = fs::symlink_metadata(path).map_err(|_| LocalBackupError::Storage)?;
+    if !metadata.is_dir() {
+        return Err(LocalBackupError::Storage);
+    }
+    #[cfg(unix)]
+    {
+        let root_metadata = fs::symlink_metadata(root).map_err(|_| LocalBackupError::Storage)?;
+        if metadata.uid() != root_metadata.uid() {
+            return Err(LocalBackupError::Storage);
+        }
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .map_err(|_| LocalBackupError::Storage)?;
+    }
+    Ok(())
+}
+
 fn map_restore_failure(failure: RestoreFilesystemFailure) -> LocalBackupError {
     match failure {
         RestoreFilesystemFailure::Crash => LocalBackupError::RecoveryRequired,
@@ -1624,6 +1667,20 @@ rules:
     }
 
     #[test]
+    fn backup_file_name_binds_local_date_and_six_hex_content_hash_characters() {
+        let created_at = 1_786_255_341_446;
+        let local_date = Local
+            .timestamp_millis_opt(created_at)
+            .single()
+            .unwrap()
+            .format("%y%m%d");
+        assert_eq!(
+            local_backup_file_name(created_at as u64, b"backup"),
+            format!("mish-backup-{local_date}-54d00d.json")
+        );
+    }
+
+    #[test]
     fn restore_rejects_unknown_fields_and_unsupported_versions() {
         let root = tempdir().unwrap();
         let service = service(root.path());
@@ -1763,6 +1820,67 @@ rules:
             panic!("embedded restore should use a private local source");
         };
         assert!(path.expose().starts_with(destination_root.path()));
+    }
+
+    #[tokio::test]
+    async fn profile_restore_reuses_the_existing_private_materialized_directory() {
+        let source_root = tempdir().unwrap();
+        let source = service(source_root.path());
+        let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
+        FileProfileRepository::new(source_root.path().join("profile-store"))
+            .save(&record)
+            .unwrap();
+        let backup = source
+            .prepare_export(
+                "export-1".to_owned(),
+                LocalBackupScope {
+                    patches: false,
+                    profiles: true,
+                    schedules: false,
+                    settings: true,
+                    source_locators: false,
+                },
+                1_786_255_341_446,
+            )
+            .unwrap();
+
+        let destination_root = tempdir().unwrap();
+        let materialized = destination_root.path().join("profiles");
+        create_private_restore_dir(&materialized).unwrap();
+        fs::write(materialized.join("stale.yaml"), VALID_PROFILE).unwrap();
+        fs::create_dir(materialized.join("archive.yaml")).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&materialized, fs::Permissions::from_mode(0o755)).unwrap();
+        let destination = service(destination_root.path());
+        let prepared = destination
+            .prepare_restore("restore-1".to_owned(), &backup.bytes, None)
+            .unwrap();
+
+        destination
+            .commit_restore(
+                prepared,
+                LocalRestoreConflictResolution::KeepExisting,
+                1_786_255_341_500,
+                None,
+            )
+            .unwrap();
+
+        assert!(!materialized.join("stale.yaml").exists());
+        assert!(materialized.join("archive.yaml").is_dir());
+        #[cfg(unix)]
+        assert_eq!(
+            fs::symlink_metadata(&materialized)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::read(materialized.join("Work profile.yaml")).unwrap(),
+            record.source_bytes
+        );
+        assert!(!destination_root.path().join(RESTORE_JOURNAL_FILE).exists());
     }
 
     #[test]
