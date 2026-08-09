@@ -130,8 +130,9 @@ preview development:
 - every push to `main` independently builds the macOS ARM64 and Android test
   packages but does not repeat the complete validation suite;
 - a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out
-  the latest `main` and runs `pnpm check:all` plus the real-browser suite on
-  macOS; and
+  the latest `main`; its macOS job runs `pnpm check:all`, while a separate
+  GitHub-hosted Ubuntu job installs the Playwright-pinned Chromium and runs
+  `pnpm test:browser`; and
 - manual dispatch can select `packages` or `all` to recover package production
   against the latest `main` when an automated merge credential does not emit a
   follow-up push workflow.

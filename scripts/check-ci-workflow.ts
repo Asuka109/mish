@@ -192,16 +192,36 @@ invariant(
   "Inspection must always check out the latest main branch.",
 );
 invariant(
-  step(inspectMain, "Install Playwright Chromium").run === "pnpm test:browser:install",
-  "Inspection must install the Playwright-pinned Chromium.",
-);
-invariant(
   step(inspectMain, "Run complete validation").run === "pnpm check:all",
   "Inspection must run complete repository validation.",
 );
+
+const inspectBrowser = job("inspect-browser");
+invariant(inspectBrowser.if === inspectionOnly, "Browser inspection must be inspection-only.");
 invariant(
-  step(inspectMain, "Run real-browser responsive suite").run === "pnpm test:browser",
-  "Inspection must run the real-browser suite.",
+  inspectBrowser["runs-on"] === "ubuntu-24.04",
+  "Browser inspection must use a deterministic GitHub-hosted runner.",
+);
+invariant(
+  inspectBrowser["timeout-minutes"] === 15,
+  "Browser inspection must retain its fifteen-minute ceiling.",
+);
+assertNodeCache(inspectBrowser, "Browser inspection");
+invariant(
+  step(inspectBrowser, "Check out repository").with?.ref === "main",
+  "Browser inspection must always check out the latest main branch.",
+);
+invariant(
+  step(inspectBrowser, "Install dependencies").run === "pnpm install --frozen-lockfile",
+  "Browser inspection must install frozen dependencies.",
+);
+invariant(
+  step(inspectBrowser, "Install Playwright Chromium").run === "pnpm test:browser:install",
+  "Browser inspection must install the Playwright-pinned Chromium.",
+);
+invariant(
+  step(inspectBrowser, "Run real-browser responsive suite").run === "pnpm test:browser",
+  "Browser inspection must run the real-browser suite.",
 );
 
 const packageMacos = job("package-macos");

@@ -15,7 +15,15 @@ export default defineConfig({
       enabled: true,
       headless: true,
       instances: [{ browser: "chromium" }],
-      provider: playwright(),
+      provider: playwright({
+        contextOptions: {
+          colorScheme: "light",
+          contrast: "no-preference",
+          forcedColors: "none",
+          hasTouch: false,
+          reducedMotion: "no-preference",
+        },
+      }),
     },
     fileParallelism: false,
     exclude: [
@@ -23,5 +31,6 @@ export default defineConfig({
       "src/system-tests/**/*.browser.test.{ts,tsx}",
     ],
     include: ["src/**/*.browser.test.{ts,tsx}"],
+    setupFiles: ["src/test/browser-environment.ts"],
   },
 });
