@@ -152,6 +152,7 @@ impl ProtocolState {
         ticket: crate::snapshot_order::SnapshotTicket,
         mut snapshot: StatusSnapshot,
     ) -> Value {
+        self.overlay_profile_selection(&mut snapshot);
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
@@ -171,22 +172,21 @@ impl ProtocolState {
             service_probes.overlay(snapshot);
         }
         if let Some(snapshot) = error.reconciliation.as_mut() {
+            self.overlay_profile_selection(snapshot);
             self.runtime.stamp_status_snapshot(ticket, snapshot);
         }
         status_command_error_response(id, error)
     }
 
-    async fn status_snapshot_with_profile_selection(
-        &self,
-        profile_snapshot: &mish_profile::ProfileSnapshot,
-    ) -> Value {
-        let ticket = self.runtime.begin_status_snapshot();
-        let mut snapshot = self
-            .runtime
-            .status_snapshot_unordered_typed(StatusAdapterKind::Rpc)
-            .await;
-        if let Some(profile_id) = &profile_snapshot.selection.profile_id {
-            snapshot.active_profile_id = profile_id.clone();
+    fn overlay_profile_selection(&self, snapshot: &mut StatusSnapshot) {
+        let Some(service) = &self.profile_service else {
+            return;
+        };
+        let Ok(profile_snapshot) = service.snapshot() else {
+            return;
+        };
+        if let Some(profile_id) = profile_snapshot.selection.profile_id {
+            snapshot.active_profile_id = profile_id;
         }
         snapshot.profiles = profile_snapshot
             .profiles
@@ -196,7 +196,6 @@ impl ProtocolState {
                 label: profile.label.clone(),
             })
             .collect();
-        self.status_snapshot_value(ticket, snapshot)
     }
 
     async fn status_snapshot_with_capture(
@@ -207,7 +206,7 @@ impl ProtocolState {
         let mut changes = self.runtime.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let core = runtime.core_status().await;
-        let mut snapshot = runtime.snapshot_typed_with_capture_status(
+        let snapshot = runtime.snapshot_typed_with_capture_status(
             &core,
             StatusAdapterKind::Rpc,
             capture_status,
@@ -218,11 +217,7 @@ impl ProtocolState {
             // The publisher retired while this projection was in flight.
             return self.status_snapshot().await;
         }
-        if let Some(service_probes) = &self.service_probes {
-            service_probes.overlay(&mut snapshot);
-        }
-        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
-        serde_json::to_value(snapshot).expect("Status state must serialize")
+        self.status_snapshot_value(ticket, snapshot)
     }
 
     fn settings_snapshot(&self, service: &SettingsService) -> mish_settings::SettingsSnapshot {
@@ -890,17 +885,32 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
             _ = notification_lease_sweep.tick(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.notification_ids.is_empty() => {
                 let _ = state.runtime.notification_snapshot();
             }
-            update = subscriptions.profile_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && !subscriptions.profile_ids.is_empty() => {
+            update = subscriptions.profile_updates.recv(), if authenticated && protocol_compatibility == Some("compatible") && (!subscriptions.profile_ids.is_empty() || !subscriptions.status_ids.is_empty()) => {
                 let Ok(_) = update else { continue };
-                let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
-                for subscription_id in &subscriptions.profile_ids {
-                    let notification = json!({
-                        "jsonrpc": "2.0",
-                        "method": "profiles.snapshot",
-                        "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
-                    });
-                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
-                        return;
+                if !subscriptions.profile_ids.is_empty() {
+                    let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
+                    for subscription_id in &subscriptions.profile_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "profiles.snapshot",
+                            "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                if !subscriptions.status_ids.is_empty() {
+                    let status_snapshot = state.status_snapshot().await;
+                    for subscription_id in &subscriptions.status_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "status.snapshot",
+                            "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
                     }
                 }
             }
@@ -1104,14 +1114,12 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.profile_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
-            let profile_snapshot = match service.select_profile(&params.profile_id).await {
-                Ok(snapshot) => snapshot,
+            match service.select_profile(&params.profile_id).await {
+                Ok(_) => {}
                 Err(error) => return Some(profile_error_response(id, error)),
-            };
+            }
             publish_profile_update(state).await;
-            state
-                .status_snapshot_with_profile_selection(&profile_snapshot)
-                .await
+            state.status_snapshot().await
         }
         "status.setRoutingMode" => {
             let params: SetRoutingModeParams = match serde_json::from_value(request.params) {

@@ -3976,13 +3976,37 @@ async fn status_set_active_profile_uses_the_real_profile_selection_handler() {
         .id
         .clone();
 
+    let safe_runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let activation = Arc::new(ProfileActivationCoordinator::new(
+        service.clone(),
+        Arc::new(MihomoActivationManager::new(
+            ManagedMihomoResolver::development(
+                root.path().join("missing-mihomo"),
+                root.path().join("runtime"),
+            ),
+            ActivationTiming::default(),
+        )),
+        runtime_host.clone(),
+        safe_runtime,
+        || ManagedRuntimePolicy::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 1)), "unused"),
+    ));
     let mut bridge_config = config();
+    bridge_config.profile_activation = Some(activation);
     bridge_config.profile_service = Some(service);
-    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
         .await
         .unwrap();
     let mut ws = socket(bridge.address).await;
+    let mut observer = socket(bridge.address).await;
     authenticate(&mut ws).await;
+    authenticate(&mut observer).await;
+    let subscribed = request(
+        &mut observer,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    assert!(subscribed["result"]["subscriptionId"].is_string());
 
     let selected = request(
         &mut ws,
@@ -4002,9 +4026,23 @@ async fn status_set_active_profile_uses_the_real_profile_selection_handler() {
             .is_some_and(|profiles| profiles.len() == 2)
     );
 
+    let status_snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(status_snapshot["result"]["activeProfileId"], target);
+
+    let notification = next_json(&mut observer).await;
+    assert_eq!(notification["method"], "status.snapshot");
+    assert_eq!(
+        notification["params"]["snapshot"]["activeProfileId"],
+        target
+    );
+
     let profile_snapshot = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":3, "method":"profiles.getSnapshot", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":4, "method":"profiles.getSnapshot", "params":{}}),
     )
     .await;
     assert_eq!(profile_snapshot["result"]["selection"]["profileId"], target);
