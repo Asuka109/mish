@@ -104,6 +104,24 @@ test("need-based future wording for a closed Issue fails deterministically", () 
   );
 });
 
+test("pending and outstanding wording for a closed Issue fails deterministically", () => {
+  const { registry, sources } = repositoryFixture();
+  for (const claim of [
+    "Issue #185 is pending implementation.",
+    "Issue #185 remains to be implemented.",
+    "Issue #185 has not yet been delivered.",
+    "Issue #185 implementation remains outstanding.",
+  ]) {
+    const fixtureSources = { ...sources };
+    fixtureSources["docs/architecture/candidate-home-isolation.md"] += `\n${claim}\n`;
+    assert.match(
+      validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+      /closed Issue #185 is still described as future work/u,
+      claim,
+    );
+  }
+});
+
 test("URL-only Issue occurrences receive independent context validation", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
