@@ -75,11 +75,12 @@ function escapeRegExp(value: string): string {
 }
 
 function issueNumbers(source: string, repository: string): Set<number> {
+  const normalizedRepository = repository.toLowerCase();
   const numbers = new Set(
     [...source.matchAll(issueReferencePattern)].map((match) => Number(match[1])),
   );
   for (const match of source.matchAll(githubIssueUrlPattern)) {
-    if (match[1] === repository) numbers.add(Number(match[2]));
+    if (match[1]?.toLowerCase() === normalizedRepository) numbers.add(Number(match[2]));
   }
   for (const match of source.matchAll(trackerTokenPattern)) {
     const prefix = source.slice(Math.max(0, (match.index ?? 0) - 8), match.index);
@@ -100,13 +101,29 @@ function ambiguousTrackerTokens(source: string): number[] {
 }
 
 function referenceContexts(source: string, repository: string, issueNumber: number): string[] {
-  const lines = source.split("\n");
   const repositoryUrl = `https://github\\.com/${escapeRegExp(repository)}/issues/${issueNumber}\\b`;
-  const pattern = new RegExp(`(?:\\bIssue\\s+#${issueNumber}\\b|${repositoryUrl})`, "u");
+  const pattern = new RegExp(`(?:\\bIssue\\s+#${issueNumber}\\b|${repositoryUrl})`, "giu");
   const contexts: string[] = [];
-  for (const [index, line] of lines.entries()) {
-    if (!pattern.test(line)) continue;
-    contexts.push(lines.slice(Math.max(0, index - 2), index + 3).join("\n"));
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    const paragraphStart = source.lastIndexOf("\n\n", index - 1) + 2;
+    const paragraphEndCandidate = source.indexOf("\n\n", index);
+    const paragraphEnd = paragraphEndCandidate === -1 ? source.length : paragraphEndCandidate;
+    const paragraph = source.slice(paragraphStart, paragraphEnd).replaceAll("\n", " ");
+    const paragraphIndex = index - paragraphStart;
+    const sentenceStart = Math.max(
+      paragraph.lastIndexOf(". ", paragraphIndex - 1),
+      paragraph.lastIndexOf("? ", paragraphIndex - 1),
+      paragraph.lastIndexOf("! ", paragraphIndex - 1),
+    );
+    const sentenceEndCandidates = [". ", "? ", "! "]
+      .map((delimiter) => paragraph.indexOf(delimiter, paragraphIndex))
+      .filter((candidate) => candidate !== -1);
+    const sentenceEnd =
+      sentenceEndCandidates.length === 0
+        ? paragraph.length
+        : Math.min(...sentenceEndCandidates) + 1;
+    contexts.push(paragraph.slice(sentenceStart === -1 ? 0 : sentenceStart + 2, sentenceEnd));
   }
   return contexts;
 }
@@ -239,8 +256,9 @@ export function validateDocumentationTrackers(
   for (const path of canonicalPaths) {
     const source = sources[path];
     if (source === undefined) continue;
+    const normalizedRepository = registry.repository.toLowerCase();
     for (const match of source.matchAll(githubIssueUrlPattern)) {
-      if (match[1] !== registry.repository) {
+      if (match[1]?.toLowerCase() !== normalizedRepository) {
         errors.push(
           `external Issue URL in ${path}: ${match[1]}#${match[2]}; expected ${registry.repository}`,
         );

@@ -115,10 +115,30 @@ test("Issue URLs must belong to the registered repository", () => {
   );
 });
 
+test("same-repository Issue URLs are case-insensitive", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] = fixtureSources[
+    "docs/architecture/state-machine-kernel.md"
+  ].replace("Issue #288", "[Issue #288](https://github.com/asuka109/MISH/issues/288)");
+  assert.deepEqual(validateDocumentationTrackers(registry, fixtureSources), []);
+});
+
 test("each superseded occurrence needs its own decision context", () => {
   const { registry, sources } = repositoryFixture();
   const fixtureSources = { ...sources };
   fixtureSources["docs/README.md"] += "\nIssue #343 is the active implementation plan.\n";
+  assert.match(
+    validateDocumentationTrackers(registry, fixtureSources).join("\n"),
+    /docs\/README.md:#343 lacks explicit superseded or rejected context/u,
+  );
+});
+
+test("nearby tracker occurrences cannot share decision context", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/README.md"] +=
+    "\nIssue #343 was rejected. Issue #343 is now the active implementation plan.\n";
   assert.match(
     validateDocumentationTrackers(registry, fixtureSources).join("\n"),
     /docs\/README.md:#343 lacks explicit superseded or rejected context/u,
