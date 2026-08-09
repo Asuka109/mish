@@ -37,6 +37,8 @@ class MishVpnService : VpnService() {
     private val underlyingNetworks = linkedSetOf<Network>()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var productSessionId: String? = null
+    private var activeLifecycleAuthority: CoreLifecycleAuthority? = null
+    private var requestedStopAuthority: CoreLifecycleAuthority? = null
     private var tunDescriptor: ParcelFileDescriptor? = null
     @Volatile
     private var explicitCleanup = false
@@ -50,6 +52,9 @@ class MishVpnService : VpnService() {
         )
         core = runtime.coreProbe
         store = runtime.store
+        val recovered = store.current()
+        activeLifecycleAuthority = recovered.lifecycleAuthority
+        productSessionId = recovered.activationSessionId
         connectivity = getSystemService(ConnectivityManager::class.java)
         ProcessRuntimeRegistry.serviceActive = true
         executor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -69,8 +74,17 @@ class MishVpnService : VpnService() {
                 }
             }
             ACTION_STOP -> {
-                stopRequested.set(true)
-                executor.execute { stopExplicitly(startId) }
+                val authority = lifecycleAuthorityFromIntent(intent)
+                if (authority != null && lifecycleAuthorityIsSuccessor(
+                        authority,
+                        activeLifecycleAuthority,
+                    )
+                ) {
+                    store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
+                    requestedStopAuthority = authority
+                    stopRequested.set(true)
+                    executor.execute { stopExplicitly(startId) }
+                }
             }
             else -> executor.execute {
                 val cleaned = cleanupOwnedResources()
@@ -100,8 +114,13 @@ class MishVpnService : VpnService() {
         }
 
         productSessionId = request.productSessionId
+        activeLifecycleAuthority = request.lifecycleAuthority
         promoteToForeground()
-        store.activationStarting(serviceInstanceId, request.productSessionId)
+        store.activationStarting(
+            serviceInstanceId,
+            request.productSessionId,
+            request.lifecycleAuthority,
+        )
 
         try {
             registerUnderlyingNetworkObservation()
@@ -128,7 +147,12 @@ class MishVpnService : VpnService() {
                 failAfterCleanup(PlatformFailureKind.CONFIGURATION_NOT_LOADED, startId)
                 return
             }
-            val started = core.start(request.productSessionId, descriptor.fd, this)
+            val started = core.start(
+                request.lifecycleAuthority,
+                request.productSessionId,
+                descriptor.fd,
+                this,
+            )
             if (started.code != NativeRuntimeCode.RUNNING) {
                 failAfterCleanup(mapCoreStartFailure(started.code), startId)
                 return
@@ -304,12 +328,21 @@ class MishVpnService : VpnService() {
             return store.current().let { !it.coreRunning && !it.tunEstablished }
         }
         val session = productSessionId
+        val activeAuthority = activeLifecycleAuthority
+        val authority = requestedStopAuthority ?: activeAuthority?.nextEffect()
+        if (authority != null && store.current().lifecycleAuthority != authority) {
+            store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
+        }
         return cleanup.cleanup(
             stopCore = {
-                core.stop(session).code in setOf(
-                    NativeRuntimeCode.INACTIVE,
-                    NativeRuntimeCode.CORE_UNAVAILABLE,
-                )
+                if (activeAuthority != null && authority == null) {
+                    false
+                } else {
+                    authority == null || core.stop(authority, session).code in setOf(
+                        NativeRuntimeCode.INACTIVE,
+                        NativeRuntimeCode.CORE_UNAVAILABLE,
+                    )
+                }
             },
             closeTun = {
                 val descriptor = tunDescriptor
@@ -323,6 +356,8 @@ class MishVpnService : VpnService() {
                     runCatching { connectivity.unregisterNetworkCallback(callback) }.isSuccess
                 synchronized(underlyingNetworks) { underlyingNetworks.clear() }
                 productSessionId = null
+                activeLifecycleAuthority = null
+                requestedStopAuthority = null
                 protectedSocketFacts.reset()
                 released
             },
@@ -386,13 +421,6 @@ class MishVpnService : VpnService() {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stopIntent = Intent(this, MishVpnService::class.java).setAction(ACTION_STOP)
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            REQUEST_STOP,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mish_vpn_notification)
             .setContentTitle(getString(R.string.mish_vpn_notification_title))
@@ -402,13 +430,6 @@ class MishVpnService : VpnService() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    getString(R.string.mish_vpn_stop),
-                    stopPendingIntent,
-                ).build(),
-            )
             .build()
     }
 
@@ -442,6 +463,7 @@ class MishVpnService : VpnService() {
         val factSequence: Long,
         val platformSessionId: String,
         val productSessionId: String,
+        val lifecycleAuthority: CoreLifecycleAuthority,
     ) {
         companion object {
             fun fromIntent(intent: Intent): ActivationRequest? {
@@ -450,6 +472,7 @@ class MishVpnService : VpnService() {
                 val platformSessionId = intent.getStringExtra(EXTRA_PLATFORM_SESSION_ID) ?: return null
                 val productSessionId = intent.getStringExtra(EXTRA_PRODUCT_SESSION_ID) ?: return null
                 val factSequence = intent.getLongExtra(EXTRA_FACT_SEQUENCE, -1)
+                val lifecycleAuthority = lifecycleAuthorityFromIntent(intent) ?: return null
                 if (
                     !configDigest.matches(DIGEST_PATTERN) ||
                     !configRevision.matches(IDENTIFIER_PATTERN) ||
@@ -465,6 +488,7 @@ class MishVpnService : VpnService() {
                     factSequence,
                     platformSessionId,
                     productSessionId,
+                    lifecycleAuthority,
                 )
             }
         }
@@ -478,6 +502,11 @@ class MishVpnService : VpnService() {
         const val EXTRA_FACT_SEQUENCE = "com.asuka109.mish.vpn.extra.FACT_SEQUENCE"
         const val EXTRA_PLATFORM_SESSION_ID = "com.asuka109.mish.vpn.extra.PLATFORM_SESSION_ID"
         const val EXTRA_PRODUCT_SESSION_ID = "com.asuka109.mish.vpn.extra.PRODUCT_SESSION_ID"
+        const val EXTRA_MACHINE_AUTHORITY = "com.asuka109.mish.vpn.extra.MACHINE_AUTHORITY"
+        const val EXTRA_SCOPE_EPOCH = "com.asuka109.mish.vpn.extra.SCOPE_EPOCH"
+        const val EXTRA_OPERATION_ID = "com.asuka109.mish.vpn.extra.OPERATION_ID"
+        const val EXTRA_ADMITTED_REVISION = "com.asuka109.mish.vpn.extra.ADMITTED_REVISION"
+        const val EXTRA_EFFECT_IDENTITY = "com.asuka109.mish.vpn.extra.EFFECT_IDENTITY"
         private const val CHANNEL_ID = "mish-vpn-status-v1"
         private const val CORE_WATCHDOG_MILLIS = 2_000L
         private const val DESTROY_CLEANUP_TIMEOUT_MILLIS = 12_000L
@@ -488,7 +517,6 @@ class MishVpnService : VpnService() {
         private const val PUBLIC_PROBE_WAIT_MILLIS = 20_000L
         private const val PUBLIC_PROBE_URL = "http://1.1.1.1/cdn-cgi/trace"
         private const val REQUEST_OPEN = 4108
-        private const val REQUEST_STOP = 4109
         private const val TUN_IPV4_ADDRESS = "172.19.0.1"
         private const val TUN_IPV4_DNS = "1.1.1.1"
         private const val TUN_IPV4_PREFIX = 30
@@ -497,5 +525,28 @@ class MishVpnService : VpnService() {
         private const val TUN_MTU = 1500
         private val DIGEST_PATTERN = Regex("^[0-9a-f]{64}$")
         private val IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
+
+        private fun lifecycleAuthorityFromIntent(intent: Intent): CoreLifecycleAuthority? {
+            val machineAuthority = intent.getStringExtra(EXTRA_MACHINE_AUTHORITY) ?: return null
+            val scopeEpoch = intent.getLongExtra(EXTRA_SCOPE_EPOCH, -1)
+            val operationId = intent.getStringExtra(EXTRA_OPERATION_ID) ?: return null
+            val admittedRevision = intent.getLongExtra(EXTRA_ADMITTED_REVISION, -1)
+            val effectIdentity = intent.getStringExtra(EXTRA_EFFECT_IDENTITY) ?: return null
+            if (
+                !machineAuthority.matches(IDENTIFIER_PATTERN) ||
+                scopeEpoch <= 0 ||
+                !operationId.matches(IDENTIFIER_PATTERN) ||
+                admittedRevision <= 0 ||
+                !effectIdentity.matches(IDENTIFIER_PATTERN)
+            ) return null
+            return CoreLifecycleAuthority(
+                machineAuthority,
+                scopeEpoch,
+                operationId,
+                admittedRevision,
+                effectIdentity,
+            )
+        }
+
     }
 }

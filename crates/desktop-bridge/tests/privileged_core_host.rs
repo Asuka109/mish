@@ -8,7 +8,22 @@ use mish_bridge::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, PrivilegedCoreHost, PrivilegedCoreHostError,
     PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
 };
-use mish_runtime::{CorePhase, CoreRuntime, LocalProxyOwnership, LoopbackProxyEndpoint};
+use mish_runtime::{
+    CoreError, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime, CoreStatus,
+    LocalProxyOwnership, LoopbackProxyEndpoint, MishRuntime,
+};
+
+async fn mutate_core(
+    process: &DesktopMihomoProcess,
+    mutation: CoreLifecycleMutation,
+) -> Result<CoreStatus, CoreError> {
+    MishRuntime::new(Arc::new(process.clone()))
+        .execute_core_lifecycle(
+            &CoreLifecycleOperation::new("privileged-test", 1, "privileged-process", 1, 1).unwrap(),
+            mutation,
+        )
+        .await
+}
 
 #[derive(Default)]
 struct FakePrivilegedHost {
@@ -113,7 +128,9 @@ async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
         host,
     );
 
-    let started = process.start().await.unwrap();
+    let started = mutate_core(&process, CoreLifecycleMutation::Start)
+        .await
+        .unwrap();
     assert!(matches!(started.phase, CorePhase::Running));
     assert_eq!(started.pid, Some(4242));
     assert_eq!(
@@ -122,7 +139,9 @@ async fn desktop_process_uses_the_privileged_host_for_the_full_lifecycle() {
             .await,
         LocalProxyOwnership::Owned
     );
-    let stopped = process.stop().await.unwrap();
+    let stopped = mutate_core(&process, CoreLifecycleMutation::Stop)
+        .await
+        .unwrap();
     assert!(matches!(stopped.phase, CorePhase::Stopped));
     assert_eq!(stopped.pid, None);
     assert_eq!(
@@ -157,7 +176,11 @@ async fn desktop_process_preserves_an_unavailable_privileged_start_failure() {
         Arc::new(UnavailablePrivilegedHost),
     );
 
-    assert!(process.start().await.is_err());
+    assert!(
+        mutate_core(&process, CoreLifecycleMutation::Start)
+            .await
+            .is_err()
+    );
     assert_eq!(
         process.privileged_start_failure().await,
         Some(PrivilegedCoreHostError::Unavailable)

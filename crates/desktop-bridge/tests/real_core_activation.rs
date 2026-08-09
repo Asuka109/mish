@@ -16,13 +16,17 @@ use mish_profile::{
     ProfileSource, ProfileSourceType, ProfileStatus, Provenance, RevisionId, SourceSummary,
     Timestamp, ValidationResult, ValidationStatus,
 };
-use mish_runtime::StatusAdapterKind;
+use mish_runtime::{CoreLifecycleOperation, StatusAdapterKind};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 use uuid::Uuid;
 
 const ORIGIN: &str = "http://real-core-activation.test";
 const TOKEN: &str = "real-core-activation-token";
+
+fn lifecycle(operation_id: &str) -> CoreLifecycleOperation {
+    CoreLifecycleOperation::new("real-activation-test", 1, operation_id, 1, 1).unwrap()
+}
 
 #[tokio::test]
 async fn activates_the_pinned_core_and_confirms_modes_through_authenticated_rpc() {
@@ -51,7 +55,10 @@ async fn activates_the_pinned_core_and_confirms_modes_through_authenticated_rpc(
         ManagedRuntimePolicy::new(controller_address, "synthetic-activation-token").unwrap();
     let record = record();
 
-    let committed = manager.activate(&record, &policy).await.unwrap();
+    let committed = manager
+        .activate(&lifecycle("activate"), &record, &policy)
+        .await
+        .unwrap();
 
     assert_eq!(committed.profile_id(), record.metadata.id.as_str());
     let runtime = manager.active_runtime().await.unwrap();
@@ -88,7 +95,7 @@ async fn activates_the_pinned_core_and_confirms_modes_through_authenticated_rpc(
 
     socket.close(None).await.unwrap();
     bridge.shutdown().await;
-    manager.shutdown().await.unwrap();
+    manager.shutdown(&lifecycle("shutdown")).await.unwrap();
 }
 
 fn bridge_config() -> LoopbackServerConfig {

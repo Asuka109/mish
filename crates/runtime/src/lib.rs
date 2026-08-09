@@ -1,6 +1,9 @@
 use std::{
     fmt,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -166,6 +169,8 @@ pub enum CoreErrorKind {
     Unavailable,
     StartFailed,
     StopFailed,
+    Retired,
+    ObservationFailed,
 }
 
 #[derive(Clone, Debug)]
@@ -209,21 +214,54 @@ pub struct CoreStatusEventSink {
     events: Weak<RuntimeStatusEvents>,
 }
 
+#[derive(Clone)]
+pub struct StatusProjectionEventSink {
+    events: Weak<RuntimeStatusEvents>,
+}
+
 impl CoreStatusEventSink {
     pub fn publish(&self, status: CoreStatus) {
-        let Some(events) = self.events.upgrade() else {
+        if matches!(status.phase, CorePhase::Running | CorePhase::Stopped) {
+            // Terminal success belongs to execute_core_lifecycle after exact task
+            // finalization and a fresh adapter observation. Adapters may report
+            // progress or authoritative failure, but cannot mint success.
             return;
-        };
-        if let Some(observer) = events
-            .recent_traffic_observer
-            .lock()
-            .expect("recent Traffic observer lock poisoned")
-            .clone()
-        {
-            observer();
         }
-        let _ = events.updates.send(status);
+        publish_runtime_status(&self.events, status);
     }
+
+    /// Publishes an asynchronous process observation, not a lifecycle mutation completion.
+    ///
+    /// Core adapters may use this only after their owned process observer has authoritatively
+    /// confirmed exit. Running still belongs exclusively to exact lifecycle task finalization;
+    /// Stopped is admitted here so an unexpected clean exit reaches Capture and status consumers.
+    pub fn publish_exit_observation(&self, status: CoreStatus) {
+        if !matches!(status.phase, CorePhase::Stopped | CorePhase::Failed) {
+            return;
+        }
+        publish_runtime_status(&self.events, status);
+    }
+}
+
+impl StatusProjectionEventSink {
+    pub fn publish(&self, status: CoreStatus) {
+        publish_runtime_status(&self.events, status);
+    }
+}
+
+fn publish_runtime_status(events: &Weak<RuntimeStatusEvents>, status: CoreStatus) {
+    let Some(events) = events.upgrade() else {
+        return;
+    };
+    if let Some(observer) = events
+        .recent_traffic_observer
+        .lock()
+        .expect("recent Traffic observer lock poisoned")
+        .clone()
+    {
+        observer();
+    }
+    let _ = events.updates.send(status);
 }
 
 impl CoreError {
@@ -247,6 +285,20 @@ impl CoreError {
             message: message.into(),
         }
     }
+
+    pub fn retired() -> Self {
+        Self {
+            kind: CoreErrorKind::Retired,
+            message: "The Core lifecycle effect was replaced before finalization".into(),
+        }
+    }
+
+    pub fn observation_failed(message: impl Into<String>) -> Self {
+        Self {
+            kind: CoreErrorKind::ObservationFailed,
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for CoreError {
@@ -256,6 +308,124 @@ impl fmt::Display for CoreError {
 }
 
 impl std::error::Error for CoreError {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoreLifecycleMutation {
+    Start,
+    Stop,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoreLifecycleCommand {
+    machine_authority: String,
+    scope_epoch: u64,
+    operation_id: String,
+    admitted_revision: u64,
+    effect_identity: String,
+    owner_effect_id: u64,
+    effect_sequence: u64,
+    mutation: CoreLifecycleMutation,
+}
+
+impl CoreLifecycleCommand {
+    pub fn machine_authority(&self) -> &str {
+        &self.machine_authority
+    }
+
+    pub fn scope_epoch(&self) -> u64 {
+        self.scope_epoch
+    }
+
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    pub fn admitted_revision(&self) -> u64 {
+        self.admitted_revision
+    }
+
+    pub fn effect_identity(&self) -> &str {
+        &self.effect_identity
+    }
+
+    pub fn mutation(&self) -> CoreLifecycleMutation {
+        self.mutation
+    }
+}
+
+/// One admitted coordinator operation. Every Core mutation derives a distinct effect identity
+/// from this envelope; callers cannot omit any correlation field.
+#[derive(Clone, Debug)]
+pub struct CoreLifecycleOperation {
+    machine_authority: String,
+    scope_epoch: u64,
+    operation_id: String,
+    admitted_revision: u64,
+    owner_effect_id: u64,
+    next_effect: Arc<AtomicU64>,
+}
+
+impl CoreLifecycleOperation {
+    pub fn new(
+        machine_authority: impl Into<String>,
+        scope_epoch: u64,
+        operation_id: impl Into<String>,
+        admitted_revision: u64,
+        owner_effect_id: u64,
+    ) -> Result<Self, CoreError> {
+        let machine_authority = machine_authority.into();
+        let operation_id = operation_id.into();
+        if !valid_core_lifecycle_identifier(&machine_authority)
+            || !valid_core_lifecycle_identifier(&operation_id)
+            || scope_epoch == 0
+            || admitted_revision == 0
+            || owner_effect_id == 0
+        {
+            return Err(CoreError::unavailable(
+                "Core lifecycle authority is incomplete or invalid",
+            ));
+        }
+        Ok(Self {
+            machine_authority,
+            scope_epoch,
+            operation_id,
+            admitted_revision,
+            owner_effect_id,
+            next_effect: Arc::new(AtomicU64::new(1)),
+        })
+    }
+
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    fn command(&self, mutation: CoreLifecycleMutation) -> Result<CoreLifecycleCommand, CoreError> {
+        let sequence = self.next_effect.fetch_add(1, Ordering::Relaxed);
+        if sequence == u64::MAX {
+            return Err(CoreError::unavailable(
+                "Core lifecycle effect identity is exhausted",
+            ));
+        }
+        Ok(CoreLifecycleCommand {
+            machine_authority: self.machine_authority.clone(),
+            scope_epoch: self.scope_epoch,
+            operation_id: self.operation_id.clone(),
+            admitted_revision: self.admitted_revision,
+            effect_identity: format!("{}:{sequence}", self.owner_effect_id),
+            owner_effect_id: self.owner_effect_id,
+            effect_sequence: sequence,
+            mutation,
+        })
+    }
+}
+
+fn valid_core_lifecycle_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
 
 pub trait CoreRuntime: Send + Sync {
     fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
@@ -267,8 +437,10 @@ pub trait CoreRuntime: Send + Sync {
         Box::pin(std::future::ready(LocalProxyOwnership::Unowned))
     }
     fn status(&self) -> BoxFuture<'_, CoreStatus>;
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -279,7 +451,7 @@ pub enum LocalProxyOwnership {
 }
 
 pub trait StatusDataSource: Send + Sync {
-    fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
+    fn attach_status_event_sink(&self, _sink: StatusProjectionEventSink) {}
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
     fn profile_id(&self) -> Option<String> {
         None
@@ -545,11 +717,13 @@ impl EventsDataSource for LifecycleStatusDataSource {
 pub struct MishRuntime {
     capture: Option<Arc<CaptureReconciler>>,
     core: Arc<dyn CoreRuntime>,
+    core_lifecycle: Arc<Mutex<Option<CoreLifecycleCommand>>>,
     events: Arc<RuntimeStatusEvents>,
     events_source: Arc<dyn EventsDataSource>,
     notifications: NotificationCenter,
     recent_traffic: RecentTraffic,
     status_source: Arc<dyn StatusDataSource>,
+    shutdown_confirmed: Arc<AtomicBool>,
     traffic_source: Arc<dyn TrafficDataSource>,
     uptime: Arc<Mutex<ProxySessionUptime>>,
     identity: Arc<()>,
@@ -650,17 +824,19 @@ impl MishRuntime {
         core.attach_status_event_sink(CoreStatusEventSink {
             events: Arc::downgrade(&events),
         });
-        status_source.attach_status_event_sink(CoreStatusEventSink {
+        status_source.attach_status_event_sink(StatusProjectionEventSink {
             events: Arc::downgrade(&events),
         });
         let runtime = Self {
             capture,
             core,
+            core_lifecycle: Arc::new(Mutex::new(None)),
             events,
             events_source,
             notifications: NotificationCenter::new(),
             recent_traffic: RecentTraffic::new(),
             status_source,
+            shutdown_confirmed: Arc::new(AtomicBool::new(false)),
             traffic_source,
             uptime: Arc::new(Mutex::new(ProxySessionUptime { started_at: None })),
             identity: Arc::new(()),
@@ -781,21 +957,77 @@ impl MishRuntime {
         self.core.status().await
     }
 
-    pub async fn publish_current_status(&self) {
+    /// Re-publishes observation from the runtime instance already installed by the
+    /// Profile coordinator. Installation is the owned-task finalization proof;
+    /// adapters cannot call this path through the status-event sink.
+    pub async fn publish_coordinator_observation(&self) {
         let status = self.core.status().await;
         self.publish_status(&status);
     }
 
-    pub async fn start_core(&self) -> Result<CoreStatus, CoreError> {
-        let status = self.core.start().await?;
-        self.publish_status(&status);
-        Ok(status)
+    pub async fn execute_core_lifecycle(
+        &self,
+        operation: &CoreLifecycleOperation,
+        mutation: CoreLifecycleMutation,
+    ) -> Result<CoreStatus, CoreError> {
+        let command = operation.command(mutation)?;
+        self.admit_core_lifecycle(&command)?;
+        let result = self.core.execute_lifecycle(command.clone()).await;
+        let observed = self.core.status().await;
+        if !self.finalize_core_lifecycle(&command) {
+            return Err(CoreError::retired());
+        }
+        if let Err(error) = result {
+            self.publish_status(&observed);
+            return Err(error);
+        }
+        let authoritative = matches!(
+            (mutation, observed.phase),
+            (CoreLifecycleMutation::Start, CorePhase::Running)
+                | (CoreLifecycleMutation::Stop, CorePhase::Stopped)
+        );
+        if !authoritative {
+            self.publish_status(&observed);
+            return Err(CoreError::observation_failed(
+                "Core lifecycle completion was not confirmed by authoritative observation",
+            ));
+        }
+        self.publish_status(&observed);
+        Ok(observed)
     }
 
-    pub async fn stop_core(&self) -> Result<CoreStatus, CoreError> {
-        let status = self.core.stop().await?;
-        self.publish_status(&status);
-        Ok(status)
+    fn admit_core_lifecycle(&self, command: &CoreLifecycleCommand) -> Result<(), CoreError> {
+        let mut current = self
+            .core_lifecycle
+            .lock()
+            .expect("Core lifecycle authority lock poisoned");
+        if let Some(owned) = current.as_ref() {
+            let replaces_owned = command.machine_authority == owned.machine_authority
+                && (command.scope_epoch > owned.scope_epoch
+                    || (command.scope_epoch == owned.scope_epoch
+                        && command.admitted_revision > owned.admitted_revision)
+                    || (command.scope_epoch == owned.scope_epoch
+                        && command.admitted_revision == owned.admitted_revision
+                        && command.operation_id == owned.operation_id
+                        && (command.owner_effect_id, command.effect_sequence)
+                            > (owned.owner_effect_id, owned.effect_sequence)));
+            if !replaces_owned {
+                return Err(CoreError::retired());
+            }
+        }
+        *current = Some(command.clone());
+        Ok(())
+    }
+
+    fn finalize_core_lifecycle(&self, command: &CoreLifecycleCommand) -> bool {
+        let current = self
+            .core_lifecycle
+            .lock()
+            .expect("Core lifecycle authority lock poisoned");
+        // Keep the finalized command as the runtime's authority high-water mark. Clearing it
+        // would let a delayed command from an older scope mutate Core after a newer operation
+        // had already completed.
+        current.as_ref() == Some(command)
     }
 
     pub async fn status_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
@@ -1662,7 +1894,10 @@ impl MishRuntime {
         status
     }
 
-    pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
+    pub async fn shutdown(
+        &self,
+        operation: &CoreLifecycleOperation,
+    ) -> Result<CoreStatus, RuntimeShutdownFailure> {
         if let Some(capture) = &self.capture {
             capture
                 .reconcile_for_shutdown()
@@ -1670,9 +1905,38 @@ impl MishRuntime {
                 .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
         }
         self.status_source.shutdown().await;
-        self.stop_core()
+        self.execute_core_lifecycle(operation, CoreLifecycleMutation::Stop)
             .await
             .map_err(|_| RuntimeShutdownFailure::CoreStop)
+            .inspect(|_| self.shutdown_confirmed.store(true, Ordering::Release))
+    }
+
+    /// Retires observation sources after the Profile coordinator has already confirmed Core and
+    /// Capture teardown. This cleanup path intentionally has no Core mutation capability.
+    pub async fn shutdown_observers(&self) {
+        self.status_source.shutdown().await;
+    }
+
+    /// Verifies teardown without acquiring Core or Capture mutation authority.
+    pub async fn confirm_transport_shutdown_safe(&self) -> Result<(), RuntimeShutdownFailure> {
+        let core_stopped = matches!(self.core.status().await.phase, CorePhase::Stopped);
+        let capture_inactive = self.capture.as_ref().is_none_or(|capture| {
+            let status = capture.status();
+            !status.system_proxy_enabled && !status.tun_enabled
+        });
+        if self.shutdown_confirmed.load(Ordering::Acquire) && core_stopped && capture_inactive {
+            return Ok(());
+        }
+        if let Some(capture) = &self.capture {
+            capture
+                .confirm_shutdown_safe()
+                .await
+                .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
+        }
+        if !core_stopped {
+            return Err(RuntimeShutdownFailure::CoreStop);
+        }
+        Ok(())
     }
 
     fn publish_status(&self, status: &CoreStatus) {

@@ -1480,7 +1480,8 @@ fn initialize(
         install_termination_panic_hook(termination_evidence.clone());
         let prior_termination_boundary =
             termination_evidence.begin_session(now_unix_milliseconds());
-        let startup_recovery = activation_manager.recover_startup().await;
+        let startup_recovery =
+            ProfileActivationCoordinator::recover_managed_startup(&activation_manager).await;
         if startup_recovery.is_err() {
             termination_evidence.record_startup_failure(now_unix_milliseconds());
         }
@@ -1491,8 +1492,7 @@ fn initialize(
             termination_evidence.record_startup_recovery(now_unix_milliseconds(), true);
         }
         let _ = capture.audit(CaptureAuditReason::Restart, false).await;
-        activation_manager
-            .shutdown()
+        ProfileActivationCoordinator::record_managed_safe_stopped(&activation_manager)
             .await
             .map_err(|_| io::Error::other("safe startup state could not be recorded"))?;
         let support_bundle = SupportBundleService::new(

@@ -906,9 +906,9 @@ mod tests {
         ProfileActivationOperation, ProfileActivationPhase, ProfileActivationSnapshot,
     };
     use mish_runtime::{
-        CaptureOperationPhase, CaptureSelection, CoreError, CorePhase, CoreRuntime, CoreStatus,
-        MishRuntime, ProxyNode, StatusAdapterKind, StatusDataSource, StatusSnapshot,
-        SystemProxyPhase, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
+        CaptureOperationPhase, CaptureSelection, CoreError, CoreLifecycleCommand, CorePhase,
+        CoreRuntime, CoreStatus, MishRuntime, ProxyNode, StatusAdapterKind, StatusDataSource,
+        StatusSnapshot, SystemProxyPhase, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
         TrafficDataSource, TrafficMatchedRule,
     };
     use std::sync::{
@@ -928,11 +928,10 @@ mod tests {
             Box::pin(async { running_core_status() })
         }
 
-        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-            Box::pin(async { Ok(running_core_status()) })
-        }
-
-        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        fn execute_lifecycle(
+            &self,
+            _command: CoreLifecycleCommand,
+        ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
             Box::pin(async { Ok(running_core_status()) })
         }
     }

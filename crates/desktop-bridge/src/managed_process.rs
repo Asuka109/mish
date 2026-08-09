@@ -15,7 +15,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LocalProxyOwnership,
+    CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
+    CoreStatusEventSink, LocalProxyOwnership,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -396,7 +397,7 @@ impl DesktopMihomoProcess {
         drop(inner);
         let _ = self.clear_owned_process(owned_process.as_ref());
         if let Some(update) = update {
-            self.publish_status(update);
+            self.publish_exit_observation(update);
         }
         if let (Some(host), Some(process)) = (&self.privileged_host, privileged_process) {
             match host.observe(process.clone()).await {
@@ -431,7 +432,7 @@ impl DesktopMihomoProcess {
         status
     }
 
-    pub async fn start(&self) -> Result<CoreStatus, String> {
+    async fn start(&self) -> Result<CoreStatus, String> {
         if !self.configured() {
             return Err("Mihomo requires an explicit binary and configuration path".into());
         }
@@ -657,7 +658,7 @@ impl DesktopMihomoProcess {
         Ok(reported)
     }
 
-    pub async fn stop(&self) -> Result<CoreStatus, String> {
+    async fn stop(&self) -> Result<CoreStatus, String> {
         let mut inner = self.inner.lock().await;
         inner.generation = inner.generation.wrapping_add(1);
         if let Some(process) = inner.privileged_process.take() {
@@ -747,7 +748,7 @@ impl DesktopMihomoProcess {
                     let _ = ownership.clear_process(process);
                 }
                 if let Some(events) = status_events.get() {
-                    events.publish(update);
+                    events.publish_exit_observation(update);
                 }
                 return;
             }
@@ -814,6 +815,12 @@ impl DesktopMihomoProcess {
     fn publish_status(&self, status: CoreStatus) {
         if let Some(events) = self.status_events.get() {
             events.publish(status);
+        }
+    }
+
+    fn publish_exit_observation(&self, status: CoreStatus) {
+        if let Some(events) = self.status_events.get() {
+            events.publish_exit_observation(status);
         }
     }
 
@@ -1005,24 +1012,26 @@ impl CoreRuntime for DesktopMihomoProcess {
         Box::pin(DesktopMihomoProcess::status(self))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(async move {
-            if !self.configured() {
-                return Err(CoreError::unavailable(
-                    "Mihomo requires an explicit binary and configuration path",
-                ));
+            match command.mutation() {
+                CoreLifecycleMutation::Start => {
+                    if !self.configured() {
+                        return Err(CoreError::unavailable(
+                            "Mihomo requires an explicit binary and configuration path",
+                        ));
+                    }
+                    DesktopMihomoProcess::start(self)
+                        .await
+                        .map_err(CoreError::start_failed)
+                }
+                CoreLifecycleMutation::Stop => DesktopMihomoProcess::stop(self)
+                    .await
+                    .map_err(CoreError::stop_failed),
             }
-            DesktopMihomoProcess::start(self)
-                .await
-                .map_err(CoreError::start_failed)
-        })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move {
-            DesktopMihomoProcess::stop(self)
-                .await
-                .map_err(CoreError::stop_failed)
         })
     }
 }
@@ -1031,6 +1040,7 @@ impl CoreRuntime for DesktopMihomoProcess {
 mod validation_output_tests {
     use super::*;
     use crate::{ManagedRuntimeLease, RealManagedProcessPlatform};
+    use mish_runtime::MishRuntime;
     use std::sync::{
         Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
@@ -1038,6 +1048,38 @@ mod validation_output_tests {
 
     struct TransientlyUnavailablePrivilegedHost {
         stops: AtomicUsize,
+    }
+
+    #[tokio::test]
+    async fn unexpected_clean_child_exit_publishes_observed_stopped() {
+        let process = Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        }));
+        let runtime = MishRuntime::new(process.clone());
+        let mut updates = runtime.subscribe_status();
+        let child = Command::new("true").spawn().unwrap();
+        {
+            let mut inner = process.inner.lock().await;
+            inner.child = Some(child);
+            inner.generation = 1;
+            inner.status = CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: None,
+                version: Some("test".into()),
+            };
+        }
+
+        process.monitor_child(1);
+
+        let observed = timeout(Duration::from_secs(1), updates.recv())
+            .await
+            .expect("managed process observation timed out")
+            .unwrap();
+        assert!(matches!(observed.phase, CorePhase::Stopped));
+        assert!(observed.error.is_none());
     }
 
     impl PrivilegedCoreHost for TransientlyUnavailablePrivilegedHost {

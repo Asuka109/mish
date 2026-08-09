@@ -30,14 +30,73 @@ internal data class NativeRuntimeResult(
     val abiStatus: Int = -1,
 )
 
+internal data class CoreLifecycleAuthority(
+    val machineAuthority: String,
+    val scopeEpoch: Long,
+    val operationId: String,
+    val admittedRevision: Long,
+    val effectIdentity: String,
+) {
+    fun nextEffect(): CoreLifecycleAuthority? {
+        val effect = effectIdentity.toULongOrNull() ?: return null
+        if (effect == ULong.MAX_VALUE) return null
+        return copy(effectIdentity = (effect + 1u).toString())
+    }
+
+    fun isValid(): Boolean =
+        machineAuthority.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
+            scopeEpoch > 0 &&
+            operationId.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
+            admittedRevision in 1 until Long.MAX_VALUE &&
+            effectIdentity.toULongOrNull()?.let { it > 0uL } == true
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("admittedRevision", admittedRevision)
+        .put("effectIdentity", effectIdentity)
+        .put("machineAuthority", machineAuthority)
+        .put("operationId", operationId)
+        .put("scopeEpoch", scopeEpoch)
+
+    companion object {
+        private val LIFECYCLE_IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
+
+        fun fromJson(value: JSONObject): CoreLifecycleAuthority? = runCatching {
+            check(value.length() == 5)
+            CoreLifecycleAuthority(
+                machineAuthority = value.getString("machineAuthority"),
+                scopeEpoch = value.getLong("scopeEpoch"),
+                operationId = value.getString("operationId"),
+                admittedRevision = value.getLong("admittedRevision"),
+                effectIdentity = value.getString("effectIdentity"),
+            ).takeIf { it.isValid() }
+        }.getOrNull()
+    }
+}
+
+internal fun lifecycleAuthorityIsSuccessor(
+    candidate: CoreLifecycleAuthority,
+    current: CoreLifecycleAuthority?,
+): Boolean {
+    if (current == null) return true
+    if (candidate.machineAuthority != current.machineAuthority) return false
+    if (candidate.scopeEpoch != current.scopeEpoch) {
+        return candidate.scopeEpoch > current.scopeEpoch
+    }
+    if (candidate.admittedRevision != current.admittedRevision) {
+        return candidate.admittedRevision > current.admittedRevision
+    }
+    return candidate == current.nextEffect()
+}
+
 internal interface MobileCoreRuntime {
     fun start(
+        authority: CoreLifecycleAuthority,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): NativeRuntimeResult
 
-    fun stop(productSessionId: String?): NativeRuntimeResult
+    fun stop(authority: CoreLifecycleAuthority, productSessionId: String?): NativeRuntimeResult
 
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
@@ -117,15 +176,35 @@ internal class MishMobileCoreProbe :
     private external fun nativeInspectLoadedConfig(expectedDigest: String?): IntArray?
 
     override fun start(
+        authority: CoreLifecycleAuthority,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): NativeRuntimeResult = runtimeCall {
-        nativeStartCore(productSessionId, tunFileDescriptor, vpnService)
+        nativeStartCore(
+            authority.machineAuthority,
+            authority.scopeEpoch,
+            authority.operationId,
+            authority.admittedRevision,
+            authority.effectIdentity,
+            productSessionId,
+            tunFileDescriptor,
+            vpnService,
+        )
     }
 
-    override fun stop(productSessionId: String?): NativeRuntimeResult = runtimeCall {
-        nativeStopCore(productSessionId)
+    override fun stop(
+        authority: CoreLifecycleAuthority,
+        productSessionId: String?,
+    ): NativeRuntimeResult = runtimeCall {
+        nativeStopCore(
+            authority.machineAuthority,
+            authority.scopeEpoch,
+            authority.operationId,
+            authority.admittedRevision,
+            authority.effectIdentity,
+            productSessionId,
+        )
     }
 
     override fun inspectRuntime(productSessionId: String?): NativeRuntimeResult = runtimeCall {
@@ -143,12 +222,24 @@ internal class MishMobileCoreProbe :
     }
 
     private external fun nativeStartCore(
+        machineAuthority: String,
+        scopeEpoch: Long,
+        operationId: String,
+        admittedRevision: Long,
+        effectIdentity: String,
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
     ): IntArray?
 
-    private external fun nativeStopCore(productSessionId: String?): IntArray?
+    private external fun nativeStopCore(
+        machineAuthority: String,
+        scopeEpoch: Long,
+        operationId: String,
+        admittedRevision: Long,
+        effectIdentity: String,
+        productSessionId: String?,
+    ): IntArray?
 
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
 

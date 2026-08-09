@@ -16,9 +16,9 @@ use mish_mihomo_controller::{
     ControllerClient, ControllerError, ControllerLimits, HttpTransport, HttpTransportConfig,
 };
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, GroupSelectionCleanupMode,
-    GroupSelectionCleanupPhase, MishRuntime, PolicyGroupConnectionCleanupPreference,
-    StatusAdapterKind, StatusCommand, StatusDataSource,
+    CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase,
+    CoreRuntime, CoreStatus, GroupSelectionCleanupMode, GroupSelectionCleanupPhase, MishRuntime,
+    PolicyGroupConnectionCleanupPreference, StatusAdapterKind, StatusCommand, StatusDataSource,
 };
 use tempfile::TempDir;
 use tokio::{
@@ -34,6 +34,10 @@ const SELECT_GROUP: &str = "SELECT-CLEANUP";
 const OTHER_GROUP: &str = "OTHER-CLEANUP";
 const OLD_CHILD: &str = "old-direct";
 const NEW_CHILD: &str = "new-direct";
+
+fn core_operation() -> CoreLifecycleOperation {
+    CoreLifecycleOperation::new("real-cleanup-test", 1, "shutdown", 1, 1).unwrap()
+}
 
 struct ExternalCoreLifecycle {
     stopped: AtomicBool,
@@ -63,13 +67,14 @@ impl CoreRuntime for ExternalCoreLifecycle {
         Box::pin(ready(self.status()))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.stopped.store(false, Ordering::Release);
-        Box::pin(ready(Ok(self.status())))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.stopped.store(true, Ordering::Release);
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.stopped.store(
+            command.mutation() == CoreLifecycleMutation::Stop,
+            Ordering::Release,
+        );
         Box::pin(ready(Ok(self.status())))
     }
 }
@@ -280,7 +285,7 @@ async fn pinned_core_closes_only_old_direct_child_tcp_and_udp_trackers() {
     assert_tunnel_closed(&mut new_tcp).await;
     assert_tunnel_alive(&mut unrelated, b'y').await;
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
 }
 
 async fn verify_real_group_put_semantics(client: &ControllerClient) {

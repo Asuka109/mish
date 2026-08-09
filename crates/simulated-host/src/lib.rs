@@ -14,9 +14,9 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureJournal, CaptureJournalStore,
-    CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime,
-    CoreStatus, LocalProxyOwnership, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState,
+    CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError, CoreLifecycleCommand,
+    CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus, LocalProxyOwnership,
+    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -1385,26 +1385,29 @@ impl CoreRuntime for SimulatedHost {
         }))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(async move {
-            self.emit(EffectKind::CoreStart, EffectResultKind::Started)
-                .map_err(|_| CoreError::start_failed("Simulated Core start failed"))?;
-            self.model
-                .lock()
-                .expect("simulated host lock poisoned")
-                .core_phase = SimulatedCorePhase::Running;
-            Ok(self.status().await)
-        })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async move {
-            self.emit(EffectKind::CoreStop, EffectResultKind::Stopped)
-                .map_err(|_| CoreError::stop_failed("Simulated Core stop failed"))?;
-            self.model
-                .lock()
-                .expect("simulated host lock poisoned")
-                .core_phase = SimulatedCorePhase::Stopped;
+            match command.mutation() {
+                CoreLifecycleMutation::Start => {
+                    self.emit(EffectKind::CoreStart, EffectResultKind::Started)
+                        .map_err(|_| CoreError::start_failed("Simulated Core start failed"))?;
+                    self.model
+                        .lock()
+                        .expect("simulated host lock poisoned")
+                        .core_phase = SimulatedCorePhase::Running;
+                }
+                CoreLifecycleMutation::Stop => {
+                    self.emit(EffectKind::CoreStop, EffectResultKind::Stopped)
+                        .map_err(|_| CoreError::stop_failed("Simulated Core stop failed"))?;
+                    self.model
+                        .lock()
+                        .expect("simulated host lock poisoned")
+                        .core_phase = SimulatedCorePhase::Stopped;
+                }
+            }
             Ok(self.status().await)
         })
     }

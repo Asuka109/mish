@@ -113,6 +113,8 @@ const evidence: readonly Evidence[] = [
     file: "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt",
     includes: [
       "class MishVpnService : VpnService()",
+      "CoreLifecycleAuthority",
+      "lifecycleAuthorityIsSuccessor",
       "override fun onRevoke()",
       "override fun onDestroy()",
     ],
@@ -153,9 +155,13 @@ const evidence: readonly Evidence[] = [
     meaning: "mobile product domains are currently explicit TypeScript fixtures",
   },
   {
-    file: "mobile-core/abi/mish_mobile_core.h",
-    includes: ["mish_core_start_v1", "mish_core_stop_v1", "mish_core_free_buffer_v1"],
-    meaning: "Mobile Core exposes a closed engine ABI and explicit buffer release",
+    file: "mobile-core/wrapper/runtime.go",
+    includes: [
+      "type lifecycleAuthority struct",
+      "validateLifecycleAuthority",
+      "lifecycleSuccessor",
+    ],
+    meaning: "Mobile Core validates scoped lifecycle authority before engine mutation",
   },
   {
     file: "apps/web/src/app.tsx",

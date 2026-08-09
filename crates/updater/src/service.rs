@@ -1344,9 +1344,16 @@ impl UpdaterService {
                     attempt.stop()
                 }
             }))
-            .pool_max_idle_per_host(1)
-            .build()
-            .map_err(|_| UpdateOperationError::Network)?;
+            .pool_max_idle_per_host(1);
+        // Fixture URLs are loopback-only and must not inherit a CI or host
+        // proxy that can route them away from the in-process test server.
+        let client = if fixture_rewrite.is_some() {
+            client.no_proxy()
+        } else {
+            client
+        }
+        .build()
+        .map_err(|_| UpdateOperationError::Network)?;
         let store = CandidateStore::open(store_root)?;
         let recovered = store.recover(&adapter, &policy, &limits)?;
         let snapshot = recovered.snapshot(authority_id);
@@ -2503,6 +2510,8 @@ impl AcceptedMetadata {
 #[derive(Clone)]
 struct CandidateStore {
     root: PathBuf,
+    #[cfg(test)]
+    trace: Arc<Mutex<VecDeque<&'static str>>>,
 }
 
 struct RecoveredState {
@@ -2555,7 +2564,11 @@ impl CandidateStore {
         ensure_directory(&root, 0o700)?;
         let root = fs::canonicalize(root).map_err(|_| UpdateOperationError::StoreIo)?;
         ensure_private_directory(&root)?;
-        let store = Self { root };
+        let store = Self {
+            root,
+            #[cfg(test)]
+            trace: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
+        };
         store.cleanup_unrecognized()?;
         Ok(store)
     }
@@ -2876,6 +2889,7 @@ impl CandidateStore {
         if partial.size != available.metadata.artifact_size {
             return Err(UpdateOperationError::StoreUnsafe);
         }
+        self.trace_store_step("write-commit-started");
         self.write_json_atomic(
             &self.root.join(RECOVERY_FILE),
             &RecoveryRecord::continuation(
@@ -2886,25 +2900,36 @@ impl CandidateStore {
             ),
             0o600,
         )?;
+        self.trace_store_step("discard-old-candidate");
         self.discard_candidate()?;
         let temporary = self
             .root
             .join(format!("candidate.new-{}", Uuid::new_v4().simple()));
+        self.trace_store_step("create-candidate-temporary");
         ensure_directory(&temporary, 0o700)?;
+        self.trace_store_step("move-partial-payload");
         fs::rename(
             self.partial_payload_path(),
             temporary.join(CANDIDATE_PAYLOAD),
         )
         .map_err(|_| UpdateOperationError::StoreIo)?;
         let persisted = available.persisted(operation_id);
+        self.trace_store_step("write-candidate-manifest");
         self.write_json_atomic(&temporary.join(CANDIDATE_MANIFEST), &persisted, 0o400)?;
+        self.trace_store_step("seal-candidate-payload");
         set_permissions(&temporary.join(CANDIDATE_PAYLOAD), 0o400)?;
+        self.trace_store_step("sync-candidate-directory");
         sync_directory(&temporary)?;
-        set_permissions(&temporary, 0o500)?;
-        fs::rename(&temporary, self.root.join(CANDIDATE_DIRECTORY))
-            .map_err(|_| UpdateOperationError::StoreIo)?;
+        self.trace_store_step("publish-candidate-directory");
+        let published = self.root.join(CANDIDATE_DIRECTORY);
+        fs::rename(&temporary, &published).map_err(|_| UpdateOperationError::StoreIo)?;
+        self.trace_store_step("seal-candidate-directory");
+        set_permissions(&published, 0o500)?;
+        self.trace_store_step("sync-store-after-candidate");
         sync_directory(&self.root)?;
+        self.trace_store_step("discard-partial");
         self.discard_partial()?;
+        self.trace_store_step("write-ready-state");
         self.write_json_atomic(
             &self.root.join(STATE_FILE),
             &PersistedState {
@@ -2914,9 +2939,12 @@ impl CandidateStore {
             },
             0o600,
         )?;
+        self.trace_store_step("read-accepted-metadata");
         let mut accepted = self.read_accepted()?;
         accepted.record(&available.metadata);
+        self.trace_store_step("write-accepted-metadata");
         self.write_accepted(&accepted)?;
+        self.trace_store_step("write-committed-recovery");
         self.write_json_atomic(
             &self.root.join(RECOVERY_FILE),
             &RecoveryRecord::continuation(
@@ -2930,6 +2958,28 @@ impl CandidateStore {
             ),
             0o600,
         )
+    }
+
+    #[cfg(test)]
+    fn trace_store_step(&self, step: &'static str) {
+        let mut trace = self.trace.lock().expect("store trace lock poisoned");
+        if trace.len() == 16 {
+            trace.pop_front();
+        }
+        trace.push_back(step);
+    }
+
+    #[cfg(not(test))]
+    fn trace_store_step(&self, _step: &'static str) {}
+
+    #[cfg(test)]
+    fn store_trace(&self) -> Vec<&'static str> {
+        self.trace
+            .lock()
+            .expect("store trace lock poisoned")
+            .iter()
+            .copied()
+            .collect()
     }
 
     fn verify_ready(
@@ -4273,6 +4323,16 @@ mod tests {
                 let snapshot = service.snapshot();
                 if snapshot.phase == phase {
                     return snapshot;
+                }
+                if matches!(snapshot.phase, UpdatePhase::Failed | UpdatePhase::Cancelled) {
+                    let store_trace = service
+                        .configured
+                        .as_ref()
+                        .map(|configured| configured.store.store_trace())
+                        .unwrap_or_default();
+                    panic!(
+                        "updater reached a terminal phase while waiting for {phase:?}: {snapshot:?}; store trace: {store_trace:?}"
+                    );
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
