@@ -2433,14 +2433,6 @@ export const CoreStatusSchema = z
   .strict();
 export interface CoreStatusDto extends z.infer<typeof CoreStatusSchema> {}
 
-export const CoreErrorKindSchema = z.enum(["unavailable", "start-failed", "stop-failed"]);
-export type CoreErrorKind = z.infer<typeof CoreErrorKindSchema>;
-
-export const CoreErrorDataSchema = z
-  .object({ detail: z.string(), kind: CoreErrorKindSchema })
-  .strict();
-export interface CoreErrorDataDto extends z.infer<typeof CoreErrorDataSchema> {}
-
 export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
@@ -3320,8 +3312,6 @@ export const ProfileActivationControlCommandSchema = z
 export const bridgeRpcMethods = {
   "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
   "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
-  "core.start": { params: EmptyCommandSchema, result: CoreStatusSchema },
-  "core.stop": { params: EmptyCommandSchema, result: CoreStatusSchema },
 } as const;
 
 export const StatusSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();

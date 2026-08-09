@@ -17,8 +17,8 @@ use mish_profile::{
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
     ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind, CaptureOperation,
-    CaptureOperationPhase, CaptureRequest, CaptureSelection, CaptureTransitionError, MishRuntime,
-    NotificationPublication, NotificationSeverity,
+    CaptureOperationPhase, CaptureRequest, CaptureSelection, CaptureTransitionError,
+    CoreLifecycleOperation, MishRuntime, NotificationPublication, NotificationSeverity,
     ProfileActivationAsnFailedApplicationNotificationData,
     ProfileActivationFailedApplicationNotificationData,
     ProfileActivationGeoipFailedApplicationNotificationData,
@@ -1079,7 +1079,7 @@ pub trait ProfileActivationEffects: Send + Sync {
 
     fn activate_cancellable<'a>(
         &'a self,
-        operation_id: &'a str,
+        lifecycle: &'a CoreLifecycleOperation,
         record: &'a ProfileRecord,
         policy: &'a ManagedRuntimePolicy,
         cancellation: CancellationToken,
@@ -1095,7 +1095,10 @@ pub trait ProfileActivationEffects: Send + Sync {
 
     fn complete_runtime_handoff(&self) -> BoxFuture<'_, ()>;
 
-    fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>>;
+    fn shutdown<'a>(
+        &'a self,
+        lifecycle: &'a CoreLifecycleOperation,
+    ) -> BoxFuture<'a, Result<(), MihomoActivationError>>;
 
     fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String>;
 
@@ -1109,7 +1112,7 @@ impl ProfileActivationEffects for MihomoActivationManager {
 
     fn activate_cancellable<'a>(
         &'a self,
-        operation_id: &'a str,
+        lifecycle: &'a CoreLifecycleOperation,
         record: &'a ProfileRecord,
         policy: &'a ManagedRuntimePolicy,
         cancellation: CancellationToken,
@@ -1118,12 +1121,12 @@ impl ProfileActivationEffects for MihomoActivationManager {
     ) -> BoxFuture<'a, Result<crate::ActivationCommit, MihomoActivationError>> {
         Box::pin(async move {
             self.activate_cancellable_observed_for_operation(
+                lifecycle,
                 record,
                 policy,
                 cancellation,
                 Some(&progress),
                 final_capture,
-                Some(operation_id),
             )
             .await
         })
@@ -1148,8 +1151,11 @@ impl ProfileActivationEffects for MihomoActivationManager {
         Box::pin(MihomoActivationManager::complete_runtime_handoff(self))
     }
 
-    fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
-        Box::pin(MihomoActivationManager::shutdown(self))
+    fn shutdown<'a>(
+        &'a self,
+        lifecycle: &'a CoreLifecycleOperation,
+    ) -> BoxFuture<'a, Result<(), MihomoActivationError>> {
+        Box::pin(MihomoActivationManager::shutdown(self, lifecycle))
     }
 
     fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String> {
@@ -1824,6 +1830,17 @@ struct ProfileActivationMachineExecutor {
     safe_runtime: MishRuntime,
 }
 
+fn core_lifecycle_operation(correlation: &Correlation) -> Result<CoreLifecycleOperation, ()> {
+    CoreLifecycleOperation::new(
+        correlation.machine_authority.clone(),
+        correlation.scope_epoch,
+        correlation.operation_id.clone(),
+        correlation.admitted_revision,
+        correlation.effect_id,
+    )
+    .map_err(|_| ())
+}
+
 impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecutor {
     fn execute(
         &self,
@@ -1875,16 +1892,21 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                             }
                         }
                     });
-                    let result = manager
-                        .activate_cancellable(
-                            &command.command_id,
-                            &record,
-                            &policy,
-                            cancellation,
-                            progress,
-                            final_capture,
-                        )
-                        .await;
+                    let result = match core_lifecycle_operation(&correlation) {
+                        Ok(lifecycle) => {
+                            manager
+                                .activate_cancellable(
+                                    &lifecycle,
+                                    &record,
+                                    &policy,
+                                    cancellation,
+                                    progress,
+                                    final_capture,
+                                )
+                                .await
+                        }
+                        Err(()) => Err(MihomoActivationError::StateCommitFailed),
+                    };
                     ProfileActivationMachineInput::TaskFinished {
                         correlation,
                         outcome: ProfileActivationTaskOutcome::Activate(result),
@@ -1899,7 +1921,10 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                         .lock()
                         .expect("Profile activation operation lock poisoned")
                         .insert(command.command_id, resources);
-                    let result = manager.shutdown().await;
+                    let result = match core_lifecycle_operation(&correlation) {
+                        Ok(lifecycle) => manager.shutdown(&lifecycle).await,
+                        Err(()) => Err(MihomoActivationError::StateCommitFailed),
+                    };
                     ProfileActivationMachineInput::TaskFinished {
                         correlation,
                         outcome: ProfileActivationTaskOutcome::Stop(result),
@@ -1980,7 +2005,10 @@ impl EffectExecutor<ProfileActivationMachine> for ProfileActivationMachineExecut
                     correlation,
                     resources,
                 } => {
-                    let result = manager.shutdown().await;
+                    let result = match core_lifecycle_operation(&correlation) {
+                        Ok(lifecycle) => manager.shutdown(&lifecycle).await,
+                        Err(()) => Err(MihomoActivationError::StateCommitFailed),
+                    };
                     let managed = manager.managed_state().await;
                     let active_runtime = manager.active_runtime().await;
                     let runtime = activation_runtime_from_managed(&managed);
@@ -2501,6 +2529,23 @@ pub struct ProfileActivationCoordinator {
 }
 
 impl ProfileActivationCoordinator {
+    /// Coordinator-owned startup recovery before the long-lived Profile runner is installed.
+    pub async fn recover_managed_startup(
+        manager: &MihomoActivationManager,
+    ) -> Result<crate::ManagedCoreRecoveryOutcome, MihomoActivationError> {
+        let lifecycle = startup_core_lifecycle_operation("recover");
+        manager.recover_startup(&lifecycle).await
+    }
+
+    /// Coordinator-owned startup safe-stop publication. The manager remains a private effect
+    /// adapter and cannot be invoked without a complete lifecycle envelope.
+    pub async fn record_managed_safe_stopped(
+        manager: &MihomoActivationManager,
+    ) -> Result<(), MihomoActivationError> {
+        let lifecycle = startup_core_lifecycle_operation("safe-stop");
+        manager.shutdown(&lifecycle).await
+    }
+
     pub fn new<F>(
         profiles: Arc<DesktopProfileService>,
         manager: Arc<dyn ProfileActivationEffects>,
@@ -4380,6 +4425,18 @@ impl ProfileActivationCoordinator {
     }
 }
 
+fn startup_core_lifecycle_operation(label: &str) -> CoreLifecycleOperation {
+    let scope = ProfileActivationScope::new().next();
+    CoreLifecycleOperation::new(
+        scope.authority_id.to_string(),
+        scope.epoch,
+        format!("startup-{label}-{}", Uuid::new_v4()),
+        scope.revision,
+        PROFILE_ACTIVATION_EFFECT_ID,
+    )
+    .expect("Profile startup correlation is complete")
+}
+
 fn launch_duration_milliseconds(duration: Duration) -> u64 {
     if duration.is_zero() {
         return 0;
@@ -4605,7 +4662,7 @@ mod activation_machine_tests {
 
         fn activate_cancellable<'a>(
             &'a self,
-            _operation_id: &'a str,
+            _lifecycle: &'a CoreLifecycleOperation,
             _record: &'a ProfileRecord,
             _policy: &'a ManagedRuntimePolicy,
             _cancellation: CancellationToken,
@@ -4647,7 +4704,10 @@ mod activation_machine_tests {
             })
         }
 
-        fn shutdown(&self) -> BoxFuture<'_, Result<(), MihomoActivationError>> {
+        fn shutdown<'a>(
+            &'a self,
+            _lifecycle: &'a CoreLifecycleOperation,
+        ) -> BoxFuture<'a, Result<(), MihomoActivationError>> {
             Box::pin(async { Ok(()) })
         }
 

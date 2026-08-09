@@ -1,7 +1,7 @@
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
     CaptureAuditReason, CaptureOperation, CapturePreflight, CaptureRecoveryAction, CaptureRequest,
-    CaptureTransitionError, CoreError, CoreStatus, EventsSnapshot, MishRuntime,
+    CaptureTransitionError, CoreStatus, EventsSnapshot, MishRuntime,
     NotificationPresentationClaimResult, NotificationPresentationCompletion,
     NotificationPresentationCompletionResult, NotificationPresentationIdentity,
     NotificationPublication, NotificationSnapshot, NotificationValidationError, ProviderAuthority,
@@ -120,14 +120,6 @@ impl DesktopRuntimeHost {
 
     pub async fn core_status(&self) -> CoreStatus {
         self.current().core_status().await
-    }
-
-    pub async fn start_core(&self) -> Result<CoreStatus, CoreError> {
-        self.current().start_core().await
-    }
-
-    pub async fn stop_core(&self) -> Result<CoreStatus, CoreError> {
-        self.current().stop_core().await
     }
 
     pub async fn set_capture(

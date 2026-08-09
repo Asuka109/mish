@@ -121,7 +121,14 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             observed.loadedConfigRevision != args.configRevision ||
             !args.configDigest.matches(DIGEST_PATTERN) ||
             !args.configRevision.matches(IDENTIFIER_PATTERN) ||
-            !args.productSessionId.matches(IDENTIFIER_PATTERN)
+            !args.productSessionId.matches(IDENTIFIER_PATTERN) ||
+            !validLifecycleAuthority(
+                args.machineAuthority,
+                args.scopeEpoch,
+                args.operationId,
+                args.admittedRevision,
+                args.effectIdentity,
+            )
         ) {
             invoke.resolveObject(observed)
             return
@@ -133,6 +140,11 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             .putExtra(MishVpnService.EXTRA_FACT_SEQUENCE, args.factSequence)
             .putExtra(MishVpnService.EXTRA_PLATFORM_SESSION_ID, args.platformSessionId)
             .putExtra(MishVpnService.EXTRA_PRODUCT_SESSION_ID, args.productSessionId)
+            .putExtra(MishVpnService.EXTRA_MACHINE_AUTHORITY, args.machineAuthority)
+            .putExtra(MishVpnService.EXTRA_SCOPE_EPOCH, args.scopeEpoch)
+            .putExtra(MishVpnService.EXTRA_OPERATION_ID, args.operationId)
+            .putExtra(MishVpnService.EXTRA_ADMITTED_REVISION, args.admittedRevision)
+            .putExtra(MishVpnService.EXTRA_EFFECT_IDENTITY, args.effectIdentity)
         val initialSequence = observed.factSequence
         runCatching { ContextCompat.startForegroundService(activity, intent) }
             .onFailure {
@@ -149,12 +161,34 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun stopPlatformLifecycle(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(StopLifecycleArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(store.current())
+                return
+            }
+        if (!validLifecycleAuthority(
+                args.machineAuthority,
+                args.scopeEpoch,
+                args.operationId,
+                args.admittedRevision,
+                args.effectIdentity,
+            )
+        ) {
+            invoke.resolveObject(store.current())
+            return
+        }
         val observed = observePlatformFacts()
         if (!observed.serviceForeground && !ProcessRuntimeRegistry.serviceActive) {
             invoke.resolveObject(store.serviceStopped())
             return
         }
-        val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_STOP)
+        val intent = Intent(activity, MishVpnService::class.java)
+            .setAction(MishVpnService.ACTION_STOP)
+            .putExtra(MishVpnService.EXTRA_MACHINE_AUTHORITY, args.machineAuthority)
+            .putExtra(MishVpnService.EXTRA_SCOPE_EPOCH, args.scopeEpoch)
+            .putExtra(MishVpnService.EXTRA_OPERATION_ID, args.operationId)
+            .putExtra(MishVpnService.EXTRA_ADMITTED_REVISION, args.admittedRevision)
+            .putExtra(MishVpnService.EXTRA_EFFECT_IDENTITY, args.effectIdentity)
         val initialSequence = observed.factSequence
         runCatching { activity.startService(intent) }
             .onFailure {
@@ -283,6 +317,19 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private companion object {
+        fun validLifecycleAuthority(
+            machineAuthority: String,
+            scopeEpoch: Long,
+            operationId: String,
+            admittedRevision: Long,
+            effectIdentity: String,
+        ): Boolean =
+            machineAuthority.matches(IDENTIFIER_PATTERN) &&
+                scopeEpoch > 0 &&
+                operationId.matches(IDENTIFIER_PATTERN) &&
+                admittedRevision > 0 &&
+                effectIdentity.matches(IDENTIFIER_PATTERN)
+
         const val PLATFORM_EFFECT_TIMEOUT_MILLIS = 30_000L
         val DIGEST_PATTERN = Regex("^[0-9a-f]{64}$")
         val IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")

@@ -85,7 +85,7 @@ describe("mock bridge", () => {
     rpc.dispose();
   });
 
-  it("fails lifecycle commands explicitly without inventing Core or Capture state", async () => {
+  it("fails unsupported application commands without inventing Core or Capture state", async () => {
     const handle = await bridge();
     const rpc = client(handle.rpcUrl);
 
@@ -93,7 +93,6 @@ describe("mock bridge", () => {
       code: -32020,
       message: "The transport-only mock does not implement application lifecycle commands",
     });
-    await expect(rpc.request("core.start", {})).rejects.toMatchObject({ code: -32020 });
     const snapshot = await rpc.request("status.getSnapshot", {});
     expect(snapshot.routingMode).toBe("rule");
     expect(snapshot.runtime.captureOperation.phase).toBe("idle");

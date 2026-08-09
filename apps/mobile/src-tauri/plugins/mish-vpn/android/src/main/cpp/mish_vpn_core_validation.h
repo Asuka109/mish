@@ -113,14 +113,23 @@ typedef struct MishVpnCoreRuntimeResult {
   int32_t abi_status;
 } MishVpnCoreRuntimeResult;
 
+typedef struct MishVpnCoreLifecycleAuthority {
+  const char *machine_authority;
+  uint64_t scope_epoch;
+  const char *operation_id;
+  uint64_t admitted_revision;
+  const char *effect_identity;
+} MishVpnCoreLifecycleAuthority;
+
 MishVpnCoreRuntimeResult mish_vpn_start_core(
     const MishVpnCoreValidationApi *api, int *initialized,
-    MishCorePlatformV1 *platform, const char *session_id,
+    MishCorePlatformV1 *platform,
+    const MishVpnCoreLifecycleAuthority *authority, const char *session_id,
     int32_t tun_file_descriptor);
 
 MishVpnCoreRuntimeResult mish_vpn_stop_core(
     const MishVpnCoreValidationApi *api, int initialized,
-    const char *session_id);
+    const MishVpnCoreLifecycleAuthority *authority, const char *session_id);
 
 MishVpnCoreRuntimeResult mish_vpn_inspect_runtime(
     const MishVpnCoreValidationApi *api, int initialized,

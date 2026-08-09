@@ -120,8 +120,9 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
     fun activationStarting(
         serviceInstanceId: String,
         productSessionId: String,
+        lifecycleAuthority: CoreLifecycleAuthority,
     ): MobilePlatformFacts {
-        persistRecoveryRecord(serviceInstanceId)
+        persistRecoveryRecord(serviceInstanceId, lifecycleAuthority)
         ProcessRuntimeRegistry.serviceActive = true
         return publish(PlatformEventKind.ACTIVATION_PROGRESS) {
             it.copy(
@@ -130,6 +131,7 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
                 activeNetwork = false,
                 coreRunning = false,
                 dnsApplied = false,
+                lifecycleAuthority = lifecycleAuthority,
                 protectedSocketCount = 0,
                 publicRequestObserved = false,
                 recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
@@ -137,6 +139,16 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
                 serviceForeground = true,
                 tunEstablished = false,
             )
+        }
+    }
+
+    fun lifecycleAuthorityAdvanced(
+        serviceInstanceId: String,
+        lifecycleAuthority: CoreLifecycleAuthority,
+    ): MobilePlatformFacts {
+        persistRecoveryRecord(serviceInstanceId, lifecycleAuthority)
+        return publish(PlatformEventKind.OBSERVATION) {
+            it.copy(lifecycleAuthority = lifecycleAuthority)
         }
     }
 
@@ -231,6 +243,7 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
         activeNetwork = false,
         coreRunning = false,
         dnsApplied = false,
+        lifecycleAuthority = null,
         protectedSocketCount = 0,
         publicRequestObserved = false,
         recoveryEvidence = PlatformRecoveryEvidence.NONE.wireName,
@@ -241,35 +254,44 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
 
     private fun initialFacts(): MobilePlatformFacts {
         val core = readCoreEvidence()
-        val recovery = readRecoveryEvidence()
+        val recovery = readRecoveryState()
         return MobilePlatformFacts(
             coreConfigState = core.coreConfigState,
             factSequence = 1,
             loadedConfigDigest = core.loadedConfigDigest,
             loadedConfigRevision = core.loadedConfigRevision,
-            recoveryEvidence = recovery.wireName,
+            lifecycleAuthority = recovery.lifecycleAuthority,
+            recoveryEvidence = recovery.evidence.wireName,
             validatedConfigDigest = core.validatedConfigDigest,
             validatedConfigRevision = core.validatedConfigRevision,
         )
     }
 
-    private fun readRecoveryEvidence(): PlatformRecoveryEvidence {
+    private fun readRecoveryState(): RecoveryState {
         val encoded = preferences.getString(RECOVERY_RECORD, null)
-            ?: return PlatformRecoveryEvidence.NONE
+            ?: return RecoveryState(PlatformRecoveryEvidence.NONE, null)
         return runCatching {
             val value = JSONObject(encoded)
-            check(value.length() == 3)
+            check(value.length() == 4)
             check(value.getInt("schemaVersion") == RECOVERY_SCHEMA_VERSION)
             check(value.getBoolean("foregroundExpected"))
             check(value.getString("serviceInstanceId").matches(IDENTIFIER_PATTERN))
-            PlatformRecoveryEvidence.FOREGROUND_EXPECTED
-        }.getOrDefault(PlatformRecoveryEvidence.INVALID)
+            val authority = CoreLifecycleAuthority.fromJson(
+                value.getJSONObject("lifecycleAuthority"),
+            ) ?: error("Invalid lifecycle authority")
+            RecoveryState(PlatformRecoveryEvidence.FOREGROUND_EXPECTED, authority)
+        }.getOrDefault(RecoveryState(PlatformRecoveryEvidence.INVALID, null))
     }
 
-    private fun persistRecoveryRecord(serviceInstanceId: String) {
+    private fun persistRecoveryRecord(
+        serviceInstanceId: String,
+        lifecycleAuthority: CoreLifecycleAuthority,
+    ) {
         check(serviceInstanceId.matches(IDENTIFIER_PATTERN))
+        check(lifecycleAuthority.isValid())
         val record = JSONObject()
             .put("foregroundExpected", true)
+            .put("lifecycleAuthority", lifecycleAuthority.toJson())
             .put("schemaVersion", RECOVERY_SCHEMA_VERSION)
             .put("serviceInstanceId", serviceInstanceId)
         check(preferences.edit().putString(RECOVERY_RECORD, record.toString()).commit()) {
@@ -333,11 +355,16 @@ internal class MishVpnPlatformStore(context: Context) : PlatformFactRepository {
         private const val LEGACY_PRODUCT_SNAPSHOT = "snapshot-v1"
         private const val PREFERENCES = "mish-vpn-phase0"
         private const val RECOVERY_RECORD = "platform-recovery-v1"
-        private const val RECOVERY_SCHEMA_VERSION = 1
+        private const val RECOVERY_SCHEMA_VERSION = 2
         private val IDENTIFIER_PATTERN = Regex("^[A-Za-z0-9._-]{1,128}$")
         private val lock = Any()
     }
 }
+
+private data class RecoveryState(
+    val evidence: PlatformRecoveryEvidence,
+    val lifecycleAuthority: CoreLifecycleAuthority?,
+)
 
 private data class CoreConfigEvidence(
     val coreConfigState: String = "unloaded",

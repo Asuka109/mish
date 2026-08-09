@@ -110,6 +110,30 @@ pub(crate) enum PlatformRecoveryEvidence {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PlatformLifecycleAuthority {
+    pub machine_authority: String,
+    pub scope_epoch: u64,
+    pub operation_id: String,
+    pub admitted_revision: u64,
+    pub effect_identity: String,
+}
+
+impl PlatformLifecycleAuthority {
+    fn valid(&self) -> bool {
+        valid_identifier(&self.machine_authority)
+            && self.scope_epoch > 0
+            && valid_identifier(&self.operation_id)
+            && self.admitted_revision > 0
+            && self.admitted_revision < u64::MAX
+            && self
+                .effect_identity
+                .parse::<u64>()
+                .is_ok_and(|effect| effect > 0)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlatformFacts {
     pub activation_failure: Option<PlatformFailureKind>,
     pub activation_session_id: Option<String>,
@@ -126,6 +150,7 @@ pub(crate) struct PlatformFacts {
     pub fact_sequence: u64,
     pub loaded_config_digest: Option<String>,
     pub loaded_config_revision: Option<String>,
+    pub lifecycle_authority: Option<PlatformLifecycleAuthority>,
     pub notification_permission: String,
     pub observed_at_millis: u64,
     pub platform_session_id: String,
@@ -144,6 +169,7 @@ pub(crate) struct PlatformFacts {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LifecycleState {
     pub authority_id: String,
+    pub scope_epoch: u64,
     pub revision: u64,
     pub sequence: u64,
     pub session_id: String,
@@ -163,8 +189,31 @@ struct ActiveOperation {
 
 impl LifecycleState {
     pub(crate) fn initial(authority_id: String, session_id: String, facts: PlatformFacts) -> Self {
+        let platform_active =
+            facts.service_foreground || facts.core_running || facts.tun_established;
+        let recovery_expected =
+            facts.recovery_evidence == PlatformRecoveryEvidence::ForegroundExpected;
+        let recovered = (platform_active || recovery_expected)
+            .then_some(facts.lifecycle_authority.as_ref())
+            .flatten()
+            .filter(|authority| authority.valid());
+        let authority_id = recovered
+            .map(|authority| authority.machine_authority.clone())
+            .unwrap_or(authority_id);
+        let scope_epoch = recovered.map_or(1, |authority| authority.scope_epoch);
+        let revision = recovered.map_or(1, |authority| authority.admitted_revision.max(1));
+        let session_id = if platform_active || recovery_expected {
+            facts.activation_session_id.clone().unwrap_or(session_id)
+        } else {
+            session_id
+        };
+        let recovered_authority = recovered.is_some();
         let (phase, failure) = match facts.recovery_evidence {
             PlatformRecoveryEvidence::ForegroundExpected | PlatformRecoveryEvidence::Invalid => (
+                LifecyclePhase::RecoveryRequired,
+                Some(LifecycleFailure::InvalidRecoveryEvidence),
+            ),
+            PlatformRecoveryEvidence::None if platform_active && recovered.is_none() => (
                 LifecyclePhase::RecoveryRequired,
                 Some(LifecycleFailure::InvalidRecoveryEvidence),
             ),
@@ -173,9 +222,10 @@ impl LifecycleState {
             }
             PlatformRecoveryEvidence::None => (LifecyclePhase::Stopped, None),
         };
-        Self {
+        let mut state = Self {
             authority_id,
-            revision: 1,
+            scope_epoch,
+            revision,
             sequence: 1,
             session_id,
             phase,
@@ -183,7 +233,15 @@ impl LifecycleState {
             facts,
             active: None,
             operations: VecDeque::new(),
+        };
+        if platform_active && recovered_authority && state.activation_ready() {
+            state.phase = LifecyclePhase::Running;
+            state.failure = None;
+        } else if platform_active && state.phase == LifecyclePhase::Stopped {
+            state.phase = LifecyclePhase::RecoveryRequired;
+            state.failure = Some(LifecycleFailure::InvalidRecoveryEvidence);
         }
+        state
     }
 
     pub(crate) fn operation(&self, operation_id: &str) -> Option<&LifecycleOperation> {
@@ -300,6 +358,14 @@ impl LifecycleState {
     }
 }
 
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PlatformAction {
     RequestNotificationPermission,
@@ -315,6 +381,11 @@ pub(crate) struct ActivationAuthority {
     pub fact_sequence: u64,
     pub platform_session_id: String,
     pub product_session_id: String,
+    pub machine_authority: String,
+    pub scope_epoch: u64,
+    pub operation_id: String,
+    pub admitted_revision: u64,
+    pub effect_identity: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -352,6 +423,11 @@ impl LifecycleEffect {
                 fact_sequence: state.facts.fact_sequence,
                 platform_session_id: state.facts.platform_session_id.clone(),
                 product_session_id: state.session_id.clone(),
+                machine_authority: correlation.machine_authority.clone(),
+                scope_epoch: correlation.scope_epoch,
+                operation_id: correlation.operation_id.clone(),
+                admitted_revision: correlation.admitted_revision,
+                effect_identity: correlation.effect_id.to_string(),
             }),
             correlation,
             mode: EffectMode::Spawn,
@@ -1145,6 +1221,7 @@ mod tests {
             fact_sequence: sequence,
             loaded_config_digest: Some("a".repeat(64)),
             loaded_config_revision: Some("revision-a".into()),
+            lifecycle_authority: None,
             notification_permission: "not-required".into(),
             observed_at_millis: sequence,
             platform_session_id: "platform-1".into(),
@@ -1173,6 +1250,55 @@ mod tests {
 
     fn state() -> LifecycleState {
         LifecycleState::initial("authority-1".into(), "session-1".into(), facts(1))
+    }
+
+    #[test]
+    fn lifecycle_recreation_adopts_the_live_platform_authority_for_stop() {
+        let mut recovery = facts(41);
+        recovery.activation_session_id = None;
+        recovery.loaded_config_digest = None;
+        recovery.loaded_config_revision = None;
+        recovery.lifecycle_authority = Some(PlatformLifecycleAuthority {
+            machine_authority: "persisted-authority".into(),
+            scope_epoch: 7,
+            operation_id: "persisted-start".into(),
+            admitted_revision: 23,
+            effect_identity: "1".into(),
+        });
+        recovery.recovery_evidence = PlatformRecoveryEvidence::ForegroundExpected;
+
+        let recreated = LifecycleState::initial(
+            "new-rust-authority".into(),
+            "new-rust-session".into(),
+            recovery,
+        );
+        assert_eq!(recreated.authority_id, "persisted-authority");
+        assert_eq!(recreated.scope_epoch, 7);
+        assert_eq!(recreated.revision, 23);
+        assert_eq!(recreated.session_id, "new-rust-session");
+        assert_eq!(recreated.phase, LifecyclePhase::RecoveryRequired);
+
+        let stop = Correlation {
+            machine_authority: recreated.authority_id.clone(),
+            scope_epoch: recreated.scope_epoch,
+            operation_id: "stop-after-recreation".into(),
+            admitted_revision: recreated.revision + 1,
+            effect_id: 1,
+        };
+        let stopping = next_state(LifecycleMachine.reduce(
+            &recreated,
+            &LifecycleInput::Command {
+                command: LifecycleCommandKind::Stop,
+                correlation: stop.clone(),
+                new_session_id: None,
+            },
+        ));
+        assert_eq!(stopping.phase, LifecyclePhase::Stopping);
+        assert_eq!(
+            stopping.active.as_ref().unwrap().correlation,
+            stop,
+            "the recreated coordinator must issue a successor under the persisted machine",
+        );
     }
 
     fn next_state(

@@ -3,15 +3,15 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
-    CaptureFailureKind, CaptureRecoveryAction, CoreError, CorePhase, CoreRuntime, CoreStatus,
-    EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
-    EventsDataSource, EventsSnapshot, MishRuntime, NotificationPublication, NotificationSeverity,
-    ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
-    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
-    ProviderUpdateState, RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
-    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot,
-    TrafficDataSource,
+    CaptureFailureKind, CaptureRecoveryAction, CoreError, CoreLifecycleCommand,
+    CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus, EventLevel, EventRecord,
+    EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource,
+    EventsSnapshot, MishRuntime, NotificationPublication, NotificationSeverity, ProviderAuthority,
+    ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
+    ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateState,
+    RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
 };
 use mish_state_authority::StateMutationAuthority;
 use tokio::sync::{Notify, broadcast};
@@ -24,7 +24,7 @@ impl CoreRuntime for RunningCore {
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
-        Box::pin(async {
+        Box::pin(async move {
             CoreStatus {
                 error: None,
                 phase: CorePhase::Running,
@@ -34,15 +34,18 @@ impl CoreRuntime for RunningCore {
         })
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async { Ok(self.status().await) })
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        Box::pin(async {
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move {
             Ok(CoreStatus {
                 error: None,
-                phase: CorePhase::Stopped,
+                phase: if command.mutation() == CoreLifecycleMutation::Start {
+                    CorePhase::Running
+                } else {
+                    CorePhase::Stopped
+                },
                 pid: None,
                 version: Some("v1.19.29".into()),
             })

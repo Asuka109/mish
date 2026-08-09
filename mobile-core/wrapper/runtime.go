@@ -162,6 +162,7 @@ type coreRuntime struct {
 	listener     *sing_tun.Listener
 	phase        lifecyclePhase
 	session      string
+	lifecycle    *lifecycleAuthority
 	sequence     uint64
 	events       []coreEvent
 }
@@ -172,7 +173,16 @@ type initializeRequest struct {
 	ABIVersion int `json:"abiVersion"`
 }
 
+type lifecycleAuthority struct {
+	MachineAuthority string `json:"machineAuthority"`
+	ScopeEpoch       uint64 `json:"scopeEpoch"`
+	OperationID      string `json:"operationId"`
+	AdmittedRevision uint64 `json:"admittedRevision"`
+	EffectIdentity   string `json:"effectIdentity"`
+}
+
 type startRequest struct {
+	lifecycleAuthority
 	SessionID         string   `json:"sessionId"`
 	TunFileDescriptor int      `json:"tunFileDescriptor"`
 	Stack             string   `json:"stack"`
@@ -182,6 +192,7 @@ type startRequest struct {
 }
 
 type stopRequest struct {
+	lifecycleAuthority
 	SessionID string `json:"sessionId,omitempty"`
 }
 
@@ -331,6 +342,9 @@ func (core *coreRuntime) loadConfig(input []byte) coreResult {
 }
 
 func validateStartRequest(request *startRequest) error {
+	if err := validateLifecycleAuthority(&request.lifecycleAuthority); err != nil {
+		return err
+	}
 	if len(request.SessionID) == 0 || len(request.SessionID) > 128 {
 		return errors.New("sessionId must contain 1 to 128 bytes")
 	}
@@ -358,6 +372,55 @@ func validateStartRequest(request *startRequest) error {
 		}
 	}
 	return nil
+}
+
+func validLifecycleIdentifier(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' || character == '_' || character == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateLifecycleAuthority(authority *lifecycleAuthority) error {
+	if authority == nil || !validLifecycleIdentifier(authority.MachineAuthority) ||
+		authority.ScopeEpoch == 0 || !validLifecycleIdentifier(authority.OperationID) ||
+		authority.AdmittedRevision == 0 || !validLifecycleIdentifier(authority.EffectIdentity) {
+		return errors.New("lifecycle authority is invalid")
+	}
+	return nil
+}
+
+func sameLifecycleAuthority(left, right *lifecycleAuthority) bool {
+	return left != nil && right != nil && *left == *right
+}
+
+func lifecycleSuccessor(candidate, current *lifecycleAuthority) bool {
+	if current == nil {
+		return true
+	}
+	if candidate.MachineAuthority != current.MachineAuthority {
+		return false
+	}
+	if candidate.ScopeEpoch != current.ScopeEpoch {
+		return candidate.ScopeEpoch > current.ScopeEpoch
+	}
+	if candidate.AdmittedRevision != current.AdmittedRevision {
+		return candidate.AdmittedRevision > current.AdmittedRevision
+	}
+	currentEffect, err := strconv.ParseUint(current.EffectIdentity, 10, 64)
+	if err != nil || currentEffect == ^uint64(0) {
+		return false
+	}
+	return candidate.OperationID == current.OperationID &&
+		candidate.EffectIdentity == strconv.FormatUint(currentEffect+1, 10)
 }
 
 func tunOptions(request *startRequest) LC.Tun {
@@ -397,11 +460,17 @@ func (core *coreRuntime) start(input []byte) coreResult {
 		return failureResult(statusNotLoaded, "configuration must be loaded before start")
 	}
 	if core.phase == phaseRunning {
-		if core.session == request.SessionID {
+		if core.session == request.SessionID &&
+			sameLifecycleAuthority(&request.lifecycleAuthority, core.lifecycle) {
 			return successResult(core.statusLocked())
 		}
 		return failureResult(statusConflict, "another session is already running")
 	}
+	if !lifecycleSuccessor(&request.lifecycleAuthority, core.lifecycle) {
+		return failureResult(statusConflict, "lifecycle authority is stale")
+	}
+	authority := request.lifecycleAuthority
+	core.lifecycle = &authority
 	protect := core.protect
 	dialer.DefaultSocketHook = func(_ string, _ string, connection syscall.RawConn) error {
 		var protectError error
@@ -440,7 +509,10 @@ func (core *coreRuntime) stop(input []byte) coreResult {
 	if err := decodeStrict(input, &request); err != nil {
 		return failureResult(statusInvalidArgument, "stop request is invalid")
 	}
-	if len(request.SessionID) > 128 {
+	if err := validateLifecycleAuthority(&request.lifecycleAuthority); err != nil {
+		return failureResult(statusInvalidArgument, "stop lifecycle authority is invalid")
+	}
+	if request.SessionID != "" && !validLifecycleIdentifier(request.SessionID) {
 		return failureResult(statusInvalidArgument, "sessionId exceeds its bound")
 	}
 	core.mutex.Lock()
@@ -449,11 +521,23 @@ func (core *coreRuntime) stop(input []byte) coreResult {
 		return failureResult(statusNotInitialized, "core must be initialized before stop")
 	}
 	if core.phase == phaseInactive {
+		if !sameLifecycleAuthority(&request.lifecycleAuthority, core.lifecycle) {
+			if !lifecycleSuccessor(&request.lifecycleAuthority, core.lifecycle) {
+				return failureResult(statusConflict, "lifecycle authority is stale")
+			}
+			authority := request.lifecycleAuthority
+			core.lifecycle = &authority
+		}
 		return successResult(core.statusLocked())
 	}
 	if request.SessionID != "" && request.SessionID != core.session {
 		return failureResult(statusConflict, "sessionId does not own the running Core")
 	}
+	if !lifecycleSuccessor(&request.lifecycleAuthority, core.lifecycle) {
+		return failureResult(statusConflict, "lifecycle authority is stale")
+	}
+	authority := request.lifecycleAuthority
+	core.lifecycle = &authority
 	stoppedSession := core.session
 	if core.listener != nil {
 		_ = core.listener.Close()

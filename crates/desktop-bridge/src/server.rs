@@ -359,6 +359,43 @@ impl LoopbackServerHandle {
             };
         }
         report.audit_stopped = true;
+        // Retire every transport admission and drain in-flight RPC work before any coordinator
+        // teardown or transport-only safety proof. Otherwise a Capture mutation can race a safe
+        // observation and apply after shutdown has already accepted it.
+        if let Some(shutdown) = self.shutdown.take() {
+            self.socket_shutdown.cancel();
+            let _ = shutdown.send(());
+        }
+        if let Some(mut join) = self.join.take() {
+            match tokio::time::timeout(RPC_SHUTDOWN_TIMEOUT, &mut join).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(_))) => {
+                    self.terminal_failure = Some(BridgeShutdownFailure::RpcServe);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcServe,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+                Ok(Err(_)) => {
+                    self.terminal_failure = Some(BridgeShutdownFailure::RpcJoin);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcJoin,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+                Err(_) => {
+                    self.join = Some(join);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcJoinTimeout,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+            }
+        }
+        report.rpc_closed = true;
         if let Some(profile_activation) = &self.profile_activation
             && let Err(failure) = profile_activation.shutdown_for_exit().await
         {
@@ -394,54 +431,26 @@ impl LoopbackServerHandle {
             service_probes.shutdown();
         }
         self.updater_service.shutdown().await;
-        if let Err(failure) = self.runtime.current().shutdown().await {
-            return BridgeShutdownOutcome::Failed {
-                failure: match failure {
-                    RuntimeShutdownFailure::CaptureRestoration => {
-                        BridgeShutdownFailure::RuntimeCaptureRestoration
-                    }
-                    RuntimeShutdownFailure::CoreStop => BridgeShutdownFailure::RuntimeCoreStop,
-                },
-                handle: Box::new(self),
-                report,
-            };
-        }
-        report.capture_restored = true;
-        report.core_stopped = true;
-        if let Some(shutdown) = self.shutdown.take() {
-            self.socket_shutdown.cancel();
-            let _ = shutdown.send(());
-        }
-        if let Some(mut join) = self.join.take() {
-            match tokio::time::timeout(RPC_SHUTDOWN_TIMEOUT, &mut join).await {
-                Ok(Ok(Ok(()))) => {}
-                Ok(Ok(Err(_))) => {
-                    self.terminal_failure = Some(BridgeShutdownFailure::RpcServe);
-                    return BridgeShutdownOutcome::Failed {
-                        failure: BridgeShutdownFailure::RpcServe,
-                        handle: Box::new(self),
-                        report,
-                    };
-                }
-                Ok(Err(_)) => {
-                    self.terminal_failure = Some(BridgeShutdownFailure::RpcJoin);
-                    return BridgeShutdownOutcome::Failed {
-                        failure: BridgeShutdownFailure::RpcJoin,
-                        handle: Box::new(self),
-                        report,
-                    };
-                }
-                Err(_) => {
-                    self.join = Some(join);
-                    return BridgeShutdownOutcome::Failed {
-                        failure: BridgeShutdownFailure::RpcJoinTimeout,
-                        handle: Box::new(self),
-                        report,
-                    };
-                }
+        let runtime = self.runtime.current();
+        runtime.shutdown_observers().await;
+        if self.profile_activation.is_none() {
+            // A transport-only bridge cannot mutate Core or Capture. It may close only after a
+            // fresh read-only proof confirms that no coordinator-owned teardown remains.
+            if let Err(failure) = runtime.confirm_transport_shutdown_safe().await {
+                return BridgeShutdownOutcome::Failed {
+                    failure: match failure {
+                        RuntimeShutdownFailure::CaptureRestoration => {
+                            BridgeShutdownFailure::RuntimeCaptureRestoration
+                        }
+                        RuntimeShutdownFailure::CoreStop => BridgeShutdownFailure::RuntimeCoreStop,
+                    },
+                    handle: Box::new(self),
+                    report,
+                };
             }
+            report.capture_restored = true;
+            report.core_stopped = true;
         }
-        report.rpc_closed = true;
         BridgeShutdownOutcome::Confirmed(report)
     }
 }

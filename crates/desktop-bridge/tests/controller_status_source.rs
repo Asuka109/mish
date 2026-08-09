@@ -21,12 +21,12 @@ use mish_bridge::{
     LoopbackServerConfig, ProfileMappingContext, compose_desktop_runtime, start_loopback_server,
 };
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, GroupSelectionCleanupFailure,
-    GroupSelectionCleanupMode, GroupSelectionCleanupPhase, MishRuntime,
-    PolicyGroupConnectionCleanupPreference, ProviderCommandOperation, ProviderCommandPhase,
-    ProviderCommandResult, ProviderKind, ProviderUpdateFailure, ProviderUpdatePhase, RoutingMode,
-    RuntimeObservationPauseReason, StatusAdapterKind, StatusCommand, StatusCommandErrorKind,
-    StatusDataSource,
+    CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase,
+    CoreRuntime, CoreStatus, GroupSelectionCleanupFailure, GroupSelectionCleanupMode,
+    GroupSelectionCleanupPhase, MishRuntime, PolicyGroupConnectionCleanupPreference,
+    ProviderCommandOperation, ProviderCommandPhase, ProviderCommandResult, ProviderKind,
+    ProviderUpdateFailure, ProviderUpdatePhase, RoutingMode, RuntimeObservationPauseReason,
+    StatusAdapterKind, StatusCommand, StatusCommandErrorKind, StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -41,6 +41,10 @@ use url::Url;
 const ORIGIN: &str = "http://controller-source.test";
 const TOKEN: &str = "controller-source-token";
 const CONTROLLER_SECRET: &str = "fake-controller-secret";
+
+fn core_operation() -> CoreLifecycleOperation {
+    CoreLifecycleOperation::new("controller-source-test", 1, "shutdown", 1, 1).unwrap()
+}
 
 struct TestLifecycle {
     stopped: AtomicBool,
@@ -70,13 +74,14 @@ impl CoreRuntime for TestLifecycle {
         Box::pin(ready(TestLifecycle::status(self)))
     }
 
-    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.stopped.store(false, Ordering::Release);
-        Box::pin(ready(Ok(TestLifecycle::status(self))))
-    }
-
-    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
-        self.stopped.store(true, Ordering::Release);
+    fn execute_lifecycle(
+        &self,
+        command: CoreLifecycleCommand,
+    ) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        self.stopped.store(
+            command.mutation() == CoreLifecycleMutation::Stop,
+            Ordering::Release,
+        );
         Box::pin(ready(Ok(TestLifecycle::status(self))))
     }
 }
@@ -1076,7 +1081,10 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;
     assert!(source.is_closed());
-    assert!(lifecycle.stopped.load(Ordering::Acquire));
+    assert!(
+        !lifecycle.stopped.load(Ordering::Acquire),
+        "a transport-only bridge cannot mutate Core without a Profile coordinator",
+    );
     wait_for(Duration::from_secs(1), || {
         fake.state.active_streams.load(Ordering::Acquire) == 0
     })
@@ -1212,7 +1220,7 @@ async fn provider_updates_are_authorized_reobserved_and_keep_partial_failures() 
         Some(ProviderUpdateFailure::UpdateRejected)
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1418,45 +1426,12 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
     assert_eq!(version_drift["error"]["data"]["kind"], "version-drift");
     *fake.state.version.write().await = "v1.19.29".into();
 
-    let mutations_before_stop = fake.state.mutation_count.load(Ordering::Acquire);
     let stopped = rpc_request(
         &mut websocket,
         json!({"jsonrpc":"2.0", "id":63, "method":"core.stop", "params":{}}),
     )
     .await;
-    assert_eq!(stopped["result"]["phase"], "stopped");
-    let stopped_snapshot = rpc_request(
-        &mut websocket,
-        json!({"jsonrpc":"2.0", "id":64, "method":"status.getSnapshot", "params":{}}),
-    )
-    .await;
-    assert_eq!(
-        stopped_snapshot["result"]["groupSelectionAvailability"],
-        "core-not-running"
-    );
-    let stopped_info = rpc_request(
-        &mut websocket,
-        json!({"jsonrpc":"2.0", "id":66, "method":"bridge.getInfo", "params":{}}),
-    )
-    .await;
-    assert_eq!(stopped_info["result"]["statusCommands"]["group"], true);
-    let stopped_selection = rpc_request(
-        &mut websocket,
-        json!({"jsonrpc":"2.0", "id":65, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"]}}),
-    )
-    .await;
-    assert_eq!(
-        stopped_selection["error"]["data"]["kind"],
-        "core-not-running"
-    );
-    assert_eq!(
-        stopped_selection["error"]["data"]["snapshot"]["groupSelectionAvailability"],
-        "core-not-running"
-    );
-    assert_eq!(
-        fake.state.mutation_count.load(Ordering::Acquire),
-        mutations_before_stop
-    );
+    assert_eq!(stopped["error"]["code"], -32601);
 
     fake.set_available(false);
     let disconnected = rpc_request(
@@ -1505,7 +1480,7 @@ async fn group_selection_accepts_an_exact_controller_update_after_the_primary_de
     );
     assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1535,7 +1510,7 @@ async fn group_selection_still_times_out_without_an_exact_confirmation_during_th
     assert_eq!(error.kind, StatusCommandErrorKind::Timeout);
     assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1739,7 +1714,7 @@ async fn group_selection_cleanup_closes_only_fresh_old_direct_child_connections(
         "off-preserves-existing"
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1795,7 +1770,7 @@ async fn group_selection_cleanup_reports_individual_close_rejection_as_partial()
         "close-rejected"
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1839,7 +1814,7 @@ async fn group_selection_cleanup_reports_a_bounded_quiet_scan_timeout() {
     assert!(cleanup.scan_count < 100);
     assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1904,7 +1879,7 @@ async fn runtime_replacement_terminates_group_selection_cleanup() {
     );
     assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -1971,7 +1946,7 @@ async fn group_selection_cleanup_stops_when_catalog_membership_changes() {
     assert_eq!(cleanup.closed_count, 1);
     assert_eq!(fake.state.close_all_count.load(Ordering::Acquire), 0);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2086,7 +2061,7 @@ async fn second_group_switch_cancels_and_supersedes_the_old_cleanup() {
     assert!(cleanup_events.contains(&json!("partial")));
     assert_eq!(cleanup_events.last(), Some(&json!("completed")));
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2124,7 +2099,7 @@ async fn closing_the_source_cancels_a_pending_routing_confirmation_with_a_typed_
         runtime.status_snapshot(StatusAdapterKind::Rpc).await["routingMode"],
         "rule"
     );
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2614,7 +2589,7 @@ async fn unsupported_controller_version_is_diagnostic_and_blocks_observation() {
             .contains("Controller version is unsupported")
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     assert!(source.is_closed());
     fake.shutdown().await;
 }
@@ -2684,7 +2659,7 @@ async fn event_stream_failures_do_not_block_status_traffic_or_commands() {
         "ready"
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2773,7 +2748,7 @@ async fn controller_events_are_bounded_redacted_and_restart_at_reconnect_boundar
     assert_eq!(reconnected["events"].as_array().unwrap().len(), 1);
     assert_eq!(reconnected["events"][0]["source"], "application");
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2929,7 +2904,7 @@ async fn diagnostic_proxy_probe_is_fixed_scoped_redacted_and_non_mutating() {
         1
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -2993,7 +2968,7 @@ async fn group_delay_cancel_preserves_already_confirmed_results() {
         1
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -3061,7 +3036,7 @@ async fn group_delay_revalidates_membership_before_publishing_results() {
     assert_eq!(unicode["failure"], "stale-membership");
     assert_eq!(unicode["latencyMilliseconds"], Value::Null);
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -3134,7 +3109,7 @@ async fn group_delay_cancel_stops_unstarted_work_and_never_reports_success() {
             .all(|child| child["phase"] == "cancelled")
     );
 
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
     fake.shutdown().await;
 }
 
@@ -3171,7 +3146,7 @@ async fn runtime_replacement_cancels_old_profile_delay_context() {
             == 4
     })
     .await;
-    first_runtime.shutdown().await.unwrap();
+    first_runtime.shutdown(&core_operation()).await.unwrap();
     let old = first_runtime.status_snapshot(StatusAdapterKind::Rpc).await;
     assert_eq!(old["groupDelayTest"]["phase"], "cancelled");
 
@@ -3199,7 +3174,10 @@ async fn runtime_replacement_cancels_old_profile_delay_context() {
     assert_eq!(replacement["groupDelayTest"]["phase"], "idle");
     assert_eq!(replacement["groupDelayTest"]["profileId"], Value::Null);
 
-    replacement_runtime.shutdown().await.unwrap();
+    replacement_runtime
+        .shutdown(&core_operation())
+        .await
+        .unwrap();
     fake.shutdown().await;
 }
 
@@ -3215,7 +3193,7 @@ async fn desktop_composition_without_controller_stays_lifecycle_only() {
     assert_eq!(snapshot["activeProfileId"], "local");
     assert_eq!(snapshot["groups"], json!([]));
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
-    runtime.shutdown().await.unwrap();
+    runtime.shutdown(&core_operation()).await.unwrap();
 }
 
 #[test]
