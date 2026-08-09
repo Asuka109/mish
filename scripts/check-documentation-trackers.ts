@@ -120,6 +120,12 @@ function sentenceEndAfter(source: string, index: number): number {
   return candidates.length === 0 ? source.length : Math.min(...candidates) + 1;
 }
 
+function hasIssueReference(source: string): boolean {
+  return /(?:\bIssue\s+#\d+\b|https:\/\/github\.com\/[^/\s)]+\/[^/\s)]+\/issues\/\d+\b)/iu.test(
+    source,
+  );
+}
+
 function referenceContexts(
   source: string,
   repository: string,
@@ -139,11 +145,27 @@ function referenceContexts(
     const sentenceStart = sentenceDelimiter === -1 ? 0 : sentenceDelimiter + 2;
     const sentenceEnd = sentenceEndAfter(paragraph, paragraphIndex);
     const previousDelimiter = sentenceDelimiterBefore(paragraph, sentenceStart - 3);
-    const surroundingStart = previousDelimiter === -1 ? 0 : previousDelimiter + 2;
-    const surroundingEnd = sentenceEndAfter(paragraph, sentenceEnd + 1);
+    const previousStart = previousDelimiter === -1 ? 0 : previousDelimiter + 2;
+    const previousSentence = paragraph.slice(previousStart, sentenceStart).trim();
+    const nextEnd = sentenceEndAfter(paragraph, sentenceEnd + 1);
+    const nextSentence = paragraph.slice(sentenceEnd + 1, nextEnd).trim();
+    const sentence = paragraph.slice(sentenceStart, sentenceEnd);
+    const sentenceIndex = paragraphIndex - sentenceStart;
+    const clauseDelimiter = sentence.lastIndexOf("; ", sentenceIndex - 1);
+    const clauseStart = clauseDelimiter === -1 ? 0 : clauseDelimiter + 2;
+    const clauseEndCandidate = sentence.indexOf("; ", sentenceIndex);
+    const clauseEnd = clauseEndCandidate === -1 ? sentence.length : clauseEndCandidate;
+    const claim = sentence.slice(clauseStart, clauseEnd);
+    const surrounding = [
+      hasIssueReference(previousSentence) ? "" : previousSentence,
+      claim,
+      hasIssueReference(nextSentence) ? "" : nextSentence,
+    ]
+      .filter(Boolean)
+      .join(" ");
     contexts.push({
-      claim: paragraph.slice(sentenceStart, sentenceEnd),
-      surrounding: paragraph.slice(surroundingStart, surroundingEnd),
+      claim,
+      surrounding,
     });
   }
   return contexts;

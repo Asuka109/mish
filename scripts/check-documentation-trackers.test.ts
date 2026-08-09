@@ -185,6 +185,24 @@ test("adjacent sentences cannot hide future residue for a closed Issue", () => {
   );
 });
 
+test("future wording for another Issue is not attributed to a closed Issue", () => {
+  const { registry, sources } = repositoryFixture();
+  const fixture = structuredClone(registry);
+  fixture.issues.push({
+    number: 999,
+    title: "Future delivery",
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+    updatedAt: "2026-08-09T07:00:00Z",
+    references: [{ path: "docs/architecture/state-machine-kernel.md", role: "active-dependency" }],
+  });
+  const fixtureSources = { ...sources };
+  fixtureSources["docs/architecture/state-machine-kernel.md"] +=
+    "\nCompleted Issue #288 established the kernel; Issue #999 remains pending implementation.\n";
+  assert.deepEqual(validateDocumentationTrackers(fixture, fixtureSources), []);
+});
+
 test("malformed tracker states and timestamps fail runtime validation", () => {
   const { registry, sources } = repositoryFixture();
   const fixture = structuredClone(registry);
