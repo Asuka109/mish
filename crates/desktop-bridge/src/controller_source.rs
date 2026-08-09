@@ -2538,7 +2538,7 @@ impl ControllerStatusSource {
                     Vec::new(),
                 );
             }
-            if updates.recv().await.is_err() {
+            if !wait_for_traffic_machine_update(&mut updates).await {
                 return TrafficCommandExecution::failure(
                     operation,
                     TrafficCommandFailureKind::Disconnected,
@@ -2558,6 +2558,13 @@ impl ControllerStatusSource {
             return;
         };
         let _ = apply_connection_observation(&self.inner, connections).await;
+    }
+}
+
+async fn wait_for_traffic_machine_update(updates: &mut broadcast::Receiver<()>) -> bool {
+    match updates.recv().await {
+        Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => true,
+        Err(broadcast::error::RecvError::Closed) => false,
     }
 }
 
@@ -4018,6 +4025,26 @@ fn pending_snapshot(
         tun: false,
     };
     snapshot
+}
+
+#[cfg(test)]
+mod traffic_command_wait_tests {
+    use tokio::sync::broadcast;
+
+    use super::wait_for_traffic_machine_update;
+
+    #[tokio::test]
+    async fn lagged_updates_recheck_the_machine_before_a_closed_channel_disconnects() {
+        let (updates, _) = broadcast::channel(1);
+        let mut receiver = updates.subscribe();
+        updates.send(()).unwrap();
+        updates.send(()).unwrap();
+        drop(updates);
+
+        assert!(wait_for_traffic_machine_update(&mut receiver).await);
+        assert!(wait_for_traffic_machine_update(&mut receiver).await);
+        assert!(!wait_for_traffic_machine_update(&mut receiver).await);
+    }
 }
 
 #[cfg(test)]
