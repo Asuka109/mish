@@ -72,6 +72,7 @@ const JOURNAL_OWNER: &str = "com.asuka109.mish";
 const JOURNAL_VERSION: u32 = 3;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const EXACT_PROXY_RESTORE_TIMEOUT: Duration = Duration::from_secs(30);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS: u8 = 20;
@@ -1331,6 +1332,7 @@ async fn read_bounded(
 pub struct MacOsSystemProxyPlatform {
     availability: CapabilityAvailability,
     runner: Arc<dyn MacOsCommandRunner>,
+    exact_restore_authorization: bool,
 }
 
 pub struct MacOsNetworkDnsPlatform {
@@ -1406,6 +1408,7 @@ impl MacOsSystemProxyPlatform {
                 CapabilityAvailability::Unavailable
             },
             runner: Arc::new(MacOsSystemCommandRunner),
+            exact_restore_authorization: true,
         }
     }
 
@@ -1413,6 +1416,7 @@ impl MacOsSystemProxyPlatform {
         Self {
             availability: CapabilityAvailability::Supported,
             runner,
+            exact_restore_authorization: false,
         }
     }
 
@@ -1620,6 +1624,29 @@ impl MacOsSystemProxyPlatform {
             .map_err(apply_error)?;
         Ok(())
     }
+
+    async fn restore_exact_disabled_proxy_fields(
+        &self,
+        target: &NetworkServiceProxyState,
+    ) -> Result<(), CaptureTransitionError> {
+        if !self.exact_restore_authorization {
+            return Ok(());
+        }
+        let keys = exact_proxy_restore_keys(target);
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let service_uuid = service_uuid_for_name(&target.service_id).map_err(apply_error)?;
+        let script = exact_proxy_restore_script(&service_uuid, &keys).ok_or_else(|| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::ApplyFailed,
+                "The exact macOS System Proxy restoration request was invalid",
+            )
+        })?;
+        run_authorized_shell_script(&script)
+            .await
+            .map_err(apply_error)
+    }
 }
 
 impl CapturePlatform for MacOsSystemProxyPlatform {
@@ -1681,11 +1708,12 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
             self.apply_automatic_proxy_states(&target).await?;
             self.runner
                 .run(MacOsCommand::SetProxyBypassDomains {
-                    domains: target.bypass_domains,
-                    service: target.service_id,
+                    domains: target.bypass_domains.clone(),
+                    service: target.service_id.clone(),
                 })
                 .await
                 .map_err(apply_error)?;
+            self.restore_exact_disabled_proxy_fields(&target).await?;
             Ok(())
         })
     }
@@ -2105,6 +2133,269 @@ fn apply_error(error: MacOsCommandError) -> CaptureTransitionError {
     CaptureTransitionError::new(kind, "The macOS System Proxy change failed")
 }
 
+const EXACT_PROXY_KEY_HTTP_ENABLE: &str = "HTTPEnable";
+const EXACT_PROXY_KEY_HTTP_PROXY: &str = "HTTPProxy";
+const EXACT_PROXY_KEY_HTTP_PORT: &str = "HTTPPort";
+const EXACT_PROXY_KEY_HTTPS_ENABLE: &str = "HTTPSEnable";
+const EXACT_PROXY_KEY_HTTPS_PROXY: &str = "HTTPSProxy";
+const EXACT_PROXY_KEY_HTTPS_PORT: &str = "HTTPSPort";
+const EXACT_PROXY_KEY_SOCKS_ENABLE: &str = "SOCKSEnable";
+const EXACT_PROXY_KEY_SOCKS_PROXY: &str = "SOCKSProxy";
+const EXACT_PROXY_KEY_SOCKS_PORT: &str = "SOCKSPort";
+const EXACT_PROXY_KEY_PAC_ENABLE: &str = "ProxyAutoConfigEnable";
+const EXACT_PROXY_KEY_PAC_URL: &str = "ProxyAutoConfigURL";
+const EXACT_PROXY_KEY_AUTO_DISCOVERY_ENABLE: &str = "ProxyAutoDiscoveryEnable";
+
+fn exact_proxy_restore_keys(target: &NetworkServiceProxyState) -> Vec<&'static str> {
+    let mut keys = Vec::new();
+    for (proxy, enable, host, port) in [
+        (
+            &target.http,
+            EXACT_PROXY_KEY_HTTP_ENABLE,
+            EXACT_PROXY_KEY_HTTP_PROXY,
+            EXACT_PROXY_KEY_HTTP_PORT,
+        ),
+        (
+            &target.https,
+            EXACT_PROXY_KEY_HTTPS_ENABLE,
+            EXACT_PROXY_KEY_HTTPS_PROXY,
+            EXACT_PROXY_KEY_HTTPS_PORT,
+        ),
+        (
+            &target.socks,
+            EXACT_PROXY_KEY_SOCKS_ENABLE,
+            EXACT_PROXY_KEY_SOCKS_PROXY,
+            EXACT_PROXY_KEY_SOCKS_PORT,
+        ),
+    ] {
+        if !proxy.enabled && !proxy.authenticated && proxy.host.is_empty() && proxy.port == 0 {
+            keys.extend([enable, host, port]);
+        }
+    }
+    if !target.pac_enabled && target.pac_url == "(null)" {
+        keys.extend([EXACT_PROXY_KEY_PAC_ENABLE, EXACT_PROXY_KEY_PAC_URL]);
+    }
+    if !target.auto_discovery_enabled {
+        keys.push(EXACT_PROXY_KEY_AUTO_DISCOVERY_ENABLE);
+    }
+    keys
+}
+
+fn valid_service_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn service_uuid_for_name(service_name: &str) -> Result<String, MacOsCommandError> {
+    use system_configuration::{
+        core_foundation::{base::TCFType, string::CFString},
+        network_configuration::SCNetworkService,
+        preferences::SCPreferences,
+        sys::network_configuration::SCNetworkServiceGetName,
+    };
+
+    let preferences = SCPreferences::default(&CFString::new("io.mish.proxy.restore"));
+    for service in SCNetworkService::get_services(&preferences).into_iter() {
+        // SAFETY: the service reference is owned by the live SCPreferences service array.
+        let name = unsafe {
+            let value = SCNetworkServiceGetName(service.as_concrete_TypeRef());
+            (!value.is_null()).then(|| CFString::wrap_under_get_rule(value).to_string())
+        };
+        if name.as_deref() != Some(service_name) {
+            continue;
+        }
+        let uuid = service
+            .id()
+            .map(|value| value.to_string())
+            .filter(|value| valid_service_uuid(value))
+            .ok_or(MacOsCommandError {
+                kind: MacOsCommandErrorKind::Failed,
+            })?;
+        return Ok(uuid);
+    }
+    Err(MacOsCommandError {
+        kind: MacOsCommandErrorKind::Failed,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn service_uuid_for_name(_service_name: &str) -> Result<String, MacOsCommandError> {
+    Err(MacOsCommandError {
+        kind: MacOsCommandErrorKind::Unavailable,
+    })
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn exact_proxy_restore_script(service_uuid: &str, keys: &[&str]) -> Option<String> {
+    if !valid_service_uuid(service_uuid) {
+        return None;
+    }
+    let known_keys = [
+        EXACT_PROXY_KEY_HTTP_ENABLE,
+        EXACT_PROXY_KEY_HTTP_PROXY,
+        EXACT_PROXY_KEY_HTTP_PORT,
+        EXACT_PROXY_KEY_HTTPS_ENABLE,
+        EXACT_PROXY_KEY_HTTPS_PROXY,
+        EXACT_PROXY_KEY_HTTPS_PORT,
+        EXACT_PROXY_KEY_SOCKS_ENABLE,
+        EXACT_PROXY_KEY_SOCKS_PROXY,
+        EXACT_PROXY_KEY_SOCKS_PORT,
+        EXACT_PROXY_KEY_PAC_ENABLE,
+        EXACT_PROXY_KEY_PAC_URL,
+        EXACT_PROXY_KEY_AUTO_DISCOVERY_ENABLE,
+    ];
+    let mut keys = keys
+        .iter()
+        .copied()
+        .filter(|key| known_keys.contains(key))
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    keys.dedup();
+    if keys.is_empty() {
+        return None;
+    }
+
+    let service_path = format!("/NetworkServices/{service_uuid}/Proxies");
+    let mut preference_commands = vec!["d.init".to_owned(), format!("get {service_path}")];
+    preference_commands.extend(keys.iter().map(|key| format!("d.remove {key}")));
+    preference_commands.extend([
+        format!("set {service_path}"),
+        "commit".to_owned(),
+        "apply".to_owned(),
+        "quit".to_owned(),
+    ]);
+    let mut dynamic_commands = vec![
+        "open".to_owned(),
+        "d.init".to_owned(),
+        "get State:/Network/Global/Proxies".to_owned(),
+    ];
+    dynamic_commands.extend(keys.iter().map(|key| format!("d.remove {key}")));
+    dynamic_commands.extend([
+        "set State:/Network/Global/Proxies".to_owned(),
+        "quit".to_owned(),
+    ]);
+
+    let preference_input = preference_commands
+        .iter()
+        .map(|command| shell_quote(command))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let dynamic_input = dynamic_commands
+        .iter()
+        .map(|command| shell_quote(command))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!(
+        "set -eu\n/usr/bin/printf '%s\\n' {preference_input} | /usr/sbin/scutil --prefs >/dev/null\n/usr/bin/printf '%s\\n' {dynamic_input} | /usr/sbin/scutil >/dev/null"
+    ))
+}
+
+async fn run_authorized_shell_script(script: &str) -> Result<(), MacOsCommandError> {
+    if script.len() > COMMAND_MAX_BYTES {
+        return Err(MacOsCommandError {
+            kind: MacOsCommandErrorKind::OutputTooLarge,
+        });
+    }
+    let mut process = Command::new("/usr/bin/osascript");
+    process
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "try",
+            "-e",
+            "set commandOutput to do shell script (item 1 of argv) with administrator privileges",
+            "-e",
+            "return \"ok:\" & commandOutput",
+            "-e",
+            "on error errorMessage number errorNumber",
+            "-e",
+            "return \"error:\" & (errorNumber as string) & \":\" & errorMessage",
+            "-e",
+            "end try",
+            "-e",
+            "end run",
+            "--",
+            script,
+        ])
+        .kill_on_drop(true)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = process.spawn().map_err(|error| MacOsCommandError {
+        kind: if error.kind() == std::io::ErrorKind::NotFound {
+            MacOsCommandErrorKind::Unavailable
+        } else {
+            MacOsCommandErrorKind::Failed
+        },
+    })?;
+    let stdout = child.stdout.take().ok_or(MacOsCommandError {
+        kind: MacOsCommandErrorKind::Failed,
+    })?;
+    let stderr = child.stderr.take().ok_or(MacOsCommandError {
+        kind: MacOsCommandErrorKind::Failed,
+    })?;
+    let collected = timeout(EXACT_PROXY_RESTORE_TIMEOUT, async {
+        tokio::try_join!(
+            read_bounded(stdout, COMMAND_MAX_BYTES),
+            read_bounded(stderr, COMMAND_MAX_BYTES),
+            async {
+                child.wait().await.map_err(|_| MacOsCommandError {
+                    kind: MacOsCommandErrorKind::Failed,
+                })
+            },
+        )
+    })
+    .await;
+    let (stdout, stderr, status) = match collected {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            let _ = child.kill().await;
+            return Err(error);
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            return Err(MacOsCommandError {
+                kind: MacOsCommandErrorKind::TimedOut,
+            });
+        }
+    };
+    let stdout = String::from_utf8_lossy(&stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&stderr).to_ascii_lowercase();
+    if !status.success() {
+        return Err(MacOsCommandError {
+            kind: if stderr.contains("permission") || stderr.contains("not authorized") {
+                MacOsCommandErrorKind::PermissionDenied
+            } else {
+                MacOsCommandErrorKind::Failed
+            },
+        });
+    }
+    if stdout.starts_with("ok:") {
+        return Ok(());
+    }
+    let lower = stdout.to_ascii_lowercase();
+    Err(MacOsCommandError {
+        kind: if lower.contains("error:-128")
+            || lower.contains("permission")
+            || lower.contains("not authorized")
+        {
+            MacOsCommandErrorKind::PermissionDenied
+        } else {
+            MacOsCommandErrorKind::Failed
+        },
+    })
+}
+
 fn persistence_error() -> CaptureTransitionError {
     CaptureTransitionError::new(
         CaptureFailureKind::PersistenceFailed,
@@ -2173,6 +2464,60 @@ mod tests {
                 CaptureFailureKind::ObservationFailed
             );
         }
+    }
+
+    #[test]
+    fn exact_restore_keys_cover_only_blank_disabled_proxy_fields() {
+        let target = NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: ManualProxyState::disabled(),
+            https: ManualProxyState {
+                authenticated: false,
+                enabled: false,
+                host: "cached.proxy.example".into(),
+                port: 8080,
+            },
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "Ethernet".into(),
+            socks: ManualProxyState::disabled(),
+        };
+
+        let keys = exact_proxy_restore_keys(&target);
+        assert!(keys.contains(&EXACT_PROXY_KEY_HTTP_ENABLE));
+        assert!(keys.contains(&EXACT_PROXY_KEY_HTTP_PROXY));
+        assert!(keys.contains(&EXACT_PROXY_KEY_HTTP_PORT));
+        assert!(keys.contains(&EXACT_PROXY_KEY_SOCKS_ENABLE));
+        assert!(keys.contains(&EXACT_PROXY_KEY_PAC_ENABLE));
+        assert!(keys.contains(&EXACT_PROXY_KEY_PAC_URL));
+        assert!(keys.contains(&EXACT_PROXY_KEY_AUTO_DISCOVERY_ENABLE));
+        assert!(!keys.contains(&EXACT_PROXY_KEY_HTTPS_ENABLE));
+        assert!(!keys.contains(&EXACT_PROXY_KEY_HTTPS_PROXY));
+        assert!(!keys.contains(&EXACT_PROXY_KEY_HTTPS_PORT));
+    }
+
+    #[test]
+    fn exact_restore_script_is_bounded_to_fixed_service_and_proxy_keys() {
+        let keys = [EXACT_PROXY_KEY_HTTP_ENABLE, EXACT_PROXY_KEY_SOCKS_PORT];
+        assert!(exact_proxy_restore_script("not-a-service-uuid", &keys).is_none());
+
+        let script = exact_proxy_restore_script(
+            "11111111-1111-4111-8111-111111111111",
+            &[
+                EXACT_PROXY_KEY_HTTP_ENABLE,
+                "not-a-proxy-key",
+                EXACT_PROXY_KEY_HTTP_ENABLE,
+            ],
+        )
+        .expect("valid fixed restore script");
+        assert!(script.contains("/usr/sbin/scutil --prefs"));
+        assert!(
+            script.contains("get /NetworkServices/11111111-1111-4111-8111-111111111111/Proxies")
+        );
+        assert!(script.contains("d.remove HTTPEnable"));
+        assert!(!script.contains("not-a-proxy-key"));
+        assert!(!script.contains("rm "));
     }
 
     const NETWORK_FIXTURE: &str = r#"Network information
