@@ -1569,6 +1569,12 @@ fn initialize(
                 state_path: Some(profile_root.join("service-monitors.json")),
             }),
             settings_service: Some(settings_service.clone()),
+            tun_helper_removal_occurrences: Some(Arc::new(
+                mish_bridge::TunHelperRemovalOccurrenceStore::open_private_file(
+                    profile_root.join("internal-tun-removal-occurrences.json"),
+                )
+                .unwrap_or_else(|_| mish_bridge::TunHelperRemovalOccurrenceStore::unavailable()),
+            )),
             updater_service: Some(updater_service.clone()),
         };
         #[cfg(feature = "development-window-trigger")]

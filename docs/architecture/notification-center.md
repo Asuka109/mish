@@ -43,6 +43,12 @@ operation ID and reuse that dedupe key from pinned `pending` to `applied` or
 `recovery-required`. The record carries only the closed operation, outcome, and
 typed failure category. It replaces the generic Settings failure publication,
 so install, repair, and remove cannot create duplicate frontend-only errors.
+Removal uses the same operation ID in its private bounded occurrence record.
+On process restart, retained failed or interrupted removal occurrences are
+re-published as resolved history through this existing semantic kind and dedupe
+key, not replayed as startup toasts; a later successful retry has its own
+identity and cannot mutate the first failure. Successful historical removals
+are not re-published.
 
 Capture failures follow the same occurrence rule rather than treating
 `capture.failure` as a singleton. An admitted Capture operation reuses its
