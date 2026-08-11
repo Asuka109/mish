@@ -200,10 +200,14 @@ pub enum EffectKind {
     CaptureWritePac,
     CaptureWriteSocks,
     CleanupCandidate,
+    CoreIdentityCommit,
+    CoreIdentityProbe,
     CoreObserve,
     CoreOwnsListener,
+    CoreSignal,
     CoreStart,
     CoreStop,
+    CoreWaitForExit,
     FinalizeOperation,
     JournalClear,
     JournalLoad,
@@ -234,6 +238,7 @@ pub enum EffectKind {
 #[serde(rename_all = "kebab-case")]
 pub enum EffectResultKind {
     Aborted,
+    AlreadyExited,
     Applied,
     Authorized,
     Cancelled,
@@ -254,10 +259,13 @@ pub enum EffectResultKind {
     Restored,
     RolledBack,
     ShutdownDeadlineExceeded,
+    Signalled,
     Started,
     Stopped,
     PartiallyRestored,
     TimedOut,
+    Exited,
+    Unowned,
     Verified,
     Panicked,
     ActorPanicked,
@@ -603,8 +611,11 @@ fn initial_conflict_effect_contract() -> Vec<EffectKind> {
         EffectKind::CaptureReplacement,
         EffectKind::CaptureShutdown,
         EffectKind::CleanupCandidate,
+        EffectKind::CoreIdentityProbe,
         EffectKind::CoreObserve,
+        EffectKind::CoreSignal,
         EffectKind::CoreStop,
+        EffectKind::CoreWaitForExit,
         EffectKind::FinalizeOperation,
         EffectKind::JournalLoad,
         EffectKind::ManagedEndpointOwnershipCheckEarly,
@@ -639,8 +650,11 @@ fn system_proxy_effect_contract() -> Vec<EffectKind> {
         EffectKind::CaptureWriteHttps,
         EffectKind::CaptureWritePac,
         EffectKind::CaptureWriteSocks,
+        EffectKind::CoreIdentityProbe,
         EffectKind::CoreObserve,
+        EffectKind::CoreSignal,
         EffectKind::CoreStop,
+        EffectKind::CoreWaitForExit,
         EffectKind::JournalClear,
         EffectKind::JournalLoad,
         EffectKind::JournalSave,
@@ -656,9 +670,13 @@ fn maintenance_effect_contract() -> Vec<EffectKind> {
         EffectKind::CaptureWriteHttps,
         EffectKind::CaptureWritePac,
         EffectKind::CaptureWriteSocks,
+        EffectKind::CoreIdentityCommit,
+        EffectKind::CoreIdentityProbe,
         EffectKind::CoreObserve,
+        EffectKind::CoreSignal,
         EffectKind::CoreStart,
         EffectKind::CoreStop,
+        EffectKind::CoreWaitForExit,
         EffectKind::MaintenanceAuthorize,
         EffectKind::MaintenanceBackupArtifacts,
         EffectKind::MaintenanceCaptureReconcile,
@@ -2114,6 +2132,8 @@ impl ManagedListenerHost for SimulatedHost {
                     EffectKind::ManagedEndpointOwnershipCheckCommit
                 }
             };
+            self.emit(EffectKind::CoreIdentityProbe, EffectResultKind::Verified)
+                .map_err(|_| MihomoActivationError::StateCommitFailed)?;
             let owner = self.endpoint_owner();
             self.emit(effect, Self::endpoint_result(owner))
                 .map_err(|_| MihomoActivationError::StateCommitFailed)?;
@@ -2295,12 +2315,33 @@ impl CoreRuntime for SimulatedHost {
         _endpoint: &LoopbackProxyEndpoint,
     ) -> BoxFuture<'_, LocalProxyOwnership> {
         let owner = self.endpoint_owner();
+        let before = self.emit(EffectKind::CoreIdentityProbe, EffectResultKind::Verified);
         let result = self.emit(EffectKind::CoreOwnsListener, Self::endpoint_result(owner));
-        Box::pin(ready(match (result, owner) {
-            (Ok(()), ManagedEndpointOwner::Mish) => LocalProxyOwnership::Owned,
-            (Ok(()), _) => LocalProxyOwnership::Unowned,
-            (Err(_), _) => LocalProxyOwnership::Unknown,
-        }))
+        let confirmed_owner = self.endpoint_owner();
+        let after_result = self.emit(
+            EffectKind::CoreIdentityProbe,
+            if confirmed_owner == owner {
+                EffectResultKind::Verified
+            } else {
+                EffectResultKind::Replaced
+            },
+        );
+        Box::pin(ready(
+            match (before, result, after_result, owner, confirmed_owner) {
+                (
+                    Ok(()),
+                    Ok(()),
+                    Ok(()),
+                    ManagedEndpointOwner::Mish,
+                    ManagedEndpointOwner::Mish,
+                ) => LocalProxyOwnership::Owned,
+                (Ok(()), Ok(()), Ok(()), _, _) if owner == confirmed_owner => {
+                    LocalProxyOwnership::Unowned
+                }
+                (Ok(()), Ok(()), Ok(()), _, _) => LocalProxyOwnership::Unowned,
+                _ => LocalProxyOwnership::Unknown,
+            },
+        ))
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
@@ -2336,6 +2377,12 @@ impl CoreRuntime for SimulatedHost {
         Box::pin(async move {
             match command.mutation() {
                 CoreLifecycleMutation::Start => {
+                    for _ in 0..2 {
+                        self.emit(EffectKind::CoreIdentityCommit, EffectResultKind::Verified)
+                            .map_err(|_| {
+                                CoreError::start_failed("Simulated Core identity commit failed")
+                            })?;
+                    }
                     self.emit(EffectKind::CoreStart, EffectResultKind::Started)
                         .map_err(|_| CoreError::start_failed("Simulated Core start failed"))?;
                     self.model
@@ -2344,12 +2391,16 @@ impl CoreRuntime for SimulatedHost {
                         .core_phase = SimulatedCorePhase::Running;
                 }
                 CoreLifecycleMutation::Stop => {
+                    self.emit(EffectKind::CoreSignal, EffectResultKind::Signalled)
+                        .map_err(|_| CoreError::stop_failed("Simulated Core signal failed"))?;
                     self.emit(EffectKind::CoreStop, EffectResultKind::Stopped)
                         .map_err(|_| CoreError::stop_failed("Simulated Core stop failed"))?;
                     self.model
                         .lock()
                         .expect("simulated host lock poisoned")
                         .core_phase = SimulatedCorePhase::Stopped;
+                    self.emit(EffectKind::CoreWaitForExit, EffectResultKind::Exited)
+                        .map_err(|_| CoreError::stop_failed("Simulated Core wait failed"))?;
                 }
             }
             Ok(self.status().await)
@@ -2704,6 +2755,19 @@ mod tests {
             .unwrap();
         assert!(cleanup < finalizer);
         assert!(!effects.contains(&EffectKind::CaptureApply));
+        let events = scenario.host.observation().transcript.events;
+        let identity_probe = events
+            .iter()
+            .position(|event| {
+                event.effect_kind == EffectKind::CoreIdentityProbe
+                    && event.result_kind == EffectResultKind::Verified
+            })
+            .unwrap();
+        let early_check = events
+            .iter()
+            .position(|event| event.effect_kind == EffectKind::ManagedEndpointOwnershipCheckEarly)
+            .unwrap();
+        assert!(identity_probe < early_check);
     }
 
     #[tokio::test]
@@ -2780,6 +2844,19 @@ mod tests {
         assert!(launch.await.unwrap().is_err());
         let observation = scenario.host.observation();
         assert_eq!(observation.endpoint_owner, ManagedEndpointOwner::Foreign);
+        let identity_probes = observation
+            .transcript
+            .events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::CoreIdentityProbe)
+            .count();
+        assert!(identity_probes >= 2);
+        assert!(observation.transcript.events.windows(2).any(|events| {
+            events[0].effect_kind == EffectKind::CoreIdentityProbe
+                && events[0].result_kind == EffectResultKind::Verified
+                && events[1].effect_kind == EffectKind::ManagedEndpointOwnershipCheckCommit
+                && events[1].result_kind == EffectResultKind::ForeignOwned
+        }));
         assert!(
             !observation
                 .transcript

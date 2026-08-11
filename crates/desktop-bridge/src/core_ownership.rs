@@ -113,6 +113,46 @@ pub enum ManagedProcessWaitOutcome {
     TimedOut,
 }
 
+/// The bounded semantic operations emitted by the managed-process identity seam.
+///
+/// These events intentionally carry no PID, path, token, command line, or host output. They are
+/// suitable for deterministic test transcripts and make the invocation/result boundary visible
+/// without creating a second ownership source.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedCoreOperation {
+    CommitIdentity,
+    ListenerProbe,
+    RecoveryIdentity,
+    Signal,
+    WaitForExit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedCoreOperationResult {
+    AlreadyExited,
+    Exited,
+    Failed,
+    Owned,
+    Replaced,
+    Signalled,
+    TimedOut,
+    Unowned,
+    Verified,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedCoreOperationEvent {
+    Invocation {
+        operation: ManagedCoreOperation,
+    },
+    Result {
+        operation: ManagedCoreOperation,
+        result: ManagedCoreOperationResult,
+    },
+}
+
+pub type ManagedCoreOperationObserver = Arc<dyn Fn(ManagedCoreOperationEvent) + Send + Sync>;
+
 impl ManagedProcessObservation {
     pub fn new(
         pid: u32,
@@ -384,8 +424,14 @@ impl OwnershipRecord {
 pub struct ManagedCoreOwnership {
     _lease: ManagedRuntimeLease,
     instance_id: String,
+    operation_observer: Option<ManagedCoreOperationObserver>,
     platform: Arc<dyn ManagedProcessPlatform>,
     runtime_root: PathBuf,
+}
+
+enum IdentityVerification {
+    Confirmed(ManagedProcessObservation),
+    Exited,
 }
 
 impl ManagedCoreOwnership {
@@ -400,9 +446,15 @@ impl ManagedCoreOwnership {
         Ok(Self {
             _lease: lease,
             instance_id: Uuid::new_v4().to_string(),
+            operation_observer: None,
             platform,
             runtime_root,
         })
+    }
+
+    pub fn with_operation_observer(mut self, observer: ManagedCoreOperationObserver) -> Self {
+        self.operation_observer = Some(observer);
+        self
     }
 
     pub fn begin_launch(
@@ -457,6 +509,7 @@ impl ManagedCoreOwnership {
         {
             return Err(ManagedCoreOwnershipError::InvalidRecord);
         }
+        self.operation_invoked(ManagedCoreOperation::CommitIdentity);
         let deadline = Instant::now() + LAUNCH_OBSERVATION_TIMEOUT;
         let observation = loop {
             match self.inspect(pid).await {
@@ -464,28 +517,81 @@ impl ManagedCoreOwnership {
                 Ok(None) if Instant::now() < deadline => {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                Ok(None) => return Err(ManagedCoreOwnershipError::ObservationTimeout),
+                Ok(None) => {
+                    self.operation_result(
+                        ManagedCoreOperation::CommitIdentity,
+                        ManagedCoreOperationResult::TimedOut,
+                    );
+                    return Err(ManagedCoreOwnershipError::ObservationTimeout);
+                }
                 Err(
                     ManagedCoreOwnershipError::ObservationFailed
                     | ManagedCoreOwnershipError::ObservationTimeout,
                 ) if Instant::now() < deadline => {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.operation_result(
+                        ManagedCoreOperation::CommitIdentity,
+                        operation_result_for_error(&error),
+                    );
+                    return Err(error);
+                }
             }
         };
         if !current.matches(&observation) {
+            self.operation_result(
+                ManagedCoreOperation::CommitIdentity,
+                ManagedCoreOperationResult::Replaced,
+            );
             return Err(ManagedCoreOwnershipError::IdentityMismatch);
         }
+        self.operation_result(
+            ManagedCoreOperation::CommitIdentity,
+            ManagedCoreOperationResult::Verified,
+        );
+
+        // The first observation admits the child; this second observation is the commit barrier.
+        // The record and retained handle must be based on the same identity that crossed that
+        // barrier, otherwise a replacement can be committed as if it were the launched process.
+        self.operation_invoked(ManagedCoreOperation::CommitIdentity);
+        let confirmed = match self.verify_identity(&observation).await {
+            Ok(IdentityVerification::Confirmed(confirmed)) => confirmed,
+            Ok(IdentityVerification::Exited) => {
+                self.operation_result(
+                    ManagedCoreOperation::CommitIdentity,
+                    ManagedCoreOperationResult::AlreadyExited,
+                );
+                return Err(ManagedCoreOwnershipError::ObservationFailed);
+            }
+            Err(error) => {
+                self.operation_result(
+                    ManagedCoreOperation::CommitIdentity,
+                    operation_result_for_error(&error),
+                );
+                return Err(error);
+            }
+        };
+        if confirmed != observation || !current.matches(&confirmed) {
+            self.operation_result(
+                ManagedCoreOperation::CommitIdentity,
+                ManagedCoreOperationResult::Replaced,
+            );
+            return Err(ManagedCoreOwnershipError::ReplacementDetected);
+        }
+        self.operation_result(
+            ManagedCoreOperation::CommitIdentity,
+            ManagedCoreOperationResult::Verified,
+        );
         self.write_record(&OwnershipRecord {
             phase: OwnershipPhase::Running,
             pid: Some(pid),
-            process_started_at: Some(observation.started_at),
+            process_started_at: Some(confirmed.started_at),
             ..current
         })?;
         Ok(ManagedCoreProcess {
             generation_id: launch.spec.generation_id.clone(),
-            observation,
+            observation: confirmed,
         })
     }
 
@@ -512,29 +618,70 @@ impl ManagedCoreOwnership {
         process: &ManagedCoreProcess,
         endpoint: &LoopbackProxyEndpoint,
     ) -> LocalProxyOwnership {
+        self.operation_invoked(ManagedCoreOperation::ListenerProbe);
         let current = match self.inspect(process.pid()).await {
             Ok(Some(current)) => current,
-            Ok(None) => return LocalProxyOwnership::Unowned,
-            Err(_) => return LocalProxyOwnership::Unknown,
+            Ok(None) => {
+                self.operation_result(
+                    ManagedCoreOperation::ListenerProbe,
+                    ManagedCoreOperationResult::Unowned,
+                );
+                return LocalProxyOwnership::Unowned;
+            }
+            Err(error) => {
+                self.operation_result(
+                    ManagedCoreOperation::ListenerProbe,
+                    operation_result_for_error(&error),
+                );
+                return LocalProxyOwnership::Unknown;
+            }
         };
         if current != process.observation {
+            self.operation_result(
+                ManagedCoreOperation::ListenerProbe,
+                ManagedCoreOperationResult::Replaced,
+            );
             return LocalProxyOwnership::Unowned;
         }
         let owns = match self.listener_probe(&current, endpoint).await {
             Ok(owns) => owns,
-            Err(_) => return LocalProxyOwnership::Unknown,
+            Err(error) => {
+                self.operation_result(
+                    ManagedCoreOperation::ListenerProbe,
+                    operation_result_for_error(&error),
+                );
+                return LocalProxyOwnership::Unknown;
+            }
         };
-        match self.inspect(process.pid()).await {
-            Ok(Some(confirmed)) if confirmed == current => {
+        let (ownership, result) = match self.verify_identity(&current).await {
+            Ok(IdentityVerification::Confirmed(_)) => {
                 if owns {
-                    LocalProxyOwnership::Owned
+                    (
+                        LocalProxyOwnership::Owned,
+                        ManagedCoreOperationResult::Owned,
+                    )
                 } else {
-                    LocalProxyOwnership::Unowned
+                    (
+                        LocalProxyOwnership::Unowned,
+                        ManagedCoreOperationResult::Unowned,
+                    )
                 }
             }
-            Ok(_) => LocalProxyOwnership::Unowned,
-            Err(_) => LocalProxyOwnership::Unknown,
-        }
+            Ok(IdentityVerification::Exited) => (
+                LocalProxyOwnership::Unowned,
+                ManagedCoreOperationResult::Unowned,
+            ),
+            Err(ManagedCoreOwnershipError::ReplacementDetected) => (
+                LocalProxyOwnership::Unowned,
+                ManagedCoreOperationResult::Replaced,
+            ),
+            Err(error) => (
+                LocalProxyOwnership::Unknown,
+                operation_result_for_error(&error),
+            ),
+        };
+        self.operation_result(ManagedCoreOperation::ListenerProbe, result);
+        ownership
     }
 
     pub async fn recover_startup(
@@ -546,30 +693,76 @@ impl ManagedCoreOwnership {
         let observation = match record.phase {
             OwnershipPhase::Launching => {
                 let spec = record.spec();
+                self.operation_invoked(ManagedCoreOperation::RecoveryIdentity);
                 let matches = self
                     .find_launch(&spec)
-                    .await?
+                    .await
+                    .inspect_err(|error| {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            operation_result_for_error(error),
+                        );
+                    })?
                     .into_iter()
                     .filter(|observation| record.matches(observation))
                     .collect::<Vec<_>>();
                 match matches.as_slice() {
                     [] => {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            ManagedCoreOperationResult::AlreadyExited,
+                        );
                         self.clear_record()?;
                         return Ok(ManagedCoreRecoveryOutcome::ClearedIncompleteLaunch);
                     }
-                    [observation] => observation.clone(),
-                    _ => return Err(ManagedCoreOwnershipError::AmbiguousRecovery),
+                    [observation] => {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            ManagedCoreOperationResult::Verified,
+                        );
+                        observation.clone()
+                    }
+                    _ => {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            ManagedCoreOperationResult::Replaced,
+                        );
+                        return Err(ManagedCoreOwnershipError::AmbiguousRecovery);
+                    }
                 }
             }
             OwnershipPhase::Running => {
                 let pid = record.pid.ok_or(ManagedCoreOwnershipError::InvalidRecord)?;
-                let Some(observation) = self.inspect(pid).await? else {
-                    self.clear_record()?;
-                    return Ok(ManagedCoreRecoveryOutcome::ClearedExitedProcess);
+                self.operation_invoked(ManagedCoreOperation::RecoveryIdentity);
+                let observation = match self.inspect(pid).await {
+                    Ok(Some(observation)) => observation,
+                    Ok(None) => {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            ManagedCoreOperationResult::AlreadyExited,
+                        );
+                        self.clear_record()?;
+                        return Ok(ManagedCoreRecoveryOutcome::ClearedExitedProcess);
+                    }
+                    Err(error) => {
+                        self.operation_result(
+                            ManagedCoreOperation::RecoveryIdentity,
+                            operation_result_for_error(&error),
+                        );
+                        return Err(error);
+                    }
                 };
                 if !record.matches(&observation) {
+                    self.operation_result(
+                        ManagedCoreOperation::RecoveryIdentity,
+                        ManagedCoreOperationResult::Replaced,
+                    );
                     return Err(ManagedCoreOwnershipError::ReplacementDetected);
                 }
+                self.operation_result(
+                    ManagedCoreOperation::RecoveryIdentity,
+                    ManagedCoreOperationResult::Verified,
+                );
                 observation
             }
         };
@@ -627,10 +820,15 @@ impl ManagedCoreOwnership {
         process: &ManagedProcessObservation,
         deadline: Duration,
     ) -> Result<ManagedProcessWaitOutcome, ManagedCoreOwnershipError> {
+        self.operation_invoked(ManagedCoreOperation::WaitForExit);
         if deadline.is_zero() {
+            self.operation_result(
+                ManagedCoreOperation::WaitForExit,
+                ManagedCoreOperationResult::TimedOut,
+            );
             return Ok(ManagedProcessWaitOutcome::TimedOut);
         }
-        match timeout(
+        let outcome = match timeout(
             deadline,
             self.platform.wait_for_exit(process.clone(), deadline),
         )
@@ -638,7 +836,17 @@ impl ManagedCoreOwnership {
         {
             Ok(result) => result.map_err(map_platform_error),
             Err(_) => Ok(ManagedProcessWaitOutcome::TimedOut),
-        }
+        };
+        self.operation_result(
+            ManagedCoreOperation::WaitForExit,
+            match &outcome {
+                Ok(ManagedProcessWaitOutcome::Exited) => ManagedCoreOperationResult::Exited,
+                Ok(ManagedProcessWaitOutcome::Replaced) => ManagedCoreOperationResult::Replaced,
+                Ok(ManagedProcessWaitOutcome::TimedOut) => ManagedCoreOperationResult::TimedOut,
+                Err(error) => operation_result_for_error(error),
+            },
+        );
+        outcome
     }
 
     async fn inspect(
@@ -684,19 +892,88 @@ impl ManagedCoreOwnership {
         process: &ManagedProcessObservation,
         kill: bool,
     ) -> Result<ManagedProcessSignalOutcome, ManagedCoreOwnershipError> {
-        match self.inspect(process.pid()).await? {
-            None => return Ok(ManagedProcessSignalOutcome::AlreadyExited),
-            Some(current) if current != *process => {
-                return Err(ManagedCoreOwnershipError::ReplacementDetected);
+        self.operation_invoked(ManagedCoreOperation::Signal);
+        match self.verify_identity(process).await {
+            Ok(IdentityVerification::Exited) => {
+                self.operation_result(
+                    ManagedCoreOperation::Signal,
+                    ManagedCoreOperationResult::AlreadyExited,
+                );
+                return Ok(ManagedProcessSignalOutcome::AlreadyExited);
             }
-            Some(_) => {}
+            Err(error) => {
+                self.operation_result(
+                    ManagedCoreOperation::Signal,
+                    operation_result_for_error(&error),
+                );
+                return Err(error);
+            }
+            Ok(IdentityVerification::Confirmed(_)) => {}
+        }
+        // Keep the owner-side barrier immediately adjacent to the signal dispatch. The concrete
+        // platform performs its own final guard as well, so a replacement between this check and
+        // the OS call is still rejected without relying on PID-only behavior.
+        match self.verify_identity(process).await {
+            Ok(IdentityVerification::Exited) => {
+                self.operation_result(
+                    ManagedCoreOperation::Signal,
+                    ManagedCoreOperationResult::AlreadyExited,
+                );
+                return Ok(ManagedProcessSignalOutcome::AlreadyExited);
+            }
+            Err(error) => {
+                self.operation_result(
+                    ManagedCoreOperation::Signal,
+                    operation_result_for_error(&error),
+                );
+                return Err(error);
+            }
+            Ok(IdentityVerification::Confirmed(_)) => {}
         }
         let result = if kill {
             self.platform.kill(process.clone()).await
         } else {
             self.platform.terminate(process.clone()).await
         };
-        result.map_err(map_platform_error)
+        let result = result.map_err(map_platform_error);
+        self.operation_result(
+            ManagedCoreOperation::Signal,
+            match &result {
+                Ok(ManagedProcessSignalOutcome::Signalled) => ManagedCoreOperationResult::Signalled,
+                Ok(ManagedProcessSignalOutcome::AlreadyExited) => {
+                    ManagedCoreOperationResult::AlreadyExited
+                }
+                Err(error) => operation_result_for_error(error),
+            },
+        );
+        result
+    }
+
+    fn operation_invoked(&self, operation: ManagedCoreOperation) {
+        if let Some(observer) = &self.operation_observer {
+            observer(ManagedCoreOperationEvent::Invocation { operation });
+        }
+    }
+
+    fn operation_result(
+        &self,
+        operation: ManagedCoreOperation,
+        result: ManagedCoreOperationResult,
+    ) {
+        if let Some(observer) = &self.operation_observer {
+            observer(ManagedCoreOperationEvent::Result { operation, result });
+        }
+    }
+
+    async fn verify_identity(
+        &self,
+        expected: &ManagedProcessObservation,
+    ) -> Result<IdentityVerification, ManagedCoreOwnershipError> {
+        match self.inspect(expected.pid()).await? {
+            Some(current) if current == *expected => Ok(IdentityVerification::Confirmed(current)),
+            Some(_) => Err(ManagedCoreOwnershipError::ReplacementDetected),
+            None => Ok(IdentityVerification::Exited),
+        }
     }
 
     fn clear_generation(&self, generation_id: &str) -> Result<(), ManagedCoreOwnershipError> {
@@ -838,6 +1115,22 @@ fn map_platform_error(error: ManagedProcessPlatformError) -> ManagedCoreOwnershi
             ManagedCoreOwnershipError::ObservationFailed
         }
         ManagedProcessPlatformError::WaitFailed => ManagedCoreOwnershipError::TerminationFailed,
+    }
+}
+
+fn operation_result_for_error(error: &ManagedCoreOwnershipError) -> ManagedCoreOperationResult {
+    match error {
+        ManagedCoreOwnershipError::IdentityMismatch
+        | ManagedCoreOwnershipError::ReplacementDetected => ManagedCoreOperationResult::Replaced,
+        ManagedCoreOwnershipError::ObservationTimeout => ManagedCoreOperationResult::TimedOut,
+        ManagedCoreOwnershipError::InvalidRecord
+        | ManagedCoreOwnershipError::StorageUnavailable
+        | ManagedCoreOwnershipError::InvalidStorage
+        | ManagedCoreOwnershipError::InstanceAlreadyRunning
+        | ManagedCoreOwnershipError::ObservationFailed
+        | ManagedCoreOwnershipError::SignalFailed
+        | ManagedCoreOwnershipError::AmbiguousRecovery
+        | ManagedCoreOwnershipError::TerminationFailed => ManagedCoreOperationResult::Failed,
     }
 }
 

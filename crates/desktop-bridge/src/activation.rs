@@ -1360,9 +1360,17 @@ impl MihomoActivationManager {
             {
                 return Err(MihomoActivationError::VersionMismatch);
             }
-            if let Some(endpoint) =
+            let listener_conflict = if self.ownership.is_some() {
+                unowned_managed_listener_conflict(
+                    candidate.process.as_ref(),
+                    &candidate.proxy_endpoint,
+                    candidate.controller_address,
+                )
+                .await
+            } else {
                 managed_listener_conflict(&candidate.proxy_endpoint, candidate.controller_address)
-            {
+            };
+            if let Some(endpoint) = listener_conflict {
                 return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
             }
             return Err(MihomoActivationError::StartFailed);
@@ -1527,6 +1535,7 @@ async fn wait_for_candidate(
     timeout_after: Duration,
     cancellation: CancellationToken,
 ) -> Result<(), MihomoActivationError> {
+    let identity_bound = process.has_managed_ownership();
     let deadline = Instant::now() + timeout_after;
     let mut invalid_snapshot_observed = false;
     loop {
@@ -1549,7 +1558,12 @@ async fn wait_for_candidate(
             return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
         }
         if !matches!(runtime.core_status().await.phase, CorePhase::Running) {
-            if let Some(endpoint) = managed_listener_conflict(proxy_endpoint, controller_address) {
+            let listener_conflict = if identity_bound {
+                unowned_managed_listener_conflict(process, proxy_endpoint, controller_address).await
+            } else {
+                managed_listener_conflict(proxy_endpoint, controller_address)
+            };
+            if let Some(endpoint) = listener_conflict {
                 return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
             }
             return Err(MihomoActivationError::EarlyExit);
@@ -1724,8 +1738,9 @@ async fn managed_proxy_listener_remains_occupied(endpoint: SocketAddr) -> bool {
     true
 }
 
-/// Detect only whether Mish's fixed loopback endpoint can be bound. This does not
-/// inspect arbitrary processes, command lines, configuration, or credentials.
+/// Detect only whether Mish's fixed loopback endpoints can be bound. This fallback is used for
+/// unmanaged processes that have no verified identity handle; managed processes use
+/// `unowned_managed_listener_conflict` so a positive listener claim must cross the identity seam.
 fn managed_listener_conflict(
     proxy_endpoint: &LoopbackProxyEndpoint,
     controller_address: SocketAddr,

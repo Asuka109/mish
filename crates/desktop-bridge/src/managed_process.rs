@@ -283,6 +283,10 @@ impl DesktopMihomoProcess {
             && (self.config.config_directory.is_some() || self.config.config_file.is_some())
     }
 
+    pub(crate) fn has_managed_ownership(&self) -> bool {
+        self.ownership.is_some()
+    }
+
     pub async fn status(&self) -> CoreStatus {
         let mut inner = self.inner.lock().await;
         let update = inspect_child(&mut inner);

@@ -9,9 +9,11 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreLaunchSpec, ManagedCoreOwnership,
-    ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
-    ManagedProcessSignalOutcome, ManagedProcessWaitOutcome, ManagedRuntimeLease,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreLaunchSpec, ManagedCoreOperation,
+    ManagedCoreOperationEvent, ManagedCoreOperationObserver, ManagedCoreOperationResult,
+    ManagedCoreOwnership, ManagedProcessObservation, ManagedProcessPlatform,
+    ManagedProcessPlatformError, ManagedProcessSignalOutcome, ManagedProcessWaitOutcome,
+    ManagedRuntimeLease,
 };
 use mish_runtime::{
     CoreError, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime, CoreStatus,
@@ -30,20 +32,62 @@ async fn mutate_core(
         .await
 }
 
+fn invocation(operation: ManagedCoreOperation) -> ManagedCoreOperationEvent {
+    ManagedCoreOperationEvent::Invocation { operation }
+}
+
+fn result(
+    operation: ManagedCoreOperation,
+    result: ManagedCoreOperationResult,
+) -> ManagedCoreOperationEvent {
+    ManagedCoreOperationEvent::Result { operation, result }
+}
+
 #[derive(Clone)]
 struct FakeProcess {
     observation: ManagedProcessObservation,
     running: bool,
 }
 
+#[derive(Clone)]
+struct OperationTranscript {
+    events: Arc<Mutex<Vec<ManagedCoreOperationEvent>>>,
+}
+
+impl OperationTranscript {
+    const LIMIT: usize = 32;
+
+    fn new() -> Self {
+        Self {
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn observer(&self) -> ManagedCoreOperationObserver {
+        let events = self.events.clone();
+        Arc::new(move |event| {
+            let mut events = events.lock().unwrap();
+            if events.len() < Self::LIMIT {
+                events.push(event);
+            }
+        })
+    }
+
+    fn events(&self) -> Vec<ManagedCoreOperationEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
 #[derive(Default)]
 struct FakeProcessPlatform {
     prepared: Mutex<Option<ManagedCoreLaunchSpec>>,
     processes: Mutex<HashMap<u32, FakeProcess>>,
+    inspect_counts: Mutex<HashMap<u32, usize>>,
     next_pid: Mutex<u32>,
     terminations: Mutex<Vec<u32>>,
     inspect_delay: Mutex<Option<Duration>>,
     listener_probe_delay: Mutex<Option<Duration>>,
+    replace_before_inspection: Mutex<Option<(u32, usize, ManagedProcessObservation)>>,
     replace_before_listener_confirmation: Mutex<Option<ManagedProcessObservation>>,
     replace_before_signal: Mutex<Option<ManagedProcessObservation>>,
     observation_fails: AtomicBool,
@@ -116,6 +160,15 @@ impl FakeProcessPlatform {
         *self.replace_before_signal.lock().unwrap() = Some(observation);
     }
 
+    fn replace_before_inspection(
+        &self,
+        pid: u32,
+        inspection: usize,
+        observation: ManagedProcessObservation,
+    ) {
+        *self.replace_before_inspection.lock().unwrap() = Some((pid, inspection, observation));
+    }
+
     fn replace_before_listener_confirmation(&self, observation: ManagedProcessObservation) {
         *self.replace_before_listener_confirmation.lock().unwrap() = Some(observation);
     }
@@ -141,6 +194,28 @@ impl ManagedProcessPlatform for FakeProcessPlatform {
             }
             if self.observation_fails.load(Ordering::Relaxed) {
                 return Err(ManagedProcessPlatformError::ObservationFailed);
+            }
+            let inspection = {
+                let mut counts = self.inspect_counts.lock().unwrap();
+                let count = counts.entry(pid).or_default();
+                *count = count.saturating_add(1);
+                *count
+            };
+            let replacement = {
+                let mut pending = self.replace_before_inspection.lock().unwrap();
+                if pending
+                    .as_ref()
+                    .is_some_and(|(target_pid, target_inspection, _)| {
+                        *target_pid == pid && *target_inspection == inspection
+                    })
+                {
+                    pending.take().map(|(_, _, replacement)| replacement)
+                } else {
+                    None
+                }
+            };
+            if let Some(replacement) = replacement {
+                self.replace_observation(pid, replacement);
             }
             let mut processes = self.processes.lock().unwrap();
             if !processes.contains_key(&pid)
@@ -407,6 +482,171 @@ async fn commit_types_a_bounded_identity_observation_timeout() {
 }
 
 #[tokio::test]
+async fn commit_transcript_rejects_replacement_at_the_record_barrier() {
+    let fixture = OwnershipFixture::new();
+    let transcript = OperationTranscript::new();
+    let first = fixture.first_with_transcript(&transcript);
+    let launch = fixture.begin_launch(&first).unwrap();
+    let pid = fixture.platform.spawn(launch.spec());
+    fixture.platform.replace_before_inspection(
+        pid,
+        2,
+        ManagedProcessObservation::from_launch(pid, 42, launch.spec()),
+    );
+
+    assert_eq!(
+        first.commit_launch(&launch, pid).await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ReplacementDetected
+    );
+    assert_eq!(
+        transcript.events(),
+        vec![
+            invocation(ManagedCoreOperation::CommitIdentity),
+            result(
+                ManagedCoreOperation::CommitIdentity,
+                ManagedCoreOperationResult::Verified,
+            ),
+            invocation(ManagedCoreOperation::CommitIdentity),
+            result(
+                ManagedCoreOperation::CommitIdentity,
+                ManagedCoreOperationResult::Replaced,
+            ),
+        ]
+    );
+    assert!(first.has_record().unwrap());
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn pid_reuse_recovery_transcript_never_invokes_signal() {
+    let fixture = OwnershipFixture::new();
+    let (first, launch, pid) = fixture.committed_process().await;
+    drop(first);
+    fixture.platform.replace_observation(
+        pid,
+        ManagedProcessObservation::from_launch(pid, 42, launch.spec()),
+    );
+    let transcript = OperationTranscript::new();
+    let second = fixture.reopen_with_transcript(&transcript);
+
+    assert_eq!(
+        second.recover_startup().await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ReplacementDetected
+    );
+    assert_eq!(
+        transcript.events(),
+        vec![
+            invocation(ManagedCoreOperation::RecoveryIdentity),
+            result(
+                ManagedCoreOperation::RecoveryIdentity,
+                ManagedCoreOperationResult::Replaced,
+            ),
+        ]
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn replacement_signal_transcript_stops_before_mutating_the_replacement() {
+    let fixture = OwnershipFixture::new();
+    let (first, launch, pid) = fixture.committed_process().await;
+    drop(first);
+    fixture
+        .platform
+        .replace_before_next_signal(ManagedProcessObservation::from_launch(
+            pid,
+            42,
+            launch.spec(),
+        ));
+    let transcript = OperationTranscript::new();
+    let second = fixture.reopen_with_transcript(&transcript);
+
+    assert_eq!(
+        second.recover_startup().await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ReplacementDetected
+    );
+    assert_eq!(
+        transcript.events(),
+        vec![
+            invocation(ManagedCoreOperation::RecoveryIdentity),
+            result(
+                ManagedCoreOperation::RecoveryIdentity,
+                ManagedCoreOperationResult::Verified,
+            ),
+            invocation(ManagedCoreOperation::Signal),
+            result(
+                ManagedCoreOperation::Signal,
+                ManagedCoreOperationResult::Replaced,
+            ),
+        ]
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn timeout_transcript_is_bounded_and_does_not_signal() {
+    let fixture = OwnershipFixture::new();
+    let transcript = OperationTranscript::new();
+    let first = fixture.first_with_transcript(&transcript);
+    let launch = fixture.begin_launch(&first).unwrap();
+    fixture
+        .platform
+        .delay_identity_observation(Duration::from_secs(1));
+
+    assert_eq!(
+        first.commit_launch(&launch, 4242).await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ObservationTimeout
+    );
+    assert_eq!(
+        transcript.events(),
+        vec![
+            invocation(ManagedCoreOperation::CommitIdentity),
+            result(
+                ManagedCoreOperation::CommitIdentity,
+                ManagedCoreOperationResult::TimedOut,
+            ),
+        ]
+    );
+    assert!(transcript.events().len() <= OperationTranscript::LIMIT);
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn normal_termination_transcript_signals_waits_and_clears_recovery() {
+    let fixture = OwnershipFixture::new();
+    let (first, _launch, pid) = fixture.committed_process().await;
+    drop(first);
+    let transcript = OperationTranscript::new();
+    let second = fixture.reopen_with_transcript(&transcript);
+
+    assert_eq!(
+        second.recover_startup().await.unwrap(),
+        mish_bridge::ManagedCoreRecoveryOutcome::Recovered { pid }
+    );
+    assert_eq!(
+        transcript.events(),
+        vec![
+            invocation(ManagedCoreOperation::RecoveryIdentity),
+            result(
+                ManagedCoreOperation::RecoveryIdentity,
+                ManagedCoreOperationResult::Verified,
+            ),
+            invocation(ManagedCoreOperation::Signal),
+            result(
+                ManagedCoreOperation::Signal,
+                ManagedCoreOperationResult::Signalled,
+            ),
+            invocation(ManagedCoreOperation::WaitForExit),
+            result(
+                ManagedCoreOperation::WaitForExit,
+                ManagedCoreOperationResult::Exited,
+            ),
+        ]
+    );
+    assert!(!second.has_record().unwrap());
+}
+
+#[tokio::test]
 async fn identity_debug_output_redacts_paths_and_launch_tokens() {
     let fixture = OwnershipFixture::new();
     let first = fixture.first();
@@ -515,6 +755,35 @@ async fn listener_probe_revalidates_identity_after_observation() {
             .process_listener_ownership(&process, &LoopbackProxyEndpoint::managed())
             .await,
         LocalProxyOwnership::Unowned
+    );
+}
+
+#[tokio::test]
+async fn listener_probe_transcript_records_identity_bound_ownership() {
+    let fixture = OwnershipFixture::new();
+    let transcript = OperationTranscript::new();
+    let first = fixture.first_with_transcript(&transcript);
+    let launch = fixture.begin_launch(&first).unwrap();
+    let pid = fixture.platform.spawn(launch.spec());
+    let process = first.commit_launch(&launch, pid).await.unwrap();
+    let committed_events = transcript.events().len();
+    fixture.platform.set_listener_owned(true);
+
+    assert_eq!(
+        first
+            .process_listener_ownership(&process, &LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Owned
+    );
+    assert_eq!(
+        &transcript.events()[committed_events..],
+        &[
+            invocation(ManagedCoreOperation::ListenerProbe),
+            result(
+                ManagedCoreOperation::ListenerProbe,
+                ManagedCoreOperationResult::Owned,
+            ),
+        ]
     );
 }
 
@@ -795,8 +1064,16 @@ impl OwnershipFixture {
         ManagedCoreOwnership::new(self.runtime_root.clone(), self.platform.clone(), lease).unwrap()
     }
 
+    fn first_with_transcript(&self, transcript: &OperationTranscript) -> ManagedCoreOwnership {
+        self.first().with_operation_observer(transcript.observer())
+    }
+
     fn reopen(&self) -> ManagedCoreOwnership {
         self.first()
+    }
+
+    fn reopen_with_transcript(&self, transcript: &OperationTranscript) -> ManagedCoreOwnership {
+        self.first_with_transcript(transcript)
     }
 
     fn begin_launch(
