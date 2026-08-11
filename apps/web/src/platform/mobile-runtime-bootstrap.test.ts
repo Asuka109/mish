@@ -130,6 +130,24 @@ describe("mobile native fixture bootstrap", () => {
     expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
   });
 
+  it("keeps a native-labelled mobile fixture Capture-unsupported", async () => {
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => fixture,
+      mobileSettingsClient: createSettingsClient(),
+      mobileVpnClient: createVpnClient(),
+    });
+    const client = startup.client;
+    if (!client) throw new Error("Missing mobile fixture status client");
+    const before = await client.getSnapshot();
+
+    expect(client.supportsCommand("capture")).toBe(false);
+    await expect(client.setCapture({ systemProxy: true, tun: false }, true)).rejects.toMatchObject({
+      code: "unsupported",
+    });
+    await expect(client.getSnapshot()).resolves.toEqual(before);
+    startup.dispose();
+  });
+
   it("rejects malformed or capability-inflating native messages", async () => {
     await expect(
       resolveMobileStartup({
