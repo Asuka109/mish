@@ -446,7 +446,7 @@ where
             .try_acquire()
             .map_err(|_| ProfileServiceError::Busy)?;
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
-        let mut current = self.repository.load(&id)?;
+        let mut current = self.current_record(&id)?;
         if current.source.source_type() != ProfileSourceType::Https {
             return Err(ProfileServiceError::SchedulingUnavailable);
         }
@@ -501,21 +501,23 @@ where
             .authority
             .try_acquire()
             .map_err(|_| ProfileServiceError::Busy)?;
+        let mut records = self
+            .current_records()?
+            .into_iter()
+            .map(|record| {
+                (
+                    profile_file_name(&record.metadata.label, &record.source.display_summary()),
+                    record,
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
         fs::create_dir_all(&self.profile_directory)
             .map_err(|_| RepositoryError::AtomicWriteFailed)?;
         let directory_metadata = fs::symlink_metadata(&self.profile_directory)
             .map_err(|_| RepositoryError::ReadFailed)?;
         if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
             return Err(RepositoryError::UnsafeStoragePath.into());
-        }
-
-        let mut records = HashMap::new();
-        for metadata in self.repository.list_metadata()? {
-            let record = self.repository.load(&metadata.id)?;
-            records.insert(
-                profile_file_name(&record.metadata.label, &record.source.display_summary()),
-                record,
-            );
         }
 
         let mut paths = fs::read_dir(&self.profile_directory)
@@ -750,7 +752,7 @@ where
         profile_id: &str,
     ) -> Result<crate::ProfileRecord, ProfileServiceError> {
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
-        let record = self.repository.load(&id)?;
+        let record = self.current_record(&id)?;
         crate::apply_profile_patches(
             &record.normalized_bytes,
             &record.metadata.revision.id,
@@ -917,14 +919,29 @@ where
 
     fn profile_list(&self) -> Result<Vec<ProfileListItem>, ProfileServiceError> {
         Ok(self
-            .repository
-            .list_metadata_with_effective_fingerprints()?
+            .current_records()?
             .into_iter()
-            .map(|(metadata, effective_fingerprint)| {
-                let source = self.repository.load(&metadata.id)?.source.display_summary();
-                Ok(profile_list_item(metadata, effective_fingerprint, source))
+            .map(|record| {
+                let source = record.source.display_summary();
+                let effective_fingerprint = record.effective_fingerprint().clone();
+                profile_list_item(record.metadata, effective_fingerprint, source)
             })
-            .collect::<Result<Vec<_>, RepositoryError>>()?)
+            .collect())
+    }
+
+    fn current_records(&self) -> Result<Vec<crate::ProfileRecord>, ProfileServiceError> {
+        Ok(self
+            .repository
+            .read_current_generation()?
+            .map(|generation| generation.profiles)
+            .unwrap_or_default())
+    }
+
+    fn current_record(&self, id: &ProfileId) -> Result<crate::ProfileRecord, ProfileServiceError> {
+        self.current_records()?
+            .into_iter()
+            .find(|record| record.metadata.id == *id)
+            .ok_or_else(|| RepositoryError::NotFound.into())
     }
 
     fn validate_permit(&self, permit: &StateMutationPermit) -> Result<(), ProfileServiceError> {
