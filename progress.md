@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Six Wave 2A Luna Max workers remain active from the pre-published manifest and
-clean detached baseline `5758260`. #440 B1.2 is integrated at `80e23d0`. Four
-concurrency slots remain unreserved; no additional task is dispatched without
-an approved wave.
+Five Wave 2A Luna Max workers remain active from the pre-published manifest and
+clean detached baseline `5758260`. #440 B1.2 and #438 A4.2 are integrated.
+Five concurrency slots remain unreserved; no additional task is dispatched
+without an approved wave.
 
 ## Wave 1 worker ledger
 
@@ -31,7 +31,7 @@ an approved wave.
 | #436 A1.1 | `019fefb6-dbbc-7dd2-bd7c-2fcb7c10fdb4` | `39f5` | integrated | none | accepted | PR #460 merged as `3044867`; bounded kernel and repository gates passed, A1.2/A1.3 remain open. |
 | #448 A2.1 | `019fefb6-df13-7c43-aa76-8baa63f77248` | `d79d` | integrated | none for A2.1 | accepted | PR #458 merged as `168292a`; exact-restore adapter gates passed, A2.2/A2.3 remain open. |
 | #437 A3.1 | `019fefb6-dba8-7be2-9833-24c5c22f6c53` | `b68e` | integrated | none | accepted | PR #459 merged as `25ac46b`; bounded Internal TUN scenarios passed, A3.2 remains open. |
-| #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | integrated | none | accepted | PR #455 merged as `9322e17`; local/remote gates passed, Issue checklist synced, A4.2 remains open. |
+| #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | integrated | none | accepted | PR #455 merged as `9322e17`; local/remote gates passed; A4.2 later completed the Issue. |
 | #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | integrated | none | accepted | PR #461 merged as `5b454ea`; identity-bound process gates passed, Issue checklist synced, A5.2 remains open. |
 | #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | integrated | none | accepted | PR #457 merged as `8c23789`; local/remote gates passed, Issue checklist synced, B1.2-B1.5 remain open. |
 | #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed, Issue checklist synced, E2.2/E2.3 remain open. |
@@ -47,7 +47,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | integrated | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | PR #462 merged as `80e23d0`; Fast PR gate, RPC 22 tests, and Web 574 tests passed; only Events migrated, B1.3-B1.5 remain open. |
 | #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | active | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | Clean detached `5758260`; preserve A1.3 documentation/gate scope. |
 | #437 A3.2 | `019feff9-1f57-7b23-885f-7c0cb609aee8` | `f803` | active | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | Clean detached `5758260`; merge latest A1.2 first if shared lifecycle semantics overlap. |
-| #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | active | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | Clean detached `5758260`; reuse A4.1 Browser tests instead of duplicating them. |
+| #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | integrated | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | PR #465 merged as `7c66f43`; Fast PR gate and coordinator exclusion 10/10, mobile 4/4, Browser 12/12 checks passed; Issue #438 closed completed. |
 | #443 E2.2 | `019feff9-1bf2-7621-a5b9-dd08b6240627` | `8407` | active | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | Clean detached `5758260`; E2.3 drift/docs/branch-protection evidence remains separate. |
 | #441 C2.1 | `019feff9-1bf9-7943-9ed1-399bb2b16b31` | `3d15` | active | none | Private durable staging and atomic Profile generation publication | Clean detached `5758260`; do not migrate readers assigned to C2.2. |
 | #442 E1.1 | `019feff9-1bf4-7283-9330-1117529fce86` | `40ee` | active | none | Release executable/path containment under private no-follow roots | Clean detached `5758260`; no signing credentials or real release effects. |
@@ -59,7 +59,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Owned operations | #436 | active: A1.2; A1.1 integrated | none | confirmation-only |
 | System Proxy restoration | #448 | A2.1 integrated; A2.2/A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | active: A3.2; A3.1 integrated | none | confirmation-only |
-| Browser fixture truthfulness | #438 | active: A4.2; A4.1 integrated | none | confirmation-only |
+| Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | A5.1 integrated; A5.2 planned | none | confirmation-only |
 | RPC Session Authority | #440 | B1.1/B1.2 integrated; B1.3-B1.5 planned | none | confirmation-only |
 | Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
