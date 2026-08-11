@@ -19,9 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A through 2D are fully integrated. No new Worker is active. Completion
-of #440 unlocks #449 C1.1, #450 C3.1, #451 D1.1, #452 F1.1, and #453 F2.1;
-an exact next wave still requires maintainer confirmation before publication.
+Waves 2A through 2D are fully integrated. The maintainer approved the exact
+five-task AFK Wave 2E on 2026-08-12. Five visible Luna Max Worker reservations
+are in `dispatching` state with identity/worktree backfill pending, and five
+repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -123,6 +124,22 @@ physical-host mutation, or other hands-on work.
 | --- | --- | --- | --- | --- | --- | --- |
 | #440 B1.5 | `019ff17f-35cb-7103-9517-2e1923f0f695` | `c5a6` | integrated | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | PR #485 merged as `d64df01`; local final `check:pr`, Android gate, and all Fast PR job steps passed, while the GitHub run envelope remains stale `in_progress`; Issue #440 closed completed |
 | #442 E1.4 | `019ff17f-35cd-7602-a70d-c61f73117922` | `393d` | integrated | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | PR #484 merged as `949b4fd`; release security, final `check:pr`, Fast PR, and Android gates passed without credentials or real signing; Issue #442 closed completed |
+
+## Wave 2E dispatch manifest
+
+The maintainer approved this exact five-task AFK wave. Every entry uses model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. The wave
+authorizes no credentials, physical-device acceptance, real-host mutation, or
+other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #449 C1.1 | `pending` | `pending` | dispatching | #440 completed | Introduce the redacted subscription summary DTO and structured-event redaction contract | Own Profile public DTO/event redaction only; do not implement HTTPS generation binding or detach UI; use synthetic secrets and follow the transcript skill |
+| #450 C3.1 | `pending` | `pending` | dispatching | #440 completed | Add the scope/preview/session-generation fingerprint contract | Own backup authority/fingerprint contract and deterministic tests only; leave Browser Mode behavior to C3.2 and follow the transcript skill |
+| #451 D1.1 | `pending` | `pending` | dispatching | #436 and #440 completed | Harden Rust Android VPN replacement, cleanup barriers, and the `Stopped` invariant | Own Rust lifecycle authority only; do not change Kotlin/JavaScript or claim physical-device acceptance; follow the transcript skill |
+| #452 F1.1 | `pending` | `pending` | dispatching | #440 completed | Implement one editor operation identity and unified pending exclusion policy | Own service-monitor editor operation authority/tests only; leave confirmation/cancellation UX to F1.2 |
+| #453 F2.1 | `pending` | `pending` | dispatching | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | Read-only analysis/evidence only; stop if a supported runtime entry is found and do not delete or modify active Profile code |
 
 ## Existing issue coordination
 
