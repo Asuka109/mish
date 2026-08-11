@@ -717,6 +717,7 @@ async fn detaching_a_subscription_keeps_the_current_revision_as_a_local_profile(
     profile_service
         .set_refresh_policy(&profile_id, ProfileRefreshPolicy::TwelveHours)
         .unwrap();
+    fs::remove_dir_all(temp.path().join("profile-store/profiles").join(&profile_id)).unwrap();
 
     let detached = profile_service.detach_subscription(&profile_id).unwrap();
 
@@ -793,9 +794,29 @@ async fn activation_records_are_reloaded_and_revalidated_from_private_storage() 
     let profile_id = saved.profiles[0].id.clone();
 
     let record = service.activation_record(&profile_id).unwrap();
+    let repository = FileProfileRepository::new(temp.path().join("profile-store"));
+    let generation = repository
+        .read_current_generation()
+        .unwrap()
+        .expect("saved generation");
+    fs::write(
+        temp.path()
+            .join("profile-store/profiles")
+            .join(&profile_id)
+            .join("metadata.json"),
+        b"legacy mirror is not authoritative",
+    )
+    .unwrap();
+    assert_eq!(service.snapshot().unwrap().profiles[0].id, profile_id);
+    assert_eq!(
+        service.activation_record(&profile_id).unwrap().metadata,
+        record.metadata
+    );
     let artifact = temp
         .path()
         .join("profile-store")
+        .join("generations")
+        .join(generation.id.as_str())
         .join("profiles")
         .join(&profile_id)
         .join("artifacts")
@@ -811,6 +832,52 @@ async fn activation_records_are_reloaded_and_revalidated_from_private_storage() 
             mish_profile::RepositoryError::IntegrityMismatch
         ))
     ));
+}
+
+#[tokio::test]
+async fn profile_readers_fail_closed_without_current_generation_and_never_publish_one() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
+    );
+    let preview = service
+        .preflight_local(
+            "/fictional/missing-generation.yaml".into(),
+            Some("Missing generation".into()),
+        )
+        .await
+        .unwrap();
+    let saved = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+    let pointer = temp
+        .path()
+        .join("profile-store")
+        .join(mish_profile::PROFILE_CURRENT_GENERATION_FILE);
+    fs::remove_file(&pointer).unwrap();
+
+    let expected = |error| {
+        matches!(
+            error,
+            ProfileServiceError::Repository(mish_profile::RepositoryError::CorruptData {
+                component: mish_profile::RepositoryComponent::GenerationPointer
+            })
+        )
+    };
+    assert!(expected(service.snapshot().unwrap_err()));
+    assert!(expected(
+        service.select_profile(&profile_id).await.unwrap_err()
+    ));
+    assert!(expected(
+        service.detach_subscription(&profile_id).unwrap_err()
+    ));
+    assert!(expected(
+        service.activation_record(&profile_id).unwrap_err()
+    ));
+    assert!(expected(
+        service.reconcile_profile_directory().await.unwrap_err()
+    ));
+    assert!(!pointer.exists(), "readers must not publish a generation");
 }
 
 #[tokio::test]
