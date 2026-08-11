@@ -20,9 +20,9 @@ Owner: thread-master coordinator
 ## Active tasks
 
 Waves 2A through 2D are fully integrated. The maintainer approved the exact
-five-task AFK Wave 2E on 2026-08-12. Five visible Luna Max Worker reservations
-are in `dispatching` state with identity/worktree backfill pending, and five
-repository concurrency slots remain unreserved.
+five-task AFK Wave 2E on 2026-08-12. All five visible Luna Max Workers are
+active in isolated worktrees, and five repository concurrency slots remain
+unreserved.
 
 ## Wave 1 worker ledger
 
@@ -135,11 +135,11 @@ other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.1 | `pending` | `pending` | dispatching | #440 completed | Introduce the redacted subscription summary DTO and structured-event redaction contract | Own Profile public DTO/event redaction only; do not implement HTTPS generation binding or detach UI; use synthetic secrets and follow the transcript skill |
-| #450 C3.1 | `pending` | `pending` | dispatching | #440 completed | Add the scope/preview/session-generation fingerprint contract | Own backup authority/fingerprint contract and deterministic tests only; leave Browser Mode behavior to C3.2 and follow the transcript skill |
-| #451 D1.1 | `pending` | `pending` | dispatching | #436 and #440 completed | Harden Rust Android VPN replacement, cleanup barriers, and the `Stopped` invariant | Own Rust lifecycle authority only; do not change Kotlin/JavaScript or claim physical-device acceptance; follow the transcript skill |
-| #452 F1.1 | `pending` | `pending` | dispatching | #440 completed | Implement one editor operation identity and unified pending exclusion policy | Own service-monitor editor operation authority/tests only; leave confirmation/cancellation UX to F1.2 |
-| #453 F2.1 | `pending` | `pending` | dispatching | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | Read-only analysis/evidence only; stop if a supported runtime entry is found and do not delete or modify active Profile code |
+| #449 C1.1 | `019ff1b0-737c-7ed0-9392-1f8746301eed` | `431d` | active | #440 completed | Introduce the redacted subscription summary DTO and structured-event redaction contract | Visible Luna Max Worker is active; own Profile public DTO/event redaction only, do not implement C1.2/C1.3, and use synthetic secrets |
+| #450 C3.1 | `019ff1b0-737c-7ed0-9392-1fb8dc1725fa` | `c27c` | active | #440 completed | Add the scope/preview/session-generation fingerprint contract | Visible Luna Max Worker is active; own backup authority/fingerprint contract and deterministic tests only, leaving Browser Mode behavior to C3.2 |
+| #451 D1.1 | `019ff1b0-737d-7651-badf-08f9bc0eed79` | `ecd5` | active | #436 and #440 completed | Harden Rust Android VPN replacement, cleanup barriers, and the `Stopped` invariant | Visible Luna Max Worker is active; own Rust lifecycle authority only and do not change Kotlin/JavaScript or claim physical-device acceptance |
+| #452 F1.1 | `019ff1b0-737c-7ed0-9392-1f373f75ee5a` | `b3af` | active | #440 completed | Implement one editor operation identity and unified pending exclusion policy | Visible Luna Max Worker is active; own service-monitor editor operation authority/tests only and leave confirmation/cancellation UX to F1.2 |
+| #453 F2.1 | `019ff1b0-737c-7ed0-9392-1f5e14e25def` | `fded` | active | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | Visible Luna Max Worker is active; read-only analysis/evidence only, stop on a supported runtime entry, and do not delete or modify active Profile code |
 
 ## Existing issue coordination
 
