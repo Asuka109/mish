@@ -301,8 +301,8 @@ test("signed-direct Tauri configuration pins hardened runtime and empty entitlem
     builder,
     /const bundleMihomo = path\.resolve\("\.scratch\/macos-bundle\/mihomo-aarch64-apple-darwin"\)/u,
   );
-  assert.match(builder, /copyFileSync\(mihomo, bundleMihomo\)/u);
-  assert.match(builder, /signingArguments\.push\("--sign", identity, bundleMihomo\)/u);
+  assert.match(builder, /readContainedReleaseFile\(mihomoGuard\)/u);
+  assert.match(builder, /signingArguments\.push\("--sign", identity, stagedMihomo\.absolute\)/u);
   assert.match(builder, /Pinned Mihomo changed while staging the signed bundle resource/u);
   assert.doesNotMatch(builder, /signingArguments\.push\("--sign", identity, mihomo\)/u);
 

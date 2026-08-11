@@ -2613,8 +2613,40 @@ impl AcceptedMetadata {
 #[derive(Clone)]
 struct CandidateStore {
     root: PathBuf,
+    root_identity: StoreRootIdentity,
     #[cfg(test)]
     trace: Arc<Mutex<VecDeque<&'static str>>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StoreRootIdentity {
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+    mode: u32,
+}
+
+fn store_root_identity(metadata: &fs::Metadata) -> StoreRootIdentity {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        StoreRootIdentity {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            mode: metadata.mode(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        StoreRootIdentity {
+            mode: metadata.permissions().readonly() as u32,
+        }
+    }
+}
+
+fn store_root_identity_matches(identity: StoreRootIdentity, metadata: &fs::Metadata) -> bool {
+    store_root_identity(metadata) == identity
 }
 
 struct RecoveredState {
@@ -2666,15 +2698,29 @@ impl CandidateStore {
             return Err(UpdateOperationError::StoreUnsafe);
         }
         ensure_directory(&root, 0o700)?;
-        let root = fs::canonicalize(root).map_err(|_| UpdateOperationError::StoreIo)?;
         ensure_private_directory(&root)?;
+        let metadata =
+            fs::symlink_metadata(&root).map_err(|_| UpdateOperationError::StoreUnsafe)?;
         let store = Self {
             root,
+            root_identity: store_root_identity(&metadata),
             #[cfg(test)]
             trace: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
         };
+        store.ensure_root_current()?;
         store.cleanup_unrecognized()?;
         Ok(store)
+    }
+
+    fn ensure_root_current(&self) -> Result<(), UpdateOperationError> {
+        let metadata =
+            fs::symlink_metadata(&self.root).map_err(|_| UpdateOperationError::StoreUnsafe)?;
+        if !metadata.file_type().is_dir()
+            || !store_root_identity_matches(self.root_identity, &metadata)
+        {
+            return Err(UpdateOperationError::StoreUnsafe);
+        }
+        validate_owner_and_mode(&metadata, true)
     }
 
     fn recover(
@@ -2683,6 +2729,7 @@ impl CandidateStore {
         policy: &UpdatePolicy,
         limits: &UpdaterLimits,
     ) -> Result<RecoveredState, UpdateOperationError> {
+        self.ensure_root_current()?;
         let accepted = self.read_accepted()?;
         if let Ok(state) = self.read_json::<PersistedState>(&self.root.join(STATE_FILE))
             && state.schema_version == STORE_SCHEMA_VERSION
@@ -2836,6 +2883,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         correlation: &check_machine::EffectCorrelation,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let operation_id = correlation.operation_id.as_str();
         let persisted = available.persisted(operation_id);
         if self
@@ -2868,6 +2916,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         operation_id: &str,
     ) -> Result<PartialInfo, UpdateOperationError> {
+        self.ensure_root_current()?;
         let persisted = available.persisted(operation_id);
         let expected_resume = persisted.identity.resume_identity(&persisted.release);
         let directory = self.root.join(PARTIAL_DIRECTORY);
@@ -2907,6 +2956,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         operation_id: &str,
     ) -> Result<PartialInfo, UpdateOperationError> {
+        self.ensure_root_current()?;
         let directory = self.root.join(PARTIAL_DIRECTORY);
         ensure_private_directory(&directory)?;
         validate_exact_entries(&directory, &[PARTIAL_MANIFEST, PARTIAL_PAYLOAD])?;
@@ -2947,6 +2997,7 @@ impl CandidateStore {
         operation_id: &str,
         etag: Option<&str>,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let directory = self.root.join(PARTIAL_DIRECTORY);
         let persisted = available.persisted(operation_id);
         self.write_json_atomic(
@@ -2967,6 +3018,7 @@ impl CandidateStore {
         correlation: &ContinuationCorrelation,
         committed_bytes: u64,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let partial = self.partial_info(available, &correlation.machine.operation_id)?;
         if partial.size != committed_bytes {
             return Err(UpdateOperationError::StoreUnsafe);
@@ -2988,6 +3040,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         correlation: &ContinuationCorrelation,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let operation_id = correlation.machine.operation_id.as_str();
         let partial = self.partial_info(available, operation_id)?;
         if partial.size != available.metadata.artifact_size {
@@ -3092,6 +3145,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         expected: &PersistedCandidate,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let payload = self.inspect_candidate(available, expected)?;
         adapter
             .verify_payload_file(
@@ -3108,6 +3162,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         expected: &PersistedCandidate,
     ) -> Result<PathBuf, UpdateOperationError> {
+        self.ensure_root_current()?;
         let directory = self.root.join(CANDIDATE_DIRECTORY);
         ensure_private_directory(&directory)?;
         validate_exact_entries(&directory, &[CANDIDATE_MANIFEST, CANDIDATE_PAYLOAD])?;
@@ -3125,6 +3180,7 @@ impl CandidateStore {
         available: &AvailableCandidate,
         correlation: &ContinuationCorrelation,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let mut accepted = self.read_accepted()?;
         accepted.record(&available.metadata);
         self.write_accepted(&accepted)?;
@@ -3144,6 +3200,7 @@ impl CandidateStore {
     }
 
     fn partial_is_stale(&self, limits: &UpdaterLimits) -> Result<bool, UpdateOperationError> {
+        self.ensure_root_current()?;
         let manifest_path = self.root.join(PARTIAL_DIRECTORY).join(PARTIAL_MANIFEST);
         if !manifest_path.exists() {
             return Ok(false);
@@ -3157,6 +3214,7 @@ impl CandidateStore {
     }
 
     fn cleanup_unrecognized(&self) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let entries = fs::read_dir(&self.root)
             .map_err(|_| UpdateOperationError::StoreIo)?
             .collect::<Result<Vec<_>, _>>()
@@ -3195,6 +3253,7 @@ impl CandidateStore {
     }
 
     fn discard_managed_state(&self) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         self.discard_partial()?;
         self.discard_candidate()?;
         remove_file_if_present(&self.root.join(STATE_FILE))?;
@@ -3202,14 +3261,17 @@ impl CandidateStore {
     }
 
     fn discard_partial(&self) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         remove_entry_without_following(&self.root.join(PARTIAL_DIRECTORY))
     }
 
     fn discard_candidate(&self) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         remove_entry_without_following(&self.root.join(CANDIDATE_DIRECTORY))
     }
 
     fn read_accepted(&self) -> Result<AcceptedMetadata, UpdateOperationError> {
+        self.ensure_root_current()?;
         let path = self.root.join(ACCEPTED_FILE);
         if !path.exists() {
             return Ok(AcceptedMetadata::empty());
@@ -3222,6 +3284,7 @@ impl CandidateStore {
     }
 
     fn write_accepted(&self, accepted: &AcceptedMetadata) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         self.write_json_atomic(&self.root.join(ACCEPTED_FILE), accepted, 0o600)
     }
 
@@ -3229,6 +3292,7 @@ impl CandidateStore {
         &self,
         path: &Path,
     ) -> Result<T, UpdateOperationError> {
+        self.ensure_root_current()?;
         let metadata = validate_private_file(path, None)?;
         if metadata.len() > 512 * 1024 {
             return Err(UpdateOperationError::StoreUnsafe);
@@ -3243,6 +3307,7 @@ impl CandidateStore {
         value: &T,
         mode: u32,
     ) -> Result<(), UpdateOperationError> {
+        self.ensure_root_current()?;
         let parent = path.parent().ok_or(UpdateOperationError::StoreUnsafe)?;
         ensure_private_directory(parent)?;
         let file_name = path
@@ -3316,9 +3381,13 @@ fn now_seconds() -> u64 {
 }
 
 fn ensure_directory(path: &Path, mode: u32) -> Result<(), UpdateOperationError> {
-    if path.exists() {
-        ensure_private_directory(path)?;
-        return Ok(());
+    match fs::symlink_metadata(path) {
+        Ok(_) => {
+            ensure_private_directory(path)?;
+            return Ok(());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(UpdateOperationError::StoreUnsafe),
     }
     fs::create_dir_all(path).map_err(|_| UpdateOperationError::StoreIo)?;
     set_permissions(path, mode)?;
@@ -5699,6 +5768,36 @@ mod tests {
         assert_eq!(
             fs::read(root.join(CANDIDATE_DIRECTORY).join(CANDIDATE_PAYLOAD)).unwrap(),
             ARTIFACT
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_store_rejects_symlinked_and_replaced_private_roots() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = TempDir::new().unwrap();
+        let real_root = temporary.path().join("real");
+        fs::create_dir(&real_root).unwrap();
+        fs::set_permissions(&real_root, fs::Permissions::from_mode(0o700)).unwrap();
+        let symlink_root = temporary.path().join("symlink");
+        std::os::unix::fs::symlink(&real_root, &symlink_root).unwrap();
+        assert!(matches!(
+            CandidateStore::open(symlink_root),
+            Err(UpdateOperationError::StoreUnsafe)
+        ));
+
+        let root = temporary.path().join("store");
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let store = CandidateStore::open(root.clone()).unwrap();
+        let moved = temporary.path().join("moved-store");
+        fs::rename(&root, moved).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            store.ensure_root_current(),
+            Err(UpdateOperationError::StoreUnsafe)
         );
     }
 

@@ -28,7 +28,10 @@ test("alpha-ad-hoc rejects linked privileged directories", async () => {
   const outside = path.join(path.dirname(application), "outside");
   mkdirSync(outside);
   symlinkSync(outside, path.join(application, "Contents", "Library"));
-  await assert.rejects(verifyMacOsPrivilegedBundle(application, "ad-hoc"), /privileged artifacts/u);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(application, "ad-hoc"),
+    /privileged artifacts|release-path-rejected:symlink/u,
+  );
 });
 
 test("macOS DMG retries ordinary detach with bounded backoff and no force", () => {

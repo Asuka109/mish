@@ -2,14 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  readlinkSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -32,6 +29,13 @@ import {
   signedDirectProfile,
 } from "./macos-signed-direct-policy.ts";
 import { runUpdaterContractFixture } from "./macos-updater-contract.ts";
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  ReleasePathError,
+  writeContainedReleaseFile,
+} from "./release-path-containment.ts";
 
 const apiVersion = "2026-03-10";
 const architecture = "arm64";
@@ -241,14 +245,6 @@ function sha256(content: Buffer): string {
 
 function sha1(content: Buffer): string {
   return createHash("sha1").update(content).digest("hex");
-}
-
-function fileSha256(file: string): string {
-  return sha256(readFileSync(file));
-}
-
-function fileSha1(file: string): string {
-  return sha1(readFileSync(file));
 }
 
 function boundedDetail(value: string): string {
@@ -510,11 +506,21 @@ export async function withGuaranteedCleanup<T>(
 function signingMaterialPaths(root: string): SigningMaterialPaths {
   const absolute = path.resolve(root);
   const temporaryRoot = path.resolve(process.env.RUNNER_TEMP ?? path.dirname(absolute));
+  const relative = path.relative(temporaryRoot, absolute);
   invariant(
-    absolute.startsWith(`${temporaryRoot}${path.sep}`) &&
+    relative &&
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
       path.basename(absolute).startsWith("mish-signed-release-"),
     "Signing material cleanup is restricted to one Mish runner-temporary directory.",
   );
+  try {
+    assertPrivateNoFollowRoot(absolute);
+  } catch (error) {
+    if (!(error instanceof ReleasePathError) || error.classification !== "missing") throw error;
+    assertPrivateNoFollowRoot(path.dirname(absolute));
+  }
   return {
     certificate: path.join(absolute, "developer-id.p12"),
     keychain: path.join(absolute, "signing.keychain-db"),
@@ -696,6 +702,11 @@ function createSignedDistribution(
   identity: string,
 ): void {
   mkdirSync(stagingRoot, { mode: 0o700, recursive: true });
+  chmodSync(stagingRoot, 0o700);
+  const applicationRoot = assertPrivateNoFollowRoot(application);
+  const staging = assertPrivateNoFollowRoot(stagingRoot);
+  applicationRoot.assertCurrent();
+  staging.assertCurrent();
   const stagedApplication = path.join(stagingRoot, "Mish.app");
   runInherited("ditto", [application, stagedApplication]);
   symlinkSync("/Applications", path.join(stagingRoot, "Applications"));
@@ -783,25 +794,22 @@ function developerIdRequirement(identity: string, identifier: string): string {
 function collectSbomFiles(
   root: string,
   directory = root,
+  rootGuard = assertPrivateNoFollowRoot(root),
 ): Array<{ name: string; sha1: string; sha256: string }> {
   const result: Array<{ name: string; sha1: string; sha256: string }> = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     const relative = path.relative(root, absolute).split(path.sep).join("/");
+    const guarded = rootGuard.contain(relative, entry.isDirectory() ? "directory" : "file");
     if (entry.isDirectory()) {
-      result.push(...collectSbomFiles(root, absolute));
+      result.push(...collectSbomFiles(root, absolute, rootGuard));
     } else if (entry.isFile()) {
+      guarded.assertCurrent();
+      const content = readContainedReleaseFile(guarded);
       result.push({
         name: `Mish.app/${relative}`,
-        sha1: fileSha1(absolute),
-        sha256: fileSha256(absolute),
-      });
-    } else if (entry.isSymbolicLink()) {
-      const target = Buffer.from(readlinkSync(absolute));
-      result.push({
-        name: `Mish.app/${relative} -> ${target.toString()}`,
-        sha1: sha1(target),
-        sha256: sha256(target),
+        sha1: sha1(content),
+        sha256: sha256(content),
       });
     }
   }
@@ -818,10 +826,17 @@ export function generateSignedReleaseSbom(
   identity: SignedReleaseIdentity,
   output: string,
 ): void {
-  const dmgDigest = fileSha256(dmg);
+  const applicationRoot = assertPrivateNoFollowRoot(application);
+  const dmgGuard = assertPrivateNoFollowFile(dmg);
+  const outputRoot = assertPrivateNoFollowRoot(path.dirname(path.resolve(output)));
+  const dmgDigest = sha256(readContainedReleaseFile(dmgGuard));
   const fileDigests = [
-    { name: identity.dmgName, sha1: fileSha1(dmg), sha256: dmgDigest },
-    ...collectSbomFiles(application),
+    {
+      name: identity.dmgName,
+      sha1: sha1(readContainedReleaseFile(dmgGuard)),
+      sha256: dmgDigest,
+    },
+    ...collectSbomFiles(applicationRoot.absolute, applicationRoot.absolute, applicationRoot),
   ];
   const files = fileDigests.map((entry) => ({
     checksums: [
@@ -894,7 +909,12 @@ export function generateSignedReleaseSbom(
     ],
     spdxVersion: "SPDX-2.3",
   };
-  writeFileSync(output, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o644 });
+  writeContainedReleaseFile(
+    outputRoot,
+    path.basename(path.resolve(output)),
+    `${JSON.stringify(document, null, 2)}\n`,
+    { mode: 0o644 },
+  );
 }
 
 function readCredentials(environment: NodeJS.ProcessEnv): SignedReleaseCredentials {
@@ -931,7 +951,9 @@ export function executeProtectedSignedRelease(options: {
   recorder.confirm("credentials-complete", "complete protected credential boundary");
 
   const outputDirectory = path.resolve(options.outputDirectory);
-  mkdirSync(outputDirectory, { recursive: true });
+  if (!existsSync(outputDirectory)) mkdirSync(outputDirectory, { mode: 0o700, recursive: true });
+  chmodSync(outputDirectory, 0o700);
+  const outputRoot = assertPrivateNoFollowRoot(outputDirectory);
   invariant(
     readdirSync(outputDirectory).length === 0,
     "Signed release output directory must be empty.",
@@ -957,26 +979,40 @@ export function executeProtectedSignedRelease(options: {
       env: sanitizedBuildEnvironment(credentials, parsedIdentity.teamIdentifier),
     });
     recorder.confirm("bundle-built", "signed-direct System Proxy-only application built");
+    const applicationRoot = assertPrivateNoFollowRoot(application);
+    const mainExecutable = applicationRoot.contain("Contents/MacOS/mish-desktop", "executable");
+    const bundledMihomo = applicationRoot.contain(signedDirectMihomoExecutable, "executable");
+    mainExecutable.assertCurrent();
+    bundledMihomo.assertCurrent();
     recorder.confirm("bundle-verified", "bundle identity layout runtime and resources verified");
 
-    invariant(existsSync(application), "Signed Mish.app is missing after the build.");
     createSignedDistribution(application, dmg, distributionRoot, credentials.signingIdentity);
     recorder.confirm("distribution-created", "Developer ID signed DMG created headlessly");
+    assertPrivateNoFollowFile(dmg).assertCurrent();
 
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     notary = submitAndCheckNotary(dmg, paths, credentials);
     recorder.confirm("notary-submitted", `Apple notary submission ${notary.submissionId}`);
     recorder.confirm("notary-accepted", "terminal notary status Accepted with zero issues");
 
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     runInherited("xcrun", ["stapler", "staple", dmg]);
     recorder.confirm("ticket-stapled", "notary ticket stapled to exact DMG");
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     runInherited("xcrun", ["stapler", "validate", dmg]);
     recorder.confirm("ticket-validated", "stapler validated the final DMG ticket");
 
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     runInherited("codesign", ["--verify", "--strict", "--verbose=4", dmg]);
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     mountDistribution(dmg, mountpoint);
     const mountedApplication = path.join(mountpoint, "Mish.app");
-    const mountedMihomo = path.join(mountedApplication, signedDirectMihomoExecutable);
+    const mountedRoot = assertPrivateNoFollowRoot(mountedApplication);
+    const mountedMihomo = mountedRoot.contain(signedDirectMihomoExecutable, "executable");
+    mountedRoot.assertCurrent();
+    mountedMihomo.assertCurrent();
     runInherited("codesign", ["--verify", "--deep", "--strict", "--verbose=4", mountedApplication]);
+    mountedRoot.assertCurrent();
     runInherited("codesign", [
       "--verify",
       "--strict",
@@ -985,15 +1021,17 @@ export function executeProtectedSignedRelease(options: {
       developerIdRequirement(credentials.signingIdentity, signedDirectApplicationIdentifier),
       mountedApplication,
     ]);
+    mountedMihomo.assertCurrent();
     runInherited("codesign", [
       "--verify",
       "--strict",
       "--verbose=4",
       "-R",
       developerIdRequirement(credentials.signingIdentity, signedDirectMihomoIdentifier),
-      mountedMihomo,
+      mountedMihomo.absolute,
     ]);
     recorder.confirm("codesign-assessed", "independent strict Developer ID assessment passed");
+    assertPrivateNoFollowFile(dmg).assertCurrent();
     runInherited("spctl", [
       "--assess",
       "--type",
@@ -1030,8 +1068,9 @@ export function executeProtectedSignedRelease(options: {
     stages: recorder.stages,
   };
   validateSignedReleaseEvidence(evidence, false);
-  writeFileSync(
-    path.join(outputDirectory, signedReleaseEvidenceName),
+  writeContainedReleaseFile(
+    outputRoot,
+    signedReleaseEvidenceName,
     `${JSON.stringify(evidence, null, 2)}\n`,
     { mode: 0o644 },
   );
@@ -1054,8 +1093,11 @@ export function finalizeSignedReleaseCandidate(options: {
   sbomUrl: string;
 }): SignedReleaseEvidence {
   const directory = path.resolve(options.artifactDirectory);
-  const evidencePath = path.join(directory, signedReleaseEvidenceName);
-  const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as SignedReleaseEvidence;
+  const artifactRoot = assertPrivateNoFollowRoot(directory);
+  const evidencePath = artifactRoot.contain(signedReleaseEvidenceName, "file");
+  const evidence = JSON.parse(
+    readContainedReleaseFile(evidencePath).toString("utf8"),
+  ) as SignedReleaseEvidence;
   validateSignedReleaseEvidence(evidence, false);
   invariant(
     evidence.stages.at(-1)?.stage === "cleanup-confirmed",
@@ -1063,12 +1105,23 @@ export function finalizeSignedReleaseCandidate(options: {
   );
   const provenance = assertAttestation(options.provenanceId, options.provenanceUrl, "Provenance");
   const sbomAttestation = assertAttestation(options.sbomId, options.sbomUrl, "SBOM");
-  const provenanceDestination = path.join(directory, signedReleaseProvenanceBundleName);
-  const sbomDestination = path.join(directory, signedReleaseSbomBundleName);
-  copyFileSync(path.resolve(options.provenanceBundle), provenanceDestination);
-  copyFileSync(path.resolve(options.sbomBundle), sbomDestination);
+  const provenanceSource = assertPrivateNoFollowFile(options.provenanceBundle);
+  const sbomSource = assertPrivateNoFollowFile(options.sbomBundle);
+  const provenanceDestination = writeContainedReleaseFile(
+    artifactRoot,
+    signedReleaseProvenanceBundleName,
+    readContainedReleaseFile(provenanceSource),
+    { mode: 0o644 },
+  );
+  const sbomDestination = writeContainedReleaseFile(
+    artifactRoot,
+    signedReleaseSbomBundleName,
+    readContainedReleaseFile(sbomSource),
+    { mode: 0o644 },
+  );
   invariant(
-    statSync(provenanceDestination).size > 0 && statSync(sbomDestination).size > 0,
+    readContainedReleaseFile(provenanceDestination).length > 0 &&
+      readContainedReleaseFile(sbomDestination).length > 0,
     "Signed release attestation bundle is empty.",
   );
 
@@ -1078,20 +1131,24 @@ export function finalizeSignedReleaseCandidate(options: {
     "provenance-generated",
     `GitHub provenance ${provenance.id} and SBOM ${sbomAttestation.id} attested`,
   );
-  const dmg = path.join(directory, evidence.identity.dmgName);
-  const sbom = path.join(directory, signedReleaseSbomName);
-  invariant(existsSync(dmg) && existsSync(sbom), "Signed DMG or SBOM is missing.");
+  const dmg = artifactRoot.contain(evidence.identity.dmgName, "file");
+  const sbom = artifactRoot.contain(signedReleaseSbomName, "file");
   evidence.artifactIdentity = {
-    dmgSha256: fileSha256(dmg),
+    dmgSha256: sha256(readContainedReleaseFile(dmg)),
     evidenceSchemaVersion: evidence.schemaVersion,
-    provenanceBundleSha256: fileSha256(provenanceDestination),
-    sbomBundleSha256: fileSha256(sbomDestination),
-    sbomSha256: fileSha256(sbom),
+    provenanceBundleSha256: sha256(readContainedReleaseFile(provenanceDestination)),
+    sbomBundleSha256: sha256(readContainedReleaseFile(sbomDestination)),
+    sbomSha256: sha256(readContainedReleaseFile(sbom)),
   };
   evidence.attestations = { provenance, sbom: sbomAttestation };
   recorder.confirm("artifact-identity-confirmed", "exact DMG SBOM and attestation digests frozen");
   evidence.stages = recorder.stages;
-  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o644 });
+  writeContainedReleaseFile(
+    artifactRoot,
+    signedReleaseEvidenceName,
+    `${JSON.stringify(evidence, null, 2)}\n`,
+    { mode: 0o644, overwrite: true },
+  );
   writeSignedReleaseChecksums(directory, evidence.identity.version);
   readSignedReleaseCandidate(directory, {
     sourceSha: evidence.identity.sourceSha,
@@ -1113,6 +1170,7 @@ function parseChecksums(source: string): Map<string, string> {
 }
 
 export function writeSignedReleaseChecksums(directory: string, version: string): void {
+  const root = assertPrivateNoFollowRoot(path.resolve(directory));
   const expected = signedReleaseAssetNames(version).filter(
     (name) => name !== signedReleaseChecksumName,
   );
@@ -1123,8 +1181,10 @@ export function writeSignedReleaseChecksums(directory: string, version: string):
     JSON.stringify(actual) === JSON.stringify([...expected].sort()),
     `Signed release artifact set is wrong before checksums: ${actual.join(", ")}`,
   );
-  const lines = expected.sort().map((name) => `${fileSha256(path.join(directory, name))}  ${name}`);
-  writeFileSync(path.join(directory, signedReleaseChecksumName), `${lines.join("\n")}\n`, {
+  const lines = expected
+    .sort()
+    .map((name) => `${sha256(readContainedReleaseFile(root.contain(name, "file")))}  ${name}`);
+  writeContainedReleaseFile(root, signedReleaseChecksumName, `${lines.join("\n")}\n`, {
     mode: 0o644,
   });
 }
@@ -1135,6 +1195,7 @@ export function readSignedReleaseCandidate(
 ): SignedReleaseAsset[] {
   invariant(fullSha.test(request.sourceSha), "Signed candidate requires one full source SHA.");
   const absolute = path.resolve(directory);
+  const root = assertPrivateNoFollowRoot(absolute);
   const expectedNames = signedReleaseAssetNames(request.version);
   const actualNames = readdirSync(absolute).sort();
   invariant(
@@ -1142,7 +1203,7 @@ export function readSignedReleaseCandidate(
     `Signed release artifact set is wrong: ${actualNames.join(", ")}`,
   );
   const evidence = JSON.parse(
-    readFileSync(path.join(absolute, signedReleaseEvidenceName), "utf8"),
+    readContainedReleaseFile(root.contain(signedReleaseEvidenceName, "file")).toString("utf8"),
   ) as SignedReleaseEvidence;
   validateSignedReleaseEvidence(evidence);
   invariant(
@@ -1152,7 +1213,7 @@ export function readSignedReleaseCandidate(
     "Signed candidate source, version, or DMG identity drifted.",
   );
   const checksums = parseChecksums(
-    readFileSync(path.join(absolute, signedReleaseChecksumName), "utf8"),
+    readContainedReleaseFile(root.contain(signedReleaseChecksumName, "file")).toString("utf8"),
   );
   const checksumTargets = expectedNames.filter((name) => name !== signedReleaseChecksumName).sort();
   invariant(
@@ -1161,22 +1222,24 @@ export function readSignedReleaseCandidate(
   );
   for (const [name, digest] of checksums) {
     invariant(
-      fileSha256(path.join(absolute, name)) === digest,
+      sha256(readContainedReleaseFile(root.contain(name, "file"))) === digest,
       `Signed release checksum drift: ${name}.`,
     );
   }
   invariant(
     evidence.artifactIdentity?.dmgSha256 ===
-      fileSha256(path.join(absolute, evidence.identity.dmgName)) &&
+      sha256(readContainedReleaseFile(root.contain(evidence.identity.dmgName, "file"))) &&
       evidence.artifactIdentity.sbomSha256 ===
-        fileSha256(path.join(absolute, signedReleaseSbomName)) &&
+        sha256(readContainedReleaseFile(root.contain(signedReleaseSbomName, "file"))) &&
       evidence.artifactIdentity.provenanceBundleSha256 ===
-        fileSha256(path.join(absolute, signedReleaseProvenanceBundleName)) &&
+        sha256(readContainedReleaseFile(root.contain(signedReleaseProvenanceBundleName, "file"))) &&
       evidence.artifactIdentity.sbomBundleSha256 ===
-        fileSha256(path.join(absolute, signedReleaseSbomBundleName)),
+        sha256(readContainedReleaseFile(root.contain(signedReleaseSbomBundleName, "file"))),
     "Signed release evidence and final artifact digests drifted.",
   );
-  const sbom = JSON.parse(readFileSync(path.join(absolute, signedReleaseSbomName), "utf8")) as {
+  const sbom = JSON.parse(
+    readContainedReleaseFile(root.contain(signedReleaseSbomName, "file")).toString("utf8"),
+  ) as {
     documentNamespace?: unknown;
     name?: unknown;
     packages?: Array<{
@@ -1201,15 +1264,15 @@ export function readSignedReleaseCandidate(
     "Signed release SBOM does not describe the exact final DMG and source.",
   );
   return expectedNames.map((name) => {
-    const assetPath = path.join(absolute, name);
-    const content = readFileSync(assetPath);
+    const guarded = root.contain(name, "file");
+    const content = readContainedReleaseFile(guarded);
     invariant(content.length > 0, `Signed release asset is empty: ${name}`);
     return {
       content,
       contentType: contentType(name),
       digest: sha256(content),
       name,
-      path: assetPath,
+      path: guarded.absolute,
       size: content.length,
     };
   });

@@ -20,13 +20,20 @@ import {
   signedDirectSigningOrder,
   verifySignedDirectEvidence,
 } from "./macos-signed-direct-policy.ts";
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  type ContainedReleasePath,
+  type PrivateNoFollowRoot,
+} from "./release-path-containment.ts";
 
 const application = path.resolve(
   process.env.MISH_MACOS_APP_PATH ?? "target/release/bundle/macos/Mish.app",
 );
+const applicationRoot = assertPrivateNoFollowRoot(application);
 const contents = path.join(application, "Contents");
 const resources = path.join(contents, "Resources");
-const bundledMihomo = path.join(resources, "mihomo-aarch64-apple-darwin");
 const pinnedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const preparedMihomo = path.resolve(".scratch/macos-bundle/mihomo-aarch64-apple-darwin");
 const mihomoManifest = JSON.parse(
@@ -73,78 +80,106 @@ function command(program: string, arguments_: string[]) {
   return execFileSync(program, arguments_, { encoding: "utf8" }).trim();
 }
 
-async function sha256(file: string) {
-  return createHash("sha256")
-    .update(await readFile(file))
-    .digest("hex");
+async function sha256(file: string, rootGuard?: PrivateNoFollowRoot) {
+  const absolute = path.resolve(file);
+  const guard = rootGuard ?? assertPrivateNoFollowFile(absolute);
+  if ("contain" in guard) {
+    const relative = path.relative(guard.absolute, absolute);
+    return createHash("sha256")
+      .update(readContainedReleaseFile(guard.contain(relative, "file")))
+      .digest("hex");
+  }
+  return createHash("sha256").update(readContainedReleaseFile(guard)).digest("hex");
 }
 
-async function files(root: string, directory = root): Promise<string[]> {
+async function files(
+  root: string,
+  directory = root,
+  rootGuard = assertPrivateNoFollowRoot(root),
+): Promise<string[]> {
+  rootGuard.assertCurrent();
   const entries = await readdir(directory, { withFileTypes: true });
   const discovered = await Promise.all(
     entries.map(async (entry) => {
       const absolute = path.join(directory, entry.name);
+      const relative = path.relative(root, absolute).split(path.sep).join("/");
+      const guarded = rootGuard.contain(relative, entry.isDirectory() ? "directory" : "file");
       if (entry.isDirectory()) {
-        return files(root, absolute);
+        guarded.assertCurrent();
+        return files(root, guarded.absolute, rootGuard);
       }
       if (!entry.isFile()) {
-        throw new Error(`Unexpected non-file bundle resource: ${absolute}`);
+        throw new Error("Unexpected non-file bundle resource");
       }
-      return [path.relative(root, absolute)];
+      guarded.assertCurrent();
+      return [relative];
     }),
   );
+  rootGuard.assertCurrent();
   return discovered.flat().sort();
 }
 
+const infoPlist = applicationRoot.contain("Contents/Info.plist", "file");
+const bundledMihomoGuard = applicationRoot.contain(signedDirectMihomoExecutable, "executable");
+const pinnedMihomoGuard = assertPrivateNoFollowFile(pinnedMihomo);
+const preparedMihomoGuard = assertPrivateNoFollowFile(preparedMihomo);
+infoPlist.assertCurrent();
 const identifier = command("plutil", [
   "-extract",
   "CFBundleIdentifier",
   "raw",
   "-o",
   "-",
-  path.join(contents, "Info.plist"),
+  infoPlist.absolute,
 ]);
 if (identifier !== "com.asuka109.mish") {
   throw new Error(`Unexpected bundle identifier: ${identifier}`);
 }
 
+infoPlist.assertCurrent();
 const executableName = command("plutil", [
   "-extract",
   "CFBundleExecutable",
   "raw",
   "-o",
   "-",
-  path.join(contents, "Info.plist"),
+  infoPlist.absolute,
 ]);
-const executable = path.join(contents, "MacOS", executableName);
-const productionHelper = path.join(application, productionHelperRelativePath);
-const internalTunAlphaBinaries = [
-  path.join(application, internalTunAlphaControllerRelativePath),
-  path.join(application, internalTunAlphaHelperRelativePath),
-  path.join(application, internalTunAlphaCoreRelativePath),
-];
+const executableGuard = applicationRoot.contain(`Contents/MacOS/${executableName}`, "executable");
+const productionHelperGuard = productionLayout
+  ? applicationRoot.contain(productionHelperRelativePath, "executable")
+  : undefined;
+const productionHelper =
+  productionHelperGuard?.absolute ?? path.join(application, productionHelperRelativePath);
+const internalTunAlphaBinaries = internalTunAlpha
+  ? [
+      applicationRoot.contain(internalTunAlphaControllerRelativePath, "executable"),
+      applicationRoot.contain(internalTunAlphaHelperRelativePath, "executable"),
+      applicationRoot.contain(internalTunAlphaCoreRelativePath, "executable"),
+    ]
+  : [];
+const internalTunAlphaCore = internalTunAlphaBinaries.at(2);
 await verifyMacOsPrivilegedBundle(
   application,
   internalTunAlpha ? "internal-tun-alpha" : productionLayout ? "production" : "ad-hoc",
 );
-for (const binary of [
-  executable,
-  bundledMihomo,
-  ...(productionLayout ? [productionHelper] : []),
-  ...(internalTunAlpha ? internalTunAlphaBinaries : []),
-]) {
-  const description = command("file", [binary]);
+const executableGuards: ContainedReleasePath[] = [
+  executableGuard,
+  bundledMihomoGuard,
+  ...(productionHelperGuard ? [productionHelperGuard] : []),
+  ...internalTunAlphaBinaries,
+];
+for (const binary of executableGuards) {
+  binary.assertCurrent();
+  const description = command("file", [binary.absolute]);
   if (!description.includes("Mach-O 64-bit executable arm64")) {
     throw new Error(`Bundle contains a non-ARM64 executable: ${description}`);
   }
-  if ((await stat(binary)).mode & 0o111) {
-    continue;
-  }
-  throw new Error(`Bundle executable is not executable: ${binary}`);
+  binary.assertCurrent();
 }
 
-const mihomoDigest = await sha256(bundledMihomo);
-const pinnedMihomoDigest = await sha256(pinnedMihomo);
+const mihomoDigest = await sha256(bundledMihomoGuard.absolute, applicationRoot);
+const pinnedMihomoDigest = await sha256(pinnedMihomoGuard.absolute);
 if (pinnedMihomoDigest !== mihomoManifest.binarySha256) {
   throw new Error(
     `Pinned Mihomo checksum mismatch after bundle staging: expected ${mihomoManifest.binarySha256}, received ${pinnedMihomoDigest}`,
@@ -152,7 +187,7 @@ if (pinnedMihomoDigest !== mihomoManifest.binarySha256) {
 }
 const expectedBundledMihomoDigest = internalTunAlpha
   ? pinnedMihomoDigest
-  : await sha256(preparedMihomo);
+  : (preparedMihomoGuard.assertCurrent(), await sha256(preparedMihomo));
 if (mihomoDigest !== expectedBundledMihomoDigest) {
   throw new Error(
     `Bundled Mihomo checksum mismatch: expected ${expectedBundledMihomoDigest}, received ${mihomoDigest}`,
@@ -160,11 +195,13 @@ if (mihomoDigest !== expectedBundledMihomoDigest) {
 }
 if (
   internalTunAlpha &&
-  (await sha256(path.join(application, internalTunAlphaCoreRelativePath))) !== pinnedMihomoDigest
+  (!internalTunAlphaCore ||
+    (await sha256(internalTunAlphaCore.absolute, applicationRoot)) !== pinnedMihomoDigest)
 ) {
   throw new Error("Internal TUN Alpha payload Core checksum differs from the pinned Core");
 }
-const mihomoVersion = command(bundledMihomo, ["-v"]);
+bundledMihomoGuard.assertCurrent();
+const mihomoVersion = command(bundledMihomoGuard.absolute, ["-v"]);
 if (!mihomoVersion.includes("v1.19.29 darwin arm64")) {
   throw new Error(`Unexpected bundled Mihomo version: ${mihomoVersion}`);
 }
@@ -179,12 +216,14 @@ if (
 }
 for (const relative of sourceWebFiles) {
   const sourceDigest = await sha256(path.join(sourceWeb, relative));
-  const bundledDigest = await sha256(path.join(bundledWeb, relative));
+  const bundledDigest = await sha256(path.join(bundledWeb, relative), applicationRoot);
   if (sourceDigest !== bundledDigest) {
     throw new Error(`Bundled Web resource checksum mismatch: ${relative}`);
   }
 }
-const index = await readFile(path.join(bundledWeb, "index.html"), "utf8");
+const index = readContainedReleaseFile(
+  applicationRoot.contain("Contents/Resources/web-dist/index.html", "file"),
+).toString("utf8");
 if (/\b(?:src|href)=["']https?:\/\//iu.test(index)) {
   throw new Error("The bundled Web entry point references a remote asset");
 }
@@ -216,14 +255,14 @@ for (const asset of geodataManifest.assets) {
     (await stat(source)).size !== asset.bytes ||
     (await stat(bundled)).size !== asset.bytes ||
     (await sha256(source)) !== asset.sha256 ||
-    (await sha256(bundled)) !== asset.sha256
+    (await sha256(bundled, applicationRoot)) !== asset.sha256
   ) {
     throw new Error(`Bundled GeoData resource checksum mismatch: ${asset.name}`);
   }
 }
 if (
   (await sha256(path.join(sourceGeodata, "manifest.json"))) !==
-  (await sha256(path.join(bundledGeodata, "manifest.json")))
+  (await sha256(path.join(bundledGeodata, "manifest.json"), applicationRoot))
 ) {
   throw new Error("The bundled GeoData manifest does not match the repository");
 }
@@ -231,14 +270,16 @@ if (
 for (const legalResource of legalResources) {
   const source = path.resolve(legalResource);
   const bundled = path.join(resources, legalResource);
-  if ((await sha256(source)) !== (await sha256(bundled))) {
+  if ((await sha256(source)) !== (await sha256(bundled, applicationRoot))) {
     throw new Error(`Bundled legal resource does not match the repository: ${legalResource}`);
   }
 }
-if ((await sha256(path.join(resources, "LICENSE"))) !== canonicalGplV3Sha256) {
+if ((await sha256(path.join(resources, "LICENSE"), applicationRoot)) !== canonicalGplV3Sha256) {
   throw new Error("The bundled LICENSE is not the declared GPL version 3 text");
 }
-const notices = await readFile(path.join(resources, "THIRD_PARTY_NOTICES.md"), "utf8");
+const notices = readContainedReleaseFile(
+  applicationRoot.contain("Contents/Resources/THIRD_PARTY_NOTICES.md", "file"),
+).toString("utf8");
 for (const requiredNotice of [
   "MetaCubeX/mihomo",
   "v1.19.29",
@@ -265,6 +306,8 @@ if (productionLayout) {
     ["com.asuka109.mish.tun-helper", productionHelper],
   ] as const;
   for (const [signingIdentifier, artifact] of signedArtifacts) {
+    applicationRoot.assertCurrent();
+    productionHelperGuard?.assertCurrent();
     const arguments_ = ["--verify", "--strict", "-R", requirement(signingIdentifier), artifact];
     if (production) {
       execFileSync("codesign", arguments_, { stdio: "inherit" });
@@ -272,16 +315,21 @@ if (productionLayout) {
       throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
     }
   }
+  productionHelperGuard?.assertCurrent();
   if (command(productionHelper, ["--version"]) !== expectedProductionHelperVersion) {
     throw new Error("The production TUN helper reports an unexpected version");
   }
+  productionHelperGuard?.assertCurrent();
   if (command(productionHelper, ["--protocol-version"]) !== "3") {
     throw new Error("The production TUN helper reports an unexpected protocol version");
   }
 }
 
 if (internalTunAlpha) {
-  const runtimeEvidence = JSON.parse(command(executable, ["--release-profile-evidence"])) as {
+  executableGuard.assertCurrent();
+  const runtimeEvidence = JSON.parse(
+    command(executableGuard.absolute, ["--release-profile-evidence"]),
+  ) as {
     profile?: string;
     tun?: string;
   };
@@ -290,7 +338,8 @@ if (internalTunAlpha) {
   }
 }
 
-execFileSync("codesign", ["--verify", "--strict", bundledMihomo], {
+bundledMihomoGuard.assertCurrent();
+execFileSync("codesign", ["--verify", "--strict", bundledMihomoGuard.absolute], {
   stdio: "inherit",
 });
 if (signedDirect || signedDirectFixture) {
@@ -302,10 +351,12 @@ if (signedDirect || signedDirectFixture) {
   const requirement = (signingIdentifier: string) =>
     `anchor apple generic and identifier "${signingIdentifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamIdentifier}"`;
   const developerIdRequirements = [
-    [requirement(signedDirectMihomoIdentifier), bundledMihomo],
+    [requirement(signedDirectMihomoIdentifier), bundledMihomoGuard.absolute],
     [requirement(signedDirectApplicationIdentifier), application],
   ] as const;
   for (const [developerIdRequirement, artifact] of developerIdRequirements) {
+    applicationRoot.assertCurrent();
+    bundledMihomoGuard.assertCurrent();
     const arguments_ = [
       "--verify",
       ...(artifact === application ? ["--deep"] : []),
@@ -320,7 +371,10 @@ if (signedDirect || signedDirectFixture) {
       throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
     }
   }
-  const runtimeEvidence = JSON.parse(command(executable, ["--release-profile-evidence"])) as {
+  executableGuard.assertCurrent();
+  const runtimeEvidence = JSON.parse(
+    command(executableGuard.absolute, ["--release-profile-evidence"]),
+  ) as {
     profile?: unknown;
     tun?: unknown;
     updater?: unknown;
@@ -332,7 +386,7 @@ if (signedDirect || signedDirectFixture) {
     throw new Error("signed-direct executable must report the updater as contract-only");
   }
   const signatures = [
-    collectSignedDirectSignature(bundledMihomo, signedDirectMihomoExecutable),
+    collectSignedDirectSignature(bundledMihomoGuard.absolute, signedDirectMihomoExecutable),
     collectSignedDirectSignature(application, "Mish.app"),
   ];
   if (signedDirectFixture) {
@@ -353,12 +407,12 @@ if (signedDirect || signedDirectFixture) {
     signatures,
     signingOrder: [...signedDirectSigningOrder],
   });
-  if (
-    path.relative(application, executable).split(path.sep).join("/") !== signedDirectMainExecutable
-  ) {
+  if (executableGuard.relative !== signedDirectMainExecutable) {
     throw new Error("signed-direct main executable path changed unexpectedly");
   }
 }
+for (const binary of executableGuards) binary.assertCurrent();
+applicationRoot.assertCurrent();
 execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
   stdio: "inherit",
 });
