@@ -7,6 +7,8 @@ import {
   RpcDisposedError,
   RpcMessageTooLargeError,
   RpcProtocolError,
+  RpcRequestIdCollisionError,
+  RpcTimeoutError,
   RpcValidationError,
   type RpcConnectionState,
 } from "@mish/rpc-client";
@@ -20,7 +22,7 @@ export interface WebRpcTransport {
 }
 
 export interface RpcClientFailureProjection {
-  code: "cancelled" | "disconnected" | "protocol" | "unknown" | "validation";
+  code: "cancelled" | "disconnected" | "protocol" | "timeout" | "unknown" | "validation";
   message: string;
   retryable: boolean;
 }
@@ -40,6 +42,9 @@ export function projectRpcClientFailure(error: unknown): RpcClientFailureProject
   if (error instanceof RpcCancelledError) {
     return { code: "cancelled", message: error.message, retryable: false };
   }
+  if (error instanceof RpcTimeoutError) {
+    return { code: "timeout", message: error.message, retryable: true };
+  }
   if (error instanceof RpcCompatibilityError) {
     return { code: "protocol", message: error.message, retryable: false };
   }
@@ -49,7 +54,11 @@ export function projectRpcClientFailure(error: unknown): RpcClientFailureProject
   if (error instanceof RpcValidationError) {
     return { code: "validation", message: error.message, retryable: false };
   }
-  if (error instanceof RpcMessageTooLargeError || error instanceof RpcProtocolError) {
+  if (
+    error instanceof RpcMessageTooLargeError ||
+    error instanceof RpcProtocolError ||
+    error instanceof RpcRequestIdCollisionError
+  ) {
     return { code: "protocol", message: error.message, retryable: false };
   }
   if (error instanceof Error) {
