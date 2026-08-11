@@ -1570,6 +1570,14 @@ const en = {
     returnToStatus: "Return to Status",
     title: "Page not found",
   },
+  routeError: {
+    description:
+      "Mish could not load this destination. Try again without leaving the current route.",
+    exhausted: "This destination could not recover after the available retries.",
+    returnToStatus: "Return to Status",
+    retry: "Try Again",
+    title: "Destination unavailable",
+  },
   startupFailure: {
     description:
       "Mish could not establish its private local connection. No system or network state is being shown.",

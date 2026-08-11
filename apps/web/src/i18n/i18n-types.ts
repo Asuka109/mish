@@ -5187,6 +5187,28 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	routeError: {
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​l​o​a​d​ ​t​h​i​s​ ​d​e​s​t​i​n​a​t​i​o​n​.​ ​T​r​y​ ​a​g​a​i​n​ ​w​i​t​h​o​u​t​ ​l​e​a​v​i​n​g​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​o​u​t​e​.
+		 */
+		description: string
+		/**
+		 * T​h​i​s​ ​d​e​s​t​i​n​a​t​i​o​n​ ​c​o​u​l​d​ ​n​o​t​ ​r​e​c​o​v​e​r​ ​a​f​t​e​r​ ​t​h​e​ ​a​v​a​i​l​a​b​l​e​ ​r​e​t​r​i​e​s​.
+		 */
+		exhausted: string
+		/**
+		 * R​e​t​u​r​n​ ​t​o​ ​S​t​a​t​u​s
+		 */
+		returnToStatus: string
+		/**
+		 * T​r​y​ ​A​g​a​i​n
+		 */
+		retry: string
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n​ ​u​n​a​v​a​i​l​a​b​l​e
+		 */
+		title: string
+	}
 	startupFailure: {
 		/**
 		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​e​s​t​a​b​l​i​s​h​ ​i​t​s​ ​p​r​i​v​a​t​e​ ​l​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​.​ ​N​o​ ​s​y​s​t​e​m​ ​o​r​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​ ​i​s​ ​b​e​i​n​g​ ​s​h​o​w​n​.
@@ -10356,6 +10378,28 @@ export type TranslationFunctions = {
 		returnToStatus: () => LocalizedString
 		/**
 		 * Page not found
+		 */
+		title: () => LocalizedString
+	}
+	routeError: {
+		/**
+		 * Mish could not load this destination. Try again without leaving the current route.
+		 */
+		description: () => LocalizedString
+		/**
+		 * This destination could not recover after the available retries.
+		 */
+		exhausted: () => LocalizedString
+		/**
+		 * Return to Status
+		 */
+		returnToStatus: () => LocalizedString
+		/**
+		 * Try Again
+		 */
+		retry: () => LocalizedString
+		/**
+		 * Destination unavailable
 		 */
 		title: () => LocalizedString
 	}

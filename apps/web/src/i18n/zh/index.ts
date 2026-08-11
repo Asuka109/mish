@@ -1415,6 +1415,13 @@ const zh: Translation = {
     returnToStatus: "返回状态页",
     title: "页面不存在",
   },
+  routeError: {
+    description: "Mish 无法加载这个页面，你可以留在当前路由内重试。",
+    exhausted: "这个页面在限定次数内仍无法恢复。",
+    returnToStatus: "返回状态页",
+    retry: "重试",
+    title: "页面暂不可用",
+  },
   startupFailure: {
     description: "Mish 无法连接本机服务，因此暂时不能显示系统或网络状态。请重新打开应用后重试。",
     eyebrow: "Mish 桌面版",
