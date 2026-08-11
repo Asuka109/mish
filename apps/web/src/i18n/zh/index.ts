@@ -1249,6 +1249,7 @@ const zh: Translation = {
     clearLocalDescription: "只清除当前页面临时保存的事件，不会删除日志、配置或其他文件。",
     connectingNotice: "正在连接 Mish 事件记录。",
     copied: "已复制事件内容",
+    copyFailed: "无法复制事件内容。剪贴板不可用或访问被拒绝。",
     copyEvent: "复制事件内容",
     description: "查看 Mish 和代理产生的事件。密码、地址等敏感信息会被隐藏。",
     fixtureNotice: "这是演示数据，没有连接真实应用、文件或网络。",

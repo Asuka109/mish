@@ -157,6 +157,52 @@ describe("Events page", () => {
     await user.click(screen.getByRole("button", { name: "Copy Safe Event Text" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("[redacted-url]"));
     expect(writeText.mock.calls[0]?.[0]).not.toContain("fixture.invalid/list?token=");
+    expect(
+      screen.queryByText(
+        "Could not copy safe event text. Clipboard access was denied or unavailable.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reports clipboard rejection through a non-blocking live region without stealing focus", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error("permission-denied"));
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    renderEvents(new FixtureEventsClient());
+
+    const copy = (await screen.findAllByRole("button", { name: "Copy Safe Event Text" }))[0]!;
+    copy.focus();
+    await user.click(copy);
+
+    const feedback = await screen.findByText(
+      "Could not copy safe event text. Clipboard access was denied or unavailable.",
+    );
+    expect(feedback).toBeVisible();
+    expect(feedback).toHaveAttribute("role", "status");
+    expect(feedback).toHaveAttribute("aria-live", "polite");
+    expect(copy).toHaveFocus();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps repeated clipboard rejections in one localized live region", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error("permission-denied"));
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    renderEvents(new FixtureEventsClient());
+
+    const copy = (await screen.findAllByRole("button", { name: "Copy Safe Event Text" }))[0]!;
+    await user.click(copy);
+    await screen.findByText(
+      "Could not copy safe event text. Clipboard access was denied or unavailable.",
+    );
+    await user.click(copy);
+
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getAllByText(
+        "Could not copy safe event text. Clipboard access was denied or unavailable.",
+      ),
+    ).toHaveLength(1);
   });
 
   it("previews exact bounded categories before an explicit keyboard-confirmed native save", async () => {
