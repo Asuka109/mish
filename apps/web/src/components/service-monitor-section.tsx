@@ -41,10 +41,14 @@ import {
   SectionGrid,
   Spinner,
 } from "@mish/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
+import {
+  createServiceMonitorEditorAuthority,
+  type ServiceMonitorEditorAuthority,
+} from "../data/service-monitor-editor-operation";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import {
   SERVICE_ICON_URLS,
@@ -226,6 +230,7 @@ export function ServiceIconImage({ src }: ServiceIconImageProps) {
 
 interface ServiceEditorDialogProps {
   draft: ServiceMonitorDraft | null;
+  editorAuthority: ServiceMonitorEditorAuthority;
   fixture: boolean;
   onClose(): void;
   setDraft(draft: ServiceMonitorDraft): void;
@@ -313,7 +318,13 @@ function ServiceManagerDialog({
   );
 }
 
-function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEditorDialogProps) {
+function ServiceEditorDialog({
+  draft,
+  editorAuthority,
+  fixture,
+  onClose,
+  setDraft,
+}: ServiceEditorDialogProps) {
   const { isCommandPending, removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
   const { publish } = useNotificationDelivery();
@@ -333,40 +344,60 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
   const showUrlError = urlInvalid && editedFields.url;
   const canSave = !iconInvalid && !labelInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
-  const commandPending = isCommandPending("services");
+  const commandPending = isCommandPending("services") || editorAuthority.isPending();
+
+  function closeEditor() {
+    const operation = editorAuthority.current();
+    if (operation?.phase === "pending") editorAuthority.cancel(operation);
+    onClose();
+  }
 
   function saveService() {
     if (!draft || !canSave) return;
-    const promise = upsertServiceMonitor(draft).then((result) => {
-      if (!result.ok) return;
-      publish(
-        notificationPublication("service.saved", {
-          data: { operation: existingService ? "updated" : "added" },
-          severity: "success",
-        }),
-      );
-      onClose();
-    });
+    const operation = editorAuthority.begin("save");
+    if (!operation) return;
+    const promise = upsertServiceMonitor(draft)
+      .then((result) => {
+        const accepted = editorAuthority.complete(operation, result.ok ? "success" : "failure");
+        if (!accepted || !result.ok) return;
+        publish(
+          notificationPublication("service.saved", {
+            data: { operation: existingService ? "updated" : "added" },
+            severity: "success",
+          }),
+        );
+        closeEditor();
+      })
+      .catch(() => {
+        editorAuthority.complete(operation, "failure");
+      });
     setPendingAction({ kind: "save", promise });
   }
 
   function deleteService() {
     if (!draft?.id) return;
-    const promise = removeServiceMonitor(draft.id).then((result) => {
-      if (!result.ok) return;
-      publish(
-        notificationPublication("service.removed", {
-          severity: "success",
-        }),
-      );
-      setDeleteConfirmOpen(false);
-      onClose();
-    });
+    const operation = editorAuthority.begin("reset");
+    if (!operation) return;
+    const promise = removeServiceMonitor(draft.id)
+      .then((result) => {
+        const accepted = editorAuthority.complete(operation, result.ok ? "success" : "failure");
+        if (!accepted || !result.ok) return;
+        publish(
+          notificationPublication("service.removed", {
+            severity: "success",
+          }),
+        );
+        setDeleteConfirmOpen(false);
+        closeEditor();
+      })
+      .catch(() => {
+        editorAuthority.complete(operation, "failure");
+      });
     setPendingAction({ kind: "delete", promise });
   }
 
   return (
-    <Dialog onOpenChange={(open) => !open && onClose()} open>
+    <Dialog onOpenChange={(open) => !open && closeEditor()} open>
       <DialogContent className={serviceStyles().editorDialog()} closeLabel={LL.common.close()}>
         <DialogHeader>
           <div>
@@ -516,8 +547,16 @@ export function ServiceMonitorSection() {
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
   const [restorePending, setRestorePending] = useState(false);
+  const editorAuthority = useMemo(() => createServiceMonitorEditorAuthority(), []);
+  useEffect(
+    () => () => {
+      const operation = editorAuthority.current();
+      if (operation?.phase === "pending") editorAuthority.cancel(operation);
+    },
+    [editorAuthority],
+  );
   if (!snapshot) return null;
-  const commandPending = isCommandPending("services");
+  const commandPending = isCommandPending("services") || editorAuthority.isPending();
   const commandSupported = isCommandSupported("services");
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
 
@@ -537,18 +576,32 @@ export function ServiceMonitorSection() {
   }
 
   async function restoreServices() {
+    const operation = editorAuthority.begin("restore-defaults");
+    if (!operation) return;
     setRestorePending(true);
     try {
       const result = await restoreDefaultServices();
-      if (result.ok)
+      const accepted = editorAuthority.complete(operation, result.ok ? "success" : "failure");
+      if (accepted && result.ok)
         publish(
           notificationPublication("service.defaults-restored", {
             severity: "success",
           }),
         );
+    } catch {
+      editorAuthority.complete(operation, "failure");
     } finally {
-      setRestorePending(false);
+      const current = editorAuthority.current();
+      if (!current || current.operationId === operation.operationId) setRestorePending(false);
     }
+  }
+
+  function openEditor(nextDraft: ServiceMonitorDraft) {
+    const operation = editorAuthority.begin("edit");
+    if (!operation) return;
+    if (!editorAuthority.complete(operation, "success")) return;
+    setManagerOpen(false);
+    setDraft(nextDraft);
   }
 
   return (
@@ -714,7 +767,7 @@ export function ServiceMonitorSection() {
             aria-describedby={actionDescriptionId}
             disabled={!commandSupported}
             onClick={() =>
-              setDraft({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" })
+              openEditor({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" })
             }
             variant="outline"
           >
@@ -726,21 +779,16 @@ export function ServiceMonitorSection() {
 
       <ServiceEditorDialog
         draft={draft}
+        editorAuthority={editorAuthority}
         fixture={snapshot.adapterKind === "fixture"}
         key={draft ? (draft.id ?? "new") : "closed"}
         onClose={() => setDraft(null)}
         setDraft={setDraft}
       />
       <ServiceManagerDialog
-        onAdd={() => {
-          setManagerOpen(false);
-          setDraft({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" });
-        }}
+        onAdd={() => openEditor({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" })}
         onClose={() => setManagerOpen(false)}
-        onEdit={(service) => {
-          setManagerOpen(false);
-          setDraft({ ...service });
-        }}
+        onEdit={(service) => openEditor({ ...service })}
         onRestore={() => void restoreServices()}
         open={managerOpen}
         restorePending={restorePending}
