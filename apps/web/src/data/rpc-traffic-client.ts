@@ -11,9 +11,13 @@ import {
   type TrafficDataSnapshotDto,
   type TrafficSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
+import {
+  RpcRemoteError,
+  RpcSessionAuthority,
+  type RpcRequestOptions,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
 import { mapStatusRpcError } from "./rpc-status-client";
-import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -38,7 +42,8 @@ export class RpcTrafficClient implements TrafficClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>();
+  private readonly sessionAuthority = new RpcSessionAuthority<TrafficDataSnapshotDto>();
+  private subscriptionTicket: RpcSessionTicket | null = null;
 
   constructor(private readonly rpc: TrafficRpcClient) {
     this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
@@ -56,10 +61,12 @@ export class RpcTrafficClient implements TrafficClient {
     authority: TrafficCommandAuthorityDto,
     options?: RpcRequestOptions,
   ): Promise<TrafficCommandResultDto> {
+    const ticket = this.sessionAuthority.beginRequest();
     await this.ensureCapabilities();
     try {
       return this.acceptCommandResult(
         await this.rpc.request("traffic.closeAllActive", { authority }, options),
+        ticket,
       );
     } catch (error) {
       throw toTrafficClientError(error);
@@ -71,10 +78,12 @@ export class RpcTrafficClient implements TrafficClient {
     connectionId: string,
     options?: RpcRequestOptions,
   ): Promise<TrafficCommandResultDto> {
+    const ticket = this.sessionAuthority.beginRequest();
     await this.ensureCapabilities();
     try {
       return this.acceptCommandResult(
         await this.rpc.request("traffic.closeConnection", { authority, connectionId }, options),
+        ticket,
       );
     } catch (error) {
       throw toTrafficClientError(error);
@@ -86,6 +95,7 @@ export class RpcTrafficClient implements TrafficClient {
     connectionIds: string[],
     options?: RpcRequestOptions,
   ): Promise<TrafficCommandResultDto> {
+    const ticket = this.sessionAuthority.beginRequest();
     await this.ensureCapabilities();
     try {
       return this.acceptCommandResult(
@@ -94,6 +104,7 @@ export class RpcTrafficClient implements TrafficClient {
           { authority, connectionIds },
           options,
         ),
+        ticket,
       );
     } catch (error) {
       throw toTrafficClientError(error);
@@ -105,6 +116,7 @@ export class RpcTrafficClient implements TrafficClient {
     this.disposed = true;
     this.unsubscribeNotification();
     this.unsubscribeRpcConnection();
+    this.sessionAuthority.dispose();
     this.connectionListeners.clear();
     this.snapshotListeners.clear();
   }
@@ -114,16 +126,24 @@ export class RpcTrafficClient implements TrafficClient {
   }
 
   async getSnapshot(options?: RpcRequestOptions): Promise<TrafficDataSnapshotDto> {
+    const ticket = this.sessionAuthority.beginRequest();
     try {
       await this.ensureCapabilities();
-      const result = this.snapshotAcceptance.accept(
+      const result = this.sessionAuthority.accept(
+        ticket,
         await this.rpc.request("traffic.getSnapshot", {}, options),
         "request",
       );
       if (result.kind === "conflict") {
         throw new TrafficClientError("validation", "Traffic snapshot order conflict");
       }
-      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+      if (!result.snapshot) {
+        throw new TrafficClientError(
+          "disconnected",
+          "Traffic snapshot baseline is not established",
+          true,
+        );
+      }
       this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
@@ -175,6 +195,7 @@ export class RpcTrafficClient implements TrafficClient {
       return;
     }
 
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.ensureCapabilities()
       .then(() => this.rpc.request("traffic.subscribe", {}))
       .then(({ snapshot, subscriptionId }) => {
@@ -182,8 +203,9 @@ export class RpcTrafficClient implements TrafficClient {
           void this.rpc.request("traffic.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
+        this.subscriptionTicket = ticket;
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -200,11 +222,12 @@ export class RpcTrafficClient implements TrafficClient {
 
   private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
     const mapped = projectRpcConnectionState(state);
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase === "connected") {
-      this.snapshotAcceptance.armReconnect();
       this.capabilitiesLoaded = false;
       this.observedSessionId = undefined;
       this.remoteSubscriptionId = null;
+      this.subscriptionTicket = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
@@ -239,16 +262,16 @@ export class RpcTrafficClient implements TrafficClient {
   private receiveSnapshot(
     notification: TrafficSnapshotNotificationDto,
     delivery: ApplicationSnapshotDelivery = "update",
+    ticket = this.subscriptionTicket,
   ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    const result = this.sessionAuthority.accept(ticket, notification.snapshot, delivery);
     if (result.kind === "conflict") {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
-    if (result.kind !== "accepted") return;
+    if (result.kind !== "accepted" || !result.snapshot) return;
     const snapshot = result.snapshot;
     const sessionChanged =
       this.observedSessionId !== undefined && this.observedSessionId !== snapshot.sessionId;
@@ -266,12 +289,21 @@ export class RpcTrafficClient implements TrafficClient {
     this.publishSnapshot(snapshot, delivery);
   }
 
-  private acceptCommandResult(result: TrafficCommandResultDto): TrafficCommandResultDto {
-    const acceptance = this.snapshotAcceptance.accept(result.snapshot, "command");
+  private acceptCommandResult(
+    result: TrafficCommandResultDto,
+    ticket: RpcSessionTicket,
+  ): TrafficCommandResultDto {
+    const acceptance = this.sessionAuthority.accept(ticket, result.snapshot, "command");
     if (acceptance.kind === "conflict") {
       throw new TrafficClientError("validation", "Traffic snapshot order conflict");
     }
-    if (acceptance.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+    if (!acceptance.snapshot) {
+      throw new TrafficClientError(
+        "disconnected",
+        "Traffic snapshot baseline is not established",
+        true,
+      );
+    }
     this.emitSnapshotConnectionState();
     return { ...result, snapshot: acceptance.snapshot };
   }
@@ -285,7 +317,7 @@ export class RpcTrafficClient implements TrafficClient {
     this.emitConnectionState({
       attempt: 0,
       phase: "connected",
-      stale: this.snapshotAcceptance.isReconnectPending(),
+      stale: this.sessionAuthority.isStale(),
     });
   }
 }
