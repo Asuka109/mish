@@ -24,6 +24,7 @@ import {
   type RpcClient,
   type RpcConnectionState,
   type RpcRequestOptions,
+  type RpcSessionAcceptanceResult,
   type RpcSessionTicket,
 } from "@mish/rpc-client";
 import { projectRpcConnectionState } from "./web-rpc-transport";
@@ -244,17 +245,18 @@ export class RpcSettingsClient implements SettingsClient {
     this.subscriptionPromise = this.rpc
       .request("settings.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
-        if (
-          this.snapshotListeners.size === 0 ||
-          (ticket.generation !== null &&
-            ticket.generation !== this.sessionAuthority.getGeneration())
-        ) {
+        if (this.snapshotListeners.size === 0) {
           void this.rpc.request("settings.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
         this.subscriptionTicket = ticket;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
+        const result = this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
+        if (result?.kind === "stale") {
+          this.remoteSubscriptionId = null;
+          this.subscriptionTicket = null;
+          void this.rpc.request("settings.unsubscribe", { subscriptionId }).catch(() => undefined);
+        }
       })
       .catch(() => undefined)
       .finally(() => {
@@ -270,25 +272,16 @@ export class RpcSettingsClient implements SettingsClient {
     notification: SettingsSnapshotNotificationDto,
     delivery: SettingsSnapshotDelivery = "update",
     ticket = this.subscriptionTicket,
-  ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
-    this.acceptSnapshot(notification.snapshot, delivery, ticket);
+  ): RpcSessionAcceptanceResult<SettingsSnapshotDto> | null {
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return null;
+    return this.acceptSnapshot(notification.snapshot, delivery, ticket);
   }
 
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = projectRpcConnectionState(state);
-    const previous = this.connectionState;
     this.connectionState = mapped;
     for (const listener of this.connectionListeners) listener({ ...mapped });
-    if (
-      mapped.phase === "connected" &&
-      (previous.phase === "connected" || this.remoteSubscriptionId !== null)
-    ) {
-      this.sessionAuthority.observeTransport(false);
-      this.sessionAuthority.observeTransport(true);
-    } else {
-      this.sessionAuthority.observeTransport(mapped.phase === "connected");
-    }
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase !== "connected") return;
     this.remoteSubscriptionId = null;
     this.subscriptionTicket = null;
@@ -307,29 +300,31 @@ export class RpcSettingsClient implements SettingsClient {
     delivery: "command" | "request",
   ) {
     const ticket = this.sessionAuthority.beginRequest();
-    return this.acceptSnapshot(
-      (await this.rpc.request(method, params as never, options)) as SettingsSnapshotDto,
-      delivery,
-      ticket,
-    );
+    const snapshot = (await this.rpc.request(
+      method,
+      params as never,
+      options,
+    )) as SettingsSnapshotDto;
+    const result = this.acceptSnapshot(snapshot, delivery, ticket);
+    return result.snapshot ?? this.normalizeSnapshot(snapshot);
   }
 
   private acceptSnapshot(
     snapshot: SettingsSnapshotDto,
     delivery: SettingsSnapshotDelivery | "command" | "request",
     ticket: RpcSessionTicket,
-  ) {
+  ): RpcSessionAcceptanceResult<SettingsSnapshotDto> {
     const normalized = this.normalizeSnapshot(snapshot);
     const result = this.sessionAuthority.accept(ticket, normalized, delivery);
     if (result.kind === "conflict") {
       this.emitConnectionState({ ...this.connectionState, stale: true });
-      return result.snapshot ?? normalized;
+      return result;
     }
     this.emitSnapshotConnectionState();
-    if (!result.snapshot) return normalized;
-    const effectiveDelivery = delivery;
-    for (const listener of this.snapshotListeners) listener(result.snapshot, effectiveDelivery);
-    return result.snapshot;
+    if (result.kind === "accepted" && result.snapshot) {
+      for (const listener of this.snapshotListeners) listener(result.snapshot, delivery);
+    }
+    return result;
   }
 
   private emitSnapshotConnectionState() {

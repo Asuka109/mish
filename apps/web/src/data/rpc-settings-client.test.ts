@@ -125,7 +125,8 @@ describe("RPC settings client", () => {
     current.revision += 1;
     current.applicationOrder.order += 1;
     current.preferences.closeOldConnectionsAfterGroupSwitch = true;
-    connection.listener?.({ attempt: 0, phase: "connected", stale: false });
+    connection.listener?.({ attempt: 1, phase: "disconnected", stale: true });
+    connection.listener?.({ attempt: 1, phase: "connected", stale: false });
     for (let index = 0; index < 5; index += 1) await Promise.resolve();
 
     expect(request.mock.calls.filter(([method]) => method === "settings.subscribe")).toHaveLength(
@@ -181,7 +182,8 @@ describe("RPC settings client", () => {
 
     current = rpcSnapshot("rust-b", 1, 1);
     current.networkDns.phase = "stale";
-    connection.listener?.({ attempt: 0, phase: "connected", stale: false });
+    connection.listener?.({ attempt: 1, phase: "disconnected", stale: true });
+    connection.listener?.({ attempt: 1, phase: "connected", stale: false });
     for (let index = 0; index < 5; index += 1) await Promise.resolve();
 
     expect(delivered.at(-1)).toMatchObject({
@@ -246,9 +248,11 @@ describe("RPC settings client", () => {
     for (let index = 0; index < 5; index += 1) await Promise.resolve();
     expect(delivered.at(-1)?.applicationOrder.authorityId).toBe("rust-a");
 
+    connection.listener?.({ attempt: 1, phase: "disconnected", stale: true });
     connection.listener?.({ attempt: 1, phase: "connected", stale: false });
     await Promise.resolve();
     current = rpcSnapshot("rust-b", 1, 1);
+    connection.listener?.({ attempt: 2, phase: "disconnected", stale: true });
     connection.listener?.({ attempt: 2, phase: "connected", stale: false });
     resolveRetired?.({
       snapshot: rpcSnapshot("retired-transport", 99, 99),

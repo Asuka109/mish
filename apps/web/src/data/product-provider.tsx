@@ -298,13 +298,10 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   );
   const acceptSnapshot = useCallback(
     (nextSnapshot: StatusSnapshotDto, delivery: SnapshotDelivery) => {
-      if (delivery === "request" && sessionAuthority.current.getGeneration() === 0) {
-        sessionAuthority.current.observeTransport(true);
-      }
       const ticket =
         delivery === "baseline" || delivery === "update"
           ? sessionAuthority.current.beginSubscription()
-          : sessionAuthority.current.beginRequest();
+          : sessionAuthority.current.beginRequest({ bootstrap: true });
       const result = sessionAuthority.current.accept(ticket, nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {

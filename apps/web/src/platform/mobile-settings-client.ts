@@ -17,7 +17,7 @@ import {
   type WindowSurfacePreference,
 } from "@mish/contracts";
 import { invoke } from "@tauri-apps/api/core";
-import { ApplicationSnapshotAcceptance } from "../data/application-snapshot-acceptance";
+import { RpcSessionAuthority } from "@mish/rpc-client";
 
 export interface MobileSettingsTransport {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -40,12 +40,14 @@ function unavailableError(operation: string) {
  * the complete snapshot; this client only retains the last accepted projection.
  */
 export class MobileSettingsClient implements SettingsClient {
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<SettingsSnapshotDto>();
+  private readonly sessionAuthority = new RpcSessionAuthority<SettingsSnapshotDto>();
   private readonly snapshotListeners = new Set<
     (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void
   >();
 
-  constructor(private readonly transport: MobileSettingsTransport = defaultTransport) {}
+  constructor(private readonly transport: MobileSettingsTransport = defaultTransport) {
+    this.sessionAuthority.observeTransport(true);
+  }
 
   getSnapshot(options?: { signal?: AbortSignal }) {
     return this.requestSnapshot("mobile_settings_get_snapshot", undefined, options);
@@ -133,7 +135,7 @@ export class MobileSettingsClient implements SettingsClient {
     listener: (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void,
   ) {
     this.snapshotListeners.add(listener);
-    const snapshot = this.snapshotAcceptance.snapshot();
+    const snapshot = this.sessionAuthority.snapshot();
     if (snapshot) listener(snapshot, "baseline");
     return () => this.snapshotListeners.delete(listener);
   }
@@ -150,8 +152,12 @@ export class MobileSettingsClient implements SettingsClient {
   }
 
   private acceptSnapshot(snapshot: SettingsSnapshotDto) {
-    const result = this.snapshotAcceptance.accept(snapshot, "request");
-    if (result.kind !== "accepted") return result.snapshot;
+    const result = this.sessionAuthority.accept(
+      this.sessionAuthority.beginRequest(),
+      snapshot,
+      "request",
+    );
+    if (result.kind !== "accepted" || !result.snapshot) return result.snapshot ?? snapshot;
     for (const listener of this.snapshotListeners) listener(result.snapshot, "request");
     return result.snapshot;
   }

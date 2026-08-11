@@ -225,11 +225,7 @@ export class RpcProfileClient implements ProfileClient {
     this.subscriptionPromise = this.rpc
       .request("profiles.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
-        if (
-          this.snapshotListeners.size === 0 ||
-          (ticket.generation !== null &&
-            ticket.generation !== this.sessionAuthority.getGeneration())
-        ) {
+        if (this.snapshotListeners.size === 0) {
           void this.rpc.request("profiles.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }

@@ -209,11 +209,7 @@ export class RpcNotificationClient implements NotificationClient {
     this.subscriptionPromise = this.rpc
       .request("notifications.subscribe", identity)
       .then(({ claim, snapshot, subscriptionId }) => {
-        if (
-          this.snapshotListeners.size === 0 ||
-          (ticket.generation !== null &&
-            ticket.generation !== this.sessionAuthority.getGeneration())
-        ) {
+        if (this.snapshotListeners.size === 0) {
           void this.rpc
             .request("notifications.unsubscribe", { subscriptionId })
             .catch(() => undefined);
