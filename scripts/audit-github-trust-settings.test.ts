@@ -19,6 +19,7 @@ const policy: TrustPolicy = {
     },
   },
   protected: {
+    requiredStatusChecks: ["CI / Fast PR gate", "CI / Android platform Rust gate"],
     environments: {
       "macos-developer-id": {
         allowAdminBypass: false,
@@ -70,6 +71,10 @@ function readyEndpoints(): TrustEndpointResults {
     }),
     branchProtection: result({
       enforce_admins: { enabled: true },
+      required_status_checks: {
+        contexts: ["CI / Fast PR gate", "CI / Android platform Rust gate"],
+        strict: true,
+      },
       required_pull_request_reviews: {
         bypass_pull_request_allowances: {
           apps: [],
@@ -151,6 +156,16 @@ test("an active exact-main ruleset can prove review and CODEOWNERS enforcement",
         },
         type: "pull_request",
       },
+      {
+        parameters: {
+          required_status_checks: [
+            { context: "CI / Fast PR gate", integration_id: 15368 },
+            { context: "CI / Android platform Rust gate", integration_id: 15368 },
+          ],
+          strict_required_status_checks_policy: true,
+        },
+        type: "required_status_checks",
+      },
     ],
     target: "branch",
   });
@@ -194,5 +209,26 @@ test("selected third-party Actions must match the reviewed SHA allowlist", () =>
     evaluateGitHubTrustSettings(policy, endpoints).blockers.some((blocker) =>
       blocker.includes("selected-action settings"),
     ),
+  );
+});
+
+test("missing required external checks fail closed", () => {
+  const endpoints = readyEndpoints();
+  endpoints.branchProtection = result({
+    enforce_admins: { enabled: true },
+    required_status_checks: {
+      contexts: ["CI / Fast PR gate"],
+      strict: true,
+    },
+    required_pull_request_reviews: {
+      bypass_pull_request_allowances: { apps: [], teams: [], users: [] },
+      require_code_owner_reviews: true,
+      required_approving_review_count: 1,
+    },
+  });
+  const audit = evaluateGitHubTrustSettings(policy, endpoints);
+  assert.ok(
+    audit.blockers.some((blocker) => blocker.includes("external checks")),
+    "The audit must not infer the Android gate from a partial branch-protection response.",
   );
 });

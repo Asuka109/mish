@@ -50,6 +50,7 @@
         "branches": ["main"]
       }
     },
+    "requiredStatusChecks": ["CI / Fast PR gate", "CI / Android platform Rust gate"],
     "requiredPredecessors": [
       "freeze reviewed main and exact source SHA",
       "verify source ancestry and workflow/tooling identity",
@@ -92,6 +93,7 @@
       "android-actions/setup-android": "40fd30fb8d7440372e1316f5d1809ec01dcd3699",
       "pnpm/action-setup": "0ebf47130e4866e96fce0953f49152a61190b271"
     },
+    "allowedLocalActions": [],
     "allowedReusableWorkflows": []
   },
   "artifact": {

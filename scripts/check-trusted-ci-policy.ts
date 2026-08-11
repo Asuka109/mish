@@ -12,6 +12,11 @@ const referenceIdentifier = /^[A-Za-z0-9_.-]+$/u;
 const fullExternalReference = /^(?<left>[^@\s]+)@(?<ref>[^@\s]+)$/u;
 const localWorkflowPath = /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/u;
 
+export const requiredTrustedWorkflowPaths = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/stage-macos-alpha-release.yml",
+] as const;
+
 export interface WorkflowStep {
   id?: string;
   if?: string;
@@ -834,7 +839,11 @@ export function validateWorkflowReference(
   policy: TrustedReleasePolicy,
   reference: WorkflowReference,
 ): string[] {
-  if (reference.kind === "local-action") return [];
+  if (reference.kind === "local-action") {
+    return policy.actions.allowedLocalActions.includes(reference.reference)
+      ? []
+      : [`Local action is not allowlisted: ${reference.reference}`];
+  }
   if (reference.kind === "unsupported") {
     return [
       `Unsupported ${reference.location} uses reference ${reference.reference}: ${reference.reason}.`,
@@ -1159,6 +1168,29 @@ export function discoverWorkflowFiles(
     .sort();
 }
 
+export function validateWorkflowInventory(
+  workflowPaths: Iterable<string>,
+  requiredPaths: readonly string[] = requiredTrustedWorkflowPaths,
+): string[] {
+  const paths = [...workflowPaths];
+  const errors: string[] = [];
+  const duplicates = new Set<string>();
+  const seen = new Set<string>();
+  for (const workflowPath of paths) {
+    if (seen.has(workflowPath)) duplicates.add(workflowPath);
+    seen.add(workflowPath);
+  }
+  for (const workflowPath of duplicates) {
+    errors.push(`Workflow inventory contains duplicate path: ${workflowPath}.`);
+  }
+  for (const requiredPath of requiredPaths) {
+    if (!seen.has(requiredPath)) {
+      errors.push(`Required workflow is missing from the inventory: ${requiredPath}.`);
+    }
+  }
+  return errors;
+}
+
 function localWorkflowTarget(reference: WorkflowReference): string | null {
   if (reference.kind !== "local-reusable-workflow" || !reference.path) return null;
   return reference.path;
@@ -1306,9 +1338,12 @@ invariant(
 invariant(
   policy.protected.allowSelfHosted === false &&
     policy.protected.artifactRetentionDays === 1 &&
+    JSON.stringify(policy.protected.requiredStatusChecks) ===
+      JSON.stringify(["CI / Fast PR gate", "CI / Android platform Rust gate"]) &&
     policy.actions.requireFullCommitSha === true &&
+    policy.actions.allowedLocalActions.length === 0 &&
     policy.actions.allowedReusableWorkflows.length === 0,
-  "Protected runner, artifact retention, action pin, or reusable workflow policy drifted.",
+  "Protected runner, artifact retention, action pin, local action, or reusable workflow policy drifted.",
 );
 invariant(
   JSON.stringify(policy.internalTunAlpha) ===
@@ -1336,12 +1371,9 @@ for (const [name, environment] of Object.entries(policy.protected.environments))
 }
 
 const workflowFiles = discoverWorkflowFiles();
-invariant(
-  workflowFiles.includes("ci.yml") && workflowFiles.includes("stage-macos-alpha-release.yml"),
-  "The required CI and release workflows are missing from the workflow inventory.",
-);
-
 const workflowPaths = workflowFiles.map((file) => `.github/workflows/${file}`);
+const workflowInventoryErrors = validateWorkflowInventory(workflowPaths);
+invariant(workflowInventoryErrors.length === 0, workflowInventoryErrors.join("; "));
 const knownWorkflowPaths = new Set(workflowPaths);
 const parsedWorkflows = workflowPaths.map((relative) => ({
   relative,

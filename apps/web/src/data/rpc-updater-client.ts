@@ -7,7 +7,13 @@ import {
   type UpdaterSnapshotDto,
   type UpdaterSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
+import {
+  RpcRemoteError,
+  RpcSessionAuthority,
+  type RpcRequestOptions,
+  type RpcSessionSnapshot,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
 import { mapStatusRpcError } from "./rpc-status-client";
 import {
   projectRpcClientFailure,
@@ -17,10 +23,17 @@ import {
 
 export type UpdaterRpcClient = WebRpcTransport;
 
+// Updater's public DTO has no parent application-order envelope. Keep the
+// transport order internal while preserving authorityId/revision as product state.
+interface UpdaterSessionSnapshot extends RpcSessionSnapshot {
+  snapshot: UpdaterSnapshotDto;
+}
+
 export class RpcUpdaterClient implements UpdaterClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
   private readonly snapshotListeners = new Set<(snapshot: UpdaterSnapshotDto) => void>();
   private acceptedSnapshot: UpdaterSnapshotDto | null = null;
+  private readonly sessionAuthority = new RpcSessionAuthority<UpdaterSessionSnapshot>();
   private connectionState: StatusConnectionState;
   private disposed = false;
   private remoteSubscriptionId: string | null = null;
@@ -28,6 +41,7 @@ export class RpcUpdaterClient implements UpdaterClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private subscriptionTicket: RpcSessionTicket | null = null;
 
   constructor(private readonly rpc: UpdaterRpcClient) {
     this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
@@ -54,6 +68,7 @@ export class RpcUpdaterClient implements UpdaterClient {
     this.disposed = true;
     this.unsubscribeNotification();
     this.unsubscribeRpcConnection();
+    this.sessionAuthority.dispose();
     this.connectionListeners.clear();
     this.snapshotListeners.clear();
     if (!this.remoteSubscriptionId) return;
@@ -100,9 +115,25 @@ export class RpcUpdaterClient implements UpdaterClient {
       | Record<string, never>,
     options?: RpcRequestOptions,
   ) {
+    const ticket = this.sessionAuthority.beginRequest();
     try {
-      const snapshot = await this.rpc.request(method, params, options);
-      return this.acceptSnapshot(snapshot);
+      const delivery = method === "updater.getSnapshot" ? "request" : "command";
+      const result = this.sessionAuthority.accept(
+        ticket,
+        toSessionSnapshot(await this.rpc.request(method, params, options)),
+        delivery,
+      );
+      if (result.kind === "conflict") {
+        throw new UpdaterClientError("validation", "Updater snapshot order conflict");
+      }
+      if (!result.snapshot) {
+        throw new UpdaterClientError(
+          "disconnected",
+          "Updater snapshot baseline is not established",
+          true,
+        );
+      }
+      return this.acceptSnapshot(result.snapshot.snapshot);
     } catch (error) {
       throw mapUpdaterError(error);
     }
@@ -132,6 +163,7 @@ export class RpcUpdaterClient implements UpdaterClient {
       this.subscriptionRetryPending = true;
       return;
     }
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.rpc
       .request("updater.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
@@ -139,8 +171,9 @@ export class RpcUpdaterClient implements UpdaterClient {
           void this.rpc.request("updater.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
+        this.subscriptionTicket = ticket;
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId });
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -157,8 +190,10 @@ export class RpcUpdaterClient implements UpdaterClient {
 
   private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
     const mapped = projectRpcConnectionState(state);
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase === "connected") {
       this.remoteSubscriptionId = null;
+      this.subscriptionTicket = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
@@ -166,10 +201,24 @@ export class RpcUpdaterClient implements UpdaterClient {
     this.emitConnectionState(mapped);
   }
 
-  private receiveSnapshot(notification: UpdaterSnapshotNotificationDto) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const snapshot = this.acceptSnapshot(notification.snapshot);
-    this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+  private receiveSnapshot(
+    notification: UpdaterSnapshotNotificationDto,
+    delivery: "baseline" | "update" = "update",
+    ticket = this.subscriptionTicket,
+  ) {
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    const result = this.sessionAuthority.accept(
+      ticket,
+      toSessionSnapshot(notification.snapshot),
+      delivery,
+    );
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return;
+    }
+    this.emitSnapshotConnectionState();
+    if (result.kind !== "accepted" || !result.snapshot) return;
+    const snapshot = this.acceptSnapshot(result.snapshot.snapshot);
     if (
       snapshot.authorityId !== notification.snapshot.authorityId ||
       snapshot.revision !== notification.snapshot.revision
@@ -178,9 +227,29 @@ export class RpcUpdaterClient implements UpdaterClient {
     }
     for (const listener of this.snapshotListeners) listener(snapshot);
   }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.sessionAuthority.isStale(),
+    });
+  }
+}
+
+function toSessionSnapshot(snapshot: UpdaterSnapshotDto): UpdaterSessionSnapshot {
+  return {
+    applicationOrder: {
+      authorityId: snapshot.authorityId,
+      epoch: 0,
+      order: snapshot.revision,
+    },
+    snapshot,
+  };
 }
 
 function mapUpdaterError(error: unknown) {
+  if (error instanceof UpdaterClientError) return error;
   const mapped =
     error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
   const kind =
