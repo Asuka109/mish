@@ -19,8 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Seven Wave 2A Luna Max workers are active from the pre-published manifest and
-clean detached baseline `5758260`. Three concurrency slots remain unreserved.
+Six Wave 2A Luna Max workers remain active from the pre-published manifest and
+clean detached baseline `5758260`. #440 B1.2 is integrated at `80e23d0`. Four
+concurrency slots remain unreserved; no additional task is dispatched without
+an approved wave.
 
 ## Wave 1 worker ledger
 
@@ -42,7 +44,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | active | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | Clean detached `5758260`; do not migrate B1.3-B1.5 consumers. |
+| #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | integrated | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | PR #462 merged as `80e23d0`; Fast PR gate, RPC 22 tests, and Web 574 tests passed; only Events migrated, B1.3-B1.5 remain open. |
 | #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | active | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | Clean detached `5758260`; preserve A1.3 documentation/gate scope. |
 | #437 A3.2 | `019feff9-1f57-7b23-885f-7c0cb609aee8` | `f803` | active | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | Clean detached `5758260`; merge latest A1.2 first if shared lifecycle semantics overlap. |
 | #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | active | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | Clean detached `5758260`; reuse A4.1 Browser tests instead of duplicating them. |
@@ -59,16 +61,16 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | SimulatedHost truthfulness | #437 | active: A3.2; A3.1 integrated | none | confirmation-only |
 | Browser fixture truthfulness | #438 | active: A4.2; A4.1 integrated | none | confirmation-only |
 | Process identity | #439 | A5.1 integrated; A5.2 planned | none | confirmation-only |
-| RPC Session Authority | #440 | active: B1.2; B1.1 integrated | none | confirmation-only |
-| Profile credential privacy | #449 | blocked | #440 | confirmation-only |
+| RPC Session Authority | #440 | B1.1/B1.2 integrated; B1.3-B1.5 planned | none | confirmation-only |
+| Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Atomic profile generations | #441 | active: C2.1 | none | confirmation-only |
-| Backup preview authority | #450 | blocked | #440 | confirmation-only |
+| Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | active: E1.1 | none | confirmation-only; real signing stays in #173 |
 | CI policy coverage | #443 | active: E2.2; E2.1 integrated | none | confirmation-only |
-| Settings editor serialization | #452 | blocked | #440 | confirmation-only |
-| Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
+| Settings editor serialization | #452 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
+| Remove Profile Patch Editor | #453 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
 | Traffic details accessibility | #445 | planned | none | confirmation-only |
 | Clipboard failure feedback | #446 | planned | none | confirmation-only |
@@ -102,7 +104,8 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- Complete #440 B1.2 before #449, #450, #451, #452, or #453 starts.
+- #440 B1.2 is integrated. #449, #450, #452, and #453 are dependency-ready but
+  remain undispatched pending an approved wave; #451 still also depends on #436.
 - Complete #436 before #451 starts; complete #451 D1.2 before #454 starts.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
