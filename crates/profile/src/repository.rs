@@ -793,6 +793,11 @@ fn migrate_legacy_metadata(metadata: &mut ProfileMetadata) {
 }
 
 fn validate_record(record: &ProfileRecord) -> Result<(), RepositoryError> {
+    if ProfileId::parse(record.metadata.id.as_str().to_owned()).is_err() {
+        return Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata,
+        });
+    }
     if record.metadata.schema_version != PROFILE_SCHEMA_VERSION {
         return Err(RepositoryError::UnsupportedSchema {
             expected: PROFILE_SCHEMA_VERSION,

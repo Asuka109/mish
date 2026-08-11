@@ -900,6 +900,22 @@ async fn interrupted_staging_cannot_be_published_as_current() {
     );
 }
 
+#[tokio::test]
+async fn generation_staging_rejects_a_noncanonical_profile_id() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root);
+    let mut record = record_for_repository(ProfileId::new()).await;
+    record.metadata.id = serde_json::from_value(serde_json::json!("../../outside")).unwrap();
+
+    assert!(matches!(
+        repository.stage_generation(&[record]),
+        Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata
+        })
+    ));
+}
+
 #[derive(Clone, Copy)]
 enum GenerationFailurePoint {
     Rename,
