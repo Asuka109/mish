@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Two Wave 2A Luna Max workers remain active from the pre-published manifest and
+One Wave 2A Luna Max worker remains active from the pre-published manifest and
 clean detached baseline `5758260`. #440 B1.2, #438 A4.2, #441 C2.1, #437 A3.2,
-and #442 E1.1 are integrated. Eight concurrency slots remain unreserved; no
-additional task is dispatched without an approved wave.
+#442 E1.1, and #443 E2.2 are integrated. Nine concurrency slots remain
+unreserved; no additional task is dispatched without an approved wave.
 
 ## Wave 1 worker ledger
 
@@ -34,7 +34,7 @@ additional task is dispatched without an approved wave.
 | #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | integrated | none | accepted | PR #455 merged as `9322e17`; local/remote gates passed; A4.2 later completed the Issue. |
 | #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | integrated | none | accepted | PR #461 merged as `5b454ea`; identity-bound process gates passed, Issue checklist synced, A5.2 remains open. |
 | #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | integrated | none | accepted | PR #457 merged as `8c23789`; local/remote gates passed, Issue checklist synced, B1.2-B1.5 remain open. |
-| #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed, Issue checklist synced, E2.2/E2.3 remain open. |
+| #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed; E2.2 later integrated and E2.3 remains open. |
 
 ## Wave 2A dispatch manifest
 
@@ -48,7 +48,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | active | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | Clean detached `5758260`; preserve A1.3 documentation/gate scope. |
 | #437 A3.2 | `019feff9-1f57-7b23-885f-7c0cb609aee8` | `f803` | integrated | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | PR #464 merged as `f15d6db`; coordinator SimulatedHost 12+24+2+10, Browser 9/9, and exclusion 10/10 passed; Issue #437 closed completed. |
 | #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | integrated | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | PR #465 merged as `7c66f43`; Fast PR gate and coordinator exclusion 10/10, mobile 4/4, Browser 12/12 checks passed; Issue #438 closed completed. |
-| #443 E2.2 | `019feff9-1bf2-7621-a5b9-dd08b6240627` | `8407` | active | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | Clean detached `5758260`; E2.3 drift/docs/branch-protection evidence remains separate. |
+| #443 E2.2 | `019feff9-1bf2-7621-a5b9-dd08b6240627` | `8407` | integrated | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | PR #466 merged as `74c23dd`; Fast PR and Android gates passed; coordinator policy 6/6 plus macOS target compile/Clippy and 162 tests passed; E2.3 remains open. |
 | #441 C2.1 | `019feff9-1bf9-7943-9ed1-399bb2b16b31` | `3d15` | integrated | none | Private durable staging and atomic Profile generation publication | PR #463 merged as `76cbf1d`; Fast PR gate and coordinator Profile 8 + 26 + 19 tests passed; C2.2/C2.3 remain open. |
 | #442 E1.1 | `019feff9-1bf4-7283-9330-1117529fce86` | `40ee` | integrated | none | Release executable/path containment under private no-follow roots | PR #468 merged as `443e0a5`; Fast PR gate and coordinator bundle 34/34, release 9/9, signed-release 10/10, updater 74/74 passed; E1.4 must cover concurrent overwrite/assert-use replacement. |
 
@@ -68,7 +68,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | E1.1 integrated; E1.2-E1.4 planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | active: E2.2; E2.1 integrated | none | confirmation-only |
+| CI policy coverage | #443 | E2.1/E2.2 integrated; E2.3 planned | none | confirmation-only |
 | Settings editor serialization | #452 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Remove Profile Patch Editor | #453 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
