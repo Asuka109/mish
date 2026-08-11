@@ -77,6 +77,7 @@ function renderHost(
 
 function renderFixtureHost() {
   const onSystemProxyChange = vi.fn();
+  const onTunChange = vi.fn();
   root.render(
     <TypesafeI18n locale="en">
       <MemoryRouter>
@@ -92,7 +93,7 @@ function renderFixtureHost() {
             capabilities={{ systemProxy: "fixture-only", tun: "fixture-only" }}
             commandSupported={false}
             onSystemProxyChange={onSystemProxyChange}
-            onTunChange={vi.fn()}
+            onTunChange={onTunChange}
             systemProxyEnabled={false}
             systemProxySelected={false}
             systemProxyStatus={systemProxyStatus}
@@ -104,7 +105,7 @@ function renderFixtureHost() {
       </MemoryRouter>
     </TypesafeI18n>,
   );
-  return onSystemProxyChange;
+  return { onSystemProxyChange, onTunChange };
 }
 
 beforeAll(async () => {
@@ -341,7 +342,7 @@ describe("Capture action feedback", () => {
 
 describe("browser fixture Capture boundary", () => {
   test("does not present browser fixture controls as native Capture actions", async () => {
-    const onSystemProxyChange = renderFixtureHost();
+    const { onSystemProxyChange } = renderFixtureHost();
     const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
     const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
 
@@ -349,5 +350,23 @@ describe("browser fixture Capture boundary", () => {
     await expect.element(systemProxy).toHaveAccessibleDescription(/local fixture data only/);
     await expect.element(tun).toBeDisabled();
     expect(onSystemProxyChange).not.toHaveBeenCalled();
+  });
+
+  test("keeps repeated browser fixture input inert without Capture feedback", async () => {
+    const { onSystemProxyChange, onTunChange } = renderFixtureHost();
+    const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
+    const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
+
+    (systemProxy.element() as HTMLButtonElement).click();
+    (systemProxy.element() as HTMLButtonElement).click();
+    (tun.element() as HTMLButtonElement).click();
+
+    expect(onSystemProxyChange).not.toHaveBeenCalled();
+    expect(onTunChange).not.toHaveBeenCalled();
+    await expect.element(systemProxy).toBeDisabled();
+    await expect.element(tun).toBeDisabled();
+    const operation = document.querySelector<HTMLElement>("[data-capture-operation-phase]");
+    if (!operation) throw new Error("Missing browser fixture Capture operation status");
+    expect(operation).toHaveAttribute("data-capture-operation-phase", "idle");
   });
 });

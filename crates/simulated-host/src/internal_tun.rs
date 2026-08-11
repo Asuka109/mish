@@ -162,7 +162,7 @@ pub enum MaintenanceCompletionInjection {
     StaleStage,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MaintenanceFault {
     pub at: MaintenanceCommitPoint,
@@ -172,11 +172,39 @@ pub struct MaintenanceFault {
     pub occurrence: u8,
 }
 
+impl<'de> Deserialize<'de> for MaintenanceFault {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct WireMaintenanceFault {
+            at: MaintenanceCommitPoint,
+            kind: MaintenanceFaultKind,
+            #[serde(default = "default_fault_occurrence")]
+            occurrence: u8,
+        }
+
+        let wire = WireMaintenanceFault::deserialize(deserializer)?;
+        if wire.occurrence == 0 || wire.occurrence > MAX_MAINTENANCE_FAULT_OCCURRENCE {
+            return Err(serde::de::Error::custom(
+                "maintenance fault occurrence is outside its bounded range",
+            ));
+        }
+        Ok(Self {
+            at: wire.at,
+            kind: wire.kind,
+            occurrence: wire.occurrence,
+        })
+    }
+}
+
 fn default_fault_occurrence() -> u8 {
     1
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MaintenanceScenario {
     #[serde(default)]
@@ -187,6 +215,39 @@ pub struct MaintenanceScenario {
     #[serde(default)]
     pub pause_until: Option<u64>,
     pub target: SyntheticPackageVersion,
+}
+
+impl<'de> Deserialize<'de> for MaintenanceScenario {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct WireMaintenanceScenario {
+            #[serde(default)]
+            faults: Vec<MaintenanceFault>,
+            initial: SyntheticMaintenanceInitial,
+            #[serde(default)]
+            pause_at: Option<MaintenanceCommitPoint>,
+            #[serde(default)]
+            pause_until: Option<u64>,
+            target: SyntheticPackageVersion,
+        }
+
+        let wire = WireMaintenanceScenario::deserialize(deserializer)?;
+        let scenario = Self {
+            faults: wire.faults,
+            initial: wire.initial,
+            pause_at: wire.pause_at,
+            pause_until: wire.pause_until,
+            target: wire.target,
+        };
+        scenario
+            .validate()
+            .map_err(|_| serde::de::Error::custom("invalid bounded maintenance scenario"))?;
+        Ok(scenario)
+    }
 }
 
 impl MaintenanceScenario {
@@ -232,7 +293,7 @@ impl MaintenanceScenario {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyntheticArtifactIdentity {
     pub application_sha256: String,
     pub core_sha256: String,
@@ -256,7 +317,7 @@ impl From<&ArtifactDigestSet> for SyntheticArtifactIdentity {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyntheticUnrelatedState {
     pub dns: SyntheticOwnership,
     pub filesystem: SyntheticOwnership,
@@ -289,7 +350,7 @@ pub enum SyntheticPackageProjection {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MaintenanceObservation {
     pub active_operation: Option<u64>,
     pub artifacts: Option<SyntheticArtifactIdentity>,

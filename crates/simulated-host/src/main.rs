@@ -20,10 +20,10 @@ use mish_platform_macos::internal_tun_maintenance::MaintenanceCommitPoint;
 use mish_runtime::{CaptureAuditReason, CaptureReconciler};
 use mish_settings::{SettingsAdapterKind, SettingsService};
 use mish_simulated_host::{
-    EffectKind, InjectedFailure, InjectedFailureKind, MaintenanceScenario,
-    MaintenanceScenarioRuntime, ScenarioRuntime, SimulatedHost, SimulatedHostScenario,
-    SyntheticMaintenanceInitial, SyntheticPackageVersion, SyntheticProxyState, TEST_AUTH_TOKEN,
-    TEST_CONTROL_KEY,
+    EffectKind, InjectedFailure, InjectedFailureKind, MaintenanceFault, MaintenanceFaultKind,
+    MaintenanceScenario, MaintenanceScenarioRuntime, ScenarioRuntime, SimulatedHost,
+    SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticPackageVersion,
+    SyntheticProxyState, TEST_AUTH_TOKEN, TEST_CONTROL_KEY,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -38,6 +38,7 @@ enum HarnessScenario {
     ConfirmedRollback,
     EarlyConflict,
     HelperInstall,
+    HelperRemovalRecovery,
     HelperRepair,
     RecoveryRequired,
     Replacement,
@@ -51,6 +52,7 @@ impl HarnessScenario {
             "confirmed-rollback" => Some(Self::ConfirmedRollback),
             "early-conflict" => Some(Self::EarlyConflict),
             "helper-install" => Some(Self::HelperInstall),
+            "helper-removal-recovery" => Some(Self::HelperRemovalRecovery),
             "helper-repair" => Some(Self::HelperRepair),
             "recovery-required" => Some(Self::RecoveryRequired),
             "replacement" => Some(Self::Replacement),
@@ -65,6 +67,7 @@ impl HarnessScenario {
             Self::ConfirmedRollback => "confirmed-rollback",
             Self::EarlyConflict => "early-conflict",
             Self::HelperInstall => "helper-install",
+            Self::HelperRemovalRecovery => "helper-removal-recovery",
             Self::HelperRepair => "helper-repair",
             Self::RecoveryRequired => "recovery-required",
             Self::Replacement => "replacement",
@@ -141,6 +144,16 @@ impl HarnessRuntime {
         match self {
             Self::Maintenance(_) => None,
             Self::Standard(runtime) => Some(runtime.replace_runtime()),
+        }
+    }
+
+    fn clear_maintenance_faults(&self) -> bool {
+        match self {
+            Self::Maintenance(runtime) => runtime
+                .maintenance
+                .configure(SyntheticPackageVersion::V1, Vec::new())
+                .is_ok(),
+            Self::Standard(_) => false,
         }
     }
 }
@@ -245,6 +258,7 @@ async fn evidence(state: &HarnessState) -> HarnessEvidence {
             "health": snapshot["tunHelper"]["health"],
             "lastFailure": snapshot["tunHelper"]["lastFailure"],
             "phase": snapshot["tunHelper"]["phase"],
+            "removal": snapshot["tunHelper"]["removal"],
             "revision": snapshot["revision"],
         })
     });
@@ -364,6 +378,16 @@ async fn replace_runtime(State(state): State<HarnessState>, Path(key): Path<Stri
     cors(Json(evidence(&state).await))
 }
 
+async fn clear_maintenance_faults(
+    State(state): State<HarnessState>,
+    Path(key): Path<String>,
+) -> Response {
+    if key != TEST_CONTROL_KEY || !state.runtime.clear_maintenance_faults() {
+        return cors(StatusCode::CONFLICT);
+    }
+    cors(Json(evidence(&state).await))
+}
+
 fn rollback_scenario(recovery_required: bool) -> SimulatedHostScenario {
     let mut scenario = SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Manual);
     scenario.failures.push(InjectedFailure {
@@ -399,21 +423,38 @@ async fn build_runtime(
         HarnessScenario::EarlyConflict => Ok(HarnessRuntime::Standard(Arc::new(
             ScenarioRuntime::build(SimulatedHostScenario::initial_foreign_listener()).await?,
         ))),
-        HarnessScenario::HelperInstall | HarnessScenario::HelperRepair => {
+        HarnessScenario::HelperInstall
+        | HarnessScenario::HelperRepair
+        | HarnessScenario::HelperRemovalRecovery => {
             let initial = if scenario == HarnessScenario::HelperInstall {
                 SyntheticMaintenanceInitial::Absent
+            } else if scenario == HarnessScenario::HelperRemovalRecovery {
+                SyntheticMaintenanceInitial::HealthyV1
             } else {
                 SyntheticMaintenanceInitial::RepairRequired
+            };
+            let faults = if scenario == HarnessScenario::HelperRemovalRecovery {
+                vec![MaintenanceFault {
+                    at: MaintenanceCommitPoint::PriorServiceDetached,
+                    kind: MaintenanceFaultKind::PermissionDenied,
+                    occurrence: 1,
+                }]
+            } else {
+                Vec::new()
             };
             let runtime = Arc::new(
                 MaintenanceScenarioRuntime::build(
                     SimulatedHostScenario::internal_tun_maintenance(),
                     MaintenanceScenario {
-                        faults: Vec::new(),
+                        faults,
                         initial,
                         pause_at: None,
                         pause_until: None,
-                        target: SyntheticPackageVersion::V2,
+                        target: if scenario == HarnessScenario::HelperRemovalRecovery {
+                            SyntheticPackageVersion::V1
+                        } else {
+                            SyntheticPackageVersion::V2
+                        },
                     },
                 )
                 .await?,
@@ -463,6 +504,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/advance/{logical_time}/{key}", post(advance))
         .route("/audit-system-proxy/{key}", post(audit_system_proxy))
         .route("/cancel-activation/{key}", post(cancel_activation))
+        .route(
+            "/clear-maintenance-faults/{key}",
+            post(clear_maintenance_faults),
+        )
         .route("/observation/{key}", get(observation))
         .route("/replace-runtime/{key}", post(replace_runtime))
         .with_state(state);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import path from "node:path";
 
@@ -42,6 +42,115 @@ interface CargoMetadata {
 
 function read(relativePath: string): string {
   return readFileSync(path.join(repositoryRoot, relativePath), "utf8");
+}
+
+type SourceReader = (relativePath: string) => string | null;
+
+const webProductionEntries = [
+  "apps/web/appearance-bootstrap.js",
+  "apps/web/src/main.tsx",
+  "apps/web/src/window-startup.ts",
+] as const;
+
+const webSourceExtensions = [".js", ".jsx", ".ts", ".tsx"] as const;
+const browserOnlyWebPathMarkers = [
+  `${path.sep}src${path.sep}system-tests${path.sep}`,
+  `${path.sep}src${path.sep}test${path.sep}`,
+];
+const browserOnlyWebFilePattern = /\.(?:browser\.)?test\.(?:js|jsx|ts|tsx)$/u;
+const simulatedControlMarkers = [
+  "MISH_SIMULATED_SCENARIO",
+  "TEST_AUTH_TOKEN",
+  "TEST_CONTROL_KEY",
+  "SimulatedHost",
+  "scenario-harness",
+  "simulated-host",
+];
+
+function extractLocalImportSpecifiers(source: string): string[] {
+  const specifiers = new Set<string>();
+  const patterns = [
+    /\b(?:import|export)\s+(?:type\s+)?[^;]*?\sfrom\s*["']([^"']+)["']/gu,
+    /\bimport\s*["']([^"']+)["']/gu,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier?.startsWith(".")) specifiers.add(specifier);
+    }
+  }
+  return [...specifiers];
+}
+
+function resolveLocalSource(
+  from: string,
+  specifier: string,
+  hasSource: (relativePath: string) => boolean,
+): string | null {
+  const cleanSpecifier = specifier.split(/[?#]/u, 1)[0] ?? specifier;
+  const base = path.normalize(path.join(path.dirname(from), cleanSpecifier));
+  const candidates = [
+    base,
+    ...webSourceExtensions.map((extension) => `${base}${extension}`),
+    ...webSourceExtensions.map((extension) => path.join(base, `index${extension}`)),
+  ];
+  return candidates.find((candidate) => hasSource(candidate)) ?? null;
+}
+
+function findWebProductionGraphViolations(
+  entries: readonly string[],
+  readSource: SourceReader,
+): string[] {
+  const pending = entries.map((entry) => path.normalize(entry));
+  const visited = new Set<string>();
+  const violations = new Set<string>();
+
+  while (pending.length > 0) {
+    const relativePath = pending.pop();
+    if (!relativePath || visited.has(relativePath)) continue;
+    visited.add(relativePath);
+
+    const source = readSource(relativePath);
+    if (source === null) continue;
+
+    if (
+      browserOnlyWebPathMarkers.some((marker) => relativePath.includes(marker)) ||
+      browserOnlyWebFilePattern.test(relativePath)
+    ) {
+      violations.add(`test-only Web source reachable: ${relativePath}`);
+    }
+    for (const marker of simulatedControlMarkers) {
+      if (source.includes(marker)) {
+        violations.add(
+          `simulated control marker reachable from Web production graph: ${relativePath} (${marker})`,
+        );
+      }
+    }
+
+    for (const specifier of extractLocalImportSpecifiers(source)) {
+      const target = resolveLocalSource(
+        relativePath,
+        specifier,
+        (candidate) => readSource(candidate) !== null,
+      );
+      if (target !== null) pending.push(target);
+    }
+  }
+
+  return [...violations].sort();
+}
+
+function readWebProductionSource(relativePath: string): string | null {
+  if (
+    !webSourceExtensions.includes(
+      path.extname(relativePath) as (typeof webSourceExtensions)[number],
+    )
+  ) {
+    return null;
+  }
+  const absolutePath = path.join(repositoryRoot, relativePath);
+  return existsSync(absolutePath) ? readFileSync(absolutePath, "utf8") : null;
 }
 
 function filesUnder(relativeDirectory: string): string[] {
@@ -250,6 +359,55 @@ test("Web production sources cannot import the scenario control API or synthetic
       `${file} imports the test-only scenario graph.`,
     );
   }
+});
+
+test("Web production graph fixture accepts a product-only entry", () => {
+  const sources = new Map([
+    ["apps/web/src/main.tsx", 'import "./app";'],
+    ["apps/web/src/app.tsx", "export {};"],
+  ]);
+
+  assert.deepEqual(
+    findWebProductionGraphViolations(
+      ["apps/web/src/main.tsx"],
+      (relativePath) => sources.get(relativePath) ?? null,
+    ),
+    [],
+  );
+});
+
+test("Web production graph fixture rejects a browser-only simulated control import", () => {
+  const fixturePath = "apps/web/src/components/browser-fixture.browser.test.tsx";
+  const sources = new Map([
+    ["apps/web/src/main.tsx", 'import "./components/browser-fixture.browser.test";'],
+    [fixturePath, "export const scenario = MISH_SIMULATED_SCENARIO;"],
+  ]);
+
+  assert.deepEqual(
+    findWebProductionGraphViolations(
+      ["apps/web/src/main.tsx"],
+      (relativePath) => sources.get(relativePath) ?? null,
+    ),
+    [
+      `simulated control marker reachable from Web production graph: ${fixturePath} (MISH_SIMULATED_SCENARIO)`,
+      `test-only Web source reachable: ${fixturePath}`,
+    ],
+  );
+});
+
+test("Web production entries exclude Browser Mode fixtures and simulated controls", () => {
+  const missingEntries = webProductionEntries.filter(
+    (entry) => readWebProductionSource(entry) === null,
+  );
+  assert.deepEqual(
+    missingEntries,
+    [],
+    "The Web production graph entry list drifted from the bundle.",
+  );
+  assert.deepEqual(
+    findWebProductionGraphViolations(webProductionEntries, readWebProductionSource),
+    [],
+  );
 });
 
 test("product JavaScript package graphs exclude the transport mock", () => {

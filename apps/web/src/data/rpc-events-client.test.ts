@@ -200,6 +200,72 @@ describe("RpcEventsClient", () => {
     expect(snapshots.at(-1)?.sessionId).toBe("events-session-2");
     expect(deliveries).toEqual(["baseline", "baseline"]);
     expect(states.at(-1)).toBe("connected:false");
+    const lateOldSnapshot = eventsSnapshot({
+      sessionId: "events-session-1",
+      sequence: 99,
+    });
+    transports[1].respond({
+      jsonrpc: "2.0",
+      method: "events.snapshot",
+      params: { snapshot: lateOldSnapshot, subscriptionId: "events-1" },
+    });
+    expect(snapshots.at(-1)?.sessionId).toBe("events-session-2");
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("rejects duplicate and equal-order conflicting event deliveries", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcEventsClient(rpc);
+    const snapshots: EventsSnapshotDto[] = [];
+    const states: string[] = [];
+    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+    client.subscribeConnection((state) => states.push(`${state.phase}:${state.stale}`));
+
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const baseline = eventsSnapshot();
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: baseline, subscriptionId: "events-1" },
+    });
+    await flushMicrotasks();
+    expect(snapshots).toHaveLength(1);
+
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "events.snapshot",
+      params: { snapshot: structuredClone(baseline), subscriptionId: "events-1" },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(states.at(-1)).toBe("connected:false");
+
+    const conflict = structuredClone(baseline);
+    conflict.phase = "stale";
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "events.snapshot",
+      params: { snapshot: conflict, subscriptionId: "events-1" },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(states.at(-1)).toBe("connected:true");
+
+    const newer = structuredClone(baseline);
+    newer.applicationOrder.order = 2;
+    newer.sequence = 2;
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "events.snapshot",
+      params: { snapshot: newer, subscriptionId: "events-1" },
+    });
+    expect(snapshots.at(-1)?.applicationOrder.order).toBe(2);
+    expect(states.at(-1)).toBe("connected:false");
     client.dispose();
     rpc.dispose();
   });
