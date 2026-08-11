@@ -22,7 +22,10 @@ use mish_runtime::{
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreOwnership, ManagedCoreProcess};
+use crate::{
+    MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreOwnership, ManagedCoreOwnershipError,
+    ManagedCoreProcess,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum ManagedProcessValidationError {
@@ -555,61 +558,160 @@ impl DesktopMihomoProcess {
     }
 
     async fn stop(&self) -> Result<CoreStatus, String> {
-        let mut inner = self.inner.lock().await;
-        inner.generation = inner.generation.wrapping_add(1);
-        if let Some(process) = inner.privileged_process.take() {
-            inner.status.phase = CorePhase::Stopping;
-            drop(inner);
-            let result = self
-                .privileged_host
-                .as_ref()
-                .expect("privileged process requires a host")
-                .stop(process)
-                .await;
+        let (privileged_process, child, owned_process) = {
             let mut inner = self.inner.lock().await;
-            if result.is_err() {
-                inner.status.phase = CorePhase::Failed;
-                inner.status.error = Some("Unable to stop privileged Mihomo".into());
-                return Err("Unable to stop privileged Mihomo".into());
+            inner.generation = inner.generation.wrapping_add(1);
+            if let Some(process) = inner.privileged_process.take() {
+                inner.status.phase = CorePhase::Stopping;
+                (Some(process), None, None)
+            } else {
+                let Some(child) = inner.child.take() else {
+                    inner.status.phase = CorePhase::Stopped;
+                    inner.status.pid = None;
+                    return Ok(inner.status.clone());
+                };
+                let owned_process = inner.owned_process.take();
+                inner.status.phase = CorePhase::Stopping;
+                (None, Some(child), owned_process)
             }
-            inner.status.phase = CorePhase::Stopped;
-            inner.status.pid = None;
-            inner.status.error = None;
-            return Ok(inner.status.clone());
-        }
-        let Some(mut child) = inner.child.take() else {
-            inner.status.phase = CorePhase::Stopped;
-            inner.status.pid = None;
-            return Ok(inner.status.clone());
         };
-        let owned_process = inner.owned_process.take();
-        inner.status.phase = CorePhase::Stopping;
+        if let Some(process) = privileged_process {
+            return self.stop_privileged(process).await;
+        }
+        let mut child = child.expect("managed child exists when privileged process is absent");
 
-        if let Some(pid) = child.id() {
-            #[cfg(unix)]
-            let _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            );
-        }
-        let reaped = matches!(
-            timeout(Duration::from_secs(5), child.wait()).await,
-            Ok(Ok(_))
-        );
-        if !reaped {
-            child
+        let signal_result = match (&self.ownership, owned_process.as_ref()) {
+            (Some(ownership), Some(process)) => ownership.terminate(process.observation()).await,
+            _ => child
                 .start_kill()
-                .map_err(|_| "Unable to kill managed Mihomo".to_owned())?;
-            child
-                .wait()
-                .await
-                .map_err(|_| "Unable to reap managed Mihomo".to_owned())?;
+                .map(|()| crate::ManagedProcessSignalOutcome::Signalled)
+                .map_err(|_| ManagedCoreOwnershipError::SignalFailed),
+        };
+        if let Err(error) = signal_result {
+            return self
+                .finish_stop_failure(child, owned_process, error.to_string())
+                .await;
         }
-        self.clear_owned_process(owned_process.as_ref())?;
+
+        let mut wait_outcome = match (&self.ownership, owned_process.as_ref()) {
+            (Some(ownership), Some(process)) => ownership
+                .wait_for_exit(process.observation(), Duration::from_secs(5))
+                .await
+                .map_err(|error| error.to_string()),
+            _ => match timeout(Duration::from_secs(5), child.wait()).await {
+                Ok(Ok(_)) => Ok(crate::ManagedProcessWaitOutcome::Exited),
+                Ok(Err(_)) => Err("Unable to reap managed Mihomo".to_owned()),
+                Err(_) => Ok(crate::ManagedProcessWaitOutcome::TimedOut),
+            },
+        };
+        if matches!(wait_outcome, Ok(crate::ManagedProcessWaitOutcome::TimedOut)) {
+            let kill_result = match (&self.ownership, owned_process.as_ref()) {
+                (Some(ownership), Some(process)) => ownership
+                    .kill(process.observation())
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| error.to_string()),
+                _ => child
+                    .start_kill()
+                    .map_err(|_| "Unable to kill managed Mihomo".to_owned()),
+            };
+            if let Err(error) = kill_result {
+                return self.finish_stop_failure(child, owned_process, error).await;
+            }
+            wait_outcome = match (&self.ownership, owned_process.as_ref()) {
+                (Some(ownership), Some(process)) => ownership
+                    .wait_for_exit(process.observation(), Duration::from_secs(5))
+                    .await
+                    .map_err(|error| error.to_string()),
+                _ => match timeout(Duration::from_secs(5), child.wait()).await {
+                    Ok(Ok(_)) => Ok(crate::ManagedProcessWaitOutcome::Exited),
+                    Ok(Err(_)) => Err("Unable to reap managed Mihomo".to_owned()),
+                    Err(_) => Ok(crate::ManagedProcessWaitOutcome::TimedOut),
+                },
+            };
+        }
+        match wait_outcome {
+            Ok(crate::ManagedProcessWaitOutcome::Exited) => {}
+            Ok(crate::ManagedProcessWaitOutcome::Replaced) => {
+                return self
+                    .finish_stop_failure(
+                        child,
+                        owned_process,
+                        "managed Core process was replaced before stop completed".to_owned(),
+                    )
+                    .await;
+            }
+            Ok(crate::ManagedProcessWaitOutcome::TimedOut) => {
+                return self
+                    .finish_stop_failure(
+                        child,
+                        owned_process,
+                        "Unable to terminate managed Mihomo".to_owned(),
+                    )
+                    .await;
+            }
+            Err(error) => {
+                return self.finish_stop_failure(child, owned_process, error).await;
+            }
+        }
+        if let Err(error) = reap_child_handle(&mut child).await {
+            return self.finish_stop_failure(child, owned_process, error).await;
+        }
+        if let Err(error) = self.clear_owned_process(owned_process.as_ref()) {
+            return self
+                .finish_stop_failure_without_child(owned_process, error)
+                .await;
+        }
+        let mut inner = self.inner.lock().await;
         inner.status.phase = CorePhase::Stopped;
         inner.status.pid = None;
         inner.status.error = None;
         Ok(inner.status.clone())
+    }
+
+    async fn stop_privileged(&self, process: PrivilegedCoreProcess) -> Result<CoreStatus, String> {
+        let result = self
+            .privileged_host
+            .as_ref()
+            .expect("privileged process requires a host")
+            .stop(process)
+            .await;
+        let mut inner = self.inner.lock().await;
+        if result.is_err() {
+            inner.status.phase = CorePhase::Failed;
+            inner.status.error = Some("Unable to stop privileged Mihomo".into());
+            return Err("Unable to stop privileged Mihomo".into());
+        }
+        inner.status.phase = CorePhase::Stopped;
+        inner.status.pid = None;
+        inner.status.error = None;
+        Ok(inner.status.clone())
+    }
+
+    async fn finish_stop_failure(
+        &self,
+        child: Child,
+        owned_process: Option<ManagedCoreProcess>,
+        error: String,
+    ) -> Result<CoreStatus, String> {
+        let mut inner = self.inner.lock().await;
+        inner.child = Some(child);
+        inner.owned_process = owned_process;
+        inner.status.phase = CorePhase::Failed;
+        inner.status.error = Some(error.clone());
+        Err(error)
+    }
+
+    async fn finish_stop_failure_without_child(
+        &self,
+        owned_process: Option<ManagedCoreProcess>,
+        error: String,
+    ) -> Result<CoreStatus, String> {
+        let mut inner = self.inner.lock().await;
+        inner.owned_process = owned_process;
+        inner.status.phase = CorePhase::Failed;
+        inner.status.error = Some(error.clone());
+        Err(error)
     }
 
     fn monitor_child(&self, generation: u64) {
@@ -733,6 +835,22 @@ impl DesktopMihomoProcess {
                 .map_err(|_| "Unable to clear managed Mihomo ownership".to_owned())?;
         }
         Ok(())
+    }
+}
+
+async fn reap_child_handle(child: &mut Child) -> Result<(), String> {
+    match child.try_wait() {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => {
+            child
+                .start_kill()
+                .map_err(|_| "Unable to reap managed Mihomo".to_owned())?;
+            match timeout(Duration::from_secs(5), child.wait()).await {
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(_)) | Err(_) => Err("Unable to reap managed Mihomo".to_owned()),
+            }
+        }
+        Err(_) => Err("Unable to inspect managed Mihomo during stop".to_owned()),
     }
 }
 
@@ -885,13 +1003,16 @@ impl CoreRuntime for DesktopMihomoProcess {
                     Err(_) => LocalProxyOwnership::Unknown,
                 };
             }
-            match (&self.ownership, inner.owned_process.as_ref()) {
+            let owned_process = inner.owned_process.clone();
+            let phase = inner.status.phase;
+            drop(inner);
+            match (&self.ownership, owned_process.as_ref()) {
                 (Some(ownership), Some(process)) => {
-                    ownership.process_listener_ownership(process, &endpoint)
+                    ownership
+                        .process_listener_ownership(process, &endpoint)
+                        .await
                 }
-                (Some(_), None)
-                    if matches!(inner.status.phase, CorePhase::Running | CorePhase::Starting) =>
-                {
+                (Some(_), None) if matches!(phase, CorePhase::Running | CorePhase::Starting) => {
                     // A live status without its retained ownership handle is incomplete evidence,
                     // not proof that a listener belongs to another process. Candidate readiness
                     // still requires positive ownership, while an active generation can be

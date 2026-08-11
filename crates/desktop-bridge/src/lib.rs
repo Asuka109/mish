@@ -41,7 +41,8 @@ pub use core_ownership::{
     MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreLaunchSpec, ManagedCoreOwnership,
     ManagedCoreOwnershipError, ManagedCoreProcess, ManagedCoreRecoveryOutcome,
     ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
-    ManagedRuntimeLease, RealManagedProcessPlatform,
+    ManagedProcessSignalOutcome, ManagedProcessWaitOutcome, ManagedRuntimeLease,
+    RealManagedProcessPlatform,
 };
 pub use lifecycle::{
     DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
