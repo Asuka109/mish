@@ -191,6 +191,8 @@ describe("RpcStatusClient", () => {
     const secondRequest = await waitForRequest(transports[1], 2);
     const authorityB = await createRpcSnapshot();
     authorityB.applicationOrder = { authorityId: "status-authority-B", epoch: 1, order: 1 };
+    authorityB.activeProfileId = "profile-current";
+    authorityB.profiles = [{ id: "profile-current", label: "Current profile" }];
     transports[1].respond({ id: secondRequest.id, jsonrpc: "2.0", result: authorityB });
     await expect(secondRead).resolves.toMatchObject({
       applicationOrder: { authorityId: "status-authority-B" },
@@ -207,6 +209,97 @@ describe("RpcStatusClient", () => {
       applicationOrder: { authorityId: "status-authority-B" },
     });
 
+    const lateError = client.setRoutingMode("direct");
+    const lateErrorRequest = await waitForRequest(transports[1], 4);
+    const delayedError = structuredClone(delayedA);
+    delayedError.activeProfileId = "stale-profile";
+    delayedError.profiles = [{ id: "stale-profile", label: "Stale profile" }];
+    transports[1].respond({
+      error: {
+        code: -32_054,
+        data: { kind: "runtime-replaced", snapshot: delayedError },
+        message: "The Status runtime was replaced before the command completed",
+      },
+      id: lateErrorRequest.id,
+      jsonrpc: "2.0",
+    });
+    await expect(lateError).rejects.toMatchObject({
+      code: "runtime-replaced",
+      snapshot: {
+        activeProfileId: "profile-current",
+        applicationOrder: { authorityId: "status-authority-B" },
+      },
+    });
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: true });
+
+    client.dispose();
+  });
+
+  it("accepts runtime replacement reconciliation only from a new application authority", async () => {
+    vi.useFakeTimers();
+    const transports = [new FakeTransport(), new FakeTransport()];
+    let transportIndex = 0;
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
+      methods: mishRpcMethods,
+      transportFactory: () => transports[transportIndex++],
+    });
+    const client = new RpcStatusClient(rpc);
+
+    const initialRead = client.getSnapshot();
+    await authenticate(transports[0]);
+    const initialRequest = await waitForRequest(transports[0], 1);
+    const terminal = captureSnapshot(await createRpcSnapshot(), "7", "applied");
+    transports[0].respond({ id: initialRequest.id, jsonrpc: "2.0", result: terminal });
+    await expect(initialRead).resolves.toMatchObject({
+      applicationOrder: { authorityId: "status-application" },
+    });
+
+    transports[0].close(1006, "restart");
+    await vi.advanceTimersByTimeAsync(5);
+    await authenticate(transports[1]);
+
+    const command = client.setRoutingMode("direct");
+    const request = await waitForRequest(transports[1], 1);
+    const replacement = captureSnapshot(terminal, "7", "pending");
+    replacement.applicationOrder = {
+      authorityId: "status-application-replacement",
+      epoch: 1,
+      order: 1,
+    };
+    replacement.activeProfileId = "profile-replacement";
+    replacement.profiles = [{ id: "profile-replacement", label: "Replacement profile" }];
+    transports[1].respond({
+      error: {
+        code: -32_054,
+        data: { kind: "runtime-replaced", snapshot: replacement },
+        message: "The Status runtime was replaced before the command completed",
+      },
+      id: request.id,
+      jsonrpc: "2.0",
+    });
+
+    await expect(command).rejects.toMatchObject({
+      code: "runtime-replaced",
+      snapshot: {
+        activeProfileId: "profile-replacement",
+        applicationOrder: {
+          authorityId: "status-application-replacement",
+          epoch: 1,
+          order: 1,
+        },
+        runtime: {
+          captureOperation: {
+            failure: null,
+            operationId: "7",
+            phase: "applied",
+            scopeEpoch: "capture-scope-a",
+          },
+        },
+      },
+    });
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
     client.dispose();
   });
 
@@ -847,8 +940,8 @@ describe("RpcStatusClient", () => {
     const replacedCommand = client.setRoutingMode("direct");
     const replacedRequest = await waitForRequest(transports[0], 4);
     const replacementSnapshot = structuredClone(preReconnect);
-    replacementSnapshot.activeProfileId = "profile-replacement";
-    replacementSnapshot.profiles = [{ id: "profile-replacement", label: "Replacement profile" }];
+    replacementSnapshot.activeProfileId = "profile-conflict";
+    replacementSnapshot.profiles = [{ id: "profile-conflict", label: "Conflicting profile" }];
     transports[0].respond({
       error: {
         code: -32_054,
@@ -858,14 +951,20 @@ describe("RpcStatusClient", () => {
       id: replacedRequest.id,
       jsonrpc: "2.0",
     });
-    await expect(replacedCommand).rejects.toMatchObject({
+    const replacedError = await replacedCommand.catch((error: unknown) => error);
+    expect(replacedError).toMatchObject({
       code: "runtime-replaced",
       retryable: true,
       snapshot: {
-        activeProfileId: "profile-replacement",
+        activeProfileId: preReconnect.activeProfileId,
         recentTraffic: { downloadedBytes: 600, revision: 6 },
       },
     });
+    expect(replacedError).toBeInstanceOf(StatusClientError);
+    expect((replacedError as StatusClientError).snapshot).not.toMatchObject({
+      activeProfileId: "profile-conflict",
+    });
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: true });
 
     transports[0].close(1006, "Lost");
     expect(client.getConnectionState()).toMatchObject({ phase: "reconnecting", stale: true });
