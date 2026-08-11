@@ -20,9 +20,8 @@ Owner: thread-master coordinator
 ## Active tasks
 
 Waves 2A, 2B, and 2C are fully integrated. The maintainer approved the exact
-two-task AFK Wave 2D on 2026-08-11. Two visible Luna Max Worker reservations
-are in `dispatching` state with identity/worktree backfill pending, and eight
-repository concurrency slots remain unreserved.
+two-task AFK Wave 2D on 2026-08-11. Both visible Luna Max Workers are active in
+isolated worktrees, and eight repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -122,8 +121,8 @@ physical-host mutation, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.5 | `pending` | `pending` | dispatching | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | Own RPC authority cleanup, documentation, and gates only; do not add product behavior or change domain DTO authority; follow the transcript skill |
-| #442 E1.4 | `pending` | `pending` | dispatching | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | Own release adversarial fixtures/gates only; perform no real signing, notarization, upload, install, credential read, or host mutation; follow the transcript skill |
+| #440 B1.5 | `019ff17f-35cb-7103-9517-2e1923f0f695` | `c5a6` | active | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | Visible Luna Max Worker is active; own RPC authority cleanup, documentation, and gates only; do not add product behavior or change domain DTO authority |
+| #442 E1.4 | `019ff17f-35cd-7602-a70d-c61f73117922` | `393d` | active | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | Visible Luna Max Worker is active; own release adversarial fixtures/gates only and perform no real signing, notarization, upload, install, credential read, or host mutation |
 
 ## Existing issue coordination
 
