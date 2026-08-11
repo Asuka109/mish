@@ -19,8 +19,9 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Six Luna Max workers remain active from the pre-published manifest. #443 E2.1
-was accepted, merged, and integrated; E2.2/E2.3 remain unassigned.
+Five Luna Max workers remain active from the pre-published manifest. #438 A4.1
+and #443 E2.1 were accepted, merged, and integrated; A4.2 and E2.2/E2.3 remain
+unassigned.
 
 ## Wave 1 worker ledger
 
@@ -29,7 +30,7 @@ was accepted, merged, and integrated; E2.2/E2.3 remain unassigned.
 | #436 A1.1 | `019fefb6-dbbc-7dd2-bd7c-2fcb7c10fdb4` | `39f5` | active | none | confirmation-only | Clean detached `12831ad`; bounded owned-operation kernel only. |
 | #448 A2.1 | `019fefb6-df13-7c43-aa76-8baa63f77248` | `d79d` | active | none for A2.1 | confirmation-only | Clean detached `12831ad`; no host mutation is authorized. |
 | #437 A3.1 | `019fefb6-dba8-7be2-9833-24c5c22f6c53` | `b68e` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to Rust model semantics. |
-| #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to truthful fixture behavior. |
+| #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | integrated | none | accepted | PR #455 merged as `9322e17`; local/remote gates passed, Issue checklist synced, A4.2 remains open. |
 | #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | active | none | confirmation-only | Clean detached `12831ad`; no real process signal is authorized. |
 | #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to transport hardening. |
 | #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed, Issue checklist synced, E2.2/E2.3 remain open. |
@@ -41,7 +42,7 @@ was accepted, merged, and integrated; E2.2/E2.3 remain unassigned.
 | Owned operations | #436 | active: A1.1 | none | confirmation-only |
 | System Proxy restoration | #448 | active: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | active: A3.1 | none | confirmation-only |
-| Browser fixture truthfulness | #438 | active: A4.1 | none | confirmation-only |
+| Browser fixture truthfulness | #438 | A4.1 integrated; A4.2 planned | none | confirmation-only |
 | Process identity | #439 | active: A5.1 | none | confirmation-only |
 | RPC Session Authority | #440 | active: B1.1 | none | confirmation-only |
 | Profile credential privacy | #449 | blocked | #440 | confirmation-only |
@@ -75,13 +76,13 @@ was accepted, merged, and integrated; E2.2/E2.3 remain unassigned.
 | #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-luna/max` | none | active |
 | #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-luna/max` | none for A2.1 | active |
 | #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-luna/max` | none | active |
-| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | active |
+| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | integrated (`9322e17`) |
 | #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-luna/max` | none | active |
 | #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-luna/max` | none | active |
 | #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | integrated (`f27a711a`) |
 
-The Wave 1 tasks are AFK and confirmation-only. Six workers remain active and
-one is integrated. Each worker receives an isolated worktree, one linked
+The Wave 1 tasks are AFK and confirmation-only. Five workers remain active and
+two are integrated. Each worker receives an isolated worktree, one linked
 Issue/task, Chinese reporting, final-only escalation, and authority to
 commit/push/open a PR after dispatch. Merge remains gated on explicit human
 acceptance.
