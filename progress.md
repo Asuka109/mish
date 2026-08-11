@@ -20,9 +20,9 @@ Owner: thread-master coordinator
 ## Active tasks
 
 Waves 2A and 2B are fully integrated. The maintainer approved the exact
-seven-task AFK Wave 2C on 2026-08-11. One visible Luna Max Worker is active in
-an isolated worktree, six reservations remain in `dispatching` state, and three
-repository concurrency slots remain unreserved.
+seven-task AFK Wave 2C on 2026-08-11. All seven visible Luna Max Workers are
+active in isolated worktrees, with three repository concurrency slots left
+unreserved.
 
 ## Wave 1 worker ledger
 
@@ -105,12 +105,12 @@ physical-host mutation, device/emulator acceptance, or other hands-on work.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #440 B1.4 | `019ff0db-3399-7e42-a8d6-ceb53d386a95` | `a427` | active | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | Visible Luna Max Worker is active in the isolated worktree; own RPC clients/providers only, preserve domain DTO authority, and leave B1.5 cleanup/documentation separate |
-| #441 C2.3 | `pending` | `pending` | dispatching | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | Own Profile fault seams/tests only; use synthetic fixtures, record bounded transcripts, and read no real Profile content or credentials |
-| #442 E1.3 | `pending` | `pending` | dispatching | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | Credential-free fixtures only; own signed-release runner/tests, perform no real signing/notarization/upload, and follow the transcript skill |
-| #444 G1.1 | `pending` | `pending` | dispatching | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | Own route error-boundary/retry files; do not change shared providers, notification authority, or global design tokens |
-| #445 G2.1 | `pending` | `pending` | dispatching | none | Expose Traffic row details through an accessible action with keyboard/focus tests | Own Traffic page/presentation tests; do not change RPC clients/providers or global design tokens |
-| #446 G3.1 | `pending` | `pending` | dispatching | none | Report clipboard rejection through accessible non-blocking Events feedback | Own Events page-local feedback/tests; do not change notification RPC/provider authority or global design tokens |
-| #447 G4.1 | `pending` | `pending` | dispatching | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | Own global token/contrast changes; other UI Workers must not edit the selected token owner |
+| #441 C2.3 | `019ff0db-c089-79a3-a4c8-3f6fb925a924` | `069d` | active | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | Visible Luna Max Worker is active; own Profile fault seams/tests, use synthetic fixtures, and read no real Profile content or credentials |
+| #442 E1.3 | `019ff0db-c092-74c3-bd39-69046c098ff1` | `a78d` | active | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | Visible Luna Max Worker is active; credential-free fixtures only, no real signing/notarization/upload, and E1.4 remains separate |
+| #444 G1.1 | `019ff0db-c163-75b2-a02b-e6edba89bf2c` | `03e1` | active | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | Visible Luna Max Worker is active; own route error-boundary/retry files and do not change shared providers, notification authority, or global design tokens |
+| #445 G2.1 | `019ff0db-c21e-71a3-9724-6f62073197bd` | `ff1b` | active | none | Expose Traffic row details through an accessible action with keyboard/focus tests | Visible Luna Max Worker is active; own Traffic page/presentation tests and do not change RPC clients/providers or global design tokens |
+| #446 G3.1 | `019ff0db-c350-78f3-9a38-e9a1c1694fcf` | `2974` | active | none | Report clipboard rejection through accessible non-blocking Events feedback | Visible Luna Max Worker is active; own Events-local feedback/tests and do not change notification RPC/provider authority or global design tokens |
+| #447 G4.1 | `019ff0db-c366-7830-9cd0-d1797504f6b5` | `b600` | active | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | Visible Luna Max Worker is active as the sole global token/contrast owner for this wave |
 
 ## Existing issue coordination
 
