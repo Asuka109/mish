@@ -6,8 +6,11 @@ Owner: thread-master coordinator
 ## Current checkpoint
 
 - Backlog preparation and Wave 1 were explicitly approved by the maintainer.
-- Governance baseline `76719cd` is published on `main`.
-- Seven Wave 1 implementation workers are active from that exact baseline.
+- Governance baseline `76719cd` is published on `main`; the dispatch ledger is
+  published in a later progress-only commit.
+- Seven Wave 1 workers correctly paused after reading the pre-dispatch ledger
+  during worktree setup. They are resuming the same tasks from current
+  `origin/main`; no replacement worker was created.
 - All planned workers must use Luna Max (`gpt-5.6-sol`) with `high` or `medium`
   reasoning and report in Chinese.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
@@ -18,13 +21,13 @@ Owner: thread-master coordinator
 
 | Task | Worker task ID | Worktree | State | Dependencies | Acceptance | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.1 | `019fefa0-b70c-7320-8eca-5ceddc5da41b` | `a9cf` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is mapping the kernel boundary. |
-| #448 A2.1 | `019fefa0-baec-7a83-a800-577891f9b4e0` | `ddf0` | active | none for A2.1 | confirmation-only | Clean detached baseline `76719cd`; no host mutation is authorized. |
-| #437 A3.1 | `019fefa0-b70e-7fc2-98b5-3d5b40b92243` | `6111` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is limited to Rust model semantics. |
-| #438 A4.1 | `019fefa0-b70e-7fc2-98b5-3d368f7d879f` | `d3c9` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is limited to truthful fixture behavior. |
-| #439 A5.1 | `019fefa0-b70c-7320-8eca-5c86e4d00cb5` | `99cd` | active | none | confirmation-only | Clean detached baseline `76719cd`; no real process signal is authorized. |
-| #440 B1.1 | `019fefa0-b70c-7320-8eca-5cb1a0a56202` | `e8d0` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker owns transport hardening only. |
-| #443 E2.1 | `019fefa0-b70b-7892-9d33-7e4efe0cad88` | `3a87` | active | none | confirmation-only | Clean detached baseline `76719cd`; no repository settings mutation is authorized. |
+| #436 A1.1 | `019fefa0-b70c-7320-8eca-5ceddc5da41b` | `a9cf` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; resume from current `origin/main`. |
+| #448 A2.1 | `019fefa0-baec-7a83-a800-577891f9b4e0` | `ddf0` | resuming | none for A2.1 | confirmation-only | Correctly paused on the pre-dispatch ledger; no host mutation is authorized. |
+| #437 A3.1 | `019fefa0-b70e-7fc2-98b5-3d5b40b92243` | `6111` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains Rust model semantics. |
+| #438 A4.1 | `019fefa0-b70e-7fc2-98b5-3d368f7d879f` | `d3c9` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains truthful fixture behavior. |
+| #439 A5.1 | `019fefa0-b70c-7320-8eca-5c86e4d00cb5` | `99cd` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; no real process signal is authorized. |
+| #440 B1.1 | `019fefa0-b70c-7320-8eca-5cb1a0a56202` | `e8d0` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains transport hardening. |
+| #443 E2.1 | `019fefa0-b70b-7892-9d33-7e4efe0cad88` | `3a87` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; no repository settings mutation is authorized. |
 
 ## Planned issue graph
 
