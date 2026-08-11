@@ -20,9 +20,9 @@ Owner: thread-master coordinator
 ## Active tasks
 
 Waves 2A and 2B are fully integrated. The maintainer approved the exact
-seven-task AFK Wave 2C on 2026-08-11. One Luna Max Worker is active in its
-isolated worktree, six reservations remain in `dispatching` state, and three
-repository concurrency slots remain unreserved.
+seven-task AFK Wave 2C on 2026-08-11. Seven visible Codex Worker reservations
+remain in `dispatching` state with identity/worktree backfill pending; no
+Worker is active yet, and three repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -104,7 +104,7 @@ physical-host mutation, device/emulator acceptance, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.4 | `019ff0d8-af77-7c42-8759-556c3e13d62d` | `wave2c-440` | active | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | Luna Max Worker Sagan is active in the isolated worktree; own RPC clients/providers only, preserve domain DTO authority, and leave B1.5 cleanup/documentation separate |
+| #440 B1.4 | `pending` | `pending` | dispatching | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | Own RPC clients/providers only; preserve domain DTO authority and leave B1.5 cleanup/documentation separate; follow the transcript skill |
 | #441 C2.3 | `pending` | `pending` | dispatching | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | Own Profile fault seams/tests only; use synthetic fixtures, record bounded transcripts, and read no real Profile content or credentials |
 | #442 E1.3 | `pending` | `pending` | dispatching | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | Credential-free fixtures only; own signed-release runner/tests, perform no real signing/notarization/upload, and follow the transcript skill |
 | #444 G1.1 | `pending` | `pending` | dispatching | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | Own route error-boundary/retry files; do not change shared providers, notification authority, or global design tokens |
