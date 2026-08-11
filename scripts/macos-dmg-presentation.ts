@@ -1,7 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -15,6 +14,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  writeContainedReleaseFile,
+} from "./release-path-containment.ts";
 
 const presentationFile = path.resolve("resources/macos-dmg/presentation.json");
 const presentationDirectory = path.dirname(presentationFile);
@@ -446,7 +452,11 @@ export function createMacOsDmg(
   const presentation = loadPresentation();
   const resolvedApplication = path.resolve(application);
   const resolvedOutput = path.resolve(output);
+  const applicationRoot = assertPrivateNoFollowRoot(resolvedApplication);
+  const outputRoot = assertPrivateNoFollowRoot(path.dirname(resolvedOutput));
+  applicationRoot.assertCurrent();
   if (existsSync(resolvedOutput)) {
+    assertPrivateNoFollowFile(resolvedOutput);
     requireRegularFile(resolvedOutput, "existing output");
     invariant(options.replaceExistingOutput, `macOS DMG output already exists: ${resolvedOutput}`);
   }
@@ -475,6 +485,7 @@ export function createMacOsDmg(
     attachImage(workingImage, mountpoint, true);
     attached = true;
     assertTemplateRoot(mountpoint, presentation);
+    applicationRoot.assertCurrent();
     copyApplicationContents(resolvedApplication, path.join(mountpoint, "Mish.app"));
     detachMacOsDiskImage(mountpoint);
     attached = false;
@@ -497,7 +508,14 @@ export function createMacOsDmg(
     requireRegularFile(assembledOutput, "assembled delivery image");
     if (options.normalizeForDeterminism) normalizeUdifSegmentId(assembledOutput);
     moveToTrash(resolvedOutput);
-    copyFileSync(assembledOutput, resolvedOutput);
+    const assembled = assertPrivateNoFollowFile(assembledOutput);
+    writeContainedReleaseFile(
+      outputRoot,
+      path.basename(resolvedOutput),
+      readContainedReleaseFile(assembled),
+      { mode: 0o644 },
+    );
+    assertPrivateNoFollowFile(resolvedOutput).assertCurrent();
   } finally {
     if (attached) detachMacOsDiskImage(mountpoint);
     moveToTrash(temporary);
@@ -511,12 +529,14 @@ export function verifyMacOsDmgPresentation(
   requireDarwin();
   const presentation = loadPresentation();
   const resolvedDmg = path.resolve(dmg);
-  requireRegularFile(resolvedDmg, "delivery image");
+  const dmgGuard = assertPrivateNoFollowFile(resolvedDmg);
+  requireRegularFile(dmgGuard.absolute, "delivery image");
   const temporary = mkdtempSync(path.join(tmpdir(), "mish-macos-dmg-verify-"));
   const mountpoint = path.join(temporary, "mount");
   let attached = false;
   try {
     mkdirSync(mountpoint);
+    dmgGuard.assertCurrent();
     attachImage(resolvedDmg, mountpoint, false);
     attached = true;
     const canonicalMountpoint = realpathSync(mountpoint);
@@ -566,7 +586,10 @@ export function verifyMacOsDmgPresentation(
       sha256(path.join(mountpoint, ".DS_Store")) === presentation.template.dsStoreSha256,
       "macOS DMG Finder metadata digest differs from the presentation contract",
     );
-    verifyApplication?.(realpathSync(application));
+    const mountedApplication = realpathSync(application);
+    const mountedRoot = assertPrivateNoFollowRoot(mountedApplication);
+    mountedRoot.assertCurrent();
+    verifyApplication?.(mountedRoot.absolute);
   } finally {
     if (attached) detachMacOsDiskImage(mountpoint);
     moveToTrash(temporary);

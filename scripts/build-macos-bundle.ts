@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -9,6 +9,12 @@ import {
   signedDirectMihomoIdentifier,
 } from "./macos-signed-direct-policy.ts";
 import { createMacOsDmg, verifyMacOsDmgPresentation } from "./macos-dmg-presentation.ts";
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  writeContainedReleaseFile,
+} from "./release-path-containment.ts";
 
 if (process.platform !== "darwin" || process.arch !== "arm64") {
   throw new Error("macOS bundles must be built on Apple Silicon macOS");
@@ -60,20 +66,32 @@ if (productionFixture || signedDirectFixture) {
 }
 
 execFileSync("pnpm", ["prepare:mihomo"], { stdio: "inherit" });
+const mihomoGuard = assertPrivateNoFollowFile(mihomo);
 execFileSync("pnpm", ["geodata:verify-runtime"], {
   env: { ...process.env, MISH_MIHOMO_BIN: mihomo },
   stdio: "inherit",
 });
-const mihomoSha256 = createHash("sha256").update(readFileSync(mihomo)).digest("hex");
+const mihomoSha256 = createHash("sha256")
+  .update(readContainedReleaseFile(mihomoGuard))
+  .digest("hex");
 if (mihomoSha256 !== expectedMihomoSha256) {
   throw new Error(
     `Prepared Mihomo checksum mismatch: expected ${expectedMihomoSha256}, received ${mihomoSha256}`,
   );
 }
-mkdirSync(path.dirname(bundleMihomo), { recursive: true });
-copyFileSync(mihomo, bundleMihomo);
-chmodSync(bundleMihomo, 0o755);
-const stagedMihomoSha256 = createHash("sha256").update(readFileSync(bundleMihomo)).digest("hex");
+const bundleMihomoParent = path.dirname(bundleMihomo);
+mkdirSync(bundleMihomoParent, { recursive: true, mode: 0o700 });
+chmodSync(bundleMihomoParent, 0o700);
+const bundleRoot = assertPrivateNoFollowRoot(bundleMihomoParent);
+const stagedMihomo = writeContainedReleaseFile(
+  bundleRoot,
+  path.basename(bundleMihomo),
+  readContainedReleaseFile(mihomoGuard),
+  { mode: 0o755, overwrite: true },
+);
+const stagedMihomoSha256 = createHash("sha256")
+  .update(readContainedReleaseFile(stagedMihomo))
+  .digest("hex");
 if (stagedMihomoSha256 !== expectedMihomoSha256) {
   throw new Error(
     `Staged Mihomo checksum mismatch: expected ${expectedMihomoSha256}, received ${stagedMihomoSha256}`,
@@ -89,9 +107,13 @@ if (identity === "-") {
 if (signedDirect) {
   signingArguments.push("--identifier", signedDirectMihomoIdentifier);
 }
-signingArguments.push("--sign", identity, bundleMihomo);
+stagedMihomo.assertCurrent();
+signingArguments.push("--sign", identity, stagedMihomo.absolute);
 execFileSync("codesign", signingArguments, { stdio: "inherit" });
-const pinnedMihomoSha256 = createHash("sha256").update(readFileSync(mihomo)).digest("hex");
+bundleRoot.contain(path.basename(bundleMihomo), "executable").assertCurrent();
+const pinnedMihomoSha256 = createHash("sha256")
+  .update(readContainedReleaseFile(mihomoGuard))
+  .digest("hex");
 if (pinnedMihomoSha256 !== expectedMihomoSha256) {
   throw new Error(
     `Pinned Mihomo changed while staging the signed bundle resource: expected ${expectedMihomoSha256}, received ${pinnedMihomoSha256}`,
@@ -128,17 +150,27 @@ if (productionFixture) {
     ["build", "--release", "-p", "mish-platform-macos", "--bin", "mish-production-tun-helper"],
     { env: packageEnvironment, stdio: "inherit" },
   );
-  mkdirSync(productionRoot, { recursive: true });
-  const helper = path.join(productionRoot, "mish-tun-helper");
-  const plist = path.join(productionRoot, "com.asuka109.mish.tun-helper.plist");
-  if (existsSync(helper)) chmodSync(helper, 0o755);
-  if (existsSync(plist)) chmodSync(plist, 0o644);
-  copyFileSync(path.resolve("target/release/mish-production-tun-helper"), helper);
-  copyFileSync(
-    path.resolve("apps/desktop/src-tauri/macos/LaunchDaemons/com.asuka109.mish.tun-helper.plist"),
-    plist,
+  mkdirSync(productionRoot, { mode: 0o700, recursive: true });
+  chmodSync(productionRoot, 0o700);
+  const productionRootGuard = assertPrivateNoFollowRoot(productionRoot);
+  const helperSource = assertPrivateNoFollowFile(
+    path.resolve("target/release/mish-production-tun-helper"),
   );
-  chmodSync(plist, 0o644);
+  const plistSource = assertPrivateNoFollowFile(
+    path.resolve("apps/desktop/src-tauri/macos/LaunchDaemons/com.asuka109.mish.tun-helper.plist"),
+  );
+  const helperGuard = writeContainedReleaseFile(
+    productionRootGuard,
+    "mish-tun-helper",
+    readContainedReleaseFile(helperSource),
+    { mode: 0o755, overwrite: true },
+  );
+  writeContainedReleaseFile(
+    productionRootGuard,
+    "com.asuka109.mish.tun-helper.plist",
+    readContainedReleaseFile(plistSource),
+    { mode: 0o644, overwrite: true },
+  );
   execFileSync(
     "codesign",
     [
@@ -150,12 +182,13 @@ if (productionFixture) {
       "--timestamp=none",
       "--sign",
       identity,
-      helper,
+      helperGuard.absolute,
     ],
     { stdio: "inherit" },
   );
-  chmodSync(helper, 0o755);
-  execFileSync("codesign", ["--verify", "--strict", helper], { stdio: "inherit" });
+  const signedHelper = productionRootGuard.contain("mish-tun-helper", "executable");
+  signedHelper.assertCurrent();
+  execFileSync("codesign", ["--verify", "--strict", signedHelper.absolute], { stdio: "inherit" });
   bundleCommand = "bundle:macos:production";
 }
 
@@ -170,6 +203,14 @@ execFileSync("pnpm", ["--filter", "@mish/desktop", bundleCommand], {
   stdio: "inherit",
 });
 const application = path.resolve("target/release/bundle/macos/Mish.app");
+const applicationRoot = assertPrivateNoFollowRoot(application);
+const mainExecutable = applicationRoot.contain("Contents/MacOS/mish-desktop", "executable");
+const applicationMihomo = applicationRoot.contain(
+  "Contents/Resources/mihomo-aarch64-apple-darwin",
+  "executable",
+);
+mainExecutable.assertCurrent();
+applicationMihomo.assertCurrent();
 const dmgName = alphaAdHoc
   ? "Mish_0.1.0_aarch64.dmg"
   : productionFixture
@@ -178,8 +219,13 @@ const dmgName = alphaAdHoc
       ? "Mish-signed-direct-fixture_0.1.0_aarch64.dmg"
       : "Mish-signed-direct_0.1.0_aarch64.dmg";
 const dmg = path.resolve("target/release/bundle/dmg", dmgName);
-mkdirSync(path.dirname(dmg), { recursive: true });
+mkdirSync(path.dirname(dmg), { recursive: true, mode: 0o700 });
+chmodSync(path.dirname(dmg), 0o700);
+const dmgParent = assertPrivateNoFollowRoot(path.dirname(dmg));
+dmgParent.assertCurrent();
 createMacOsDmg(application, dmg, { replaceExistingOutput: true });
+const dmgGuard = assertPrivateNoFollowFile(dmg);
+dmgGuard.assertCurrent();
 if (alphaAdHoc) {
   execFileSync("pnpm", ["desktop:bundle:verify:alpha-ad-hoc:macos"], {
     env: packageEnvironment,

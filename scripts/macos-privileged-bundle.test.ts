@@ -121,7 +121,7 @@ test("rejects mutable, linked, duplicate, and unexpected privileged artifacts", 
   chmodSync(path.join(mutableFixture.application, productionHelperRelativePath), 0o777);
   await assert.rejects(
     verifyMacOsPrivilegedBundle(mutableFixture.application, "production"),
-    /group- or world-writable/u,
+    /release-path-rejected:writable/u,
   );
 
   const symlinkFixture = fixture();
@@ -132,7 +132,7 @@ test("rejects mutable, linked, duplicate, and unexpected privileged artifacts", 
   symlinkSync(movedHelper, helper);
   await assert.rejects(
     verifyMacOsPrivilegedBundle(symlinkFixture.application, "production"),
-    /not a regular file/u,
+    /not a regular file|release-path-rejected:symlink/u,
   );
 
   const hardLinkFixture = fixture();
@@ -141,7 +141,7 @@ test("rejects mutable, linked, duplicate, and unexpected privileged artifacts", 
   linkSync(linkedHelper, path.join(hardLink.path, "helper-hard-link"));
   await assert.rejects(
     verifyMacOsPrivilegedBundle(hardLinkFixture.application, "production"),
-    /duplicate hard links/u,
+    /duplicate hard links|release-path-rejected:hard link/u,
   );
 
   const extraFixture = fixture();

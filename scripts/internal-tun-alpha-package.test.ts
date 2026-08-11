@@ -182,7 +182,7 @@ test("package build embeds the operational payload and signs the enclosing appli
   ).replace(/\s+/g, " ");
   assert.ok(
     bundleVerifier.includes(
-      "const expectedBundledMihomoDigest = internalTunAlpha ? pinnedMihomoDigest : await sha256(preparedMihomo);",
+      "const expectedBundledMihomoDigest = internalTunAlpha ? pinnedMihomoDigest : (preparedMihomoGuard.assertCurrent(), await sha256(preparedMihomo));",
     ),
     "Internal TUN Alpha verification must not require the separately staged signed Core",
   );
@@ -244,15 +244,15 @@ test("rejects root clutter, links, loose modes, and unexpected payload artifacts
       path.join(application, payload, "mihomo"),
       path.join(application, payload, "duplicate-core"),
     );
-    await assert.rejects(verify(), /metadata|unexpected/iu);
+    await assert.rejects(verify(), /hard link|metadata|unexpected/iu);
   });
   await withFixture(async ({ application, verify }) => {
     await chmod(path.join(application, payload, "mish-tun-helper"), 0o777);
-    await assert.rejects(verify(), /metadata/iu);
+    await assert.rejects(verify(), /metadata|writable/iu);
   });
   await withFixture(async ({ application, verify }) => {
     await chmod(path.join(application, payload), 0o775);
-    await assert.rejects(verify(), /metadata/iu);
+    await assert.rejects(verify(), /metadata|writable/iu);
   });
   for (const relative of [
     "Contents/Resources/foreign",

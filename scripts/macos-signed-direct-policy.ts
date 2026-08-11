@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { lstat, open, readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
+
+import {
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  type PrivateNoFollowRoot,
+} from "./release-path-containment.ts";
 
 export const signedDirectProfile = "signed-direct" as const;
 export const alphaAdHocProfile = "alpha-ad-hoc" as const;
@@ -99,42 +105,29 @@ function isPrivilegedPath(relative: string): boolean {
   );
 }
 
-async function isMachO(file: string): Promise<boolean> {
-  const handle = await open(file, "r");
-  try {
-    const magic = Buffer.alloc(4);
-    const { bytesRead } = await handle.read(magic, 0, magic.length, 0);
-    if (bytesRead !== magic.length) return false;
-    return new Set(["cafebabe", "cafebabf", "cffaedfe", "feedfacf", "bebafeca", "bfbafeca"]).has(
-      magic.toString("hex"),
-    );
-  } finally {
-    await handle.close();
-  }
+function isMachO(file: ReturnType<PrivateNoFollowRoot["contain"]>): boolean {
+  const magic = readContainedReleaseFile(file).subarray(0, 4).toString("hex");
+  file.assertCurrent();
+  return new Set(["cafebabe", "cafebabf", "cffaedfe", "feedfacf", "bebafeca", "bfbafeca"]).has(
+    magic,
+  );
 }
 
 export async function collectSignedDirectBundleEntries(
   root: string,
   directory = root,
+  rootGuard = assertPrivateNoFollowRoot(root),
 ): Promise<SignedDirectBundleEntry[]> {
+  rootGuard.assertCurrent();
   const entries = await readdir(directory, { withFileTypes: true });
   const discovered = await Promise.all(
     entries.map(async (entry): Promise<SignedDirectBundleEntry[]> => {
       const absolute = path.join(directory, entry.name);
-      const relative = path.relative(root, absolute);
-      const metadata = await lstat(absolute);
-      if (metadata.isSymbolicLink()) {
-        return [
-          {
-            executable: false,
-            kind: "symlink",
-            mode: metadata.mode,
-            nlink: metadata.nlink,
-            path: relative,
-          },
-        ];
-      }
-      if (metadata.isDirectory()) {
+      const relative = path.relative(root, absolute).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        const guarded = rootGuard.contain(relative, "directory");
+        const metadata = await lstat(guarded.absolute);
+        guarded.assertCurrent();
         return [
           {
             executable: false,
@@ -143,15 +136,15 @@ export async function collectSignedDirectBundleEntries(
             nlink: metadata.nlink,
             path: relative,
           },
-          ...(await collectSignedDirectBundleEntries(root, absolute)),
+          ...(await collectSignedDirectBundleEntries(root, guarded.absolute, rootGuard)),
         ];
       }
-      if (!metadata.isFile()) {
-        throw new Error(`signed-direct bundle contains an unsupported payload: ${relative}`);
-      }
+      const guarded = rootGuard.contain(relative, "file");
+      const metadata = await lstat(guarded.absolute);
+      guarded.assertCurrent();
       return [
         {
-          executable: await isMachO(absolute),
+          executable: isMachO(guarded),
           kind: "file",
           mode: metadata.mode,
           nlink: metadata.nlink,
@@ -160,6 +153,7 @@ export async function collectSignedDirectBundleEntries(
       ];
     }),
   );
+  rootGuard.assertCurrent();
   return discovered.flat().sort((left, right) => left.path.localeCompare(right.path));
 }
 
