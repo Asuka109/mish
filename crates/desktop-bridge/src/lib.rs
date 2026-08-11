@@ -38,11 +38,12 @@ pub use controller_status::{
     SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
 };
 pub use core_ownership::{
-    MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreLaunchSpec, ManagedCoreOwnership,
-    ManagedCoreOwnershipError, ManagedCoreProcess, ManagedCoreRecoveryOutcome,
-    ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
-    ManagedProcessSignalOutcome, ManagedProcessWaitOutcome, ManagedRuntimeLease,
-    RealManagedProcessPlatform,
+    MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreLaunchSpec, ManagedCoreOperation,
+    ManagedCoreOperationEvent, ManagedCoreOperationObserver, ManagedCoreOperationResult,
+    ManagedCoreOwnership, ManagedCoreOwnershipError, ManagedCoreProcess,
+    ManagedCoreRecoveryOutcome, ManagedProcessObservation, ManagedProcessPlatform,
+    ManagedProcessPlatformError, ManagedProcessSignalOutcome, ManagedProcessWaitOutcome,
+    ManagedRuntimeLease, RealManagedProcessPlatform,
 };
 pub use lifecycle::{
     DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
