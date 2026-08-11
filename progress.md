@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A, 2B, and 2C are fully integrated. No new Worker is active. The next
-dependency-safe AFK candidates are #440 B1.5 and #442 E1.4; an exact Wave 2D
-still requires maintainer confirmation before its dispatch manifest is
-published.
+Waves 2A, 2B, and 2C are fully integrated. The maintainer approved the exact
+two-task AFK Wave 2D on 2026-08-11. Two visible Luna Max Worker reservations
+are in `dispatching` state with identity/worktree backfill pending, and eight
+repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -111,6 +111,19 @@ physical-host mutation, device/emulator acceptance, or other hands-on work.
 | #445 G2.1 | `019ff0db-c21e-71a3-9724-6f62073197bd` | `ff1b` | integrated | none | Expose Traffic row details through an accessible action with keyboard/focus tests | PR #478 merged as `9da5aec`; local/remote gates passed; Issue #445 closed completed |
 | #446 G3.1 | `019ff0db-c350-78f3-9a38-e9a1c1694fcf` | `2974` | integrated | none | Report clipboard rejection through accessible non-blocking Events feedback | PR #479 merged as `1a41f4f`; local/remote gates passed; Issue #446 closed completed |
 | #447 G4.1 | `019ff0db-c366-7830-9cd0-d1797504f6b5` | `b600` | integrated | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | PR #477 merged as `f863b19`; computed contrast and local/remote gates passed; Issue #447 closed completed |
+
+## Wave 2D dispatch manifest
+
+The maintainer approved this exact two-task AFK wave. Both entries use model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. The wave
+authorizes no real credentials, signing, notarization, release publication,
+physical-host mutation, or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #440 B1.5 | `pending` | `pending` | dispatching | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | Own RPC authority cleanup, documentation, and gates only; do not add product behavior or change domain DTO authority; follow the transcript skill |
+| #442 E1.4 | `pending` | `pending` | dispatching | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | Own release adversarial fixtures/gates only; perform no real signing, notarization, upload, install, credential read, or host mutation; follow the transcript skill |
 
 ## Existing issue coordination
 
