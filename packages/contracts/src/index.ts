@@ -2803,6 +2803,12 @@ export const ProfileStatusFlagsSchema = z
   .strict();
 export interface ProfileStatusFlagsDto extends z.infer<typeof ProfileStatusFlagsSchema> {}
 
+const hasAsciiControl = (value: string) =>
+  Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 0x20 || codePoint === 0x7f;
+  });
+
 const ProfileLocalSummaryDisplaySchema = z
   .string()
   .min(1)
@@ -2812,7 +2818,7 @@ const ProfileLocalSummaryDisplaySchema = z
       !/[\\/:?#]/u.test(value) &&
       !value.includes("://") &&
       !value.includes("..") &&
-      !/[\u0000-\u001f\u007f]/u.test(value),
+      !hasAsciiControl(value),
     "Local Profile summaries may contain only a display file name",
   );
 const ProfileHttpsSummaryDisplaySchema = z
