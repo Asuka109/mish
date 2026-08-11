@@ -171,6 +171,33 @@ class FailingServicesClient extends FixtureStatusClient {
   }
 }
 
+class DeferredRestoreServicesClient extends FixtureStatusClient {
+  calls = 0;
+  resolveRestore: ((snapshot: StatusSnapshotDto) => void) | null = null;
+
+  override restoreDefaultServices(): Promise<StatusSnapshotDto> {
+    this.calls += 1;
+    return new Promise((resolve) => {
+      this.resolveRestore = resolve;
+    });
+  }
+
+  async completeRestore() {
+    const resolve = this.resolveRestore;
+    this.resolveRestore = null;
+    resolve?.(await this.getSnapshot());
+  }
+}
+
+class DraftServicesClient extends FixtureStatusClient {
+  override async getSnapshot() {
+    const snapshot = await super.getSnapshot();
+    const draft = snapshot.services[0];
+    if (draft) draft.label = "Draft service";
+    return snapshot;
+  }
+}
+
 class DeferredServiceProbeClient extends FixtureStatusClient {
   private resolveProbe: ((snapshot: StatusSnapshotDto) => void) | null = null;
 
@@ -3620,6 +3647,20 @@ describe("Status fixture experience", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
     const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
     await user.click(within(manager).getByRole("button", { name: "Restore Defaults" }));
+    const confirmation = screen.getByRole("alertdialog", {
+      name: "Restore default service monitors?",
+    });
+    expect(confirmation).toHaveTextContent("current draft unchanged");
+    expect(errorToast).not.toHaveBeenCalled();
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    await user.click(within(manager).getByRole("button", { name: "Restore Defaults" }));
+    await user.click(
+      within(
+        screen.getByRole("alertdialog", { name: "Restore default service monitors?" }),
+      ).getByRole("button", { name: "Restore Defaults" }),
+    );
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -3632,6 +3673,53 @@ describe("Status fixture experience", () => {
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     expect(successToast).not.toHaveBeenCalled();
+  });
+
+  it("cancels Restore Defaults without changing the current service draft", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status", "en", new DraftServicesClient());
+    await screen.findByText("Live demo traffic");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
+    expect(within(manager).getByRole("button", { name: "Draft service" })).toBeVisible();
+
+    await user.click(within(manager).getByRole("button", { name: "Restore Defaults" }));
+    const confirmation = screen.getByRole("alertdialog", {
+      name: "Restore default service monitors?",
+    });
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(within(manager).getByRole("button", { name: "Draft service" })).toBeVisible();
+  });
+
+  it("keeps Restore Defaults single-flight while the confirmed operation is pending", async () => {
+    const user = userEvent.setup();
+    const client = new DeferredRestoreServicesClient();
+    renderRoute("/status", "en", client);
+    await screen.findByText("Live demo traffic");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
+    await user.click(within(manager).getByRole("button", { name: "Restore Defaults" }));
+    await user.click(
+      within(
+        screen.getByRole("alertdialog", { name: "Restore default service monitors?" }),
+      ).getByRole("button", { name: "Restore Defaults" }),
+    );
+
+    expect(client.calls).toBe(1);
+    expect(within(manager).getByRole("button", { name: "Restore Defaults" })).toBeDisabled();
+    expect(within(manager).getByRole("button", { name: "Add Service" })).toBeDisabled();
+    expect(within(manager).getByRole("button", { name: "Google" })).toBeDisabled();
+
+    await client.completeRestore();
+    await waitFor(() =>
+      expect(within(manager).getByRole("button", { name: "Restore Defaults" })).toBeEnabled(),
+    );
   });
 
   it("changes the service test interval from the Manage menu", async () => {

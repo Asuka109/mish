@@ -3780,6 +3780,14 @@ type RootTranslation = {
 		 */
 		restoreDefaults: string
 		/**
+		 * T​h​i​s​ ​r​e​p​l​a​c​e​s​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​ ​w​i​t​h​ ​M​i​s​h​'​s​ ​d​e​f​a​u​l​t​s​.​ ​C​a​n​c​e​l​ ​t​o​ ​k​e​e​p​ ​y​o​u​r​ ​c​u​r​r​e​n​t​ ​d​r​a​f​t​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		restoreDefaultsDescription: string
+		/**
+		 * R​e​s​t​o​r​e​ ​d​e​f​a​u​l​t​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​?
+		 */
+		restoreDefaultsTitle: string
+		/**
 		 * U​p​ ​t​o​ ​1​2​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​ ​a​r​e​ ​a​l​l​o​w​e​d​.
 		 */
 		serviceLimit: string
@@ -8738,6 +8746,14 @@ export type TranslationFunctions = {
 		 * Restore Defaults
 		 */
 		restoreDefaults: () => LocalizedString
+		/**
+		 * This replaces the current service monitors with Mish's defaults. Cancel to keep your current draft unchanged.
+		 */
+		restoreDefaultsDescription: () => LocalizedString
+		/**
+		 * Restore default service monitors?
+		 */
+		restoreDefaultsTitle: () => LocalizedString
 		/**
 		 * Up to 12 service monitors are allowed.
 		 */

@@ -237,6 +237,7 @@ interface ServiceEditorDialogProps {
 }
 
 interface ServiceManagerDialogProps {
+  commandPending: boolean;
   onAdd(): void;
   onClose(): void;
   onEdit(service: ServiceMonitorDto): void;
@@ -247,6 +248,7 @@ interface ServiceManagerDialogProps {
 }
 
 function ServiceManagerDialog({
+  commandPending,
   onAdd,
   onClose,
   onEdit,
@@ -268,7 +270,7 @@ function ServiceManagerDialog({
             </DialogDescription>
           </div>
           <Button
-            disabled={services.length >= serviceMonitorLimit}
+            disabled={commandPending || services.length >= serviceMonitorLimit}
             onClick={onAdd}
             title={services.length >= serviceMonitorLimit ? LL.services.serviceLimit() : undefined}
             type="button"
@@ -283,6 +285,7 @@ function ServiceManagerDialog({
             return (
               <Button
                 className={serviceStyles().managerRow()}
+                disabled={commandPending}
                 key={service.id}
                 onClick={() => onEdit(service)}
                 type="button"
@@ -300,7 +303,7 @@ function ServiceManagerDialog({
         <DialogFooter className={serviceStyles().managerFooter()}>
           <Button
             aria-busy={restorePending}
-            disabled={restorePending}
+            disabled={commandPending || restorePending}
             onClick={onRestore}
             type="button"
             variant="outline"
@@ -546,6 +549,7 @@ export function ServiceMonitorSection() {
   const { publish } = useNotificationDelivery();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
   const [restorePending, setRestorePending] = useState(false);
   const editorAuthority = useMemo(() => createServiceMonitorEditorAuthority(), []);
   useEffect(
@@ -594,6 +598,11 @@ export function ServiceMonitorSection() {
       const current = editorAuthority.current();
       if (!current || current.operationId === operation.operationId) setRestorePending(false);
     }
+  }
+
+  function confirmRestoreServices() {
+    setRestoreConfirmOpen(false);
+    void restoreServices();
   }
 
   function openEditor(nextDraft: ServiceMonitorDraft) {
@@ -786,14 +795,39 @@ export function ServiceMonitorSection() {
         setDraft={setDraft}
       />
       <ServiceManagerDialog
+        commandPending={commandPending}
         onAdd={() => openEditor({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" })}
-        onClose={() => setManagerOpen(false)}
+        onClose={() => {
+          setManagerOpen(false);
+          setRestoreConfirmOpen(false);
+        }}
         onEdit={(service) => openEditor({ ...service })}
-        onRestore={() => void restoreServices()}
+        onRestore={() => setRestoreConfirmOpen(true)}
         open={managerOpen}
         restorePending={restorePending}
         services={snapshot.services}
       />
+      <AlertDialog onOpenChange={setRestoreConfirmOpen} open={restoreConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.services.restoreDefaultsTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.services.restoreDefaultsDescription()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              aria-busy={restorePending}
+              disabled={commandPending || restorePending}
+              onClick={confirmRestoreServices}
+            >
+              {restorePending ? <Spinner data-icon="inline-start" /> : null}
+              {LL.services.restoreDefaults()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
