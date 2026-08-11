@@ -22,9 +22,10 @@ Owner: thread-master coordinator
 Wave 2A is fully integrated. The maintainer approved the exact seven-task Wave
 2B on 2026-08-11. All seven Luna Max Workers were created from the published
 manifest baseline `4df0ebe`; their identities and isolated worktrees are
-backfilled below. Two Workers are active; #436 A1.3 is merged with final handoff
-pending; #448 A2.2, #439 A5.2, #440 B1.3, and #442 E1.2 are integrated. No
-dispatch reservation remains, and eight concurrency slots are unreserved.
+backfilled below. One Worker is active; #436 A1.3 and #441 C2.2 are merged with
+final handoffs pending; #448 A2.2, #439 A5.2, #440 B1.3, and #442 E1.2 are
+integrated. No dispatch reservation remains, and nine concurrency slots are
+unreserved.
 
 ## Wave 1 worker ledger
 
@@ -65,7 +66,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
 | RPC Session Authority | #440 | B1.1/B1.2/B1.3 integrated; B1.4/B1.5 planned | none | confirmation-only |
 | Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Atomic profile generations | #441 | C2.1 integrated; C2.2/C2.3 planned | none | confirmation-only |
+| Atomic profile generations | #441 | C2.1 integrated; C2.2 merged with final handoff pending; C2.3 planned | none | confirmation-only |
 | Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
@@ -92,7 +93,7 @@ branch-protection mutation, or other hands-on acceptance.
 | #448 A2.2 | `019ff06b-2dbe-7653-abf7-03eed0131628` | `7719` | integrated | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | PR #474 merged as `2c1d89d`; local final `pnpm check:pr`, Fast PR, and Android gates passed; no Tart or developer-host mutation and A2.3 remains hands-on |
 | #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | integrated | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 merged as `dc80bf4`; final `pnpm check:pr`, Fast PR, and Android gates passed after preserving A2.2 overlap; Issue #439 closed, while #353 remains independent |
 | #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | integrated | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | PR #470 merged as `bbcd699`; acceptance follow-up PR #476 merged as `7cec8f9`; Status 17/17 plus full local/remote gates passed; B1.4/B1.5 remain open |
-| #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | active | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.3 adversarial/crash/restart matrix remains separate; follow the transcript skill |
+| #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | merged; handoff pending | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | PR #472 merged as `ef7380e`; await the Worker's final evidence/tracker handoff before integration; C2.3 remains separate |
 | #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | integrated | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | PR #473 merged as `c9fa882`; Fast PR and Android gates plus post-merge `pnpm check:pr` passed; E1.3/E1.4 remain open and no real credentials or release mutation were used |
 | #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | active | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | No branch-protection or external repository setting mutation |
 
