@@ -113,4 +113,50 @@ describe("RpcSessionAuthority", () => {
     );
     expect(authority.isStale()).toBe(false);
   });
+
+  it("rejects older orders and epochs after the authority advances", () => {
+    const authority = new RpcSessionAuthority<Snapshot>();
+    authority.observeTransport(true);
+
+    expect(
+      authority.accept(authority.beginSubscription(), snapshot("A", 1, 2, "A2"), "baseline").kind,
+    ).toBe("accepted");
+    expect(
+      authority.accept(authority.beginSubscription(), snapshot("A", 1, 1, "late A1"), "update")
+        .kind,
+    ).toBe("stale");
+    expect(
+      authority.accept(authority.beginSubscription(), snapshot("A", 2, 1, "A-epoch-2"), "update")
+        .kind,
+    ).toBe("accepted");
+    expect(
+      authority.accept(
+        authority.beginSubscription(),
+        snapshot("A", 1, 99, "retired epoch"),
+        "request",
+      ),
+    ).toMatchObject({ kind: "stale", snapshot: snapshot("A", 2, 1, "A-epoch-2") });
+  });
+
+  it("does not create a new generation for repeated connected observations", () => {
+    const authority = new RpcSessionAuthority<Snapshot>();
+    authority.observeTransport(true);
+    authority.observeTransport(true);
+    expect(authority.getGeneration()).toBe(1);
+    expect(
+      authority.accept(authority.beginSubscription(), snapshot("A", 1, 1, "A1"), "baseline").kind,
+    ).toBe("accepted");
+  });
+
+  it("allows one initial request bootstrap without reopening a later generation", () => {
+    const authority = new RpcSessionAuthority<Snapshot>();
+    const initial = authority.beginRequest({ bootstrap: true });
+    expect(initial.generation).toBe(1);
+    expect(authority.accept(initial, snapshot("A", 1, 1, "A1"), "request").kind).toBe("accepted");
+
+    authority.observeTransport(false);
+    const late = authority.beginRequest({ bootstrap: true });
+    expect(late.generation).toBeNull();
+    expect(authority.accept(late, snapshot("A", 1, 2, "late A2"), "request").kind).toBe("stale");
+  });
 });

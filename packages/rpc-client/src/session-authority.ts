@@ -34,6 +34,15 @@ export interface RpcSessionAuthorityOptions {
   trace?: (event: RpcSessionTraceEvent) => void;
 }
 
+export interface RpcSessionRequestOptions {
+  /**
+   * Allows an adapter with a complete initial request snapshot to seed the
+   * first observation before its connection callback has arrived. This is
+   * deliberately one-shot and never reopens an existing generation.
+   */
+  bootstrap?: boolean;
+}
+
 export interface RpcSessionAcceptanceResult<T> {
   kind: RpcSessionAcceptanceKind;
   snapshot: T | null;
@@ -94,7 +103,10 @@ export class RpcSessionAuthority<T extends RpcSessionSnapshot> {
     });
   }
 
-  beginRequest(): RpcSessionTicket {
+  beginRequest(options: RpcSessionRequestOptions = {}): RpcSessionTicket {
+    if (options.bootstrap && !this.connected && this.transportGeneration === 0) {
+      this.observeTransport(true);
+    }
     return this.beginTicket("request");
   }
 

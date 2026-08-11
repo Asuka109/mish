@@ -47,6 +47,12 @@ baselines remain separately owned. `bridge.getInfo.statusCommands` and
 `trafficCommands` describe only those domain command capabilities; they do not
 replace protocol compatibility.
 
+Once a validated DTO leaves the wire client, ordered snapshot acceptance is
+centralized by [`rpc-session-authority.md`](rpc-session-authority.md). The
+protocol client does not own application-order policy, and a domain consumer
+must not create a second generation, baseline, stale-response, or conflict
+authority.
+
 ## Public method and mock boundary
 
 Every method in the generated public list has a dedicated Rust dispatch arm.
