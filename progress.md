@@ -6,8 +6,8 @@ Owner: thread-master coordinator
 ## Current checkpoint
 
 - Backlog preparation and Wave 1 were explicitly approved by the maintainer.
-- The governance baseline is being published before worker dispatch.
-- No new implementation worker has been dispatched for issues #436-#454.
+- Governance baseline `76719cd` is published on `main`.
+- Seven Wave 1 implementation workers are active from that exact baseline.
 - All planned workers must use Luna Max (`gpt-5.6-sol`) with `high` or `medium`
   reasoning and report in Chinese.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
@@ -16,26 +16,33 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Wave 1 is approved. Worker IDs are added here by the coordinator immediately
-after isolated tasks are created.
+| Task | Worker task ID | Worktree | State | Dependencies | Acceptance | Latest evidence / next action |
+| --- | --- | --- | --- | --- | --- | --- |
+| #436 A1.1 | `019fefa0-b70c-7320-8eca-5ceddc5da41b` | `a9cf` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is mapping the kernel boundary. |
+| #448 A2.1 | `019fefa0-baec-7a83-a800-577891f9b4e0` | `ddf0` | active | none for A2.1 | confirmation-only | Clean detached baseline `76719cd`; no host mutation is authorized. |
+| #437 A3.1 | `019fefa0-b70e-7fc2-98b5-3d5b40b92243` | `6111` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is limited to Rust model semantics. |
+| #438 A4.1 | `019fefa0-b70e-7fc2-98b5-3d368f7d879f` | `d3c9` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker is limited to truthful fixture behavior. |
+| #439 A5.1 | `019fefa0-b70c-7320-8eca-5c86e4d00cb5` | `99cd` | active | none | confirmation-only | Clean detached baseline `76719cd`; no real process signal is authorized. |
+| #440 B1.1 | `019fefa0-b70c-7320-8eca-5cb1a0a56202` | `e8d0` | active | none | confirmation-only | Clean detached baseline `76719cd`; worker owns transport hardening only. |
+| #443 E2.1 | `019fefa0-b70b-7892-9d33-7e4efe0cad88` | `3a87` | active | none | confirmation-only | Clean detached baseline `76719cd`; no repository settings mutation is authorized. |
 
 ## Planned issue graph
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | planned | none | confirmation-only |
-| System Proxy restoration | #448 | planned | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
-| SimulatedHost truthfulness | #437 | planned | none | confirmation-only |
-| Browser fixture truthfulness | #438 | planned | none | confirmation-only |
-| Process identity | #439 | planned | none | confirmation-only |
-| RPC Session Authority | #440 | planned | none | confirmation-only |
+| Owned operations | #436 | active: A1.1 | none | confirmation-only |
+| System Proxy restoration | #448 | active: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
+| SimulatedHost truthfulness | #437 | active: A3.1 | none | confirmation-only |
+| Browser fixture truthfulness | #438 | active: A4.1 | none | confirmation-only |
+| Process identity | #439 | active: A5.1 | none | confirmation-only |
+| RPC Session Authority | #440 | active: B1.1 | none | confirmation-only |
 | Profile credential privacy | #449 | blocked | #440 | confirmation-only |
 | Atomic profile generations | #441 | planned | none | confirmation-only |
 | Backup preview authority | #450 | blocked | #440 | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | planned | none | confirmation-only |
+| CI policy coverage | #443 | active: E2.1 | none | confirmation-only |
 | Settings editor serialization | #452 | blocked | #440 | confirmation-only |
 | Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
@@ -57,13 +64,13 @@ after isolated tasks are created.
 
 | Task | Intended result | Model | Dependencies | Readiness |
 | --- | --- | --- | --- | --- |
-| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-sol/high` | none | ready |
-| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-sol/high` | none for A2.1 | ready |
-| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-sol/medium` | none | ready |
-| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-sol/medium` | none | ready |
-| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-sol/high` | none | ready |
-| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-sol/medium` | none | ready |
-| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-sol/medium` | none | ready |
+| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-sol/high` | none | active |
+| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-sol/high` | none for A2.1 | active |
+| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-sol/medium` | none | active |
+| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-sol/medium` | none | active |
+| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-sol/high` | none | active |
+| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-sol/medium` | none | active |
+| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-sol/medium` | none | active |
 
 All seven tasks are AFK and confirmation-only. Each worker receives an isolated
 worktree, one linked Issue/task, Chinese reporting, final-only escalation, and
