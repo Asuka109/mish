@@ -8,11 +8,13 @@ import test from "node:test";
 import {
   type SignedReleaseAsset,
   type SignedReleaseClient,
+  type SignedReleaseCommandExecutor,
   type SignedReleaseCredentials,
   type SignedReleaseEvidence,
   type SignedReleaseAttestationTrust,
   type SignedReleaseRemoteRelease,
   type SignedReleaseRemoteState,
+  SignedReleaseCommandRunner,
   SignedReleaseRecorder,
   cleanupSigningMaterials,
   finalizeSignedReleaseCandidate,
@@ -438,6 +440,91 @@ test("cleanup is guaranteed on success, failure, and cancellation-shaped errors"
       process.env.RUNNER_TEMP = originalRunnerTemp;
     }
   }
+});
+
+test("protected command runner bounds time/output and records only safe metadata", () => {
+  const runner = new SignedReleaseCommandRunner();
+  const success = runner.run(process.execPath, ["-e", "process.stdout.write('fixture-result')"], {
+    label: "fixture-success",
+    maxOutputBytes: 1024,
+    timeoutMs: 5_000,
+  });
+  assert.equal(success.stdout, "fixture-result");
+  assert.deepEqual(runner.transcript[0], {
+    label: "fixture-success",
+    outcome: "success",
+    signal: null,
+    status: 0,
+    stderrBytes: 0,
+    stdoutBytes: Buffer.byteLength("fixture-result"),
+  });
+
+  assert.throws(
+    () =>
+      runner.run(
+        process.execPath,
+        ["-e", "process.stdout.write('fixture-secret-output'.repeat(1024))"],
+        { label: "fixture-output-limit", maxOutputBytes: 128, timeoutMs: 5_000 },
+      ),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "Signed release command fixture-output-limit failed (output-limit)." &&
+      !error.message.includes("fixture-secret-output"),
+  );
+  assert.equal(runner.transcript.at(-1)?.outcome, "output-limit");
+
+  assert.throws(
+    () =>
+      runner.run(process.execPath, ["-e", "setTimeout(() => {}, 5_000)", "fixture-private-key"], {
+        label: "fixture-timeout",
+        maxOutputBytes: 1024,
+        timeoutMs: 25,
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "Signed release command fixture-timeout failed (timed-out)." &&
+      !error.message.includes("fixture-private-key"),
+  );
+  assert.equal(runner.transcript.at(-1)?.outcome, "timed-out");
+
+  const environment = runner.run(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write([process.env.MISH_APPLE_CERTIFICATE_PASSWORD, process.env.GH_TOKEN].filter(Boolean).join(',') || 'absent')",
+    ],
+    {
+      env: {
+        ...process.env,
+        GH_TOKEN: "fixture-token",
+        MISH_APPLE_CERTIFICATE_PASSWORD: "fixture-secret",
+      },
+      label: "fixture-env-scrub",
+      maxOutputBytes: 1024,
+      timeoutMs: 5_000,
+    },
+  );
+  assert.equal(environment.stdout, "absent");
+});
+
+test("cleanup removes sensitive files even when bounded effect cleanup fails", () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-signed-cleanup-failure-"));
+  const scratchRoot = path.join(temporary.path, "mish-signed-release-fixture");
+  mkdirSync(scratchRoot);
+  writeFileSync(path.join(scratchRoot, "developer-id.p12"), "fixture certificate");
+  writeFileSync(path.join(scratchRoot, "notary-api-key.p8"), "fixture private key");
+  writeFileSync(path.join(scratchRoot, "signing.keychain-db"), "fixture keychain");
+  const failingRunner: SignedReleaseCommandExecutor = {
+    run() {
+      throw new Error("fixture command failure");
+    },
+  };
+
+  assert.throws(
+    () => cleanupSigningMaterials(scratchRoot, failingRunner),
+    /Temporary signing cleanup failed after sensitive material removal/u,
+  );
+  assert.equal(existsSync(scratchRoot), false);
 });
 
 test("final candidate binds the exact DMG, SBOM, attestations, and checksum manifest", () => {

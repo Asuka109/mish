@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -51,6 +51,47 @@ const repositoryName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const attestationUrl = /^https:\/\/github\.com\/[^/]+\/[^/]+\/attestations\/\d+$/u;
 const safeDetail = /^[\u0020-\u007e]{1,300}$/u;
 const checksumLine = /^([0-9a-f]{64})  ([A-Za-z0-9.+-]+)$/u;
+const safeCommandLabel = /^[A-Za-z0-9._: -]{1,80}$/u;
+const sensitiveCommandEnvironmentVariables = new Set([
+  ...appleCredentialVariables,
+  "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+  "ACTIONS_ID_TOKEN_REQUEST_URL",
+  "ACTIONS_RUNTIME_TOKEN",
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+]);
+
+/**
+ * Protected signing commands are deliberately boring: fixed argv, no shell,
+ * bounded execution, and no inherited output. These bounds are also applied to
+ * cleanup commands so an interrupted signer cannot wait forever or stream
+ * sensitive tool output into the workflow log.
+ */
+export const signedReleaseCommandTimeoutMs = 120_000;
+export const signedReleaseBuildTimeoutMs = 15 * 60_000;
+export const signedReleaseDistributionTimeoutMs = 5 * 60_000;
+export const signedReleaseNotaryTimeoutMs = 15 * 60_000;
+export const signedReleaseCleanupTimeoutMs = 30_000;
+export const signedReleaseCommandMaxOutputBytes = 64 * 1024;
+
+export type SignedReleaseCommandOutcome = "success" | "failed" | "timed-out" | "output-limit";
+
+export type SignedReleaseCommandTranscript = {
+  label: string;
+  outcome: SignedReleaseCommandOutcome;
+  signal: string | null;
+  status: number | null;
+  stderrBytes: number;
+  stdoutBytes: number;
+};
+
+export type SignedReleaseCommandOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  label: string;
+  maxOutputBytes?: number;
+  timeoutMs?: number;
+};
 
 export const signedReleaseEnvironment = protectedReleaseBoundary;
 export const signedReleaseEvidenceName = "signed-release-evidence.json";
@@ -254,6 +295,105 @@ function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function commandEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const sanitized = { ...environment };
+  for (const variable of sensitiveCommandEnvironmentVariables) delete sanitized[variable];
+  return sanitized;
+}
+
+function commandFailureOutcome(result: {
+  error?: NodeJS.ErrnoException;
+  signal: NodeJS.Signals | null;
+  status: number | null;
+}): SignedReleaseCommandOutcome {
+  if (result.error?.code === "ETIMEDOUT") return "timed-out";
+  if (result.error?.code === "ENOBUFS") return "output-limit";
+  if (result.signal && result.status === null) return "timed-out";
+  return "failed";
+}
+
+/**
+ * Narrow effect seam for the protected signer. The transcript intentionally
+ * contains only closed command identity and byte/status metadata; argv, env,
+ * stdout, and stderr never enter an error or evidence record.
+ */
+export class SignedReleaseCommandRunner {
+  readonly transcript: SignedReleaseCommandTranscript[] = [];
+
+  run(
+    program: string,
+    arguments_: string[],
+    options: SignedReleaseCommandOptions,
+  ): { stdout: string; stderr: string; transcript: SignedReleaseCommandTranscript } {
+    invariant(safeCommandLabel.test(options.label), "Signed release command label is invalid.");
+    const timeoutMs = options.timeoutMs ?? signedReleaseCommandTimeoutMs;
+    const maxOutputBytes = options.maxOutputBytes ?? signedReleaseCommandMaxOutputBytes;
+    invariant(
+      Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30 * 60_000,
+      "Signed release command timeout is outside the bounded range.",
+    );
+    invariant(
+      Number.isSafeInteger(maxOutputBytes) &&
+        maxOutputBytes > 0 &&
+        maxOutputBytes <= 4 * 1024 * 1024,
+      "Signed release command output bound is outside the bounded range.",
+    );
+
+    let result: ReturnType<typeof spawnSync>;
+    try {
+      result = spawnSync(program, arguments_, {
+        cwd: options.cwd,
+        encoding: "utf8",
+        env: commandEnvironment(options.env),
+        killSignal: "SIGKILL",
+        maxBuffer: maxOutputBytes,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: timeoutMs,
+      });
+    } catch {
+      const transcript: SignedReleaseCommandTranscript = {
+        label: options.label,
+        outcome: "failed",
+        signal: null,
+        status: null,
+        stderrBytes: 0,
+        stdoutBytes: 0,
+      };
+      this.transcript.push(transcript);
+      throw new Error(`Signed release command ${options.label} failed (failed).`);
+    }
+    const stdout = typeof result.stdout === "string" ? result.stdout : "";
+    const stderr = typeof result.stderr === "string" ? result.stderr : "";
+    const stdoutBytes = Buffer.byteLength(stdout, "utf8");
+    const stderrBytes = Buffer.byteLength(stderr, "utf8");
+    const outcome: SignedReleaseCommandOutcome =
+      result.error || result.status !== 0
+        ? commandFailureOutcome({
+            error: result.error,
+            signal: result.signal,
+            status: result.status,
+          })
+        : "success";
+    const transcript: SignedReleaseCommandTranscript = {
+      label: options.label,
+      outcome,
+      signal: result.signal,
+      status: result.status,
+      stderrBytes,
+      stdoutBytes,
+    };
+    this.transcript.push(transcript);
+    if (outcome !== "success") {
+      throw new Error(`Signed release command ${options.label} failed (${outcome}).`);
+    }
+    return { stderr, stdout, transcript };
+  }
+}
+
+export type SignedReleaseCommandExecutor = Pick<SignedReleaseCommandRunner, "run">;
+
+const commandRunner = new SignedReleaseCommandRunner();
+
 function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -370,9 +510,9 @@ export function validateCompleteSignedReleaseCredentials(credentials: SignedRele
 export function validateSelectedSignedSource(sourceSha: string, cwd = process.cwd()): void {
   invariant(fullSha.test(sourceSha), "Signed source validation requires one full source SHA.");
   readDesktopVersionAt(sourceSha, cwd);
-  const source = execFileSync("git", ["show", `${sourceSha}:package.json`], {
+  const source = run("git", ["show", `${sourceSha}:package.json`], {
     cwd,
-    encoding: "utf8",
+    label: "source-package-read",
   });
   const packageJson = JSON.parse(source) as { scripts?: Record<string, unknown> };
   invariant(
@@ -549,10 +689,14 @@ function parseSecurityKeychains(source: string): string[] {
   return [...source.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
 }
 
-export function cleanupSigningMaterials(root: string): void {
+export function cleanupSigningMaterials(
+  root: string,
+  runner: SignedReleaseCommandExecutor = commandRunner,
+): void {
   const paths = signingMaterialPaths(root);
   if (!existsSync(paths.root)) return;
   let restorationFailed = false;
+  let cleanupFailed = false;
   if (existsSync(paths.searchList)) {
     try {
       const original = JSON.parse(readFileSync(paths.searchList, "utf8")) as unknown;
@@ -561,17 +705,34 @@ export function cleanupSigningMaterials(root: string): void {
           original.every((entry) => typeof entry === "string" && entry.length > 0),
         "Temporary keychain search list evidence is invalid.",
       );
-      const restored = spawnSync("security", ["list-keychains", "-d", "user", "-s", ...original], {
-        stdio: "ignore",
+      runner.run("security", ["list-keychains", "-d", "user", "-s", ...original], {
+        label: "keychain-search-list-restore",
+        maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+        timeoutMs: signedReleaseCleanupTimeoutMs,
       });
-      restorationFailed = restored.status !== 0;
     } catch {
       restorationFailed = true;
     }
   }
   if (existsSync(paths.keychain)) {
-    spawnSync("security", ["lock-keychain", paths.keychain], { stdio: "ignore" });
-    spawnSync("security", ["delete-keychain", paths.keychain], { stdio: "ignore" });
+    try {
+      runner.run("security", ["lock-keychain", paths.keychain], {
+        label: "keychain-lock",
+        maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+        timeoutMs: signedReleaseCleanupTimeoutMs,
+      });
+    } catch {
+      cleanupFailed = true;
+    }
+    try {
+      runner.run("security", ["delete-keychain", paths.keychain], {
+        label: "keychain-delete",
+        maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+        timeoutMs: signedReleaseCleanupTimeoutMs,
+      });
+    } catch {
+      cleanupFailed = true;
+    }
   }
   for (const sensitivePath of [
     paths.certificate,
@@ -579,43 +740,67 @@ export function cleanupSigningMaterials(root: string): void {
     paths.notaryKey,
     paths.searchList,
   ]) {
-    rmSync(sensitivePath, { force: true });
+    try {
+      rmSync(sensitivePath, { force: true });
+    } catch {
+      cleanupFailed = true;
+    }
   }
-  detachDistribution(path.join(paths.root, "mounted"));
-  rmSync(paths.root, { force: true, recursive: true });
+  try {
+    detachDistribution(path.join(paths.root, "mounted"), runner);
+  } catch {
+    cleanupFailed = true;
+  }
+  try {
+    rmSync(paths.root, { force: true, recursive: true });
+  } catch {
+    cleanupFailed = true;
+  }
   invariant(
     !restorationFailed,
     "Temporary keychain search list restoration failed after sensitive material removal.",
+  );
+  invariant(
+    !cleanupFailed && !existsSync(paths.root),
+    "Temporary signing cleanup failed after sensitive material removal.",
   );
 }
 
 function run(
   program: string,
   arguments_: string[],
-  options: { env?: NodeJS.ProcessEnv } = {},
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; label?: string } = {},
 ): string {
-  return execFileSync(program, arguments_, {
-    encoding: "utf8",
-    env: options.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  return commandRunner
+    .run(program, arguments_, {
+      cwd: options.cwd,
+      env: options.env,
+      label: options.label ?? "release-command",
+    })
+    .stdout.trim();
 }
 
 function runSensitive(program: string, arguments_: string[], label: string): string {
-  const result = spawnSync(program, arguments_, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  invariant(result.status === 0, `${label} failed without exposing command arguments.`);
-  return result.stdout.trim();
+  return commandRunner
+    .run(program, arguments_, {
+      label,
+      maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+      timeoutMs: signedReleaseCommandTimeoutMs,
+    })
+    .stdout.trim();
 }
 
 function runInherited(
   program: string,
   arguments_: string[],
-  options: { env?: NodeJS.ProcessEnv } = {},
+  options: { env?: NodeJS.ProcessEnv; label?: string; timeoutMs?: number } = {},
 ): void {
-  execFileSync(program, arguments_, { env: options.env, stdio: "inherit" });
+  commandRunner.run(program, arguments_, {
+    env: options.env,
+    label: options.label ?? "release-command",
+    maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+    timeoutMs: options.timeoutMs ?? signedReleaseCommandTimeoutMs,
+  });
 }
 
 function importSigningIdentity(
@@ -723,20 +908,23 @@ function createSignedDistribution(
   applicationRoot.assertCurrent();
   staging.assertCurrent();
   const stagedApplication = path.join(stagingRoot, "Mish.app");
-  runInherited("ditto", [application, stagedApplication]);
+  runInherited("ditto", [application, stagedApplication], {
+    label: "distribution-copy",
+    timeoutMs: signedReleaseDistributionTimeoutMs,
+  });
   symlinkSync("/Applications", path.join(stagingRoot, "Applications"));
-  runInherited("hdiutil", [
-    "create",
-    "-volname",
-    "Mish",
-    "-srcfolder",
-    stagingRoot,
-    "-ov",
-    "-format",
-    "UDZO",
-    dmg,
-  ]);
-  runInherited("codesign", ["--force", "--timestamp", "--sign", identity, dmg]);
+  runInherited(
+    "hdiutil",
+    ["create", "-volname", "Mish", "-srcfolder", stagingRoot, "-ov", "-format", "UDZO", dmg],
+    {
+      label: "distribution-create",
+      timeoutMs: signedReleaseDistributionTimeoutMs,
+    },
+  );
+  runInherited("codesign", ["--force", "--timestamp", "--sign", identity, dmg], {
+    label: "distribution-sign",
+    timeoutMs: signedReleaseDistributionTimeoutMs,
+  });
 }
 
 function notaryArguments(
@@ -759,14 +947,18 @@ function submitAndCheckNotary(
   credentials: SignedReleaseCredentials,
 ): ReturnType<typeof validateAppleNotaryResult> {
   const authentication = notaryArguments(paths, credentials);
-  const submissionProcess = spawnSync(
+  const submissionOutput = commandRunner.run(
     "xcrun",
     ["notarytool", "submit", dmg, ...authentication, "--wait", "--output-format", "json"],
-    { encoding: "utf8" },
-  );
+    {
+      label: "notary-submit",
+      maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+      timeoutMs: signedReleaseNotaryTimeoutMs,
+    },
+  ).stdout;
   let submission: { id?: unknown; status?: unknown };
   try {
-    submission = JSON.parse(submissionProcess.stdout || "{}") as {
+    submission = JSON.parse(submissionOutput || "{}") as {
       id?: unknown;
       status?: unknown;
     };
@@ -775,16 +967,20 @@ function submitAndCheckNotary(
   }
   invariant(
     typeof submission.id === "string",
-    `Apple notarization submission failed before returning an identifier (exit ${submissionProcess.status ?? "signal"}).`,
+    "Apple notarization submission failed before returning an identifier.",
   );
-  const logProcess = spawnSync(
+  const logOutput = commandRunner.run(
     "xcrun",
     ["notarytool", "log", submission.id, ...authentication, "--output-format", "json"],
-    { encoding: "utf8" },
-  );
+    {
+      label: "notary-log",
+      maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+      timeoutMs: signedReleaseCommandTimeoutMs,
+    },
+  ).stdout;
   let log: { issues?: unknown; status?: unknown };
   try {
-    log = JSON.parse(logProcess.stdout || "{}") as { issues?: unknown; status?: unknown };
+    log = JSON.parse(logOutput || "{}") as { issues?: unknown; status?: unknown };
   } catch {
     throw new Error("Apple notarization log returned malformed JSON.");
   }
@@ -793,12 +989,22 @@ function submitAndCheckNotary(
 
 function mountDistribution(dmg: string, mountpoint: string): void {
   mkdirSync(mountpoint, { mode: 0o700, recursive: true });
-  runInherited("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mountpoint, dmg]);
+  runInherited("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mountpoint, dmg], {
+    label: "distribution-attach",
+    timeoutMs: signedReleaseDistributionTimeoutMs,
+  });
 }
 
-function detachDistribution(mountpoint: string): void {
+function detachDistribution(
+  mountpoint: string,
+  runner: SignedReleaseCommandExecutor = commandRunner,
+): void {
   if (!existsSync(mountpoint)) return;
-  spawnSync("hdiutil", ["detach", mountpoint], { stdio: "ignore" });
+  runner.run("hdiutil", ["detach", mountpoint], {
+    label: "distribution-detach",
+    maxOutputBytes: signedReleaseCommandMaxOutputBytes,
+    timeoutMs: signedReleaseCleanupTimeoutMs,
+  });
 }
 
 function developerIdRequirement(identity: string, identifier: string): string {
@@ -992,6 +1198,8 @@ export function executeProtectedSignedRelease(options: {
 
     runInherited("pnpm", ["desktop:bundle:signed-direct:macos"], {
       env: sanitizedBuildEnvironment(credentials, parsedIdentity.teamIdentifier),
+      label: "signed-bundle-build",
+      timeoutMs: signedReleaseBuildTimeoutMs,
     });
     recorder.confirm("bundle-built", "signed-direct System Proxy-only application built");
     const applicationRoot = assertPrivateNoFollowRoot(application);
@@ -1011,14 +1219,16 @@ export function executeProtectedSignedRelease(options: {
     recorder.confirm("notary-accepted", "terminal notary status Accepted with zero issues");
 
     assertPrivateNoFollowFile(dmg).assertCurrent();
-    runInherited("xcrun", ["stapler", "staple", dmg]);
+    runInherited("xcrun", ["stapler", "staple", dmg], { label: "ticket-staple" });
     recorder.confirm("ticket-stapled", "notary ticket stapled to exact DMG");
     assertPrivateNoFollowFile(dmg).assertCurrent();
-    runInherited("xcrun", ["stapler", "validate", dmg]);
+    runInherited("xcrun", ["stapler", "validate", dmg], { label: "ticket-validate" });
     recorder.confirm("ticket-validated", "stapler validated the final DMG ticket");
 
     assertPrivateNoFollowFile(dmg).assertCurrent();
-    runInherited("codesign", ["--verify", "--strict", "--verbose=4", dmg]);
+    runInherited("codesign", ["--verify", "--strict", "--verbose=4", dmg], {
+      label: "distribution-code-sign-check",
+    });
     assertPrivateNoFollowFile(dmg).assertCurrent();
     mountDistribution(dmg, mountpoint);
     const mountedApplication = path.join(mountpoint, "Mish.app");
@@ -1026,42 +1236,51 @@ export function executeProtectedSignedRelease(options: {
     const mountedMihomo = mountedRoot.contain(signedDirectMihomoExecutable, "executable");
     mountedRoot.assertCurrent();
     mountedMihomo.assertCurrent();
-    runInherited("codesign", ["--verify", "--deep", "--strict", "--verbose=4", mountedApplication]);
+    runInherited(
+      "codesign",
+      ["--verify", "--deep", "--strict", "--verbose=4", mountedApplication],
+      {
+        label: "application-code-sign-check",
+      },
+    );
     mountedRoot.assertCurrent();
-    runInherited("codesign", [
-      "--verify",
-      "--strict",
-      "--verbose=4",
-      "-R",
-      developerIdRequirement(credentials.signingIdentity, signedDirectApplicationIdentifier),
-      mountedApplication,
-    ]);
+    runInherited(
+      "codesign",
+      [
+        "--verify",
+        "--strict",
+        "--verbose=4",
+        "-R",
+        developerIdRequirement(credentials.signingIdentity, signedDirectApplicationIdentifier),
+        mountedApplication,
+      ],
+      { label: "application-identity-check" },
+    );
     mountedMihomo.assertCurrent();
-    runInherited("codesign", [
-      "--verify",
-      "--strict",
-      "--verbose=4",
-      "-R",
-      developerIdRequirement(credentials.signingIdentity, signedDirectMihomoIdentifier),
-      mountedMihomo.absolute,
-    ]);
+    runInherited(
+      "codesign",
+      [
+        "--verify",
+        "--strict",
+        "--verbose=4",
+        "-R",
+        developerIdRequirement(credentials.signingIdentity, signedDirectMihomoIdentifier),
+        mountedMihomo.absolute,
+      ],
+      { label: "mihomo-identity-check" },
+    );
     recorder.confirm("codesign-assessed", "independent strict Developer ID assessment passed");
     assertPrivateNoFollowFile(dmg).assertCurrent();
-    runInherited("spctl", [
-      "--assess",
-      "--type",
-      "open",
-      "--context",
-      "context:primary-signature",
-      "--verbose=4",
-      dmg,
-    ]);
+    runInherited(
+      "spctl",
+      ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=4", dmg],
+      { label: "gatekeeper-assessment" },
+    );
     recorder.confirm("distribution-assessed", "Gatekeeper disk-image assessment passed");
     generateSignedReleaseSbom(mountedApplication, dmg, identity, sbom);
     recorder.confirm("sbom-generated", "SPDX 2.3 SBOM generated for the final DMG and bundle");
     succeeded = true;
   } finally {
-    detachDistribution(mountpoint);
     cleanupSigningMaterials(paths.root);
   }
 
