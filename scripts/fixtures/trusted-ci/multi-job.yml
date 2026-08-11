@@ -1,0 +1,33 @@
+name: Trusted CI policy fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run-step:
+    name: Run a checked command
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Run fixture command
+        run: echo fixture
+
+  local-action:
+    needs: run-step
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Use local action
+        uses: ./.github/actions/fixture
+      - name: Use pinned external action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+  call-local-reusable:
+    needs:
+      - local-action
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-fixture.yml
