@@ -14,9 +14,11 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureJournal, CaptureJournalStore,
-    CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError, CoreLifecycleCommand,
-    CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus, LocalProxyOwnership,
-    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
+    CaptureLifecycleEffect, CaptureLifecycleEvent, CaptureLifecycleObserver,
+    CaptureLifecycleResult, CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError,
+    CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
+    LocalProxyOwnership, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
+    NetworkServiceProxyState,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -85,8 +87,13 @@ pub enum SimulatedCorePhase {
 #[serde(rename_all = "kebab-case")]
 pub enum EffectKind {
     CaptureApply,
+    CaptureCancellation,
     CaptureConfirmListener,
     CaptureObserve,
+    CaptureFinalization,
+    CaptureOperation,
+    CaptureReplacement,
+    CaptureShutdown,
     CaptureWriteAutoDiscovery,
     CaptureWriteBypass,
     CaptureWriteHttp,
@@ -127,10 +134,14 @@ pub enum EffectKind {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EffectResultKind {
+    Aborted,
     Applied,
     Authorized,
     Cancelled,
     Completed,
+    CleanupFailed,
+    CompletionConflict,
+    FinalizerDeadlineExceeded,
     FailedClosed,
     ForeignOwned,
     Free,
@@ -138,11 +149,18 @@ pub enum EffectResultKind {
     MishOwned,
     Observed,
     Rejected,
+    Replaced,
+    Retired,
+    ShutdownRejected,
     Restored,
     RolledBack,
+    ShutdownDeadlineExceeded,
     Started,
     Stopped,
     Verified,
+    Panicked,
+    ActorPanicked,
+    ActorAborted,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -449,6 +467,11 @@ impl SimulatedHostScenario {
 fn initial_conflict_effect_contract() -> Vec<EffectKind> {
     vec![
         EffectKind::CaptureObserve,
+        EffectKind::CaptureCancellation,
+        EffectKind::CaptureFinalization,
+        EffectKind::CaptureOperation,
+        EffectKind::CaptureReplacement,
+        EffectKind::CaptureShutdown,
         EffectKind::CleanupCandidate,
         EffectKind::CoreObserve,
         EffectKind::CoreStop,
@@ -471,8 +494,13 @@ fn commit_conflict_effect_contract() -> Vec<EffectKind> {
 fn system_proxy_effect_contract() -> Vec<EffectKind> {
     vec![
         EffectKind::CaptureApply,
+        EffectKind::CaptureCancellation,
         EffectKind::CaptureConfirmListener,
         EffectKind::CaptureObserve,
+        EffectKind::CaptureFinalization,
+        EffectKind::CaptureOperation,
+        EffectKind::CaptureReplacement,
+        EffectKind::CaptureShutdown,
         EffectKind::CaptureWriteAutoDiscovery,
         EffectKind::CaptureWriteBypass,
         EffectKind::CaptureWriteHttp,
@@ -628,6 +656,7 @@ struct Model {
     scheduled_cursor: usize,
     runtime_id: SyntheticRuntimeId,
     transcript: VecDeque<TranscriptEvent>,
+    transcript_failure: Option<SimulatedHostFailure>,
 }
 
 pub struct SimulatedHost {
@@ -668,13 +697,30 @@ impl SimulatedHost {
                 scheduled_cursor: 0,
                 runtime_id: SyntheticRuntimeId::RuntimeOne,
                 transcript: VecDeque::new(),
+                transcript_failure: None,
             }),
             preparation_task: Mutex::new(None),
             scenario,
         })
     }
 
-    pub fn attach_capture(&self, capture: &Arc<CaptureReconciler>) {
+    pub fn attach_capture(self: &Arc<Self>, capture: &Arc<CaptureReconciler>) {
+        let previous = self
+            .capture
+            .lock()
+            .expect("simulated capture lock poisoned")
+            .as_ref()
+            .and_then(Weak::upgrade);
+        if let Some(previous) = previous {
+            previous.record_runtime_replacement();
+        }
+        let host = Arc::downgrade(self);
+        let observer: CaptureLifecycleObserver = Arc::new(move |event| {
+            if let Some(host) = host.upgrade() {
+                host.record_capture_lifecycle(event);
+            }
+        });
+        capture.set_lifecycle_observer(observer);
         *self
             .capture
             .lock()
@@ -832,6 +878,17 @@ impl SimulatedHost {
         }
     }
 
+    /// Returns the first transcript-boundary failure observed by a lifecycle callback.
+    ///
+    /// Capture observers cannot return a simulator error through the production transition
+    /// observer trait, so the host retains this closed failure until evidence collection.
+    pub fn transcript_failure(&self) -> Option<SimulatedHostFailure> {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .transcript_failure
+    }
+
     pub fn actual_proxy_state(&self) -> NetworkServiceProxyState {
         self.model
             .lock()
@@ -917,6 +974,42 @@ impl SimulatedHost {
     fn effect_correlation(&self) -> EffectCorrelation {
         let mut model = self.model.lock().expect("simulated host lock poisoned");
         self.correlation(&mut model)
+    }
+
+    fn record_capture_lifecycle(&self, event: CaptureLifecycleEvent) {
+        let correlation = {
+            let mut model = self.model.lock().expect("simulated host lock poisoned");
+            let authority_index = model
+                .authority_scopes
+                .iter()
+                .position(|scope| *scope == event.scope_epoch)
+                .unwrap_or_else(|| {
+                    model.authority_scopes.push(event.scope_epoch);
+                    model.authority_scopes.len() - 1
+                });
+            let authority_id = if authority_index == 0 {
+                SyntheticAuthorityId::CaptureOne
+            } else {
+                SyntheticAuthorityId::CaptureTwo
+            };
+            (
+                authority_id,
+                (authority_index + 1) as u64,
+                event.operation_id,
+                event.admitted_revision,
+                model.runtime_id,
+            )
+        };
+        if let Err(error) = self.emit_with_correlation(
+            capture_lifecycle_effect(event.effect),
+            capture_lifecycle_result(event.result),
+            Some(correlation),
+        ) {
+            let mut model = self.model.lock().expect("simulated host lock poisoned");
+            if model.transcript_failure.is_none() {
+                model.transcript_failure = Some(error);
+            }
+        }
     }
 
     fn emit(
@@ -1104,6 +1197,40 @@ impl SimulatedHost {
             }
         };
         CaptureTransitionError::new(kind, "The simulated host rejected an undeclared effect")
+    }
+}
+
+fn capture_lifecycle_effect(effect: CaptureLifecycleEffect) -> EffectKind {
+    match effect {
+        CaptureLifecycleEffect::Operation => EffectKind::CaptureOperation,
+        CaptureLifecycleEffect::Cancellation => EffectKind::CaptureCancellation,
+        CaptureLifecycleEffect::Finalization => EffectKind::CaptureFinalization,
+        CaptureLifecycleEffect::Replacement => EffectKind::CaptureReplacement,
+        CaptureLifecycleEffect::Shutdown => EffectKind::CaptureShutdown,
+    }
+}
+
+fn capture_lifecycle_result(result: CaptureLifecycleResult) -> EffectResultKind {
+    match result {
+        CaptureLifecycleResult::Started => EffectResultKind::Started,
+        CaptureLifecycleResult::Completed => EffectResultKind::Completed,
+        CaptureLifecycleResult::Applied => EffectResultKind::Applied,
+        CaptureLifecycleResult::Cancelled => EffectResultKind::Cancelled,
+        CaptureLifecycleResult::CleanupFailed => EffectResultKind::CleanupFailed,
+        CaptureLifecycleResult::Panicked => EffectResultKind::Panicked,
+        CaptureLifecycleResult::Aborted => EffectResultKind::Aborted,
+        CaptureLifecycleResult::CompletionConflict => EffectResultKind::CompletionConflict,
+        CaptureLifecycleResult::Replaced => EffectResultKind::Replaced,
+        CaptureLifecycleResult::Retired => EffectResultKind::Retired,
+        CaptureLifecycleResult::ShutdownRejected => EffectResultKind::ShutdownRejected,
+        CaptureLifecycleResult::ShutdownDeadlineExceeded => {
+            EffectResultKind::ShutdownDeadlineExceeded
+        }
+        CaptureLifecycleResult::FinalizerDeadlineExceeded => {
+            EffectResultKind::FinalizerDeadlineExceeded
+        }
+        CaptureLifecycleResult::ActorPanicked => EffectResultKind::ActorPanicked,
+        CaptureLifecycleResult::ActorAborted => EffectResultKind::ActorAborted,
     }
 }
 
@@ -1941,6 +2068,15 @@ mod tests {
             .filter(|event| event.effect_kind == EffectKind::FinalizeOperation)
             .count();
         assert_eq!(finalizer_count, 1);
+        let lifecycle = scenario.host.observation().transcript.events;
+        assert!(lifecycle.iter().any(|event| {
+            event.effect_kind == EffectKind::CaptureCancellation
+                && event.result_kind == EffectResultKind::Cancelled
+        }));
+        assert!(lifecycle.iter().any(|event| {
+            event.effect_kind == EffectKind::CaptureFinalization
+                && event.result_kind == EffectResultKind::Started
+        }));
     }
 
     #[tokio::test]
@@ -2202,17 +2338,62 @@ mod tests {
             LoopbackProxyEndpoint::managed(),
         ));
         host.attach_capture(&second_capture);
+        let second_capture_for_shutdown = second_capture.clone();
         let second_runtime = MishRuntime::with_capture(core, second_capture);
         host.attach_runtime(second_runtime);
         host.exercise_effect(EffectKind::CoreObserve).unwrap();
+        second_capture_for_shutdown
+            .reconcile_for_shutdown()
+            .await
+            .unwrap();
 
         let events = host.observation().transcript.events;
-        assert_eq!(events[0].authority_id, SyntheticAuthorityId::CaptureOne);
-        assert_eq!(events[0].runtime_id, SyntheticRuntimeId::RuntimeOne);
-        assert_eq!(events[0].scope_epoch, 1);
-        assert_eq!(events[1].authority_id, SyntheticAuthorityId::CaptureTwo);
-        assert_eq!(events[1].runtime_id, SyntheticRuntimeId::RuntimeTwo);
-        assert_eq!(events[1].scope_epoch, 2);
+        let core_events = events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::CoreObserve)
+            .collect::<Vec<_>>();
+        let replacement_events = events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::CaptureReplacement)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            core_events[0].authority_id,
+            SyntheticAuthorityId::CaptureOne
+        );
+        assert_eq!(core_events[0].runtime_id, SyntheticRuntimeId::RuntimeOne);
+        assert_eq!(core_events[0].scope_epoch, 1);
+        assert_eq!(
+            core_events[1].authority_id,
+            SyntheticAuthorityId::CaptureTwo
+        );
+        assert_eq!(core_events[1].runtime_id, SyntheticRuntimeId::RuntimeTwo);
+        assert_eq!(core_events[1].scope_epoch, 2);
+        assert_eq!(replacement_events.len(), 2);
+        assert_eq!(replacement_events[0].result_kind, EffectResultKind::Started);
+        assert_eq!(
+            replacement_events[1].result_kind,
+            EffectResultKind::Replaced
+        );
+        let shutdown_events = events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::CaptureShutdown)
+            .collect::<Vec<_>>();
+        let first_shutdown = shutdown_events
+            .iter()
+            .filter(|event| event.scope_epoch == 1)
+            .collect::<Vec<_>>();
+        let second_shutdown = shutdown_events
+            .iter()
+            .filter(|event| event.scope_epoch == 2)
+            .collect::<Vec<_>>();
+        assert_eq!(first_shutdown.len(), 2);
+        assert_eq!(first_shutdown[0].result_kind, EffectResultKind::Started);
+        assert_eq!(first_shutdown[1].result_kind, EffectResultKind::Completed);
+        assert_eq!(second_shutdown.len(), 3);
+        assert_eq!(second_shutdown[0].result_kind, EffectResultKind::Started);
+        assert_eq!(second_shutdown[1].result_kind, EffectResultKind::Completed);
+        assert_eq!(second_shutdown[2].result_kind, EffectResultKind::Retired);
+        assert_eq!(host.transcript_failure(), None);
     }
 
     #[test]

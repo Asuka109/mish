@@ -9,6 +9,8 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
+#[cfg(feature = "test-correlation")]
+use mish_state_machine::{ActorFailure, ForcedRetirementReason, RetirementTerminal};
 use mish_state_machine::{RunnerConfig, RunnerHandle, spawn_runner};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -32,6 +34,8 @@ use crate::{
 };
 
 static NEXT_CAPTURE_RECONCILER_ID: AtomicU64 = AtomicU64::new(1);
+#[cfg(feature = "test-correlation")]
+const CAPTURE_SHUTDOWN_EFFECT_ID: u64 = 6;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -53,6 +57,55 @@ pub enum CaptureFailureKind {
     UnsafeExistingConfiguration,
     UnsupportedSelection,
 }
+
+/// Closed lifecycle boundaries exposed only to transcript-driven system tests.
+///
+/// The production Capture projection remains the authority for user-visible state. This seam
+/// carries only bounded correlation and terminal semantics from the real state-machine observer
+/// to a test-owned transcript sink; it is not a second lifecycle owner.
+#[cfg(feature = "test-correlation")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CaptureLifecycleEffect {
+    Operation,
+    Cancellation,
+    Finalization,
+    Replacement,
+    Shutdown,
+}
+
+#[cfg(feature = "test-correlation")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CaptureLifecycleResult {
+    Started,
+    Completed,
+    Applied,
+    Cancelled,
+    CleanupFailed,
+    Panicked,
+    Aborted,
+    CompletionConflict,
+    Replaced,
+    Retired,
+    ShutdownRejected,
+    ShutdownDeadlineExceeded,
+    FinalizerDeadlineExceeded,
+    ActorPanicked,
+    ActorAborted,
+}
+
+#[cfg(feature = "test-correlation")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CaptureLifecycleEvent {
+    pub admitted_revision: u64,
+    pub effect_id: u64,
+    pub effect: CaptureLifecycleEffect,
+    pub operation_id: Option<u64>,
+    pub result: CaptureLifecycleResult,
+    pub scope_epoch: u64,
+}
+
+#[cfg(feature = "test-correlation")]
+pub type CaptureLifecycleObserver = Arc<dyn Fn(CaptureLifecycleEvent) + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -2338,6 +2391,8 @@ pub struct CaptureReconciler {
     tun: Option<Arc<TunReconciler>>,
     confirmed_observer: Arc<Mutex<Option<ConfirmedCaptureObserver>>>,
     updates: broadcast::Sender<CaptureRuntimeStatus>,
+    #[cfg(feature = "test-correlation")]
+    lifecycle_observer: Arc<Mutex<Option<CaptureLifecycleObserver>>>,
 }
 
 pub struct CaptureRuntimeTransition {
@@ -2389,6 +2444,8 @@ impl CaptureReconciler {
         let (machine_updates, machine_updates_receiver) = watch::channel(0);
         let confirmed_observer = Mutex::new(None);
         let confirmed_observer = Arc::new(confirmed_observer);
+        #[cfg(feature = "test-correlation")]
+        let lifecycle_observer = Arc::new(Mutex::new(None));
         let identity = NEXT_CAPTURE_RECONCILER_ID.fetch_add(1, Ordering::Relaxed);
         let machine = Arc::new(CaptureMachine {
             machine_authority: scope_epoch,
@@ -2413,6 +2470,10 @@ impl CaptureReconciler {
                 confirmed: confirmed_observer.clone(),
                 machine_updates,
                 updates: updates.clone(),
+                #[cfg(feature = "test-correlation")]
+                lifecycle: lifecycle_observer.clone(),
+                #[cfg(feature = "test-correlation")]
+                lifecycle_scope_epoch: identity,
             }),
             RunnerConfig::default(),
         );
@@ -2425,6 +2486,8 @@ impl CaptureReconciler {
             tun,
             confirmed_observer,
             updates,
+            #[cfg(feature = "test-correlation")]
+            lifecycle_observer,
         }
     }
 
@@ -2502,6 +2565,50 @@ impl CaptureReconciler {
             .confirmed_observer
             .lock()
             .expect("confirmed Capture observer lock poisoned") = Some(observer);
+    }
+
+    /// Installs the narrow transcript sink used by deterministic system scenarios. The sink
+    /// receives only closed Capture lifecycle semantics and correlation values derived from the
+    /// real state-machine observer; product builds do not compile this seam.
+    #[cfg(feature = "test-correlation")]
+    pub fn set_lifecycle_observer(&self, observer: CaptureLifecycleObserver) {
+        *self
+            .lifecycle_observer
+            .lock()
+            .expect("Capture lifecycle observer lock poisoned") = Some(observer);
+    }
+
+    /// Records that this Capture authority was replaced by a newer Runtime authority. The old
+    /// runner remains responsible for its own owned effect completion, while the replacement
+    /// event makes the retired authority explicit to deterministic transcript tests.
+    #[cfg(feature = "test-correlation")]
+    pub fn record_runtime_replacement(&self) {
+        let state = self.runner.snapshot();
+        let operation_id = state
+            .projection()
+            .capture_operation
+            .operation_id
+            .as_deref()
+            .and_then(|operation| operation.parse::<u64>().ok());
+        let emit = |result| {
+            let observer = self
+                .lifecycle_observer
+                .lock()
+                .expect("Capture lifecycle observer lock poisoned")
+                .clone();
+            if let Some(observer) = observer {
+                observer(CaptureLifecycleEvent {
+                    admitted_revision: state.revision(),
+                    effect_id: 0,
+                    effect: CaptureLifecycleEffect::Replacement,
+                    operation_id,
+                    result,
+                    scope_epoch: self.identity,
+                });
+            }
+        };
+        emit(CaptureLifecycleResult::Started);
+        emit(CaptureLifecycleResult::Replaced);
     }
 
     /// Admits one aggregate operation before any launch preparation begins.
@@ -2600,9 +2707,64 @@ impl CaptureReconciler {
             return Err(runtime_transition_error());
         }
         let admission = self.runner.shutdown().await;
+        #[cfg(feature = "test-correlation")]
+        self.record_retirement_terminal(&admission.terminal);
         match admission.state {
             CaptureState::Retired(state) => state.error.map_or(Ok(()), Err),
             _ => Err(runtime_transition_error()),
+        }
+    }
+
+    #[cfg(feature = "test-correlation")]
+    fn record_retirement_terminal(&self, terminal: &RetirementTerminal<CaptureTransitionError>) {
+        let result = Self::lifecycle_result_from_retirement_terminal(terminal);
+        let state = self.runner.snapshot();
+        let operation_id = state
+            .projection()
+            .capture_operation
+            .operation_id
+            .as_deref()
+            .and_then(|operation| operation.parse::<u64>().ok());
+        let observer = self
+            .lifecycle_observer
+            .lock()
+            .expect("Capture lifecycle observer lock poisoned")
+            .clone();
+        if let Some(observer) = observer {
+            observer(CaptureLifecycleEvent {
+                admitted_revision: state.revision(),
+                effect_id: CAPTURE_SHUTDOWN_EFFECT_ID,
+                effect: CaptureLifecycleEffect::Shutdown,
+                operation_id,
+                result,
+                scope_epoch: self.identity,
+            });
+        }
+    }
+
+    #[cfg(feature = "test-correlation")]
+    fn lifecycle_result_from_retirement_terminal(
+        terminal: &RetirementTerminal<CaptureTransitionError>,
+    ) -> CaptureLifecycleResult {
+        match terminal {
+            RetirementTerminal::Applied | RetirementTerminal::AlreadyRetired => {
+                CaptureLifecycleResult::Retired
+            }
+            RetirementTerminal::ShutdownRejected(_) => CaptureLifecycleResult::ShutdownRejected,
+            RetirementTerminal::CleanupFailed(_) => CaptureLifecycleResult::CleanupFailed,
+            RetirementTerminal::Forced(ForcedRetirementReason::ShutdownDeadlineExceeded) => {
+                CaptureLifecycleResult::ShutdownDeadlineExceeded
+            }
+            RetirementTerminal::Forced(ForcedRetirementReason::FinalizerDeadlineExceeded) => {
+                CaptureLifecycleResult::FinalizerDeadlineExceeded
+            }
+            RetirementTerminal::ActorFailed(ActorFailure::Panicked) => {
+                CaptureLifecycleResult::ActorPanicked
+            }
+            RetirementTerminal::ActorFailed(ActorFailure::Cancelled)
+            | RetirementTerminal::ActorFailed(ActorFailure::RetiredBeforeReply) => {
+                CaptureLifecycleResult::ActorAborted
+            }
         }
     }
 
@@ -2913,6 +3075,67 @@ impl CaptureReconciler {
     fn has_pending_operation(&self) -> bool {
         let state = self.runner.snapshot();
         state.active_operation().is_some() || state.projection().capture_operation.is_busy()
+    }
+}
+
+#[cfg(all(test, feature = "test-correlation"))]
+mod lifecycle_tests {
+    use mish_state_machine::{
+        ActorFailure, Disposition, ForcedRetirementReason, RetirementTerminal,
+    };
+
+    use super::{
+        CaptureFailureKind, CaptureLifecycleResult, CaptureReconciler, CaptureTransitionError,
+    };
+
+    fn error() -> CaptureTransitionError {
+        CaptureTransitionError::new(CaptureFailureKind::RuntimeTransition, "test terminal")
+    }
+
+    #[test]
+    fn retirement_terminals_keep_distinct_shutdown_results() {
+        let cases = [
+            (RetirementTerminal::Applied, CaptureLifecycleResult::Retired),
+            (
+                RetirementTerminal::AlreadyRetired,
+                CaptureLifecycleResult::Retired,
+            ),
+            (
+                RetirementTerminal::ShutdownRejected(error()),
+                CaptureLifecycleResult::ShutdownRejected,
+            ),
+            (
+                RetirementTerminal::CleanupFailed(Disposition::Failed),
+                CaptureLifecycleResult::CleanupFailed,
+            ),
+            (
+                RetirementTerminal::Forced(ForcedRetirementReason::ShutdownDeadlineExceeded),
+                CaptureLifecycleResult::ShutdownDeadlineExceeded,
+            ),
+            (
+                RetirementTerminal::Forced(ForcedRetirementReason::FinalizerDeadlineExceeded),
+                CaptureLifecycleResult::FinalizerDeadlineExceeded,
+            ),
+            (
+                RetirementTerminal::ActorFailed(ActorFailure::Panicked),
+                CaptureLifecycleResult::ActorPanicked,
+            ),
+            (
+                RetirementTerminal::ActorFailed(ActorFailure::Cancelled),
+                CaptureLifecycleResult::ActorAborted,
+            ),
+            (
+                RetirementTerminal::ActorFailed(ActorFailure::RetiredBeforeReply),
+                CaptureLifecycleResult::ActorAborted,
+            ),
+        ];
+
+        for (terminal, expected) in cases {
+            assert_eq!(
+                CaptureReconciler::lifecycle_result_from_retirement_terminal(&terminal),
+                expected
+            );
+        }
     }
 }
 
