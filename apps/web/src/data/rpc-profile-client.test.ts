@@ -78,7 +78,6 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
       deletion: "supported",
       httpsImport: "supported",
       localFileImport: "permission-required",
-      patches: "supported",
       refresh: "supported",
       scheduling: "supported",
       save: "supported",
@@ -291,27 +290,8 @@ describe("RpcProfileClient", () => {
     });
     expect((await updatePromise).phase).toBe("failure");
 
-    const patchAuthority = {
-      artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      profileId: "profile-a",
-      sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    const patchEditor = {
-      activationBlocked: false,
-      authority: patchAuthority,
-      catalog: { groups: [], outbounds: [], ruleProviders: [], rules: [] },
-      effectiveFingerprint: patchAuthority.artifactFingerprint,
-      patches: [],
-      schemaVersion: 1,
-    };
-    const getPatchesPromise = client.getPatches(patchAuthority);
-    const getPatches = await waitForRequest(transport, 3);
-    expect(getPatches).toMatchObject({ method: "profiles.getPatches", params: patchAuthority });
-    transport.respond({ id: getPatches.id, jsonrpc: "2.0", result: patchEditor });
-    await getPatchesPromise;
-
     const getRoutesPromise = client.getRoutes("profile-a");
-    const getRoutes = await waitForRequest(transport, 4);
+    const getRoutes = await waitForRequest(transport, 3);
     expect(getRoutes).toMatchObject({
       method: "profiles.getRoutes",
       params: { profileId: "profile-a" },
@@ -320,7 +300,7 @@ describe("RpcProfileClient", () => {
       id: getRoutes.id,
       jsonrpc: "2.0",
       result: {
-        fingerprint: patchAuthority.artifactFingerprint,
+        fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         groups: [],
         nodes: [],
         profileId: "profile-a",
@@ -329,23 +309,14 @@ describe("RpcProfileClient", () => {
     });
     await getRoutesPromise;
 
-    const replacePatchesPromise = client.replacePatches(patchAuthority, []);
-    const replacePatches = await waitForRequest(transport, 5);
-    expect(replacePatches).toMatchObject({
-      method: "profiles.replacePatches",
-      params: { authority: patchAuthority, patches: [], schemaVersion: 1 },
-    });
-    transport.respond({ id: replacePatches.id, jsonrpc: "2.0", result: patchEditor });
-    await replacePatchesPromise;
-
     const openDirectoryPromise = client.openProfileDirectory();
-    const openDirectory = await waitForRequest(transport, 6);
+    const openDirectory = await waitForRequest(transport, 4);
     expect(openDirectory).toMatchObject({ method: "profiles.openDirectory", params: {} });
     transport.respond({ id: openDirectory.id, jsonrpc: "2.0", result: true });
     await openDirectoryPromise;
 
     const createPromise = client.createProfile("new-profile.yaml");
-    const create = await waitForRequest(transport, 7);
+    const create = await waitForRequest(transport, 5);
     expect(create).toMatchObject({
       method: "profiles.create",
       params: { fileName: "new-profile.yaml" },
@@ -355,7 +326,7 @@ describe("RpcProfileClient", () => {
 
     const expectedSelection = { profileId: "profile-b", revision: 4 };
     const selectPromise = client.selectProfile("profile-a", { expectedSelection });
-    const select = await waitForRequest(transport, 8);
+    const select = await waitForRequest(transport, 6);
     expect(select).toMatchObject({
       method: "profiles.select",
       params: { expectedSelection, profileId: "profile-a" },

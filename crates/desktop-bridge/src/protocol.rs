@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use mish_profile::{
-    ImportError, ProfilePatch, ProfileRefreshPolicy, ProfileRefreshTrigger,
-    ProfileSelectionSnapshot, ProfileServiceError, RepositoryError,
+    ImportError, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot,
+    ProfileServiceError, RepositoryError,
 };
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
@@ -295,22 +295,6 @@ struct ProfileSelectParams {
     #[serde(default)]
     expected_selection: Option<ProfileSelectionSnapshot>,
     profile_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ProfilePatchAuthorityParams {
-    artifact_fingerprint: String,
-    profile_id: String,
-    source_revision: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ProfileReplacePatchesParams {
-    authority: ProfilePatchAuthorityParams,
-    patches: Vec<ProfilePatch>,
-    schema_version: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1681,23 +1665,6 @@ async fn handle_message(
                 Err(error) => return Some(profile_file_action_error_response(id, error)),
             }
         }
-        "profiles.getPatches" => {
-            let Some(service) = &state.profile_service else {
-                return Some(profile_capability_error(id));
-            };
-            let params: ProfilePatchAuthorityParams = match serde_json::from_value(request.params) {
-                Ok(params) if valid_patch_authority(&params) => params,
-                _ => return Some(error_response(id, -32602, "Invalid params", None)),
-            };
-            match service.patch_editor(
-                &params.profile_id,
-                &params.source_revision,
-                &params.artifact_fingerprint,
-            ) {
-                Ok(editor) => serde_json::to_value(editor).expect("serializable patch editor"),
-                Err(error) => return Some(profile_error_response(id, error)),
-            }
-        }
         "profiles.getRoutes" => {
             let Some(service) = &state.profile_service else {
                 return Some(profile_capability_error(id));
@@ -1714,49 +1681,6 @@ async fn handle_message(
             match catalog {
                 Ok(catalog) => serde_json::to_value(catalog).expect("serializable route catalog"),
                 Err(error) => return Some(profile_error_response(id, error)),
-            }
-        }
-        "profiles.replacePatches" => {
-            let Some(service) = &state.profile_service else {
-                return Some(profile_capability_error(id));
-            };
-            let params: ProfileReplacePatchesParams =
-                match serde_json::from_value::<ProfileReplacePatchesParams>(request.params) {
-                    Ok(params)
-                        if params.schema_version == mish_profile::PROFILE_PATCH_SCHEMA_VERSION
-                            && params.patches.len() <= mish_profile::MAX_PROFILE_PATCHES
-                            && valid_patch_authority(&params.authority) =>
-                    {
-                        params
-                    }
-                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
-                };
-            let result = if let Some(activation) = &state.profile_activation {
-                activation
-                    .replace_patches(
-                        &params.authority.profile_id,
-                        &params.authority.source_revision,
-                        &params.authority.artifact_fingerprint,
-                        params.patches,
-                    )
-                    .await
-                    .map_err(|error| profile_activation_error_response(id.clone(), error))
-            } else {
-                service
-                    .replace_patches(
-                        &params.authority.profile_id,
-                        &params.authority.source_revision,
-                        &params.authority.artifact_fingerprint,
-                        params.patches,
-                    )
-                    .map_err(|error| profile_error_response(id.clone(), error))
-            };
-            match result {
-                Ok(editor) => {
-                    publish_profile_update(state).await;
-                    serde_json::to_value(editor).expect("serializable patch editor")
-                }
-                Err(response) => return Some(response),
             }
         }
         "profiles.select" => {
@@ -3432,19 +3356,6 @@ fn profile_file_action_error_response(id: Value, error: crate::ProfileFileAction
             error_response(id, -32021, "Profile file action failed", None)
         }
     }
-}
-
-fn valid_patch_authority(authority: &ProfilePatchAuthorityParams) -> bool {
-    valid_identifier(&authority.profile_id)
-        && valid_sha256(&authority.source_revision)
-        && valid_sha256(&authority.artifact_fingerprint)
-}
-
-fn valid_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn capture_error_response(id: Value, error: CaptureTransitionError) -> Value {

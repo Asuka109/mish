@@ -6,8 +6,6 @@ import {
   type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
-  type ProfilePatchAuthorityDto,
-  type ProfilePatchDto,
   type ProfileRefreshPolicy,
   type ProfileSnapshotDto,
   type ProfileSnapshotNotificationDto,
@@ -96,10 +94,6 @@ export class RpcProfileClient implements ProfileClient {
     return this.request("profiles.openDirectory", {}, options).then(() => undefined);
   }
 
-  getPatches(authority: ProfilePatchAuthorityDto, options?: RpcRequestOptions) {
-    return this.request("profiles.getPatches", authority, options);
-  }
-
   getRoutes(profileId: string, options?: RpcRequestOptions) {
     return this.request("profiles.getRoutes", { profileId }, options);
   }
@@ -139,18 +133,6 @@ export class RpcProfileClient implements ProfileClient {
 
   refreshProfile(profileId: string, options?: RpcRequestOptions) {
     return this.requestSnapshot("profiles.refresh", { profileId }, options);
-  }
-
-  replacePatches(
-    authority: ProfilePatchAuthorityDto,
-    patches: ProfilePatchDto[],
-    options?: RpcRequestOptions,
-  ) {
-    return this.request(
-      "profiles.replacePatches",
-      { authority, patches, schemaVersion: 1 },
-      options,
-    );
   }
 
   setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy, options?: RpcRequestOptions) {

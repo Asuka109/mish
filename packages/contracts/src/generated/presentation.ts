@@ -201,12 +201,6 @@ const applicationNotificationProfileFileActionFailedDataSchema = z.object({}).st
 
 const applicationNotificationProfileImportFailedDataSchema = z.object({}).strict();
 
-const applicationNotificationProfilePatchLoadFailedDataSchema = z.object({}).strict();
-
-const applicationNotificationProfilePatchSaveFailedDataSchema = z.object({}).strict();
-
-const applicationNotificationProfilePatchSavedDataSchema = z.object({}).strict();
-
 const applicationNotificationProfileRefreshFailedDataSchema = z.object({}).strict();
 
 const applicationNotificationProfileSaveFailedDataSchema = z.object({}).strict();
@@ -322,9 +316,6 @@ export const applicationNotificationKindSchema = z.enum([
   "profile.detached",
   "profile.file-action-failed",
   "profile.import-failed",
-  "profile.patch-load-failed",
-  "profile.patch-save-failed",
-  "profile.patch-saved",
   "profile.refresh-failed",
   "profile.save-failed",
   "profile.saved",
@@ -545,36 +536,6 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationProfileImportFailedDataSchema,
       kind: z.literal("profile.import-failed"),
-    })
-    .strict(),
-  z
-    .object({
-      actionIds: z
-        .array(z.never())
-        .max(0)
-        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
-      data: applicationNotificationProfilePatchLoadFailedDataSchema,
-      kind: z.literal("profile.patch-load-failed"),
-    })
-    .strict(),
-  z
-    .object({
-      actionIds: z
-        .array(z.never())
-        .max(0)
-        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
-      data: applicationNotificationProfilePatchSaveFailedDataSchema,
-      kind: z.literal("profile.patch-save-failed"),
-    })
-    .strict(),
-  z
-    .object({
-      actionIds: z
-        .array(z.never())
-        .max(0)
-        .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
-      data: applicationNotificationProfilePatchSavedDataSchema,
-      kind: z.literal("profile.patch-saved"),
     })
     .strict(),
   z
@@ -831,13 +792,6 @@ export interface ApplicationNotificationDataByKind {
     typeof applicationNotificationProfileFileActionFailedDataSchema
   >;
   "profile.import-failed": z.infer<typeof applicationNotificationProfileImportFailedDataSchema>;
-  "profile.patch-load-failed": z.infer<
-    typeof applicationNotificationProfilePatchLoadFailedDataSchema
-  >;
-  "profile.patch-save-failed": z.infer<
-    typeof applicationNotificationProfilePatchSaveFailedDataSchema
-  >;
-  "profile.patch-saved": z.infer<typeof applicationNotificationProfilePatchSavedDataSchema>;
   "profile.refresh-failed": z.infer<typeof applicationNotificationProfileRefreshFailedDataSchema>;
   "profile.save-failed": z.infer<typeof applicationNotificationProfileSaveFailedDataSchema>;
   "profile.saved": z.infer<typeof applicationNotificationProfileSavedDataSchema>;

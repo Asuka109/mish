@@ -145,12 +145,6 @@ function knownPresentation(
       return { message: LL.profiles.fileActionFailed() };
     case "profile.import-failed":
       return { message: LL.profiles.importFailed() };
-    case "profile.patch-load-failed":
-      return { message: LL.profiles.patchLoadFailed() };
-    case "profile.patch-save-failed":
-      return { message: LL.profiles.patchSaveFailed() };
-    case "profile.patch-saved":
-      return { message: LL.profiles.patchSaved() };
     case "profile.refresh-failed":
       return { message: LL.profiles.refreshFailed() };
     case "profile.save-failed":

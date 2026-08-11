@@ -10,9 +10,9 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use mish_profile::{
-    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
-    ProfileRecord, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot,
-    ProfileServiceError, ProfileSnapshot, Timestamp,
+    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfileRecord, ProfileRefreshPolicy,
+    ProfileRefreshTrigger, ProfileSelectionSnapshot, ProfileServiceError, ProfileSnapshot,
+    Timestamp,
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
@@ -4118,32 +4118,6 @@ impl ProfileActivationCoordinator {
         let result = self
             .profiles
             .set_refresh_policy_authorized(&permit, profile_id, policy);
-        self.release_profile(profile_id).await;
-        self.publish().await;
-        result.map_err(Into::into)
-    }
-
-    pub async fn replace_patches(
-        &self,
-        profile_id: &str,
-        source_revision: &str,
-        artifact_fingerprint: &str,
-        patches: Vec<ProfilePatch>,
-    ) -> Result<ProfilePatchEditor, ProfileActivationCoordinatorError> {
-        let permit = self.acquire_mutation()?;
-        {
-            let mut state = self.state.lock().await;
-            if !state.busy_profiles.insert(profile_id.to_owned()) {
-                return Err(ProfileActivationCoordinatorError::Conflict);
-            }
-        }
-        let result = self.profiles.replace_patches_authorized(
-            &permit,
-            profile_id,
-            source_revision,
-            artifact_fingerprint,
-            patches,
-        );
         self.release_profile(profile_id).await;
         self.publish().await;
         result.map_err(Into::into)

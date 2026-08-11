@@ -4,9 +4,6 @@ import {
   type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
-  type ProfilePatchAuthorityDto,
-  type ProfilePatchDto,
-  type ProfilePatchEditorDto,
   type ProfileRefreshPolicy,
   type ProfileRouteCatalogDto,
   type ProfileSelectionSnapshotDto,
@@ -40,7 +37,6 @@ export type ProfileOperation =
   | "delete"
   | "detach"
   | "preflight"
-  | "patch-save"
   | "provider-update"
   | "refresh"
   | "schedule"
@@ -54,9 +50,6 @@ export type ProfileSelectionOperationResult =
   | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
-  | { error: ProfileClientError; ok: false };
-export type ProfilePatchEditorResult =
-  | { editor: ProfilePatchEditorDto; ok: true }
   | { error: ProfileClientError; ok: false };
 export type ProfileRouteCatalogResult =
   | { catalog: ProfileRouteCatalogDto; ok: true }
@@ -80,7 +73,6 @@ interface ProfileContextValue {
   fileActionsAvailable: boolean;
   isLoading: boolean;
   isPending(operation: ProfileOperation, profileId?: string): boolean;
-  loadPatches(authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult>;
   loadRoutes(
     authority: ProfileDerivedAuthority,
     options?: { signal?: AbortSignal },
@@ -89,10 +81,6 @@ interface ProfileContextValue {
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
-  replacePatches(
-    authority: ProfilePatchAuthorityDto,
-    patches: ProfilePatchDto[],
-  ): Promise<ProfilePatchEditorResult>;
   setRefreshPolicy(
     profileId: string,
     policy: ProfileRefreshPolicy,
@@ -465,19 +453,6 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     ],
   );
 
-  const loadPatches = useCallback(
-    async (authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult> => {
-      try {
-        return { editor: await resolvedClient.getPatches(authority), ok: true };
-      } catch (failure) {
-        const typedError = toProfileClientError(failure);
-        setError(typedError);
-        return { error: typedError, ok: false };
-      }
-    },
-    [resolvedClient],
-  );
-
   const loadRoutes = useCallback(
     async (
       authority: ProfileDerivedAuthority,
@@ -540,50 +515,6 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       }
     },
     [],
-  );
-
-  const replacePatches = useCallback(
-    async (
-      authority: ProfilePatchAuthorityDto,
-      patches: ProfilePatchDto[],
-    ): Promise<ProfilePatchEditorResult> => {
-      const command = beginProfileCommand(operationKey("patch-save", authority.profileId));
-      if (!command) return conflict();
-      try {
-        const editor = await resolvedClient.replacePatches(authority, patches, {
-          signal: command.controller.signal,
-        });
-        if (!isCurrentCommandFeedback(command.operation, "pending")) {
-          return cancelledPatchEditor();
-        }
-        const nextSnapshot = await resolvedClient.getSnapshot({
-          signal: command.controller.signal,
-        });
-        if (!isCurrentCommandFeedback(command.operation, "pending")) {
-          return cancelledPatchEditor();
-        }
-        acceptSnapshot(nextSnapshot, "command");
-        transitionCommandFeedback(command.operation, "success");
-        return { editor, ok: true };
-      } catch (failure) {
-        const typedError = toProfileClientError(failure);
-        if (isCurrentCommandFeedback(command.operation, "pending")) {
-          setError(typedError);
-          transitionCommandFeedback(command.operation, "failure");
-        }
-        return { error: typedError, ok: false };
-      } finally {
-        finishProfileCommand(command);
-      }
-    },
-    [
-      acceptSnapshot,
-      beginProfileCommand,
-      finishProfileCommand,
-      isCurrentCommandFeedback,
-      resolvedClient,
-      transitionCommandFeedback,
-    ],
   );
 
   const runActivation = useCallback(
@@ -842,7 +773,6 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
           ? pendingKey === operationKey(operation, profileId)
           : pendingKey === operation || pendingKey?.startsWith(`${operation}:`) === true;
       },
-      loadPatches,
       loadRoutes,
       openProfileDirectory: () =>
         runFileAction(
@@ -857,7 +787,6 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         runMutation("refresh", profileId, (signal) =>
           resolvedClient.refreshProfile(profileId, { signal }),
         ),
-      replacePatches,
       setRefreshPolicy: (profileId, policy) =>
         runMutation("schedule", profileId, (signal) =>
           resolvedClient.setRefreshPolicy(profileId, policy, { signal }),
@@ -892,9 +821,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       resolvedClient,
       runActivation,
       runMutation,
-      loadPatches,
       loadRoutes,
-      replacePatches,
       runPreflight,
       runProviderMutation,
       runFileAction,
@@ -939,10 +866,6 @@ function cancelledSelection(): ProfileSelectionOperationResult {
 }
 
 function cancelledPreview(): ProfilePreviewResult {
-  return { error: cancelledError(), ok: false };
-}
-
-function cancelledPatchEditor(): ProfilePatchEditorResult {
   return { error: cancelledError(), ok: false };
 }
 

@@ -5,7 +5,7 @@ use serde_norway::{Mapping, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{Fingerprint, ProfileId, RevisionId};
+use crate::{Fingerprint, RevisionId};
 
 pub const PROFILE_PATCH_SCHEMA_VERSION: u32 = 1;
 pub const MAX_PROFILE_PATCHES: usize = 128;
@@ -138,80 +138,24 @@ impl CommonRuleType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilePatchAuthority {
-    pub artifact_fingerprint: String,
-    pub profile_id: String,
-    pub source_revision: String,
-}
-
-impl ProfilePatchAuthority {
-    pub fn new(profile_id: &ProfileId, revision: &RevisionId, fingerprint: &Fingerprint) -> Self {
-        Self {
-            artifact_fingerprint: fingerprint.as_str().to_owned(),
-            profile_id: profile_id.as_str().to_owned(),
-            source_revision: revision.as_str().to_owned(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchEntityKind {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatchEntityKind {
     BuiltIn,
     PolicyGroup,
     Proxy,
     RuleProvider,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PatchEntityView {
-    pub id: String,
-    pub kind: PatchEntityKind,
-    pub label: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PatchGroupView {
-    pub id: String,
-    pub label: String,
-    pub member_ids: Vec<String>,
-    pub position: usize,
-    pub supported: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PatchRuleView {
-    pub id: String,
-    pub position: usize,
-    pub rule_type: String,
-    pub target: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilePatchCatalog {
-    pub groups: Vec<PatchGroupView>,
-    pub outbounds: Vec<PatchEntityView>,
-    pub rule_providers: Vec<PatchEntityView>,
-    pub rules: Vec<PatchRuleView>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchValidationResult {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatchValidationResult {
     Valid,
     Stale,
     Invalid,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchValidationCode {
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatchValidationCode {
     Valid,
     Disabled,
     RevisionMismatch,
@@ -224,9 +168,9 @@ pub enum PatchValidationCode {
     SemanticConflict,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchActivationImpact {
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatchActivationImpact {
     InsertRule,
     ExcludeRule,
     AddGroup,
@@ -234,40 +178,6 @@ pub enum PatchActivationImpact {
     ReorderGroups,
     NoChange,
     BlocksActivation,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchStatus {
-    Enabled,
-    Disabled,
-    Stale,
-    Invalid,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilePatchView {
-    pub activation_impact: PatchActivationImpact,
-    pub enabled: bool,
-    pub id: String,
-    pub operation: ProfilePatchOperation,
-    pub order: usize,
-    pub status: PatchStatus,
-    pub target: String,
-    pub validation_code: PatchValidationCode,
-    pub validation_result: PatchValidationResult,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfilePatchEditor {
-    pub activation_blocked: bool,
-    pub authority: ProfilePatchAuthority,
-    pub catalog: ProfilePatchCatalog,
-    pub effective_fingerprint: String,
-    pub patches: Vec<ProfilePatchView>,
-    pub schema_version: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -293,7 +203,7 @@ pub enum ProfilePatchError {
 #[derive(Clone)]
 struct CatalogEntity {
     id: String,
-    kind: PatchEntityKind,
+    _kind: PatchEntityKind,
     label: String,
 }
 
@@ -314,7 +224,6 @@ struct CatalogRule {
 }
 
 struct PatchCatalog {
-    entities: Vec<CatalogEntity>,
     entity_labels: HashMap<String, String>,
     group_labels: HashMap<String, String>,
     groups: Vec<CatalogGroup>,
@@ -322,76 +231,12 @@ struct PatchCatalog {
     rules: Vec<CatalogRule>,
 }
 
+#[allow(dead_code)]
 struct EvaluatedPatch {
     activation_impact: PatchActivationImpact,
     code: PatchValidationCode,
     result: PatchValidationResult,
     target: String,
-}
-
-pub fn profile_patch_editor(
-    profile_id: &ProfileId,
-    revision: &RevisionId,
-    source_fingerprint: &Fingerprint,
-    normalized_source: &[u8],
-    patch_set: &ProfilePatchSet,
-) -> Result<ProfilePatchEditor, ProfilePatchError> {
-    validate_patch_set_shape(patch_set)?;
-    let document: Value = serde_norway::from_slice(normalized_source)
-        .map_err(|_| ProfilePatchError::GenerationFailed)?;
-    let root = document
-        .as_mapping()
-        .ok_or(ProfilePatchError::GenerationFailed)?;
-    let catalog = build_catalog(root)?;
-    let bound = patch_set.is_bound_to(revision, source_fingerprint);
-    let evaluations = evaluate_patches(&patch_set.patches, &catalog, bound);
-    let activation_blocked = evaluations
-        .iter()
-        .any(|evaluation| evaluation.result != PatchValidationResult::Valid);
-    let patches = patch_set
-        .patches
-        .iter()
-        .cloned()
-        .zip(evaluations)
-        .enumerate()
-        .map(|(order, (patch, evaluation))| ProfilePatchView {
-            activation_impact: if evaluation.result == PatchValidationResult::Valid {
-                if patch.enabled {
-                    evaluation.activation_impact
-                } else {
-                    PatchActivationImpact::NoChange
-                }
-            } else {
-                PatchActivationImpact::BlocksActivation
-            },
-            enabled: patch.enabled,
-            id: patch.id,
-            operation: patch.operation,
-            order,
-            status: match evaluation.result {
-                PatchValidationResult::Stale => PatchStatus::Stale,
-                PatchValidationResult::Invalid => PatchStatus::Invalid,
-                PatchValidationResult::Valid if patch.enabled => PatchStatus::Enabled,
-                PatchValidationResult::Valid => PatchStatus::Disabled,
-            },
-            target: evaluation.target,
-            validation_code: if evaluation.result == PatchValidationResult::Valid && !patch.enabled
-            {
-                PatchValidationCode::Disabled
-            } else {
-                evaluation.code
-            },
-            validation_result: evaluation.result,
-        })
-        .collect();
-    Ok(ProfilePatchEditor {
-        activation_blocked,
-        authority: ProfilePatchAuthority::new(profile_id, revision, source_fingerprint),
-        catalog: catalog.view(),
-        effective_fingerprint: patch_set.effective_fingerprint.as_str().to_owned(),
-        patches,
-        schema_version: PROFILE_PATCH_SCHEMA_VERSION,
-    })
 }
 
 pub fn bind_and_apply_profile_patches(
@@ -584,7 +429,7 @@ fn build_catalog(root: &Mapping) -> Result<PatchCatalog, ProfilePatchError> {
     for label in ["DIRECT", "REJECT"] {
         entities.push(CatalogEntity {
             id: entity_id("built-in", label),
-            kind: PatchEntityKind::BuiltIn,
+            _kind: PatchEntityKind::BuiltIn,
             label: label.to_owned(),
         });
     }
@@ -595,7 +440,7 @@ fn build_catalog(root: &Mapping) -> Result<PatchCatalog, ProfilePatchError> {
             };
             entities.push(CatalogEntity {
                 id: entity_id("proxy", label),
-                kind: PatchEntityKind::Proxy,
+                _kind: PatchEntityKind::Proxy,
                 label: label.to_owned(),
             });
         }
@@ -607,7 +452,7 @@ fn build_catalog(root: &Mapping) -> Result<PatchCatalog, ProfilePatchError> {
         };
         entities.push(CatalogEntity {
             id: entity_id("group", label),
-            kind: PatchEntityKind::PolicyGroup,
+            _kind: PatchEntityKind::PolicyGroup,
             label: label.to_owned(),
         });
     }
@@ -667,7 +512,7 @@ fn build_catalog(root: &Mapping) -> Result<PatchCatalog, ProfilePatchError> {
         for key in providers.keys().filter_map(Value::as_str) {
             provider_entities.push(CatalogEntity {
                 id: entity_id("rule-provider", key),
-                kind: PatchEntityKind::RuleProvider,
+                _kind: PatchEntityKind::RuleProvider,
                 label: key.to_owned(),
             });
         }
@@ -726,61 +571,12 @@ fn build_catalog(root: &Mapping) -> Result<PatchCatalog, ProfilePatchError> {
         .collect();
     entities.extend(provider_entities);
     Ok(PatchCatalog {
-        entities,
         entity_labels,
         group_labels,
         groups,
         provider_labels,
         rules,
     })
-}
-
-impl PatchCatalog {
-    fn view(&self) -> ProfilePatchCatalog {
-        ProfilePatchCatalog {
-            groups: self
-                .groups
-                .iter()
-                .map(|group| PatchGroupView {
-                    id: group.id.clone(),
-                    label: group.label.clone(),
-                    member_ids: group.member_ids.clone(),
-                    position: group.position,
-                    supported: group.supported,
-                })
-                .collect(),
-            outbounds: self
-                .entities
-                .iter()
-                .filter(|entity| entity.kind != PatchEntityKind::RuleProvider)
-                .map(|entity| PatchEntityView {
-                    id: entity.id.clone(),
-                    kind: entity.kind,
-                    label: entity.label.clone(),
-                })
-                .collect(),
-            rule_providers: self
-                .entities
-                .iter()
-                .filter(|entity| entity.kind == PatchEntityKind::RuleProvider)
-                .map(|entity| PatchEntityView {
-                    id: entity.id.clone(),
-                    kind: entity.kind,
-                    label: entity.label.clone(),
-                })
-                .collect(),
-            rules: self
-                .rules
-                .iter()
-                .map(|rule| PatchRuleView {
-                    id: rule.id.clone(),
-                    position: rule.position,
-                    rule_type: rule.rule_type.clone(),
-                    target: rule.target.clone(),
-                })
-                .collect(),
-        }
-    }
 }
 
 fn evaluate_patches(
@@ -1294,9 +1090,8 @@ rules:
   - MATCH,DIRECT
 "#;
 
-    fn authority() -> (ProfileId, RevisionId, Fingerprint) {
+    fn authority() -> (RevisionId, Fingerprint) {
         (
-            ProfileId::new(),
             RevisionId::from_source(SOURCE),
             Fingerprint::from_normalized_artifact(SOURCE),
         )
@@ -1312,21 +1107,11 @@ rules:
 
     #[test]
     fn ordered_rule_patches_and_unicode_groups_round_trip() {
-        let (profile_id, revision, fingerprint) = authority();
-        let empty = ProfilePatchSet::empty(&revision, &fingerprint);
-        let editor = profile_patch_editor(&profile_id, &revision, &fingerprint, SOURCE, &empty)
-            .expect("catalog");
-        let direct = editor
-            .catalog
-            .outbounds
-            .iter()
-            .find(|entity| entity.label == "DIRECT")
-            .unwrap()
-            .id
-            .clone();
-        let source_rule = editor.catalog.rules[0].id.clone();
-        let primary = editor.catalog.groups[0].id.clone();
-        let nested = editor.catalog.groups[1].id.clone();
+        let (revision, fingerprint) = authority();
+        let direct = entity_id("built-in", "DIRECT");
+        let source_rule = rule_id("DOMAIN,old.example,Primary", 0);
+        let primary = entity_id("group", "Primary");
+        let nested = entity_id("group", "Nested");
         let patches = vec![
             patch(ProfilePatchOperation::RuleInsert {
                 position: RuleInsertPosition::Prefix,
@@ -1394,13 +1179,10 @@ rules:
 
     #[test]
     fn conflicting_rule_targets_and_group_cycles_block_activation() {
-        let (profile_id, revision, fingerprint) = authority();
-        let empty = ProfilePatchSet::empty(&revision, &fingerprint);
-        let editor = profile_patch_editor(&profile_id, &revision, &fingerprint, SOURCE, &empty)
-            .expect("catalog");
-        let rule_id = editor.catalog.rules[0].id.clone();
-        let primary = editor.catalog.groups[0].id.clone();
-        let nested = editor.catalog.groups[1].id.clone();
+        let (revision, fingerprint) = authority();
+        let rule_id = rule_id("DOMAIN,old.example,Primary", 0);
+        let primary = entity_id("group", "Primary");
+        let nested = entity_id("group", "Nested");
         let patch_set = ProfilePatchSet {
             effective_fingerprint: fingerprint.clone(),
             patches: vec![
@@ -1417,21 +1199,6 @@ rules:
             source_fingerprint: fingerprint.clone(),
             source_revision: revision.clone(),
         };
-        let editor =
-            profile_patch_editor(&profile_id, &revision, &fingerprint, SOURCE, &patch_set).unwrap();
-        assert!(editor.activation_blocked);
-        assert!(
-            editor
-                .patches
-                .iter()
-                .any(|patch| patch.validation_code == PatchValidationCode::DuplicateTarget)
-        );
-        assert!(
-            editor
-                .patches
-                .iter()
-                .any(|patch| patch.validation_code == PatchValidationCode::SemanticConflict)
-        );
         assert_eq!(
             apply_profile_patches(SOURCE, &revision, &fingerprint, &patch_set),
             Err(ProfilePatchError::ValidationFailed)
@@ -1440,7 +1207,7 @@ rules:
 
     #[test]
     fn revision_binding_marks_every_patch_stale_without_rewriting_it() {
-        let (profile_id, revision, fingerprint) = authority();
+        let (revision, fingerprint) = authority();
         let original = patch(ProfilePatchOperation::RuleInsert {
             position: RuleInsertPosition::Prefix,
             rule: StructuredRule::Match {
@@ -1453,39 +1220,10 @@ rules:
         let next_source = [SOURCE, b"# refreshed\n"].concat();
         let next_revision = RevisionId::from_source(&next_source);
         let next_fingerprint = Fingerprint::from_normalized_artifact(&next_source);
-        let editor = profile_patch_editor(
-            &profile_id,
-            &next_revision,
-            &next_fingerprint,
-            &next_source,
-            &patch_set,
-        )
-        .unwrap();
-        assert!(editor.activation_blocked);
-        assert_eq!(editor.patches[0].status, PatchStatus::Stale);
-        assert_eq!(editor.patches[0].operation, original.operation);
-    }
-
-    #[test]
-    fn source_rule_summaries_do_not_echo_unknown_rule_payloads() {
-        let source = br#"rules:
-  - PRIVATE-TOKEN,private-value,private-target
-"#;
-        let profile_id = ProfileId::new();
-        let revision = RevisionId::from_source(source);
-        let fingerprint = Fingerprint::from_normalized_artifact(source);
-        let editor = profile_patch_editor(
-            &profile_id,
-            &revision,
-            &fingerprint,
-            source,
-            &ProfilePatchSet::empty(&revision, &fingerprint),
-        )
-        .unwrap();
-        let json = serde_json::to_string(&editor).unwrap();
-        assert!(json.contains("OTHER"));
-        for private in ["PRIVATE-TOKEN", "private-value", "private-target"] {
-            assert!(!json.contains(private));
-        }
+        assert_eq!(
+            apply_profile_patches(&next_source, &next_revision, &next_fingerprint, &patch_set),
+            Err(ProfilePatchError::StaleAuthority)
+        );
+        assert_eq!(patch_set.patches, vec![original]);
     }
 }

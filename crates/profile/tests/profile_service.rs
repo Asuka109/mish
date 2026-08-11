@@ -13,6 +13,7 @@ use mish_profile::{
     SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy, StdLocalSourceReader,
     Timestamp,
 };
+use sha2::{Digest, Sha256};
 
 const VALID_PROFILE: &str = r#"
 proxies:
@@ -28,6 +29,13 @@ proxy-groups:
 rules:
   - MATCH,Fictional group
 "#;
+
+fn rule_id(line: &str, position: usize) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(format!("rule\0{position}\0{line}").as_bytes())
+    )
+}
 
 struct TestDir(PathBuf);
 
@@ -947,33 +955,26 @@ async fn patches_round_trip_and_missing_refresh_targets_preserve_lkg() {
         .unwrap();
     let saved = service.save_preview(&preview.preview_id).await.unwrap();
     let profile = &saved.profiles[0];
-    let editor = service
-        .patch_editor(
-            &profile.id,
-            profile.runtime_provenance.source_revision.as_str(),
-            profile.runtime_provenance.artifact_fingerprint.as_str(),
-        )
-        .unwrap();
-    let original_rule_id = editor.catalog.rules[0].id.clone();
+    let original_rule_id = rule_id("MATCH,Fictional group", 0);
     let patch_id = uuid::Uuid::new_v4().to_string();
-    let saved_editor = service
-        .replace_patches(
-            &profile.id,
-            &editor.authority.source_revision,
-            &editor.authority.artifact_fingerprint,
-            vec![ProfilePatch {
-                enabled: true,
-                id: patch_id.clone(),
-                operation: ProfilePatchOperation::RuleDisable {
-                    rule_id: original_rule_id,
-                },
-            }],
-        )
-        .unwrap();
-    assert_eq!(saved_editor.patches[0].id, patch_id);
-
     let repository = FileProfileRepository::new(temp.path().join("profile-store"));
     let parsed_id = mish_profile::ProfileId::parse(profile.id.clone()).unwrap();
+    let mut record = repository.load(&parsed_id).unwrap();
+    record.patches = mish_profile::bind_and_apply_profile_patches(
+        &record.normalized_bytes,
+        &record.metadata.revision.id,
+        &record.metadata.artifact.fingerprint,
+        vec![ProfilePatch {
+            enabled: true,
+            id: patch_id.clone(),
+            operation: ProfilePatchOperation::RuleDisable {
+                rule_id: original_rule_id,
+            },
+        }],
+    )
+    .unwrap()
+    .0;
+    repository.update(&record).unwrap();
     let before_refresh = repository.load(&parsed_id).unwrap();
     assert_eq!(before_refresh.patches.patches[0].id, patch_id);
     let lkg = before_refresh.metadata.last_success.clone().unwrap();
@@ -996,52 +997,6 @@ async fn patches_round_trip_and_missing_refresh_targets_preserve_lkg() {
             ProfilePatchError::StaleAuthority
         ))
     ));
-}
-
-#[tokio::test]
-async fn patch_authority_and_editor_serialization_do_not_expose_secrets() {
-    const TOKEN: &str = "private-subscription-token";
-    let temp = TestDir::new();
-    let service = service(
-        temp.path().to_path_buf(),
-        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
-    );
-    let preview = service
-        .preflight_https(
-            &format!("https://profiles.example/config.yaml?token={TOKEN}"),
-            Some("Remote profile".into()),
-        )
-        .await
-        .unwrap();
-    let snapshot = service.save_preview(&preview.preview_id).await.unwrap();
-    let profile = &snapshot.profiles[0];
-
-    assert!(matches!(
-        service.patch_editor(
-            &profile.id,
-            profile.runtime_provenance.source_revision.as_str(),
-            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        ),
-        Err(ProfileServiceError::Patch(
-            ProfilePatchError::StaleAuthority
-        ))
-    ));
-    let editor = service
-        .patch_editor(
-            &profile.id,
-            profile.runtime_provenance.source_revision.as_str(),
-            profile.runtime_provenance.artifact_fingerprint.as_str(),
-        )
-        .unwrap();
-    let json = serde_json::to_string(&editor).unwrap();
-    for secret in [
-        TOKEN,
-        "not-a-real-password",
-        "192.0.2.10",
-        "/fictional/profile.yaml",
-    ] {
-        assert!(!json.contains(secret));
-    }
 }
 
 #[tokio::test]
@@ -1070,13 +1025,6 @@ async fn every_profile_write_entry_rejects_a_concurrent_shared_authority_holder(
         )
         .await
         .unwrap();
-    let editor = service
-        .patch_editor(
-            &profile.id,
-            profile.runtime_provenance.source_revision.as_str(),
-            profile.runtime_provenance.artifact_fingerprint.as_str(),
-        )
-        .unwrap();
     let permit = service.mutation_authority().try_acquire().unwrap();
 
     assert!(matches!(
@@ -1089,15 +1037,6 @@ async fn every_profile_write_entry_rejects_a_concurrent_shared_authority_holder(
     ));
     assert!(matches!(
         service.set_refresh_policy(&profile.id, ProfileRefreshPolicy::Daily),
-        Err(ProfileServiceError::Busy)
-    ));
-    assert!(matches!(
-        service.replace_patches(
-            &profile.id,
-            &editor.authority.source_revision,
-            &editor.authority.artifact_fingerprint,
-            Vec::new(),
-        ),
         Err(ProfileServiceError::Busy)
     ));
     assert!(matches!(

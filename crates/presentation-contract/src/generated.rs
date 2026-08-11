@@ -308,18 +308,6 @@ pub struct ProfileImportFailedApplicationNotificationData {}
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProfilePatchLoadFailedApplicationNotificationData {}
-
-#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProfilePatchSaveFailedApplicationNotificationData {}
-
-#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProfilePatchSavedApplicationNotificationData {}
-
-#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileRefreshFailedApplicationNotificationData {}
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -481,12 +469,6 @@ pub enum ApplicationNotificationContent {
     ProfileFileActionFailed(ProfileFileActionFailedApplicationNotificationData),
     #[serde(rename = "profile.import-failed")]
     ProfileImportFailed(ProfileImportFailedApplicationNotificationData),
-    #[serde(rename = "profile.patch-load-failed")]
-    ProfilePatchLoadFailed(ProfilePatchLoadFailedApplicationNotificationData),
-    #[serde(rename = "profile.patch-save-failed")]
-    ProfilePatchSaveFailed(ProfilePatchSaveFailedApplicationNotificationData),
-    #[serde(rename = "profile.patch-saved")]
-    ProfilePatchSaved(ProfilePatchSavedApplicationNotificationData),
     #[serde(rename = "profile.refresh-failed")]
     ProfileRefreshFailed(ProfileRefreshFailedApplicationNotificationData),
     #[serde(rename = "profile.save-failed")]
@@ -552,9 +534,6 @@ impl ApplicationNotificationContent {
             Self::ProfileDetached(_) => "profile.detached",
             Self::ProfileFileActionFailed(_) => "profile.file-action-failed",
             Self::ProfileImportFailed(_) => "profile.import-failed",
-            Self::ProfilePatchLoadFailed(_) => "profile.patch-load-failed",
-            Self::ProfilePatchSaveFailed(_) => "profile.patch-save-failed",
-            Self::ProfilePatchSaved(_) => "profile.patch-saved",
             Self::ProfileRefreshFailed(_) => "profile.refresh-failed",
             Self::ProfileSaveFailed(_) => "profile.save-failed",
             Self::ProfileSaved(_) => "profile.saved",
@@ -605,9 +584,6 @@ impl ApplicationNotificationContent {
             Self::ProfileDetached(_) => &[],
             Self::ProfileFileActionFailed(_) => &[],
             Self::ProfileImportFailed(_) => &[],
-            Self::ProfilePatchLoadFailed(_) => &[],
-            Self::ProfilePatchSaveFailed(_) => &[],
-            Self::ProfilePatchSaved(_) => &[],
             Self::ProfileRefreshFailed(_) => &[],
             Self::ProfileSaveFailed(_) => &[],
             Self::ProfileSaved(_) => &[],

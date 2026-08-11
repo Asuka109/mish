@@ -188,15 +188,13 @@ Automated tests cover:
 - profile service preflight/save/refresh/delete behavior, last-known-valid
   retention after a failed refresh, and display-view redaction;
 - authenticated Profile RPC coverage, including rejection of arbitrary local
-  paths, raw patch payloads, and credential-bearing input without reflecting
-  sensitive values;
+  paths and credential-bearing input without reflecting sensitive values;
 - Profiles UI coverage for fixture isolation, HTTPS and native local preflight,
-  preview/save, structured patch drafts and unsaved-change protection, manual
-  refresh, activation/cancellation, inactive deletion, and guarded active
-  deletion through replacement or explicit safe stop;
+  preview/save, manual refresh, activation/cancellation, inactive deletion, and
+  guarded active deletion through replacement or explicit safe stop;
 - Profile patch coverage for deterministic rule/group ordering, semantic
   conflict detection, revision binding, persistence round trips, refresh-stale
-  last-known-valid behavior, redaction, and shared preview/activation generation;
+  last-known-valid behavior, and shared preview/activation generation;
 - Profile RPC activation coverage for repository artifact revalidation,
   deduplication, cancellation, rollback, redaction, missing managed binaries,
   atomic Status/Traffic profile replacement, and authoritative reconnect;
