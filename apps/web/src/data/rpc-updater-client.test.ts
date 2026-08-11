@@ -105,12 +105,14 @@ class FakeUpdaterRpc {
     };
   }
 
-  emit(snapshot: UpdaterSnapshotDto) {
+  emit(snapshot: UpdaterSnapshotDto, subscriptionId = this.subscriptionId) {
     this.current = snapshot;
-    this.notificationListener?.({ snapshot, subscriptionId: this.subscriptionId });
+    this.notificationListener?.({ snapshot, subscriptionId });
   }
 
   reconnect() {
+    this.connection = { attempt: 1, phase: "disconnected", stale: true };
+    this.connectionListener?.(this.connection);
     this.connection = { attempt: 0, phase: "connected", stale: false };
     this.connectionListener?.(this.connection);
   }
@@ -194,6 +196,29 @@ describe("RpcUpdaterClient", () => {
       ["updater.download", { operationId: "operation-a" }],
       ["updater.cancel", { operationId: "operation-a" }],
     ]);
+    client.dispose();
+  });
+
+  it("rejects equal-order conflicts and notifications from an old subscription scope", async () => {
+    const fake = new FakeUpdaterRpc();
+    const client = new RpcUpdaterClient(rpc(fake));
+    const delivered: UpdaterSnapshotDto[] = [];
+    client.subscribeSnapshots((next) => delivered.push(next));
+    await flushMicrotasks();
+
+    const baseline = structuredClone(fake.current);
+    fake.emit(structuredClone(baseline));
+    expect(delivered.map((next) => next.revision)).toEqual([0]);
+    expect(client.getConnectionState().stale).toBe(false);
+
+    const conflict = structuredClone(baseline);
+    conflict.configured = false;
+    fake.emit(conflict);
+    expect(delivered.map((next) => next.revision)).toEqual([0]);
+    expect(client.getConnectionState().stale).toBe(true);
+
+    fake.emit(snapshot(9, "available"), "retired-updater-subscription");
+    expect(delivered.map((next) => next.revision)).toEqual([0]);
     client.dispose();
   });
 

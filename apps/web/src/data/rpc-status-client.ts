@@ -19,8 +19,13 @@ import {
   type StatusSnapshotDto,
   type StatusSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcRemoteError, type RpcConnectionState, type RpcRequestOptions } from "@mish/rpc-client";
-import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
+import {
+  RpcRemoteError,
+  RpcSessionAuthority,
+  type RpcConnectionState,
+  type RpcRequestOptions,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -49,7 +54,8 @@ export class RpcStatusClient implements StatusClient {
   private acceptedCaptureOperation: CaptureOperationStatusDto | null = null;
   private acceptedCaptureProjection: StatusSnapshotDto["runtime"] | null = null;
   private readonly retiredCaptureScopes: string[] = [];
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<StatusSnapshotDto>();
+  private readonly sessionAuthority = new RpcSessionAuthority<StatusSnapshotDto>();
+  private subscriptionTicket: RpcSessionTicket | null = null;
   private readonly supportedCommands = new Set<StatusCommand>();
 
   constructor(
@@ -72,6 +78,7 @@ export class RpcStatusClient implements StatusClient {
     this.disposed = true;
     this.unsubscribeNotification();
     this.unsubscribeRpcConnection();
+    this.sessionAuthority.dispose();
     this.connectionListeners.clear();
     this.snapshotListeners.clear();
     this.rpc.dispose();
@@ -184,6 +191,7 @@ export class RpcStatusClient implements StatusClient {
       return;
     }
 
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.rpc
       .request("status.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
@@ -191,8 +199,9 @@ export class RpcStatusClient implements StatusClient {
           void this.rpc.request("status.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
+        this.subscriptionTicket = ticket;
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => {
         if (this.connectionState.phase === "connected") {
@@ -210,9 +219,10 @@ export class RpcStatusClient implements StatusClient {
 
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = projectRpcConnectionState(state);
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase === "connected") {
-      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
+      this.subscriptionTicket = null;
       this.capabilitiesLoaded = false;
       this.capabilityPendingProfileId = null;
       this.capabilityProfileId = null;
@@ -227,16 +237,16 @@ export class RpcStatusClient implements StatusClient {
   private receiveSnapshot(
     notification: StatusSnapshotNotificationDto,
     delivery: ApplicationSnapshotDelivery = "update",
+    ticket = this.subscriptionTicket,
   ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    const result = this.sessionAuthority.accept(ticket, notification.snapshot, delivery);
     if (result.kind === "conflict") {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
-    if (result.kind !== "accepted") return;
+    if (result.kind !== "accepted" || !result.snapshot) return;
     const snapshot = this.acceptSnapshot(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
     void this.ensureCommandCapabilities(snapshot.activeProfileId);
@@ -375,16 +385,24 @@ export class RpcStatusClient implements StatusClient {
     params: Parameters<StatusRpcClient["request"]>[1],
     options?: RpcRequestOptions,
   ): Promise<StatusSnapshotDto> {
+    const ticket = this.sessionAuthority.beginRequest();
     try {
       const delivery = method === "status.getSnapshot" ? "request" : "command";
-      const result = this.snapshotAcceptance.accept(
+      const result = this.sessionAuthority.accept(
+        ticket,
         await this.rpc.request(method, params as never, options),
         delivery,
       );
       if (result.kind === "conflict") {
         throw new StatusClientError("validation", "Status snapshot order conflict");
       }
-      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+      if (!result.snapshot) {
+        throw new StatusClientError(
+          "disconnected",
+          "Status snapshot baseline is not established",
+          true,
+        );
+      }
       const snapshot = this.acceptSnapshot(result.snapshot);
       this.emitSnapshotConnectionState();
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
@@ -392,8 +410,15 @@ export class RpcStatusClient implements StatusClient {
     } catch (error) {
       const mapped = mapStatusRpcError(error);
       if (mapped.snapshot === null) throw mapped;
-      const snapshot = this.acceptSnapshot(mapped.snapshot);
-      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      const result = this.sessionAuthority.accept(ticket, mapped.snapshot, "command");
+      const snapshot = this.acceptSnapshot(
+        result.kind === "conflict" ? mapped.snapshot : (result.snapshot ?? mapped.snapshot),
+      );
+      if (result.kind === "conflict") {
+        this.emitConnectionState({ ...this.connectionState, stale: true });
+      } else {
+        this.emitSnapshotConnectionState();
+      }
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       throw new StatusClientError(mapped.code, mapped.message, mapped.retryable, snapshot);
     }
@@ -403,7 +428,7 @@ export class RpcStatusClient implements StatusClient {
     this.emitConnectionState({
       attempt: 0,
       phase: "connected",
-      stale: this.snapshotAcceptance.isReconnectPending(),
+      stale: this.sessionAuthority.isStale(),
     });
   }
 }

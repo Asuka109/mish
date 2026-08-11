@@ -12,6 +12,7 @@ type Step = {
 };
 
 type Job = {
+  name?: string;
   env?: Record<string, unknown>;
   if?: string;
   needs?: unknown;
@@ -35,6 +36,64 @@ type Workflow = {
   };
 };
 
+export const requiredCiJobIds = [
+  "pr-gate",
+  "platform-macos-gate",
+  "platform-android-gate",
+  "inspect-main",
+  "inspect-browser",
+  "package-macos",
+  "package-android",
+] as const;
+
+export const requiredCiJobNames = {
+  "pr-gate": "Fast PR gate",
+  "platform-macos-gate": "macOS platform Rust gate",
+  "platform-android-gate": "Android platform Rust gate",
+  "inspect-main": "Inspect main",
+  "inspect-browser": "Inspect browser",
+  "package-macos": "Package macOS ARM64",
+  "package-android": "Package Android test APKs",
+} as const;
+
+export function validateCiWorkflowJobInventory(
+  jobs: Record<string, unknown> | undefined,
+  expectedJobIds: readonly string[] = requiredCiJobIds,
+): string[] {
+  const actualJobIds = Object.keys(jobs ?? {});
+  const expected = new Set(expectedJobIds);
+  const errors: string[] = [];
+  for (const jobId of expectedJobIds) {
+    if (!actualJobIds.includes(jobId)) {
+      errors.push(`CI workflow is missing reviewed job: ${jobId}.`);
+    }
+  }
+  for (const jobId of actualJobIds) {
+    if (!expected.has(jobId)) {
+      errors.push(`CI workflow contains unreviewed job: ${jobId}.`);
+    }
+  }
+  return errors;
+}
+
+export function validateCiWorkflowJobNames(
+  jobs: Record<string, unknown> | undefined,
+  expectedJobNames: Readonly<Record<string, string>> = requiredCiJobNames,
+): string[] {
+  const errors: string[] = [];
+  for (const [jobId, expectedName] of Object.entries(expectedJobNames)) {
+    const candidate = jobs?.[jobId];
+    const actualName =
+      typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)
+        ? (candidate as { name?: unknown }).name
+        : undefined;
+    if (actualName !== expectedName) {
+      errors.push(`CI workflow job ${jobId} must retain reviewed name: ${expectedName}.`);
+    }
+  }
+  return errors;
+}
+
 const workflowPath = resolve(import.meta.dirname, "../.github/workflows/ci.yml");
 const source = readFileSync(workflowPath, "utf8");
 const document = parseDocument(source);
@@ -44,6 +103,10 @@ if (document.errors.length > 0) {
 }
 
 const workflow = document.toJS() as Workflow;
+const jobInventoryErrors = validateCiWorkflowJobInventory(workflow.jobs);
+invariant(jobInventoryErrors.length === 0, jobInventoryErrors.join("; "));
+const jobNameErrors = validateCiWorkflowJobNames(workflow.jobs);
+invariant(jobNameErrors.length === 0, jobNameErrors.join("; "));
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"),
 ) as { scripts?: Record<string, string> };
