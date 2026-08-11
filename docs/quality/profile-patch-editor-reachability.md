@@ -1,11 +1,11 @@
 # Profile Patch Editor reachability audit
 
-| Field | Value |
-| --- | --- |
-| Issue | #453, F2.1 |
-| Baseline | `origin/main@8035d5a774fef4b1db0be62d4e546314e848fec2` |
-| Audit date | 2026-08-12 |
-| Scope | Production routes, lazy imports, public contracts, adapters, localization, presentation notifications, styles, tests, and runtime/dynamic import paths |
+| Field      | Value                                                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Issue      | #453, F2.1                                                                                                                                             |
+| Baseline   | `origin/main@8035d5a774fef4b1db0be62d4e546314e848fec2`                                                                                                 |
+| Audit date | 2026-08-12                                                                                                                                             |
+| Scope      | Production routes, lazy imports, public contracts, adapters, localization, presentation notifications, styles, tests, and runtime/dynamic import paths |
 
 ## Decision
 
@@ -22,12 +22,12 @@ save, cancel, refresh, selection, and file-action paths.
 
 ## Reachability trace
 
-| Supported entry | Production path | Result |
-| --- | --- | --- |
-| Desktop/browser product route | `apps/web/src/app-routes.tsx::ProductRoutes` → `/profiles` → `loadProfilesPage` → `apps/web/src/pages/profiles-page.tsx::ProfilesPage` | No `ProfilePatchEditor` import or call |
-| Narrow desktop shell drawer | `apps/web/src/components/app-shell.tsx::DrawerProfilesPage` → `../pages/profiles-page` | Same `ProfilesPage`; no editor import |
-| Mobile navigation | `apps/web/src/components/mobile-shell.tsx::destinations` → `/profiles` | Same product route; no editor import |
-| Profile page actions | `ProfilesPage` calls `useProfiles()` for create, HTTPS preflight, preview save, refresh, policy, detach, selection, and directory actions | No patch-editor action or lazy import |
+| Supported entry               | Production path                                                                                                                           | Result                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Desktop/browser product route | `apps/web/src/app-routes.tsx::ProductRoutes` → `/profiles` → `loadProfilesPage` → `apps/web/src/pages/profiles-page.tsx::ProfilesPage`    | No `ProfilePatchEditor` import or call |
+| Narrow desktop shell drawer   | `apps/web/src/components/app-shell.tsx::DrawerProfilesPage` → `../pages/profiles-page`                                                    | Same `ProfilesPage`; no editor import  |
+| Mobile navigation             | `apps/web/src/components/mobile-shell.tsx::destinations` → `/profiles`                                                                    | Same product route; no editor import   |
+| Profile page actions          | `ProfilesPage` calls `useProfiles()` for create, HTTPS preflight, preview save, refresh, policy, detach, selection, and directory actions | No patch-editor action or lazy import  |
 
 The broad web-tree token scan finds the dead component plus the adapter DTO and
 test scaffolding that reference its result type. A direct module-import/call
