@@ -12,9 +12,13 @@ mod generated {
     pub(crate) mod platform_facts;
 }
 mod lifecycle;
+#[cfg(feature = "simulated-host")]
+pub use lifecycle::simulated_host;
 mod models;
 mod observation;
 
+#[cfg(feature = "simulated-host")]
+pub use lifecycle::LifecyclePhase;
 pub use lifecycle::{
     LifecycleCommandKind, LifecycleFailure, LifecycleOperation, LifecycleOperationOutcome,
 };

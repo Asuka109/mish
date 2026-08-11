@@ -37,6 +37,9 @@ use tokio_util::sync::CancellationToken;
 
 mod internal_tun;
 
+#[cfg(feature = "android-vpn-scenario")]
+pub mod android_vpn;
+
 pub use internal_tun::{
     MaintenanceCompletionInjection, MaintenanceEngine, MaintenanceFault, MaintenanceFaultKind,
     MaintenanceHarnessError, MaintenanceObservation, MaintenanceScenario,

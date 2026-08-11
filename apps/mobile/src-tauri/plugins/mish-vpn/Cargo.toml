@@ -9,6 +9,13 @@ build = "build.rs"
 [lib]
 name = "tauri_plugin_mish_vpn"
 
+[features]
+default = []
+# Test-only consumers (the repository SimulatedHost) may replay the real Rust
+# LifecycleMachine through a closed semantic transcript. The mobile product
+# does not enable this feature.
+simulated-host = []
+
 [dependencies]
 mish-state-machine = { path = "../../../../../crates/state-machine" }
 serde = { version = "1.0.228", features = ["derive"] }
