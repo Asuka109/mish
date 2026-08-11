@@ -20,6 +20,8 @@ const forbiddenArtifactMarkers = [
   "MaintenanceScenarioRuntime",
   "SemanticTranscript",
   "SyntheticAuthorityId",
+  "SystemProxyRestoreTranscript",
+  "SyntheticSystemProxyRestore",
   "scenario-harness",
   "test-activation-host",
   "test-correlation",
@@ -231,6 +233,33 @@ test("product Rust feature graphs exclude the simulator-only seams", () => {
       `${packageName} enables a simulator-only Rust seam.`,
     );
   }
+});
+
+test("System Proxy semantic restore transcripts remain simulator-only", () => {
+  const simulatorSources = filesUnder(simulatedPath).filter((file) => file.endsWith(".rs"));
+  assert.ok(
+    simulatorSources.some((file) => read(file).includes("SystemProxyRestoreTranscript")),
+    "The simulator exact-restore transcript schema is missing.",
+  );
+  const productRoots = [
+    "crates/desktop-bridge/src",
+    "crates/platform-macos/src",
+    "crates/runtime/src",
+  ];
+  const leaked = productRoots.flatMap((root) =>
+    filesUnder(root).filter((file) => {
+      const content = read(file);
+      return (
+        content.includes("SystemProxyRestoreTranscript") ||
+        content.includes("SyntheticSystemProxyRestore")
+      );
+    }),
+  );
+  assert.deepEqual(
+    leaked,
+    [],
+    `Production sources imported the simulator exact-restore transcript schema: ${leaked.join(", ")}`,
+  );
 });
 
 test("Internal TUN maintenance simulation remains confined to the non-publishable package", () => {
