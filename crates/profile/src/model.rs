@@ -453,6 +453,7 @@ pub struct ProfileMetadata {
     pub validation: ValidationResult,
 }
 
+#[derive(Clone)]
 pub struct ProfileRecord {
     pub metadata: ProfileMetadata,
     pub normalized_bytes: Vec<u8>,

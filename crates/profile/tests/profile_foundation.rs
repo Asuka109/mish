@@ -1071,6 +1071,27 @@ async fn incomplete_current_generation_fails_closed_without_exposing_partial_rec
     ));
 }
 
+#[tokio::test]
+async fn malformed_current_pointer_fails_closed_without_exposing_records() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let record = record_for_repository(ProfileId::new()).await;
+    repository.save(&record).unwrap();
+    fs::write(
+        root.join(mish_profile::PROFILE_CURRENT_GENERATION_FILE),
+        b"{\"generationId\":\"not-a-generation\"}",
+    )
+    .unwrap();
+
+    assert!(matches!(
+        repository.read_current_generation(),
+        Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::GenerationPointer
+        })
+    ));
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn current_pointer_and_generation_root_reject_symlinks() {

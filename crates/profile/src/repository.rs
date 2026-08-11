@@ -58,6 +58,8 @@ pub enum RepositoryError {
     ReadFailed,
     #[error("profile storage could not be written atomically")]
     AtomicWriteFailed,
+    #[error("the current profile generation changed while it was being read")]
+    StaleGeneration,
 }
 
 pub trait AtomicWriter: Send + Sync {
@@ -166,7 +168,7 @@ pub struct ProfileGeneration {
     pub profiles: Vec<ProfileRecord>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GenerationPointer {
     generation_id: ProfileGenerationId,
@@ -312,9 +314,9 @@ where
         Ok(staged.id)
     }
 
-    /// Read the complete generation named by the current pointer. This is a
-    /// storage seam for the follow-up reader migration; existing Profile
-    /// readers intentionally continue to use their current paths in C2.1.
+    /// Read the complete generation named by the current pointer. The pointer
+    /// is the only publication authority; it is re-read after the generation
+    /// so a replacement during this bounded read fails closed.
     pub fn read_current_generation(&self) -> Result<Option<ProfileGeneration>, RepositoryError> {
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
@@ -324,9 +326,21 @@ where
         }
         reject_symlinks_between(&self.root, &self.root)?;
         reject_symlinks_between(&self.root, &self.generations_root())?;
+        let pointer = self.read_generation_pointer()?;
+        let generation = self.read_generation(&pointer.generation_id)?;
+        let current_pointer = self.read_generation_pointer()?;
+        if current_pointer != pointer {
+            return Err(RepositoryError::StaleGeneration);
+        }
+        Ok(Some(generation))
+    }
+
+    fn read_generation_pointer(&self) -> Result<GenerationPointer, RepositoryError> {
         let pointer_path = self.current_generation_path();
         if !path_exists_no_follow(&pointer_path)? {
-            return Ok(None);
+            return Err(RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationPointer,
+            });
         }
         let pointer: GenerationPointer = read_json_bounded(
             &pointer_path,
@@ -343,7 +357,19 @@ where
             &pointer.generation_id,
             RepositoryComponent::GenerationPointer,
         )?;
-        self.read_generation(&pointer.generation_id).map(Some)
+        Ok(pointer)
+    }
+
+    fn current_records_for_write(&self) -> Result<Vec<ProfileRecord>, RepositoryError> {
+        Ok(self
+            .read_current_generation()?
+            .map(|generation| generation.profiles)
+            .unwrap_or_default())
+    }
+
+    fn publish_records(&self, records: &[ProfileRecord]) -> Result<(), RepositoryError> {
+        let staged = self.stage_generation(records)?;
+        self.publish_generation(staged).map(|_| ())
     }
 
     fn read_generation(
@@ -386,6 +412,13 @@ where
 
     pub fn save(&self, record: &ProfileRecord) -> Result<(), RepositoryError> {
         validate_record(record)?;
+        let mut current = self.current_records_for_write()?;
+        if current
+            .iter()
+            .any(|existing| existing.metadata.id == record.metadata.id)
+        {
+            return Err(RepositoryError::AlreadyExists);
+        }
         self.prepare_root()?;
         let profile_path = self.profile_path(&record.metadata.id);
         if path_exists_no_follow(&profile_path)? {
@@ -410,39 +443,39 @@ where
         self.writer
             .sync_directory(&self.profiles_root())
             .map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        Ok(())
+        current.push(record.clone());
+        self.publish_records(&current)
     }
 
     pub fn update(&self, record: &ProfileRecord) -> Result<(), RepositoryError> {
         validate_record(record)?;
-        self.prepare_root()?;
-        let profile_path = self.profile_path(&record.metadata.id);
-        if !path_exists_no_follow(&profile_path)? {
-            return Err(RepositoryError::NotFound);
-        }
-        reject_symlinks_between(&self.root, &profile_path)?;
-        let current = self.load(&record.metadata.id)?;
-        if current.source != record.source {
+        let mut current = self.current_records_for_write()?;
+        let index = current
+            .iter()
+            .position(|existing| existing.metadata.id == record.metadata.id)
+            .ok_or(RepositoryError::NotFound)?;
+        if current[index].source != record.source {
             return Err(RepositoryError::IntegrityMismatch);
         }
-        self.write_revision_artifact_and_metadata(&profile_path, record)
+        self.prepare_root()?;
+        let profile_path = self.profile_path(&record.metadata.id);
+        self.write_profile_mirror(&profile_path, record)?;
+        current[index] = record.clone();
+        self.publish_records(&current)
     }
 
     pub fn replace_source(&self, record: &ProfileRecord) -> Result<(), RepositoryError> {
         validate_record(record)?;
+        let mut current = self.current_records_for_write()?;
+        let index = current
+            .iter()
+            .position(|existing| existing.metadata.id == record.metadata.id)
+            .ok_or(RepositoryError::NotFound)?;
         self.prepare_root()?;
         let profile_path = self.profile_path(&record.metadata.id);
-        if !path_exists_no_follow(&profile_path)? {
-            return Err(RepositoryError::NotFound);
-        }
-        reject_symlinks_between(&self.root, &profile_path)?;
-        let source_descriptor = serde_json::to_vec_pretty(&record.source).map_err(|_| {
-            RepositoryError::CorruptData {
-                component: RepositoryComponent::SourceDescriptor,
-            }
-        })?;
-        self.write(&profile_path.join("source/source.json"), &source_descriptor)?;
-        self.write_revision_artifact_and_metadata(&profile_path, record)
+        self.write_profile_mirror(&profile_path, record)?;
+        current[index] = record.clone();
+        self.publish_records(&current)
     }
 
     pub fn list_metadata(&self) -> Result<Vec<ProfileMetadata>, RepositoryError> {
@@ -577,27 +610,33 @@ where
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
         }
+        let mut current = self.current_records_for_write()?;
+        let index = current
+            .iter()
+            .position(|record| record.metadata.id == *id)
+            .ok_or(RepositoryError::NotFound)?;
         let profile_path = self.profile_path(id);
-        if !path_exists_no_follow(&profile_path)? {
-            return Err(RepositoryError::NotFound);
-        }
-        reject_symlinks_between(&self.root, &profile_path)?;
+        if path_exists_no_follow(&profile_path)? {
+            reject_symlinks_between(&self.root, &profile_path)?;
 
-        let deleting_path = self
-            .profiles_root()
-            .join(format!(".deleting-{}", Uuid::new_v4()));
-        self.writer
-            .rename(&profile_path, &deleting_path)
-            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        self.writer
-            .sync_directory(&self.profiles_root())
-            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        self.writer
-            .remove_dir_all(&deleting_path)
-            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        self.writer
-            .sync_directory(&self.profiles_root())
-            .map_err(|_| RepositoryError::AtomicWriteFailed)
+            let deleting_path = self
+                .profiles_root()
+                .join(format!(".deleting-{}", Uuid::new_v4()));
+            self.writer
+                .rename(&profile_path, &deleting_path)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            self.writer
+                .sync_directory(&self.profiles_root())
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            self.writer
+                .remove_dir_all(&deleting_path)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            self.writer
+                .sync_directory(&self.profiles_root())
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        }
+        current.remove(index);
+        self.publish_records(&current)
     }
 
     fn write_record(
@@ -612,6 +651,34 @@ where
         })?;
         self.write(&profile_path.join("source/source.json"), &source_descriptor)?;
         self.write_revision_artifact_and_metadata(profile_path, record)
+    }
+
+    fn write_profile_mirror(
+        &self,
+        profile_path: &Path,
+        record: &ProfileRecord,
+    ) -> Result<(), RepositoryError> {
+        if path_exists_no_follow(profile_path)? {
+            reject_symlinks_between(&self.root, profile_path)?;
+            return self.write_record(profile_path, record);
+        }
+
+        let staging = self
+            .profiles_root()
+            .join(format!(".staging-{}", Uuid::new_v4()));
+        self.writer
+            .create_private_dir(&staging)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        if let Err(error) = self.write_record(&staging, record) {
+            let _ = self.writer.remove_dir_all(&staging);
+            return Err(error);
+        }
+        self.writer
+            .rename(&staging, profile_path)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .sync_directory(&self.profiles_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)
     }
 
     fn write_revision_artifact_and_metadata(
