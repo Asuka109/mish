@@ -23,6 +23,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 
 @TauriPlugin(
@@ -46,6 +47,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val loadCoordinator = coreRuntime.loadCoordinator
     private val configExecutor: ExecutorService = coreRuntime.configExecutor
     private val platformExecutor: ExecutorService = coreRuntime.platformExecutor
+    private val authorityAdmissionId = "tauri-admission-${UUID.randomUUID()}"
     private var receiverRegistered = false
     private val factsReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -114,6 +116,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         val observed = store.current()
         if (
             observed.vpnPermission != "granted" ||
+            observed.recoveryEvidence != PlatformRecoveryEvidence.NONE.wireName ||
             observed.platformSessionId != args.platformSessionId ||
             observed.factSequence != args.factSequence ||
             observed.coreConfigState != "loaded" ||
@@ -133,11 +136,29 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolveObject(observed)
             return
         }
+        val lifecycleAuthority = CoreLifecycleAuthority(
+            machineAuthority = args.machineAuthority,
+            scopeEpoch = args.scopeEpoch,
+            operationId = args.operationId,
+            admittedRevision = args.admittedRevision,
+            effectIdentity = args.effectIdentity,
+        )
+        val authorityAdmitted = runCatching {
+            store.lifecycleAuthorityAdvanced(authorityAdmissionId, lifecycleAuthority)
+        }.getOrDefault(false)
+        if (!authorityAdmitted) {
+            // A stale/foreign request must not even enqueue a foreground
+            // service effect. Rust remains the only authority that can issue
+            // the next valid generation.
+            invoke.resolveObject(observed)
+            return
+        }
+        val admittedFactSequence = store.current().factSequence
         val intent = Intent(activity, MishVpnService::class.java)
             .setAction(MishVpnService.ACTION_START)
             .putExtra(MishVpnService.EXTRA_CONFIG_DIGEST, args.configDigest)
             .putExtra(MishVpnService.EXTRA_CONFIG_REVISION, args.configRevision)
-            .putExtra(MishVpnService.EXTRA_FACT_SEQUENCE, args.factSequence)
+            .putExtra(MishVpnService.EXTRA_FACT_SEQUENCE, admittedFactSequence)
             .putExtra(MishVpnService.EXTRA_PLATFORM_SESSION_ID, args.platformSessionId)
             .putExtra(MishVpnService.EXTRA_PRODUCT_SESSION_ID, args.productSessionId)
             .putExtra(MishVpnService.EXTRA_MACHINE_AUTHORITY, args.machineAuthority)
@@ -178,8 +199,29 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
         val observed = observePlatformFacts()
-        if (!observed.serviceForeground && !ProcessRuntimeRegistry.serviceActive) {
+        val platformClean = observed.lifecycleAuthority == null &&
+            observed.recoveryEvidence == PlatformRecoveryEvidence.NONE.wireName &&
+            !observed.activeNetwork &&
+            !observed.coreRunning &&
+            !observed.tunEstablished &&
+            !observed.serviceForeground &&
+            observed.activationSessionId == null
+        if (platformClean && !ProcessRuntimeRegistry.serviceActive) {
             invoke.resolveObject(store.serviceStopped())
+            return
+        }
+        val lifecycleAuthority = CoreLifecycleAuthority(
+            machineAuthority = args.machineAuthority,
+            scopeEpoch = args.scopeEpoch,
+            operationId = args.operationId,
+            admittedRevision = args.admittedRevision,
+            effectIdentity = args.effectIdentity,
+        )
+        val authorityAdmitted = runCatching {
+            store.lifecycleAuthorityAdvanced(authorityAdmissionId, lifecycleAuthority)
+        }.getOrDefault(false)
+        if (!authorityAdmitted) {
+            invoke.resolveObject(observed)
             return
         }
         val intent = Intent(activity, MishVpnService::class.java)

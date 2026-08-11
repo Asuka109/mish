@@ -30,7 +30,9 @@ class MishVpnService : VpnService() {
     private lateinit var executor: ScheduledExecutorService
     private lateinit var store: MishVpnPlatformStore
     private val serviceInstanceId = UUID.randomUUID().toString()
-    private val cleanupStarted = AtomicBoolean(false)
+    /** Sticky for the service instance: callbacks must not reacquire effects once cleanup owns it. */
+    private val cleanupRequested = AtomicBoolean(false)
+    private val cleanupInProgress = AtomicBoolean(false)
     private val stopRequested = AtomicBoolean(false)
     private val cleanup = MishVpnOwnedResourceCleanup()
     private val protectedSocketFacts = ProtectedSocketFactGate()
@@ -65,39 +67,58 @@ class MishVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                stopRequested.set(false)
                 val request = ActivationRequest.fromIntent(intent)
                 if (request == null) {
-                    publishFailedActivation(PlatformFailureKind.CONFIGURATION_NOT_LOADED, startId)
+                    // Malformed or stale intents are ignored. They do not own
+                    // the current service and must not clean another session.
+                    return START_NOT_STICKY
                 } else {
                     executor.execute { activate(request, startId) }
                 }
             }
             ACTION_STOP -> {
                 val authority = lifecycleAuthorityFromIntent(intent)
-                if (authority != null && lifecycleAuthorityIsSuccessor(
-                        authority,
-                        activeLifecycleAuthority,
-                    )
+                val currentAuthority = store.current().lifecycleAuthority ?: activeLifecycleAuthority
+                if (authority != null &&
+                    (authority == currentAuthority || lifecycleAuthorityIsSuccessor(authority, currentAuthority))
                 ) {
-                    store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
-                    requestedStopAuthority = authority
-                    stopRequested.set(true)
-                    executor.execute { stopExplicitly(startId) }
+                    val authorityAdvanced = runCatching {
+                        store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
+                    }.getOrDefault(false)
+                    if (authorityAdvanced) {
+                        requestedStopAuthority = authority
+                        stopRequested.set(true)
+                        executor.execute { stopExplicitly(startId) }
+                    }
                 }
             }
-            else -> executor.execute {
-                val cleaned = cleanupOwnedResources()
-                store.serviceDestroyed(cleaned)
-                finishForeground(startId)
+            else -> {
+                // Unknown/null actions are not lifecycle authority. Let the
+                // normal service-destruction path reconcile owned state.
+                return START_NOT_STICKY
             }
         }
         return START_NOT_STICKY
     }
 
     private fun activate(request: ActivationRequest, startId: Int) {
+        if (cleanupRequested.get()) {
+            return
+        }
         val initial = store.current()
+        if (!lifecycleAuthorityMatchesOrIsSuccessor(
+                request.lifecycleAuthority,
+                initial.lifecycleAuthority,
+            )
+        ) {
+            // A stale replacement callback cannot mutate or clean the current
+            // owner. Rust will reconcile the unchanged facts and issue the
+            // valid successor cleanup if needed.
+            return
+        }
         val preflightFailure = when {
+            initial.recoveryEvidence != PlatformRecoveryEvidence.NONE.wireName ->
+                PlatformFailureKind.CONFIGURATION_NOT_LOADED
             VpnService.prepare(this) != null -> PlatformFailureKind.PERMISSION_REVOKED
             initial.platformSessionId != request.platformSessionId ||
                 initial.factSequence != request.factSequence -> PlatformFailureKind.CONFIGURATION_NOT_LOADED
@@ -113,16 +134,28 @@ class MishVpnService : VpnService() {
             return
         }
 
+        val authorityAdmitted = runCatching {
+            store.acquireLifecycleAuthority(serviceInstanceId, request.lifecycleAuthority)
+        }.getOrDefault(false)
+        if (!authorityAdmitted) {
+            return
+        }
+
         productSessionId = request.productSessionId
         activeLifecycleAuthority = request.lifecycleAuthority
-        promoteToForeground()
-        store.activationStarting(
-            serviceInstanceId,
-            request.productSessionId,
-            request.lifecycleAuthority,
-        )
+        stopRequested.set(false)
 
         try {
+            // Persisted authority is the gate for every platform effect. The
+            // foreground notification is intentionally promoted only after
+            // activationStarting has recorded that authority.
+            store.activationStarting(
+                serviceInstanceId,
+                request.productSessionId,
+                request.lifecycleAuthority,
+            )
+            promoteToForeground()
+            store.foregroundStarted()
             registerUnderlyingNetworkObservation()
             if (!awaitUnderlyingNetwork()) {
                 if (stopRequested.get()) return
@@ -172,20 +205,28 @@ class MishVpnService : VpnService() {
         }
     }
 
-    private fun establishTun(): ParcelFileDescriptor? = runCatching {
-        val networks = usableUnderlyingNetworks()
-        val builder = Builder()
-            .setSession(getString(R.string.mish_vpn_notification_title))
-            .setMtu(TUN_MTU)
-            .addAddress(TUN_IPV4_ADDRESS, TUN_IPV4_PREFIX)
-            .addAddress(TUN_IPV6_ADDRESS, TUN_IPV6_PREFIX)
-            .addDnsServer(TUN_IPV4_DNS)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-            .setUnderlyingNetworks(networks)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
-        builder.establish()
-    }.getOrNull()
+    private fun establishTun(): ParcelFileDescriptor? {
+        if (
+            !::store.isInitialized ||
+                cleanupRequested.get() ||
+                stopRequested.get() ||
+                store.current().lifecycleAuthority == null
+        ) return null
+        return runCatching {
+            val networks = usableUnderlyingNetworks()
+            val builder = Builder()
+                .setSession(getString(R.string.mish_vpn_notification_title))
+                .setMtu(TUN_MTU)
+                .addAddress(TUN_IPV4_ADDRESS, TUN_IPV4_PREFIX)
+                .addAddress(TUN_IPV6_ADDRESS, TUN_IPV6_PREFIX)
+                .addDnsServer(TUN_IPV4_DNS)
+                .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
+                .setUnderlyingNetworks(networks)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
+            builder.establish()
+        }.getOrNull()
+    }
 
     private fun registerUnderlyingNetworkObservation() {
         if (networkCallback != null) return
@@ -226,7 +267,11 @@ class MishVpnService : VpnService() {
     }
 
     private fun reconcileUnderlyingNetworks() {
-        if (cleanupStarted.get()) return
+        if (
+            cleanupRequested.get() ||
+                stopRequested.get() ||
+                store.current().lifecycleAuthority == null
+        ) return
         val networks = usableUnderlyingNetworks()
         if (tunDescriptor != null) setUnderlyingNetworks(networks)
         store.networkChanged(networks.isNotEmpty())
@@ -274,14 +319,21 @@ class MishVpnService : VpnService() {
 
     @Keep
     fun protectSocket(fileDescriptor: Int): Boolean {
+        if (
+            !::store.isInitialized ||
+                cleanupRequested.get() ||
+                stopRequested.get() ||
+                store.current().lifecycleAuthority == null
+        ) return false
         val protected = runCatching { protect(fileDescriptor) }.getOrDefault(false)
+        if (cleanupRequested.get() || stopRequested.get()) return protected
         return protectedSocketFacts.record(protected) { store.protectedSocketObserved() }
     }
 
     private fun scheduleCoreWatchdog(sessionId: String) {
         executor.scheduleWithFixedDelay(
             {
-                if (cleanupStarted.get()) return@scheduleWithFixedDelay
+                if (cleanupRequested.get()) return@scheduleWithFixedDelay
                 if (core.inspectRuntime(sessionId).code != NativeRuntimeCode.RUNNING) {
                     explicitCleanup = true
                     val cleaned = cleanupOwnedResources()
@@ -319,49 +371,96 @@ class MishVpnService : VpnService() {
         productSessionId: String? = null,
     ) {
         explicitCleanup = true
-        store.activationFailed(failure, productSessionId)
+        val facts = store.current()
+        val invalidRecovery = facts.recoveryEvidence == PlatformRecoveryEvidence.INVALID.wireName
+        val ownsResources = facts.lifecycleAuthority != null ||
+            facts.recoveryEvidence != PlatformRecoveryEvidence.NONE.wireName ||
+            facts.activeNetwork || facts.coreRunning || facts.tunEstablished ||
+            facts.serviceForeground || facts.activationSessionId != null
+        if (invalidRecovery && facts.lifecycleAuthority == null) {
+            store.serviceDestroyed(false)
+        } else if (ownsResources) {
+            val cleaned = cleanupOwnedResources()
+            if (cleaned) {
+                store.activationFailed(failure, productSessionId)
+            } else {
+                // Keep the authority and recovery evidence. A malformed or
+                // stale intent must never turn an owned platform into clean.
+                store.serviceDestroyed(false)
+            }
+        } else {
+            store.activationFailed(failure, productSessionId)
+        }
         finishForeground(startId)
     }
 
     private fun cleanupOwnedResources(): Boolean {
-        if (!cleanupStarted.compareAndSet(false, true)) {
-            return store.current().let { !it.coreRunning && !it.tunEstablished }
+        cleanupRequested.set(true)
+        if (!cleanupInProgress.compareAndSet(false, true)) {
+            return cleanup.isComplete()
         }
-        val session = productSessionId
-        val activeAuthority = activeLifecycleAuthority
-        val authority = requestedStopAuthority ?: activeAuthority?.nextEffect()
-        if (authority != null && store.current().lifecycleAuthority != authority) {
-            store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
-        }
-        return cleanup.cleanup(
-            stopCore = {
-                if (activeAuthority != null && authority == null) {
-                    false
-                } else {
-                    authority == null || core.stop(authority, session).code in setOf(
-                        NativeRuntimeCode.INACTIVE,
-                        NativeRuntimeCode.CORE_UNAVAILABLE,
-                    )
-                }
-            },
-            closeTun = {
-                val descriptor = tunDescriptor
-                tunDescriptor = null
-                descriptor == null || runCatching { descriptor.close() }.isSuccess
-            },
-            unregisterNetwork = {
-                val callback = networkCallback
-                networkCallback = null
-                val released = callback == null ||
-                    runCatching { connectivity.unregisterNetworkCallback(callback) }.isSuccess
-                synchronized(underlyingNetworks) { underlyingNetworks.clear() }
+        try {
+            val initialFacts = store.current()
+            if (
+                initialFacts.recoveryEvidence == PlatformRecoveryEvidence.INVALID.wireName &&
+                    initialFacts.lifecycleAuthority == null
+            ) {
+                // A malformed durable record has no safe authority with which
+                // to address native ownership. Preserve explicit recovery
+                // evidence until Rust issues an authority-bearing cleanup.
+                return false
+            }
+            val session = productSessionId
+            val activeAuthority = activeLifecycleAuthority
+            val authority = requestedStopAuthority ?: activeAuthority?.nextEffect()
+            if (authority != null && store.current().lifecycleAuthority != authority) {
+                val authorityAdvanced = runCatching {
+                    store.lifecycleAuthorityAdvanced(serviceInstanceId, authority)
+                }.getOrDefault(false)
+                if (!authorityAdvanced) return false
+            }
+            val cleaned = cleanup.cleanup(
+                stopCore = {
+                    if (activeAuthority != null && authority == null) {
+                        false
+                    } else {
+                        authority == null || core.stop(authority, session).code in setOf(
+                            NativeRuntimeCode.INACTIVE,
+                            NativeRuntimeCode.CORE_UNAVAILABLE,
+                        )
+                    }
+                },
+                closeTun = {
+                    val descriptor = tunDescriptor
+                    if (descriptor == null) {
+                        true
+                    } else {
+                        runCatching { descriptor.close() }
+                            .onSuccess { tunDescriptor = null }
+                            .isSuccess
+                    }
+                },
+                unregisterNetwork = {
+                    val callback = networkCallback
+                    val released = callback == null ||
+                        runCatching { connectivity.unregisterNetworkCallback(callback) }.isSuccess
+                    if (released) {
+                        networkCallback = null
+                        synchronized(underlyingNetworks) { underlyingNetworks.clear() }
+                    }
+                    released
+                },
+            )
+            if (cleaned) {
                 productSessionId = null
                 activeLifecycleAuthority = null
                 requestedStopAuthority = null
                 protectedSocketFacts.reset()
-                released
-            },
-        )
+            }
+            return cleaned
+        } finally {
+            cleanupInProgress.set(false)
+        }
     }
 
     private fun activationAuthorityStillValid(request: ActivationRequest): Boolean {
@@ -369,6 +468,7 @@ class MishVpnService : VpnService() {
         return VpnService.prepare(this) == null &&
             !stopRequested.get() &&
             current.activationSessionId == request.productSessionId &&
+            current.lifecycleAuthority == request.lifecycleAuthority &&
             current.coreAvailability == "available" &&
             current.coreConfigState == "loaded" &&
             current.loadedConfigDigest == request.configDigest &&
@@ -392,7 +492,21 @@ class MishVpnService : VpnService() {
                 executor.submit<Boolean> { cleanupOwnedResources() }
                     .get(DESTROY_CLEANUP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             }.getOrDefault(false)
-            if (::store.isInitialized && !explicitCleanup) store.serviceDestroyed(cleaned)
+            if (::store.isInitialized) {
+                val currentFacts = store.current()
+                val invalidRecovery = currentFacts.recoveryEvidence == PlatformRecoveryEvidence.INVALID.wireName
+                val stillOwned = currentFacts.let { facts ->
+                    facts.lifecycleAuthority != null ||
+                        facts.recoveryEvidence != PlatformRecoveryEvidence.NONE.wireName ||
+                        facts.activeNetwork || facts.coreRunning || facts.tunEstablished ||
+                        facts.serviceForeground || facts.activationSessionId != null
+                }
+                when {
+                    invalidRecovery -> store.serviceDestroyed(false)
+                    cleaned && stillOwned -> store.serviceStopped()
+                    !explicitCleanup -> store.serviceDestroyed(cleaned)
+                }
+            }
             executor.shutdownNow()
         }
         ProcessRuntimeRegistry.serviceActive = false
@@ -545,7 +659,7 @@ class MishVpnService : VpnService() {
                 operationId,
                 admittedRevision,
                 effectIdentity,
-            )
+            ).takeIf { it.isValid() }
         }
 
     }

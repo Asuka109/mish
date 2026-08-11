@@ -1,8 +1,8 @@
 package com.asuka109.mish.vpn
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class MishVpnOwnedResourcePolicyTest {
@@ -34,8 +34,47 @@ class MishVpnOwnedResourcePolicyTest {
                 unregisterNetwork = { calls += "network"; true },
             ),
         )
-        assertFalse(cleanup.cleanup({ true }, { true }, { true }))
+        assertEquals(MishVpnCleanupState.RETRYABLE, cleanup.recoveryState().cleanupState)
+        assertTrue(cleanup.recoveryState().retryable)
+        assertTrue(cleanup.recoveryState().coreOwned)
         assertEquals(listOf("core", "tun", "network"), calls)
+    }
+
+    @Test
+    fun `cleanup retries only failed resources and publishes clean only after all succeed`() {
+        var coreAttempts = 0
+        var tunAttempts = 0
+        var networkAttempts = 0
+        var coreCanStop = false
+        val cleanup = MishVpnOwnedResourceCleanup()
+
+        assertFalse(
+            cleanup.cleanup(
+                stopCore = { coreAttempts += 1; coreCanStop },
+                closeTun = { tunAttempts += 1; true },
+                unregisterNetwork = { networkAttempts += 1; true },
+            ),
+        )
+        assertEquals(MishVpnCleanupState.RETRYABLE, cleanup.recoveryState().cleanupState)
+        assertTrue(cleanup.recoveryState().coreOwned)
+        assertFalse(cleanup.recoveryState().tunOwned)
+        assertFalse(cleanup.recoveryState().networkOwned)
+
+        coreCanStop = true
+        assertTrue(
+            cleanup.cleanup(
+                stopCore = { coreAttempts += 1; coreCanStop },
+                closeTun = { tunAttempts += 1; false },
+                unregisterNetwork = { networkAttempts += 1; false },
+            ),
+        )
+        assertEquals(MishVpnCleanupState.COMPLETE, cleanup.recoveryState().cleanupState)
+        assertEquals(2, coreAttempts)
+        assertEquals(1, tunAttempts)
+        assertEquals(1, networkAttempts)
+
+        assertTrue(cleanup.cleanup({ coreAttempts += 1; false }, { false }, { false }))
+        assertEquals(2, coreAttempts)
     }
 
     @Test
