@@ -1249,6 +1249,7 @@ const zh: Translation = {
     clearLocalDescription: "只清除当前页面临时保存的事件，不会删除日志、配置或其他文件。",
     connectingNotice: "正在连接 Mish 事件记录。",
     copied: "已复制事件内容",
+    copyFailed: "无法复制事件内容。剪贴板不可用或访问被拒绝。",
     copyEvent: "复制事件内容",
     description: "查看 Mish 和代理产生的事件。密码、地址等敏感信息会被隐藏。",
     fixtureNotice: "这是演示数据，没有连接真实应用、文件或网络。",
@@ -1414,6 +1415,13 @@ const zh: Translation = {
     description: "你访问的页面不存在，或已经被移动。",
     returnToStatus: "返回状态页",
     title: "页面不存在",
+  },
+  routeError: {
+    description: "Mish 无法加载这个页面，你可以留在当前路由内重试。",
+    exhausted: "这个页面在限定次数内仍无法恢复。",
+    returnToStatus: "返回状态页",
+    retry: "重试",
+    title: "页面暂不可用",
   },
   startupFailure: {
     description: "Mish 无法连接本机服务，因此暂时不能显示系统或网络状态。请重新打开应用后重试。",

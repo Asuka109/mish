@@ -107,6 +107,7 @@ const eventStyles = tv({
     toolbarButton: "events-toolbar-button max-page-compact:w-auto max-page-compact:px-3.25",
     toolbarLabel: "events-toolbar-button-label hidden max-page-compact:inline",
     localNote: "events-local-note mt-2 text-caption leading-4.25 text-muted-foreground",
+    copyFeedback: "events-copy-feedback mt-2 text-caption leading-4.25 text-error",
     pausedNote: "events-paused-note mt-2 text-caption leading-4.25 text-warning",
     empty: "events-empty mt-4 min-h-55 border-solid",
     list: "events-list mt-4 min-h-55 list-none rounded-md border border-hairline p-0",
@@ -191,6 +192,7 @@ export function EventsPage() {
   const [pausedSessionId, setPausedSessionId] = useState<string | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const viewPaused = paused && pausedSessionId === snapshot?.sessionId;
@@ -266,8 +268,14 @@ export function EventsPage() {
   }
 
   async function copyEvent(event: PresentedEventRecord) {
-    if (!navigator.clipboard?.writeText) return;
-    await navigator.clipboard.writeText(formatEventForCopy(event));
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard-unavailable");
+      await navigator.clipboard.writeText(formatEventForCopy(event));
+    } catch {
+      setCopyFailed(true);
+      return;
+    }
+    setCopyFailed(false);
     setCopiedId(event.id);
     window.setTimeout(
       () => setCopiedId((current) => (current === event.id ? null : current)),
@@ -482,6 +490,14 @@ export function EventsPage() {
         </div>
 
         <p className={eventStyles().localNote()}>{LL.events.clearLocalDescription()}</p>
+        <p
+          aria-live="polite"
+          className={cx(eventStyles().copyFeedback(), !copyFailed && "sr-only")}
+          data-copy-feedback
+          role="status"
+        >
+          {copyFailed ? LL.events.copyFailed() : ""}
+        </p>
         {viewPaused ? (
           <p className={eventStyles().pausedNote()} role="status">
             {LL.events.paused({ count: bufferedWhilePaused })}

@@ -1393,6 +1393,7 @@ const en = {
       "Clears only this WebView's bounded memory buffer. Mihomo logs, configuration, runtime state, and files are unchanged.",
     connectingNotice: "Connecting to the desktop Controller event source.",
     copied: "Copied safe event text",
+    copyFailed: "Could not copy safe event text. Clipboard access was denied or unavailable.",
     copyEvent: "Copy Safe Event Text",
     description: "Bounded, redacted application and Mihomo Controller observations.",
     fixtureNotice:
@@ -1569,6 +1570,14 @@ const en = {
     description: "This route is not one of the six stable product destinations.",
     returnToStatus: "Return to Status",
     title: "Page not found",
+  },
+  routeError: {
+    description:
+      "Mish could not load this destination. Try again without leaving the current route.",
+    exhausted: "This destination could not recover after the available retries.",
+    returnToStatus: "Return to Status",
+    retry: "Try Again",
+    title: "Destination unavailable",
   },
   startupFailure: {
     description:

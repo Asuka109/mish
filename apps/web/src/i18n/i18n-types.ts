@@ -4614,6 +4614,10 @@ type RootTranslation = {
 		 */
 		copied: string
 		/**
+		 * C​o​u​l​d​ ​n​o​t​ ​c​o​p​y​ ​s​a​f​e​ ​e​v​e​n​t​ ​t​e​x​t​.​ ​C​l​i​p​b​o​a​r​d​ ​a​c​c​e​s​s​ ​w​a​s​ ​d​e​n​i​e​d​ ​o​r​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		copyFailed: string
+		/**
 		 * C​o​p​y​ ​S​a​f​e​ ​E​v​e​n​t​ ​T​e​x​t
 		 */
 		copyEvent: string
@@ -5184,6 +5188,28 @@ type RootTranslation = {
 		returnToStatus: string
 		/**
 		 * P​a​g​e​ ​n​o​t​ ​f​o​u​n​d
+		 */
+		title: string
+	}
+	routeError: {
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​l​o​a​d​ ​t​h​i​s​ ​d​e​s​t​i​n​a​t​i​o​n​.​ ​T​r​y​ ​a​g​a​i​n​ ​w​i​t​h​o​u​t​ ​l​e​a​v​i​n​g​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​o​u​t​e​.
+		 */
+		description: string
+		/**
+		 * T​h​i​s​ ​d​e​s​t​i​n​a​t​i​o​n​ ​c​o​u​l​d​ ​n​o​t​ ​r​e​c​o​v​e​r​ ​a​f​t​e​r​ ​t​h​e​ ​a​v​a​i​l​a​b​l​e​ ​r​e​t​r​i​e​s​.
+		 */
+		exhausted: string
+		/**
+		 * R​e​t​u​r​n​ ​t​o​ ​S​t​a​t​u​s
+		 */
+		returnToStatus: string
+		/**
+		 * T​r​y​ ​A​g​a​i​n
+		 */
+		retry: string
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n​ ​u​n​a​v​a​i​l​a​b​l​e
 		 */
 		title: string
 	}
@@ -9789,6 +9815,10 @@ export type TranslationFunctions = {
 		 */
 		copied: () => LocalizedString
 		/**
+		 * Could not copy safe event text. Clipboard access was denied or unavailable.
+		 */
+		copyFailed: () => LocalizedString
+		/**
 		 * Copy Safe Event Text
 		 */
 		copyEvent: () => LocalizedString
@@ -10356,6 +10386,28 @@ export type TranslationFunctions = {
 		returnToStatus: () => LocalizedString
 		/**
 		 * Page not found
+		 */
+		title: () => LocalizedString
+	}
+	routeError: {
+		/**
+		 * Mish could not load this destination. Try again without leaving the current route.
+		 */
+		description: () => LocalizedString
+		/**
+		 * This destination could not recover after the available retries.
+		 */
+		exhausted: () => LocalizedString
+		/**
+		 * Return to Status
+		 */
+		returnToStatus: () => LocalizedString
+		/**
+		 * Try Again
+		 */
+		retry: () => LocalizedString
+		/**
+		 * Destination unavailable
 		 */
 		title: () => LocalizedString
 	}
