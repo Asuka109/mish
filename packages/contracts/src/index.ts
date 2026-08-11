@@ -2803,10 +2803,65 @@ export const ProfileStatusFlagsSchema = z
   .strict();
 export interface ProfileStatusFlagsDto extends z.infer<typeof ProfileStatusFlagsSchema> {}
 
-export const ProfileSourceSummarySchema = z
-  .object({ display: z.string(), sourceType: ProfileSourceTypeSchema })
+const hasAsciiControl = (value: string) =>
+  Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 0x20 || codePoint === 0x7f;
+  });
+
+const ProfileLocalSummaryDisplaySchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (value) =>
+      !/[\\/:?#]/u.test(value) &&
+      !value.includes("://") &&
+      !value.includes("..") &&
+      !hasAsciiControl(value),
+    "Local Profile summaries may contain only a display file name",
+  );
+const ProfileHttpsSummaryDisplaySchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^https:\/\/[^\s/?#@]+\/…$/u, "HTTPS Profile summaries must be redacted");
+
+export const ProfileSubscriptionSummarySchema = z
+  .object({ display: z.string().min(1).max(255), sourceType: ProfileSourceTypeSchema })
+  .strict()
+  .superRefine((summary, context) => {
+    const valid =
+      summary.sourceType === "https"
+        ? ProfileHttpsSummaryDisplaySchema.safeParse(summary.display).success
+        : ProfileLocalSummaryDisplaySchema.safeParse(summary.display).success;
+    if (!valid) {
+      context.addIssue({
+        code: "custom",
+        message: "Profile source summaries must be redacted before crossing the public boundary",
+        path: ["display"],
+      });
+    }
+  });
+export interface ProfileSubscriptionSummaryDto extends z.infer<
+  typeof ProfileSubscriptionSummarySchema
+> {}
+
+export const ProfileStructuredEventKindSchema = z.enum(["snapshot", "subscription-updated"]);
+export type ProfileStructuredEventKind = z.infer<typeof ProfileStructuredEventKindSchema>;
+export const ProfileStructuredEventSchema = z
+  .object({
+    kind: ProfileStructuredEventKindSchema,
+    profileId: IdentifierSchema,
+    source: ProfileSubscriptionSummarySchema,
+  })
   .strict();
-export interface ProfileSourceSummaryDto extends z.infer<typeof ProfileSourceSummarySchema> {}
+export interface ProfileStructuredEventDto extends z.infer<typeof ProfileStructuredEventSchema> {}
+
+/** @deprecated Use ProfileSubscriptionSummarySchema for public Profile projections. */
+export const ProfileSourceSummarySchema = ProfileSubscriptionSummarySchema;
+/** @deprecated Use ProfileSubscriptionSummaryDto for public Profile projections. */
+export interface ProfileSourceSummaryDto extends ProfileSubscriptionSummaryDto {}
 
 export const ProfileAttemptSchema = z
   .object({ attemptedAt: NonNegativeIntegerSchema, outcome: ProfileAttemptOutcomeSchema })
@@ -2842,7 +2897,7 @@ export const ProfileListItemSchema = z
     lastKnownValid: z.boolean(),
     lastSuccessAt: NonNegativeIntegerSchema.nullable(),
     refresh: ProfileRefreshStateSchema,
-    source: ProfileSourceSummarySchema,
+    source: ProfileSubscriptionSummarySchema,
     status: ProfileStatusFlagsSchema,
     runtimeProvenance: ProfileRuntimeProvenanceSchema,
     warningCodes: z.array(ProfileValidationIssueCodeSchema),

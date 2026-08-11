@@ -9,8 +9,9 @@ use futures_util::{FutureExt, future::BoxFuture};
 use mish_profile::{
     AttemptOutcome, FileProfileRepository, HttpsSourceReader, LocalSourceReader, ProfilePatch,
     ProfilePatchError, ProfilePatchOperation, ProfileRefreshPolicy, ProfileService,
-    ProfileServiceError, ProfileSourceType, RedirectTarget, SensitivePath, SensitiveUrl,
-    SourceContent, SourceReadError, SourceReadPolicy, StdLocalSourceReader, Timestamp,
+    ProfileServiceError, ProfileSourceType, ProfileStructuredEvent, RedirectTarget, SensitivePath,
+    SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy, StdLocalSourceReader,
+    Timestamp,
 };
 
 const VALID_PROFILE: &str = r#"
@@ -643,8 +644,9 @@ async fn failed_scheduled_refresh_preserves_lkg_and_backs_off() {
 }
 
 #[tokio::test]
-async fn preview_redacts_secrets_while_the_profile_snapshot_exposes_its_subscription_url() {
+async fn preview_and_snapshot_use_a_bounded_redacted_summary_while_credentials_stay_private() {
     const TOKEN: &str = "private-subscription-token";
+    const HEADER: &str = "private-authorization-header";
     let temp = TestDir::new();
     let reader = SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]);
     let profile_service = service(temp.path().to_path_buf(), reader);
@@ -665,10 +667,54 @@ async fn preview_redacts_secrets_while_the_profile_snapshot_exposes_its_subscrip
         .await
         .unwrap();
     let snapshot_json = serde_json::to_string(&snapshot).unwrap();
-    assert!(snapshot_json.contains(TOKEN));
+    assert!(snapshot_json.len() <= 16 * 1024);
+    assert!(!snapshot_json.contains(TOKEN));
+    assert!(!snapshot_json.contains(HEADER));
     assert!(!snapshot_json.contains("not-a-real-password"));
     assert!(!snapshot_json.contains("192.0.2.10"));
-    assert!(snapshot_json.contains("https://profiles.example/config.yaml?token="));
+    assert!(snapshot_json.contains("https://profiles.example/…"));
+
+    let event = snapshot
+        .structured_event(
+            &snapshot.profiles[0].id,
+            mish_profile::ProfileStructuredEventKind::SubscriptionUpdated,
+        )
+        .unwrap();
+    let event_json = serde_json::to_string(&event).unwrap();
+    assert!(event_json.len() <= 1_024);
+    assert!(event_json.contains("https://profiles.example/…"));
+    assert!(!event_json.contains(TOKEN));
+    assert!(!event_json.contains(HEADER));
+    assert!(
+        serde_json::from_value::<ProfileStructuredEvent>(serde_json::json!({
+            "kind": "subscription-updated",
+            "profileId": snapshot.profiles[0].id.clone(),
+            "source": {
+                "display": format!("https://profiles.example/config.yaml?token={TOKEN}"),
+                "sourceType": "https"
+            }
+        }))
+        .is_err()
+    );
+
+    let profile_id = profile_id_from_snapshot(&snapshot);
+    let stored = FileProfileRepository::new(temp.path().join("profile-store"))
+        .load(&profile_id)
+        .unwrap();
+    let private_transcript = format!(
+        "GET https://profiles.example/config.yaml?token={TOKEN}\nAuthorization: Bearer {HEADER}\nbody-bytes={}",
+        stored.source_bytes.len()
+    );
+    assert!(private_transcript.len() <= 512);
+    assert!(private_transcript.contains(TOKEN));
+    assert!(private_transcript.contains(HEADER));
+    assert_eq!(stored.source.source_type(), ProfileSourceType::Https);
+    assert!(stored.source_bytes.starts_with(b"\nproxies:"));
+    let log_safe = format!("{stored:?}");
+    assert!(!log_safe.contains(TOKEN));
+    assert!(!log_safe.contains(HEADER));
+    assert!(!log_safe.contains("not-a-real-password"));
+    assert!(!log_safe.contains("192.0.2.10"));
 
     let local_temp = TestDir::new();
     let local_source = local_temp.path().join("private/local-profile.yaml");
@@ -691,6 +737,10 @@ async fn preview_redacts_secrets_while_the_profile_snapshot_exposes_its_subscrip
     let local_snapshot_json = serde_json::to_string(&local_snapshot).unwrap();
     assert!(!local_snapshot_json.contains(&local_source_text));
     assert!(local_snapshot_json.contains("local-profile.yaml"));
+}
+
+fn profile_id_from_snapshot(snapshot: &mish_profile::ProfileSnapshot) -> mish_profile::ProfileId {
+    mish_profile::ProfileId::parse(snapshot.profiles[0].id.clone()).unwrap()
 }
 
 #[tokio::test]
