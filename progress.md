@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Three Wave 2A Luna Max workers remain active from the pre-published manifest and
-clean detached baseline `5758260`. #440 B1.2, #438 A4.2, #441 C2.1, and #437
-A3.2 are integrated. Seven concurrency slots remain unreserved; no additional
-task is dispatched without an approved wave.
+Two Wave 2A Luna Max workers remain active from the pre-published manifest and
+clean detached baseline `5758260`. #440 B1.2, #438 A4.2, #441 C2.1, #437 A3.2,
+and #442 E1.1 are integrated. Eight concurrency slots remain unreserved; no
+additional task is dispatched without an approved wave.
 
 ## Wave 1 worker ledger
 
@@ -50,7 +50,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | integrated | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | PR #465 merged as `7c66f43`; Fast PR gate and coordinator exclusion 10/10, mobile 4/4, Browser 12/12 checks passed; Issue #438 closed completed. |
 | #443 E2.2 | `019feff9-1bf2-7621-a5b9-dd08b6240627` | `8407` | active | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | Clean detached `5758260`; E2.3 drift/docs/branch-protection evidence remains separate. |
 | #441 C2.1 | `019feff9-1bf9-7943-9ed1-399bb2b16b31` | `3d15` | integrated | none | Private durable staging and atomic Profile generation publication | PR #463 merged as `76cbf1d`; Fast PR gate and coordinator Profile 8 + 26 + 19 tests passed; C2.2/C2.3 remain open. |
-| #442 E1.1 | `019feff9-1bf4-7283-9330-1117529fce86` | `40ee` | active | none | Release executable/path containment under private no-follow roots | Clean detached `5758260`; no signing credentials or real release effects. |
+| #442 E1.1 | `019feff9-1bf4-7283-9330-1117529fce86` | `40ee` | integrated | none | Release executable/path containment under private no-follow roots | PR #468 merged as `443e0a5`; Fast PR gate and coordinator bundle 34/34, release 9/9, signed-release 10/10, updater 74/74 passed; E1.4 must cover concurrent overwrite/assert-use replacement. |
 
 ## Planned issue graph
 
@@ -67,7 +67,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
-| Release trust boundary | #442 | active: E1.1 | none | confirmation-only; real signing stays in #173 |
+| Release trust boundary | #442 | E1.1 integrated; E1.2-E1.4 planned | none | confirmation-only; real signing stays in #173 |
 | CI policy coverage | #443 | active: E2.2; E2.1 integrated | none | confirmation-only |
 | Settings editor serialization | #452 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Remove Profile Patch Editor | #453 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
