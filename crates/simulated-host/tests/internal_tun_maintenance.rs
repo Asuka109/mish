@@ -470,6 +470,170 @@ async fn healthy_v1_repair_uses_real_capture_helper_and_package_machines() {
 }
 
 #[tokio::test]
+async fn maintenance_transcript_preserves_handoff_and_commit_order() {
+    let scenario = build(
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    handoff_capture(&scenario).await;
+    repair(&scenario).await.unwrap();
+
+    let events = scenario.host.observation().transcript.events;
+    let first_maintenance = events
+        .iter()
+        .position(|event| event.effect_kind == EffectKind::MaintenanceJournalPersist)
+        .expect("maintenance intent persistence must be recorded");
+    let effects = events[first_maintenance..]
+        .iter()
+        .map(|event| event.effect_kind)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        effects,
+        vec![
+            EffectKind::MaintenanceJournalPersist,
+            EffectKind::MaintenanceCaptureReconcile,
+            EffectKind::MaintenanceJournalPersist,
+            EffectKind::MaintenanceBackupArtifacts,
+            EffectKind::MaintenanceAuthorize,
+            EffectKind::MaintenanceCommitService,
+            EffectKind::MaintenanceStageArtifacts,
+            EffectKind::MaintenanceStageArtifacts,
+            EffectKind::MaintenanceCommitEnrollment,
+            EffectKind::MaintenanceCommitReceipt,
+            EffectKind::MaintenanceCommitService,
+            EffectKind::MaintenanceStartService,
+            EffectKind::MaintenanceVerify,
+            EffectKind::MaintenanceObserve,
+        ]
+    );
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| **effect == EffectKind::MaintenanceCaptureReconcile)
+            .count(),
+        1,
+        "Capture handoff is one boundary invocation, not a journal cassette entry"
+    );
+    assert!(
+        events
+            .windows(2)
+            .all(|window| { window[0].logical_time <= window[1].logical_time })
+    );
+}
+
+#[tokio::test]
+async fn foreign_core_or_dns_ownership_blocks_maintenance_without_claiming_success() {
+    for (core, dns) in [
+        (SyntheticOwnership::Unrelated, SyntheticOwnership::Absent),
+        (SyntheticOwnership::Absent, SyntheticOwnership::Unrelated),
+    ] {
+        let scenario = build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V2,
+            Vec::new(),
+        )
+        .await;
+        handoff_capture(&scenario).await;
+        scenario
+            .maintenance
+            .set_network_ownership(
+                core,
+                SyntheticOwnership::Absent,
+                SyntheticOwnership::Absent,
+                dns,
+            )
+            .unwrap();
+        let before = scenario.host.maintenance_observation().unwrap();
+
+        let error = repair(&scenario).await.unwrap_err();
+        assert!(matches!(
+            error,
+            SettingsServiceError::TunHelper(TunHelperFailureKind::ObservationForeign)
+        ));
+        let helper = scenario.helper.refresh().await;
+        assert_eq!(
+            helper.last_failure,
+            Some(TunHelperFailureKind::ObservationForeign)
+        );
+        assert_eq!(helper.removal, TunHelperRemovalCapability::Available);
+
+        let after = scenario.host.maintenance_observation().unwrap();
+        assert_eq!(after.core_process, before.core_process);
+        assert_eq!(after.dns, before.dns);
+        assert_eq!(after.tun, before.tun);
+        assert_eq!(after.route, before.route);
+        assert!(scenario.maintenance.journal_snapshot().is_none());
+        assert!(
+            scenario
+                .host
+                .observation()
+                .transcript
+                .events
+                .iter()
+                .all(|event| event.effect_kind != EffectKind::MaintenanceAuthorize)
+        );
+    }
+}
+
+#[tokio::test]
+async fn maintenance_fault_targets_one_bounded_commit_point_occurrence() {
+    let scenario = build(
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V2,
+        vec![MaintenanceFault {
+            at: MaintenanceCommitPoint::PriorServiceDetached,
+            kind: MaintenanceFaultKind::PermissionDenied,
+            occurrence: 2,
+        }],
+    )
+    .await;
+    handoff_capture(&scenario).await;
+
+    repair(&scenario).await.unwrap();
+    activate_then_handoff(&scenario).await;
+    assert_eq!(
+        scenario
+            .maintenance
+            .journal_snapshot()
+            .unwrap()
+            .terminal
+            .unwrap()
+            .outcome,
+        MaintenanceTerminalOutcome::Committed
+    );
+
+    let rejected = scenario.settings_service.remove_tun_helper().await;
+    assert!(matches!(
+        rejected,
+        Err(SettingsServiceError::TunHelper(
+            TunHelperFailureKind::PermissionDenied
+        ))
+    ));
+    assert_eq!(
+        scenario
+            .maintenance
+            .journal_snapshot()
+            .unwrap()
+            .terminal
+            .unwrap()
+            .outcome,
+        MaintenanceTerminalOutcome::RolledBack
+    );
+
+    let removed = scenario.settings_service.remove_tun_helper().await.unwrap();
+    assert_eq!(
+        removed.tun_helper.removal,
+        TunHelperRemovalCapability::NotInstalled
+    );
+    let observation = scenario.host.maintenance_observation().unwrap();
+    assert!(observation.installation_id.is_none());
+    assert_eq!(observation.core_process, SyntheticOwnership::Absent);
+    assert_eq!(observation.dns, SyntheticOwnership::Absent);
+}
+
+#[tokio::test]
 async fn reinstall_repair_upgrade_downgrade_rotation_reset_and_uninstall_are_typed() {
     let identical = build(
         SyntheticMaintenanceInitial::HealthyV2,
@@ -631,6 +795,7 @@ async fn post_enrollment_rollback_restores_credentials_for_followup_maintenance(
         vec![MaintenanceFault {
             at: MaintenanceCommitPoint::ReceiptCommitted,
             kind: MaintenanceFaultKind::DiskFull,
+            occurrence: 1,
         }],
     )
     .await;
@@ -727,6 +892,7 @@ async fn restart_observes_only_exact_authority_before_complete_compensate_or_rec
         vec![MaintenanceFault {
             at: MaintenanceCommitPoint::ServiceStarted,
             kind: MaintenanceFaultKind::CoreExited,
+            occurrence: 1,
         }],
     )
     .await;
@@ -789,6 +955,7 @@ async fn restart_observes_only_exact_authority_before_complete_compensate_or_rec
         vec![MaintenanceFault {
             at: MaintenanceCommitPoint::ServiceStarted,
             kind: MaintenanceFaultKind::ReplacedArtifact,
+            occurrence: 1,
         }],
     )
     .await;
@@ -830,6 +997,7 @@ async fn every_commit_boundary_and_fault_family_stays_bounded_and_preserves_unre
             vec![MaintenanceFault {
                 at: boundary,
                 kind: MaintenanceFaultKind::DiskFull,
+                occurrence: 1,
             }],
         )
         .await;
@@ -910,7 +1078,11 @@ async fn every_commit_boundary_and_fault_family_stays_bounded_and_preserves_unre
         let scenario = build(
             SyntheticMaintenanceInitial::HealthyV1,
             SyntheticPackageVersion::V2,
-            vec![MaintenanceFault { at: boundary, kind }],
+            vec![MaintenanceFault {
+                at: boundary,
+                kind,
+                occurrence: 1,
+            }],
         )
         .await;
         activate_then_handoff(&scenario).await;
@@ -937,6 +1109,7 @@ async fn every_commit_boundary_and_fault_family_stays_bounded_and_preserves_unre
         vec![MaintenanceFault {
             at: MaintenanceCommitPoint::CaptureReconciled,
             kind: MaintenanceFaultKind::Panic,
+            occurrence: 1,
         }],
     )
     .await;
@@ -1544,7 +1717,11 @@ async fn removal_failures_publish_distinct_outcomes_and_cancellation_can_retry()
             build(
                 SyntheticMaintenanceInitial::HealthyV1,
                 SyntheticPackageVersion::V1,
-                vec![MaintenanceFault { at, kind }],
+                vec![MaintenanceFault {
+                    at,
+                    kind,
+                    occurrence: 1,
+                }],
             )
             .await,
         );
