@@ -191,7 +191,10 @@ describe("Traffic browser interactions", () => {
 
       const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
       await expect.element(row).toBeVisible();
-      row.element().focus();
+      const details = row.getByRole("button", {
+        name: /Connection details.*docs\.fixture\.invalid/,
+      });
+      details.element().focus();
       await userEvent.keyboard("{Enter}");
       const dialog = page.getByRole("dialog", { name: "Connection details" });
       await expect.element(dialog).toBeVisible();
@@ -249,10 +252,15 @@ describe("Traffic browser interactions", () => {
 
     const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
     await expect.element(row).toBeVisible();
-    row.element().focus();
+    const details = row.getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    const detailsElement = details.element();
+    detailsElement.focus();
     await userEvent.keyboard("{Enter}");
     const dialog = page.getByRole("dialog", { name: "Connection details" });
     await expect.element(dialog).toBeVisible();
+    expect(detailsElement).toHaveAttribute("aria-expanded", "true");
 
     const destination = dialog.getByText("docs.fixture.invalid", { exact: true });
     expect(getComputedStyle(destination.element()).userSelect).toBe("text");
@@ -282,7 +290,44 @@ describe("Traffic browser interactions", () => {
 
     await userEvent.keyboard("{Escape}");
     await expect.element(dialog).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(row.element());
+    expect(document.activeElement).toBe(detailsElement);
+    expect(detailsElement).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("keeps the expanded action as the focus anchor while a row updates", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    const initial = await client.getSnapshot();
+    client.publishSnapshot({ ...initial, adapterKind: "rpc" });
+    renderTraffic(client);
+
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
+    await expect.element(row).toBeVisible();
+    const details = row.getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    const detailsElement = details.element();
+    detailsElement.focus();
+    await userEvent.keyboard("{Space}");
+    await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    expect(detailsElement).toHaveAttribute("aria-expanded", "true");
+
+    client.publishSnapshot({
+      ...initial,
+      activeConnections: [
+        { ...initial.activeConnections[0]!, downloadBytes: "2097152" },
+        ...initial.activeConnections.slice(1),
+      ],
+      adapterKind: "rpc",
+      sequence: initial.sequence + 1,
+    });
+
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .element(page.getByRole("dialog", { name: "Connection details" }))
+      .not.toBeInTheDocument();
+    expect(document.activeElement).toBe(detailsElement);
+    expect(detailsElement).toHaveAttribute("aria-expanded", "false");
   });
 
   test("shares canonical protocol presentation across the row, accessibility tree, detail, and copy", async () => {
@@ -294,7 +339,9 @@ describe("Traffic browser interactions", () => {
     await expect.element(row).toBeVisible();
     await expect.element(row.getByText("TCP · HTTPS")).toBeVisible();
 
-    await userEvent.click(row);
+    await userEvent.click(
+      row.getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ }),
+    );
     const dialog = page.getByRole("dialog", { name: "Connection details" });
     await expect.element(dialog).toHaveTextContent("TCP · HTTPS");
 
@@ -324,7 +371,10 @@ describe("Traffic browser interactions", () => {
     });
     renderTraffic(client);
 
-    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    const details = page
+      .getByRole("row", { name: /docs\.fixture\.invalid/ })
+      .getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ });
+    await userEvent.click(details);
     const dialog = page.getByRole("dialog", { name: "Connection details" });
     await expect.element(dialog).toHaveTextContent("Provider chain");
     await expect.element(dialog).toHaveTextContent("Unavailable");
@@ -338,13 +388,17 @@ describe("Traffic browser interactions", () => {
       ],
       sequence: snapshot.sequence + 2,
     });
-    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    await userEvent.click(
+      page
+        .getByRole("row", { name: /docs\.fixture\.invalid/ })
+        .getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ }),
+    );
     await expect
       .element(page.getByRole("dialog", { name: "Connection details" }))
       .toHaveTextContent("Provider A → 东京 🚀 → Provider A");
   });
 
-  test("opens details from the whole row without clipping or hijacking Close", async () => {
+  test("opens details through the explicit action without clipping or hijacking Close", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
     const initial = await client.getSnapshot();
@@ -358,11 +412,14 @@ describe("Traffic browser interactions", () => {
     if (!closeCell) throw new Error("Missing close action cell");
     expect(closeCell.scrollWidth).toBeLessThanOrEqual(closeCell.clientWidth);
 
-    await userEvent.click(row);
+    const details = row.getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    await userEvent.click(details);
     await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
 
-    row.element().focus();
+    details.element().focus();
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
@@ -454,7 +511,10 @@ describe("Traffic browser interactions", () => {
     await expect.element(page.getByText(/1 newer updates are ready/)).toBeVisible();
     await expect.element(page.getByText("paused-newer.fixture.invalid")).not.toBeInTheDocument();
     const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
-    row.element().focus();
+    const details = row.getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    details.element().focus();
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
