@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A and 2B are fully integrated. The maintainer approved the exact
-seven-task AFK Wave 2C on 2026-08-11. All seven visible Luna Max Workers are
-active in isolated worktrees, with three repository concurrency slots left
-unreserved.
+Waves 2A, 2B, and 2C are fully integrated. No new Worker is active. The next
+dependency-safe AFK candidates are #440 B1.5 and #442 E1.4; an exact Wave 2D
+still requires maintainer confirmation before its dispatch manifest is
+published.
 
 ## Wave 1 worker ledger
 
@@ -61,20 +61,20 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
-| RPC Session Authority | #440 | B1.1/B1.2/B1.3 integrated; B1.4/B1.5 planned | none | confirmation-only |
-| Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Atomic profile generations | #441 | C2.1/C2.2 integrated; C2.3 planned | none | confirmation-only |
-| Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
+| RPC Session Authority | #440 | B1.1-B1.4 integrated; B1.5 ready | none | confirmation-only |
+| Profile credential privacy | #449 | blocked; not dispatched | complete #440 | confirmation-only |
+| Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
+| Backup preview authority | #450 | blocked; not dispatched | complete #440 | confirmation-only |
 | Android VPN authority | #451 | blocked | #440; #436 is complete | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
-| Release trust boundary | #442 | E1.1/E1.2 integrated; E1.3/E1.4 planned | none | confirmation-only; real signing stays in #173 |
+| Release trust boundary | #442 | E1.1-E1.3 integrated; E1.4 ready | none | confirmation-only; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
-| Settings editor serialization | #452 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Remove Profile Patch Editor | #453 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Lazy-route recovery | #444 | planned | none | confirmation-only |
-| Traffic details accessibility | #445 | planned | none | confirmation-only |
-| Clipboard failure feedback | #446 | planned | none | confirmation-only |
-| Muted-text contrast | #447 | planned | none | confirmation-only |
+| Settings editor serialization | #452 | blocked; not dispatched | complete #440 | confirmation-only |
+| Remove Profile Patch Editor | #453 | blocked; not dispatched | complete #440 | confirmation-only |
+| Lazy-route recovery | #444 | completed: G1.1 integrated; Issue closed | none | accepted |
+| Traffic details accessibility | #445 | completed: G2.1 integrated; Issue closed | none | accepted |
+| Clipboard failure feedback | #446 | completed: G3.1 integrated; Issue closed | none | accepted |
+| Muted-text contrast | #447 | completed: G4.1 integrated; Issue closed | none | accepted |
 
 ## Wave 2B dispatch manifest
 
@@ -104,13 +104,13 @@ physical-host mutation, device/emulator acceptance, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.4 | `019ff0db-3399-7e42-a8d6-ceb53d386a95` | `a427` | active | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | Visible Luna Max Worker is active in the isolated worktree; own RPC clients/providers only, preserve domain DTO authority, and leave B1.5 cleanup/documentation separate |
-| #441 C2.3 | `019ff0db-c089-79a3-a4c8-3f6fb925a924` | `069d` | active | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | Visible Luna Max Worker is active; own Profile fault seams/tests, use synthetic fixtures, and read no real Profile content or credentials |
-| #442 E1.3 | `019ff0db-c092-74c3-bd39-69046c098ff1` | `a78d` | active | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | Visible Luna Max Worker is active; credential-free fixtures only, no real signing/notarization/upload, and E1.4 remains separate |
-| #444 G1.1 | `019ff0db-c163-75b2-a02b-e6edba89bf2c` | `03e1` | active | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | Visible Luna Max Worker is active; own route error-boundary/retry files and do not change shared providers, notification authority, or global design tokens |
-| #445 G2.1 | `019ff0db-c21e-71a3-9724-6f62073197bd` | `ff1b` | active | none | Expose Traffic row details through an accessible action with keyboard/focus tests | Visible Luna Max Worker is active; own Traffic page/presentation tests and do not change RPC clients/providers or global design tokens |
-| #446 G3.1 | `019ff0db-c350-78f3-9a38-e9a1c1694fcf` | `2974` | active | none | Report clipboard rejection through accessible non-blocking Events feedback | Visible Luna Max Worker is active; own Events-local feedback/tests and do not change notification RPC/provider authority or global design tokens |
-| #447 G4.1 | `019ff0db-c366-7830-9cd0-d1797504f6b5` | `b600` | active | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | Visible Luna Max Worker is active as the sole global token/contrast owner for this wave |
+| #440 B1.4 | `019ff0db-3399-7e42-a8d6-ceb53d386a95` | `a427` | integrated | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | PR #483 merged as `c5201a5`; focused 153 tests, final `check:pr`, Fast PR, and Android gates passed; B1.5 remains open |
+| #441 C2.3 | `019ff0db-c089-79a3-a4c8-3f6fb925a924` | `069d` | integrated | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | PR #481 merged as `2f367df`; local/remote gates passed with synthetic/private fixtures; Issue #441 closed completed |
+| #442 E1.3 | `019ff0db-c092-74c3-bd39-69046c098ff1` | `a78d` | integrated | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | PR #480 merged as `a85ce61`; credential-free local/remote gates passed; E1.4 remains open |
+| #444 G1.1 | `019ff0db-c163-75b2-a02b-e6edba89bf2c` | `03e1` | integrated | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | PR #482 merged as `62e01ef`; local/remote gates passed; Issue #444 closed completed |
+| #445 G2.1 | `019ff0db-c21e-71a3-9724-6f62073197bd` | `ff1b` | integrated | none | Expose Traffic row details through an accessible action with keyboard/focus tests | PR #478 merged as `9da5aec`; local/remote gates passed; Issue #445 closed completed |
+| #446 G3.1 | `019ff0db-c350-78f3-9a38-e9a1c1694fcf` | `2974` | integrated | none | Report clipboard rejection through accessible non-blocking Events feedback | PR #479 merged as `1a41f4f`; local/remote gates passed; Issue #446 closed completed |
+| #447 G4.1 | `019ff0db-c366-7830-9cd0-d1797504f6b5` | `b600` | integrated | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | PR #477 merged as `f863b19`; computed contrast and local/remote gates passed; Issue #447 closed completed |
 
 ## Existing issue coordination
 
@@ -140,8 +140,8 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- #440 B1.2 is integrated. #449, #450, #452, and #453 are dependency-ready but
-  remain undispatched pending an approved wave; #451 still also depends on #436.
+- #440 B1.4 is integrated; B1.5 is ready. #449, #450, #451, #452, and #453
+  remain blocked until #440 completes. #442 E1.4 is independently ready.
 - #451 remains blocked until #440 completes; complete #451 D1.2 before #454 starts.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
