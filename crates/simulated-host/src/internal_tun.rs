@@ -79,6 +79,7 @@ use crate::{
 const SYNTHETIC_UID: u32 = 501;
 const MAINTENANCE_SERVICE_LABEL: &str = "com.asuka109.mish.tun-helper.dev";
 const SYNTHETIC_OPERATION_PREFIX: &str = "maintenance-op-";
+const MAX_MAINTENANCE_FAULT_OCCURRENCE: u8 = 16;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -166,6 +167,13 @@ pub enum MaintenanceCompletionInjection {
 pub struct MaintenanceFault {
     pub at: MaintenanceCommitPoint,
     pub kind: MaintenanceFaultKind,
+    /// Inject this fault only on the bounded Nth visit to the commit point.
+    #[serde(default = "default_fault_occurrence")]
+    pub occurrence: u8,
+}
+
+fn default_fault_occurrence() -> u8 {
+    1
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -205,6 +213,19 @@ impl MaintenanceScenario {
     fn validate(&self) -> Result<(), MaintenanceHarnessError> {
         if self.faults.len() > 16 || self.pause_at.is_some() != self.pause_until.is_some() {
             return Err(MaintenanceHarnessError::InvalidScenario);
+        }
+        if self.faults.iter().any(|fault| {
+            fault.occurrence == 0 || fault.occurrence > MAX_MAINTENANCE_FAULT_OCCURRENCE
+        }) {
+            return Err(MaintenanceHarnessError::InvalidScenario);
+        }
+        for (index, fault) in self.faults.iter().enumerate() {
+            if self.faults[..index]
+                .iter()
+                .any(|previous| previous.at == fault.at && previous.occurrence == fault.occurrence)
+            {
+                return Err(MaintenanceHarnessError::InvalidScenario);
+            }
         }
         Ok(())
     }
@@ -326,6 +347,7 @@ pub(crate) struct MaintenanceModel {
     capture_before_handoff: Option<TunNetworkObservation>,
     capture_restore_pending: bool,
     core_process: SyntheticOwnership,
+    fault_occurrences: Vec<(MaintenanceCommitPoint, u16)>,
     dns: SyntheticOwnership,
     enrollment_generation: Option<u64>,
     filesystem: SyntheticOwnership,
@@ -485,6 +507,7 @@ impl MaintenanceEngine {
             capture_before_handoff: None,
             capture_restore_pending: false,
             core_process: SyntheticOwnership::Absent,
+            fault_occurrences: Vec::new(),
             dns: SyntheticOwnership::Absent,
             enrollment_generation: None,
             filesystem: SyntheticOwnership::Absent,
@@ -558,19 +581,27 @@ impl MaintenanceEngine {
         target: SyntheticPackageVersion,
         faults: Vec<MaintenanceFault>,
     ) -> Result<(), MaintenanceHarnessError> {
-        let mut configuration = self
-            .configuration
-            .lock()
-            .expect("maintenance configuration lock poisoned");
-        let next = MaintenanceScenario {
-            faults,
-            initial: configuration.initial,
-            pause_at: configuration.pause_at,
-            pause_until: configuration.pause_until,
-            target,
-        };
-        next.validate()?;
-        *configuration = next;
+        {
+            let mut configuration = self
+                .configuration
+                .lock()
+                .expect("maintenance configuration lock poisoned");
+            let next = MaintenanceScenario {
+                faults,
+                initial: configuration.initial,
+                pause_at: configuration.pause_at,
+                pause_until: configuration.pause_until,
+                target,
+            };
+            next.validate()?;
+            *configuration = next;
+        }
+        if let Ok(host) = self.host() {
+            let mut model = host.model.lock().expect("simulated host lock poisoned");
+            if let Some(maintenance) = model.maintenance.as_mut() {
+                maintenance.fault_occurrences.clear();
+            }
+        }
         Ok(())
     }
 
@@ -988,7 +1019,7 @@ impl MaintenanceEngine {
         self.advance_journal(
             &host,
             MaintenanceCommitPoint::CaptureReconciled,
-            EffectKind::MaintenanceCaptureReconcile,
+            EffectKind::MaintenanceJournalPersist,
             operation_id,
             admitted_revision,
             &cancellation,
@@ -1018,6 +1049,7 @@ impl MaintenanceEngine {
         target: SyntheticPackageVersion,
     ) -> Result<PackageEffectOutcome, String> {
         let host = self.host().map_err(display_error)?;
+        self.ensure_maintenance_authority(&host)?;
         self.emit(
             &host,
             EffectKind::MaintenanceAuthorize,
@@ -1025,13 +1057,6 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::PriorServiceDetached) {
-            if fault.kind == MaintenanceFaultKind::Panic {
-                panic!("synthetic maintenance effect panic at {:?}", fault.at);
-            }
-            self.fail_after_mutation(&host, operation_id, admitted_revision, fault)?;
-            unreachable!("failure injection always returns an error");
-        }
         self.with_maintenance(&host, |maintenance| {
             maintenance.service = SyntheticOwnership::Absent;
             maintenance.helper_process = SyntheticOwnership::Absent;
@@ -1077,7 +1102,7 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        self.apply_enrollment(target, operation_id, admitted_revision)?;
+        self.apply_enrollment(target)?;
         self.commit_point(
             &host,
             MaintenanceCommitPoint::EnrollmentCommitted,
@@ -1110,6 +1135,16 @@ impl MaintenanceEngine {
         admitted_revision: u64,
     ) -> Result<PackageEffectOutcome, String> {
         let host = self.host().map_err(display_error)?;
+        self.ensure_maintenance_authority(&host)?;
+        if host
+            .model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .endpoint_owner
+            == ManagedEndpointOwner::Foreign
+        {
+            return Err("maintenance-core-ownership-foreign".into());
+        }
         self.commit_point(
             &host,
             MaintenanceCommitPoint::LaunchDaemonCommitted,
@@ -1154,18 +1189,12 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::Verified) {
+        if let Some(fault) = self.fault_at(&host, MaintenanceCommitPoint::Verified) {
             if fault.kind == MaintenanceFaultKind::Panic {
                 panic!("synthetic maintenance effect panic at {:?}", fault.at);
             }
             self.fail_after_mutation(&host, operation_id, admitted_revision, fault)?;
             unreachable!("failure injection always returns an error");
-        }
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::ServiceStarted)
-            && fault.kind == MaintenanceFaultKind::CleanupFailure
-        {
-            self.mark_bounded_disabled(&host, "cleanup-failed")?;
-            return Err("cleanup-failed".into());
         }
         self.with_maintenance(&host, |maintenance| {
             let journal = maintenance
@@ -1218,19 +1247,19 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::Verified) {
+        if let Some(fault) = self.fault_at(&host, MaintenanceCommitPoint::ServiceStarted) {
             if fault.kind == MaintenanceFaultKind::Panic {
                 panic!("synthetic maintenance effect panic at {:?}", fault.at);
             }
             self.fail_after_mutation(&host, operation_id, admitted_revision, fault)?;
             unreachable!("failure injection always returns an error");
         }
-        if self
-            .fault_at(MaintenanceCommitPoint::ServiceStarted)
-            .is_some_and(|fault| fault.kind == MaintenanceFaultKind::CleanupFailure)
-        {
-            self.mark_bounded_disabled(&host, "uninstall-finalization-failed")?;
-            return Err("uninstall-finalization-failed".into());
+        if let Some(fault) = self.fault_at(&host, MaintenanceCommitPoint::Verified) {
+            if fault.kind == MaintenanceFaultKind::Panic {
+                panic!("synthetic maintenance effect panic at {:?}", fault.at);
+            }
+            self.fail_after_mutation(&host, operation_id, admitted_revision, fault)?;
+            unreachable!("failure injection always returns an error");
         }
         remove_installation_enrollment(&self.enrollment_path, uid(), false)
             .map_err(str::to_owned)?;
@@ -1262,11 +1291,8 @@ impl MaintenanceEngine {
             maintenance.filesystem = SyntheticOwnership::Absent;
             maintenance.service = SyntheticOwnership::Absent;
             maintenance.helper_process = SyntheticOwnership::Absent;
-            maintenance.core_process = maintenance.filesystem;
             maintenance.socket = SyntheticOwnership::Absent;
-            maintenance.tun = SyntheticOwnership::Absent;
-            maintenance.route = SyntheticOwnership::Absent;
-            maintenance.dns = SyntheticOwnership::Absent;
+            clear_mish_owned_network(maintenance);
             maintenance.backup = None;
             maintenance.last_verified = None;
             maintenance.capture_restore_pending = false;
@@ -1311,9 +1337,7 @@ impl MaintenanceEngine {
             return Err("maintenance-capture-handoff-not-accepted".into());
         }
         let after = self.network_observation(host)?;
-        if !after.confirms_disabled_at(tun_observation_now()) {
-            return Err("maintenance-capture-reconciliation-unconfirmed".into());
-        }
+        ensure_maintenance_network_disabled(&after)?;
         self.with_maintenance(host, |maintenance| {
             let before = maintenance
                 .capture_before_handoff
@@ -1383,7 +1407,7 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        if let Some(fault) = self.fault_at(point) {
+        if let Some(fault) = self.fault_at(host, point) {
             if fault.kind == MaintenanceFaultKind::Panic {
                 panic!("synthetic maintenance effect panic at {point:?}");
             }
@@ -1415,7 +1439,7 @@ impl MaintenanceEngine {
             operation_id,
             admitted_revision,
         )?;
-        if let Some(fault) = self.fault_at(point) {
+        if let Some(fault) = self.fault_at(host, point) {
             if fault.kind == MaintenanceFaultKind::Panic {
                 panic!("synthetic maintenance effect panic at {point:?}");
             }
@@ -1492,13 +1516,10 @@ impl MaintenanceEngine {
             if corrupt_new_artifacts && let Some(installed) = maintenance.installed.as_mut() {
                 installed.artifacts.helper_sha256 = digest('0');
             }
-            maintenance.core_process = SyntheticOwnership::Absent;
-            maintenance.dns = SyntheticOwnership::Absent;
             maintenance.helper_process = SyntheticOwnership::Absent;
-            maintenance.route = SyntheticOwnership::Absent;
             maintenance.service = SyntheticOwnership::Absent;
             maintenance.socket = SyntheticOwnership::Absent;
-            maintenance.tun = SyntheticOwnership::Absent;
+            clear_mish_owned_network(maintenance);
             maintenance.capture_restore_pending = false;
             maintenance.package = SyntheticPackageProjection::RecoveryRequired;
             maintenance.recovery_required = true;
@@ -1510,7 +1531,14 @@ impl MaintenanceEngine {
             journal.validate().map_err(str::to_owned)
         })?;
         let mut model = host.model.lock().expect("simulated host lock poisoned");
+        let foreign_core = model
+            .maintenance
+            .as_ref()
+            .is_some_and(|maintenance| maintenance.core_process == SyntheticOwnership::Unrelated);
         model.core_phase = SimulatedCorePhase::Stopped;
+        if foreign_core {
+            model.core_phase = SimulatedCorePhase::Running;
+        }
         if model.endpoint_owner == ManagedEndpointOwner::Mish {
             model.endpoint_owner = ManagedEndpointOwner::Free;
         }
@@ -1518,16 +1546,8 @@ impl MaintenanceEngine {
         Ok(())
     }
 
-    fn apply_enrollment(
-        &self,
-        target: SyntheticPackageVersion,
-        operation_id: u64,
-        admitted_revision: u64,
-    ) -> Result<(), String> {
+    fn apply_enrollment(&self, target: SyntheticPackageVersion) -> Result<(), String> {
         let host = self.host().map_err(display_error)?;
-        if let Some(fault) = self.fault_at(MaintenanceCommitPoint::EnrollmentCommitted) {
-            return self.fail_after_mutation(&host, operation_id, admitted_revision, fault);
-        }
         let candidate = self
             .enroll_candidate(target.installation_id())
             .map_err(display_error)?;
@@ -1579,10 +1599,7 @@ impl MaintenanceEngine {
             maintenance.service = maintenance.filesystem;
             maintenance.helper_process = maintenance.filesystem;
             maintenance.socket = maintenance.filesystem;
-            maintenance.core_process = SyntheticOwnership::Absent;
-            maintenance.tun = SyntheticOwnership::Absent;
-            maintenance.route = SyntheticOwnership::Absent;
-            maintenance.dns = SyntheticOwnership::Absent;
+            clear_mish_owned_network(maintenance);
             maintenance.package = if restored.is_some() {
                 SyntheticPackageProjection::HealthyDisabled
             } else {
@@ -1616,16 +1633,19 @@ impl MaintenanceEngine {
             .maintenance
             .as_ref()
             .is_some_and(|maintenance| maintenance.installed.is_some());
+        let endpoint_was_foreign = model.endpoint_owner == ManagedEndpointOwner::Foreign;
         model.core_phase = if restored {
             SimulatedCorePhase::Running
         } else {
             SimulatedCorePhase::Stopped
         };
-        model.endpoint_owner = if restored {
-            ManagedEndpointOwner::Mish
-        } else {
-            ManagedEndpointOwner::Free
-        };
+        if !endpoint_was_foreign {
+            model.endpoint_owner = if restored {
+                ManagedEndpointOwner::Mish
+            } else {
+                ManagedEndpointOwner::Free
+            };
+        }
         Ok(())
     }
 
@@ -1722,10 +1742,7 @@ impl MaintenanceEngine {
 
     fn mark_bounded_disabled(&self, host: &Arc<SimulatedHost>, reason: &str) -> Result<(), String> {
         self.with_maintenance(host, |maintenance| {
-            maintenance.core_process = SyntheticOwnership::Absent;
-            maintenance.tun = SyntheticOwnership::Absent;
-            maintenance.route = SyntheticOwnership::Absent;
-            maintenance.dns = SyntheticOwnership::Absent;
+            clear_mish_owned_network(maintenance);
             maintenance.socket = SyntheticOwnership::Absent;
             maintenance.service = SyntheticOwnership::Absent;
             maintenance.helper_process = SyntheticOwnership::Absent;
@@ -1751,7 +1768,21 @@ impl MaintenanceEngine {
             journal.validate().map_err(str::to_owned)?;
             maintenance.active_operation = None;
             Ok(())
-        })
+        })?;
+        let mut model = host.model.lock().expect("simulated host lock poisoned");
+        let foreign_core = model
+            .maintenance
+            .as_ref()
+            .is_some_and(|maintenance| maintenance.core_process == SyntheticOwnership::Unrelated);
+        if !foreign_core {
+            model.core_phase = SimulatedCorePhase::Stopped;
+            if model.endpoint_owner == ManagedEndpointOwner::Mish {
+                model.endpoint_owner = ManagedEndpointOwner::Free;
+            }
+        } else {
+            model.core_phase = SimulatedCorePhase::Running;
+        }
+        Ok(())
     }
 
     fn enroll_candidate(
@@ -1888,6 +1919,12 @@ impl MaintenanceEngine {
             .ok_or_else(|| "maintenance-state-unavailable".into())
     }
 
+    fn ensure_maintenance_authority(&self, host: &Arc<SimulatedHost>) -> Result<(), String> {
+        let observation = self.network_observation(host)?;
+        ensure_maintenance_network_disabled(&observation)?;
+        Ok(())
+    }
+
     fn success(&self) -> Result<PackageSuccess, String> {
         self.host()
             .map_err(display_error)?
@@ -1901,14 +1938,34 @@ impl MaintenanceEngine {
             .ok_or_else(|| "maintenance-installation-missing".into())
     }
 
-    fn fault_at(&self, point: MaintenanceCommitPoint) -> Option<MaintenanceFault> {
+    fn fault_at(
+        &self,
+        host: &Arc<SimulatedHost>,
+        point: MaintenanceCommitPoint,
+    ) -> Option<MaintenanceFault> {
+        let occurrence = {
+            let mut model = host.model.lock().expect("simulated host lock poisoned");
+            let maintenance = model.maintenance.as_mut()?;
+            let next = maintenance
+                .fault_occurrences
+                .iter_mut()
+                .find(|(visited, _)| *visited == point)
+                .map(|(_, occurrence)| {
+                    *occurrence = occurrence.saturating_add(1);
+                    *occurrence
+                });
+            next.unwrap_or_else(|| {
+                maintenance.fault_occurrences.push((point, 1));
+                1
+            })
+        };
         self.configuration
             .lock()
             .expect("maintenance configuration lock poisoned")
             .faults
             .iter()
             .copied()
-            .find(|fault| fault.at == point)
+            .find(|fault| fault.at == point && u16::from(fault.occurrence) == occurrence)
     }
 
     fn emit(
@@ -2299,37 +2356,50 @@ impl SimulatedHost {
             && maintenance.helper_process == SyntheticOwnership::Mish
             && maintenance.socket == SyntheticOwnership::Mish
             && !maintenance.recovery_required;
-        let (availability, health, installed_version, installation_id, last_failure) = if healthy {
-            (
-                TunHelperAvailability::Available,
-                TunHelperHealth::Healthy,
-                Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.into()),
-                maintenance
-                    .installed
-                    .as_ref()
-                    .map(|installation| installation.installation_id.clone()),
-                None,
-            )
-        } else if maintenance.package == SyntheticPackageProjection::Absent {
-            (
-                TunHelperAvailability::PermissionRequired,
-                TunHelperHealth::NotInstalled,
-                None,
-                None,
-                None,
-            )
-        } else {
-            (
-                TunHelperAvailability::RepairRequired,
-                TunHelperHealth::Unknown,
-                None,
-                maintenance
-                    .installed
-                    .as_ref()
-                    .map(|installation| installation.installation_id.clone()),
-                Some(TunHelperFailureKind::OperationFailed),
-            )
-        };
+        let network_failure = network_ownership_failure(maintenance);
+        let (availability, health, installed_version, installation_id, last_failure) =
+            if let Some(failure) = network_failure {
+                (
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::Unknown,
+                    None,
+                    maintenance
+                        .installed
+                        .as_ref()
+                        .map(|installation| installation.installation_id.clone()),
+                    Some(failure),
+                )
+            } else if healthy {
+                (
+                    TunHelperAvailability::Available,
+                    TunHelperHealth::Healthy,
+                    Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.into()),
+                    maintenance
+                        .installed
+                        .as_ref()
+                        .map(|installation| installation.installation_id.clone()),
+                    None,
+                )
+            } else if maintenance.package == SyntheticPackageProjection::Absent {
+                (
+                    TunHelperAvailability::PermissionRequired,
+                    TunHelperHealth::NotInstalled,
+                    None,
+                    None,
+                    None,
+                )
+            } else {
+                (
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::Unknown,
+                    None,
+                    maintenance
+                        .installed
+                        .as_ref()
+                        .map(|installation| installation.installation_id.clone()),
+                    Some(TunHelperFailureKind::OperationFailed),
+                )
+            };
         Ok(TunHelperSnapshot {
             availability,
             expected_version: mish_runtime::TUN_HELPER_EXPECTED_VERSION.into(),
@@ -2425,7 +2495,7 @@ impl TunHelperPlatform for SimulatedHost {
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
         Box::pin(async move {
-            let (operation_id, revision, failure) = {
+            let (operation_id, revision, failure, ownership_failure, endpoint_owner, healthy) = {
                 let mut model = self.model.lock().expect("simulated host lock poisoned");
                 let maintenance = model.maintenance.as_mut().ok_or_else(|| {
                     TunHelperError::new(
@@ -2433,20 +2503,95 @@ impl TunHelperPlatform for SimulatedHost {
                         "Internal TUN simulation was not configured",
                     )
                 })?;
+                let healthy = maintenance.package == SyntheticPackageProjection::HealthyDisabled
+                    && !maintenance.recovery_required;
                 (
                     maintenance.active_operation.unwrap_or(0),
                     maintenance.active_operation.unwrap_or(0),
                     maintenance.tun_mutation_failure.take(),
+                    network_ownership_failure(maintenance),
+                    model.endpoint_owner,
+                    healthy,
                 )
             };
             if let Some(failure) = failure {
+                self.emit_maintenance(
+                    EffectKind::MaintenanceSetTun,
+                    EffectResultKind::FailedClosed,
+                    operation_id,
+                    revision,
+                )
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The simulated Internal TUN mutation failed closed",
+                    )
+                })?;
                 return Err(TunHelperError::new(
                     failure,
                     "The simulated Internal TUN mutation failed",
                 ));
             }
+            if let Some(failure) = ownership_failure {
+                self.emit_maintenance(
+                    EffectKind::MaintenanceSetTun,
+                    if failure == TunHelperFailureKind::ObservationForeign {
+                        EffectResultKind::ForeignOwned
+                    } else {
+                        EffectResultKind::Rejected
+                    },
+                    operation_id,
+                    revision,
+                )
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The simulated Internal TUN ownership check failed closed",
+                    )
+                })?;
+                return Err(TunHelperError::new(
+                    failure,
+                    "Foreign or partial synthetic network state owns Internal TUN effects",
+                ));
+            }
+            if endpoint_owner == ManagedEndpointOwner::Foreign {
+                self.emit_maintenance(
+                    EffectKind::MaintenanceSetTun,
+                    EffectResultKind::ForeignOwned,
+                    operation_id,
+                    revision,
+                )
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The simulated Internal TUN endpoint check failed closed",
+                    )
+                })?;
+                return Err(TunHelperError::new(
+                    TunHelperFailureKind::ObservationForeign,
+                    "A foreign synthetic Core owns the managed endpoint",
+                ));
+            }
+            if enabled && !healthy {
+                self.emit_maintenance(
+                    EffectKind::MaintenanceSetTun,
+                    EffectResultKind::Rejected,
+                    operation_id,
+                    revision,
+                )
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The simulated Internal TUN health check failed closed",
+                    )
+                })?;
+                return Err(TunHelperError::new(
+                    TunHelperFailureKind::ConnectionFailed,
+                    "The simulated Internal TUN helper is not healthy",
+                ));
+            }
             self.emit_maintenance(
-                EffectKind::MaintenanceObserve,
+                EffectKind::MaintenanceSetTun,
                 EffectResultKind::Applied,
                 operation_id,
                 revision,
@@ -2465,20 +2610,6 @@ impl TunHelperPlatform for SimulatedHost {
                 )
             })?;
             if enabled {
-                if maintenance.package != SyntheticPackageProjection::HealthyDisabled
-                    || maintenance.recovery_required
-                {
-                    return Err(TunHelperError::new(
-                        TunHelperFailureKind::ConnectionFailed,
-                        "The simulated Internal TUN helper is not healthy",
-                    ));
-                }
-                if [maintenance.tun, maintenance.route].contains(&SyntheticOwnership::Unrelated) {
-                    return Err(TunHelperError::new(
-                        TunHelperFailureKind::ObservationForeign,
-                        "Unrelated synthetic network state owns Internal TUN effects",
-                    ));
-                }
                 maintenance.core_process = SyntheticOwnership::Mish;
                 maintenance.tun = SyntheticOwnership::Mish;
                 maintenance.route = SyntheticOwnership::Mish;
@@ -2749,6 +2880,56 @@ fn component(owner: SyntheticOwnership) -> TunObservationComponentState {
     }
 }
 
+fn ensure_maintenance_network_disabled(observation: &TunNetworkObservation) -> Result<(), String> {
+    let now = tun_observation_now();
+    if !observation.is_fresh_at(now) {
+        return Err("maintenance-capture-observation-stale".into());
+    }
+    if [
+        observation.core,
+        observation.interface,
+        observation.routes,
+        observation.dns,
+    ]
+    .contains(&TunObservationComponentState::Foreign)
+    {
+        return Err("maintenance-capture-ownership-foreign".into());
+    }
+    if !observation.confirms_removal_safe_at(now) {
+        return Err("maintenance-capture-reconciliation-unconfirmed".into());
+    }
+    Ok(())
+}
+
+fn network_ownership_failure(maintenance: &MaintenanceModel) -> Option<TunHelperFailureKind> {
+    let owners = [
+        maintenance.core_process,
+        maintenance.tun,
+        maintenance.route,
+        maintenance.dns,
+    ];
+    if owners.contains(&SyntheticOwnership::Unrelated) {
+        Some(TunHelperFailureKind::ObservationForeign)
+    } else if owners.contains(&SyntheticOwnership::Partial) {
+        Some(TunHelperFailureKind::ObservationPartial)
+    } else {
+        None
+    }
+}
+
+fn clear_mish_owned_network(maintenance: &mut MaintenanceModel) {
+    for owner in [
+        &mut maintenance.core_process,
+        &mut maintenance.tun,
+        &mut maintenance.route,
+        &mut maintenance.dns,
+    ] {
+        if *owner == SyntheticOwnership::Mish {
+            *owner = SyntheticOwnership::Absent;
+        }
+    }
+}
+
 fn digest(value: char) -> String {
     value.to_string().repeat(64)
 }
@@ -2810,6 +2991,18 @@ fn helper_error(error: &MaintenanceHarnessError) -> TunHelperError {
         MaintenanceHarnessError::Rejected(code) if code.contains("permission") => (
             TunHelperFailureKind::PermissionDenied,
             "The simulated maintenance write was denied",
+        ),
+        MaintenanceHarnessError::Rejected(code) if code.contains("foreign") => (
+            TunHelperFailureKind::ObservationForeign,
+            "Foreign synthetic network ownership blocked maintenance",
+        ),
+        MaintenanceHarnessError::Rejected(code) if code.contains("partial") => (
+            TunHelperFailureKind::ObservationPartial,
+            "Partial synthetic network ownership blocked maintenance",
+        ),
+        MaintenanceHarnessError::Rejected(code) if code.contains("stale") => (
+            TunHelperFailureKind::ObservationStale,
+            "Stale synthetic network observation blocked maintenance",
         ),
         MaintenanceHarnessError::Rejected(code) if code.contains("downgrade") => (
             TunHelperFailureKind::VersionMismatch,
