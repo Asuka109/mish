@@ -8,6 +8,9 @@ pub enum Error {
     #[cfg(target_os = "android")]
     #[error("Android platform facts failed the checked wire schema")]
     PlatformFactsSchemaRejected,
+    #[cfg(target_os = "android")]
+    #[error("Android VPN lifecycle cleanup is still pending before replacement")]
+    LifecycleRetirementPending,
 }
 
 impl Serialize for Error {

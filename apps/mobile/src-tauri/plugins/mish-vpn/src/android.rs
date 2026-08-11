@@ -195,6 +195,27 @@ pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishV
 }
 
 impl<R: Runtime> MishVpn<R> {
+    async fn cleanup_before_replacement(&self, runtime: &LifecycleRuntime) -> Result<bool> {
+        let retirement = runtime.runner.shutdown().await;
+        if retirement.state.phase == crate::lifecycle::LifecyclePhase::Stopped
+            && retirement.state.platform_clean()
+        {
+            return Ok(true);
+        }
+        // A forced runner retirement cannot prove that a platform callback,
+        // descriptor, or service task is gone. Reconcile a fresh native
+        // snapshot before admitting a successor authority; otherwise keep
+        // replacement blocked and fail closed.
+        let facts: PlatformFacts = self
+            .handle
+            .run_mobile_plugin_async("getPlatformFacts", EmptyPayload {})
+            .await?;
+        facts
+            .validate()
+            .map_err(|_| crate::Error::PlatformFactsSchemaRejected)?;
+        Ok(LifecycleState::facts_platform_clean(&facts))
+    }
+
     async fn runtime(&self) -> Result<Arc<LifecycleRuntime>> {
         let mut lifecycle = self.lifecycle.lock().await;
         if let Some(runtime) = lifecycle.as_ref() {
@@ -205,11 +226,13 @@ impl<R: Runtime> MishVpn<R> {
                     runtime.runner.shutdown().await;
                     return Err(crate::Error::PlatformFactsSchemaRejected);
                 }
-                Some(_) => {}
+                Some(_) => {
+                    if !self.cleanup_before_replacement(runtime).await? {
+                        return Err(crate::Error::LifecycleRetirementPending);
+                    }
+                    lifecycle.take();
+                }
             }
-        }
-        if let Some(runtime) = lifecycle.take() {
-            runtime.runner.shutdown().await;
         }
         let runtime = Arc::new(self.initialize_lifecycle().await?);
         *lifecycle = Some(runtime.clone());
