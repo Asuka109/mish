@@ -89,6 +89,7 @@ const SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS: u8 = 20;
 const SYSTEM_PROXY_CONFIRMATION_INTERVAL: Duration = Duration::from_millis(25);
 const SYSTEM_PROXY_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BrowserPairingPanelPolicy {
     activates_application: bool,
@@ -97,6 +98,7 @@ struct BrowserPairingPanelPolicy {
     remains_visible_when_inactive: bool,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const BROWSER_PAIRING_PANEL_POLICY: BrowserPairingPanelPolicy = BrowserPairingPanelPolicy {
     activates_application: false,
     is_modal: false,
@@ -104,12 +106,14 @@ const BROWSER_PAIRING_PANEL_POLICY: BrowserPairingPanelPolicy = BrowserPairingPa
     remains_visible_when_inactive: true,
 };
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BrowserPairingPanelPresentation {
     Create,
     Reuse,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const fn browser_pairing_panel_presentation(
     has_retained_panel: bool,
 ) -> BrowserPairingPanelPresentation {
@@ -128,6 +132,7 @@ pub enum OpenBrowserError {
 }
 
 const SYSTEM_PROXY_SETTINGS_MINIMUM_MACOS_MAJOR_VERSION: isize = 13;
+#[cfg(target_os = "macos")]
 const SYSTEM_PROXY_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.Network-Settings.extension?Proxies";
 
@@ -744,7 +749,7 @@ impl MacOsLifecycleEventSource {
     pub fn new() -> Result<Self, MacOsLifecycleSourceError> {
         #[cfg(not(target_os = "macos"))]
         {
-            return Err(MacOsLifecycleSourceError::UnsupportedPlatform);
+            Err(MacOsLifecycleSourceError::UnsupportedPlatform)
         }
 
         #[cfg(target_os = "macos")]
@@ -787,6 +792,7 @@ impl Drop for MacOsLifecycleEventSource {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn publish_lifecycle_event(
     events: &broadcast::Sender<PlatformLifecycleEvent>,
     sequence: &AtomicU64,

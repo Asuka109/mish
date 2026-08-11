@@ -5,7 +5,10 @@ use std::{
     sync::Mutex,
 };
 
-use mish_runtime::{PROCESS_ICON_MAX_BYTES, ProcessIcon, ProcessIconResolver};
+use mish_runtime::{ProcessIcon, ProcessIconResolver};
+
+#[cfg(target_os = "macos")]
+use mish_runtime::PROCESS_ICON_MAX_BYTES;
 
 const CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const CACHE_MAX_ENTRIES: usize = 256;
