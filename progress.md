@@ -19,10 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A and 2B are fully integrated. The exact seven-task Wave 2B was created
-from published manifest baseline `4df0ebe`; all seven Luna Max Workers are now
-idle or unloaded after accepted ordinary merges and tracker read-back. No Worker
-or dispatch reservation is active, and all ten concurrency slots are unreserved.
+Waves 2A and 2B are fully integrated. The maintainer approved the exact
+seven-task AFK Wave 2C on 2026-08-11. Seven Luna Max Worker reservations are in
+`dispatching` state with identity/worktree backfill pending; no Worker has been
+created yet, and three concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -93,6 +93,24 @@ branch-protection mutation, or other hands-on acceptance.
 | #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | integrated | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | PR #472 merged as `ef7380e`; Profile 8/27/20, activation 52 passed/3 ignored, full local/remote gates passed; C2.3 remains open |
 | #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | integrated | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | PR #473 merged as `c9fa882`; Fast PR and Android gates plus post-merge `pnpm check:pr` passed; E1.3/E1.4 remain open and no real credentials or release mutation were used |
 | #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | integrated | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | PR #469 merged as `4bb72f6`; local policy/docs gates and remote CI passed, all criteria were checked, and Issue #443 closed without external setting mutation |
+
+## Wave 2C dispatch manifest
+
+The maintainer approved this exact seven-task AFK wave. Every entry uses model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. The wave
+authorizes no real credentials, signing, notarization, release publication,
+physical-host mutation, device/emulator acceptance, or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #440 B1.4 | `pending` | `pending` | dispatching | B1.3 integrated | Migrate Profile, Settings, Notifications, and providers to `RpcSessionAuthority` | Own RPC clients/providers only; preserve domain DTO authority and leave B1.5 cleanup/documentation separate; follow the transcript skill |
+| #441 C2.3 | `pending` | `pending` | dispatching | C2.2 integrated | Add filesystem adversarial, crash, restart, and transcript coverage for atomic Profile generations | Own Profile fault seams/tests only; use synthetic fixtures, record bounded transcripts, and read no real Profile content or credentials |
+| #442 E1.3 | `pending` | `pending` | dispatching | E1.2 integrated | Implement the secret-safe bounded signing/notarization runner and cleanup contract | Credential-free fixtures only; own signed-release runner/tests, perform no real signing/notarization/upload, and follow the transcript skill |
+| #444 G1.1 | `pending` | `pending` | dispatching | none | Add localized lazy-route/render failure recovery, bounded retry, and focused tests | Own route error-boundary/retry files; do not change shared providers, notification authority, or global design tokens |
+| #445 G2.1 | `pending` | `pending` | dispatching | none | Expose Traffic row details through an accessible action with keyboard/focus tests | Own Traffic page/presentation tests; do not change RPC clients/providers or global design tokens |
+| #446 G3.1 | `pending` | `pending` | dispatching | none | Report clipboard rejection through accessible non-blocking Events feedback | Own Events page-local feedback/tests; do not change notification RPC/provider authority or global design tokens |
+| #447 G4.1 | `pending` | `pending` | dispatching | none | Repair muted normal-text contrast at the narrowest token/usage owner with computed tests | Own global token/contrast changes; other UI Workers must not edit the selected token owner |
 
 ## Existing issue coordination
 
