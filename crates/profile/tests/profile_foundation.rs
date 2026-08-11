@@ -3,7 +3,10 @@ use std::{
     future::pending,
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -1000,6 +1003,194 @@ impl AtomicWriter for RecordingGenerationWriter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GenerationCrashPoint {
+    BeforeRename,
+    AfterRename,
+    BeforeGenerationsSync,
+    AfterGenerationsSync,
+    BeforePointerWrite,
+    AfterPointerWrite,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GenerationTranscriptResult {
+    Completed,
+    Failed,
+    Crashed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GenerationTranscriptEvent {
+    Invocation {
+        operation: RepositoryStorageOperation,
+    },
+    Result {
+        operation: RepositoryStorageOperation,
+        result: GenerationTranscriptResult,
+    },
+    ProcessCrashed {
+        point: GenerationCrashPoint,
+    },
+}
+
+#[derive(Clone)]
+struct BoundedGenerationTranscript {
+    events: Arc<Mutex<Vec<GenerationTranscriptEvent>>>,
+    overflowed: Arc<AtomicBool>,
+}
+
+impl BoundedGenerationTranscript {
+    const LIMIT: usize = 64;
+
+    fn new() -> Self {
+        Self {
+            events: Arc::new(Mutex::new(Vec::new())),
+            overflowed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn record(&self, event: GenerationTranscriptEvent) {
+        let mut events = self.events.lock().unwrap();
+        if events.len() < Self::LIMIT {
+            events.push(event);
+        } else {
+            self.overflowed.store(true, Ordering::Release);
+        }
+    }
+
+    fn events(&self) -> Vec<GenerationTranscriptEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+#[derive(Clone)]
+struct CrashGenerationWriter {
+    point: GenerationCrashPoint,
+    transcript: BoundedGenerationTranscript,
+    crashed: Arc<AtomicBool>,
+}
+
+impl CrashGenerationWriter {
+    fn new(point: GenerationCrashPoint, transcript: BoundedGenerationTranscript) -> Self {
+        Self {
+            point,
+            transcript,
+            crashed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn crash_before(&self, point: GenerationCrashPoint) {
+        if self.point == point && !self.crashed.swap(true, Ordering::AcqRel) {
+            self.transcript.record(GenerationTranscriptEvent::Result {
+                operation: operation_for_crash_point(point),
+                result: GenerationTranscriptResult::Crashed,
+            });
+            self.transcript
+                .record(GenerationTranscriptEvent::ProcessCrashed { point });
+            panic!("synthetic Profile generation process termination");
+        }
+    }
+
+    fn crash_after(&self, point: GenerationCrashPoint) {
+        if self.point == point && !self.crashed.swap(true, Ordering::AcqRel) {
+            self.transcript
+                .record(GenerationTranscriptEvent::ProcessCrashed { point });
+            panic!("synthetic Profile generation process termination");
+        }
+    }
+
+    fn result(
+        &self,
+        operation: RepositoryStorageOperation,
+        result: io::Result<()>,
+    ) -> io::Result<()> {
+        self.transcript.record(GenerationTranscriptEvent::Result {
+            operation,
+            result: if result.is_ok() {
+                GenerationTranscriptResult::Completed
+            } else {
+                GenerationTranscriptResult::Failed
+            },
+        });
+        result
+    }
+}
+
+fn operation_for_crash_point(point: GenerationCrashPoint) -> RepositoryStorageOperation {
+    match point {
+        GenerationCrashPoint::BeforeRename | GenerationCrashPoint::AfterRename => {
+            RepositoryStorageOperation::Rename
+        }
+        GenerationCrashPoint::BeforeGenerationsSync
+        | GenerationCrashPoint::AfterGenerationsSync => RepositoryStorageOperation::SyncDirectory,
+        GenerationCrashPoint::BeforePointerWrite | GenerationCrashPoint::AfterPointerWrite => {
+            RepositoryStorageOperation::AtomicFileWrite
+        }
+    }
+}
+
+impl AtomicWriter for CrashGenerationWriter {
+    fn write(&self, destination: &Path, contents: &[u8]) -> io::Result<()> {
+        let operation = RepositoryStorageOperation::AtomicFileWrite;
+        self.transcript
+            .record(GenerationTranscriptEvent::Invocation { operation });
+        let pointer = destination
+            .file_name()
+            .is_some_and(|name| name == "current.json");
+        if pointer {
+            self.crash_before(GenerationCrashPoint::BeforePointerWrite);
+        }
+        let result = StdAtomicWriter.write(destination, contents);
+        let result = self.result(operation, result);
+        if result.is_ok() && pointer {
+            self.crash_after(GenerationCrashPoint::AfterPointerWrite);
+        }
+        result
+    }
+
+    fn create_private_dir(&self, path: &Path) -> io::Result<()> {
+        let operation = RepositoryStorageOperation::CreatePrivateDirectory;
+        self.transcript
+            .record(GenerationTranscriptEvent::Invocation { operation });
+        self.result(operation, StdAtomicWriter.create_private_dir(path))
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let operation = RepositoryStorageOperation::Rename;
+        self.transcript
+            .record(GenerationTranscriptEvent::Invocation { operation });
+        self.crash_before(GenerationCrashPoint::BeforeRename);
+        let result = self.result(operation, StdAtomicWriter.rename(from, to));
+        if result.is_ok() {
+            self.crash_after(GenerationCrashPoint::AfterRename);
+        }
+        result
+    }
+
+    fn sync_directory(&self, path: &Path) -> io::Result<()> {
+        let operation = RepositoryStorageOperation::SyncDirectory;
+        self.transcript
+            .record(GenerationTranscriptEvent::Invocation { operation });
+        let generations = path.file_name().is_some_and(|name| name == "generations");
+        if generations {
+            self.crash_before(GenerationCrashPoint::BeforeGenerationsSync);
+        }
+        let result = self.result(operation, StdAtomicWriter.sync_directory(path));
+        if result.is_ok() && generations {
+            self.crash_after(GenerationCrashPoint::AfterGenerationsSync);
+        }
+        result
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        let operation = RepositoryStorageOperation::RemoveDirectory;
+        self.transcript
+            .record(GenerationTranscriptEvent::Invocation { operation });
+        self.result(operation, StdAtomicWriter.remove_dir_all(path))
+    }
+}
+
 #[tokio::test]
 async fn every_publication_boundary_failure_keeps_the_prior_current_generation() {
     let temp = TestDir::new();
@@ -1033,6 +1224,82 @@ async fn every_publication_boundary_failure_keeps_the_prior_current_generation()
         let events = writer.events.lock().unwrap();
         assert!(events.contains(&RepositoryStorageOperation::AtomicFileWrite));
         assert!(events.contains(&RepositoryStorageOperation::SyncDirectory));
+    }
+}
+
+#[tokio::test]
+async fn every_publication_crash_point_restarts_to_one_complete_generation() {
+    let points = [
+        GenerationCrashPoint::BeforeRename,
+        GenerationCrashPoint::AfterRename,
+        GenerationCrashPoint::BeforeGenerationsSync,
+        GenerationCrashPoint::AfterGenerationsSync,
+        GenerationCrashPoint::BeforePointerWrite,
+        GenerationCrashPoint::AfterPointerWrite,
+    ];
+
+    for point in points {
+        let temp = TestDir::new();
+        let root = temp.path().join("profile-store");
+        let repository = FileProfileRepository::new(root.clone());
+        let initial = record_for_repository(ProfileId::new()).await;
+        let initial_profile_id = initial.metadata.id.clone();
+        let initial_stage = repository.stage_generation(&[initial]).unwrap();
+        let initial_id = repository.publish_generation(initial_stage).unwrap();
+
+        let candidate = record_for_repository(ProfileId::new()).await;
+        let candidate_id = candidate.metadata.id.clone();
+        let staged = repository.stage_generation(&[candidate]).unwrap();
+        let transcript = BoundedGenerationTranscript::new();
+        let writer = CrashGenerationWriter::new(point, transcript.clone());
+        let failing = FileProfileRepository::with_writer(root.clone(), writer);
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = failing.publish_generation(staged);
+        }));
+        assert!(crashed.is_err(), "crash point {point:?} did not terminate");
+
+        let restarted = FileProfileRepository::new(root);
+        let current = restarted
+            .read_current_generation()
+            .unwrap()
+            .expect("restart must retain one complete current generation");
+        let expected_profile_id = if point == GenerationCrashPoint::AfterPointerWrite {
+            candidate_id
+        } else {
+            initial_profile_id
+        };
+        assert_eq!(current.profiles.len(), 1, "crash point {point:?}");
+        assert_eq!(current.profiles[0].metadata.id, expected_profile_id);
+        if point != GenerationCrashPoint::AfterPointerWrite {
+            assert_eq!(current.id, initial_id, "crash point {point:?}");
+        }
+
+        let events = transcript.events();
+        assert!(events.len() <= BoundedGenerationTranscript::LIMIT);
+        assert!(!transcript.overflowed.load(Ordering::Acquire));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                GenerationTranscriptEvent::ProcessCrashed { point: observed }
+                    if *observed == point
+            )
+        }));
+        let encoded = format!("{events:?}");
+        for forbidden in ["repository-secret", "private-password", "profile-store"] {
+            assert!(
+                !encoded.contains(forbidden),
+                "transcript leaked {forbidden}"
+            );
+        }
+        let invocations = events
+            .iter()
+            .filter(|event| matches!(event, GenerationTranscriptEvent::Invocation { .. }))
+            .count();
+        let results = events
+            .iter()
+            .filter(|event| matches!(event, GenerationTranscriptEvent::Result { .. }))
+            .count();
+        assert_eq!(invocations, results, "unpaired storage effect at {point:?}");
     }
 }
 
@@ -1129,4 +1396,144 @@ async fn current_pointer_and_generation_root_reject_symlinks() {
         repository.stage_generation(&[record]),
         Err(RepositoryError::UnsafeStoragePath)
     ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn every_private_generation_component_rejects_symlink_substitution() {
+    use std::os::unix::fs::symlink;
+
+    for component in [
+        "generation",
+        "manifest",
+        "profiles",
+        "profile",
+        "metadata",
+        "source",
+        "source-descriptor",
+        "revisions",
+        "revision",
+        "artifacts",
+        "artifact",
+        "patches",
+        "patch-index",
+        "patch-sets",
+        "patch-set",
+    ] {
+        let temp = TestDir::new();
+        let root = temp.path().join("profile-store");
+        let repository = FileProfileRepository::new(root.clone());
+        let profile_id = ProfileId::new();
+        let record = record_for_repository(profile_id.clone()).await;
+        let staged = repository
+            .stage_generation(std::slice::from_ref(&record))
+            .unwrap();
+        let generation_id = repository.publish_generation(staged).unwrap();
+        let generation = root
+            .join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+            .join(generation_id.as_str());
+        let profile = generation.join("profiles").join(profile_id.as_str());
+        let revision = profile
+            .join("source/revisions")
+            .join(format!("{}.yaml", record.metadata.revision.id.as_str()));
+        let artifact = profile.join("artifacts").join(format!(
+            "{}.yaml",
+            record.metadata.artifact.fingerprint.as_str()
+        ));
+        let patch_set = fs::read_dir(profile.join("patches/sets"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let outside_directory = temp.path().join("outside-directory");
+        fs::create_dir(&outside_directory).unwrap();
+        let outside_file = temp.path().join("outside-file");
+        fs::write(&outside_file, b"synthetic outside fixture").unwrap();
+
+        let (target, directory) = match component {
+            "generation" => (generation, true),
+            "manifest" => (generation.join("manifest.json"), false),
+            "profiles" => (generation.join("profiles"), true),
+            "profile" => (profile, true),
+            "metadata" => (profile.join("metadata.json"), false),
+            "source" => (profile.join("source"), true),
+            "source-descriptor" => (profile.join("source/source.json"), false),
+            "revisions" => (profile.join("source/revisions"), true),
+            "revision" => (revision, false),
+            "artifacts" => (profile.join("artifacts"), true),
+            "artifact" => (artifact, false),
+            "patches" => (profile.join("patches"), true),
+            "patch-index" => (profile.join("patches/index.json"), false),
+            "patch-sets" => (profile.join("patches/sets"), true),
+            "patch-set" => (patch_set, false),
+            _ => unreachable!(),
+        };
+        if directory {
+            fs::remove_dir_all(&target).unwrap();
+            symlink(&outside_directory, &target).unwrap();
+        } else {
+            fs::remove_file(&target).unwrap();
+            symlink(&outside_file, &target).unwrap();
+        }
+
+        assert!(
+            matches!(
+                repository.read_current_generation(),
+                Err(RepositoryError::UnsafeStoragePath)
+            ),
+            "component {component} must fail closed"
+        );
+    }
+}
+
+#[tokio::test]
+async fn generation_manifest_rejects_unknown_extra_duplicate_and_oversized_entries() {
+    let cases = ["unknown-field", "extra-entry", "duplicate-id", "oversized"];
+    for case in cases {
+        let temp = TestDir::new();
+        let root = temp.path().join("profile-store");
+        let repository = FileProfileRepository::new(root.clone());
+        let profile_id = ProfileId::new();
+        let record = record_for_repository(profile_id.clone()).await;
+        let staged = repository.stage_generation(&[record]).unwrap();
+        let generation_id = repository.publish_generation(staged).unwrap();
+        let generation = root
+            .join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+            .join(generation_id.as_str());
+        let manifest = generation.join("manifest.json");
+
+        match case {
+            "unknown-field" => {
+                let mut value: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+                value["unexpected"] = serde_json::json!("synthetic");
+                fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+            }
+            "extra-entry" => {
+                fs::create_dir(generation.join("profiles").join(ProfileId::new().as_str()))
+                    .unwrap();
+            }
+            "duplicate-id" => {
+                let mut value: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+                value["profileIds"] = serde_json::json!([profile_id.as_str(), profile_id.as_str()]);
+                fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+            }
+            "oversized" => {
+                fs::write(&manifest, vec![b'x'; 128 * 1024 + 1]).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        assert!(
+            matches!(
+                repository.read_current_generation(),
+                Err(RepositoryError::CorruptData {
+                    component: RepositoryComponent::GenerationManifest
+                })
+            ),
+            "manifest case {case} must fail closed"
+        );
+    }
 }

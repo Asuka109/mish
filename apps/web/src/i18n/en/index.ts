@@ -1393,6 +1393,7 @@ const en = {
       "Clears only this WebView's bounded memory buffer. Mihomo logs, configuration, runtime state, and files are unchanged.",
     connectingNotice: "Connecting to the desktop Controller event source.",
     copied: "Copied safe event text",
+    copyFailed: "Could not copy safe event text. Clipboard access was denied or unavailable.",
     copyEvent: "Copy Safe Event Text",
     description: "Bounded, redacted application and Mihomo Controller observations.",
     fixtureNotice:

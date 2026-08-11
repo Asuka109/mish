@@ -4614,6 +4614,10 @@ type RootTranslation = {
 		 */
 		copied: string
 		/**
+		 * C​o​u​l​d​ ​n​o​t​ ​c​o​p​y​ ​s​a​f​e​ ​e​v​e​n​t​ ​t​e​x​t​.​ ​C​l​i​p​b​o​a​r​d​ ​a​c​c​e​s​s​ ​w​a​s​ ​d​e​n​i​e​d​ ​o​r​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		copyFailed: string
+		/**
 		 * C​o​p​y​ ​S​a​f​e​ ​E​v​e​n​t​ ​T​e​x​t
 		 */
 		copyEvent: string
@@ -9788,6 +9792,10 @@ export type TranslationFunctions = {
 		 * Copied safe event text
 		 */
 		copied: () => LocalizedString
+		/**
+		 * Could not copy safe event text. Clipboard access was denied or unavailable.
+		 */
+		copyFailed: () => LocalizedString
 		/**
 		 * Copy Safe Event Text
 		 */
