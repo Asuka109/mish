@@ -11,6 +11,10 @@ use super::{
     CapturePreflight, CaptureRecoveryAction, CaptureRequest, CaptureRuntimeStatus,
     CaptureTransitionError, ConfirmedCaptureObserver,
 };
+#[cfg(feature = "test-correlation")]
+use super::{
+    CaptureLifecycleEffect, CaptureLifecycleEvent, CaptureLifecycleObserver, CaptureLifecycleResult,
+};
 
 const MUTATION_EFFECT_ID: u64 = 1;
 const OBSERVATION_EFFECT_ID: u64 = 2;
@@ -267,6 +271,7 @@ pub(super) enum CaptureInput {
     },
     TaskFailed {
         correlation: Correlation,
+        failure: TaskFailure,
     },
     TaskCancelled {
         correlation: Correlation,
@@ -716,11 +721,11 @@ impl CaptureMachine {
         &self,
         stable: StableCapture,
         mut operation: ActiveOperation,
+        error: CaptureTransitionError,
     ) -> Transition<CaptureState, CaptureEffect, CaptureTransitionError> {
         let correlation = operation.correlation.with_effect(FINALIZER_EFFECT_ID);
         let request = operation.request.clone();
-        operation.pending.capture_operation.failure =
-            Some(super::CaptureFailureKind::RuntimeTransition);
+        operation.pending.capture_operation.failure = Some(error.kind);
         operation.pending.capture_operation.phase = CaptureOperationPhase::Finalizing;
         Transition::EffectEmitting {
             state: CaptureState::Transitioning(TransitioningCapture {
@@ -736,6 +741,24 @@ impl CaptureMachine {
             }),
         }
     }
+}
+
+fn task_failure_error(failure: TaskFailure) -> CaptureTransitionError {
+    let (kind, message) = match failure {
+        TaskFailure::Aborted => (
+            super::CaptureFailureKind::RuntimeTransition,
+            "Capture operation was aborted before completion",
+        ),
+        TaskFailure::CompletionConflict => (
+            super::CaptureFailureKind::RuntimeTransition,
+            "Capture operation completion was retired after its authority changed",
+        ),
+        TaskFailure::Panicked => (
+            super::CaptureFailureKind::RuntimeTransition,
+            "Capture operation panicked before completion",
+        ),
+    };
+    CaptureTransitionError::new(kind, message)
 }
 
 impl Machine for CaptureMachine {
@@ -1319,8 +1342,22 @@ impl Machine for CaptureMachine {
                     }),
                 }
             }
-            CaptureInput::TaskFailed { correlation }
-            | CaptureInput::TaskCancelled { correlation } => {
+            CaptureInput::TaskFailed {
+                correlation,
+                failure,
+            } => {
+                if correlation.operation_id == "shutdown" {
+                    let CaptureState::ShuttingDown(current) = state else {
+                        return Transition::Retired;
+                    };
+                    if current.correlation != *correlation {
+                        return Transition::Retired;
+                    }
+                    return Transition::Failed(CaptureState::Retired(RetiredCapture {
+                        error: Some(task_failure_error(*failure)),
+                        projection: current.projection.clone(),
+                    }));
+                }
                 let Some(operation) = state.active_operation() else {
                     return Transition::Retired;
                 };
@@ -1352,7 +1389,48 @@ impl Machine for CaptureMachine {
                     CaptureState::Reconciling(current) => current.stable.clone(),
                     _ => unreachable!(),
                 };
-                self.finalizer(stable, operation.clone())
+                self.finalizer(stable, operation.clone(), task_failure_error(*failure))
+            }
+            CaptureInput::TaskCancelled { correlation } => {
+                let Some(operation) = state.active_operation() else {
+                    return Transition::Retired;
+                };
+                if !operation.correlation.same_operation(correlation) {
+                    return Transition::Retired;
+                }
+                if let CaptureState::Transitioning(current) = state
+                    && current.stage == TransitionStage::Preflighting
+                    && correlation.effect_id == PREFLIGHT_EFFECT_ID
+                    && let Some(error) = &current.deferred_failure
+                {
+                    if error.kind == super::CaptureFailureKind::RollbackFailed {
+                        return Transition::RecoveryRequired(self.recovery(
+                            current.stable.clone(),
+                            &current.operation,
+                            current.operation.previous.clone(),
+                            error.clone(),
+                        ));
+                    }
+                    return Transition::Failed(self.failed(
+                        current.stable.clone(),
+                        &current.operation,
+                        current.operation.previous.clone(),
+                        error.clone(),
+                    ));
+                }
+                let stable = match state {
+                    CaptureState::Transitioning(current) => current.stable.clone(),
+                    CaptureState::Reconciling(current) => current.stable.clone(),
+                    _ => unreachable!(),
+                };
+                self.finalizer(
+                    stable,
+                    operation.clone(),
+                    CaptureTransitionError::new(
+                        super::CaptureFailureKind::RuntimeTransition,
+                        "Capture operation was cancelled before completion",
+                    ),
+                )
             }
             CaptureInput::Finalized {
                 correlation,
@@ -1440,10 +1518,17 @@ impl Machine for CaptureMachine {
                     .ok()
                     .cloned()
                     .unwrap_or_else(|| current.projection.clone());
-                Transition::Cancelled(CaptureState::Retired(RetiredCapture {
-                    error: result.as_ref().err().cloned(),
-                    projection,
-                }))
+                if result.is_ok() {
+                    Transition::Cancelled(CaptureState::Retired(RetiredCapture {
+                        error: None,
+                        projection,
+                    }))
+                } else {
+                    Transition::Failed(CaptureState::Retired(RetiredCapture {
+                        error: result.as_ref().err().cloned(),
+                        projection,
+                    }))
+                }
             }
         }
     }
@@ -1499,8 +1584,11 @@ impl Machine for CaptureMachine {
         }
     }
 
-    fn task_failed(&self, correlation: Correlation, _failure: TaskFailure) -> Self::Input {
-        CaptureInput::TaskFailed { correlation }
+    fn task_failed(&self, correlation: Correlation, failure: TaskFailure) -> Self::Input {
+        CaptureInput::TaskFailed {
+            correlation,
+            failure,
+        }
     }
 
     fn shutdown(&self) -> Self::Input {
@@ -1516,6 +1604,333 @@ pub(super) struct CaptureProjectionObserver {
     pub confirmed: Arc<std::sync::Mutex<Option<ConfirmedCaptureObserver>>>,
     pub machine_updates: tokio::sync::watch::Sender<u64>,
     pub updates: tokio::sync::broadcast::Sender<CaptureRuntimeStatus>,
+    #[cfg(feature = "test-correlation")]
+    pub lifecycle: Arc<std::sync::Mutex<Option<CaptureLifecycleObserver>>>,
+    #[cfg(feature = "test-correlation")]
+    pub lifecycle_scope_epoch: u64,
+}
+
+#[cfg(feature = "test-correlation")]
+impl CaptureProjectionObserver {
+    fn emit_lifecycle(
+        &self,
+        previous: &CaptureState,
+        input: &CaptureInput,
+        current: &CaptureState,
+        disposition: Disposition,
+    ) {
+        let mut events = Vec::new();
+        let mut emit = |effect, result, correlation: Option<&Correlation>, effect_id| {
+            let operation_id = correlation
+                .and_then(|correlation| {
+                    previous
+                        .active_operation()
+                        .filter(|operation| operation.correlation.same_operation(correlation))
+                        .or_else(|| {
+                            current.active_operation().filter(|operation| {
+                                operation.correlation.same_operation(correlation)
+                            })
+                        })
+                        .and_then(|operation| operation.public_operation_id.parse::<u64>().ok())
+                })
+                .or_else(|| {
+                    current
+                        .projection()
+                        .capture_operation
+                        .operation_id
+                        .as_deref()
+                        .and_then(|operation| operation.parse::<u64>().ok())
+                });
+            events.push(CaptureLifecycleEvent {
+                admitted_revision: correlation.map_or_else(
+                    || current.revision(),
+                    |correlation| correlation.admitted_revision,
+                ),
+                effect_id,
+                effect,
+                operation_id,
+                result,
+                scope_epoch: self.lifecycle_scope_epoch,
+            });
+        };
+
+        match input {
+            CaptureInput::Start { mode, .. } => {
+                let correlation = current
+                    .active_operation()
+                    .map(|operation| &operation.correlation);
+                if *mode == TransitionMode::RuntimeReplacement {
+                    emit(
+                        CaptureLifecycleEffect::Replacement,
+                        CaptureLifecycleResult::Started,
+                        correlation,
+                        MUTATION_EFFECT_ID,
+                    );
+                } else {
+                    emit(
+                        CaptureLifecycleEffect::Operation,
+                        CaptureLifecycleResult::Started,
+                        correlation,
+                        MUTATION_EFFECT_ID,
+                    );
+                }
+            }
+            CaptureInput::ExecuteReserved { .. } => {
+                let correlation = current
+                    .active_operation()
+                    .map(|operation| &operation.correlation);
+                emit(
+                    CaptureLifecycleEffect::Operation,
+                    CaptureLifecycleResult::Started,
+                    correlation,
+                    MUTATION_EFFECT_ID,
+                );
+            }
+            CaptureInput::ObservationFinished {
+                correlation,
+                outcome,
+            } => {
+                let replacement = previous
+                    .active_operation()
+                    .is_some_and(|operation| operation.mode == TransitionMode::RuntimeReplacement);
+                let result = if outcome.error.is_some() {
+                    CaptureLifecycleResult::CleanupFailed
+                } else if replacement {
+                    CaptureLifecycleResult::Replaced
+                } else {
+                    CaptureLifecycleResult::Applied
+                };
+                emit(
+                    if replacement {
+                        CaptureLifecycleEffect::Replacement
+                    } else {
+                        CaptureLifecycleEffect::Operation
+                    },
+                    result,
+                    Some(correlation),
+                    OBSERVATION_EFFECT_ID,
+                );
+            }
+            CaptureInput::MarkFinalizing { error, operation }
+                if error.kind == super::CaptureFailureKind::RuntimeTransition =>
+            {
+                emit(
+                    CaptureLifecycleEffect::Cancellation,
+                    CaptureLifecycleResult::Started,
+                    Some(&operation.correlation),
+                    operation.correlation.effect_id,
+                );
+                emit(
+                    CaptureLifecycleEffect::Cancellation,
+                    CaptureLifecycleResult::Cancelled,
+                    Some(&operation.correlation),
+                    operation.correlation.effect_id,
+                );
+                emit(
+                    CaptureLifecycleEffect::Finalization,
+                    CaptureLifecycleResult::Started,
+                    Some(&operation.correlation),
+                    FINALIZER_EFFECT_ID,
+                );
+            }
+            CaptureInput::TaskFailed {
+                correlation,
+                failure,
+            } => {
+                let shutdown = correlation.operation_id == "shutdown";
+                let result = task_failure_result(*failure);
+                if shutdown {
+                    emit(
+                        CaptureLifecycleEffect::Shutdown,
+                        result,
+                        Some(correlation),
+                        SHUTDOWN_EFFECT_ID,
+                    );
+                } else if correlation.effect_id == FINALIZER_EFFECT_ID {
+                    emit(
+                        CaptureLifecycleEffect::Finalization,
+                        result,
+                        Some(correlation),
+                        FINALIZER_EFFECT_ID,
+                    );
+                    if matches!(
+                        current,
+                        CaptureState::Transitioning(TransitioningCapture {
+                            stage: TransitionStage::Finalizing,
+                            ..
+                        })
+                    ) {
+                        emit(
+                            CaptureLifecycleEffect::Finalization,
+                            CaptureLifecycleResult::Started,
+                            Some(correlation),
+                            FINALIZER_EFFECT_ID,
+                        );
+                    }
+                } else {
+                    let replacement = previous.active_operation().is_some_and(|operation| {
+                        operation.mode == TransitionMode::RuntimeReplacement
+                    });
+                    emit(
+                        if replacement {
+                            CaptureLifecycleEffect::Replacement
+                        } else {
+                            CaptureLifecycleEffect::Operation
+                        },
+                        result,
+                        Some(correlation),
+                        correlation.effect_id,
+                    );
+                    if matches!(
+                        current,
+                        CaptureState::Transitioning(TransitioningCapture {
+                            stage: TransitionStage::Finalizing,
+                            ..
+                        })
+                    ) {
+                        emit(
+                            CaptureLifecycleEffect::Finalization,
+                            CaptureLifecycleResult::Started,
+                            Some(correlation),
+                            FINALIZER_EFFECT_ID,
+                        );
+                    }
+                }
+            }
+            CaptureInput::TaskCancelled { correlation } => {
+                if correlation.effect_id == FINALIZER_EFFECT_ID {
+                    emit(
+                        CaptureLifecycleEffect::Finalization,
+                        CaptureLifecycleResult::Cancelled,
+                        Some(correlation),
+                        FINALIZER_EFFECT_ID,
+                    );
+                    if matches!(
+                        current,
+                        CaptureState::Transitioning(TransitioningCapture {
+                            stage: TransitionStage::Finalizing,
+                            ..
+                        })
+                    ) {
+                        emit(
+                            CaptureLifecycleEffect::Finalization,
+                            CaptureLifecycleResult::Started,
+                            Some(correlation),
+                            FINALIZER_EFFECT_ID,
+                        );
+                    }
+                } else {
+                    emit(
+                        CaptureLifecycleEffect::Cancellation,
+                        CaptureLifecycleResult::Cancelled,
+                        Some(correlation),
+                        correlation.effect_id,
+                    );
+                    if matches!(
+                        current,
+                        CaptureState::Transitioning(TransitioningCapture {
+                            stage: TransitionStage::Finalizing,
+                            ..
+                        })
+                    ) {
+                        emit(
+                            CaptureLifecycleEffect::Finalization,
+                            CaptureLifecycleResult::Started,
+                            Some(correlation),
+                            FINALIZER_EFFECT_ID,
+                        );
+                    }
+                }
+            }
+            CaptureInput::Finalized {
+                correlation,
+                outcome,
+            } => emit(
+                CaptureLifecycleEffect::Finalization,
+                if outcome.error.is_some() {
+                    CaptureLifecycleResult::CleanupFailed
+                } else {
+                    CaptureLifecycleResult::Completed
+                },
+                Some(correlation),
+                FINALIZER_EFFECT_ID,
+            ),
+            CaptureInput::Shutdown => {
+                if let Some(operation) = previous.active_operation() {
+                    emit(
+                        CaptureLifecycleEffect::Cancellation,
+                        CaptureLifecycleResult::Started,
+                        Some(&operation.correlation),
+                        operation.correlation.effect_id,
+                    );
+                    emit(
+                        CaptureLifecycleEffect::Cancellation,
+                        CaptureLifecycleResult::Cancelled,
+                        Some(&operation.correlation),
+                        operation.correlation.effect_id,
+                    );
+                }
+                let correlation = state_shutdown_correlation(current, previous);
+                emit(
+                    CaptureLifecycleEffect::Shutdown,
+                    CaptureLifecycleResult::Started,
+                    correlation,
+                    SHUTDOWN_EFFECT_ID,
+                );
+            }
+            CaptureInput::ShutdownFinished {
+                correlation,
+                result,
+            } => emit(
+                CaptureLifecycleEffect::Shutdown,
+                if result.is_ok() {
+                    CaptureLifecycleResult::Completed
+                } else {
+                    CaptureLifecycleResult::CleanupFailed
+                },
+                Some(correlation),
+                SHUTDOWN_EFFECT_ID,
+            ),
+            _ => {}
+        }
+
+        if matches!(disposition, Disposition::Rejected) {
+            events.clear();
+        }
+        let observer = self
+            .lifecycle
+            .lock()
+            .expect("Capture lifecycle observer lock poisoned")
+            .clone();
+        if let Some(observer) = observer {
+            for event in events {
+                observer(event);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "test-correlation")]
+fn task_failure_result(failure: TaskFailure) -> CaptureLifecycleResult {
+    match failure {
+        TaskFailure::Aborted => CaptureLifecycleResult::Aborted,
+        TaskFailure::CompletionConflict => CaptureLifecycleResult::CompletionConflict,
+        TaskFailure::Panicked => CaptureLifecycleResult::Panicked,
+    }
+}
+
+#[cfg(feature = "test-correlation")]
+fn state_shutdown_correlation<'a>(
+    current: &'a CaptureState,
+    previous: &'a CaptureState,
+) -> Option<&'a Correlation> {
+    match current {
+        CaptureState::ShuttingDown(state) => Some(&state.correlation),
+        _ => match previous {
+            CaptureState::ShuttingDown(state) => Some(&state.correlation),
+            _ => None,
+        },
+    }
 }
 
 impl TransitionObserver<CaptureMachine> for CaptureProjectionObserver {
@@ -1526,6 +1941,8 @@ impl TransitionObserver<CaptureMachine> for CaptureProjectionObserver {
         current: &CaptureState,
         _disposition: Disposition,
     ) {
+        #[cfg(feature = "test-correlation")]
+        self.emit_lifecycle(previous, _input, current, _disposition);
         self.machine_updates.send_modify(|revision| {
             *revision = revision.saturating_add(1);
         });
@@ -1560,7 +1977,7 @@ mod tests {
         time::Duration,
     };
 
-    use mish_state_machine::{Disposition, RunnerConfig, spawn_runner};
+    use mish_state_machine::{Disposition, RetirementTerminal, RunnerConfig, spawn_runner};
     use tokio::sync::{Notify, watch};
 
     use super::*;
@@ -2158,11 +2575,195 @@ mod tests {
         }
     }
 
+    #[test]
+    fn shutdown_failures_retire_with_a_failed_disposition() {
+        let machine = machine();
+        let shutdown = CaptureInput::Shutdown;
+        let shutting_down = machine.reduce(&initial(), &shutdown);
+        assert_eq!(shutting_down.disposition(), Disposition::EffectEmitting);
+        let shutting_down = transition_state(shutting_down);
+        let correlation = match &shutting_down {
+            CaptureState::ShuttingDown(state) => state.correlation.clone(),
+            _ => panic!("shutdown must enter the shutting-down state"),
+        };
+
+        let task_failed = machine.reduce(
+            &shutting_down,
+            &machine.task_failed(correlation.clone(), TaskFailure::Panicked),
+        );
+        assert_eq!(task_failed.disposition(), Disposition::Failed);
+        let CaptureState::Retired(state) = transition_state(task_failed) else {
+            panic!("shutdown task failure must retire Capture");
+        };
+        assert_eq!(
+            state.error.as_ref().map(|error| error.kind),
+            Some(CaptureFailureKind::RuntimeTransition)
+        );
+
+        let shutdown_failed = machine.reduce(
+            &shutting_down,
+            &CaptureInput::ShutdownFinished {
+                correlation,
+                result: Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ObservationFailed,
+                    "shutdown observation failed",
+                )),
+            },
+        );
+        assert_eq!(shutdown_failed.disposition(), Disposition::Failed);
+        let CaptureState::Retired(state) = transition_state(shutdown_failed) else {
+            panic!("shutdown result failure must retire Capture");
+        };
+        assert_eq!(
+            state.error.as_ref().map(|error| error.kind),
+            Some(CaptureFailureKind::ObservationFailed)
+        );
+    }
+
+    #[cfg(feature = "test-correlation")]
+    #[test]
+    fn lifecycle_observer_keeps_terminal_failure_and_replacement_semantics_typed() {
+        let events = Arc::new(Mutex::new(Vec::<CaptureLifecycleEvent>::new()));
+        let sink = events.clone();
+        let (updates, _) = tokio::sync::broadcast::channel(8);
+        let (machine_updates, _) = watch::channel(0);
+        let observer = CaptureProjectionObserver {
+            confirmed: Arc::new(Mutex::new(None)),
+            machine_updates,
+            updates,
+            lifecycle: Arc::new(Mutex::new(Some(Arc::new(move |event| {
+                sink.lock()
+                    .expect("lifecycle event lock poisoned")
+                    .push(event);
+            })))),
+            lifecycle_scope_epoch: 7,
+        };
+        let machine = machine();
+        let start = CaptureInput::Start {
+            core_healthy: true,
+            mode: TransitionMode::RuntimeReplacement,
+            operation_prefix: None,
+            preflight: None,
+            request: request(),
+        };
+        let initial = initial();
+        let transitioning = transition_state(machine.reduce(&initial, &start));
+        observer.transitioned(
+            &initial,
+            &start,
+            &transitioning,
+            Disposition::EffectEmitting,
+        );
+        let operation = transitioning.active_operation().unwrap().clone();
+
+        for (failure, expected) in [
+            (TaskFailure::Panicked, CaptureLifecycleResult::Panicked),
+            (TaskFailure::Aborted, CaptureLifecycleResult::Aborted),
+            (
+                TaskFailure::CompletionConflict,
+                CaptureLifecycleResult::CompletionConflict,
+            ),
+        ] {
+            events
+                .lock()
+                .expect("lifecycle event lock poisoned")
+                .clear();
+            let input = machine.task_failed(
+                operation.correlation.with_effect(MUTATION_EFFECT_ID),
+                failure,
+            );
+            let transition = machine.reduce(&transitioning, &input);
+            let finalizing = transition_state(transition);
+            observer.transitioned(
+                &transitioning,
+                &input,
+                &finalizing,
+                Disposition::EffectEmitting,
+            );
+            let events = events.lock().expect("lifecycle event lock poisoned");
+            assert!(events.iter().any(|event| {
+                event.effect == CaptureLifecycleEffect::Replacement
+                    && event.result == expected
+                    && event.operation_id == Some(1)
+            }));
+            assert!(events.iter().any(|event| {
+                event.effect == CaptureLifecycleEffect::Finalization
+                    && event.result == CaptureLifecycleResult::Started
+            }));
+        }
+
+        events
+            .lock()
+            .expect("lifecycle event lock poisoned")
+            .clear();
+        let cancelled = CaptureInput::TaskCancelled {
+            correlation: operation.correlation.with_effect(MUTATION_EFFECT_ID),
+        };
+        let cancellation = machine.reduce(&transitioning, &cancelled);
+        let finalizing = transition_state(cancellation);
+        observer.transitioned(
+            &transitioning,
+            &cancelled,
+            &finalizing,
+            Disposition::EffectEmitting,
+        );
+        {
+            let events = events.lock().expect("lifecycle event lock poisoned");
+            assert!(events.iter().any(|event| {
+                event.effect == CaptureLifecycleEffect::Cancellation
+                    && event.result == CaptureLifecycleResult::Cancelled
+            }));
+            assert!(events.iter().any(|event| {
+                event.effect == CaptureLifecycleEffect::Finalization
+                    && event.result == CaptureLifecycleResult::Started
+            }));
+        }
+
+        events
+            .lock()
+            .expect("lifecycle event lock poisoned")
+            .clear();
+        let operation_failure = machine.task_failed(
+            operation.correlation.with_effect(MUTATION_EFFECT_ID),
+            TaskFailure::Panicked,
+        );
+        let finalizing = transition_state(machine.reduce(&transitioning, &operation_failure));
+        let finalizer_failure = machine.task_failed(
+            operation.correlation.with_effect(FINALIZER_EFFECT_ID),
+            TaskFailure::Panicked,
+        );
+        let retry = machine.reduce(&finalizing, &finalizer_failure);
+        assert_eq!(retry.disposition(), Disposition::EffectEmitting);
+        let retry = transition_state(retry);
+        observer.transitioned(
+            &finalizing,
+            &finalizer_failure,
+            &retry,
+            Disposition::EffectEmitting,
+        );
+        let events = events.lock().expect("lifecycle event lock poisoned");
+        assert!(events.iter().any(|event| {
+            event.effect == CaptureLifecycleEffect::Finalization
+                && event.result == CaptureLifecycleResult::Panicked
+        }));
+        assert!(events.iter().any(|event| {
+            event.effect == CaptureLifecycleEffect::Finalization
+                && event.result == CaptureLifecycleResult::Started
+        }));
+        assert!(!events.iter().any(|event| {
+            matches!(
+                event.effect,
+                CaptureLifecycleEffect::Operation | CaptureLifecycleEffect::Replacement
+            ) && event.result == CaptureLifecycleResult::Panicked
+        }));
+    }
+
     #[derive(Clone, Copy)]
     enum TestMode {
         Barrier,
         Panic,
         PausedObservation,
+        ShutdownPanic,
     }
 
     struct TestEffects {
@@ -2215,7 +2816,9 @@ mod tests {
                         Self::outcome(previous)
                     }
                     TestMode::Panic => panic!("injected Capture mutation panic"),
-                    TestMode::PausedObservation => Self::outcome(previous),
+                    TestMode::PausedObservation | TestMode::ShutdownPanic => {
+                        Self::outcome(previous)
+                    }
                 }
             })
         }
@@ -2275,6 +2878,11 @@ mod tests {
                     + 'static,
             >,
         > {
+            if matches!(self.mode, TestMode::ShutdownPanic) {
+                return Box::pin(async {
+                    panic!("injected Capture shutdown panic");
+                });
+            }
             Box::pin(future::ready(Ok(previous)))
         }
     }
@@ -2305,6 +2913,10 @@ mod tests {
                 confirmed: Arc::new(Mutex::new(None)),
                 machine_updates,
                 updates,
+                #[cfg(feature = "test-correlation")]
+                lifecycle: Arc::new(Mutex::new(None)),
+                #[cfg(feature = "test-correlation")]
+                lifecycle_scope_epoch: 7,
             }),
             RunnerConfig {
                 shutdown_grace: Duration::from_millis(20),
@@ -2344,6 +2956,21 @@ mod tests {
         let retired = runner.shutdown().await;
         assert_eq!(retired.disposition, Disposition::EffectEmitting);
         assert!(matches!(retired.state, CaptureState::Retired(_)));
+    }
+
+    #[tokio::test]
+    async fn shutdown_panic_is_reported_as_cleanup_failed_terminal() {
+        let (runner, _release, _started, _updates) = runner(TestMode::ShutdownPanic);
+        let retired = runner.shutdown().await;
+        assert_eq!(retired.disposition, Disposition::EffectEmitting);
+        assert!(matches!(
+            retired.terminal,
+            RetirementTerminal::CleanupFailed(Disposition::Failed)
+        ));
+        assert!(matches!(
+            retired.state,
+            CaptureState::Retired(RetiredCapture { error: Some(_), .. })
+        ));
     }
 
     #[tokio::test]
