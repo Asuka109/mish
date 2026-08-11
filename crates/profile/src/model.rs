@@ -5,13 +5,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
 
 pub const PROFILE_SCHEMA_VERSION: u32 = 2;
 pub const NORMALIZED_ARTIFACT_SCHEMA_VERSION: u32 = 1;
+pub const PROFILE_SUBSCRIPTION_SUMMARY_MAX_DISPLAY_BYTES: usize = 255;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -246,27 +247,14 @@ impl ProfileSource {
         }
     }
 
-    pub fn safe_summary(&self) -> SourceSummary {
+    pub fn safe_summary(&self) -> ProfileSubscriptionSummary {
         match self {
-            Self::LocalFile { path } => SourceSummary {
+            Self::LocalFile { path } => ProfileSubscriptionSummary {
                 display: path.display_name(),
                 source_type: ProfileSourceType::LocalFile,
             },
-            Self::Https { url } => SourceSummary {
+            Self::Https { url } => ProfileSubscriptionSummary {
                 display: url.redacted(),
-                source_type: ProfileSourceType::Https,
-            },
-        }
-    }
-
-    pub fn display_summary(&self) -> SourceSummary {
-        match self {
-            Self::LocalFile { path } => SourceSummary {
-                display: path.display_name(),
-                source_type: ProfileSourceType::LocalFile,
-            },
-            Self::Https { url } => SourceSummary {
-                display: url.expose().to_owned(),
                 source_type: ProfileSourceType::Https,
             },
         }
@@ -301,11 +289,135 @@ pub enum SourceValidationError {
     UrlFragmentUnsupported,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceSummary {
+/// The only source locator allowed across the public Profile boundary.
+///
+/// `ProfileSource` retains the complete HTTPS URL privately for refreshes, but
+/// every public snapshot and structured event must use this redacted projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProfileSubscriptionSummary {
     pub display: String,
     pub source_type: ProfileSourceType,
+}
+
+impl ProfileSubscriptionSummary {
+    /// Returns whether this value is safe to cross the public Profile boundary.
+    pub fn is_redacted(&self) -> bool {
+        if self.display.is_empty()
+            || self.display.len() > PROFILE_SUBSCRIPTION_SUMMARY_MAX_DISPLAY_BYTES
+            || self.display.chars().any(char::is_control)
+        {
+            return false;
+        }
+
+        match self.source_type {
+            ProfileSourceType::LocalFile => {
+                !self
+                    .display
+                    .chars()
+                    .any(|character| matches!(character, '/' | '\\' | ':' | '?' | '#'))
+                    && !self.display.contains("://")
+                    && !self.display.contains("..")
+            }
+            ProfileSourceType::Https => {
+                let Ok(url) = Url::parse(&self.display) else {
+                    return false;
+                };
+                url.scheme() == "https"
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.host_str().is_some()
+                    && url.path() == "/%E2%80%A6"
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+            }
+        }
+    }
+}
+
+impl Serialize for ProfileSubscriptionSummary {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if !self.is_redacted() {
+            return Err(serde::ser::Error::custom(
+                "Profile source summary must be redacted",
+            ));
+        }
+        let mut state = serializer.serialize_struct("ProfileSubscriptionSummary", 2)?;
+        state.serialize_field("display", &self.display)?;
+        state.serialize_field("sourceType", &self.source_type)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ProfileSubscriptionSummary {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Wire {
+            display: String,
+            source_type: ProfileSourceType,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        let summary = Self {
+            display: wire.display,
+            source_type: wire.source_type,
+        };
+        if summary.is_redacted() {
+            Ok(summary)
+        } else {
+            Err(serde::de::Error::custom(
+                "Profile source summary must be redacted",
+            ))
+        }
+    }
+}
+
+/// Compatibility name for persisted provenance and existing native fixtures.
+/// New public projections should use [`ProfileSubscriptionSummary`].
+pub type SourceSummary = ProfileSubscriptionSummary;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileStructuredEventKind {
+    Snapshot,
+    SubscriptionUpdated,
+}
+
+/// Bounded, structured Profile evidence for events and log-safe projections.
+///
+/// The event deliberately carries the redacted summary instead of a source
+/// descriptor, body, headers, or path. It is a projection contract, not a
+/// second Profile lifecycle authority.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileStructuredEvent {
+    pub kind: ProfileStructuredEventKind,
+    pub profile_id: ProfileId,
+    pub source: ProfileSubscriptionSummary,
+}
+
+impl ProfileStructuredEvent {
+    pub fn snapshot(profile_id: ProfileId, source: ProfileSubscriptionSummary) -> Self {
+        Self {
+            kind: ProfileStructuredEventKind::Snapshot,
+            profile_id,
+            source,
+        }
+    }
+
+    pub fn subscription_updated(profile_id: ProfileId, source: ProfileSubscriptionSummary) -> Self {
+        Self {
+            kind: ProfileStructuredEventKind::SubscriptionUpdated,
+            profile_id,
+            source,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

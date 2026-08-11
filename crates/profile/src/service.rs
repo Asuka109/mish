@@ -77,7 +77,7 @@ pub struct ProfileListItem {
     pub last_known_valid: bool,
     pub last_success_at: Option<u64>,
     pub refresh: ProfileRefreshStateView,
-    pub source: crate::SourceSummary,
+    pub source: crate::ProfileSubscriptionSummary,
     pub status: crate::ProfileStatus,
     pub runtime_provenance: crate::RuntimeProvenanceReview,
     pub warning_codes: Vec<ValidationIssueCode>,
@@ -90,6 +90,33 @@ pub struct ProfileSnapshot {
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
     pub selection: ProfileSelectionSnapshot,
+}
+
+impl ProfileSnapshot {
+    /// Projects one profile row into the bounded structured-event contract.
+    ///
+    /// The projection is read-only and derives its source locator from the
+    /// already-redacted public summary; it never reloads the private source
+    /// descriptor or profile bytes.
+    pub fn structured_event(
+        &self,
+        profile_id: &str,
+        kind: crate::ProfileStructuredEventKind,
+    ) -> Option<crate::ProfileStructuredEvent> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)?;
+        let id = crate::ProfileId::parse(profile.id.clone()).ok()?;
+        Some(match kind {
+            crate::ProfileStructuredEventKind::Snapshot => {
+                crate::ProfileStructuredEvent::snapshot(id, profile.source.clone())
+            }
+            crate::ProfileStructuredEventKind::SubscriptionUpdated => {
+                crate::ProfileStructuredEvent::subscription_updated(id, profile.source.clone())
+            }
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -506,7 +533,7 @@ where
             .into_iter()
             .map(|record| {
                 (
-                    profile_file_name(&record.metadata.label, &record.source.display_summary()),
+                    profile_file_name(&record.metadata.label, &record.source.safe_summary()),
                     record,
                 )
             })
@@ -922,7 +949,7 @@ where
             .current_records()?
             .into_iter()
             .map(|record| {
-                let source = record.source.display_summary();
+                let source = record.source.safe_summary();
                 let effective_fingerprint = record.effective_fingerprint().clone();
                 profile_list_item(record.metadata, effective_fingerprint, source)
             })
@@ -951,7 +978,7 @@ where
     }
 
     fn materialized_path(&self, record: &crate::ProfileRecord) -> Result<PathBuf, RepositoryError> {
-        let file_name = profile_file_name(&record.metadata.label, &record.source.display_summary());
+        let file_name = profile_file_name(&record.metadata.label, &record.source.safe_summary());
         let path = Path::new(&file_name);
         if path.components().count() != 1
             || !matches!(path.components().next(), Some(Component::Normal(_)))
@@ -1039,7 +1066,7 @@ impl PendingPreflights {
 fn profile_list_item(
     metadata: crate::ProfileMetadata,
     effective_fingerprint: Fingerprint,
-    source: crate::SourceSummary,
+    source: crate::ProfileSubscriptionSummary,
 ) -> ProfileListItem {
     let warning_codes = metadata
         .validation
@@ -1083,7 +1110,7 @@ fn profile_list_item(
     }
 }
 
-fn profile_file_name(label: &str, source: &crate::SourceSummary) -> String {
+fn profile_file_name(label: &str, source: &crate::ProfileSubscriptionSummary) -> String {
     if source.source_type == crate::ProfileSourceType::LocalFile {
         return source.display.clone();
     }
