@@ -19,9 +19,9 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-None. All seven Wave 1 workers were accepted, merged, and integrated. Their
-later atomic tasks remain unassigned pending the next-wave review and explicit
-maintainer confirmation.
+No implementation worker is active yet. Seven Wave 2A tasks are approved and
+recorded below as `dispatching`; worker creation may begin only after this exact
+manifest is committed and visible on `origin/main`.
 
 ## Wave 1 worker ledger
 
@@ -35,23 +35,39 @@ maintainer confirmation.
 | #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | integrated | none | accepted | PR #457 merged as `8c23789`; local/remote gates passed, Issue checklist synced, B1.2-B1.5 remain open. |
 | #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed, Issue checklist synced, E2.2/E2.3 remain open. |
 
+## Wave 2A dispatch manifest
+
+All entries use model `gpt-5.6-luna`, reasoning effort `max`, Chinese reporting,
+confirmation-only acceptance, and final-only parent escalation. This wave is
+AFK and authorizes no real-host mutation or hands-on acceptance.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Latest evidence / next action |
+| --- | --- | --- | --- | --- | --- | --- |
+| #440 B1.2 | pending | pending | dispatching | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | Create after manifest publication; do not migrate B1.3-B1.5 consumers. |
+| #436 A1.2 | pending | pending | dispatching | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | Create after manifest publication; preserve A1.3 documentation/gate scope. |
+| #437 A3.2 | pending | pending | dispatching | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | Create after manifest publication; merge latest A1.2 first if shared lifecycle semantics overlap. |
+| #438 A4.2 | pending | pending | dispatching | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | Create after manifest publication; reuse A4.1 Browser tests instead of duplicating them. |
+| #443 E2.2 | pending | pending | dispatching | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | Create after manifest publication; E2.3 drift/docs/branch-protection evidence remains separate. |
+| #441 C2.1 | pending | pending | dispatching | none | Private durable staging and atomic Profile generation publication | Create after manifest publication; do not migrate readers assigned to C2.2. |
+| #442 E1.1 | pending | pending | dispatching | none | Release executable/path containment under private no-follow roots | Create after manifest publication; no signing credentials or real release effects. |
+
 ## Planned issue graph
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | A1.1 integrated; A1.2/A1.3 planned | none | confirmation-only |
+| Owned operations | #436 | dispatching: A1.2; A1.1 integrated | none | confirmation-only |
 | System Proxy restoration | #448 | A2.1 integrated; A2.2/A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
-| SimulatedHost truthfulness | #437 | A3.1 integrated; A3.2 planned | none | confirmation-only |
-| Browser fixture truthfulness | #438 | A4.1 integrated; A4.2 planned | none | confirmation-only |
+| SimulatedHost truthfulness | #437 | dispatching: A3.2; A3.1 integrated | none | confirmation-only |
+| Browser fixture truthfulness | #438 | dispatching: A4.2; A4.1 integrated | none | confirmation-only |
 | Process identity | #439 | A5.1 integrated; A5.2 planned | none | confirmation-only |
-| RPC Session Authority | #440 | B1.1 integrated; B1.2-B1.5 planned | none | confirmation-only |
+| RPC Session Authority | #440 | dispatching: B1.2; B1.1 integrated | none | confirmation-only |
 | Profile credential privacy | #449 | blocked | #440 | confirmation-only |
-| Atomic profile generations | #441 | planned | none | confirmation-only |
+| Atomic profile generations | #441 | dispatching: C2.1 | none | confirmation-only |
 | Backup preview authority | #450 | blocked | #440 | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
-| Release trust boundary | #442 | planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | E2.1 integrated; E2.2/E2.3 planned | none | confirmation-only |
+| Release trust boundary | #442 | dispatching: E1.1 | none | confirmation-only; real signing stays in #173 |
+| CI policy coverage | #443 | dispatching: E2.2; E2.1 integrated | none | confirmation-only |
 | Settings editor serialization | #452 | blocked | #440 | confirmation-only |
 | Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
