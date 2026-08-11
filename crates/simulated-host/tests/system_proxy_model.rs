@@ -7,7 +7,9 @@ use mish_runtime::{
 use mish_simulated_host::{
     EffectKind, EffectResultKind, InjectedFailure, InjectedFailureKind, ScenarioRuntime,
     ScheduledChange, SimulatedHostScenario, SyntheticAuthorityId, SyntheticProxyState,
-    SyntheticRuntimeId, SyntheticService,
+    SyntheticRuntimeId, SyntheticService, SyntheticSystemProxyRestoreFailure,
+    SyntheticSystemProxyRestoreFailureKind, SyntheticSystemProxyRestoreFailurePlan,
+    SyntheticSystemProxyRestoreStep, SystemProxyRestoreTranscriptPhase,
 };
 
 fn system_proxy_request(active: bool) -> CaptureRequest {
@@ -28,6 +30,17 @@ async fn settle_until(mut predicate: impl FnMut() -> bool) {
         tokio::task::yield_now().await;
     }
     panic!("system proxy model did not settle within the scheduler budget");
+}
+
+fn restore_events(scenario: &ScenarioRuntime) -> Vec<mish_simulated_host::TranscriptEvent> {
+    scenario
+        .host
+        .observation()
+        .transcript
+        .events
+        .into_iter()
+        .filter(|event| event.system_proxy_restore.is_some())
+        .collect()
 }
 
 #[tokio::test]
@@ -116,6 +129,244 @@ async fn complete_typed_baselines_round_trip_through_the_real_application_captur
         assert_eq!(scenario.host.observed_proxy_state(), baseline);
         assert!(scenario.host.journal_snapshot().is_none());
     }
+}
+
+#[tokio::test]
+async fn exact_restore_transcript_records_the_production_invocation_and_success_result() {
+    let scenario = ScenarioRuntime::build(SimulatedHostScenario::system_proxy_transaction(
+        SyntheticProxyState::Disabled,
+    ))
+    .await
+    .unwrap();
+    scenario
+        .runtime_host
+        .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+
+    let events = restore_events(&scenario);
+    assert_eq!(events.len(), 2, "one invocation/result pair is expected");
+    let invocation = &events[0];
+    let result = &events[1];
+    assert_eq!(invocation.effect_kind, EffectKind::CaptureExactRestore);
+    assert_eq!(invocation.result_kind, EffectResultKind::Started);
+    assert_eq!(
+        invocation
+            .system_proxy_restore
+            .expect("restore invocation detail")
+            .phase,
+        SystemProxyRestoreTranscriptPhase::Invoked
+    );
+    assert_eq!(result.effect_kind, EffectKind::CaptureExactRestoreResult);
+    assert_eq!(result.result_kind, EffectResultKind::Restored);
+    assert_eq!(result.operation_id, invocation.operation_id);
+    assert_eq!(result.scope_epoch, invocation.scope_epoch);
+    assert_eq!(
+        result
+            .system_proxy_restore
+            .expect("restore result detail")
+            .phase,
+        SystemProxyRestoreTranscriptPhase::Restored {
+            completed_step_mask: 3,
+        }
+    );
+    let encoded = serde_json::to_string(&scenario.host.observation().transcript).unwrap();
+    for forbidden in [
+        "synthetic-primary-service",
+        "networksetup",
+        "scutil",
+        "rawOutput",
+    ] {
+        assert!(
+            !encoded.contains(forbidden),
+            "{forbidden} entered the transcript"
+        );
+    }
+}
+
+#[tokio::test]
+async fn typed_exact_restore_failure_is_compensated_through_the_same_capture_lifecycle() {
+    let mut definition =
+        SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Disabled);
+    definition
+        .system_proxy_restore_failures
+        .push(SyntheticSystemProxyRestoreFailure {
+            occurrence: 1,
+            plan: SyntheticSystemProxyRestoreFailurePlan::Failed {
+                failure: SyntheticSystemProxyRestoreFailureKind::PermissionDenied,
+            },
+        });
+    let scenario = ScenarioRuntime::build(definition).await.unwrap();
+    let baseline = scenario.host.actual_proxy_state();
+    let error = scenario
+        .runtime_host
+        .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, CaptureFailureKind::PermissionDenied);
+    assert_eq!(scenario.host.actual_proxy_state(), baseline);
+    let events = restore_events(&scenario);
+    assert_eq!(events.len(), 4, "failed restore plus compensation pair");
+    assert_eq!(
+        events[1]
+            .system_proxy_restore
+            .expect("typed failure detail")
+            .phase,
+        SystemProxyRestoreTranscriptPhase::Failed {
+            failed_step: None,
+            failure: SyntheticSystemProxyRestoreFailureKind::PermissionDenied,
+        }
+    );
+    assert_eq!(events[1].result_kind, EffectResultKind::FailedClosed);
+    assert_eq!(events[3].result_kind, EffectResultKind::Restored);
+}
+
+#[tokio::test]
+async fn partial_exact_restore_records_steps_and_runs_exact_compensation() {
+    let mut definition =
+        SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Disabled);
+    definition
+        .system_proxy_restore_failures
+        .push(SyntheticSystemProxyRestoreFailure {
+            occurrence: 1,
+            plan: SyntheticSystemProxyRestoreFailurePlan::PartiallyRestored {
+                completed_step_mask: 1,
+                failed_step: Some(SyntheticSystemProxyRestoreStep::DynamicStore),
+                failure: SyntheticSystemProxyRestoreFailureKind::TimedOut,
+            },
+        });
+    let scenario = ScenarioRuntime::build(definition).await.unwrap();
+    let baseline = scenario.host.actual_proxy_state();
+    let error = scenario
+        .runtime_host
+        .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, CaptureFailureKind::ApplyFailed);
+    assert_eq!(scenario.host.actual_proxy_state(), baseline);
+    let events = restore_events(&scenario);
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[1].result_kind, EffectResultKind::TimedOut);
+    assert_eq!(
+        events[1]
+            .system_proxy_restore
+            .expect("partial restore detail")
+            .phase,
+        SystemProxyRestoreTranscriptPhase::PartiallyRestored {
+            completed_step_mask: 1,
+            failed_step: Some(SyntheticSystemProxyRestoreStep::DynamicStore),
+            failure: SyntheticSystemProxyRestoreFailureKind::TimedOut,
+        }
+    );
+    assert_eq!(events[3].result_kind, EffectResultKind::Restored);
+}
+
+#[tokio::test]
+async fn logical_timeout_is_recorded_by_the_restore_seam_before_compensation() {
+    let mut definition =
+        SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Disabled);
+    definition
+        .system_proxy_restore_failures
+        .push(SyntheticSystemProxyRestoreFailure {
+            occurrence: 1,
+            plan: SyntheticSystemProxyRestoreFailurePlan::AwaitTimeout,
+        });
+    let scenario = Arc::new(ScenarioRuntime::build(definition).await.unwrap());
+    let runtime = scenario.runtime_host.current();
+    let enable = tokio::spawn(async move {
+        runtime
+            .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
+            .await
+    });
+    settle_until(|| {
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .any(|event| event.effect_kind == EffectKind::CaptureExactRestore)
+    })
+    .await;
+    assert!(!enable.is_finished());
+    scenario.host.advance_to(1).unwrap();
+    let error = enable.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, CaptureFailureKind::ApplyFailed);
+    let events = restore_events(&scenario);
+    assert_eq!(events[1].result_kind, EffectResultKind::TimedOut);
+    assert_eq!(events[3].result_kind, EffectResultKind::Restored);
+    assert_eq!(events[1].logical_time, 1);
+}
+
+#[tokio::test]
+async fn owned_application_cancellation_records_restore_cancellation_and_compensates_once() {
+    let mut definition =
+        SimulatedHostScenario::system_proxy_transaction(SyntheticProxyState::Disabled);
+    definition
+        .system_proxy_restore_failures
+        .push(SyntheticSystemProxyRestoreFailure {
+            occurrence: 1,
+            plan: SyntheticSystemProxyRestoreFailurePlan::AwaitCancellation,
+        });
+    let scenario = Arc::new(ScenarioRuntime::build(definition).await.unwrap());
+    let baseline = scenario.host.actual_proxy_state();
+    let runtime = scenario.runtime_host.current();
+    let enable = tokio::spawn(async move {
+        runtime
+            .set_capture(system_proxy_request(true), StatusAdapterKind::Rpc)
+            .await
+    });
+    settle_until(|| {
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .any(|event| event.effect_kind == EffectKind::CaptureExactRestore)
+    })
+    .await;
+    assert!(scenario.host.cancel_pending_restore());
+    settle_until(|| {
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .any(|event| event.effect_kind == EffectKind::CaptureExactRestoreResult)
+    })
+    .await;
+    let error = enable.await.unwrap().unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::ApplyFailed);
+    assert_eq!(scenario.host.actual_proxy_state(), baseline);
+    let events = restore_events(&scenario);
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[1].result_kind, EffectResultKind::Cancelled);
+    assert_eq!(
+        events[1]
+            .system_proxy_restore
+            .expect("cancellation result detail")
+            .phase,
+        SystemProxyRestoreTranscriptPhase::PartiallyRestored {
+            completed_step_mask: 0,
+            failed_step: None,
+            failure: SyntheticSystemProxyRestoreFailureKind::Cancelled,
+        }
+    );
+    assert_eq!(events[3].result_kind, EffectResultKind::Restored);
+    let compensation_count = scenario
+        .host
+        .observation()
+        .transcript
+        .events
+        .iter()
+        .filter(|event| event.effect_kind == EffectKind::CaptureExactRestoreResult)
+        .count();
+    assert_eq!(compensation_count, 2);
 }
 
 #[tokio::test]
