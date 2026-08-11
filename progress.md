@@ -22,14 +22,9 @@ Owner: thread-master coordinator
 Wave 2A is fully integrated. The maintainer approved the exact seven-task Wave
 2B on 2026-08-11. All seven Luna Max Workers were created from the published
 manifest baseline `4df0ebe`; their identities and isolated worktrees are
-backfilled below. Three Workers are active; #439 A5.2 is delivered on the latest
-code baseline and awaiting confirmation-only acceptance; #436 A1.3 is merged with final
-handoff pending, #448 A2.2 is merged with its
-post-merge Fast PR gate passed and is integrated, #442 E1.2 is integrated, no
-dispatch reservation remains, and five concurrency slots are unreserved. #440 B1.3 merged in PR #470,
-but coordinator acceptance review found that Status error reconciliation can
-expose an equal-order conflicting snapshot outside `RpcSessionAuthority`; the
-original Worker owns the bounded follow-up before B1.3 is integrated.
+backfilled below. Two Workers are active; #436 A1.3 is merged with final handoff
+pending; #448 A2.2, #439 A5.2, #440 B1.3, and #442 E1.2 are integrated. No
+dispatch reservation remains, and eight concurrency slots are unreserved.
 
 ## Wave 1 worker ledger
 
@@ -39,8 +34,8 @@ original Worker owns the bounded follow-up before B1.3 is integrated.
 | #448 A2.1 | `019fefb6-df13-7c43-aa76-8baa63f77248` | `d79d` | integrated | none for A2.1 | accepted | PR #458 merged as `168292a`; exact-restore adapter gates passed, A2.2/A2.3 remain open. |
 | #437 A3.1 | `019fefb6-dba8-7be2-9833-24c5c22f6c53` | `b68e` | integrated | none | accepted | PR #459 merged as `25ac46b`; bounded Internal TUN scenarios passed; A3.2 later completed the Issue. |
 | #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | integrated | none | accepted | PR #455 merged as `9322e17`; local/remote gates passed; A4.2 later completed the Issue. |
-| #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | integrated | none | accepted | PR #461 merged as `5b454ea`; identity-bound process gates passed, Issue checklist synced, A5.2 remains open. |
-| #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | integrated | none | accepted | PR #457 merged as `8c23789`; local/remote gates passed, Issue checklist synced, B1.2-B1.5 remain open. |
+| #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | integrated | none | accepted | PR #461 merged as `5b454ea`; identity-bound process gates passed; A5.2 later completed Issue #439. |
+| #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | integrated | none | accepted | PR #457 merged as `8c23789`; local/remote gates passed; B1.2/B1.3 later integrated and B1.4/B1.5 remain open. |
 | #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed; E2.2 later integrated and E2.3 remains open. |
 
 ## Wave 2A dispatch manifest
@@ -51,7 +46,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | integrated | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | PR #462 merged as `80e23d0`; Fast PR gate, RPC 22 tests, and Web 574 tests passed; only Events migrated, B1.3-B1.5 remain open. |
+| #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | integrated | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | PR #462 merged as `80e23d0`; Fast PR gate, RPC 22 tests, and Web 574 tests passed; B1.3 later integrated and B1.4/B1.5 remain open. |
 | #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | integrated | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | PR #467 merged as `99b1928`; Fast PR and Android gates passed; coordinator combined `pnpm check:pr` passed; A1.3 remains open. |
 | #437 A3.2 | `019feff9-1f57-7b23-885f-7c0cb609aee8` | `f803` | integrated | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | PR #464 merged as `f15d6db`; coordinator SimulatedHost 12+24+2+10, Browser 9/9, and exclusion 10/10 passed; Issue #437 closed completed. |
 | #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | integrated | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | PR #465 merged as `7c66f43`; Fast PR gate and coordinator exclusion 10/10, mobile 4/4, Browser 12/12 checks passed; Issue #438 closed completed. |
@@ -67,8 +62,8 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | System Proxy restoration | #448 | A2.1/A2.2 integrated; A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
-| Process identity | #439 | A5.1 integrated; A5.2 delivered in PR #475, awaiting acceptance | none | confirmation-only |
-| RPC Session Authority | #440 | B1.1/B1.2 integrated; B1.3 merged with bounded acceptance rework; B1.4/B1.5 planned | none | confirmation-only |
+| Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
+| RPC Session Authority | #440 | B1.1/B1.2/B1.3 integrated; B1.4/B1.5 planned | none | confirmation-only |
 | Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Atomic profile generations | #441 | C2.1 integrated; C2.2/C2.3 planned | none | confirmation-only |
 | Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
@@ -95,8 +90,8 @@ branch-protection mutation, or other hands-on acceptance.
 | --- | --- | --- | --- | --- | --- | --- |
 | #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | merged; handoff pending | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | PR #471 merged as `abb82c1`; await the Worker's final evidence/tracker handoff before integration; do not infer Issue completion from the merge alone |
 | #448 A2.2 | `019ff06b-2dbe-7653-abf7-03eed0131628` | `7719` | integrated | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | PR #474 merged as `2c1d89d`; local final `pnpm check:pr`, Fast PR, and Android gates passed; no Tart or developer-host mutation and A2.3 remains hands-on |
-| #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | awaiting acceptance | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 is CLEAN on code baseline `a8823b6`; final `pnpm check:pr`, Fast PR, and Android gates passed after preserving A2.2 overlap; explicit maintainer confirmation is required before ordinary merge; preserve #353 |
-| #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | rework | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | PR #470 merged as `bbcd699`; reject or authority-project conflicting Status error reconciliation snapshots, add the missing deterministic regression, and do not touch B1.4/B1.5 |
+| #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | integrated | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 merged as `dc80bf4`; final `pnpm check:pr`, Fast PR, and Android gates passed after preserving A2.2 overlap; Issue #439 closed, while #353 remains independent |
+| #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | integrated | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | PR #470 merged as `bbcd699`; acceptance follow-up PR #476 merged as `7cec8f9`; Status 17/17 plus full local/remote gates passed; B1.4/B1.5 remain open |
 | #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | active | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.3 adversarial/crash/restart matrix remains separate; follow the transcript skill |
 | #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | integrated | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | PR #473 merged as `c9fa882`; Fast PR and Android gates plus post-merge `pnpm check:pr` passed; E1.3/E1.4 remain open and no real credentials or release mutation were used |
 | #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | active | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | No branch-protection or external repository setting mutation |
