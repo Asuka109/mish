@@ -520,11 +520,21 @@ test("cleanup removes sensitive files even when bounded effect cleanup fails", (
     },
   };
 
-  assert.throws(
-    () => cleanupSigningMaterials(scratchRoot, failingRunner),
-    /Temporary signing cleanup failed after sensitive material removal/u,
-  );
-  assert.equal(existsSync(scratchRoot), false);
+  const originalRunnerTemp = process.env.RUNNER_TEMP;
+  process.env.RUNNER_TEMP = temporary.path;
+  try {
+    assert.throws(
+      () => cleanupSigningMaterials(scratchRoot, failingRunner),
+      /Temporary signing cleanup failed after sensitive material removal/u,
+    );
+    assert.equal(existsSync(scratchRoot), false);
+  } finally {
+    if (originalRunnerTemp === undefined) {
+      delete process.env.RUNNER_TEMP;
+    } else {
+      process.env.RUNNER_TEMP = originalRunnerTemp;
+    }
+  }
 });
 
 test("final candidate binds the exact DMG, SBOM, attestations, and checksum manifest", () => {
