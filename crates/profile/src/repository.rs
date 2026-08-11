@@ -318,6 +318,13 @@ where
     /// is the only publication authority; it is re-read after the generation
     /// so a replacement during this bounded read fails closed.
     pub fn read_current_generation(&self) -> Result<Option<ProfileGeneration>, RepositoryError> {
+        self.read_current_generation_inner(|| {})
+    }
+
+    fn read_current_generation_inner(
+        &self,
+        mut after_pointer_read: impl FnMut(),
+    ) -> Result<Option<ProfileGeneration>, RepositoryError> {
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
         }
@@ -327,6 +334,7 @@ where
         reject_symlinks_between(&self.root, &self.root)?;
         reject_symlinks_between(&self.root, &self.generations_root())?;
         let pointer = self.read_generation_pointer()?;
+        after_pointer_read();
         let generation = self.read_generation(&pointer.generation_id)?;
         let current_pointer = self.read_generation_pointer()?;
         if current_pointer != pointer {
@@ -563,15 +571,32 @@ where
     ) -> Result<ProfileRecord, RepositoryError> {
         reject_symlinks_between(&self.root, profile_path)?;
         ensure_directory(profile_path, RepositoryComponent::Metadata)?;
-        let mut metadata: ProfileMetadata = read_json(
-            &profile_path.join("metadata.json"),
-            RepositoryComponent::Metadata,
-        )?;
+        let metadata_path = profile_path.join("metadata.json");
+        let source_root = profile_path.join("source");
+        let source_descriptor_path = source_root.join("source.json");
+        let revisions_root = source_root.join("revisions");
+        let artifacts_root = profile_path.join("artifacts");
+        let patches_root = profile_path.join("patches");
+        let patch_sets_root = patches_root.join("sets");
+        for path in [
+            &metadata_path,
+            &source_root,
+            &source_descriptor_path,
+            &revisions_root,
+            &artifacts_root,
+            &patches_root,
+            &patch_sets_root,
+        ] {
+            reject_symlinks_between(&self.root, path)?;
+        }
+
+        let mut metadata: ProfileMetadata =
+            read_json(&metadata_path, RepositoryComponent::Metadata)?;
         migrate_legacy_metadata(&mut metadata);
         validate_persisted_metadata(&metadata, id)?;
 
         let source: ProfileSource = read_json(
-            &profile_path.join("source/source.json"),
+            &source_descriptor_path,
             RepositoryComponent::SourceDescriptor,
         )?;
         if !source.is_valid() {
@@ -579,20 +604,17 @@ where
                 component: RepositoryComponent::SourceDescriptor,
             });
         }
+        let source_revision_path =
+            revisions_root.join(format!("{}.yaml", metadata.revision.id.as_str()));
+        let artifact_path =
+            artifacts_root.join(format!("{}.yaml", metadata.artifact.fingerprint.as_str()));
+        reject_symlinks_between(&self.root, &source_revision_path)?;
+        reject_symlinks_between(&self.root, &artifact_path)?;
         let source_bytes = read_bytes(
-            &profile_path.join(format!(
-                "source/revisions/{}.yaml",
-                metadata.revision.id.as_str()
-            )),
+            &source_revision_path,
             RepositoryComponent::ImmutableRevision,
         )?;
-        let normalized_bytes = read_bytes(
-            &profile_path.join(format!(
-                "artifacts/{}.yaml",
-                metadata.artifact.fingerprint.as_str()
-            )),
-            RepositoryComponent::NormalizedArtifact,
-        )?;
+        let normalized_bytes = read_bytes(&artifact_path, RepositoryComponent::NormalizedArtifact)?;
         let patches = load_patch_set(profile_path, &metadata)?;
 
         let record = ProfileRecord {
@@ -1171,4 +1193,74 @@ fn reject_symlinks_between(root: &Path, target: &Path) -> Result<(), RepositoryE
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestRoot(PathBuf);
+
+    impl TestRoot {
+        fn new() -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("mish-profile-generation-read-{}", Uuid::new_v4()));
+            fs::create_dir(&path).expect("create private test root");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn pointer_replacement_at_the_read_barrier_is_rejected_as_stale() {
+        let root = TestRoot::new();
+        let repository = FileProfileRepository::new(root.0.join("profile-store"));
+
+        let first = repository
+            .stage_generation(&[])
+            .expect("stage first empty generation");
+        let first_id = repository
+            .publish_generation(first)
+            .expect("publish first empty generation");
+
+        let second = repository
+            .stage_generation(&[])
+            .expect("stage second empty generation");
+        let second_id = second.id.clone();
+        let second_staging = repository
+            .generations_root()
+            .join(format!(".staging-{}", second_id.as_str()));
+        let second_generation = repository.generations_root().join(second_id.as_str());
+        StdAtomicWriter
+            .rename(&second_staging, &second_generation)
+            .expect("seal second generation directory");
+        StdAtomicWriter
+            .sync_directory(&repository.generations_root())
+            .expect("sync second generation directory");
+
+        let result = repository.read_current_generation_inner(|| {
+            let pointer = GenerationPointer {
+                generation_id: second_id.clone(),
+                schema_version: PROFILE_GENERATION_SCHEMA_VERSION,
+            };
+            let contents = serde_json::to_vec(&pointer).expect("serialize synthetic pointer");
+            StdAtomicWriter
+                .write(&repository.current_generation_path(), &contents)
+                .expect("replace pointer at deterministic read barrier");
+        });
+
+        assert!(matches!(result, Err(RepositoryError::StaleGeneration)));
+
+        let current = repository
+            .read_current_generation()
+            .expect("read the replacement generation")
+            .expect("replacement pointer remains complete");
+        assert_eq!(current.id, second_id);
+        assert_ne!(current.id, first_id);
+    }
 }
