@@ -16,10 +16,11 @@ import type {
   LocalRestoreConflictResolution,
   LocalRestorePreviewDto,
 } from "@mish/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
+import type { LocalBackupExportAuthorityFailure } from "../platform/local-backup-authority";
 
 const DEFAULT_SCOPE: LocalBackupScopeDto = {
   patches: true,
@@ -107,6 +108,7 @@ type PendingOperation = "commit-restore" | "choose-restore" | "preview-export" |
 export function LocalBackupControl() {
   const settings = useSettings();
   const client = settings.localBackupClient;
+  const { localBackupExportAuthority } = settings;
   const { LL } = useI18nContext();
   const [exportOpen, setExportOpen] = useState(false);
   const [exportPreview, setExportPreview] = useState<LocalBackupPreviewDto | null>(null);
@@ -115,12 +117,15 @@ export function LocalBackupControl() {
   const [restorePreview, setRestorePreview] = useState<LocalRestorePreviewDto | null>(null);
   const [result, setResult] = useState<OperationResult>("idle");
   const [scope, setScope] = useState(DEFAULT_SCOPE);
+  const previewAttempt = useRef(0);
 
   const supported =
     client.availability === "supported" &&
     settings.snapshot.capabilities.backupRestore === "supported";
 
   function changeScope(key: keyof LocalBackupScopeDto, selected: boolean) {
+    previewAttempt.current += 1;
+    localBackupExportAuthority.invalidate();
     setExportPreview(null);
     setScope((current) => {
       const next = { ...current, [key]: selected };
@@ -130,29 +135,61 @@ export function LocalBackupControl() {
   }
 
   async function previewExport() {
+    const attempt = ++previewAttempt.current;
     setPendingOperation("preview-export");
     setResult("idle");
     try {
-      setExportPreview(await client.previewExport(scope));
+      const requestResult = await localBackupExportAuthority.beginPreview(scope);
+      if (requestResult.kind !== "accepted") {
+        if (attempt === previewAttempt.current) {
+          setExportPreview(null);
+          setResult(authorityFailureResult(requestResult.kind));
+        }
+        return;
+      }
+      const preview = await client.previewExport(scope);
+      const accepted = await localBackupExportAuthority.acceptPreview(
+        requestResult.request,
+        preview,
+      );
+      if (attempt !== previewAttempt.current) return;
+      if (accepted.kind !== "accepted") {
+        setExportPreview(null);
+        setResult(authorityFailureResult(accepted.kind));
+        return;
+      }
+      setExportPreview(accepted.authority.preview);
     } catch (error) {
-      setResult(operationFailure(error));
+      if (attempt === previewAttempt.current) {
+        localBackupExportAuthority.invalidate();
+        setExportPreview(null);
+        setResult(operationFailure(error));
+      }
     } finally {
-      setPendingOperation(null);
+      setPendingOperation((current) => (current === "preview-export" ? null : current));
     }
   }
 
   async function saveExport() {
-    if (!exportPreview) return;
+    const preview = exportPreview;
+    if (!preview) return;
+    previewAttempt.current += 1;
     setPendingOperation("save-export");
     try {
-      const save = await client.saveExport(exportPreview.previewId);
+      const authorized = await localBackupExportAuthority.authorizeSave(scope, preview);
+      if (authorized.kind !== "accepted") {
+        setExportPreview(null);
+        setResult(authorityFailureResult(authorized.kind));
+        return;
+      }
+      setExportPreview(null);
+      const save = await client.saveExport(authorized.authority.preview.previewId);
       setResult(save.status === "written" ? "exported" : "cancelled");
       if (save.status === "written") setExportOpen(false);
-      setExportPreview(null);
     } catch (error) {
       setResult(operationFailure(error));
     } finally {
-      setPendingOperation(null);
+      setPendingOperation((current) => (current === "save-export" ? null : current));
     }
   }
 
@@ -238,24 +275,28 @@ export function LocalBackupControl() {
             <ScopeOption
               checked={scope.settings}
               description={LL.settingsPage.backupFlow.settingsDescription()}
+              disabled={pendingOperation === "save-export"}
               label={LL.settingsPage.backupFlow.settings()}
               onChange={(selected) => changeScope("settings", selected)}
             />
             <ScopeOption
               checked={scope.patches}
               description={LL.settingsPage.backupFlow.patchesDescription()}
+              disabled={pendingOperation === "save-export"}
               label={LL.settingsPage.backupFlow.patches()}
               onChange={(selected) => changeScope("patches", selected)}
             />
             <ScopeOption
               checked={scope.schedules}
               description={LL.settingsPage.backupFlow.schedulesDescription()}
+              disabled={pendingOperation === "save-export"}
               label={LL.settingsPage.backupFlow.schedules()}
               onChange={(selected) => changeScope("schedules", selected)}
             />
             <ScopeOption
               checked={scope.profiles}
               description={LL.settingsPage.backupFlow.profilesSensitiveDescription()}
+              disabled={pendingOperation === "save-export"}
               label={LL.settingsPage.backupFlow.profilesSensitive()}
               onChange={(selected) => changeScope("profiles", selected)}
               sensitive
@@ -263,7 +304,7 @@ export function LocalBackupControl() {
             <ScopeOption
               checked={scope.sourceLocators}
               description={LL.settingsPage.backupFlow.locatorsSensitiveDescription()}
-              disabled={!scope.profiles}
+              disabled={!scope.profiles || pendingOperation === "save-export"}
               label={LL.settingsPage.backupFlow.locatorsSensitive()}
               onChange={(selected) => changeScope("sourceLocators", selected)}
               sensitive
@@ -538,4 +579,8 @@ function operationFailure(error: unknown): OperationResult {
     default:
       return "failed";
   }
+}
+
+function authorityFailureResult(kind: LocalBackupExportAuthorityFailure): OperationResult {
+  return kind === "malformed" ? "failed" : "previewExpired";
 }
