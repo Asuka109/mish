@@ -1,0 +1,19 @@
+name: Reusable CI policy fixture
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  reusable-run:
+    name: Run from the reusable workflow
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Run reusable command
+        run: echo reusable
