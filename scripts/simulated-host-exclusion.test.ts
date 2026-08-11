@@ -12,7 +12,7 @@ const boundedSimulatedApplicationContract =
 const approvedCiContractDeclaration = `const simulatedApplicationContract =
   "${boundedSimulatedApplicationContract}";`;
 const boundedPortableRustClippyContract =
-  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater --no-deps -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
+  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater --exclude mish-bridge --no-deps -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
 const forbiddenArtifactMarkers = [
   "MISH_SIMULATED_SCENARIO",
   "TEST_AUTH_TOKEN",
