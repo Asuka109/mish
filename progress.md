@@ -19,10 +19,11 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-One Wave 2A Luna Max worker remains active from the pre-published manifest and
-clean detached baseline `5758260`. #440 B1.2, #438 A4.2, #441 C2.1, #437 A3.2,
-#442 E1.1, and #443 E2.2 are integrated. Nine concurrency slots remain
-unreserved; no additional task is dispatched without an approved wave.
+Wave 2A is fully integrated. No new implementation worker is active, all 10
+concurrency slots are unreserved, and no additional task is dispatched without
+an approved wave. The combined post-integration `pnpm check:pr` passed on
+`main@99b1928` with Web 575, script 202, SimulatedHost 12 + 24 + 2 + 10,
+browser SimulatedHost 9, and all static boundary and release checks green.
 
 ## Wave 1 worker ledger
 
@@ -45,7 +46,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
 | #440 B1.2 | `019feff9-1bf6-74f2-9055-1bd917be13e9` | `922f` | integrated | B1.1 integrated | One RPC Session Authority for baselines, generations, stale rejection, and deterministic tests | PR #462 merged as `80e23d0`; Fast PR gate, RPC 22 tests, and Web 574 tests passed; only Events migrated, B1.3-B1.5 remain open. |
-| #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | active | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | Clean detached `5758260`; preserve A1.3 documentation/gate scope. |
+| #436 A1.2 | `019feff9-1bf6-74f2-9055-1bc6e48395e4` | `a993` | integrated | A1.1 integrated | Migrate Capture shutdown/cancellation to the shared runtime with cleanup, panic, and replacement transcripts | PR #467 merged as `99b1928`; Fast PR and Android gates passed; coordinator combined `pnpm check:pr` passed; A1.3 remains open. |
 | #437 A3.2 | `019feff9-1f57-7b23-885f-7c0cb609aee8` | `f803` | integrated | A3.1 integrated | Complete Internal TUN fault matrix, schema/privacy checks, and RPC/React journeys | PR #464 merged as `f15d6db`; coordinator SimulatedHost 12+24+2+10, Browser 9/9, and exclusion 10/10 passed; Issue #437 closed completed. |
 | #438 A4.2 | `019feff9-1bf6-74f2-9055-1bb47d5ff79c` | `290d` | integrated | A4.1 integrated | Add only missing Browser fixture production-exclusion enforcement and residual behavior coverage | PR #465 merged as `7c66f43`; Fast PR gate and coordinator exclusion 10/10, mobile 4/4, Browser 12/12 checks passed; Issue #438 closed completed. |
 | #443 E2.2 | `019feff9-1bf2-7621-a5b9-dd08b6240627` | `8407` | integrated | E2.1 integrated | Enforce relevant target compile, Clippy, and test coverage for platform crates | PR #466 merged as `74c23dd`; Fast PR and Android gates passed; coordinator policy 6/6 plus macOS target compile/Clippy and 162 tests passed; E2.3 remains open. |
@@ -56,7 +57,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | active: A1.2; A1.1 integrated | none | confirmation-only |
+| Owned operations | #436 | A1.1/A1.2 integrated; A1.3 planned | none | confirmation-only |
 | System Proxy restoration | #448 | A2.1 integrated; A2.2/A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
@@ -75,6 +76,26 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Traffic details accessibility | #445 | planned | none | confirmation-only |
 | Clipboard failure feedback | #446 | planned | none | confirmation-only |
 | Muted-text contrast | #447 | planned | none | confirmation-only |
+
+## Proposed Wave 2B — awaiting maintainer confirmation
+
+These are candidate reservations only, not a dispatch manifest. No worker may
+start from this table. If approved, the coordinator must first publish the
+exact two-phase `dispatching` manifest in both progress ledgers.
+
+All candidates use `gpt-5.6-luna/max`, Chinese reporting,
+confirmation-only acceptance, final-only escalation, isolated worktrees, and
+authorize no real-host mutation or hands-on acceptance.
+
+| Task | Intended result | Dependency state | Integration boundary |
+| --- | --- | --- | --- |
+| #436 A1.3 | Register and document the single owned-operation lifecycle authority and enforce it statically | A1.1/A1.2 integrated | Own registry, architecture documentation, and lifecycle-owner gates only |
+| #448 A2.2 | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | A1.1 and A2.1 integrated | No Tart or developer-host mutation; A2.3 remains hands-on |
+| #439 A5.2 | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | A5.1 integrated | Preserve #353 physical acceptance and existing worker ownership |
+| #440 B1.3 | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | B1.2 integrated | Do not touch B1.4/B1.5 consumers or cleanup scope |
+| #441 C2.2 | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.1 integrated | C2.3 adversarial/crash/restart matrix remains separate |
+| #442 E1.2 | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | E1.1 integrated | Credential-free only; no real signing or release mutation |
+| #443 E2.3 | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | E2.1/E2.2 integrated | No branch-protection or external repository setting mutation |
 
 ## Existing issue coordination
 
