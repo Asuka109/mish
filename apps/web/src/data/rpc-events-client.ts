@@ -7,8 +7,12 @@ import {
   type EventsSnapshotDto,
   type EventsSnapshotNotificationDto,
 } from "@mish/contracts";
-import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
-import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
+import {
+  RpcRemoteError,
+  RpcSessionAuthority,
+  type RpcRequestOptions,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
 import { mapStatusRpcError } from "./rpc-status-client";
 import {
   projectRpcClientFailure,
@@ -30,7 +34,8 @@ export class RpcEventsClient implements EventsClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<EventsSnapshotDto>();
+  private readonly sessionAuthority = new RpcSessionAuthority<EventsSnapshotDto>();
+  private subscriptionTicket: RpcSessionTicket | null = null;
 
   constructor(private readonly rpc: EventsRpcClient) {
     this.connectionState = projectRpcConnectionState(rpc.getConnectionState());
@@ -49,6 +54,7 @@ export class RpcEventsClient implements EventsClient {
     this.disposed = true;
     this.unsubscribeNotification();
     this.unsubscribeRpcConnection();
+    this.sessionAuthority.dispose();
     this.connectionListeners.clear();
     this.snapshotListeners.clear();
   }
@@ -59,17 +65,26 @@ export class RpcEventsClient implements EventsClient {
 
   async getSnapshot(options?: RpcRequestOptions): Promise<EventsSnapshotDto> {
     try {
-      const result = this.snapshotAcceptance.accept(
+      const ticket = this.sessionAuthority.beginRequest();
+      const result = this.sessionAuthority.accept(
+        ticket,
         await this.rpc.request("events.getSnapshot", {}, options),
         "request",
       );
       if (result.kind === "conflict") {
         throw new EventsClientError("validation", "Events snapshot order conflict");
       }
-      if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
+      if (!result.snapshot) {
+        throw new EventsClientError(
+          "disconnected",
+          "Events snapshot baseline is not established",
+          true,
+        );
+      }
       this.emitSnapshotConnectionState();
       return result.snapshot;
     } catch (error) {
+      if (error instanceof EventsClientError) throw error;
       const mapped =
         error instanceof RpcRemoteError ? mapStatusRpcError(error) : projectRpcClientFailure(error);
       throw new EventsClientError(mapped.code, mapped.message, mapped.retryable);
@@ -108,6 +123,7 @@ export class RpcEventsClient implements EventsClient {
       return;
     }
 
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.rpc
       .request("events.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
@@ -115,8 +131,9 @@ export class RpcEventsClient implements EventsClient {
           void this.rpc.request("events.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
+        this.subscriptionTicket = ticket;
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -133,9 +150,10 @@ export class RpcEventsClient implements EventsClient {
 
   private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
     const mapped = projectRpcConnectionState(state);
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase === "connected") {
-      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
+      this.subscriptionTicket = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
@@ -146,16 +164,16 @@ export class RpcEventsClient implements EventsClient {
   private receiveSnapshot(
     notification: EventsSnapshotNotificationDto,
     delivery: ApplicationSnapshotDelivery = "update",
+    ticket = this.subscriptionTicket,
   ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    const result = this.sessionAuthority.accept(ticket, notification.snapshot, delivery);
     if (result.kind === "conflict") {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
-    if (result.kind !== "accepted") return;
+    if (result.kind !== "accepted" || !result.snapshot) return;
     for (const listener of this.snapshotListeners) listener(result.snapshot, delivery);
   }
 
@@ -163,7 +181,7 @@ export class RpcEventsClient implements EventsClient {
     this.emitConnectionState({
       attempt: 0,
       phase: "connected",
-      stale: this.snapshotAcceptance.isReconnectPending(),
+      stale: this.sessionAuthority.isStale(),
     });
   }
 }
