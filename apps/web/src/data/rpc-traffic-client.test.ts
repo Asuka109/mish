@@ -239,6 +239,24 @@ describe("RpcTrafficClient", () => {
     expect(snapshots.at(-1)?.sessionId).toBe("controller-1");
     expect(deliveries).toEqual(["baseline"]);
 
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "traffic.snapshot",
+      params: { snapshot: trafficSnapshot(), subscriptionId: "traffic-1" },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(states.at(-1)).toBe("connected:false");
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "traffic.snapshot",
+      params: {
+        snapshot: trafficSnapshot({ phase: "stale" }),
+        subscriptionId: "traffic-1",
+      },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(states.at(-1)).toBe("connected:true");
+
     transports[0].close(1006, "gap");
     expect(states.at(-1)).toContain("true");
     await vi.advanceTimersByTimeAsync(5);
@@ -258,6 +276,15 @@ describe("RpcTrafficClient", () => {
     expect(snapshots.at(-1)?.sessionId).toBe("controller-2");
     expect(deliveries).toEqual(["baseline", "baseline"]);
     expect(states.at(-1)).toBe("connected:false");
+    transports[1].respond({
+      jsonrpc: "2.0",
+      method: "traffic.snapshot",
+      params: {
+        snapshot: trafficSnapshot({ sessionId: "controller-1", sequence: 99 }),
+        subscriptionId: "traffic-1",
+      },
+    });
+    expect(snapshots.at(-1)?.sessionId).toBe("controller-2");
     client.dispose();
     rpc.dispose();
   });

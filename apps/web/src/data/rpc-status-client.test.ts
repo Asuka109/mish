@@ -802,6 +802,18 @@ describe("RpcStatusClient", () => {
       method: "status.snapshot",
       params: { snapshot, subscriptionId: "subscription-1" },
     });
+    expect(receivedSnapshots).toHaveLength(1);
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
+    const equalOrderConflict = structuredClone(snapshot);
+    equalOrderConflict.routingMode =
+      equalOrderConflict.routingMode === "global" ? "direct" : "global";
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "status.snapshot",
+      params: { snapshot: equalOrderConflict, subscriptionId: "subscription-1" },
+    });
+    expect(receivedSnapshots).toHaveLength(1);
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: true });
     const preReconnect = recentSnapshot(snapshot, 6, 600);
     transports[0].respond({
       jsonrpc: "2.0",
