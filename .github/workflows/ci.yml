@@ -66,6 +66,113 @@ jobs:
       - name: Run fast pull-request gate
         run: pnpm check:pr
 
+  platform-macos-gate:
+    name: macOS platform Rust gate
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: main
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.10.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pr-platform-macos
+          cache-on-failure: true
+      - name: Build desktop web bundle
+        run: pnpm --filter @mish/web build:desktop
+      - name: Check desktop Rust target
+        run: pnpm check:rust:desktop
+      - name: Test desktop Rust target
+        run: pnpm test:rust:desktop
+      - name: Check macOS platform Rust target
+        run: pnpm check:rust:platform-macos
+      - name: Test macOS platform Rust target
+        run: pnpm test:rust:platform-macos
+
+  platform-android-gate:
+    name: Android platform Rust gate
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.10.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          cmdline-tools-version: 14742923
+          log-accepted-android-sdk-licenses: false
+          packages: ""
+      - name: Install pinned Android Rust target toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.1.0" \
+            "ndk;29.0.14206865"
+          rustup target add aarch64-linux-android x86_64-linux-android
+          ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
+          toolchain="$ndk_home/toolchains/llvm/prebuilt/linux-x86_64"
+          test -x "$toolchain/bin/aarch64-linux-android35-clang"
+          test -x "$toolchain/bin/x86_64-linux-android35-clang"
+          {
+            echo "ANDROID_NDK_HOME=$ndk_home"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android35-clang"
+            echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$toolchain/bin/x86_64-linux-android35-clang"
+            echo "PATH=$toolchain/bin:$PATH"
+          } >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pr-platform-android
+          cache-on-failure: true
+      - name: Check mobile Rust targets
+        run: pnpm check:rust:mobile
+      - name: Compile mobile Rust test targets
+        run: pnpm test:rust:mobile
+
   inspect-main:
     name: Inspect main
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))

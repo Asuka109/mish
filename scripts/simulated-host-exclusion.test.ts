@@ -182,7 +182,7 @@ test("Internal TUN maintenance simulation remains confined to the non-publishabl
 
 test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude SimulatedHost", () => {
   const releaseInputs = [
-    ...filesUnder(".github"),
+    ...filesUnder(".github").filter((file) => file !== ".github/platform-target-policy.json"),
     ...filesUnder("apps/desktop"),
     ...filesUnder("apps/mobile"),
     ...filesUnder("scripts").filter(

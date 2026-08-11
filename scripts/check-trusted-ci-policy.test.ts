@@ -7,6 +7,8 @@ import {
   classifyWorkflowReference,
   classifyWorkflowStep,
   parseWorkflowFixture,
+  readPlatformTargetPolicy,
+  validatePlatformTargetCoverage,
   validateWorkflow,
   validateWorkflowReference,
 } from "./check-trusted-ci-policy.ts";
@@ -119,4 +121,86 @@ test("reusable workflow allowlists are separate from ordinary action allowlists"
   const allowed = structuredClone(policy);
   allowed.actions.allowedReusableWorkflows = [remote.reference];
   assert.deepEqual(validateWorkflowReference(allowed, remote), []);
+});
+
+test("platform target policy covers every declared package and fails closed on workflow drift", () => {
+  const policy = readPlatformTargetPolicy();
+  const workflow = parseWorkflowFixture(
+    readFileSync(path.join(import.meta.dirname, "../.github/workflows/ci.yml"), "utf8"),
+    ".github/workflows/ci.yml",
+  );
+  const packageJson = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
+  ) as {
+    scripts: Record<string, string>;
+  };
+  const cargoPackages = policy.packages.map(({ name, manifest }) => ({
+    name,
+    manifest_path: manifest,
+  }));
+  const input = {
+    policy,
+    workflows: [workflow],
+    packageScripts: packageJson.scripts,
+    cargoPackages,
+  };
+
+  assert.deepEqual(validatePlatformTargetCoverage(input), []);
+
+  const missingJob = structuredClone(workflow.workflow);
+  delete missingJob.jobs?.["platform-macos-gate"];
+  const errors = validatePlatformTargetCoverage({
+    ...input,
+    workflows: [{ ...workflow, workflow: missingJob }],
+  });
+  assert.ok(errors.some((error) => error.includes("platform-macos-gate")));
+
+  const missingCommand = { ...packageJson.scripts };
+  missingCommand["check:rust:desktop"] = "cargo check -p mish-desktop";
+  const commandErrors = validatePlatformTargetCoverage({
+    ...input,
+    packageScripts: missingCommand,
+  });
+  assert.ok(commandErrors.some((error) => error.includes("check:rust:desktop")));
+});
+
+test("platform target policy rejects unsupported runners and missing target commands", () => {
+  const policy = readPlatformTargetPolicy();
+  const workflow = parseWorkflowFixture(
+    readFileSync(path.join(import.meta.dirname, "../.github/workflows/ci.yml"), "utf8"),
+    ".github/workflows/ci.yml",
+  );
+  const packageJson = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
+  ) as {
+    scripts: Record<string, string>;
+  };
+  const cargoPackages = policy.packages.map(({ name, manifest }) => ({
+    name,
+    manifest_path: manifest,
+  }));
+  const input = {
+    policy,
+    workflows: [workflow],
+    packageScripts: packageJson.scripts,
+    cargoPackages,
+  };
+
+  const unsupportedRunnerPolicy = structuredClone(policy);
+  unsupportedRunnerPolicy.packages[0].runner = "windows-latest";
+  const runnerErrors = validatePlatformTargetCoverage({
+    ...input,
+    policy: unsupportedRunnerPolicy,
+  });
+  assert.ok(runnerErrors.some((error) => error.includes("unsupported platform runner")));
+
+  const missingTargetPolicy = structuredClone(policy);
+  missingTargetPolicy.packages[1].clippyCommands = [
+    "cargo clippy -p mish-mobile --all-targets -- -D warnings",
+  ];
+  const targetErrors = validatePlatformTargetCoverage({
+    ...input,
+    policy: missingTargetPolicy,
+  });
+  assert.ok(targetErrors.some((error) => error.includes("Clippy policy does not cover target")));
 });
