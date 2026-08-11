@@ -158,9 +158,9 @@ const simulatedApplicationContract =
   "cargo test -p mish-simulated-host --all-features -- --test-threads=1 && pnpm test:browser:simulated-host";
 const rustInspectionContract = "cargo clippy --workspace --all-targets -- -D warnings";
 const rustPullRequestContract =
-  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
+  "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater --exclude mish-bridge --no-deps -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings";
 const expectedPrValidation =
-  "pnpm check:android && pnpm check:android-platform-facts && pnpm check:bridge-protocol && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
+  "pnpm check:android && pnpm check:android-platform-facts && pnpm check:bridge-protocol && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:rust:pr && pnpm check:rust:simulated-host && pnpm test:application:simulated-host && pnpm check:tokens && pnpm check:docs";
 invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
   "check:pr must stay bounded to its generated contracts, static, unit, Rust Clippy, simulated application, token, and documentation checks.",
@@ -180,6 +180,97 @@ invariant(
     packageJson.scripts?.["test:scripts"]?.includes("macos-signed-release.test.ts") &&
     packageJson.scripts?.["test:scripts"]?.includes("macos-updater-contract.test.ts"),
   "The Fast PR gate must execute the credential-free signed-direct package, release, and updater fixtures.",
+);
+
+const platformMacos = job("platform-macos-gate");
+invariant(platformMacos.if === inspectionOnly, "macOS platform coverage must be inspection-only.");
+invariant(platformMacos["runs-on"] === "macos-15", "macOS platform coverage must use macos-15.");
+invariant(
+  platformMacos["timeout-minutes"] === 30,
+  "macOS platform coverage must retain its thirty-minute ceiling.",
+);
+assertNodeCache(platformMacos, "macOS platform coverage");
+assertRustCache(platformMacos, "Cache Rust dependencies and build outputs", "pr-platform-macos");
+invariant(
+  step(platformMacos, "Check out repository").with?.ref === "main",
+  "macOS platform coverage must inspect the latest main branch.",
+);
+invariant(
+  step(platformMacos, "Install dependencies").run === "pnpm install --frozen-lockfile",
+  "macOS platform coverage must install frozen dependencies.",
+);
+for (const [stepName, command] of [
+  ["Build desktop web bundle", "pnpm --filter @mish/web build:desktop"],
+  ["Check desktop Rust target", "pnpm check:rust:desktop"],
+  ["Test desktop Rust target", "pnpm test:rust:desktop"],
+  ["Check macOS platform Rust target", "pnpm check:rust:platform-macos"],
+  ["Test macOS platform Rust target", "pnpm test:rust:platform-macos"],
+] as const) {
+  invariant(
+    step(platformMacos, stepName).run === command,
+    `macOS platform coverage must run ${command}.`,
+  );
+}
+
+const platformAndroid = job("platform-android-gate");
+invariant(
+  platformAndroid.if === pullRequestOnly,
+  "Android platform coverage must run on pull requests.",
+);
+invariant(
+  platformAndroid["runs-on"] === "ubuntu-24.04",
+  "Android platform coverage must use Ubuntu 24.04.",
+);
+invariant(
+  platformAndroid["timeout-minutes"] === 30,
+  "Android platform coverage must retain its thirty-minute ceiling.",
+);
+assertNodeCache(platformAndroid, "Android platform coverage");
+invariant(
+  step(platformAndroid, "Install dependencies").run === "pnpm install --frozen-lockfile",
+  "Android platform coverage must install frozen dependencies.",
+);
+const platformAndroidJavaSetup = step(platformAndroid, "Set up Java");
+invariant(
+  platformAndroidJavaSetup.uses === setupJavaAction &&
+    platformAndroidJavaSetup.with?.distribution === "temurin" &&
+    platformAndroidJavaSetup.with?.["java-version"] === 17,
+  "Android platform coverage must pin Java 17.",
+);
+const platformAndroidTools = step(platformAndroid, "Set up Android SDK tools");
+invariant(
+  platformAndroidTools.uses === setupAndroidAction &&
+    platformAndroidTools.with?.["cmdline-tools-version"] === 14742923 &&
+    platformAndroidTools.with?.packages === "",
+  "Android platform coverage must pin Android setup without implicit packages.",
+);
+const platformAndroidToolchain = step(
+  platformAndroid,
+  "Install pinned Android Rust target toolchain",
+).run;
+for (const requirement of [
+  "platforms;android-36",
+  "build-tools;36.1.0",
+  "ndk;29.0.14206865",
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+  "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER",
+  "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER",
+]) {
+  invariant(
+    platformAndroidToolchain?.includes(requirement),
+    `Android platform coverage must pin ${requirement}.`,
+  );
+}
+assertRustCache(
+  platformAndroid,
+  "Cache Rust dependencies and build outputs",
+  "pr-platform-android",
+);
+invariant(
+  step(platformAndroid, "Check mobile Rust targets").run === "pnpm check:rust:mobile" &&
+    step(platformAndroid, "Compile mobile Rust test targets").run === "pnpm test:rust:mobile",
+  "Android platform coverage must run compile, Clippy, and test-target commands.",
 );
 
 const inspectMain = job("inspect-main");

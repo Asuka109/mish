@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
@@ -59,6 +60,7 @@ export interface Workflow {
 }
 
 export interface ParsedWorkflow {
+  relative: string;
   source: string;
   workflow: Workflow;
 }
@@ -95,6 +97,56 @@ export type WorkflowStepInspection = RunStepInspection | WorkflowReference;
 
 export interface WorkflowValidationOptions {
   knownWorkflowPaths?: Iterable<string>;
+}
+
+export interface PlatformWorkspaceRootPolicy {
+  prefix: string;
+  family: string;
+}
+
+export interface PlatformPackagePolicy {
+  name: string;
+  manifest: string;
+  family: string;
+  targets: string[];
+  runner: string;
+  workflow: string;
+  job: string;
+  checkScript: string;
+  testScript: string;
+  testMode: "run" | "compile-only";
+  hostLimitation: string;
+  compileCommands: string[];
+  clippyCommands: string[];
+  testCommands: string[];
+}
+
+export interface PlatformWorkflowCoverage {
+  workflow: string;
+  job: string;
+  if: string;
+  runner: string;
+  commands: string[];
+  scriptRequirements: Record<string, string[]>;
+}
+
+export interface PlatformTargetPolicy {
+  schemaVersion: number;
+  workspaceRoots: PlatformWorkspaceRootPolicy[];
+  packages: PlatformPackagePolicy[];
+  workflowCoverage: PlatformWorkflowCoverage[];
+}
+
+export interface CargoWorkspacePackage {
+  name: string;
+  manifest_path: string;
+}
+
+export interface PlatformTargetValidationInput {
+  policy: PlatformTargetPolicy;
+  workflows: ParsedWorkflow[];
+  packageScripts: Record<string, string>;
+  cargoPackages: CargoWorkspacePackage[];
 }
 
 const workflowKeys = new Set([
@@ -156,6 +208,365 @@ function invariant(condition: unknown, message: string): asserts condition {
 
 function read(relative: string): string {
   return readFileSync(path.join(repositoryRoot, relative), "utf8");
+}
+
+export function readPlatformTargetPolicy(): PlatformTargetPolicy {
+  const value = JSON.parse(read(".github/platform-target-policy.json")) as unknown;
+  invariant(isRecord(value), "Platform target policy must contain a mapping.");
+  return value as PlatformTargetPolicy;
+}
+
+function repositoryRelativeManifest(manifestPath: string): string {
+  const absolute = path.isAbsolute(manifestPath)
+    ? manifestPath
+    : path.resolve(repositoryRoot, manifestPath);
+  return path.relative(repositoryRoot, absolute).split(path.sep).join("/");
+}
+
+function packageManifestByName(
+  packages: CargoWorkspacePackage[],
+): Map<string, CargoWorkspacePackage> {
+  return new Map(packages.map((package_) => [package_.name, package_]));
+}
+
+const supportedPlatformRunners = new Set(["macos-15", "ubuntu-24.04"]);
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isStringArrayMap(value: unknown): value is Record<string, string[]> {
+  return isRecord(value) && Object.values(value).every((entry) => isStringArray(entry));
+}
+
+function isPlatformWorkspaceRootPolicy(value: unknown): value is PlatformWorkspaceRootPolicy {
+  return isRecord(value) && isNonEmptyString(value.prefix) && isNonEmptyString(value.family);
+}
+
+function isPlatformPackagePolicy(value: unknown): value is PlatformPackagePolicy {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.name) &&
+    isNonEmptyString(value.manifest) &&
+    isNonEmptyString(value.family) &&
+    isStringArray(value.targets) &&
+    isNonEmptyString(value.runner) &&
+    isNonEmptyString(value.workflow) &&
+    isNonEmptyString(value.job) &&
+    isNonEmptyString(value.checkScript) &&
+    isNonEmptyString(value.testScript) &&
+    (value.testMode === "run" || value.testMode === "compile-only") &&
+    isNonEmptyString(value.hostLimitation) &&
+    isStringArray(value.compileCommands) &&
+    isStringArray(value.clippyCommands) &&
+    isStringArray(value.testCommands)
+  );
+}
+
+function isPlatformWorkflowCoverage(value: unknown): value is PlatformWorkflowCoverage {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.workflow) &&
+    isNonEmptyString(value.job) &&
+    isNonEmptyString(value.if) &&
+    isNonEmptyString(value.runner) &&
+    isStringArray(value.commands) &&
+    isStringArrayMap(value.scriptRequirements)
+  );
+}
+
+function workflowRunCommands(workflow: ParsedWorkflow, jobName: string): string[] {
+  return (workflow.workflow.jobs?.[jobName]?.steps ?? [])
+    .map((step) => step.run)
+    .filter((run): run is string => typeof run === "string");
+}
+
+export function validatePlatformTargetCoverage({
+  policy,
+  workflows,
+  packageScripts,
+  cargoPackages,
+}: PlatformTargetValidationInput): string[] {
+  const errors: string[] = [];
+  if (policy.schemaVersion !== 1) {
+    errors.push("Platform target policy schema changed.");
+  }
+  if (!Array.isArray(policy.workspaceRoots) || policy.workspaceRoots.length === 0) {
+    errors.push("Platform target policy must declare workspace roots.");
+  }
+  if (!Array.isArray(policy.packages) || policy.packages.length === 0) {
+    errors.push("Platform target policy must declare covered workspace packages.");
+  }
+  if (!Array.isArray(policy.workflowCoverage) || policy.workflowCoverage.length === 0) {
+    errors.push("Platform target policy must declare workflow coverage.");
+  }
+  if (errors.length > 0) return errors;
+
+  const workspaceRoots = policy.workspaceRoots as unknown[];
+  const validWorkspaceRoots: PlatformWorkspaceRootPolicy[] = [];
+  for (const [index, root] of workspaceRoots.entries()) {
+    if (!isPlatformWorkspaceRootPolicy(root)) {
+      errors.push(`Platform target policy workspace root ${index} is malformed.`);
+      continue;
+    }
+    if (!root.prefix.endsWith("/") && !root.prefix.endsWith("-")) {
+      errors.push(
+        `Platform target policy workspace root ${root.prefix} must end with / or a family separator.`,
+      );
+    }
+    if (validWorkspaceRoots.some((candidate) => candidate.prefix === root.prefix)) {
+      errors.push(`Platform target policy duplicates workspace root ${root.prefix}.`);
+    }
+    validWorkspaceRoots.push(root);
+  }
+
+  const rawPackages = policy.packages as unknown[];
+  const validPackages: PlatformPackagePolicy[] = [];
+  for (const [index, packagePolicy] of rawPackages.entries()) {
+    if (!isPlatformPackagePolicy(packagePolicy)) {
+      errors.push(`Platform target policy package ${index} is malformed.`);
+      continue;
+    }
+    validPackages.push(packagePolicy);
+  }
+
+  const rawWorkflowCoverage = policy.workflowCoverage as unknown[];
+  const validWorkflowCoverage: PlatformWorkflowCoverage[] = [];
+  for (const [index, coverage] of rawWorkflowCoverage.entries()) {
+    if (!isPlatformWorkflowCoverage(coverage)) {
+      errors.push(`Platform target workflow coverage ${index} is malformed.`);
+      continue;
+    }
+    validWorkflowCoverage.push(coverage);
+  }
+
+  const packageNames = new Set<string>();
+  const manifests = new Set<string>();
+  const packageByName = packageManifestByName(cargoPackages);
+  const workflowByPath = new Map<string, ParsedWorkflow>();
+  for (const workflow of workflows) {
+    if (workflowByPath.has(workflow.relative)) {
+      errors.push(`Workflow parser returned duplicate workflow ${workflow.relative}.`);
+    }
+    workflowByPath.set(workflow.relative, workflow);
+  }
+  const coverageByJob = new Map<string, PlatformWorkflowCoverage>();
+  for (const coverage of validWorkflowCoverage) {
+    const key = `${coverage.workflow}#${coverage.job}`;
+    if (coverageByJob.has(key)) {
+      errors.push(`Platform workflow coverage duplicates ${key}.`);
+    }
+    coverageByJob.set(key, coverage);
+  }
+
+  for (const packagePolicy of validPackages) {
+    if (packageNames.has(packagePolicy.name)) {
+      errors.push(`Platform package policy duplicates ${packagePolicy.name}.`);
+    }
+    packageNames.add(packagePolicy.name);
+
+    const manifest = repositoryRelativeManifest(packagePolicy.manifest);
+    if (manifests.has(manifest)) {
+      errors.push(`Platform package policy duplicates manifest ${manifest}.`);
+    }
+    manifests.add(manifest);
+
+    if (
+      packagePolicy.targets.length === 0 ||
+      packagePolicy.runner.length === 0 ||
+      packagePolicy.hostLimitation.length === 0
+    ) {
+      errors.push(`${packagePolicy.name} must declare targets, runner, and host limitation.`);
+    }
+    if (!supportedPlatformRunners.has(packagePolicy.runner)) {
+      errors.push(
+        `${packagePolicy.name} uses unsupported platform runner ${packagePolicy.runner}.`,
+      );
+    }
+    if (packagePolicy.compileCommands.length === 0) {
+      errors.push(`${packagePolicy.name} must declare compile commands.`);
+    }
+    if (packagePolicy.clippyCommands.length === 0) {
+      errors.push(`${packagePolicy.name} must declare Clippy commands.`);
+    }
+    if (packagePolicy.testCommands.length === 0) {
+      errors.push(`${packagePolicy.name} must declare test commands.`);
+    }
+    if (packagePolicy.testMode === "compile-only") {
+      for (const command of packagePolicy.testCommands) {
+        if (!command.includes("--no-run")) {
+          errors.push(`${packagePolicy.name} compile-only test is missing --no-run.`);
+        }
+      }
+    }
+    const packageCommands = [
+      ...packagePolicy.compileCommands,
+      ...packagePolicy.clippyCommands,
+      ...packagePolicy.testCommands,
+    ];
+    for (const command of packageCommands) {
+      if (!command.includes(`-p ${packagePolicy.name}`)) {
+        errors.push(
+          `${packagePolicy.name} policy command is not scoped to that package: ${command}.`,
+        );
+      }
+    }
+    for (const target of packagePolicy.targets) {
+      if (target === "host") continue;
+      const targetToken = `--target ${target}`;
+      if (!packagePolicy.compileCommands.some((command) => command.includes(targetToken))) {
+        errors.push(`${packagePolicy.name} compile policy does not cover target ${target}.`);
+      }
+      if (!packagePolicy.clippyCommands.some((command) => command.includes(targetToken))) {
+        errors.push(`${packagePolicy.name} Clippy policy does not cover target ${target}.`);
+      }
+      if (!packagePolicy.testCommands.some((command) => command.includes(targetToken))) {
+        errors.push(`${packagePolicy.name} test policy does not cover target ${target}.`);
+      }
+    }
+
+    const matchingRoots = validWorkspaceRoots.filter((root) =>
+      repositoryRelativeManifest(packagePolicy.manifest).startsWith(root.prefix),
+    );
+    if (matchingRoots.length !== 1) {
+      errors.push(`${packagePolicy.name} manifest must match exactly one declared workspace root.`);
+    } else if (matchingRoots[0].family !== packagePolicy.family) {
+      errors.push(`${packagePolicy.name} family does not match its workspace root.`);
+    }
+
+    const cargoPackage = packageByName.get(packagePolicy.name);
+    if (!cargoPackage) {
+      errors.push(
+        `Platform workspace package is missing from Cargo metadata: ${packagePolicy.name}.`,
+      );
+    } else if (repositoryRelativeManifest(cargoPackage.manifest_path) !== manifest) {
+      errors.push(
+        `${packagePolicy.name} moved from ${manifest} to ${repositoryRelativeManifest(cargoPackage.manifest_path)} without a policy update.`,
+      );
+    }
+
+    const checkScript = packageScripts[packagePolicy.checkScript];
+    if (typeof checkScript !== "string") {
+      errors.push(`${packagePolicy.name} is missing package script ${packagePolicy.checkScript}.`);
+    } else {
+      for (const command of [...packagePolicy.compileCommands, ...packagePolicy.clippyCommands]) {
+        if (!checkScript.includes(command)) {
+          errors.push(`${packagePolicy.checkScript} does not execute ${command}.`);
+        }
+      }
+    }
+    const testScript = packageScripts[packagePolicy.testScript];
+    if (typeof testScript !== "string") {
+      errors.push(`${packagePolicy.name} is missing package script ${packagePolicy.testScript}.`);
+    } else {
+      for (const command of packagePolicy.testCommands) {
+        if (!testScript.includes(command)) {
+          errors.push(`${packagePolicy.testScript} does not execute ${command}.`);
+        }
+      }
+    }
+
+    const workflowCoverage = coverageByJob.get(`${packagePolicy.workflow}#${packagePolicy.job}`);
+    if (!workflowCoverage) {
+      errors.push(
+        `${packagePolicy.name} is not attached to workflow coverage ${packagePolicy.workflow}#${packagePolicy.job}.`,
+      );
+    } else if (
+      workflowCoverage.runner !== packagePolicy.runner ||
+      workflowCoverage.workflow !== packagePolicy.workflow
+    ) {
+      errors.push(`${packagePolicy.name} workflow runner or path does not match its policy.`);
+    }
+  }
+
+  const platformManifestPrefixes = validWorkspaceRoots.map((root) => root.prefix);
+  for (const cargoPackage of cargoPackages) {
+    const manifest = repositoryRelativeManifest(cargoPackage.manifest_path);
+    if (!platformManifestPrefixes.some((prefix) => manifest.startsWith(prefix))) continue;
+    if (!packageNames.has(cargoPackage.name)) {
+      errors.push(
+        `Platform workspace package has no compile/Clippy/test policy: ${cargoPackage.name} (${manifest}).`,
+      );
+    }
+  }
+
+  for (const coverage of validWorkflowCoverage) {
+    if (!localWorkflowPath.test(coverage.workflow)) {
+      errors.push(`Platform workflow coverage uses an unsafe workflow path ${coverage.workflow}.`);
+    }
+    if (coverage.commands.length === 0) {
+      errors.push(`${coverage.workflow}#${coverage.job} must declare workflow commands.`);
+    }
+    if (!supportedPlatformRunners.has(coverage.runner)) {
+      errors.push(
+        `${coverage.workflow}#${coverage.job} uses unsupported platform runner ${coverage.runner}.`,
+      );
+    }
+    const workflow = workflowByPath.get(coverage.workflow);
+    if (!workflow) {
+      errors.push(`Platform workflow coverage references missing workflow ${coverage.workflow}.`);
+      continue;
+    }
+    const job = workflow.workflow.jobs?.[coverage.job];
+    if (!job) {
+      errors.push(
+        `Platform workflow coverage references missing job ${coverage.workflow}#${coverage.job}.`,
+      );
+      continue;
+    }
+    if (job.if !== coverage.if) {
+      errors.push(`${coverage.workflow}#${coverage.job} has an unexpected trigger condition.`);
+    }
+    if (JSON.stringify(job["runs-on"]) !== JSON.stringify(coverage.runner)) {
+      errors.push(`${coverage.workflow}#${coverage.job} has an unexpected runner.`);
+    }
+    const commands = workflowRunCommands(workflow, coverage.job);
+    for (const command of coverage.commands) {
+      if (!commands.some((run) => run.includes(command))) {
+        errors.push(`${coverage.workflow}#${coverage.job} does not execute ${command}.`);
+      }
+    }
+    for (const [scriptName, requirements] of Object.entries(coverage.scriptRequirements)) {
+      const script = packageScripts[scriptName];
+      if (typeof script !== "string") {
+        errors.push(`Platform workflow coverage requires missing package script ${scriptName}.`);
+        continue;
+      }
+      for (const requirement of requirements) {
+        if (!script.includes(requirement)) {
+          errors.push(`${scriptName} does not retain platform coverage command ${requirement}.`);
+        }
+      }
+    }
+  }
+
+  for (const packagePolicy of validPackages) {
+    const workflowCoverage = coverageByJob.get(`${packagePolicy.workflow}#${packagePolicy.job}`);
+    if (!workflowCoverage) continue;
+    const directCommands = workflowCoverage.commands;
+    const checkCovered = directCommands.includes(`pnpm ${packagePolicy.checkScript}`);
+    const testCovered = directCommands.includes(`pnpm ${packagePolicy.testScript}`);
+    const checkIndirect = Object.values(workflowCoverage.scriptRequirements).some((requirements) =>
+      requirements.includes(`pnpm ${packagePolicy.checkScript}`),
+    );
+    const testIndirect = Object.values(workflowCoverage.scriptRequirements).some((requirements) =>
+      requirements.includes(packagePolicy.testCommands[0]),
+    );
+    if (!checkCovered && !checkIndirect) {
+      errors.push(
+        `${packagePolicy.name} compile/Clippy script is not reachable from its workflow job.`,
+      );
+    }
+    if (!testCovered && !testIndirect) {
+      errors.push(`${packagePolicy.name} test script is not reachable from its workflow job.`);
+    }
+  }
+
+  return errors;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -233,7 +644,7 @@ function parseWorkflowSource(source: string, relative: string): ParsedWorkflow {
   );
   const value = document.toJS();
   invariant(isRecord(value), `${relative} must contain a workflow mapping.`);
-  return { source, workflow: value as Workflow };
+  return { relative, source, workflow: value as Workflow };
 }
 
 export function parseWorkflowFixture(source: string, relative = "fixture.yml"): ParsedWorkflow {
@@ -1094,7 +1505,7 @@ invariant(
 invariant(
   packageJson.scripts?.["check:pr"]?.includes("pnpm check:rust:pr") &&
     packageJson.scripts?.["check:rust:pr"] ===
-      "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings" &&
+      "cargo clippy --workspace --all-targets --exclude mish-desktop --exclude mish-mobile --exclude tauri-plugin-mish-vpn --exclude mish-platform-macos --exclude mish-simulated-host --exclude mish-updater --exclude mish-bridge --no-deps -- -D warnings && cargo clippy -p mish-updater --lib -- -D warnings" &&
     packageJson.scripts?.["check:rust:clippy"] ===
       "cargo clippy --workspace --all-targets -- -D warnings",
   "The secretless Fast PR gate must retain the portable workspace/all-target Clippy contract without weakening the complete main inspection.",
@@ -1120,6 +1531,22 @@ invariant(
     "node scripts/audit-github-trust-settings.ts",
   "The live GitHub trust-settings audit command is missing.",
 );
+
+const platformTargetPolicy = readPlatformTargetPolicy();
+const cargoMetadata = JSON.parse(
+  execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }),
+) as { packages: CargoWorkspacePackage[] };
+const platformTargetErrors = validatePlatformTargetCoverage({
+  policy: platformTargetPolicy,
+  workflows: parsedWorkflows,
+  packageScripts: packageJson.scripts ?? {},
+  cargoPackages: cargoMetadata.packages,
+});
+invariant(platformTargetErrors.length === 0, platformTargetErrors.join("; "));
+
 const renovate = JSON.parse(read(".github/renovate.json")) as {
   packageRules?: Array<Record<string, unknown>>;
 };
