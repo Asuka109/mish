@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mish macOS DMG Packaging"
+  short_description: "Build and verify stable Finder DMG layouts"
+  default_prompt: "Use $macos-dmg-packaging to update and verify Mish’s macOS DMG packaging."
