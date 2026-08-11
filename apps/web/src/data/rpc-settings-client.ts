@@ -12,32 +12,66 @@ import {
   type SettingsSnapshotDelivery,
   type SettingsSnapshotDto,
   type SettingsSnapshotNotificationDto,
+  type StatusConnectionState,
   type StartupPreferencesDto,
   type WindowCloseBehavior,
   type WindowSurfacePreference,
   type SystemProxyTakeoverPolicy,
   type TunHelperLifecycleOptions,
 } from "@mish/contracts";
-import type { RpcClient, RpcConnectionState, RpcRequestOptions } from "@mish/rpc-client";
-import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
+import {
+  RpcSessionAuthority,
+  type RpcClient,
+  type RpcConnectionState,
+  type RpcRequestOptions,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
+import { projectRpcConnectionState } from "./web-rpc-transport";
+
+type SettingsSnapshotMethod =
+  | "settings.getSnapshot"
+  | "settings.refreshNetworkDns"
+  | "settings.installTunHelper"
+  | "settings.repairTunHelper"
+  | "settings.removeTunHelper"
+  | "settings.setAppearance"
+  | "settings.setLanguage"
+  | "settings.setOnboardingWelcomeState"
+  | "settings.setStartup"
+  | "settings.setApplicationLaunchBehavior"
+  | "settings.setManagedPorts"
+  | "settings.findManagedPorts"
+  | "settings.findManagedPort"
+  | "settings.setSystemProxyTakeoverPolicy"
+  | "settings.setProcessDiscoveryMode"
+  | "settings.setCloseOldConnectionsAfterGroupSwitch"
+  | "settings.setWindowCloseBehavior"
+  | "settings.setWindowSurface";
 
 export class RpcSettingsClient implements SettingsClient {
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<SettingsSnapshotDto>();
+  private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
+  private connectionState: StatusConnectionState;
+  private readonly sessionAuthority = new RpcSessionAuthority<SettingsSnapshotDto>();
   private readonly snapshotListeners = new Set<
     (snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery) => void
   >();
   private remoteSubscriptionId: string | null = null;
-  private subscriptionGeneration = 0;
   private subscriptionPromise: Promise<void> | null = null;
   private subscriptionRetryPending = false;
   private disposed = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private subscriptionTicket: RpcSessionTicket | null = null;
 
   constructor(
     private readonly rpc: RpcClient<typeof mishRpcMethods>,
     private readonly nativeWindowCapabilities = true,
   ) {
+    this.connectionState = projectRpcConnectionState(
+      "getConnectionState" in rpc && typeof rpc.getConnectionState === "function"
+        ? rpc.getConnectionState()
+        : { attempt: 0, phase: "disconnected", stale: true },
+    );
     this.unsubscribeNotification =
       "onNotification" in rpc
         ? rpc.onNotification(
@@ -52,21 +86,26 @@ export class RpcSettingsClient implements SettingsClient {
         : () => undefined;
   }
 
+  subscribeConnection(listener: (state: StatusConnectionState) => void) {
+    this.connectionListeners.add(listener);
+    listener({ ...this.connectionState });
+    return () => this.connectionListeners.delete(listener);
+  }
+
   getSnapshot(options?: RpcRequestOptions) {
-    return this.requestSnapshot(this.rpc.request("settings.getSnapshot", {}, options), "request");
+    return this.requestSnapshot("settings.getSnapshot", {}, options, "request");
   }
 
   refreshNetworkDns(options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.refreshNetworkDns", {}, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.refreshNetworkDns", {}, options, "command");
   }
 
   installTunHelper(options?: TunHelperLifecycleOptions) {
     const { resumeCapture = false, ...requestOptions } = options ?? {};
     return this.requestSnapshot(
-      this.rpc.request("settings.installTunHelper", { resumeCapture }, requestOptions),
+      "settings.installTunHelper",
+      { resumeCapture },
+      requestOptions,
       "command",
     );
   }
@@ -74,44 +113,36 @@ export class RpcSettingsClient implements SettingsClient {
   repairTunHelper(options?: TunHelperLifecycleOptions) {
     const { resumeCapture = false, ...requestOptions } = options ?? {};
     return this.requestSnapshot(
-      this.rpc.request("settings.repairTunHelper", { resumeCapture }, requestOptions),
+      "settings.repairTunHelper",
+      { resumeCapture },
+      requestOptions,
       "command",
     );
   }
 
   removeTunHelper(options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.removeTunHelper", {}, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.removeTunHelper", {}, options, "command");
   }
 
   setAppearance(appearance: AppearancePreference, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setAppearance", { appearance }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setAppearance", { appearance }, options, "command");
   }
 
   setLanguage(language: LanguagePreference, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setLanguage", { language }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setLanguage", { language }, options, "command");
   }
 
   setOnboardingWelcomeState(action: OnboardingWelcomeAction, options?: RpcRequestOptions) {
     return this.requestSnapshot(
-      this.rpc.request("settings.setOnboardingWelcomeState", { action }, options),
+      "settings.setOnboardingWelcomeState",
+      { action },
+      options,
       "command",
     );
   }
 
   setStartup(startup: StartupPreferencesDto, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setStartup", { startup }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setStartup", { startup }, options, "command");
   }
 
   setApplicationLaunchBehavior(
@@ -119,49 +150,43 @@ export class RpcSettingsClient implements SettingsClient {
     options?: RpcRequestOptions,
   ) {
     return this.requestSnapshot(
-      this.rpc.request("settings.setApplicationLaunchBehavior", { launchBehavior }, options),
+      "settings.setApplicationLaunchBehavior",
+      { launchBehavior },
+      options,
       "command",
     );
   }
 
   setManagedPorts(managedPorts: ManagedPortPreferencesDto, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setManagedPorts", { managedPorts }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setManagedPorts", { managedPorts }, options, "command");
   }
 
   findManagedPorts(options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.findManagedPorts", {}, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.findManagedPorts", {}, options, "command");
   }
 
   findManagedPort(kind: ManagedPortKind, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.findManagedPort", { kind }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.findManagedPort", { kind }, options, "command");
   }
 
   setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy, options?: RpcRequestOptions) {
     return this.requestSnapshot(
-      this.rpc.request("settings.setSystemProxyTakeoverPolicy", { policy }, options),
+      "settings.setSystemProxyTakeoverPolicy",
+      { policy },
+      options,
       "command",
     );
   }
 
   setProcessDiscoveryMode(mode: ProcessDiscoveryMode, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setProcessDiscoveryMode", { mode }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setProcessDiscoveryMode", { mode }, options, "command");
   }
 
   setCloseOldConnectionsAfterGroupSwitch(enabled: boolean, options?: RpcRequestOptions) {
     return this.requestSnapshot(
-      this.rpc.request("settings.setCloseOldConnectionsAfterGroupSwitch", { enabled }, options),
+      "settings.setCloseOldConnectionsAfterGroupSwitch",
+      { enabled },
+      options,
       "command",
     );
   }
@@ -182,16 +207,15 @@ export class RpcSettingsClient implements SettingsClient {
 
   setWindowCloseBehavior(behavior: WindowCloseBehavior, options?: RpcRequestOptions) {
     return this.requestSnapshot(
-      this.rpc.request("settings.setWindowCloseBehavior", { behavior }, options),
+      "settings.setWindowCloseBehavior",
+      { behavior },
+      options,
       "command",
     );
   }
 
   setWindowSurface(surface: WindowSurfacePreference, options?: RpcRequestOptions) {
-    return this.requestSnapshot(
-      this.rpc.request("settings.setWindowSurface", { surface }, options),
-      "command",
-    );
+    return this.requestSnapshot("settings.setWindowSurface", { surface }, options, "command");
   }
 
   private normalizeSnapshot(snapshot: SettingsSnapshotDto) {
@@ -213,16 +237,24 @@ export class RpcSettingsClient implements SettingsClient {
       this.subscriptionRetryPending = true;
       return this.subscriptionPromise;
     }
-    const generation = this.subscriptionGeneration;
+    if (this.connectionState.phase !== "connected") {
+      this.sessionAuthority.observeTransport(true);
+    }
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.rpc
       .request("settings.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
-        if (generation !== this.subscriptionGeneration || this.snapshotListeners.size === 0) {
+        if (
+          this.snapshotListeners.size === 0 ||
+          (ticket.generation !== null &&
+            ticket.generation !== this.sessionAuthority.getGeneration())
+        ) {
           void this.rpc.request("settings.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
+        this.subscriptionTicket = ticket;
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -237,39 +269,74 @@ export class RpcSettingsClient implements SettingsClient {
   private receiveSnapshot(
     notification: SettingsSnapshotNotificationDto,
     delivery: SettingsSnapshotDelivery = "update",
+    ticket = this.subscriptionTicket,
   ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    this.acceptSnapshot(notification.snapshot, delivery);
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    this.acceptSnapshot(notification.snapshot, delivery, ticket);
   }
 
   private receiveConnectionState(state: RpcConnectionState) {
-    if (state.phase !== "connected") return;
-    this.snapshotAcceptance.armReconnect();
-    this.subscriptionGeneration += 1;
+    const mapped = projectRpcConnectionState(state);
+    const previous = this.connectionState;
+    this.connectionState = mapped;
+    for (const listener of this.connectionListeners) listener({ ...mapped });
+    if (
+      mapped.phase === "connected" &&
+      (previous.phase === "connected" || this.remoteSubscriptionId !== null)
+    ) {
+      this.sessionAuthority.observeTransport(false);
+      this.sessionAuthority.observeTransport(true);
+    } else {
+      this.sessionAuthority.observeTransport(mapped.phase === "connected");
+    }
+    if (mapped.phase !== "connected") return;
     this.remoteSubscriptionId = null;
+    this.subscriptionTicket = null;
     void this.ensureRemoteSubscription();
   }
 
-  private async requestSnapshot(
-    request: Promise<SettingsSnapshotDto>,
-    delivery: "command" | "request",
-  ) {
-    return this.acceptSnapshot(await request, delivery);
+  private emitConnectionState(state: StatusConnectionState) {
+    this.connectionState = state;
+    for (const listener of this.connectionListeners) listener({ ...state });
   }
 
-  private acceptSnapshot(snapshot: SettingsSnapshotDto, delivery: SettingsSnapshotDelivery) {
-    const normalized = this.normalizeSnapshot(snapshot);
-    const previous = this.snapshotAcceptance.snapshot();
-    const result = this.snapshotAcceptance.accept(normalized, delivery);
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
-    if (result.kind !== "accepted") return result.snapshot;
+  private async requestSnapshot(
+    method: SettingsSnapshotMethod,
+    params: Parameters<RpcClient<typeof mishRpcMethods>["request"]>[1],
+    options: RpcRequestOptions | undefined,
+    delivery: "command" | "request",
+  ) {
+    const ticket = this.sessionAuthority.beginRequest();
+    return this.acceptSnapshot(
+      (await this.rpc.request(method, params as never, options)) as SettingsSnapshotDto,
+      delivery,
+      ticket,
+    );
+  }
 
-    const effectiveDelivery =
-      previous &&
-      previous.applicationOrder.authorityId !== result.snapshot.applicationOrder.authorityId
-        ? "baseline"
-        : delivery;
+  private acceptSnapshot(
+    snapshot: SettingsSnapshotDto,
+    delivery: SettingsSnapshotDelivery | "command" | "request",
+    ticket: RpcSessionTicket,
+  ) {
+    const normalized = this.normalizeSnapshot(snapshot);
+    const result = this.sessionAuthority.accept(ticket, normalized, delivery);
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return result.snapshot ?? normalized;
+    }
+    this.emitSnapshotConnectionState();
+    if (!result.snapshot) return normalized;
+    const effectiveDelivery = delivery;
     for (const listener of this.snapshotListeners) listener(result.snapshot, effectiveDelivery);
     return result.snapshot;
+  }
+
+  private emitSnapshotConnectionState() {
+    this.emitConnectionState({
+      attempt: 0,
+      phase: "connected",
+      stale: this.sessionAuthority.isStale(),
+    });
   }
 }

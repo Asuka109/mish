@@ -18,9 +18,8 @@ import type {
   WindowSurfacePreference,
 } from "@mish/contracts";
 import { TunHelperFailureKindSchema } from "@mish/contracts";
-import { RpcRemoteError } from "@mish/rpc-client";
+import { RpcRemoteError, RpcSessionAuthority } from "@mish/rpc-client";
 import { UnavailableLocalBackupClient } from "../platform/local-backup";
-import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 import TypesafeI18n from "../i18n/i18n-react";
 import { projectLocale } from "../i18n/locale";
 import {
@@ -83,10 +82,15 @@ export function SettingsProvider({
   localBackupClient?: LocalBackupClient;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<SettingsSnapshotDto>());
+  const sessionAuthority = useRef(new RpcSessionAuthority<SettingsSnapshotDto>());
   const initializedAcceptance = useRef(false);
   if (!initializedAcceptance.current) {
-    snapshotAcceptance.current.accept(initialSnapshot, "baseline");
+    sessionAuthority.current.observeTransport(true);
+    sessionAuthority.current.accept(
+      sessionAuthority.current.beginRequest(),
+      initialSnapshot,
+      "baseline",
+    );
     initializedAcceptance.current = true;
   }
   const [pending, setPending] = useState(false);
@@ -96,12 +100,16 @@ export function SettingsProvider({
   const [tunHelperFailure, setTunHelperFailure] = useState<TunHelperFailureKind | null>(null);
   const acceptSnapshot = useCallback(
     (next: SettingsSnapshotDto, delivery: SettingsSnapshotDelivery = "update") => {
-      const result = snapshotAcceptance.current.accept(next, delivery);
+      const ticket =
+        delivery === "baseline" || delivery === "update"
+          ? sessionAuthority.current.beginSubscription()
+          : sessionAuthority.current.beginRequest();
+      const result = sessionAuthority.current.accept(ticket, next, delivery);
       if (result.kind === "conflict") {
         setError("settings-snapshot-conflict");
         return;
       }
-      if (result.kind === "accepted") setSnapshot(result.snapshot);
+      if (result.kind === "accepted" && result.snapshot) setSnapshot(result.snapshot);
     },
     [],
   );
@@ -157,10 +165,23 @@ export function SettingsProvider({
     [],
   );
 
-  useEffect(
-    () => client.subscribeSnapshots((next, delivery) => acceptSnapshot(next, delivery ?? "update")),
-    [acceptSnapshot, client],
-  );
+  useEffect(() => {
+    const connectionAwareClient = client as SettingsClient & {
+      subscribeConnection?: (listener: (state: { phase: string }) => void) => () => void;
+    };
+    const unsubscribeConnection = connectionAwareClient.subscribeConnection?.((connection) => {
+      sessionAuthority.current.observeTransport(
+        connection.phase === "connected" || connection.phase === "fixture",
+      );
+    });
+    const unsubscribeSnapshots = client.subscribeSnapshots((next, delivery) =>
+      acceptSnapshot(next, delivery ?? "update"),
+    );
+    return () => {
+      unsubscribeConnection?.();
+      unsubscribeSnapshots();
+    };
+  }, [acceptSnapshot, client]);
 
   const runTunHelper = useCallback(
     async (operation: () => Promise<SettingsSnapshotDto>): Promise<TunHelperOperationResult> => {

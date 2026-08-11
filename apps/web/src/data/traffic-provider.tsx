@@ -6,6 +6,7 @@ import type {
   TrafficCommandResultDto,
   TrafficConnectionState,
   TrafficDataSnapshotDto,
+  ApplicationSnapshotDelivery,
 } from "@mish/contracts";
 import {
   createContext,
@@ -17,10 +18,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ApplicationSnapshotAcceptance,
-  type SnapshotDelivery,
-} from "./application-snapshot-acceptance";
+import { RpcSessionAuthority } from "@mish/rpc-client";
+type SnapshotDelivery = ApplicationSnapshotDelivery | "command" | "request";
 import {
   applicationCommandAuthority,
   applicationCommandScope,
@@ -130,7 +129,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const processIconCacheRef = useRef(new Map<string, string>());
   const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
   const latestSnapshotRef = useRef<TrafficDataSnapshotDto | null>(null);
-  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>());
+  const sessionAuthority = useRef(new RpcSessionAuthority<TrafficDataSnapshotDto>());
 
   const reconcileCommandScopes = useCallback(
     (nextSnapshot: TrafficDataSnapshotDto, confirmAuthority: boolean) => {
@@ -160,12 +159,20 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: TrafficDataSnapshotDto, delivery: SnapshotDelivery) => {
-      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (delivery === "request" && sessionAuthority.current.getGeneration() === 0) {
+        sessionAuthority.current.observeTransport(true);
+      }
+      const ticket =
+        delivery === "baseline" || delivery === "update"
+          ? sessionAuthority.current.beginSubscription()
+          : sessionAuthority.current.beginRequest();
+      const result = sessionAuthority.current.accept(ticket, nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {
         setError("Traffic snapshot order conflict.");
         return false;
       }
+      if (!result.snapshot) return false;
       nextSnapshot = result.snapshot;
       reconcileCommandScopes(nextSnapshot, delivery !== "command");
       latestSnapshotRef.current = nextSnapshot;
@@ -187,17 +194,16 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   useEffect(() => {
     processIconCacheRef.current.clear();
     processIconRequestsRef.current.clear();
-    snapshotAcceptance.current.clear();
+    sessionAuthority.current.clear();
     resetCommandFeedback("cancelled");
     trafficCommands.current.clear();
     latestTrafficOperation.current = null;
     setFailurePayload(null);
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected") {
-        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
-        else snapshotAcceptance.current.confirmReconnect();
-      }
+      sessionAuthority.current.observeTransport(
+        nextConnection.phase === "connected" || nextConnection.phase === "fixture",
+      );
       setConnection(nextConnection);
       if (!nextConnection.stale) return;
       for (const command of trafficCommands.current.values()) {

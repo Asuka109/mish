@@ -9,6 +9,7 @@ import {
   type StatusCommand,
   type StatusConnectionState,
   type StatusSnapshotDto,
+  type ApplicationSnapshotDelivery,
 } from "@mish/contracts";
 import {
   createContext,
@@ -20,10 +21,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ApplicationSnapshotAcceptance,
-  type SnapshotDelivery,
-} from "./application-snapshot-acceptance";
+import { RpcSessionAuthority } from "@mish/rpc-client";
+type SnapshotDelivery = ApplicationSnapshotDelivery | "command" | "request";
 import {
   applicationCommandAuthority,
   applicationCommandScope,
@@ -257,7 +256,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const commandControllers = useRef(new Map<string, ProductCommandController>());
   const commandDomains = useRef(new Map<string, ProductCommand>());
   const snapshotRef = useRef<StatusSnapshotDto | null>(null);
-  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<StatusSnapshotDto>());
+  const sessionAuthority = useRef(new RpcSessionAuthority<StatusSnapshotDto>());
   const localProxyAuthority = snapshot
     ? JSON.stringify([snapshot.activeProfileId, snapshot.runtime.phase])
     : null;
@@ -299,12 +298,20 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   );
   const acceptSnapshot = useCallback(
     (nextSnapshot: StatusSnapshotDto, delivery: SnapshotDelivery) => {
-      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (delivery === "request" && sessionAuthority.current.getGeneration() === 0) {
+        sessionAuthority.current.observeTransport(true);
+      }
+      const ticket =
+        delivery === "baseline" || delivery === "update"
+          ? sessionAuthority.current.beginSubscription()
+          : sessionAuthority.current.beginRequest();
+      const result = sessionAuthority.current.accept(ticket, nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {
         setLoadFailed(true);
         return false;
       }
+      if (!result.snapshot) return false;
       reconcileCommandFeedback(result.snapshot, delivery !== "command");
       snapshotRef.current = result.snapshot;
       setSnapshot(result.snapshot);
@@ -318,7 +325,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     const controller = new AbortController();
     localProxyAuthorityRef.current = null;
     snapshotRef.current = null;
-    snapshotAcceptance.current.clear();
+    sessionAuthority.current.clear();
     resetCommandFeedback("cancelled");
     commandDomains.current.clear();
     setCommandFailures({});
@@ -326,10 +333,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     setServiceProbeFailures({});
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected") {
-        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
-        else snapshotAcceptance.current.confirmReconnect();
-      }
+      sessionAuthority.current.observeTransport(
+        nextConnection.phase === "connected" || nextConnection.phase === "fixture",
+      );
       if (
         nextConnection.phase !== "connected" &&
         nextConnection.phase !== "fixture" &&
@@ -493,7 +499,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           return { error: typedError, ok: false } satisfies ProductCommandResult;
         }
         if (typedError.snapshot !== null) {
-          snapshotAcceptance.current.clear();
+          sessionAuthority.current.clear();
           acceptSnapshot(typedError.snapshot, "baseline");
         } else if (isCurrent) {
           try {

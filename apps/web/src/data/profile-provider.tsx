@@ -1,6 +1,7 @@
 import {
   ProfileClientError,
   type ProfileActivationSnapshotDto,
+  type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePatchAuthorityDto,
@@ -24,10 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ApplicationSnapshotAcceptance,
-  type SnapshotDelivery,
-} from "./application-snapshot-acceptance";
+import { RpcSessionAuthority } from "@mish/rpc-client";
 import {
   applicationCommandAuthority,
   applicationCommandScope,
@@ -49,6 +47,7 @@ export type ProfileOperation =
   | "select"
   | "save"
   | "stop";
+type SnapshotDelivery = ApplicationSnapshotDelivery | "command" | "request";
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
 export type ProfileSelectionOperationResult =
   | { ok: true; selection: ProfileSelectionSnapshotDto }
@@ -169,7 +168,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   const profileCommand = useRef<ProfileCommand | null>(null);
   const profileOperationKey = useRef<{ key: string; operationId: string } | null>(null);
   const selectionProjectionRef = useRef<ProfileSelectionProjection | null>(null);
-  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<ProfileSnapshotDto>());
+  const sessionAuthority = useRef(new RpcSessionAuthority<ProfileSnapshotDto>());
   const activationWaiters = useRef(
     new Map<
       string,
@@ -187,6 +186,9 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: ProfileSnapshotDto, delivery: SnapshotDelivery) => {
+      if (delivery === "request" && sessionAuthority.current.getGeneration() === 0) {
+        sessionAuthority.current.observeTransport(true);
+      }
       const current = latestSnapshot.current;
       const authorityChangedAtBaseline =
         delivery === "baseline" &&
@@ -203,12 +205,17 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       if (acceptedSelection !== nextSnapshot.selection) {
         nextSnapshot = { ...nextSnapshot, selection: acceptedSelection };
       }
-      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      const ticket =
+        delivery === "baseline" || delivery === "update"
+          ? sessionAuthority.current.beginSubscription()
+          : sessionAuthority.current.beginRequest();
+      const result = sessionAuthority.current.accept(ticket, nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {
         setError(new ProfileClientError("validation", "Profile snapshot order conflict"));
         return false;
       }
+      if (!result.snapshot) return false;
       nextSnapshot = result.snapshot;
       const command = profileCommand.current;
       if (command) {
@@ -253,16 +260,15 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
 
   useEffect(() => {
     const controller = new AbortController();
-    snapshotAcceptance.current.clear();
+    sessionAuthority.current.clear();
     resetCommandFeedback("cancelled");
     profileCommand.current = null;
     profileOperationKey.current = null;
     updateSelectionProjection(null);
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected") {
-        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
-        else snapshotAcceptance.current.confirmReconnect();
-      }
+      sessionAuthority.current.observeTransport(
+        nextConnection.phase === "connected" || nextConnection.phase === "fixture",
+      );
       if (
         nextConnection.phase !== "connected" &&
         nextConnection.phase !== "fixture" &&

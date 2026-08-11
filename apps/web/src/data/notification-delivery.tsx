@@ -11,6 +11,7 @@ import type {
   NotificationSnapshotDelivery,
   NotificationSnapshotDto,
 } from "@mish/contracts";
+import { RpcSessionAuthority, type RpcSessionSnapshot } from "@mish/rpc-client";
 import {
   createContext,
   use,
@@ -43,6 +44,10 @@ export interface NotificationDeliveryContextValue {
 
 const NotificationDeliveryContext = createContext<NotificationDeliveryContextValue | null>(null);
 
+interface NotificationProviderSessionSnapshot extends RpcSessionSnapshot {
+  snapshot: NotificationSnapshotDto;
+}
+
 export function NotificationDeliveryProvider({
   children,
   client,
@@ -63,6 +68,9 @@ export function NotificationDeliveryProvider({
   const completingClaims = useRef(new Set<string>());
   const mounted = useRef(false);
   const snapshotRef = useRef(snapshot);
+  const sessionAuthority = useRef(new RpcSessionAuthority<NotificationProviderSessionSnapshot>());
+  const authorityId = useRef("notification-provider");
+  const authoritySequence = useRef(0);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -91,9 +99,35 @@ export function NotificationDeliveryProvider({
 
   useEffect(() => {
     mounted.current = true;
+    const unsubscribeConnection = resolvedClient.subscribeConnection((connection) => {
+      sessionAuthority.current.observeTransport(
+        connection.phase === "connected" || connection.phase === "fixture",
+      );
+    });
     const unsubscribe = resolvedClient.subscribeSnapshots((delivery) => {
+      if (delivery.kind === "baseline" && sessionAuthority.current.snapshot()) {
+        authoritySequence.current += 1;
+        authorityId.current = `notification-provider-${authoritySequence.current}`;
+      }
+      const accepted = sessionAuthority.current.accept(
+        sessionAuthority.current.beginSubscription(),
+        toSessionSnapshot(delivery.snapshot, authorityId.current),
+        delivery.kind,
+      );
+      if (accepted.kind === "conflict" || accepted.kind === "stale" || !accepted.snapshot) return;
+      if (
+        accepted.kind === "duplicate" &&
+        delivery.kind === "update" &&
+        delivery.claim === undefined
+      ) {
+        return;
+      }
+      const effectiveDelivery = {
+        ...delivery,
+        snapshot: accepted.snapshot.snapshot,
+      };
       const result = applyDelivery(
-        delivery,
+        effectiveDelivery,
         snapshotRef,
         activeClaimRef,
         setSnapshot,
@@ -109,6 +143,7 @@ export function NotificationDeliveryProvider({
     });
     return () => {
       mounted.current = false;
+      unsubscribeConnection();
       unsubscribe();
       activeClaimRef.current = null;
       if (!client) resolvedClient.dispose();
@@ -199,17 +234,6 @@ function applyDelivery(
   setActiveClaim: (claim: NotificationPresentationClaimDto | null) => void,
 ) {
   const previous = snapshotRef.current;
-  if (delivery.kind === "update" && delivery.snapshot.revision < previous.revision) {
-    return { claim: activeClaimRef.current, revisionAdvanced: false };
-  }
-  if (
-    delivery.kind === "update" &&
-    delivery.snapshot.revision === previous.revision &&
-    delivery.claim === undefined
-  ) {
-    return { claim: activeClaimRef.current, revisionAdvanced: false };
-  }
-
   const revisionAdvanced = delivery.snapshot.revision > previous.revision;
   const nextClaim =
     delivery.kind === "baseline"
@@ -222,6 +246,16 @@ function applyDelivery(
   setSnapshot(delivery.snapshot);
   setActiveClaim(nextClaim);
   return { claim: nextClaim, revisionAdvanced };
+}
+
+function toSessionSnapshot(
+  snapshot: NotificationSnapshotDto,
+  authorityId: string,
+): NotificationProviderSessionSnapshot {
+  return {
+    applicationOrder: { authorityId, epoch: 0, order: snapshot.revision },
+    snapshot,
+  };
 }
 
 function hasUnpresentedNotification(snapshot: NotificationSnapshotDto) {
