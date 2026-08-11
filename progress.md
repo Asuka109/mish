@@ -11,23 +11,21 @@ Owner: thread-master coordinator
   and their seven clean worktrees were removed; they will not be resumed.
 - Dispatch now uses a two-phase ledger: publish the complete manifest first,
   then create workers, then backfill task IDs and worktrees.
-- Waves 1 through 2F used Luna Max (`gpt-5.6-luna/max`) and Chinese reporting.
-  Future dispatch is paused until the maintainer confirms reconciliation of
-  the repository's Luna-only rule with the current thread-master Codex
-  compute-class table.
+- The maintainer's project-specific Luna Max requirement explicitly overrides
+  the thread-master default Codex compute table. All implementation Workers,
+  including future waves, use `gpt-5.6-luna/max` with Chinese reporting.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
 
 ## Active tasks
 
-Waves 2A through 2F are integrated and no implementation Worker is active.
-Coordinator review of combined `origin/main@e475a22f` found no delivery defect;
-the full `pnpm check:pr` passed. Issues #450 and #452 were reconciled and closed
-completed after their stale parent/task checkboxes were corrected. The next
-dependency-ready AFK candidates are #449 C1.2, #451 D1.2, and #453 F2.3,
-pending exact-wave and compute-policy approval. Ten repository concurrency
-slots are unreserved.
+Waves 2A through 2F are integrated. Coordinator review of combined
+`origin/main@e475a22f` found no delivery defect and the full `pnpm check:pr`
+passed. The maintainer approved the exact three-task AFK Wave 2G on 2026-08-12:
+#449 C1.2, #451 D1.2, and #453 F2.3 are reserved as `dispatching` pending
+visible Luna Max Worker creation. Seven repository concurrency slots remain
+unreserved.
 
 ## Wave 1 worker ledger
 
@@ -161,6 +159,23 @@ other hands-on work.
 | #450 C3.2 | `019ff1fe-e059-7f10-af58-d536cb062052` | `c4a5` | integrated | C3.1 integrated | Implement Browser Mode deferred, replacement, and stale-preview behavior plus save-blocking tests | PR #491 merged as `ea85343f`; combined local/remote gates passed; all acceptance criteria were checked and Issue #450 closed completed |
 | #452 F1.2 | `019ff1fe-e059-7f10-af58-d559eb52bc37` | `e791` | integrated | F1.1 integrated | Implement Restore Defaults confirmation/cancellation behavior and failure/late-completion tests | PR #492 merged as `c84072d`; coordinator corrected the stale F1.2/acceptance checkboxes after combined gates passed and closed Issue #452 completed |
 | #453 F2.2 | `019ff1fe-e059-7f10-af58-d574154512c1` | `ecac` | integrated | F2.1 integrated | Delete the dead Profile Patch Editor path and exact dependent contracts, styles, tests, and generated artifacts | PR #493 merged as `e475a22f`; generated contracts, active Profile/patch-engine paths, production exclusions, and combined `check:pr` passed; F2.3 remains open |
+
+## Wave 2G dispatch manifest
+
+The maintainer approved this exact three-task AFK wave and explicitly retained
+the repository-specific compute override. Every entry uses model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. Workers
+must read both progress ledgers and follow the transcript-driven system-test
+skill for boundary, fixture, bridge, native, or simulated-host changes. This
+wave authorizes no credentials, physical-device acceptance, real-host mutation,
+or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #449 C1.2 | `pending` | `pending` | dispatching | C1.1 and F2.2 integrated | Bind HTTPS import requests to the current accepted generation and reject stale previews/requests | Own active Profile HTTPS import generation authority and deterministic privacy-safe tests only; preserve F2.2 deletion, do not restore Patch Editor contracts, and do not implement C1.3 detach confirmation |
+| #451 D1.2 | `pending` | `pending` | dispatching | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | Own Kotlin VPN service/store/owned-resource authority and tests only; preserve Rust D1.1 authority, do not implement JavaScript D1.3 or device/emulator D1.4, and do not claim physical-device acceptance |
+| #453 F2.3 | `pending` | `pending` | dispatching | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | Own post-deletion static/route regression and active Profile journey tests only; do not change product behavior or implement #449 C1.2. Merge before C1.2, then C1.2 must integrate latest main and rerun the overlapping Profile journey |
 
 ## Existing issue coordination
 
