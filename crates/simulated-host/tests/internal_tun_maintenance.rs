@@ -22,11 +22,11 @@ use mish_runtime::{
 };
 use mish_settings::{SettingsAdapterKind, SettingsServiceError};
 use mish_simulated_host::{
-    EffectKind, InjectedFailure, InjectedFailureKind, MAX_TRANSCRIPT_LIMIT,
-    MaintenanceCompletionInjection, MaintenanceFault, MaintenanceFaultKind, MaintenanceScenario,
-    MaintenanceScenarioRuntime, ManagedEndpointOwner, ScenarioObservation, ScheduledChange,
-    SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticOwnership,
-    SyntheticPackageVersion, SyntheticProxyState, TEST_AUTH_TOKEN,
+    EffectKind, EffectResultKind, InjectedFailure, InjectedFailureKind, MAX_TRANSCRIPT_LIMIT,
+    MaintenanceCompletionInjection, MaintenanceFault, MaintenanceFaultKind, MaintenanceObservation,
+    MaintenanceScenario, MaintenanceScenarioRuntime, ManagedEndpointOwner, ScenarioObservation,
+    ScheduledChange, SimulatedHostScenario, SyntheticMaintenanceInitial, SyntheticOwnership,
+    SyntheticPackageProjection, SyntheticPackageVersion, SyntheticProxyState, TEST_AUTH_TOKEN,
 };
 use mish_state_machine::Disposition;
 use serde_json::{Value, json};
@@ -575,6 +575,180 @@ async fn foreign_core_or_dns_ownership_blocks_maintenance_without_claiming_succe
                 .all(|event| event.effect_kind != EffectKind::MaintenanceAuthorize)
         );
     }
+}
+
+#[tokio::test]
+async fn internal_tun_set_tun_fault_matrix_is_fail_closed_and_recoverable() {
+    for failure in [
+        TunHelperFailureKind::OperationFailed,
+        TunHelperFailureKind::PermissionDenied,
+    ] {
+        let scenario = build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await;
+        let before = scenario.host.maintenance_observation().unwrap();
+        scenario
+            .maintenance
+            .fail_next_tun_mutation(failure)
+            .unwrap();
+
+        scenario
+            .helper
+            .set_tun_enabled(false)
+            .await
+            .expect_err("Internal TUN failure must settle");
+        let after = scenario.host.maintenance_observation().unwrap();
+        assert_eq!(after.tun, before.tun, "{failure:?} must not mutate TUN");
+        assert_eq!(
+            after.route, before.route,
+            "{failure:?} must not mutate routes"
+        );
+        assert_eq!(after.dns, before.dns, "{failure:?} must not mutate DNS");
+        assert_eq!(
+            scenario
+                .host
+                .observation()
+                .transcript
+                .events
+                .iter()
+                .rev()
+                .find(|event| event.effect_kind == EffectKind::MaintenanceSetTun)
+                .map(|event| event.result_kind),
+            Some(EffectResultKind::FailedClosed)
+        );
+
+        scenario
+            .helper
+            .set_tun_enabled(false)
+            .await
+            .expect("one-shot Internal TUN failure must be recoverable");
+        assert_eq!(
+            scenario.host.maintenance_observation().unwrap().tun,
+            SyntheticOwnership::Absent
+        );
+    }
+
+    for ownership in [SyntheticOwnership::Partial, SyntheticOwnership::Unrelated] {
+        let scenario = build(
+            SyntheticMaintenanceInitial::HealthyV1,
+            SyntheticPackageVersion::V1,
+            Vec::new(),
+        )
+        .await;
+        scenario
+            .maintenance
+            .set_network_ownership(
+                SyntheticOwnership::Mish,
+                SyntheticOwnership::Mish,
+                ownership,
+                SyntheticOwnership::Mish,
+            )
+            .unwrap();
+        let before = scenario.host.maintenance_observation().unwrap();
+
+        let rejected = scenario.helper.set_tun_enabled(false).await;
+        assert!(
+            rejected.is_err(),
+            "{ownership:?} ownership must reject disable"
+        );
+        let after = scenario.host.maintenance_observation().unwrap();
+        assert_eq!(
+            after, before,
+            "{ownership:?} must remain observable and unchanged"
+        );
+
+        scenario
+            .maintenance
+            .set_network_ownership(
+                SyntheticOwnership::Mish,
+                SyntheticOwnership::Mish,
+                SyntheticOwnership::Mish,
+                SyntheticOwnership::Mish,
+            )
+            .unwrap();
+        scenario
+            .helper
+            .set_tun_enabled(false)
+            .await
+            .expect("clearing synthetic ownership must permit a fresh disable");
+        let recovered = scenario.host.maintenance_observation().unwrap();
+        assert_eq!(recovered.tun, SyntheticOwnership::Absent);
+        assert_eq!(recovered.route, SyntheticOwnership::Absent);
+        assert_eq!(recovered.dns, SyntheticOwnership::Absent);
+    }
+
+    let mut host = SimulatedHostScenario::internal_tun_maintenance();
+    host.failures.push(InjectedFailure {
+        after_effect: None,
+        effect: EffectKind::MaintenanceSetTun,
+        kind: InjectedFailureKind::Operation,
+        occurrence: 2,
+    });
+    let scenario = build_on(
+        host,
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V1,
+        Vec::new(),
+    )
+    .await;
+    scenario
+        .helper
+        .set_tun_enabled(false)
+        .await
+        .expect_err("the bounded second Internal TUN mutation must fail");
+    assert_eq!(
+        scenario
+            .host
+            .observation()
+            .transcript
+            .events
+            .iter()
+            .rev()
+            .find(|event| event.effect_kind == EffectKind::MaintenanceSetTun)
+            .map(|event| event.result_kind),
+        Some(EffectResultKind::InjectedFailure)
+    );
+    scenario
+        .helper
+        .set_tun_enabled(false)
+        .await
+        .expect("the third occurrence is outside the bounded injected failure");
+    assert_eq!(
+        scenario.host.maintenance_observation().unwrap().tun,
+        SyntheticOwnership::Absent
+    );
+}
+
+#[tokio::test]
+async fn rejected_package_operation_clears_active_operation_and_preserves_terminal_projection() {
+    let scenario = build(
+        SyntheticMaintenanceInitial::HealthyV2,
+        SyntheticPackageVersion::V1,
+        Vec::new(),
+    )
+    .await;
+
+    assert!(repair(&scenario).await.is_err());
+    let observation = scenario.host.maintenance_observation().unwrap();
+    assert_eq!(observation.active_operation, None);
+    assert!(!observation.recovery_required);
+    assert_eq!(
+        observation.package,
+        SyntheticPackageProjection::HealthyDisabled
+    );
+    assert_eq!(
+        scenario
+            .maintenance
+            .journal_snapshot()
+            .unwrap()
+            .terminal
+            .unwrap()
+            .outcome,
+        MaintenanceTerminalOutcome::Rejected
+    );
 }
 
 #[tokio::test]
@@ -2217,4 +2391,122 @@ async fn maintenance_model_matrix_has_bounded_private_transcripts_and_preserves_
             "maintenance input accepts an unbounded private fixture field"
         );
     }
+}
+
+#[tokio::test]
+async fn internal_tun_schema_rejects_unknown_nested_fields_and_unbounded_fault_inputs() {
+    let valid_fault = json!({
+        "at": "prior-service-detached",
+        "kind": "permission-denied",
+        "occurrence": 1,
+    });
+    for input in [
+        json!({
+            "initial": "absent",
+            "target": "v1",
+            "faults": [{
+                "at": "intent-persisted",
+                "kind": "disk-full",
+                "privatePath": "/Users/test/secret",
+            }],
+        }),
+        json!({
+            "initial": "absent",
+            "target": "v1",
+            "faults": [valid_fault.clone()],
+            "privateKey": "BEGIN PRIVATE KEY",
+        }),
+    ] {
+        assert!(
+            serde_json::from_value::<MaintenanceScenario>(input).is_err(),
+            "private or unknown maintenance input was admitted"
+        );
+    }
+
+    for occurrence in [0, 17] {
+        let input = json!({
+            "initial": "absent",
+            "target": "v1",
+            "faults": [{
+                "at": "prior-service-detached",
+                "kind": "permission-denied",
+                "occurrence": occurrence,
+            }],
+        });
+        assert!(
+            serde_json::from_value::<MaintenanceScenario>(input).is_err(),
+            "fault occurrence {occurrence} escaped its bounded schema"
+        );
+    }
+
+    let oversized = (0..17).map(|_| valid_fault.clone()).collect::<Vec<_>>();
+    assert!(
+        serde_json::from_value::<MaintenanceScenario>(json!({
+            "initial": "absent",
+            "target": "v1",
+            "faults": oversized,
+        }))
+        .is_err(),
+        "fault list exceeded the bounded schema"
+    );
+    assert!(
+        serde_json::from_value::<MaintenanceScenario>(json!({
+            "initial": "absent",
+            "target": "v1",
+            "pauseAt": "intent-persisted",
+        }))
+        .is_err(),
+        "unpaired logical pause was admitted"
+    );
+
+    let scenario = build(
+        SyntheticMaintenanceInitial::HealthyV1,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    let maintenance = scenario.host.maintenance_observation().unwrap();
+    let serialized = serde_json::to_string(&maintenance).unwrap();
+    for forbidden in [
+        "privateKey",
+        "BEGIN PRIVATE KEY",
+        "rawHostState",
+        "/Users/",
+        "simulated-controller-secret",
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "Internal TUN observation leaked {forbidden}"
+        );
+    }
+
+    let mut unknown = serde_json::to_value(&maintenance).unwrap();
+    unknown
+        .as_object_mut()
+        .unwrap()
+        .insert("rawHostState".into(), json!("private"));
+    assert!(
+        serde_json::from_value::<MaintenanceObservation>(unknown).is_err(),
+        "top-level observation accepted an unknown field"
+    );
+
+    let mut unknown_artifact = serde_json::to_value(&maintenance).unwrap();
+    unknown_artifact["artifacts"]
+        .as_object_mut()
+        .unwrap()
+        .insert("path".into(), json!("/Users/test/secret"));
+    assert!(
+        serde_json::from_value::<MaintenanceObservation>(unknown_artifact).is_err(),
+        "artifact identity accepted a private path field"
+    );
+
+    let mut unknown_unrelated = serde_json::to_value(&maintenance).unwrap();
+    unknown_unrelated["unrelated"]
+        .as_object_mut()
+        .unwrap()
+        .insert("rawProcess".into(), json!("private"));
+    assert!(
+        serde_json::from_value::<MaintenanceObservation>(unknown_unrelated).is_err(),
+        "unrelated synthetic state accepted an unknown field"
+    );
 }

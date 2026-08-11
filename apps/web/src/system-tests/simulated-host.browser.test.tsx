@@ -22,6 +22,7 @@ import { RpcStatusClient } from "../data/rpc-status-client";
 import { SettingsProvider } from "../data/settings-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
+import { SettingsPage } from "../pages/settings-page";
 import { StatusPage } from "../pages/status-page";
 import "../styles.css";
 import type {
@@ -86,6 +87,7 @@ interface HarnessEvidence {
       health: string;
       lastFailure: string | null;
       phase: string;
+      removal: string;
       revision: number;
     };
   };
@@ -105,11 +107,13 @@ let mounted: MountedScenario | null = null;
 
 function ScenarioApplication({
   notificationClient,
+  scenario,
   settingsClient,
   settingsSnapshot,
   statusClient,
 }: {
   notificationClient: RpcNotificationClient;
+  scenario: SimulatedHostScenarioName;
   settingsClient: RpcSettingsClient | null;
   settingsSnapshot: SettingsSnapshotDto | null;
   statusClient: RpcStatusClient;
@@ -120,7 +124,7 @@ function ScenarioApplication({
         <ProductProvider client={statusClient}>
           <NotificationDeliveryProvider client={notificationClient}>
             <TooltipProvider>
-              <StatusPage />
+              {scenario === "helper-removal-recovery" ? <SettingsPage /> : <StatusPage />}
               <NotificationBubble />
               <NotificationToaster />
             </TooltipProvider>
@@ -173,6 +177,7 @@ async function mountScenario(scenario: SimulatedHostScenarioName, withSettings =
   root.render(
     <ScenarioApplication
       notificationClient={notificationClient}
+      scenario={scenario}
       settingsClient={settingsClient}
       settingsSnapshot={settingsSnapshot}
       statusClient={statusClient}
@@ -446,6 +451,71 @@ for (const [scenario, action] of [
     await expect.element(virtualInterfaceButton()).toBeEnabled();
   });
 }
+
+test("Remove Helper follows the authenticated Rust fault and recovery journey", async () => {
+  const scenario = "helper-removal-recovery";
+  registerFailureEvidence(
+    scenario,
+    "active TUN handoff, bounded maintenance rejection, fault clear, and confirmed React retry",
+  );
+  await mountScenario(scenario, true);
+  const removeHelper = () => page.getByRole("button", { name: "Remove Helper", exact: true });
+  await expect.element(removeHelper()).toBeEnabled();
+  expect((await observation(scenario)).terminalAuthority.tun.enabled).toBe(true);
+
+  await userEvent.click(removeHelper());
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).signals.maintenance?.journalPresent).toBe(true);
+  });
+  await advanceTo(scenario, 1);
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).terminalAuthority.notifications).toContainEqual(
+      expect.objectContaining({
+        kind: "tun-helper.lifecycle",
+        operation: "remove",
+        outcome: "authorization-failed",
+      }),
+    );
+  });
+  const rejected = await observation(scenario);
+  expect(rejected.terminalAuthority.tunHelper).toMatchObject({
+    availability: "repair-required",
+    health: "unknown",
+    removal: "available",
+  });
+  expect(rejected.terminalAuthority.tun.enabled).toBe(false);
+  expect(rejected.transcript.events).toContainEqual(
+    expect.objectContaining({
+      effectKind: "maintenance-restore",
+      resultKind: "rolled-back",
+    }),
+  );
+
+  await control(scenario, "clear-maintenance-faults");
+  await expect.element(removeHelper()).toBeEnabled();
+  await userEvent.click(removeHelper());
+  await vi.waitFor(async () => {
+    expect((await observation(scenario)).terminalAuthority.tunHelper).toMatchObject({
+      health: "not-installed",
+      removal: "not-installed",
+    });
+  });
+  await expect.element(removeHelper()).not.toBeInTheDocument();
+  const removed = await observation(scenario);
+  expect(removed.terminalAuthority.notifications).toContainEqual(
+    expect.objectContaining({
+      kind: "tun-helper.lifecycle",
+      operation: "remove",
+      outcome: "removed",
+    }),
+  );
+  expect(removed.transcript.events).toContainEqual(
+    expect.objectContaining({
+      effectKind: "maintenance-finalize-uninstall",
+      resultKind: "completed",
+    }),
+  );
+});
 
 test("cancellation keeps single-flight ownership through finalization", async () => {
   const scenario = "cancelled";
