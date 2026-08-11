@@ -7,7 +7,6 @@ import {
   ProfileStructuredEventSchema,
   ProfileSubscriptionSummarySchema,
   type ProfileClient,
-  type ProfilePatchEditorDto,
   type ProfilePreviewDto,
   type ProfileRuntimeProvenanceDto,
   type ProfileSnapshotDto,
@@ -77,7 +76,6 @@ function desktopSnapshot(): ProfileSnapshotDto {
       deletion: "supported",
       httpsImport: "supported",
       localFileImport: "permission-required",
-      patches: "supported",
       refresh: "supported",
       scheduling: "supported",
       save: "supported",
@@ -155,18 +153,6 @@ function desktopSnapshot(): ProfileSnapshotDto {
 
 function createDesktopClient() {
   const snapshot = desktopSnapshot();
-  const emptyPatches = {
-    activationBlocked: false,
-    authority: {
-      artifactFingerprint: runtimeProvenance.artifactFingerprint,
-      profileId: "profile-subscription",
-      sourceRevision: runtimeProvenance.sourceRevision,
-    },
-    catalog: { groups: [], outbounds: [], ruleProviders: [], rules: [] },
-    effectiveFingerprint: runtimeProvenance.artifactFingerprint,
-    patches: [],
-    schemaVersion: 1,
-  } satisfies ProfilePatchEditorDto;
   return {
     activateProfile: vi.fn(async () => snapshot.activation),
     cancelActivation: vi.fn(async () => snapshot.activation),
@@ -175,13 +161,11 @@ function createDesktopClient() {
     detachSubscription: vi.fn(async () => snapshot),
     dispose: vi.fn(),
     getConnectionState: vi.fn(() => ({ attempt: 0, phase: "connected" as const, stale: false })),
-    getPatches: vi.fn(async () => emptyPatches),
     getSnapshot: vi.fn(async () => snapshot),
     openProfileDirectory: vi.fn(async () => undefined),
     preflightHttps: vi.fn(async () => preview),
     preflightLocal: vi.fn(async () => ({ ...preview, sourceType: "local-file" as const })),
     refreshProfile: vi.fn(async () => snapshot),
-    replacePatches: vi.fn(async () => emptyPatches),
     setRefreshPolicy: vi.fn(async () => snapshot),
     savePreview: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),

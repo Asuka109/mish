@@ -2108,22 +2108,7 @@ rules:
   - MATCH,DIRECT
 "#;
     let mut record = profile_record(normalized);
-    let editor = mish_profile::profile_patch_editor(
-        &record.metadata.id,
-        &record.metadata.revision.id,
-        &record.metadata.artifact.fingerprint,
-        &record.normalized_bytes,
-        &record.patches,
-    )
-    .unwrap();
-    let direct = editor
-        .catalog
-        .outbounds
-        .iter()
-        .find(|entity| entity.label == "DIRECT")
-        .unwrap()
-        .id
-        .clone();
+    let direct = format!("{:x}", Sha256::digest(b"built-in\0DIRECT"));
     let (patches, _) = mish_profile::bind_and_apply_profile_patches(
         &record.normalized_bytes,
         &record.metadata.revision.id,

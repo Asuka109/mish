@@ -19,6 +19,7 @@ use mish_profile::{
     SensitivePath, SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy, StdAtomicWriter,
     StdLocalSourceReader, StructuredRule, Timestamp, ValidationIssueCode,
 };
+use sha2::{Digest, Sha256};
 
 struct TestDir(PathBuf);
 
@@ -607,22 +608,7 @@ async fn failed_patch_pointer_commit_keeps_the_prior_patch_set_authoritative() {
     FileProfileRepository::new(root.clone())
         .save(&initial)
         .unwrap();
-    let editor = mish_profile::profile_patch_editor(
-        &initial.metadata.id,
-        &initial.metadata.revision.id,
-        &initial.metadata.artifact.fingerprint,
-        &initial.normalized_bytes,
-        &initial.patches,
-    )
-    .unwrap();
-    let direct = editor
-        .catalog
-        .outbounds
-        .iter()
-        .find(|entity| entity.label == "DIRECT")
-        .unwrap()
-        .id
-        .clone();
+    let direct = format!("{:x}", Sha256::digest(b"built-in\0DIRECT"));
     let mut updated = FileProfileRepository::new(root.clone()).load(&id).unwrap();
     updated.patches = mish_profile::bind_and_apply_profile_patches(
         &updated.normalized_bytes,

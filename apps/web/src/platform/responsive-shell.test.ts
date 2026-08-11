@@ -5,7 +5,6 @@ const styles = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/app-shell.tsx", "utf8");
 const ui = readFileSync("../../packages/ui/src/index.tsx", "utf8");
 const notifications = readFileSync("src/components/notification-bubble.tsx", "utf8");
-const patchEditor = readFileSync("src/components/profile-patch-editor.tsx", "utf8");
 const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
 
 describe("responsive shell CSS", () => {
@@ -88,11 +87,6 @@ describe("responsive shell CSS", () => {
     expect(notifications).toContain("group-hover/item:opacity-100");
     expect(notifications).toContain("focus-visible:pointer-events-auto");
     expect(notifications).not.toContain("group-focus-within/item");
-  });
-
-  it("separates the profile patch editor sections inside a padded content region", () => {
-    expect(patchEditor).toContain('content: "flex flex-col gap-3 p-4"');
-    expect(styles).not.toContain(".profile-patch-content {");
   });
 
   it("keeps browser and desktop chrome unselectable without blocking editable content", () => {

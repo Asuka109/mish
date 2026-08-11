@@ -295,13 +295,6 @@ active without a WebView. Provider commands carry current profile/fingerprint
 authority, preserve partial failures, and never accept a Controller endpoint,
 source URL, path, payload, or credential.
 
-Protocol version 10 adds authenticated `profiles.getPatches` and
-`profiles.replacePatches`. Both carry only profile/revision/artifact authority
-and bounded typed patch DTOs. The desktop serializes patch writes with refresh
-and activation, revalidates against repository-owned bytes, and returns only
-display-safe catalog and provenance fields. Browser fixtures show one fictional
-patch but do not claim validation, persistence, or activation.
-
 Profile file actions follow the same boundary. Authenticated
 `profiles.openDirectory` opens the single application-managed YAML directory.
 The page header and each Profile card call that same command; cards do not

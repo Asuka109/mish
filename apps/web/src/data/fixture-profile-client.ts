@@ -4,9 +4,6 @@ import {
   type ProfileActivationSnapshotDto,
   type ProfileClient,
   type ProfileConnectionState,
-  type ProfilePatchAuthorityDto,
-  type ProfilePatchDto,
-  type ProfilePatchEditorDto,
   type ProfilePreviewDto,
   type ProfileRefreshPolicy,
   type ProfileRouteCatalogDto,
@@ -36,7 +33,6 @@ const fixtureSnapshot = {
     deletion: "fixture-only",
     httpsImport: "fixture-only",
     localFileImport: "fixture-only",
-    patches: "fixture-only",
     refresh: "fixture-only",
     scheduling: "fixture-only",
     save: "fixture-only",
@@ -201,15 +197,6 @@ export class FixtureProfileClient implements ProfileClient {
     return structuredClone(this.snapshot);
   }
 
-  async getPatches(
-    authority: ProfilePatchAuthorityDto,
-    options?: { signal?: AbortSignal },
-  ): Promise<ProfilePatchEditorDto> {
-    if (options?.signal?.aborted) throw cancelled();
-    if (authority.profileId !== "work") throw unsupported();
-    return structuredClone(fixturePatchEditor);
-  }
-
   async getRoutes(
     profileId: string,
     options?: { signal?: AbortSignal },
@@ -252,15 +239,6 @@ export class FixtureProfileClient implements ProfileClient {
     _profileId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto> {
-    if (options?.signal?.aborted) throw cancelled();
-    throw unsupported();
-  }
-
-  async replacePatches(
-    _authority: ProfilePatchAuthorityDto,
-    _patches: ProfilePatchDto[],
-    options?: { signal?: AbortSignal },
-  ): Promise<never> {
     if (options?.signal?.aborted) throw cancelled();
     throw unsupported();
   }
@@ -348,52 +326,6 @@ export class FixtureProfileClient implements ProfileClient {
     return () => this.snapshotListeners.delete(listener);
   }
 }
-
-const fixturePatchEditor = {
-  activationBlocked: false,
-  authority: {
-    artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    profileId: "work",
-    sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  },
-  catalog: {
-    groups: [],
-    outbounds: [
-      {
-        id: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        kind: "built-in",
-        label: "DIRECT",
-      },
-    ],
-    ruleProviders: [],
-    rules: [],
-  },
-  effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  patches: [
-    {
-      activationImpact: "insert-rule",
-      enabled: true,
-      id: "11111111-1111-4111-8111-111111111111",
-      operation: {
-        kind: "rule-insert",
-        position: "prefix",
-        rule: {
-          kind: "standard",
-          noResolve: false,
-          ruleType: "domain-suffix",
-          targetId: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          value: "fictional.example",
-        },
-      },
-      order: 0,
-      status: "enabled",
-      target: "Rules · prefix",
-      validationCode: "valid",
-      validationResult: "valid",
-    },
-  ],
-  schemaVersion: 1,
-} satisfies ProfilePatchEditorDto;
 
 const fixtureRouteCatalog = {
   fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
