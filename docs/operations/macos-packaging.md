@@ -41,9 +41,9 @@ read-only for verification. This headless command is the default for CI and
 ordinary repeated local verification. After a successful rebuild, it moves a
 prior generated DMG to Trash before placing the completed image at the stable
 output path. The checked-in Finder-native template fixes
-the 720 × 410 window, 112 px icons, `Mish.app` and `Applications` positions, and
-the `Drag Mish to Applications` gradient, arrow, and instruction. Finder exposes
-only `Mish.app` and the `/Applications` alias; `.DS_Store` and `.background` are
+the 540 × 380 window, 80 pt icons, `Mish.app` and `Applications` positions, and
+the 2× `1080 × 760` @144 dpi `Drag Mish to Applications` gradient and arrow.
+Finder exposes only `Mish.app` and the `/Applications` alias; `.DS_Store` and `.background` are
 presentation metadata, not installation choices. The named app and alias remain
 individually reachable by keyboard and VoiceOver without relying on the background.
 It seals the application and Mihomo with an ad-hoc signature, packages no TUN

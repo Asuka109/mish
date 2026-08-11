@@ -3,24 +3,24 @@
   "volumeName": "Mish",
   "template": {
     "file": "mish-installer-template.dmg",
-    "sha256": "f64e3a3985c7be10fe4950823cbca2a8319dc787696e0fa7a30b09d2a95bdb3a",
-    "dsStoreSha256": "320150451babbefd24e7b922029a8856e9850d21211c4a3a8b744c8e125f3187"
+    "sha256": "0f4f54d47e144a2b6d282913da6f9ac45fc804daa7cd7950252700a08fd5a3ed",
+    "dsStoreSha256": "22bb5750b35d44fa0bc11c50ba8f67b10ffa79cc3a5daed8abee6962b06f0d4b"
   },
   "window": {
     "position": { "x": 180, "y": 160 },
-    "size": { "width": 720, "height": 410 }
+    "size": { "width": 540, "height": 380 }
   },
   "icons": {
-    "size": 112,
+    "size": 80,
     "textSize": 13,
     "items": {
-      "Mish.app": { "x": 180, "y": 240 },
-      "Applications": { "x": 540, "y": 240 }
+      "Mish.app": { "x": 140, "y": 190 },
+      "Applications": { "x": 410, "y": 190 }
     }
   },
   "background": {
     "file": ".background/mish-install.png",
-    "sha256": "c657160612c6cbe63deda482c9f9075ed08f1b982aae9a991f4d2842cf99c8c1",
+    "sha256": "4a2297d55523dd30d7adb6783c5a3723e286437d4dee798f2d73944b9761568e",
     "instruction": "Drag Mish to Applications"
   }
 }

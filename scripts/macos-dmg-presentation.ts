@@ -105,17 +105,17 @@ function loadPresentation(): MacOsDmgPresentation {
       isPoint(parsed.window.position) &&
       parsed.window.position.x === 180 &&
       parsed.window.position.y === 160 &&
-      parsed.window.size?.width === 720 &&
-      parsed.window.size.height === 410 &&
+      parsed.window.size?.width === 540 &&
+      parsed.window.size.height === 380 &&
       parsed.icons &&
-      parsed.icons.size === 112 &&
+      parsed.icons.size === 80 &&
       parsed.icons.textSize === 13 &&
       isPoint(parsed.icons.items?.["Mish.app"]) &&
-      parsed.icons.items["Mish.app"].x === 180 &&
-      parsed.icons.items["Mish.app"].y === 240 &&
+      parsed.icons.items["Mish.app"].x === 140 &&
+      parsed.icons.items["Mish.app"].y === 190 &&
       isPoint(parsed.icons.items?.Applications) &&
-      parsed.icons.items.Applications.x === 540 &&
-      parsed.icons.items.Applications.y === 240,
+      parsed.icons.items.Applications.x === 410 &&
+      parsed.icons.items.Applications.y === 190,
     "macOS DMG presentation contract is invalid",
   );
   return parsed as MacOsDmgPresentation;
@@ -294,7 +294,7 @@ function normalizeHfsMetadata(image: string): void {
   const fixedBsdTimestamp = Buffer.alloc(4);
   fixedBsdTimestamp.writeUInt32BE(deterministicTimestampSeconds);
   const fixedVolumeId = createHash("sha256")
-    .update("Mish Finder DMG HFS volume v1")
+    .update("Mish Finder DMG HFS volume v2")
     .digest()
     .subarray(0, 8);
   for (const offset of [primary.offset, alternate.offset]) {

@@ -13,19 +13,36 @@ import {
 
 const macOsOnly = { skip: process.platform !== "darwin" };
 
-function relativeLuminance(hex: string): number {
-  const channel = (offset: number) => {
-    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  return channel(1) * 0.2126 + channel(3) * 0.7152 + channel(5) * 0.0722;
-}
-
-function contrast(left: string, right: string): number {
-  const [lighter, darker] = [relativeLuminance(left), relativeLuminance(right)].sort(
-    (first, second) => second - first,
+function readPngHeader(file: string) {
+  const bytes = readFileSync(file);
+  assert.deepEqual(
+    [...bytes.subarray(0, 8)],
+    [137, 80, 78, 71, 13, 10, 26, 10],
+    `${file} must be a PNG file`,
   );
-  return (lighter! + 0.05) / (darker! + 0.05);
+  let pixelsPerMeterX: number | undefined;
+  let pixelsPerMeterY: number | undefined;
+  let resolutionUnit: number | undefined;
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    if (type === "pHYs" && length === 9) {
+      pixelsPerMeterX = bytes.readUInt32BE(offset + 8);
+      pixelsPerMeterY = bytes.readUInt32BE(offset + 12);
+      resolutionUnit = bytes[offset + 16];
+      break;
+    }
+    offset += length + 12;
+  }
+  return {
+    bitDepth: bytes[24],
+    colorType: bytes[25],
+    height: bytes.readUInt32BE(20),
+    pixelsPerMeterX,
+    pixelsPerMeterY,
+    resolutionUnit,
+    width: bytes.readUInt32BE(16),
+  };
 }
 
 function applicationFixture(internalTunPayload: boolean) {
@@ -58,27 +75,29 @@ test("macOS DMG presentation locks its Finder-native template and visual contrac
   assert.equal(presentation.volumeName, "Mish");
   assert.deepEqual(presentation.window, {
     position: { x: 180, y: 160 },
-    size: { height: 410, width: 720 },
+    size: { height: 380, width: 540 },
   });
-  assert.equal(presentation.icons.size, 112);
+  assert.equal(presentation.icons.size, 80);
   assert.equal(presentation.icons.textSize, 13);
   assert.deepEqual(presentation.icons.items, {
-    "Mish.app": { x: 180, y: 240 },
-    Applications: { x: 540, y: 240 },
+    "Mish.app": { x: 140, y: 190 },
+    Applications: { x: 410, y: 190 },
   });
   assert.equal(presentation.background.instruction, "Drag Mish to Applications");
-  assert.match(
-    readFileSync(path.resolve("resources/macos-dmg/mish-install.svg"), "utf8"),
-    /Drag Mish to Applications/u,
-  );
-  const background = readFileSync(path.resolve("resources/macos-dmg/mish-install.svg"), "utf8");
-  assert.match(background, /<text[^>]+fill="#ffffff"/u);
-  for (const surface of ["#70757d", "#6f7681"]) {
-    assert.ok(
-      contrast("#ffffff", surface) >= 4.5,
-      `Instruction contrast is insufficient on ${surface}`,
-    );
-  }
+  const backgroundSvg = readFileSync(path.resolve("resources/macos-dmg/mish-install.svg"), "utf8");
+  assert.match(backgroundSvg, /<svg[^>]+width="1080"[^>]+height="760"/u);
+  assert.doesNotMatch(backgroundSvg, /<text\b/u);
+  assert.match(backgroundSvg, /M526 362L540 380L526 398/u);
+  assert.match(backgroundSvg, /M540 362L554 380L540 398/u);
+  assert.deepEqual(readPngHeader(assets.background), {
+    bitDepth: 8,
+    colorType: 2,
+    height: 760,
+    pixelsPerMeterX: 5669,
+    pixelsPerMeterY: 5669,
+    resolutionUnit: 1,
+    width: 1080,
+  });
   assert.ok(readFileSync(assets.template).byteLength > 0);
 });
 
