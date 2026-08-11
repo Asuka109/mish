@@ -7,7 +7,7 @@ colors:
   ink: "#111111"
   ink-active: "#242424"
   body: "#374151"
-  muted: "#6B7280"
+  muted: "#6B6F80"
   muted-soft: "#898989"
   canvas: "#FFFFFF"
   surface-soft: "#F8F9FA"
