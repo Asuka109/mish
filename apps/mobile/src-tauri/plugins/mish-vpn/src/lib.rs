@@ -1,12 +1,14 @@
+#[cfg(feature = "tauri-runtime")]
 use tauri::{
     AppHandle, Manager, Runtime,
     plugin::{Builder, TauriPlugin},
 };
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "tauri-runtime", target_os = "android"))]
 mod android;
+#[cfg(feature = "tauri-runtime")]
 mod error;
-#[cfg(not(target_os = "android"))]
+#[cfg(all(feature = "tauri-runtime", not(target_os = "android")))]
 mod fallback;
 mod generated {
     pub(crate) mod platform_facts;
@@ -14,7 +16,9 @@ mod generated {
 mod lifecycle;
 #[cfg(feature = "simulated-host")]
 pub use lifecycle::simulated_host;
+#[cfg(feature = "tauri-runtime")]
 mod models;
+#[cfg(feature = "tauri-runtime")]
 mod observation;
 
 #[cfg(feature = "simulated-host")]
@@ -23,11 +27,13 @@ pub use lifecycle::{
     LifecycleCommandKind, LifecycleFailure, LifecycleOperation, LifecycleOperationOutcome,
 };
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "tauri-runtime", target_os = "android"))]
 use android as platform;
+#[cfg(feature = "tauri-runtime")]
 pub use error::{Error, Result};
-#[cfg(not(target_os = "android"))]
+#[cfg(all(feature = "tauri-runtime", not(target_os = "android")))]
 use fallback as platform;
+#[cfg(feature = "tauri-runtime")]
 pub use models::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadCancellation,
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
@@ -36,11 +42,13 @@ pub use models::{
     MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot,
 };
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn get_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
     app.state::<platform::MishVpn<R>>().get_snapshot().await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn request_notification_permission<R: Runtime>(
     app: AppHandle<R>,
@@ -51,6 +59,7 @@ async fn request_notification_permission<R: Runtime>(
         .await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn request_vpn_consent<R: Runtime>(
     app: AppHandle<R>,
@@ -61,6 +70,7 @@ async fn request_vpn_consent<R: Runtime>(
         .await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn start<R: Runtime>(
     app: AppHandle<R>,
@@ -69,6 +79,7 @@ async fn start<R: Runtime>(
     app.state::<platform::MishVpn<R>>().start(request).await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn stop<R: Runtime>(
     app: AppHandle<R>,
@@ -77,6 +88,7 @@ async fn stop<R: Runtime>(
     app.state::<platform::MishVpn<R>>().stop(request).await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn cancel_lifecycle_operation<R: Runtime>(
     app: AppHandle<R>,
@@ -87,6 +99,7 @@ async fn cancel_lifecycle_operation<R: Runtime>(
         .await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn validate_config<R: Runtime>(
     app: AppHandle<R>,
@@ -97,6 +110,7 @@ async fn validate_config<R: Runtime>(
         .await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn load_config<R: Runtime>(
     app: AppHandle<R>,
@@ -107,6 +121,7 @@ async fn load_config<R: Runtime>(
         .await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 fn cancel_config_load<R: Runtime>(
     app: AppHandle<R>,
@@ -116,6 +131,7 @@ fn cancel_config_load<R: Runtime>(
         .cancel_config_load(request)
 }
 
+#[cfg(feature = "tauri-runtime")]
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mish-vpn")
         .invoke_handler(tauri::generate_handler![

@@ -30,7 +30,7 @@ tempfile = "3.25.0"
 thiserror = "2.0.18"
 tokio = { version = "1.53.0", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "test-util", "time"] }
 tokio-util = "0.7.18"
-tauri-plugin-mish-vpn = { path = "../../apps/mobile/src-tauri/plugins/mish-vpn", optional = true, features = ["simulated-host"] }
+tauri-plugin-mish-vpn = { path = "../../apps/mobile/src-tauri/plugins/mish-vpn", optional = true, default-features = false, features = ["simulated-host"] }
 
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"

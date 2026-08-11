@@ -1868,7 +1868,7 @@ pub mod simulated_host {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tauri-runtime"))]
 mod tests {
     use super::*;
     use crate::generated::platform_facts::PlatformLifecycleAuthority;
