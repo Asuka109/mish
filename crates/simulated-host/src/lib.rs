@@ -32,7 +32,7 @@ pub use internal_tun::{
     MaintenanceCompletionInjection, MaintenanceEngine, MaintenanceFault, MaintenanceFaultKind,
     MaintenanceHarnessError, MaintenanceObservation, MaintenanceScenario,
     MaintenanceScenarioRuntime, SyntheticMaintenanceInitial, SyntheticOwnership,
-    SyntheticPackageVersion,
+    SyntheticPackageProjection, SyntheticPackageVersion,
 };
 
 pub const TRANSCRIPT_SCHEMA_VERSION: u16 = 1;

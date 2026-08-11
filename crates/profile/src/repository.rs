@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -13,6 +13,13 @@ use crate::{
     ProfileSource,
 };
 
+pub const PROFILE_GENERATION_SCHEMA_VERSION: u32 = 1;
+pub const PROFILE_GENERATIONS_DIRECTORY: &str = "generations";
+pub const PROFILE_CURRENT_GENERATION_FILE: &str = "current.json";
+const MAX_GENERATION_PROFILES: usize = 1024;
+const MAX_GENERATION_MANIFEST_BYTES: u64 = 128 * 1024;
+const MAX_PERSISTED_FILE_BYTES: u64 = 8 * 1024 * 1024;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RepositoryComponent {
     Metadata,
@@ -20,6 +27,17 @@ pub enum RepositoryComponent {
     ImmutableRevision,
     NormalizedArtifact,
     Patches,
+    GenerationPointer,
+    GenerationManifest,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepositoryStorageOperation {
+    CreatePrivateDirectory,
+    AtomicFileWrite,
+    Rename,
+    SyncDirectory,
+    RemoveDirectory,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +62,23 @@ pub enum RepositoryError {
 
 pub trait AtomicWriter: Send + Sync {
     fn write(&self, destination: &Path, contents: &[u8]) -> io::Result<()>;
+
+    fn create_private_dir(&self, path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)?;
+        set_private_directory_permissions(path)
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        fs::rename(from, to)
+    }
+
+    fn sync_directory(&self, path: &Path) -> io::Result<()> {
+        sync_directory(path)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        fs::remove_dir_all(path)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -57,6 +92,15 @@ impl AtomicWriter for StdAtomicWriter {
         fs::create_dir_all(parent)?;
         set_private_directory_permissions(parent)?;
 
+        match fs::symlink_metadata(destination) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::other("destination is a symbolic link"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+
         let temporary = parent.join(format!(".tmp-{}", Uuid::new_v4()));
         let result = (|| {
             let mut options = OpenOptions::new();
@@ -64,7 +108,7 @@ impl AtomicWriter for StdAtomicWriter {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+                options.custom_flags(libc::O_NOFOLLOW).mode(0o600);
             }
             let mut file = options.open(&temporary)?;
             file.write_all(contents)?;
@@ -91,6 +135,52 @@ struct PatchSetPointer {
     fingerprint: Fingerprint,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProfileGenerationId(String);
+
+impl ProfileGenerationId {
+    fn new() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagedProfileGeneration {
+    id: ProfileGenerationId,
+}
+
+impl StagedProfileGeneration {
+    pub fn id(&self) -> &ProfileGenerationId {
+        &self.id
+    }
+}
+
+#[derive(Debug)]
+pub struct ProfileGeneration {
+    pub id: ProfileGenerationId,
+    pub profiles: Vec<ProfileRecord>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenerationPointer {
+    generation_id: ProfileGenerationId,
+    schema_version: u32,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenerationManifest {
+    generation_id: ProfileGenerationId,
+    profile_ids: Vec<ProfileId>,
+    schema_version: u32,
+}
+
 impl FileProfileRepository<StdAtomicWriter> {
     pub fn new(root: PathBuf) -> Self {
         Self {
@@ -108,26 +198,218 @@ where
         Self { root, writer }
     }
 
+    /// Stage a complete, private Profile set without changing the published
+    /// generation pointer. The returned token is the only value accepted by
+    /// `publish_generation`, so an incomplete directory cannot become current
+    /// through this API.
+    pub fn stage_generation(
+        &self,
+        records: &[ProfileRecord],
+    ) -> Result<StagedProfileGeneration, RepositoryError> {
+        self.prepare_generation_root()?;
+        if records.len() > MAX_GENERATION_PROFILES {
+            return Err(RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            });
+        }
+
+        let mut ordered = records.iter().collect::<Vec<_>>();
+        ordered.sort_by(|left, right| left.metadata.id.as_str().cmp(right.metadata.id.as_str()));
+        if ordered
+            .windows(2)
+            .any(|pair| pair[0].metadata.id == pair[1].metadata.id)
+        {
+            return Err(RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            });
+        }
+
+        for record in &ordered {
+            validate_record(record)?;
+        }
+
+        let id = ProfileGenerationId::new();
+        let staging = self
+            .generations_root()
+            .join(format!(".staging-{}", id.as_str()));
+        let result = (|| {
+            self.writer
+                .create_private_dir(&staging)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            let profiles_root = staging.join("profiles");
+            self.writer
+                .create_private_dir(&profiles_root)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+
+            for record in &ordered {
+                self.write_record(&profiles_root.join(record.metadata.id.as_str()), record)?;
+            }
+
+            let manifest = GenerationManifest {
+                generation_id: id.clone(),
+                profile_ids: ordered
+                    .iter()
+                    .map(|record| record.metadata.id.clone())
+                    .collect(),
+                schema_version: PROFILE_GENERATION_SCHEMA_VERSION,
+            };
+            let contents =
+                serde_json::to_vec_pretty(&manifest).map_err(|_| RepositoryError::CorruptData {
+                    component: RepositoryComponent::GenerationManifest,
+                })?;
+            self.write(&staging.join("manifest.json"), &contents)?;
+            self.writer
+                .sync_directory(&profiles_root)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            self.writer
+                .sync_directory(&staging)
+                .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+            Ok::<(), RepositoryError>(())
+        })();
+
+        if let Err(error) = result {
+            let _ = self.writer.remove_dir_all(&staging);
+            return Err(error);
+        }
+        Ok(StagedProfileGeneration { id })
+    }
+
+    /// Publish one previously staged generation. The generation directory is
+    /// made durable before the pointer is replaced; the pointer replacement is
+    /// the sole publication point. A failed pointer write therefore leaves the
+    /// prior current generation untouched.
+    pub fn publish_generation(
+        &self,
+        staged: StagedProfileGeneration,
+    ) -> Result<ProfileGenerationId, RepositoryError> {
+        self.prepare_generation_root()?;
+        let staging = self
+            .generations_root()
+            .join(format!(".staging-{}", staged.id.as_str()));
+        let generation = self.generations_root().join(staged.id.as_str());
+        ensure_directory(&staging, RepositoryComponent::GenerationManifest)?;
+        if path_exists_no_follow(&generation)? {
+            return Err(RepositoryError::AtomicWriteFailed);
+        }
+        self.read_generation_at(&staging, &staged.id)?;
+
+        self.writer
+            .rename(&staging, &generation)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .sync_directory(&self.generations_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+
+        let pointer = GenerationPointer {
+            generation_id: staged.id.clone(),
+            schema_version: PROFILE_GENERATION_SCHEMA_VERSION,
+        };
+        let contents =
+            serde_json::to_vec_pretty(&pointer).map_err(|_| RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationPointer,
+            })?;
+        self.write(&self.current_generation_path(), &contents)?;
+        Ok(staged.id)
+    }
+
+    /// Read the complete generation named by the current pointer. This is a
+    /// storage seam for the follow-up reader migration; existing Profile
+    /// readers intentionally continue to use their current paths in C2.1.
+    pub fn read_current_generation(&self) -> Result<Option<ProfileGeneration>, RepositoryError> {
+        if !self.root.is_absolute() {
+            return Err(RepositoryError::UnsafeStoragePath);
+        }
+        if !path_exists_no_follow(&self.root)? {
+            return Ok(None);
+        }
+        reject_symlinks_between(&self.root, &self.root)?;
+        reject_symlinks_between(&self.root, &self.generations_root())?;
+        let pointer_path = self.current_generation_path();
+        if !path_exists_no_follow(&pointer_path)? {
+            return Ok(None);
+        }
+        let pointer: GenerationPointer = read_json_bounded(
+            &pointer_path,
+            RepositoryComponent::GenerationPointer,
+            MAX_GENERATION_MANIFEST_BYTES,
+        )?;
+        if pointer.schema_version != PROFILE_GENERATION_SCHEMA_VERSION {
+            return Err(RepositoryError::UnsupportedSchema {
+                expected: PROFILE_GENERATION_SCHEMA_VERSION,
+                found: pointer.schema_version,
+            });
+        }
+        validate_generation_id(
+            &pointer.generation_id,
+            RepositoryComponent::GenerationPointer,
+        )?;
+        self.read_generation(&pointer.generation_id).map(Some)
+    }
+
+    fn read_generation(
+        &self,
+        id: &ProfileGenerationId,
+    ) -> Result<ProfileGeneration, RepositoryError> {
+        let generation = self.generations_root().join(id.as_str());
+        reject_symlinks_between(&self.root, &generation)?;
+        self.read_generation_at(&generation, id)
+    }
+
+    fn read_generation_at(
+        &self,
+        generation: &Path,
+        id: &ProfileGenerationId,
+    ) -> Result<ProfileGeneration, RepositoryError> {
+        reject_symlinks_between(&self.root, generation)?;
+        ensure_directory(generation, RepositoryComponent::GenerationManifest)?;
+        validate_generation_manifest(generation, id)?;
+        let manifest: GenerationManifest = read_json_bounded(
+            &generation.join("manifest.json"),
+            RepositoryComponent::GenerationManifest,
+            MAX_GENERATION_MANIFEST_BYTES,
+        )?;
+        let profiles_root = generation.join("profiles");
+        ensure_directory(&profiles_root, RepositoryComponent::GenerationManifest)?;
+        validate_generation_entries(&profiles_root, &manifest.profile_ids)?;
+        let profiles = manifest
+            .profile_ids
+            .iter()
+            .map(|profile_id| {
+                self.load_from_profile_path(profile_id, &profiles_root.join(profile_id.as_str()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ProfileGeneration {
+            id: id.clone(),
+            profiles,
+        })
+    }
+
     pub fn save(&self, record: &ProfileRecord) -> Result<(), RepositoryError> {
         validate_record(record)?;
         self.prepare_root()?;
         let profile_path = self.profile_path(&record.metadata.id);
-        if profile_path.exists() {
+        if path_exists_no_follow(&profile_path)? {
             return Err(RepositoryError::AlreadyExists);
         }
 
         let staging = self
             .profiles_root()
             .join(format!(".staging-{}", Uuid::new_v4()));
-        create_private_dir(&staging).map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .create_private_dir(&staging)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
         let result = self.write_record(&staging, record);
         if let Err(error) = result {
-            let _ = fs::remove_dir_all(&staging);
+            let _ = self.writer.remove_dir_all(&staging);
             return Err(error);
         }
 
-        fs::rename(&staging, &profile_path).map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        sync_directory(&self.profiles_root()).map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .rename(&staging, &profile_path)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .sync_directory(&self.profiles_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
         Ok(())
     }
 
@@ -135,7 +417,7 @@ where
         validate_record(record)?;
         self.prepare_root()?;
         let profile_path = self.profile_path(&record.metadata.id);
-        if !profile_path.exists() {
+        if !path_exists_no_follow(&profile_path)? {
             return Err(RepositoryError::NotFound);
         }
         reject_symlinks_between(&self.root, &profile_path)?;
@@ -150,7 +432,7 @@ where
         validate_record(record)?;
         self.prepare_root()?;
         let profile_path = self.profile_path(&record.metadata.id);
-        if !profile_path.exists() {
+        if !path_exists_no_follow(&profile_path)? {
             return Err(RepositoryError::NotFound);
         }
         reject_symlinks_between(&self.root, &profile_path)?;
@@ -167,11 +449,11 @@ where
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
         }
-        if !self.root.exists() {
+        if !path_exists_no_follow(&self.root)? {
             return Ok(Vec::new());
         }
         reject_symlinks_between(&self.root, &self.profiles_root())?;
-        if !self.profiles_root().exists() {
+        if !path_exists_no_follow(&self.profiles_root())? {
             return Ok(Vec::new());
         }
 
@@ -234,11 +516,20 @@ where
             return Err(RepositoryError::UnsafeStoragePath);
         }
         let profile_path = self.profile_path(id);
-        if !profile_path.exists() {
+        if !path_exists_no_follow(&profile_path)? {
             return Err(RepositoryError::NotFound);
         }
         reject_symlinks_between(&self.root, &profile_path)?;
+        self.load_from_profile_path(id, &profile_path)
+    }
 
+    fn load_from_profile_path(
+        &self,
+        id: &ProfileId,
+        profile_path: &Path,
+    ) -> Result<ProfileRecord, RepositoryError> {
+        reject_symlinks_between(&self.root, profile_path)?;
+        ensure_directory(profile_path, RepositoryComponent::Metadata)?;
         let mut metadata: ProfileMetadata = read_json(
             &profile_path.join("metadata.json"),
             RepositoryComponent::Metadata,
@@ -269,7 +560,7 @@ where
             )),
             RepositoryComponent::NormalizedArtifact,
         )?;
-        let patches = load_patch_set(&profile_path, &metadata)?;
+        let patches = load_patch_set(profile_path, &metadata)?;
 
         let record = ProfileRecord {
             metadata,
@@ -287,7 +578,7 @@ where
             return Err(RepositoryError::UnsafeStoragePath);
         }
         let profile_path = self.profile_path(id);
-        if !profile_path.exists() {
+        if !path_exists_no_follow(&profile_path)? {
             return Err(RepositoryError::NotFound);
         }
         reject_symlinks_between(&self.root, &profile_path)?;
@@ -295,11 +586,18 @@ where
         let deleting_path = self
             .profiles_root()
             .join(format!(".deleting-{}", Uuid::new_v4()));
-        fs::rename(&profile_path, &deleting_path)
+        self.writer
+            .rename(&profile_path, &deleting_path)
             .map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        sync_directory(&self.profiles_root()).map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        fs::remove_dir_all(&deleting_path).map_err(|_| RepositoryError::AtomicWriteFailed)?;
-        sync_directory(&self.profiles_root()).map_err(|_| RepositoryError::AtomicWriteFailed)
+        self.writer
+            .sync_directory(&self.profiles_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .remove_dir_all(&deleting_path)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        self.writer
+            .sync_directory(&self.profiles_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)
     }
 
     fn write_record(
@@ -372,15 +670,42 @@ where
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
         }
-        create_private_dir(&self.root).map_err(|_| RepositoryError::AtomicWriteFailed)?;
         reject_symlinks_between(&self.root, &self.root)?;
-        create_private_dir(&self.profiles_root())
+        self.writer
+            .create_private_dir(&self.root)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        reject_symlinks_between(&self.root, &self.root)?;
+        self.writer
+            .create_private_dir(&self.profiles_root())
             .map_err(|_| RepositoryError::AtomicWriteFailed)?;
         reject_symlinks_between(&self.root, &self.profiles_root())
     }
 
+    fn prepare_generation_root(&self) -> Result<(), RepositoryError> {
+        if !self.root.is_absolute() {
+            return Err(RepositoryError::UnsafeStoragePath);
+        }
+        reject_symlinks_between(&self.root, &self.root)?;
+        self.writer
+            .create_private_dir(&self.root)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        reject_symlinks_between(&self.root, &self.root)?;
+        self.writer
+            .create_private_dir(&self.generations_root())
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        reject_symlinks_between(&self.root, &self.generations_root())
+    }
+
     fn profiles_root(&self) -> PathBuf {
         self.root.join("profiles")
+    }
+
+    fn generations_root(&self) -> PathBuf {
+        self.root.join(PROFILE_GENERATIONS_DIRECTORY)
+    }
+
+    fn current_generation_path(&self) -> PathBuf {
+        self.root.join(PROFILE_CURRENT_GENERATION_FILE)
     }
 
     fn profile_path(&self, id: &ProfileId) -> PathBuf {
@@ -393,7 +718,7 @@ fn load_patch_set(
     metadata: &ProfileMetadata,
 ) -> Result<ProfilePatchSet, RepositoryError> {
     let pointer_path = profile_path.join("patches/index.json");
-    if pointer_path.exists() {
+    if path_exists_no_follow(&pointer_path)? {
         let pointer: PatchSetPointer = read_json(&pointer_path, RepositoryComponent::Patches)?;
         let bytes = read_bytes(
             &profile_path.join(format!(
@@ -411,7 +736,7 @@ fn load_patch_set(
     }
 
     let legacy_path = profile_path.join("patches/patches.json");
-    if legacy_path.exists() {
+    if path_exists_no_follow(&legacy_path)? {
         return read_json(&legacy_path, RepositoryComponent::Patches);
     }
     Ok(ProfilePatchSet::empty(
@@ -468,6 +793,11 @@ fn migrate_legacy_metadata(metadata: &mut ProfileMetadata) {
 }
 
 fn validate_record(record: &ProfileRecord) -> Result<(), RepositoryError> {
+    if ProfileId::parse(record.metadata.id.as_str().to_owned()).is_err() {
+        return Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata,
+        });
+    }
     if record.metadata.schema_version != PROFILE_SCHEMA_VERSION {
         return Err(RepositoryError::UnsupportedSchema {
             expected: PROFILE_SCHEMA_VERSION,
@@ -540,7 +870,24 @@ fn read_json<T: DeserializeOwned>(
     serde_json::from_slice(&bytes).map_err(|_| RepositoryError::CorruptData { component })
 }
 
+fn read_json_bounded<T: DeserializeOwned>(
+    path: &Path,
+    component: RepositoryComponent,
+    max_bytes: u64,
+) -> Result<T, RepositoryError> {
+    let bytes = read_bytes_bounded(path, component, max_bytes)?;
+    serde_json::from_slice(&bytes).map_err(|_| RepositoryError::CorruptData { component })
+}
+
 fn read_bytes(path: &Path, component: RepositoryComponent) -> Result<Vec<u8>, RepositoryError> {
+    read_bytes_bounded(path, component, MAX_PERSISTED_FILE_BYTES)
+}
+
+fn read_bytes_bounded(
+    path: &Path,
+    component: RepositoryComponent,
+    max_bytes: u64,
+) -> Result<Vec<u8>, RepositoryError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             RepositoryError::CorruptData { component }
@@ -551,12 +898,27 @@ fn read_bytes(path: &Path, component: RepositoryComponent) -> Result<Vec<u8>, Re
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(RepositoryError::UnsafeStoragePath);
     }
-    fs::read(path).map_err(|_| RepositoryError::ReadFailed)
-}
-
-fn create_private_dir(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)?;
-    set_private_directory_permissions(path)
+    if metadata.len() > max_bytes {
+        return Err(RepositoryError::CorruptData { component });
+    }
+    let mut file = open_read_no_follow(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            RepositoryError::CorruptData { component }
+        } else if error.kind() == io::ErrorKind::TooManyLinks {
+            RepositoryError::UnsafeStoragePath
+        } else {
+            RepositoryError::ReadFailed
+        }
+    })?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| RepositoryError::ReadFailed)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(RepositoryError::CorruptData { component });
+    }
+    Ok(bytes)
 }
 
 fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
@@ -569,7 +931,152 @@ fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
 }
 
 fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW);
+    }
+    options.open(path)?.sync_all()
+}
+
+fn open_read_no_follow(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path)
+}
+
+fn path_exists_no_follow(path: &Path) -> Result<bool, RepositoryError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(RepositoryError::UnsafeStoragePath)
+        }
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(RepositoryError::ReadFailed),
+    }
+}
+
+fn ensure_directory(path: &Path, component: RepositoryComponent) -> Result<(), RepositoryError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            RepositoryError::CorruptData { component }
+        } else {
+            RepositoryError::ReadFailed
+        }
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(RepositoryError::UnsafeStoragePath);
+    }
+    if !metadata.is_dir() {
+        return Err(RepositoryError::CorruptData { component });
+    }
+    Ok(())
+}
+
+fn validate_generation_manifest(
+    generation: &Path,
+    expected_id: &ProfileGenerationId,
+) -> Result<(), RepositoryError> {
+    let manifest: GenerationManifest = read_json_bounded(
+        &generation.join("manifest.json"),
+        RepositoryComponent::GenerationManifest,
+        MAX_GENERATION_MANIFEST_BYTES,
+    )?;
+    if manifest.schema_version != PROFILE_GENERATION_SCHEMA_VERSION {
+        return Err(RepositoryError::UnsupportedSchema {
+            expected: PROFILE_GENERATION_SCHEMA_VERSION,
+            found: manifest.schema_version,
+        });
+    }
+    if manifest.generation_id != *expected_id
+        || manifest.profile_ids.len() > MAX_GENERATION_PROFILES
+        || manifest
+            .profile_ids
+            .windows(2)
+            .any(|pair| pair[0].as_str() >= pair[1].as_str())
+    {
+        return Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::GenerationManifest,
+        });
+    }
+    validate_generation_id(
+        &manifest.generation_id,
+        RepositoryComponent::GenerationManifest,
+    )?;
+    for profile_id in &manifest.profile_ids {
+        if ProfileId::parse(profile_id.as_str().to_owned()).is_err() {
+            return Err(RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            });
+        }
+        let profile_path = generation.join("profiles").join(profile_id.as_str());
+        reject_symlinks_between(generation, &profile_path)?;
+    }
+    ensure_directory(
+        &generation.join("profiles"),
+        RepositoryComponent::GenerationManifest,
+    )?;
+    Ok(())
+}
+
+fn validate_generation_entries(
+    profiles_root: &Path,
+    expected: &[ProfileId],
+) -> Result<(), RepositoryError> {
+    let mut actual = Vec::new();
+    for entry in fs::read_dir(profiles_root).map_err(|_| RepositoryError::ReadFailed)? {
+        let entry = entry.map_err(|_| RepositoryError::ReadFailed)?;
+        if actual.len() >= MAX_GENERATION_PROFILES {
+            return Err(RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            });
+        }
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            })?;
+        let profile_id =
+            ProfileId::parse(name.clone()).map_err(|_| RepositoryError::CorruptData {
+                component: RepositoryComponent::GenerationManifest,
+            })?;
+        let path = entry.path();
+        reject_symlinks_between(profiles_root, &path)?;
+        ensure_directory(&path, RepositoryComponent::GenerationManifest)?;
+        actual.push((name, profile_id));
+    }
+    actual.sort_by(|left, right| left.0.cmp(&right.0));
+    if actual.len() != expected.len()
+        || actual
+            .iter()
+            .zip(expected)
+            .any(|((actual, _), expected)| actual != expected.as_str())
+    {
+        return Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::GenerationManifest,
+        });
+    }
+    Ok(())
+}
+
+fn validate_generation_id(
+    id: &ProfileGenerationId,
+    component: RepositoryComponent,
+) -> Result<(), RepositoryError> {
+    let uuid =
+        Uuid::parse_str(id.as_str()).map_err(|_| RepositoryError::CorruptData { component })?;
+    if uuid.to_string() != id.as_str() {
+        return Err(RepositoryError::CorruptData { component });
+    }
+    Ok(())
 }
 
 fn reject_symlinks_between(root: &Path, target: &Path) -> Result<(), RepositoryError> {

@@ -9,6 +9,7 @@ export const simulatedHostScenarioNames = [
   "confirmed-rollback",
   "early-conflict",
   "helper-install",
+  "helper-removal-recovery",
   "helper-repair",
   "recovery-required",
   "replacement",

@@ -2823,6 +2823,7 @@ name = "mish-profile"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "libc",
  "mish-state-authority",
  "serde",
  "serde_json",
