@@ -20,10 +20,10 @@ Owner: thread-master coordinator
 ## Active tasks
 
 Wave 2A is fully integrated. The maintainer approved the exact seven-task Wave
-2B on 2026-08-11. All seven reservations are now `dispatching` with pending
-worker identities; no Worker may be created until this manifest is published on
-`origin/main`. Zero Workers are active, seven slots are reserved, and three
-concurrency slots remain unreserved.
+2B on 2026-08-11. All seven Luna Max Workers were created from the published
+manifest baseline `4df0ebe`; their identities and isolated worktrees are
+backfilled below. Seven Workers are active, no dispatch reservation remains,
+and three concurrency slots are unreserved.
 
 ## Wave 1 worker ledger
 
@@ -87,13 +87,13 @@ branch-protection mutation, or other hands-on acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.3 | `pending` | `pending` | dispatching | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | Own registry, architecture documentation, and lifecycle-owner gates only; system-boundary changes must follow the transcript skill |
-| #448 A2.2 | `pending` | `pending` | dispatching | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | No Tart or developer-host mutation; preserve A2.3 as hands-on and follow the transcript skill |
-| #439 A5.2 | `pending` | `pending` | dispatching | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | Preserve #353 physical acceptance and existing worker ownership; follow the transcript skill |
-| #440 B1.3 | `pending` | `pending` | dispatching | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | Do not touch B1.4/B1.5 consumers or cleanup scope; preserve each nested domain authority |
-| #441 C2.2 | `pending` | `pending` | dispatching | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.3 adversarial/crash/restart matrix remains separate; follow the transcript skill |
-| #442 E1.2 | `pending` | `pending` | dispatching | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | Credential-free only; no real signing or release mutation; follow the transcript skill |
-| #443 E2.3 | `pending` | `pending` | dispatching | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | No branch-protection or external repository setting mutation |
+| #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | active | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | Own registry, architecture documentation, and lifecycle-owner gates only; system-boundary changes must follow the transcript skill |
+| #448 A2.2 | `019ff06b-2dbe-7653-abf7-03eed0131628` | `7719` | active | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | No Tart or developer-host mutation; preserve A2.3 as hands-on and follow the transcript skill |
+| #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | active | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | Preserve #353 physical acceptance and existing worker ownership; follow the transcript skill |
+| #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | active | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | Do not touch B1.4/B1.5 consumers or cleanup scope; preserve each nested domain authority |
+| #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | active | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.3 adversarial/crash/restart matrix remains separate; follow the transcript skill |
+| #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | active | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | Credential-free only; no real signing or release mutation; follow the transcript skill |
+| #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | active | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | No branch-protection or external repository setting mutation |
 
 ## Existing issue coordination
 
