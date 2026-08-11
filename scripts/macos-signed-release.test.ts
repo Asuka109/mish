@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempDisposableSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import {
   type SignedReleaseClient,
   type SignedReleaseCredentials,
   type SignedReleaseEvidence,
+  type SignedReleaseAttestationTrust,
   type SignedReleaseRemoteRelease,
   type SignedReleaseRemoteState,
   SignedReleaseRecorder,
@@ -33,11 +34,130 @@ import {
   validateSignedReleasePlanningBoundary,
   withGuaranteedCleanup,
 } from "./macos-signed-release.ts";
+import {
+  dssePayloadType,
+  inTotoStatementType,
+  slsaProvenancePredicateType,
+  spdxPredicateType,
+  verifyTrustedAttestation,
+} from "./trusted-release-attestation.ts";
 
 const sourceSha = "1".repeat(40);
 const version = "0.1.0-alpha.1";
 const identity = "Developer ID Application: Mish Fixture (ABCDE12345)";
 const submissionId = "11111111-1111-1111-1111-111111111111";
+const workflowPath = ".github/workflows/stage-macos-alpha-release.yml";
+const workflowRef = `Asuka109/mish/${workflowPath}@refs/heads/main`;
+const fixtureKeyPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+
+function attestationTrust(
+  overrides: Partial<SignedReleaseAttestationTrust> = {},
+): SignedReleaseAttestationTrust {
+  return {
+    publicKeySpki: fixtureKeyPair.publicKey,
+    repository: "Asuka109/mish",
+    repositoryId: "1304960811",
+    repositoryOwnerId: "18379948",
+    workflowRef,
+    ...overrides,
+  };
+}
+
+function pae(payloadType: string, payload: Buffer): Buffer {
+  const type = Buffer.from(payloadType, "utf8");
+  return Buffer.concat([
+    Buffer.from("DSSEv1 ", "utf8"),
+    Buffer.from(`${type.length} `, "ascii"),
+    type,
+    Buffer.from(` ${payload.length} `, "ascii"),
+    payload,
+  ]);
+}
+
+function signedAttestation(statement: Record<string, unknown>): Buffer {
+  const payload = Buffer.from(JSON.stringify(statement), "utf8");
+  const signature = sign("sha256", pae(dssePayloadType, payload), fixtureKeyPair.privateKey);
+  return Buffer.from(
+    JSON.stringify({
+      dsseEnvelope: {
+        payload: payload.toString("base64"),
+        payloadType: dssePayloadType,
+        signatures: [{ sig: signature.toString("base64") }],
+      },
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      verificationMaterial: {
+        publicKey: {
+          keyDetails: "PKIX_ECDSA_P256_SHA_256",
+          rawBytes: fixtureKeyPair.publicKey
+            .export({ format: "der", type: "spki" })
+            .toString("base64"),
+        },
+      },
+    }),
+    "utf8",
+  );
+}
+
+function provenanceStatement(
+  artifactSha256: string,
+  overrides: {
+    commit?: string;
+    path?: string;
+    predicateType?: string;
+    repository?: string;
+    ref?: string;
+  } = {},
+): Record<string, unknown> {
+  const repository = overrides.repository ?? "Asuka109/mish";
+  const ref = overrides.ref ?? "refs/heads/main";
+  const pathValue = overrides.path ?? workflowPath;
+  return {
+    _type: inTotoStatementType,
+    predicate: {
+      buildDefinition: {
+        buildType: "https://actions.github.io/buildtypes/workflow/v1",
+        externalParameters: {
+          workflow: {
+            path: pathValue,
+            ref,
+            repository: `https://github.com/${repository}`,
+          },
+        },
+        internalParameters: {
+          github: {
+            event_name: "workflow_dispatch",
+            repository_id: "1304960811",
+            repository_owner_id: "18379948",
+            runner_environment: "github-hosted",
+          },
+        },
+        resolvedDependencies: [
+          {
+            digest: { gitCommit: overrides.commit ?? sourceSha },
+            uri: `git+https://github.com/${repository}@${ref}`,
+          },
+        ],
+      },
+      runDetails: {
+        builder: { id: "https://github.com/actions/runner/github-hosted" },
+        metadata: {
+          invocationId: "https://github.com/Asuka109/mish/actions/runs/123/attempts/1",
+        },
+      },
+    },
+    predicateType: overrides.predicateType ?? slsaProvenancePredicateType,
+    subject: [{ digest: { sha256: artifactSha256 }, name: signedReleaseDmgName(version) }],
+  };
+}
+
+function sbomStatement(artifactSha256: string): Record<string, unknown> {
+  return {
+    _type: inTotoStatementType,
+    predicate: { spdxVersion: "SPDX-2.3" },
+    predicateType: spdxPredicateType,
+    subject: [{ digest: { sha256: artifactSha256 }, name: signedReleaseDmgName(version) }],
+  };
+}
 
 function boundary(overrides: Record<string, unknown> = {}) {
   return {
@@ -123,8 +243,11 @@ function completeCandidate(): {
   writePreliminaryCandidate(candidate);
   const provenance = path.join(temporary.path, "source-provenance.json");
   const sbom = path.join(temporary.path, "source-sbom.json");
-  writeFileSync(provenance, '{"bundle":"provenance"}\n');
-  writeFileSync(sbom, '{"bundle":"sbom"}\n');
+  const dmgSha256 = createHash("sha256")
+    .update(readFileSync(path.join(candidate, signedReleaseDmgName(version))))
+    .digest("hex");
+  writeFileSync(provenance, signedAttestation(provenanceStatement(dmgSha256)));
+  writeFileSync(sbom, signedAttestation(sbomStatement(dmgSha256)));
   finalizeSignedReleaseCandidate({
     artifactDirectory: candidate,
     provenanceBundle: provenance,
@@ -133,6 +256,7 @@ function completeCandidate(): {
     sbomBundle: sbom,
     sbomId: "456",
     sbomUrl: "https://github.com/Asuka109/mish/attestations/456",
+    attestationTrust: attestationTrust(),
   });
   return {
     assets: readSignedReleaseCandidate(candidate, { sourceSha, version }),
@@ -340,6 +464,93 @@ test("final candidate binds the exact DMG, SBOM, attestations, and checksum mani
   } finally {
     candidate.dispose();
   }
+});
+
+test("offline attestation verification accepts only trusted, exact provenance", () => {
+  const artifactSha256 = createHash("sha256").update("signed dmg fixture\n").digest("hex");
+  const expectation = {
+    artifactName: signedReleaseDmgName(version),
+    artifactSha256,
+    predicateType: slsaProvenancePredicateType,
+    repository: "Asuka109/mish",
+    repositoryId: "1304960811",
+    repositoryOwnerId: "18379948",
+    sourceSha,
+    workflowRef,
+    requireBuildIdentity: true,
+  };
+  const trustMaterial = { publicKeySpki: fixtureKeyPair.publicKey };
+  const valid = signedAttestation(provenanceStatement(artifactSha256));
+  assert.doesNotThrow(() => verifyTrustedAttestation(valid, expectation, trustMaterial));
+  assert.doesNotThrow(() =>
+    verifyTrustedAttestation(
+      signedAttestation(sbomStatement(artifactSha256)),
+      { ...expectation, predicateType: spdxPredicateType, requireBuildIdentity: false },
+      trustMaterial,
+    ),
+  );
+
+  const invalidSignature = JSON.parse(valid.toString("utf8")) as {
+    dsseEnvelope: { signatures: Array<{ sig: string }> };
+  };
+  invalidSignature.dsseEnvelope.signatures[0].sig = `${"A".repeat(86)}==`;
+  assert.throws(
+    () => verifyTrustedAttestation(JSON.stringify(invalidSignature), expectation, trustMaterial),
+    (error: unknown) =>
+      error instanceof Error && error.message === "Attestation rejected (signature-invalid).",
+  );
+
+  const rejected = [
+    [
+      "predicate",
+      signedAttestation(
+        provenanceStatement(artifactSha256, { predicateType: "https://example.invalid/predicate" }),
+      ),
+      "predicate-mismatch",
+    ],
+    [
+      "repository",
+      signedAttestation(provenanceStatement(artifactSha256, { repository: "fork/mish" })),
+      "repository-mismatch",
+    ],
+    [
+      "workflow",
+      signedAttestation(
+        provenanceStatement(artifactSha256, { path: ".github/workflows/other.yml" }),
+      ),
+      "workflow-mismatch",
+    ],
+    [
+      "commit",
+      signedAttestation(provenanceStatement(artifactSha256, { commit: "2".repeat(40) })),
+      "commit-mismatch",
+    ],
+    ["artifact", signedAttestation(provenanceStatement("0".repeat(64))), "artifact-mismatch"],
+  ] as const;
+  for (const [, source, code] of rejected) {
+    assert.throws(
+      () => verifyTrustedAttestation(source, expectation, trustMaterial),
+      (error: unknown) =>
+        error instanceof Error && error.message === `Attestation rejected (${code}).`,
+    );
+  }
+
+  const missingMediaType = JSON.parse(valid.toString("utf8")) as Record<string, unknown>;
+  delete missingMediaType.mediaType;
+  assert.throws(
+    () => verifyTrustedAttestation(JSON.stringify(missingMediaType), expectation, trustMaterial),
+    /Attestation rejected \(malformed\)/u,
+  );
+  const unknownField = JSON.parse(valid.toString("utf8")) as Record<string, unknown>;
+  unknownField.untrusted = "fixture";
+  assert.throws(
+    () => verifyTrustedAttestation(JSON.stringify(unknownField), expectation, trustMaterial),
+    /Attestation rejected \(malformed\)/u,
+  );
+  assert.throws(
+    () => verifyTrustedAttestation(valid, expectation, {}),
+    /Attestation rejected \(trust-material-missing\)/u,
+  );
 });
 
 test("SPDX package verification uses the sorted SHA-1 digest set", () => {
