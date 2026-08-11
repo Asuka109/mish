@@ -32,10 +32,13 @@ function renderControl(onSystemProxyChange = vi.fn()) {
     <MemoryRouter>
       <TypesafeI18n locale="en">
         <TooltipProvider>
+          <span className="sr-only" id="fixture-action-description">
+            This action changes local fixture data only and does not change system or network state.
+          </span>
           <TrafficCaptureControl
             adapterKind="fixture"
             capabilities={{ systemProxy: "fixture-only", tun: "fixture-only" }}
-            commandSupported
+            commandSupported={false}
             onSystemProxyChange={onSystemProxyChange}
             onTunChange={vi.fn()}
             systemProxyEnabled={false}
@@ -52,6 +55,16 @@ function renderControl(onSystemProxyChange = vi.fn()) {
 }
 
 describe("TrafficCaptureControl Virtual Interface boundary", () => {
+  it("disables native Capture actions for browser fixtures", () => {
+    const onSystemProxyChange = vi.fn();
+    renderControl(onSystemProxyChange);
+
+    const systemProxy = screen.getByRole("button", { name: /System Proxy, not selected/ });
+    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toHaveAccessibleDescription(/local fixture data only/);
+    expect(onSystemProxyChange).not.toHaveBeenCalled();
+  });
+
   it("keeps Virtual Interface disabled while exposing its explanation on focus", async () => {
     const user = userEvent.setup();
     renderControl();
@@ -479,15 +492,16 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(runtimeStatus).not.toHaveTextContent("System Proxy is pending macOS confirmation.");
   });
 
-  it("leaves System Proxy actionable", async () => {
+  it("keeps System Proxy unavailable for browser fixtures", async () => {
     const user = userEvent.setup();
     const onSystemProxyChange = vi.fn();
     renderControl(onSystemProxyChange);
 
-    await user.click(screen.getByRole("button", { name: /System Proxy, not selected/ }));
+    const systemProxy = screen.getByRole("button", { name: /System Proxy, not selected/ });
+    expect(systemProxy).toBeDisabled();
+    await user.click(systemProxy);
 
-    expect(onSystemProxyChange).toHaveBeenCalledOnce();
-    expect(onSystemProxyChange.mock.calls[0]?.[0]).toBe(true);
+    expect(onSystemProxyChange).not.toHaveBeenCalled();
   });
 
   it("makes Virtual Interface actionable only for a supported native RPC projection", async () => {

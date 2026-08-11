@@ -9,7 +9,7 @@ import { FixtureStatusClient } from "./fixture-status-client";
 describe("FixtureStatusClient", () => {
   it("returns detached typed snapshots", async () => {
     const client = new FixtureStatusClient();
-    expect(client.supportsCommand("capture")).toBe(true);
+    expect(client.supportsCommand("capture")).toBe(false);
     const first = await client.getSnapshot();
     first.profiles[0].label = "Changed outside the adapter";
 
@@ -177,30 +177,23 @@ describe("FixtureStatusClient", () => {
     expect(next.groups.find((group) => group.id === "auto-fast")?.selectedChildId).toBe("nrt-03");
   });
 
-  it("models capture actions as fixture state only", async () => {
+  it("rejects native Capture effects without changing fixture state", async () => {
     const client = new FixtureStatusClient();
-    const selection = { systemProxy: true, tun: false };
-    const stopped = await client.setCapture(selection, false);
-    expect(stopped.runtime.phase).toBe("inactive");
-    expect(stopped.runtime.captureSelection).toEqual(selection);
-    expect(stopped.capabilities.systemProxy).toBe("fixture-only");
-    expect(stopped.recentTraffic.phase).toBe("idle");
+    const before = await client.getSnapshot();
 
-    const started = await client.setCapture(selection, true);
-    expect(started.runtime).toMatchObject({
-      phase: "healthy",
-      systemProxyEnabled: true,
-      tunEnabled: false,
+    await expect(client.setCapture({ systemProxy: true, tun: false }, true)).rejects.toMatchObject({
+      code: "unsupported",
+      message:
+        "Demo mode does not implement native Capture effects; system and network state are unchanged",
     });
-    expect(started.recentTraffic).toMatchObject({
-      authorityId: "fixture-status-authority",
-      phase: "active",
-      profileId: "home",
-      revision: 2,
-      sessionId: "fixture-status-session-1",
-    });
-    expect(started.traffic.downloadedBytes).toBe(13_781_123_072);
-    expect(started.recentTraffic.downloadedBytes).toBe(0);
+
+    await expect(client.setCapture({ systemProxy: true, tun: false }, false)).rejects.toMatchObject(
+      {
+        code: "unsupported",
+      },
+    );
+
+    await expect(client.getSnapshot()).resolves.toEqual(before);
   });
 
   it("does not enable System Proxy when a profile is selected", async () => {
