@@ -78,6 +78,31 @@ describe("service-monitor editor operation authority", () => {
     expect(authority.isCurrent(identity(replacement!), "success")).toBe(true);
   });
 
+  it("keeps a cancelled operation from overwriting a newer accepted state", () => {
+    let nextId = 0;
+    const authority = createServiceMonitorEditorAuthority({
+      createOperationId: () => `operation-${++nextId}`,
+    });
+    const cancelled = authority.begin("restore-defaults");
+    expect(cancelled).not.toBeNull();
+    expect(authority.cancel(identity(cancelled!))).toBe(true);
+
+    const replacement = authority.begin("save");
+    expect(replacement).not.toBeNull();
+    expect(authority.complete(identity(cancelled!), "success")).toBe(false);
+    expect(authority.current()).toMatchObject({
+      kind: "save",
+      operationId: "operation-2",
+      phase: "pending",
+    });
+    expect(authority.complete(identity(replacement!), "success")).toBe(true);
+    expect(authority.current()).toMatchObject({
+      kind: "save",
+      operationId: "operation-2",
+      phase: "success",
+    });
+  });
+
   it("releases the pending slot after failure and supports exact cleanup", () => {
     const authority = createServiceMonitorEditorAuthority({
       createOperationId: () => "operation-1",
