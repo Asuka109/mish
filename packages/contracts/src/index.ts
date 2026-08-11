@@ -4097,6 +4097,7 @@ export type ProfileClientErrorCode =
   | "not-found"
   | "protocol"
   | "remote"
+  | "timeout"
   | "unsupported"
   | "unknown"
   | "validation";

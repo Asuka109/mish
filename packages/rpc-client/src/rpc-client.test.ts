@@ -15,8 +15,11 @@ import {
   RpcCompatibilityError,
   RpcDisposedError,
   RpcMessageTooLargeError,
+  RpcRequestIdCollisionError,
   RpcRemoteError,
+  RpcTimeoutError,
   RpcValidationError,
+  type RpcRequestIdFactory,
   type WebSocketLike,
   type WebSocketLikeEventMap,
 } from "./index";
@@ -195,11 +198,16 @@ async function authenticate(transport: FakeTransport) {
 function createClient(
   transportFactory: () => FakeTransport,
   onProtocolError: (error: Error) => void = () => undefined,
+  options: {
+    requestDeadlineMilliseconds?: number;
+    requestIdFactory?: RpcRequestIdFactory;
+  } = {},
 ) {
   return new RpcClient({
     authentication: () => ({ clientName: "test", clientVersion: "1", token: "secret" }),
     methods: statusRpcMethods,
     onProtocolError,
+    ...options,
     transportFactory,
   });
 }
@@ -422,16 +430,172 @@ describe("RpcClient", () => {
     const request = await waitForSentMessage(transport, 1);
 
     transport.receiveRaw("not-json");
-    transport.respond({ id: `${request.id}`, jsonrpc: "2.0", result: createSnapshot() });
+    transport.respond({ id: `${request.id}-mismatch`, jsonrpc: "2.0", result: createSnapshot() });
     transport.respond({ id: 999_999, jsonrpc: "2.0", result: createSnapshot() });
     transport.respond({ id: request.id, jsonrpc: "2.0", result: createSnapshot() });
 
     await expect(resultPromise).resolves.toMatchObject({ adapterKind: "rpc" });
     expect(protocolErrors.map((error) => error.message)).toEqual([
       "Malformed JSON-RPC payload",
-      `Unknown RPC response id ${request.id}`,
+      `Unknown RPC response id ${request.id}-mismatch`,
       "Unknown RPC response id 999999",
     ]);
+    client.dispose();
+  });
+
+  it("rejects malformed response envelopes before they can settle a request", async () => {
+    const protocolErrors: Error[] = [];
+    const transport = new FakeTransport();
+    const client = createClient(
+      () => transport,
+      (error) => protocolErrors.push(error),
+    );
+    const resultPromise = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+
+    transport.respond({
+      error: { code: -32_000, message: "wrong envelope" },
+      id: request.id,
+      jsonrpc: "2.0",
+      result: createSnapshot(),
+    });
+    transport.respond({ id: null, jsonrpc: "2.0", result: createSnapshot() });
+    transport.respond({ id: request.id, jsonrpc: "1.0", result: createSnapshot() });
+
+    expect(protocolErrors.map((error) => error.message)).toEqual([
+      "Malformed JSON-RPC message",
+      "Malformed JSON-RPC message",
+      "Malformed JSON-RPC message",
+    ]);
+
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: createSnapshot() });
+    await expect(resultPromise).resolves.toMatchObject({ adapterKind: "rpc" });
+    client.dispose();
+  });
+
+  it("correlates responses by identity instead of delivery order", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const client = createClient(
+      () => transport,
+      () => undefined,
+      {
+        requestDeadlineMilliseconds: 25,
+      },
+    );
+    const first = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const firstRequest = await waitForSentMessage(transport, 1);
+    const second = client.request("status.getSnapshot", {});
+    const secondRequest = await waitForSentMessage(transport, 2);
+
+    transport.respond({ id: secondRequest.id, jsonrpc: "2.0", result: createSnapshot() });
+    await expect(second).resolves.toMatchObject({ adapterKind: "rpc" });
+    expect(firstRequest.id).not.toBe(secondRequest.id);
+
+    const firstTimeout = expect(first).rejects.toBeInstanceOf(RpcTimeoutError);
+    await vi.advanceTimersByTimeAsync(25);
+    await firstTimeout;
+    client.dispose();
+  });
+
+  it("rejects a duplicate response after the original response has settled", async () => {
+    const protocolErrors: Error[] = [];
+    const transport = new FakeTransport();
+    const client = createClient(
+      () => transport,
+      (error) => protocolErrors.push(error),
+    );
+    const resultPromise = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+    const response = { id: request.id, jsonrpc: "2.0", result: createSnapshot() };
+
+    transport.respond(response);
+    await expect(resultPromise).resolves.toMatchObject({ adapterKind: "rpc" });
+    transport.respond(response);
+
+    expect(protocolErrors.at(-1)?.message).toBe(`Unknown RPC response id ${request.id}`);
+    client.dispose();
+  });
+
+  it("times out, cancels, and rejects a late response without reopening the request", async () => {
+    vi.useFakeTimers();
+    const protocolErrors: Error[] = [];
+    const transport = new FakeTransport();
+    const client = createClient(
+      () => transport,
+      (error) => protocolErrors.push(error),
+      { requestDeadlineMilliseconds: 20 },
+    );
+    const resultPromise = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+
+    const timeout = expect(resultPromise).rejects.toMatchObject({
+      deadlineMilliseconds: 20,
+      name: "RpcTimeoutError",
+      requestId: request.id,
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    await timeout;
+    expect(JSON.parse(transport.sent[2])).toMatchObject({
+      method: "rpc.cancel",
+      params: { requestId: request.id },
+    });
+
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: createSnapshot() });
+    expect(protocolErrors.at(-1)?.message).toBe(`Unknown RPC response id ${request.id}`);
+    client.dispose();
+  });
+
+  it("does not overwrite an in-flight request when identities collide", async () => {
+    const transport = new FakeTransport();
+    const requestIds = ["auth-request", "same-request-id", "same-request-id", "same-request-id"];
+    let requestIdIndex = 0;
+    const client = createClient(
+      () => transport,
+      () => undefined,
+      {
+        requestIdFactory: () => requestIds[requestIdIndex++] ?? "fallback-request-id",
+      },
+    );
+    const first = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+
+    const second = client.request("status.getSnapshot", {});
+    const secondError = await second.catch((reason: unknown) => reason);
+    expect(secondError).toBeInstanceOf(RpcRequestIdCollisionError);
+    expect(secondError).toMatchObject({ requestId: request.id });
+    expect(transport.sent).toHaveLength(2);
+
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: createSnapshot() });
+    await expect(first).resolves.toMatchObject({ adapterKind: "rpc" });
+    const lateReuse = client.request("status.getSnapshot", {});
+    await expect(lateReuse).rejects.toBeInstanceOf(RpcRequestIdCollisionError);
+    client.dispose();
+  });
+
+  it("bounds a connection that never reaches the open or authenticated state", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const client = createClient(
+      () => transport,
+      () => undefined,
+      {
+        requestDeadlineMilliseconds: 15,
+      },
+    );
+    const connection = client.connect();
+
+    const timeout = expect(connection).rejects.toMatchObject({
+      deadlineMilliseconds: 15,
+      name: "RpcTimeoutError",
+    });
+    await vi.advanceTimersByTimeAsync(15);
+    await timeout;
     client.dispose();
   });
 

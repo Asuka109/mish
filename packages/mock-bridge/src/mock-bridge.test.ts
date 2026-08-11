@@ -198,7 +198,9 @@ describe("mock bridge", () => {
       rawRequest(socket, { id: 4, jsonrpc: "2.0", method: "status.unsubscribe", params: {} }),
     ).resolves.toMatchObject({ error: { code: -32602 }, id: 4 });
 
-    socket.send(JSON.stringify({ jsonrpc: "2.0", method: "rpc.cancel", params: { requestId: 4 } }));
+    socket.send(
+      JSON.stringify({ jsonrpc: "2.0", method: "rpc.cancel", params: { requestId: "request-4" } }),
+    );
     await expect.poll(() => handle.cancellationCount).toBe(1);
     socket.close();
   });

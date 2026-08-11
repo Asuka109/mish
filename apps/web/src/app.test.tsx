@@ -2899,7 +2899,7 @@ describe("desktop RPC experience", () => {
 });
 
 describe("Status fixture experience", () => {
-  it("renders fixture Recent Traffic authority without deriving from low-level Status traffic", async () => {
+  it("keeps fixture Recent Traffic idle when native Capture is unavailable", async () => {
     const client = new FixtureStatusClient();
     renderRoute("/status", "en", client);
     const session = await screen.findByLabelText("Current session");
@@ -2914,47 +2914,15 @@ describe("Status fixture experience", () => {
     ]);
     expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
-
-    let firstSessionId: string | null = null;
-    await act(async () => {
-      firstSessionId = (await client.setCapture({ systemProxy: true, tun: false }, true))
-        .recentTraffic.sessionId;
+    expect(client.supportsCommand("capture")).toBe(false);
+    await expect(client.setCapture({ systemProxy: true, tun: false }, true)).rejects.toMatchObject({
+      code: "unsupported",
     });
-    await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
-    expect(
-      [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
-    ).toEqual(["0 B/s", "0 B/s"]);
-    await act(() => client.setRoutingMode("global"));
-    await waitFor(() =>
-      expect(
-        [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
-      ).toEqual(["0 B/s", "0 B/s"]),
-    );
-    expect((await client.getSnapshot()).traffic.downloadBytesPerSecond).toBe(2_568_192);
-    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
-
-    await act(() => client.setCapture({ systemProxy: true, tun: false }, false));
-    await waitFor(() =>
-      expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
-        "",
-        "",
-        "-",
-        "-",
-        "-",
-        "-",
-      ]),
-    );
-    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
-    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
-
-    let secondSessionId: string | null = null;
-    await act(async () => {
-      secondSessionId = (await client.setCapture({ systemProxy: true, tun: false }, true))
-        .recentTraffic.sessionId;
+    expect((await client.getSnapshot()).recentTraffic).toMatchObject({
+      phase: "idle",
+      sessionId: null,
     });
-    await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
-    expect(secondSessionId).not.toBe(firstSessionId);
   });
 
   it("labels fixture state and renders opaque Unicode labels verbatim", async () => {
@@ -3075,28 +3043,21 @@ describe("Status fixture experience", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("keeps capture actions explicitly described as fixture-only", async () => {
-    const user = userEvent.setup();
+  it("keeps native Capture actions disabled and explicitly described as fixture-only", async () => {
     renderRoute("/status");
     const startButton = await screen.findByRole("button", { name: "Launch the Proxy Demo State" });
     expect(startButton).toHaveAttribute("data-slot", "button");
+    expect(startButton).toBeDisabled();
     expect(startButton).toHaveAccessibleDescription(/local fixture data only/);
     expect(startButton).toHaveAttribute("data-status", "inactive");
     expect(
       startButton.querySelector('[data-slot="proxy-control-material"]'),
     ).not.toBeInTheDocument();
     expect(startButton.querySelector("canvas[aria-hidden='true']")).not.toBeInTheDocument();
-    await user.click(startButton);
-    const stopButton = await screen.findByRole("button", { name: "Disable the Proxy Demo State" });
-    const material = stopButton.querySelector('[data-slot="proxy-control-material"]');
-    expect(stopButton).toHaveAttribute("data-slot", "button");
-    expect(stopButton).toHaveAccessibleDescription(/local fixture data only/);
-    expect(material).toHaveAttribute("aria-hidden", "true");
-    expect(material?.querySelector("canvas[aria-hidden='true']")).toBeInTheDocument();
-    await user.click(stopButton);
-    expect(
-      await screen.findByRole("button", { name: "Launch the Proxy Demo State" }),
-    ).toBeInTheDocument();
+    const systemProxy = await screen.findByRole("button", {
+      name: "System Proxy, not selected, not running",
+    });
+    expect(systemProxy).toBeDisabled();
   });
 
   it("delegates capture launch without sending Web-selected Profile authority", async () => {
@@ -3193,28 +3154,14 @@ describe("Status fixture experience", () => {
     expect(notificationCenter).toBeVisible();
   });
 
-  it("remembers selected capture modes when the master control stops and resumes capture", async () => {
-    const user = userEvent.setup();
+  it("does not mutate fixture Capture selection from the disabled master control", async () => {
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Launch the Proxy Demo State" }));
-
     const systemProxy = await screen.findByRole("button", { name: /^System Proxy/ });
-    expect(systemProxy).toHaveAttribute("aria-pressed", "true");
-    expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
-
-    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
-
-    await waitFor(() => {
-      expect(systemProxy).toHaveAttribute("aria-pressed", "true");
-      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, not running");
-    });
-
-    await user.click(screen.getByRole("button", { name: "Launch the Proxy Demo State" }));
-
-    await waitFor(() => {
-      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
-    });
+    expect(systemProxy).toHaveAttribute("aria-pressed", "false");
+    expect(systemProxy).toHaveAccessibleName("System Proxy, not selected, not running");
+    expect(systemProxy).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toBeDisabled();
   });
 
   it("relaunches the retained Virtual Interface selection from the master control", async () => {
@@ -3328,18 +3275,16 @@ describe("Status fixture experience", () => {
     );
   });
 
-  it("keeps Virtual Interface disabled when System Proxy is stopped", async () => {
-    const user = userEvent.setup();
+  it("keeps both native Capture modes disabled in fixture mode", async () => {
     renderRoute("/status");
 
-    await user.click(
-      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
-    );
-    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
-
+    const systemProxy = await screen.findByRole("button", {
+      name: "System Proxy, not selected, not running",
+    });
     const tun = screen.getByRole("button", {
       name: "Virtual Interface, not selected, not running",
     });
+    expect(systemProxy).toBeDisabled();
     expect(tun).toBeDisabled();
     expect(tun).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toHaveAttribute(
@@ -3348,23 +3293,17 @@ describe("Status fixture experience", () => {
     );
   });
 
-  it("uses System Proxy as the master-control fallback when no mode is selected", async () => {
-    const user = userEvent.setup();
+  it("does not select a native Capture fallback for fixtures", async () => {
     renderRoute("/status");
 
-    expect(
-      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
-    ).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toHaveAttribute(
-      "title",
-      "Launch Proxy with System Proxy",
-    );
-
-    await user.click(screen.getByRole("button", { name: "Launch the Proxy Demo State" }));
-
-    expect(
-      await screen.findByRole("button", { name: "System Proxy, selected, running" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    const systemProxy = await screen.findByRole("button", {
+      name: "System Proxy, not selected, not running",
+    });
+    expect(systemProxy).toHaveAttribute("aria-pressed", "false");
+    expect(systemProxy).toBeDisabled();
+    const launch = screen.getByRole("button", { name: "Launch the Proxy Demo State" });
+    expect(launch).toBeDisabled();
+    expect(launch).toHaveAttribute("title", "Launch Proxy with System Proxy");
   });
 
   it("does not offer Virtual Interface capture to a failing client", async () => {

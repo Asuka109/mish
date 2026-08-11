@@ -244,7 +244,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           params &&
           typeof params === "object" &&
           !Array.isArray(params) &&
-          Number.isSafeInteger((params as Record<string, unknown>).requestId)
+          isRpcRequestId((params as Record<string, unknown>).requestId)
         ) {
           cancellationCount += 1;
         }
@@ -376,6 +376,13 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
     close: () => closeServer(server),
     rpcUrl: `ws://${host}:${address.port}/rpc`,
   };
+}
+
+function isRpcRequestId(value: unknown): value is string | number {
+  return (
+    (typeof value === "string" && value.length > 0) ||
+    (typeof value === "number" && Number.isSafeInteger(value))
+  );
 }
 
 function compatibilityForClient(

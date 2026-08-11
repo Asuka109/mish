@@ -9,7 +9,9 @@ use futures_util::{
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsCommand, MacOsCommandError, MacOsCommandOutput,
-    MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform,
+    MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform, MacOsSystemProxyRestoreAdapter,
+    MacOsSystemProxyRestoreFailureKind, MacOsSystemProxyRestoreField,
+    MacOsSystemProxyRestoreOutcome, MacOsSystemProxyRestoreStep,
 };
 use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -17,6 +19,7 @@ use mish_runtime::{
 };
 use serde::Deserialize;
 use tokio::sync::Barrier;
+use tokio_util::sync::CancellationToken;
 
 const REAL_PLATFORM_TRANSCRIPT: &str = include_str!(
     "../../../docs/quality/fixtures/macos-platform-transcripts/system-proxy-macos26-arm64.json"
@@ -255,6 +258,44 @@ impl MacOsCommandRunner for FixtureRunner {
         Box::pin(ready(Ok(MacOsCommandOutput {
             stdout: stdout.into(),
         })))
+    }
+}
+
+struct RestoreAdapterFixture {
+    calls: Mutex<Vec<(String, Vec<MacOsSystemProxyRestoreField>, CancellationToken)>>,
+    outcome: MacOsSystemProxyRestoreOutcome,
+}
+
+impl RestoreAdapterFixture {
+    fn new(outcome: MacOsSystemProxyRestoreOutcome) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            outcome,
+        }
+    }
+
+    fn calls(&self) -> Vec<(String, Vec<MacOsSystemProxyRestoreField>)> {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(service, fields, _)| (service.clone(), fields.clone()))
+            .collect()
+    }
+}
+
+impl MacOsSystemProxyRestoreAdapter for RestoreAdapterFixture {
+    fn restore_exact_fields(
+        &self,
+        service: String,
+        fields: Vec<MacOsSystemProxyRestoreField>,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, MacOsSystemProxyRestoreOutcome> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((service, fields, cancellation));
+        Box::pin(ready(self.outcome.clone()))
     }
 }
 
@@ -588,6 +629,84 @@ fn crash_fixture_target(prior: &NetworkServiceProxyState) -> NetworkServiceProxy
         socks: proxy,
         ..prior.clone()
     }
+}
+
+fn blank_disabled_restore_target() -> NetworkServiceProxyState {
+    NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
+        http: ManualProxyState::disabled(),
+        https: ManualProxyState::disabled(),
+        pac_enabled: false,
+        pac_url: "(null)".into(),
+        service_id: "Fixture Service".into(),
+        socks: ManualProxyState::disabled(),
+    }
+}
+
+#[tokio::test]
+async fn exact_restore_is_routed_through_the_injected_adapter_without_host_processes() {
+    let runner = Arc::new(FixtureRunner::new());
+    let restore = Arc::new(RestoreAdapterFixture::new(
+        MacOsSystemProxyRestoreOutcome::Restored {
+            completed_steps: vec![
+                MacOsSystemProxyRestoreStep::Preferences,
+                MacOsSystemProxyRestoreStep::DynamicStore,
+            ],
+        },
+    ));
+    let platform =
+        MacOsSystemProxyPlatform::with_runner_and_restore_adapter(runner.clone(), restore.clone());
+
+    platform
+        .apply_service(blank_disabled_restore_target())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        restore.calls(),
+        vec![(
+            "Fixture Service".into(),
+            vec![
+                MacOsSystemProxyRestoreField::AutoDiscoveryEnable,
+                MacOsSystemProxyRestoreField::HttpEnable,
+                MacOsSystemProxyRestoreField::HttpPort,
+                MacOsSystemProxyRestoreField::HttpProxy,
+                MacOsSystemProxyRestoreField::HttpsEnable,
+                MacOsSystemProxyRestoreField::HttpsPort,
+                MacOsSystemProxyRestoreField::HttpsProxy,
+                MacOsSystemProxyRestoreField::PacEnable,
+                MacOsSystemProxyRestoreField::PacUrl,
+                MacOsSystemProxyRestoreField::SocksEnable,
+                MacOsSystemProxyRestoreField::SocksPort,
+                MacOsSystemProxyRestoreField::SocksProxy,
+            ],
+        )]
+    );
+    assert_eq!(runner.commands.lock().unwrap().len(), 9);
+}
+
+#[tokio::test]
+async fn partial_restore_outcome_stops_apply_without_exposing_host_details() {
+    let runner = Arc::new(FixtureRunner::new());
+    let restore = Arc::new(RestoreAdapterFixture::new(
+        MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+            completed_steps: vec![MacOsSystemProxyRestoreStep::Preferences],
+            failed_step: Some(MacOsSystemProxyRestoreStep::DynamicStore),
+            failure: MacOsSystemProxyRestoreFailureKind::TimedOut,
+        },
+    ));
+    let platform =
+        MacOsSystemProxyPlatform::with_runner_and_restore_adapter(runner, restore.clone());
+
+    let error = platform
+        .apply_service(blank_disabled_restore_target())
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    assert!(!error.to_string().contains("Fixture Service"));
+    assert_eq!(restore.calls().len(), 1);
 }
 
 #[tokio::test]
