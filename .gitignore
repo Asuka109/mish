@@ -35,6 +35,7 @@ target/
 *.key
 *.pem
 .state/
+progress.local.md
 
 # Local competitive references and other private research material
 references/
