@@ -1226,6 +1226,9 @@ const en = {
     probeUrl: "Probe URL",
     removedToast: "Service monitor removed",
     restoreDefaults: "Restore Defaults",
+    restoreDefaultsDescription:
+      "This replaces the current service monitors with Mish's defaults. Cancel to keep your current draft unchanged.",
+    restoreDefaultsTitle: "Restore default service monitors?",
     serviceLimit: "Up to 12 service monitors are allowed.",
     serviceName: "Service name",
     title: "Title",
