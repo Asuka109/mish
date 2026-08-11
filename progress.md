@@ -19,38 +19,38 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-None. Worker creation may begin only after the dispatch manifest below is
-committed and visible on `origin/main`.
+Seven Luna Max workers are active from the pre-published manifest and clean
+detached baseline `12831ad`.
 
-## Wave 1 dispatch manifest
+## Wave 1 worker ledger
 
 | Task | Worker task ID | Worktree | State | Dependencies | Acceptance | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; create one Luna Max worker after this ledger is published. |
-| #448 A2.1 | pending | pending | dispatching | none for A2.1 | confirmation-only | Pre-authorized manifest entry; no host mutation is authorized. |
-| #437 A3.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to Rust model semantics. |
-| #438 A4.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to truthful fixture behavior. |
-| #439 A5.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; no real process signal is authorized. |
-| #440 B1.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to transport hardening. |
-| #443 E2.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; no repository settings mutation is authorized. |
+| #436 A1.1 | `019fefb6-dbbc-7dd2-bd7c-2fcb7c10fdb4` | `39f5` | active | none | confirmation-only | Clean detached `12831ad`; bounded owned-operation kernel only. |
+| #448 A2.1 | `019fefb6-df13-7c43-aa76-8baa63f77248` | `d79d` | active | none for A2.1 | confirmation-only | Clean detached `12831ad`; no host mutation is authorized. |
+| #437 A3.1 | `019fefb6-dba8-7be2-9833-24c5c22f6c53` | `b68e` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to Rust model semantics. |
+| #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to truthful fixture behavior. |
+| #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | active | none | confirmation-only | Clean detached `12831ad`; no real process signal is authorized. |
+| #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to transport hardening. |
+| #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | active | none | confirmation-only | Clean detached `12831ad`; no repository settings mutation is authorized. |
 
 ## Planned issue graph
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | dispatching: A1.1 | none | confirmation-only |
-| System Proxy restoration | #448 | dispatching: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
-| SimulatedHost truthfulness | #437 | dispatching: A3.1 | none | confirmation-only |
-| Browser fixture truthfulness | #438 | dispatching: A4.1 | none | confirmation-only |
-| Process identity | #439 | dispatching: A5.1 | none | confirmation-only |
-| RPC Session Authority | #440 | dispatching: B1.1 | none | confirmation-only |
+| Owned operations | #436 | active: A1.1 | none | confirmation-only |
+| System Proxy restoration | #448 | active: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
+| SimulatedHost truthfulness | #437 | active: A3.1 | none | confirmation-only |
+| Browser fixture truthfulness | #438 | active: A4.1 | none | confirmation-only |
+| Process identity | #439 | active: A5.1 | none | confirmation-only |
+| RPC Session Authority | #440 | active: B1.1 | none | confirmation-only |
 | Profile credential privacy | #449 | blocked | #440 | confirmation-only |
 | Atomic profile generations | #441 | planned | none | confirmation-only |
 | Backup preview authority | #450 | blocked | #440 | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | dispatching: E2.1 | none | confirmation-only |
+| CI policy coverage | #443 | active: E2.1 | none | confirmation-only |
 | Settings editor serialization | #452 | blocked | #440 | confirmation-only |
 | Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
@@ -72,13 +72,13 @@ committed and visible on `origin/main`.
 
 | Task | Intended result | Model | Dependencies | Readiness |
 | --- | --- | --- | --- | --- |
-| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-luna/max` | none | dispatching |
-| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-luna/max` | none for A2.1 | dispatching |
-| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-luna/max` | none | dispatching |
-| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | dispatching |
-| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-luna/max` | none | dispatching |
-| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-luna/max` | none | dispatching |
-| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | dispatching |
+| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-luna/max` | none | active |
+| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-luna/max` | none for A2.1 | active |
+| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-luna/max` | none | active |
+| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | active |
+| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-luna/max` | none | active |
+| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-luna/max` | none | active |
+| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | active |
 
 All seven tasks are AFK and confirmation-only. Each worker receives an isolated
 worktree, one linked Issue/task, Chinese reporting, final-only escalation, and
