@@ -2,6 +2,7 @@ import {
   RpcCompatibilityError,
   RpcDisconnectedError,
   RpcDisposedError,
+  RpcTimeoutError,
   type RpcConnectionState,
 } from "@mish/rpc-client";
 import { describe, expect, it } from "vitest";
@@ -104,6 +105,10 @@ describe("RPC compatibility product projections", () => {
     });
     expect(projectRpcClientFailure(new RpcDisposedError())).toMatchObject({
       code: "disconnected",
+      retryable: true,
+    });
+    expect(projectRpcClientFailure(new RpcTimeoutError(25, "request-1"))).toMatchObject({
+      code: "timeout",
       retryable: true,
     });
   });

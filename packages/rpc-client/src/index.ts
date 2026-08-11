@@ -1,17 +1,30 @@
 import * as z from "zod";
 
-const JsonRpcIdSchema = z.union([z.number().int(), z.string(), z.null()]);
+const JsonRpcResponseIdSchema = z.union([
+  z.number().int().refine(Number.isSafeInteger, "JSON-RPC response IDs must be safe integers"),
+  z.string(),
+]);
 const JsonRpcErrorObjectSchema = z
   .object({ code: z.number().int(), data: z.unknown().optional(), message: z.string() })
   .strict();
+const JsonRpcResponseMessageSchema = z.union([
+  z
+    .object({ id: JsonRpcResponseIdSchema, jsonrpc: z.literal("2.0"), result: z.unknown() })
+    .strict(),
+  z
+    .object({
+      error: JsonRpcErrorObjectSchema,
+      id: JsonRpcResponseIdSchema,
+      jsonrpc: z.literal("2.0"),
+    })
+    .strict(),
+]);
+const JsonRpcNotificationMessageSchema = z
+  .object({ jsonrpc: z.literal("2.0"), method: z.string(), params: z.unknown().optional() })
+  .strict();
 const JsonRpcMessageSchema = z.union([
-  z.object({ id: JsonRpcIdSchema, jsonrpc: z.literal("2.0"), result: z.unknown() }).strict(),
-  z
-    .object({ error: JsonRpcErrorObjectSchema, id: JsonRpcIdSchema, jsonrpc: z.literal("2.0") })
-    .strict(),
-  z
-    .object({ jsonrpc: z.literal("2.0"), method: z.string(), params: z.unknown().optional() })
-    .strict(),
+  JsonRpcResponseMessageSchema,
+  JsonRpcNotificationMessageSchema,
 ]);
 const AuthenticationMetadataSchema = z
   .object({
@@ -29,6 +42,32 @@ const AuthenticationResultSchema = z
   .strict();
 
 const textEncoder = new TextEncoder();
+
+export const DEFAULT_RPC_REQUEST_DEADLINE_MILLISECONDS = 30_000;
+export const MAX_RPC_REQUEST_DEADLINE_MILLISECONDS = 120_000;
+
+let nextClientIdentity = 1;
+
+export type RpcRequestId = string;
+export type RpcRequestIdFactory = (sequence: number) => RpcRequestId;
+
+function createDefaultRequestIdFactory(): RpcRequestIdFactory {
+  const identity =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${nextClientIdentity++}`;
+  return (sequence) => `mish-rpc-${identity}-${sequence}`;
+}
+
+function validateRequestDeadline(deadline: number | undefined) {
+  const value = deadline ?? DEFAULT_RPC_REQUEST_DEADLINE_MILLISECONDS;
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_RPC_REQUEST_DEADLINE_MILLISECONDS) {
+    throw new RangeError(
+      `RPC request deadline must be an integer between 0 and ${MAX_RPC_REQUEST_DEADLINE_MILLISECONDS} milliseconds`,
+    );
+  }
+  return value;
+}
 
 export interface WebSocketLikeEventMap {
   close: { code: number; reason: string; wasClean: boolean };
@@ -96,6 +135,8 @@ export interface RpcClientOptions<Methods extends RpcMethodDefinitions> {
   maxMessageBytes?: number;
   methods: Methods;
   onProtocolError?: (error: RpcProtocolError) => void;
+  requestDeadlineMilliseconds?: number;
+  requestIdFactory?: RpcRequestIdFactory;
   transportFactory: () => WebSocketLike;
 }
 
@@ -116,10 +157,12 @@ interface PendingRequest {
   reject(error: unknown): void;
   resolve(value: unknown): void;
   resultSchema: z.ZodType;
+  timeoutCleanup?: () => void;
 }
 
 interface ConnectionWaiter {
   abortCleanup?: () => void;
+  deadlineCleanup?: () => void;
   reject(error: unknown): void;
   resolve(): void;
 }
@@ -142,6 +185,27 @@ export class RpcCancelledError extends RpcClientError {
   constructor(message = "The RPC request was cancelled") {
     super(message);
     this.name = "RpcCancelledError";
+  }
+}
+
+export class RpcTimeoutError extends RpcClientError {
+  constructor(
+    readonly deadlineMilliseconds: number,
+    readonly requestId: RpcRequestId | null = null,
+  ) {
+    super(
+      requestId
+        ? `RPC request ${requestId} exceeded the ${deadlineMilliseconds} millisecond deadline`
+        : `RPC connection exceeded the ${deadlineMilliseconds} millisecond deadline`,
+    );
+    this.name = "RpcTimeoutError";
+  }
+}
+
+export class RpcRequestIdCollisionError extends RpcClientError {
+  constructor(readonly requestId: RpcRequestId) {
+    super(`RPC request ID collision for ${requestId}`);
+    this.name = "RpcRequestIdCollisionError";
   }
 }
 
@@ -229,18 +293,22 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   private readonly maxMessageBytes: number;
   private readonly methods: Methods;
   private readonly onProtocolError?: (error: RpcProtocolError) => void;
+  private readonly requestDeadlineMilliseconds: number;
+  private readonly requestIdFactory: RpcRequestIdFactory;
+  private readonly issuedRequestIds: Set<RpcRequestId> | null;
   private readonly transportFactory: () => WebSocketLike;
   private readonly connectionListeners = new Set<(state: RpcConnectionState) => void>();
   private readonly connectionWaiters = new Set<ConnectionWaiter>();
   private readonly notifications = new Map<string, NotificationSubscription>();
-  private readonly pendingRequests = new Map<number, PendingRequest>();
+  private readonly pendingRequests = new Map<RpcRequestId, PendingRequest>();
   private state: RpcConnectionState = { attempt: 0, phase: "disconnected", stale: true };
   private desiredConnection = false;
   private compatibilityError: RpcCompatibilityError | null = null;
   private disposed = false;
-  private nextRequestId = 1;
+  private nextRequestSequence = 1;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectionAttemptTimer: ReturnType<typeof setTimeout> | null = null;
   private transport: WebSocketLike | null = null;
   private transportListeners: TransportListeners | null = null;
 
@@ -255,6 +323,9 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     this.maxMessageBytes = options.maxMessageBytes ?? 1_048_576;
     this.methods = options.methods;
     this.onProtocolError = options.onProtocolError;
+    this.requestDeadlineMilliseconds = validateRequestDeadline(options.requestDeadlineMilliseconds);
+    this.requestIdFactory = options.requestIdFactory ?? createDefaultRequestIdFactory();
+    this.issuedRequestIds = options.requestIdFactory ? new Set() : null;
     this.transportFactory = options.transportFactory;
   }
 
@@ -267,9 +338,16 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     this.desiredConnection = true;
     const promise = new Promise<void>((resolve, reject) => {
       const waiter: ConnectionWaiter = { reject, resolve };
+      const deadlineTimer = setTimeout(() => {
+        if (!this.connectionWaiters.delete(waiter)) return;
+        waiter.abortCleanup?.();
+        reject(new RpcTimeoutError(this.requestDeadlineMilliseconds));
+      }, this.requestDeadlineMilliseconds);
+      waiter.deadlineCleanup = () => clearTimeout(deadlineTimer);
       if (options.signal) {
         const onAbort = () => {
-          this.connectionWaiters.delete(waiter);
+          if (!this.connectionWaiters.delete(waiter)) return;
+          waiter.deadlineCleanup?.();
           reject(new RpcCancelledError());
         };
         options.signal.addEventListener("abort", onAbort, { once: true });
@@ -288,6 +366,8 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     this.desiredConnection = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.connectionAttemptTimer) clearTimeout(this.connectionAttemptTimer);
+    this.connectionAttemptTimer = null;
     const error = new RpcDisposedError();
     this.rejectPendingRequests(error);
     this.rejectConnectionWaiters(error);
@@ -399,6 +479,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
       if (error instanceof RpcCompatibilityError) {
         this.compatibilityError = error;
         this.desiredConnection = false;
+        this.clearConnectionAttemptTimer();
         this.detachTransportListeners(transport);
         this.transport = null;
         transport.close(4002, "Bridge protocol incompatible");
@@ -425,8 +506,14 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     this.transportListeners = null;
   }
 
+  private clearConnectionAttemptTimer() {
+    if (this.connectionAttemptTimer) clearTimeout(this.connectionAttemptTimer);
+    this.connectionAttemptTimer = null;
+  }
+
   private handleClose(transport: WebSocketLike, _event: WebSocketLikeEventMap["close"]) {
     if (this.transport !== transport) return;
+    this.clearConnectionAttemptTimer();
     this.detachTransportListeners(transport);
     this.transport = null;
     this.rejectPendingRequests(new RpcDisconnectedError());
@@ -460,6 +547,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
 
   private handleOpen(transport: WebSocketLike) {
     if (this.transport !== transport || this.disposed) return;
+    this.clearConnectionAttemptTimer();
     this.updateState({
       attempt: this.reconnectAttempts,
       phase: "authenticating",
@@ -494,6 +582,15 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     };
     this.transport = transport;
     this.transportListeners = listeners;
+    this.connectionAttemptTimer = setTimeout(() => {
+      if (this.transport !== transport || this.disposed) return;
+      this.connectionAttemptTimer = null;
+      this.detachTransportListeners(transport);
+      this.transport = null;
+      this.rejectConnectionWaiters(new RpcTimeoutError(this.requestDeadlineMilliseconds));
+      transport.close(4000, "RPC connection deadline exceeded");
+      this.scheduleReconnect();
+    }, this.requestDeadlineMilliseconds);
     transport.addEventListener("close", listeners.close);
     transport.addEventListener("error", listeners.error);
     transport.addEventListener("message", listeners.message);
@@ -552,28 +649,18 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     for (const listener of subscription.listeners) listener(parsed.data);
   }
 
-  private processResponse(
-    message:
-      | { id: string | number | null; jsonrpc: "2.0"; result: unknown }
-      | {
-          error: { code: number; data?: unknown; message: string };
-          id: string | number | null;
-          jsonrpc: "2.0";
-        },
-  ) {
-    if (typeof message.id !== "number") {
+  private processResponse(message: z.infer<typeof JsonRpcResponseMessageSchema>) {
+    if (typeof message.id !== "string") {
       this.reportProtocolError(
         new RpcProtocolError(`Unknown RPC response id ${String(message.id)}`),
       );
       return;
     }
-    const pending = this.pendingRequests.get(message.id);
+    const pending = this.takePendingRequest(message.id);
     if (!pending) {
       this.reportProtocolError(new RpcProtocolError(`Unknown RPC response id ${message.id}`));
       return;
     }
-    this.pendingRequests.delete(message.id);
-    pending.abortCleanup?.();
 
     if ("error" in message) {
       pending.reject(
@@ -594,17 +681,17 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   private rejectConnectionWaiters(error: unknown) {
     for (const waiter of this.connectionWaiters) {
       waiter.abortCleanup?.();
+      waiter.deadlineCleanup?.();
       waiter.reject(error);
     }
     this.connectionWaiters.clear();
   }
 
   private rejectPendingRequests(error: unknown) {
-    for (const pending of this.pendingRequests.values()) {
-      pending.abortCleanup?.();
-      pending.reject(error);
+    for (const requestId of this.pendingRequests.keys()) {
+      const pending = this.takePendingRequest(requestId);
+      pending?.reject(error);
     }
-    this.pendingRequests.clear();
   }
 
   private reportProtocolError(error: RpcProtocolError) {
@@ -614,6 +701,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
   private resolveConnectionWaiters() {
     for (const waiter of this.connectionWaiters) {
       waiter.abortCleanup?.();
+      waiter.deadlineCleanup?.();
       waiter.resolve();
     }
     this.connectionWaiters.clear();
@@ -644,7 +732,7 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
     }, delay);
   }
 
-  private sendCancellation(requestId: number) {
+  private sendCancellation(requestId: RpcRequestId) {
     if (this.state.phase !== "connected" || !this.transport) return;
     const payload = JSON.stringify({
       jsonrpc: "2.0",
@@ -652,7 +740,11 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
       params: { requestId },
     });
     if (textEncoder.encode(payload).byteLength > this.maxMessageBytes) return;
-    this.transport.send(payload);
+    try {
+      this.transport.send(payload);
+    } catch {
+      // The request has already been settled; cancellation is only a best-effort hint.
+    }
   }
 
   private sendRequestNow(
@@ -667,8 +759,12 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
       return Promise.reject(new RpcDisconnectedError());
     }
 
-    const id = this.nextRequestId;
-    this.nextRequestId += 1;
+    let id: RpcRequestId;
+    try {
+      id = this.allocateRequestId();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const payload = JSON.stringify({ id, jsonrpc: "2.0", method, params });
     const size = textEncoder.encode(payload).byteLength;
     if (size > this.maxMessageBytes) {
@@ -679,7 +775,8 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
       const pending: PendingRequest = { method, reject, resolve, resultSchema };
       if (signal) {
         const onAbort = () => {
-          if (!this.pendingRequests.delete(id)) return;
+          const current = this.takePendingRequest(id);
+          if (!current) return;
           this.sendCancellation(id);
           reject(new RpcCancelledError());
         };
@@ -687,14 +784,46 @@ export class RpcClient<Methods extends RpcMethodDefinitions> {
         pending.abortCleanup = () => signal.removeEventListener("abort", onAbort);
       }
       this.pendingRequests.set(id, pending);
+      const deadlineTimer = setTimeout(() => {
+        const current = this.takePendingRequest(id);
+        if (!current) return;
+        this.sendCancellation(id);
+        current.reject(new RpcTimeoutError(this.requestDeadlineMilliseconds, id));
+      }, this.requestDeadlineMilliseconds);
+      pending.timeoutCleanup = () => clearTimeout(deadlineTimer);
       try {
         this.transport?.send(payload);
       } catch (error) {
-        this.pendingRequests.delete(id);
-        pending.abortCleanup?.();
-        reject(new RpcDisconnectedError(String(error)));
+        const current = this.takePendingRequest(id);
+        current?.reject(new RpcDisconnectedError(String(error)));
       }
     });
+  }
+
+  private allocateRequestId(): RpcRequestId {
+    if (!Number.isSafeInteger(this.nextRequestSequence)) {
+      throw new RpcRequestIdCollisionError("sequence-exhausted");
+    }
+    const sequence = this.nextRequestSequence;
+    this.nextRequestSequence += 1;
+    const requestId = this.requestIdFactory(sequence);
+    if (typeof requestId !== "string" || requestId.length === 0) {
+      throw new RpcProtocolError("RPC request ID factory returned an invalid identity");
+    }
+    if (this.pendingRequests.has(requestId) || this.issuedRequestIds?.has(requestId)) {
+      throw new RpcRequestIdCollisionError(requestId);
+    }
+    this.issuedRequestIds?.add(requestId);
+    return requestId;
+  }
+
+  private takePendingRequest(requestId: RpcRequestId) {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return null;
+    this.pendingRequests.delete(requestId);
+    pending.abortCleanup?.();
+    pending.timeoutCleanup?.();
+    return pending;
   }
 
   private updateState(state: RpcConnectionState) {
