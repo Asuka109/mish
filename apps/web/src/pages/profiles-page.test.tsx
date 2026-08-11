@@ -3,12 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
-import type {
-  ProfileClient,
-  ProfilePatchEditorDto,
-  ProfilePreviewDto,
-  ProfileRuntimeProvenanceDto,
-  ProfileSnapshotDto,
+import {
+  ProfileStructuredEventSchema,
+  ProfileSubscriptionSummarySchema,
+  type ProfileClient,
+  type ProfilePatchEditorDto,
+  type ProfilePreviewDto,
+  type ProfileRuntimeProvenanceDto,
+  type ProfileSnapshotDto,
 } from "@mish/contracts";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
@@ -97,8 +99,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
           policy: "twelve-hours",
         },
         source: {
-          display:
-            "https://profiles.example/subscriptions/studio-route-set.yaml?token=visible-token",
+          display: "https://profiles.example/…",
           sourceType: "https",
         },
         status: {
@@ -230,14 +231,10 @@ describe("profiles page", () => {
 
     expect(await screen.findByText("studio-route-set")).toBeVisible();
     expect(screen.getByText("home")).toBeVisible();
-    const subscriptionUrl = screen.getByText(
-      "https://profiles.example/subscriptions/studio-route-set.yaml",
-    );
-    expect(subscriptionUrl).toHaveAttribute(
-      "title",
-      "https://profiles.example/subscriptions/studio-route-set.yaml",
-    );
+    const subscriptionUrl = screen.getByText("https://profiles.example/…");
+    expect(subscriptionUrl).toHaveAttribute("title", "https://profiles.example/…");
     expect(subscriptionUrl).toHaveClass("profile-subscription-url");
+    expect(screen.queryByText(/visible-token/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update Subscription" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Open Folder" })).toHaveLength(3);
     expect(screen.queryByText("Edit rules and groups")).not.toBeInTheDocument();
@@ -250,7 +247,7 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("studio-route-set");
 
-    const subscriptionUrl = screen.getByText(/visible-token/);
+    const subscriptionUrl = screen.getByText("https://profiles.example/…");
     expect(subscriptionUrl).toHaveAttribute("title", subscriptionUrl.textContent);
     await user.click(
       screen.getByRole("button", { name: "Set update interval for studio-route-set.yaml" }),
@@ -330,5 +327,41 @@ describe("profiles page", () => {
     );
     expect(await screen.findByText("Ready to save")).toBeVisible();
     expect(screen.getByText("office-route-set")).toBeVisible();
+  });
+
+  it("admits only redacted subscription summaries and structured profile events", () => {
+    expect(
+      ProfileSubscriptionSummarySchema.safeParse({
+        display: "https://profiles.example/…",
+        sourceType: "https",
+      }).success,
+    ).toBe(true);
+    expect(
+      ProfileSubscriptionSummarySchema.safeParse({
+        display: "https://profiles.example/config.yaml?token=canary-token",
+        sourceType: "https",
+      }).success,
+    ).toBe(false);
+    expect(
+      ProfileStructuredEventSchema.safeParse({
+        kind: "subscription-updated",
+        profileId: "profile-subscription",
+        source: {
+          display: "https://profiles.example/…",
+          sourceType: "https",
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      ProfileStructuredEventSchema.safeParse({
+        kind: "subscription-updated",
+        profileId: "profile-subscription",
+        source: {
+          display: "https://profiles.example/…",
+          sourceType: "https",
+          token: "canary-token",
+        },
+      }).success,
+    ).toBe(false);
   });
 });

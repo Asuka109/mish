@@ -58,7 +58,7 @@ const fixtureSnapshot = {
         policy: "twelve-hours",
       },
       source: {
-        display: "https://profiles.example/subscriptions/studio-route-set.yaml",
+        display: "https://profiles.example/…",
         sourceType: "https",
       },
       status: {
