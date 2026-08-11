@@ -19,10 +19,12 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A through 2D are fully integrated. The maintainer approved the exact
-five-task AFK Wave 2E on 2026-08-12. All five visible Luna Max Workers are
-active in isolated worktrees, and five repository concurrency slots remain
-unreserved.
+Waves 2A through 2D are fully integrated. In Wave 2E, #449 C1.1, #450 C3.1,
+#452 F1.1, and #453 F2.1 are integrated; #451 D1.1 remains active in its
+isolated worktree. Nine repository concurrency slots remain unreserved. The
+next safe AFK candidates are #450 C3.2, #452 F1.2, and #453 F2.2, pending the
+maintainer's exact-wave approval. #449 C1.2 must not run concurrently with
+#453 F2.2 because both own overlapping Profile/bridge files.
 
 ## Wave 1 worker ledger
 
@@ -62,15 +64,15 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
 | RPC Session Authority | #440 | completed: B1.1-B1.5 integrated; Issue closed | none | accepted |
-| Profile credential privacy | #449 | C1.1 ready; C1.2/C1.3 sequential | #440 completed | confirmation-only |
+| Profile credential privacy | #449 | C1.1 integrated; C1.2/C1.3 sequential | #440 completed | confirmation-only |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
-| Backup preview authority | #450 | C3.1 ready; C3.2 sequential | #440 completed | confirmation-only |
-| Android VPN authority | #451 | D1.1 ready; D1.2-D1.4 sequential | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
+| Backup preview authority | #450 | C3.1 integrated; C3.2 ready | #440 completed | confirmation-only |
+| Android VPN authority | #451 | D1.1 active; D1.2-D1.4 sequential | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
-| Settings editor serialization | #452 | F1.1 ready; F1.2 sequential | #440 completed | confirmation-only |
-| Remove Profile Patch Editor | #453 | F2.1 ready; F2.2/F2.3 sequential | #440 completed | confirmation-only |
+| Settings editor serialization | #452 | F1.1 integrated; F1.2 ready | #440 completed | confirmation-only |
+| Remove Profile Patch Editor | #453 | F2.1 integrated; F2.2 ready; F2.3 sequential | #440 completed | confirmation-only |
 | Lazy-route recovery | #444 | completed: G1.1 integrated; Issue closed | none | accepted |
 | Traffic details accessibility | #445 | completed: G2.1 integrated; Issue closed | none | accepted |
 | Clipboard failure feedback | #446 | completed: G3.1 integrated; Issue closed | none | accepted |
@@ -135,11 +137,11 @@ other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.1 | `019ff1b0-737c-7ed0-9392-1f8746301eed` | `431d` | active | #440 completed | Introduce the redacted subscription summary DTO and structured-event redaction contract | Visible Luna Max Worker is active; own Profile public DTO/event redaction only, do not implement C1.2/C1.3, and use synthetic secrets |
-| #450 C3.1 | `019ff1b0-737c-7ed0-9392-1fb8dc1725fa` | `c27c` | active | #440 completed | Add the scope/preview/session-generation fingerprint contract | Visible Luna Max Worker is active; own backup authority/fingerprint contract and deterministic tests only, leaving Browser Mode behavior to C3.2 |
+| #449 C1.1 | `019ff1b0-737c-7ed0-9392-1f8746301eed` | `431d` | integrated | #440 completed | Introduce the redacted subscription summary DTO and structured-event redaction contract | PR #488 merged as `1ab9421`; local/remote gates passed; Issue #449 remains open with only C1.1 checked |
+| #450 C3.1 | `019ff1b0-737c-7ed0-9392-1fb8dc1725fa` | `c27c` | integrated | #440 completed | Add the scope/preview/session-generation fingerprint contract | PR #489 merged as `d609179`; local/remote gates passed; Issue #450 remains open with only C3.1 checked |
 | #451 D1.1 | `019ff1b0-737d-7651-badf-08f9bc0eed79` | `ecd5` | active | #436 and #440 completed | Harden Rust Android VPN replacement, cleanup barriers, and the `Stopped` invariant | Visible Luna Max Worker is active; own Rust lifecycle authority only and do not change Kotlin/JavaScript or claim physical-device acceptance |
-| #452 F1.1 | `019ff1b0-737c-7ed0-9392-1f373f75ee5a` | `b3af` | active | #440 completed | Implement one editor operation identity and unified pending exclusion policy | Visible Luna Max Worker is active; own service-monitor editor operation authority/tests only and leave confirmation/cancellation UX to F1.2 |
-| #453 F2.1 | `019ff1b0-737c-7ed0-9392-1f5e14e25def` | `fded` | active | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | Visible Luna Max Worker is active; read-only analysis/evidence only, stop on a supported runtime entry, and do not delete or modify active Profile code |
+| #452 F1.1 | `019ff1b0-737c-7ed0-9392-1f373f75ee5a` | `b3af` | integrated | #440 completed | Implement one editor operation identity and unified pending exclusion policy | PR #486 merged as `39c279f`; local/remote gates passed; Issue #452 remains open with only F1.1 checked |
+| #453 F2.1 | `019ff1b0-737c-7ed0-9392-1f5e14e25def` | `fded` | integrated | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | PR #487 merged as `911ac9f`; the trace found no supported runtime entry and authorizes exact-manifest deletion in F2.2; Issue #453 remains open with only F2.1 checked |
 
 ## Existing issue coordination
 
@@ -169,11 +171,13 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- #440 is complete. #449 C1.1, #450 C3.1, #451 D1.1, #452 F1.1, and #453
-  F2.1 are dependency-ready but remain undispatched pending an approved wave.
+- #450 C3.2, #452 F1.2, and #453 F2.2 are dependency-ready AFK candidates.
+  #449 C1.2 is also dependency-ready but must follow #453 F2.2 integration to
+  avoid overlapping ownership of active Profile/bridge files.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- #451 remains blocked until #440 completes; complete #451 D1.2 before #454 starts.
+- #451 D1.1 remains active; do not dispatch D1.2 until it is integrated, and
+  complete D1.2 before #454 starts.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
