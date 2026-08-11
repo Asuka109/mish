@@ -1,0 +1,7 @@
+interface:
+  display_name: "Mish Transcript System Tests"
+  short_description: "Enforce transcript-first system-boundary testing"
+  default_prompt: "Use $mish-transcript-driven-system-tests to implement this Mish change through real authorities, recorded adapters, sanitized replay, and deterministic regression cases."
+
+policy:
+  allow_implicit_invocation: true
