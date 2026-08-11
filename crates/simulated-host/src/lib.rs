@@ -1,8 +1,11 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
+    future::Future,
     net::{Ipv4Addr, SocketAddr},
+    pin::Pin,
     sync::{Arc, Mutex, Weak},
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -11,6 +14,12 @@ use mish_bridge::{
     ActivationTiming, DesktopRuntimeHost, ManagedListenerCheckPhase, ManagedListenerHost,
     ManagedListenerOwnership, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationError,
     MihomoActivationManager, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
+};
+use mish_platform_macos::{
+    MacOsCommand, MacOsCommandError, MacOsCommandErrorKind, MacOsCommandOutput, MacOsCommandRunner,
+    MacOsProxyKind, MacOsSystemProxyPlatform, MacOsSystemProxyRestoreAdapter,
+    MacOsSystemProxyRestoreFailureKind, MacOsSystemProxyRestoreField,
+    MacOsSystemProxyRestoreOutcome, MacOsSystemProxyRestoreStep,
 };
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureJournal, CaptureJournalStore,
@@ -83,12 +92,102 @@ pub enum SimulatedCorePhase {
     Running,
 }
 
+/// Closed, simulator-only projection of the production exact-restore seam.
+///
+/// The production adapter accepts concrete fields, but a semantic transcript must not expose
+/// service names, command strings, or platform output. The bit positions below are deliberately
+/// stable so the private schema can remain compact and bounded.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticSystemProxyRestoreField {
+    AutoDiscoveryEnable,
+    HttpEnable,
+    HttpPort,
+    HttpProxy,
+    HttpsEnable,
+    HttpsPort,
+    HttpsProxy,
+    PacEnable,
+    PacUrl,
+    SocksEnable,
+    SocksPort,
+    SocksProxy,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticSystemProxyRestoreStep {
+    Preferences,
+    DynamicStore,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticSystemProxyRestoreFailureKind {
+    InvalidRequest,
+    Failed,
+    OutputTooLarge,
+    PermissionDenied,
+    TimedOut,
+    Cancelled,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum SyntheticSystemProxyRestoreFailurePlan {
+    Failed {
+        failure: SyntheticSystemProxyRestoreFailureKind,
+    },
+    PartiallyRestored {
+        completed_step_mask: u8,
+        failed_step: Option<SyntheticSystemProxyRestoreStep>,
+        failure: SyntheticSystemProxyRestoreFailureKind,
+    },
+    AwaitTimeout,
+    AwaitCancellation,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SyntheticSystemProxyRestoreFailure {
+    pub occurrence: u8,
+    pub plan: SyntheticSystemProxyRestoreFailurePlan,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum SystemProxyRestoreTranscriptPhase {
+    Invoked,
+    Restored {
+        completed_step_mask: u8,
+    },
+    PartiallyRestored {
+        completed_step_mask: u8,
+        failed_step: Option<SyntheticSystemProxyRestoreStep>,
+        failure: SyntheticSystemProxyRestoreFailureKind,
+    },
+    Failed {
+        failed_step: Option<SyntheticSystemProxyRestoreStep>,
+        failure: SyntheticSystemProxyRestoreFailureKind,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SystemProxyRestoreTranscript {
+    pub field_mask: u16,
+    pub phase: SystemProxyRestoreTranscriptPhase,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EffectKind {
     CaptureApply,
     CaptureCancellation,
     CaptureConfirmListener,
+    CaptureExactRestore,
+    CaptureExactRestoreResult,
     CaptureObserve,
     CaptureFinalization,
     CaptureOperation,
@@ -163,6 +262,7 @@ pub enum EffectResultKind {
     Signalled,
     Started,
     Stopped,
+    PartiallyRestored,
     TimedOut,
     Exited,
     Unowned,
@@ -333,6 +433,8 @@ pub struct SimulatedHostScenario {
     #[serde(default)]
     pub failures: Vec<InjectedFailure>,
     #[serde(default)]
+    pub system_proxy_restore_failures: Vec<SyntheticSystemProxyRestoreFailure>,
+    #[serde(default)]
     pub initial_core_phase: SimulatedCorePhase,
     pub initial_endpoint_owner: ManagedEndpointOwner,
     #[serde(default)]
@@ -353,6 +455,7 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects: initial_conflict_effect_contract(),
             failures: Vec::new(),
+            system_proxy_restore_failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Foreign,
             initial_proxy_state: SyntheticProxyState::Disabled,
@@ -368,6 +471,7 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects: commit_conflict_effect_contract(),
             failures: Vec::new(),
+            system_proxy_restore_failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Free,
             initial_proxy_state: SyntheticProxyState::Disabled,
@@ -386,6 +490,7 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects: system_proxy_effect_contract(),
             failures: Vec::new(),
+            system_proxy_restore_failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Running,
             initial_endpoint_owner: ManagedEndpointOwner::Mish,
             initial_proxy_state,
@@ -411,6 +516,7 @@ impl SimulatedHostScenario {
             cleanup_completes_at: 20,
             declared_effects,
             failures: Vec::new(),
+            system_proxy_restore_failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Running,
             initial_endpoint_owner: ManagedEndpointOwner::Mish,
             initial_proxy_state: SyntheticProxyState::Disabled,
@@ -456,10 +562,33 @@ impl SimulatedHostScenario {
             return Err(SimulatedHostFailure::InvalidScenario);
         }
         if self.failures.len() > 16
+            || self.system_proxy_restore_failures.len() > 16
             || self.declared_effects.len() > 64
             || self.scheduled_changes.len() > 32
             || self.failures.iter().any(|failure| failure.occurrence == 0)
+            || self
+                .system_proxy_restore_failures
+                .iter()
+                .any(|failure| failure.occurrence == 0)
         {
+            return Err(SimulatedHostFailure::InvalidScenario);
+        }
+        if self
+            .system_proxy_restore_failures
+            .windows(2)
+            .any(|window| window[0].occurrence >= window[1].occurrence)
+        {
+            return Err(SimulatedHostFailure::InvalidScenario);
+        }
+        if self.system_proxy_restore_failures.iter().any(|failure| {
+            matches!(
+                failure.plan,
+                SyntheticSystemProxyRestoreFailurePlan::PartiallyRestored {
+                    completed_step_mask,
+                    ..
+                } if completed_step_mask & !0b11 != 0
+            )
+        }) {
             return Err(SimulatedHostFailure::InvalidScenario);
         }
         if self
@@ -508,6 +637,8 @@ fn system_proxy_effect_contract() -> Vec<EffectKind> {
         EffectKind::CaptureApply,
         EffectKind::CaptureCancellation,
         EffectKind::CaptureConfirmListener,
+        EffectKind::CaptureExactRestore,
+        EffectKind::CaptureExactRestoreResult,
         EffectKind::CaptureObserve,
         EffectKind::CaptureFinalization,
         EffectKind::CaptureOperation,
@@ -575,6 +706,8 @@ pub struct TranscriptEvent {
     pub result_kind: EffectResultKind,
     pub runtime_id: SyntheticRuntimeId,
     pub scope_epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_proxy_restore: Option<SystemProxyRestoreTranscript>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -680,12 +813,14 @@ struct Model {
 
 pub struct SimulatedHost {
     capture: Mutex<Option<Weak<CaptureReconciler>>>,
-    clock_changed: Notify,
+    clock_changed: Arc<Notify>,
     declared_effects: HashSet<EffectKind>,
     failures: Vec<InjectedFailure>,
     maintenance_engine: Mutex<Option<Weak<internal_tun::MaintenanceEngine>>>,
     model: Mutex<Model>,
     preparation_task: Mutex<Option<(CancellationToken, tokio::task::JoinHandle<()>)>>,
+    production_platform: Mutex<Option<Arc<MacOsSystemProxyPlatform>>>,
+    restore_cancellation: Mutex<Option<CancellationToken>>,
     scenario: SimulatedHostScenario,
 }
 
@@ -694,7 +829,7 @@ impl SimulatedHost {
         scenario.validate()?;
         Ok(Self {
             capture: Mutex::new(None),
-            clock_changed: Notify::new(),
+            clock_changed: Arc::new(Notify::new()),
             declared_effects: scenario.declared_effects.iter().copied().collect(),
             failures: scenario.failures.clone(),
             maintenance_engine: Mutex::new(None),
@@ -719,8 +854,42 @@ impl SimulatedHost {
                 transcript_failure: None,
             }),
             preparation_task: Mutex::new(None),
+            production_platform: Mutex::new(None),
+            restore_cancellation: Mutex::new(None),
             scenario,
         })
+    }
+
+    fn attach_production_platform(self: &Arc<Self>) {
+        let mut platform = self
+            .production_platform
+            .lock()
+            .expect("simulated production platform lock poisoned");
+        if platform.is_none() {
+            *platform = Some(Arc::new(
+                MacOsSystemProxyPlatform::with_runner_and_restore_adapter(
+                    self.clone(),
+                    self.clone(),
+                ),
+            ));
+        }
+    }
+
+    /// Cancels the currently admitted exact-restore invocation in a deterministic scenario.
+    /// This is a simulator control, not a product API; the production path still owns the
+    /// CancellationToken passed through the narrow adapter seam.
+    pub fn cancel_pending_restore(&self) -> bool {
+        let cancellation = self
+            .restore_cancellation
+            .lock()
+            .expect("simulated restore cancellation lock poisoned")
+            .take();
+        if let Some(cancellation) = cancellation {
+            cancellation.cancel();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn attach_capture(self: &Arc<Self>, capture: &Arc<CaptureReconciler>) {
@@ -1045,6 +1214,16 @@ impl SimulatedHost {
         result_kind: EffectResultKind,
         correlation: Option<EffectCorrelation>,
     ) -> Result<(), SimulatedHostFailure> {
+        self.emit_with_correlation_and_restore(effect_kind, result_kind, correlation, None)
+    }
+
+    fn emit_with_correlation_and_restore(
+        &self,
+        effect_kind: EffectKind,
+        result_kind: EffectResultKind,
+        correlation: Option<EffectCorrelation>,
+        system_proxy_restore: Option<SystemProxyRestoreTranscript>,
+    ) -> Result<(), SimulatedHostFailure> {
         let mut model = self.model.lock().expect("simulated host lock poisoned");
         let (authority_id, scope_epoch, operation_id, admitted_revision, runtime_id) =
             correlation.unwrap_or_else(|| self.correlation(&mut model));
@@ -1087,6 +1266,7 @@ impl SimulatedHost {
             },
             runtime_id,
             scope_epoch,
+            system_proxy_restore,
         });
         failure.map_or(Ok(()), Err)
     }
@@ -1216,6 +1396,637 @@ impl SimulatedHost {
             }
         };
         CaptureTransitionError::new(kind, "The simulated host rejected an undeclared effect")
+    }
+
+    fn current_logical_time(&self) -> u64 {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .logical_time
+    }
+
+    fn next_restore_occurrence(&self) -> u8 {
+        self.model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .effect_occurrences
+            .get(&EffectKind::CaptureExactRestoreResult)
+            .copied()
+            .unwrap_or_default()
+            .saturating_add(1)
+    }
+
+    fn configured_restore_plan(&self) -> Option<SyntheticSystemProxyRestoreFailurePlan> {
+        let occurrence = self.next_restore_occurrence();
+        self.scenario
+            .system_proxy_restore_failures
+            .iter()
+            .find(|failure| failure.occurrence == occurrence)
+            .map(|failure| failure.plan)
+    }
+
+    fn next_injected_failure(&self, effect_kind: EffectKind) -> Option<InjectedFailureKind> {
+        let model = self.model.lock().expect("simulated host lock poisoned");
+        let occurrence = model
+            .effect_occurrences
+            .get(&effect_kind)
+            .copied()
+            .unwrap_or_default()
+            .saturating_add(1);
+        self.failures
+            .iter()
+            .find(|failure| failure_matches(failure, effect_kind, occurrence, &model.transcript))
+            .map(|failure| failure.kind)
+    }
+
+    fn begin_exact_restore(
+        &self,
+        fields: &[MacOsSystemProxyRestoreField],
+    ) -> Result<
+        (
+            EffectCorrelation,
+            u16,
+            Option<SyntheticSystemProxyRestoreFailurePlan>,
+        ),
+        SimulatedHostFailure,
+    > {
+        let correlation = self.effect_correlation();
+        let field_mask = restore_field_mask(fields);
+        self.emit_with_correlation_and_restore(
+            EffectKind::CaptureExactRestore,
+            EffectResultKind::Started,
+            Some(correlation),
+            Some(SystemProxyRestoreTranscript {
+                field_mask,
+                phase: SystemProxyRestoreTranscriptPhase::Invoked,
+            }),
+        )?;
+        Ok((correlation, field_mask, self.configured_restore_plan()))
+    }
+
+    fn finish_exact_restore(
+        &self,
+        correlation: EffectCorrelation,
+        field_mask: u16,
+        outcome: MacOsSystemProxyRestoreOutcome,
+    ) -> MacOsSystemProxyRestoreOutcome {
+        self.restore_cancellation
+            .lock()
+            .expect("simulated restore cancellation lock poisoned")
+            .take();
+        let outcome = if self
+            .next_injected_failure(EffectKind::CaptureExactRestoreResult)
+            .is_some()
+        {
+            MacOsSystemProxyRestoreOutcome::Failed {
+                failed_step: None,
+                failure: MacOsSystemProxyRestoreFailureKind::Failed,
+            }
+        } else {
+            outcome
+        };
+        let result_kind = restore_result_kind(&outcome);
+        let detail = SystemProxyRestoreTranscript {
+            field_mask,
+            phase: restore_transcript_phase(&outcome),
+        };
+        if let Err(error) = self.emit_with_correlation_and_restore(
+            EffectKind::CaptureExactRestoreResult,
+            result_kind,
+            Some(correlation),
+            Some(detail),
+        ) {
+            let mut model = self.model.lock().expect("simulated host lock poisoned");
+            if model.transcript_failure.is_none() {
+                model.transcript_failure = Some(error);
+            }
+        }
+        outcome
+    }
+
+    fn register_restore_cancellation(&self, cancellation: CancellationToken) {
+        *self
+            .restore_cancellation
+            .lock()
+            .expect("simulated restore cancellation lock poisoned") = Some(cancellation);
+    }
+
+    fn outcome_for_restore_plan(
+        plan: SyntheticSystemProxyRestoreFailurePlan,
+    ) -> Option<MacOsSystemProxyRestoreOutcome> {
+        match plan {
+            SyntheticSystemProxyRestoreFailurePlan::Failed { failure } => {
+                Some(MacOsSystemProxyRestoreOutcome::Failed {
+                    failed_step: None,
+                    failure: restore_failure_kind(failure),
+                })
+            }
+            SyntheticSystemProxyRestoreFailurePlan::PartiallyRestored {
+                completed_step_mask,
+                failed_step,
+                failure,
+            } => Some(MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+                completed_steps: restore_steps(completed_step_mask),
+                failed_step: failed_step.map(restore_step),
+                failure: restore_failure_kind(failure),
+            }),
+            SyntheticSystemProxyRestoreFailurePlan::AwaitTimeout
+            | SyntheticSystemProxyRestoreFailurePlan::AwaitCancellation => None,
+        }
+    }
+
+    fn finish_proxy_application(&self) {
+        let mut model = self.model.lock().expect("simulated host lock poisoned");
+        if self.scenario.propagation_delay == 0 {
+            model.proxy_observation = model.proxy_state.clone();
+            model.proxy_observed_revision = model.proxy_actual_revision;
+            model.pending_proxy_observation = None;
+        } else {
+            model.pending_proxy_observation = Some(PendingProxyObservation {
+                state: model.proxy_state.clone(),
+                visible_at: model
+                    .logical_time
+                    .saturating_add(self.scenario.propagation_delay),
+                stale_observation_returned: false,
+            });
+        }
+    }
+
+    fn run_simulated_command(
+        &self,
+        command: MacOsCommand,
+    ) -> Result<MacOsCommandOutput, MacOsCommandError> {
+        match command {
+            MacOsCommand::SetProxy {
+                host,
+                kind,
+                port,
+                service,
+            } => {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model.proxy_state.service_id != service {
+                    return Err(simulated_command_error(MacOsCommandErrorKind::Failed));
+                }
+                let proxy = match kind {
+                    MacOsProxyKind::Http => &mut model.proxy_state.http,
+                    MacOsProxyKind::Https => &mut model.proxy_state.https,
+                    MacOsProxyKind::Socks => &mut model.proxy_state.socks,
+                };
+                proxy.host = host;
+                proxy.port = port;
+                Ok(MacOsCommandOutput {
+                    stdout: String::new(),
+                })
+            }
+            MacOsCommand::SetProxyState {
+                enabled,
+                kind,
+                service,
+            } => {
+                let effect = match kind {
+                    MacOsProxyKind::Http => EffectKind::CaptureWriteHttp,
+                    MacOsProxyKind::Https => EffectKind::CaptureWriteHttps,
+                    MacOsProxyKind::Socks => EffectKind::CaptureWriteSocks,
+                };
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model.proxy_state.service_id != service {
+                    return Err(simulated_command_error(MacOsCommandErrorKind::Failed));
+                }
+                match kind {
+                    MacOsProxyKind::Http => model.proxy_state.http.enabled = enabled,
+                    MacOsProxyKind::Https => model.proxy_state.https.enabled = enabled,
+                    MacOsProxyKind::Socks => model.proxy_state.socks.enabled = enabled,
+                }
+                model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                drop(model);
+                if let Err(error) = self.emit(effect, EffectResultKind::Applied) {
+                    self.expose_partial_proxy_write();
+                    return Err(simulated_command_error_for_failure(error));
+                }
+                Ok(MacOsCommandOutput {
+                    stdout: String::new(),
+                })
+            }
+            MacOsCommand::SetAutoProxyState { enabled, service } => {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model.proxy_state.service_id != service {
+                    return Err(simulated_command_error(MacOsCommandErrorKind::Failed));
+                }
+                model.proxy_state.pac_enabled = enabled;
+                model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                drop(model);
+                if let Err(error) =
+                    self.emit(EffectKind::CaptureWritePac, EffectResultKind::Applied)
+                {
+                    self.expose_partial_proxy_write();
+                    return Err(simulated_command_error_for_failure(error));
+                }
+                Ok(MacOsCommandOutput {
+                    stdout: String::new(),
+                })
+            }
+            MacOsCommand::SetProxyAutoDiscovery { enabled, service } => {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model.proxy_state.service_id != service {
+                    return Err(simulated_command_error(MacOsCommandErrorKind::Failed));
+                }
+                model.proxy_state.auto_discovery_enabled = enabled;
+                model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                drop(model);
+                if let Err(error) = self.emit(
+                    EffectKind::CaptureWriteAutoDiscovery,
+                    EffectResultKind::Applied,
+                ) {
+                    self.expose_partial_proxy_write();
+                    return Err(simulated_command_error_for_failure(error));
+                }
+                Ok(MacOsCommandOutput {
+                    stdout: String::new(),
+                })
+            }
+            MacOsCommand::SetProxyBypassDomains { domains, service } => {
+                let mut model = self.model.lock().expect("simulated host lock poisoned");
+                if model.proxy_state.service_id != service {
+                    return Err(simulated_command_error(MacOsCommandErrorKind::Failed));
+                }
+                model.proxy_state.bypass_domains = domains;
+                model.proxy_actual_revision = model.proxy_actual_revision.saturating_add(1);
+                drop(model);
+                if let Err(error) =
+                    self.emit(EffectKind::CaptureWriteBypass, EffectResultKind::Applied)
+                {
+                    self.expose_partial_proxy_write();
+                    return Err(simulated_command_error_for_failure(error));
+                }
+                Ok(MacOsCommandOutput {
+                    stdout: String::new(),
+                })
+            }
+            _ => Err(simulated_command_error(MacOsCommandErrorKind::Unavailable)),
+        }
+    }
+}
+
+fn simulated_command_error(kind: MacOsCommandErrorKind) -> MacOsCommandError {
+    MacOsCommandError { kind }
+}
+
+fn simulated_command_error_for_failure(error: SimulatedHostFailure) -> MacOsCommandError {
+    simulated_command_error(match error {
+        SimulatedHostFailure::InjectedFailure(_, _) => MacOsCommandErrorKind::Failed,
+        SimulatedHostFailure::UndeclaredEffect(_) => MacOsCommandErrorKind::Unavailable,
+        SimulatedHostFailure::TranscriptOverflow
+        | SimulatedHostFailure::InvalidScenario
+        | SimulatedHostFailure::LogicalTimeRegression => MacOsCommandErrorKind::Failed,
+    })
+}
+
+fn restore_field_mask(fields: &[MacOsSystemProxyRestoreField]) -> u16 {
+    fields.iter().fold(0, |mask, field| {
+        mask | match field {
+            MacOsSystemProxyRestoreField::AutoDiscoveryEnable => 1 << 0,
+            MacOsSystemProxyRestoreField::HttpEnable => 1 << 1,
+            MacOsSystemProxyRestoreField::HttpPort => 1 << 2,
+            MacOsSystemProxyRestoreField::HttpProxy => 1 << 3,
+            MacOsSystemProxyRestoreField::HttpsEnable => 1 << 4,
+            MacOsSystemProxyRestoreField::HttpsPort => 1 << 5,
+            MacOsSystemProxyRestoreField::HttpsProxy => 1 << 6,
+            MacOsSystemProxyRestoreField::PacEnable => 1 << 7,
+            MacOsSystemProxyRestoreField::PacUrl => 1 << 8,
+            MacOsSystemProxyRestoreField::SocksEnable => 1 << 9,
+            MacOsSystemProxyRestoreField::SocksPort => 1 << 10,
+            MacOsSystemProxyRestoreField::SocksProxy => 1 << 11,
+        }
+    })
+}
+
+fn restore_steps(mask: u8) -> Vec<MacOsSystemProxyRestoreStep> {
+    let mut steps = Vec::new();
+    if mask & 1 != 0 {
+        steps.push(MacOsSystemProxyRestoreStep::Preferences);
+    }
+    if mask & 2 != 0 {
+        steps.push(MacOsSystemProxyRestoreStep::DynamicStore);
+    }
+    steps
+}
+
+fn restore_step(step: SyntheticSystemProxyRestoreStep) -> MacOsSystemProxyRestoreStep {
+    match step {
+        SyntheticSystemProxyRestoreStep::Preferences => MacOsSystemProxyRestoreStep::Preferences,
+        SyntheticSystemProxyRestoreStep::DynamicStore => MacOsSystemProxyRestoreStep::DynamicStore,
+    }
+}
+
+fn synthetic_restore_step(step: MacOsSystemProxyRestoreStep) -> SyntheticSystemProxyRestoreStep {
+    match step {
+        MacOsSystemProxyRestoreStep::Preferences => SyntheticSystemProxyRestoreStep::Preferences,
+        MacOsSystemProxyRestoreStep::DynamicStore => SyntheticSystemProxyRestoreStep::DynamicStore,
+    }
+}
+
+fn restore_failure_kind(
+    failure: SyntheticSystemProxyRestoreFailureKind,
+) -> MacOsSystemProxyRestoreFailureKind {
+    match failure {
+        SyntheticSystemProxyRestoreFailureKind::InvalidRequest => {
+            MacOsSystemProxyRestoreFailureKind::InvalidRequest
+        }
+        SyntheticSystemProxyRestoreFailureKind::Failed => {
+            MacOsSystemProxyRestoreFailureKind::Failed
+        }
+        SyntheticSystemProxyRestoreFailureKind::OutputTooLarge => {
+            MacOsSystemProxyRestoreFailureKind::OutputTooLarge
+        }
+        SyntheticSystemProxyRestoreFailureKind::PermissionDenied => {
+            MacOsSystemProxyRestoreFailureKind::PermissionDenied
+        }
+        SyntheticSystemProxyRestoreFailureKind::TimedOut => {
+            MacOsSystemProxyRestoreFailureKind::TimedOut
+        }
+        SyntheticSystemProxyRestoreFailureKind::Cancelled => {
+            MacOsSystemProxyRestoreFailureKind::Cancelled
+        }
+        SyntheticSystemProxyRestoreFailureKind::Unavailable => {
+            MacOsSystemProxyRestoreFailureKind::Unavailable
+        }
+    }
+}
+
+fn synthetic_restore_failure_kind(
+    failure: MacOsSystemProxyRestoreFailureKind,
+) -> SyntheticSystemProxyRestoreFailureKind {
+    match failure {
+        MacOsSystemProxyRestoreFailureKind::InvalidRequest => {
+            SyntheticSystemProxyRestoreFailureKind::InvalidRequest
+        }
+        MacOsSystemProxyRestoreFailureKind::Failed => {
+            SyntheticSystemProxyRestoreFailureKind::Failed
+        }
+        MacOsSystemProxyRestoreFailureKind::OutputTooLarge => {
+            SyntheticSystemProxyRestoreFailureKind::OutputTooLarge
+        }
+        MacOsSystemProxyRestoreFailureKind::PermissionDenied => {
+            SyntheticSystemProxyRestoreFailureKind::PermissionDenied
+        }
+        MacOsSystemProxyRestoreFailureKind::TimedOut => {
+            SyntheticSystemProxyRestoreFailureKind::TimedOut
+        }
+        MacOsSystemProxyRestoreFailureKind::Cancelled => {
+            SyntheticSystemProxyRestoreFailureKind::Cancelled
+        }
+        MacOsSystemProxyRestoreFailureKind::Unavailable => {
+            SyntheticSystemProxyRestoreFailureKind::Unavailable
+        }
+    }
+}
+
+fn restore_transcript_phase(
+    outcome: &MacOsSystemProxyRestoreOutcome,
+) -> SystemProxyRestoreTranscriptPhase {
+    match outcome {
+        MacOsSystemProxyRestoreOutcome::Restored { completed_steps } => {
+            SystemProxyRestoreTranscriptPhase::Restored {
+                completed_step_mask: completed_steps.iter().fold(0, |mask, step| {
+                    mask | match step {
+                        MacOsSystemProxyRestoreStep::Preferences => 1,
+                        MacOsSystemProxyRestoreStep::DynamicStore => 2,
+                    }
+                }),
+            }
+        }
+        MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+            completed_steps,
+            failed_step,
+            failure,
+        } => SystemProxyRestoreTranscriptPhase::PartiallyRestored {
+            completed_step_mask: completed_steps.iter().fold(0, |mask, step| {
+                mask | match step {
+                    MacOsSystemProxyRestoreStep::Preferences => 1,
+                    MacOsSystemProxyRestoreStep::DynamicStore => 2,
+                }
+            }),
+            failed_step: failed_step.map(synthetic_restore_step),
+            failure: synthetic_restore_failure_kind(*failure),
+        },
+        MacOsSystemProxyRestoreOutcome::Failed {
+            failed_step,
+            failure,
+        } => SystemProxyRestoreTranscriptPhase::Failed {
+            failed_step: failed_step.map(synthetic_restore_step),
+            failure: synthetic_restore_failure_kind(*failure),
+        },
+    }
+}
+
+fn restore_result_kind(outcome: &MacOsSystemProxyRestoreOutcome) -> EffectResultKind {
+    match outcome {
+        MacOsSystemProxyRestoreOutcome::Restored { .. } => EffectResultKind::Restored,
+        MacOsSystemProxyRestoreOutcome::PartiallyRestored { failure, .. } => match failure {
+            MacOsSystemProxyRestoreFailureKind::Cancelled => EffectResultKind::Cancelled,
+            MacOsSystemProxyRestoreFailureKind::TimedOut => EffectResultKind::TimedOut,
+            _ => EffectResultKind::PartiallyRestored,
+        },
+        MacOsSystemProxyRestoreOutcome::Failed { failure, .. } => match failure {
+            MacOsSystemProxyRestoreFailureKind::Cancelled => EffectResultKind::Cancelled,
+            MacOsSystemProxyRestoreFailureKind::TimedOut => EffectResultKind::TimedOut,
+            _ => EffectResultKind::FailedClosed,
+        },
+    }
+}
+
+enum SimulatedRestoreWake {
+    Clock,
+    Cancelled,
+}
+
+enum SimulatedRestoreWait {
+    Timeout { deadline: u64 },
+    Cancellation,
+}
+
+struct SimulatedRestoreFuture<'a> {
+    host: &'a SimulatedHost,
+    cancellation: CancellationToken,
+    correlation: EffectCorrelation,
+    field_mask: u16,
+    wait: SimulatedRestoreWait,
+    waiter: Option<Pin<Box<dyn Future<Output = SimulatedRestoreWake> + Send + 'a>>>,
+    completed: bool,
+}
+
+impl Unpin for SimulatedRestoreFuture<'_> {}
+
+impl Future for SimulatedRestoreFuture<'_> {
+    type Output = MacOsSystemProxyRestoreOutcome;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        if let SimulatedRestoreWait::Timeout { deadline } = this.wait
+            && this.host.current_logical_time() >= deadline
+        {
+            this.completed = true;
+            return Poll::Ready(this.host.finish_exact_restore(
+                this.correlation,
+                this.field_mask,
+                MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+                    completed_steps: Vec::new(),
+                    failed_step: None,
+                    failure: MacOsSystemProxyRestoreFailureKind::TimedOut,
+                },
+            ));
+        }
+        if this.waiter.is_none() {
+            let clock = this.host.clock_changed.clone();
+            let cancellation = this.cancellation.clone();
+            this.waiter = Some(Box::pin(async move {
+                tokio::select! {
+                    _ = clock.notified_owned() => SimulatedRestoreWake::Clock,
+                    _ = cancellation.cancelled() => SimulatedRestoreWake::Cancelled,
+                }
+            }));
+        }
+        if let Some(waiter) = this.waiter.as_mut() {
+            match waiter.as_mut().poll(context) {
+                Poll::Ready(SimulatedRestoreWake::Cancelled) => {
+                    this.completed = true;
+                    return Poll::Ready(this.host.finish_exact_restore(
+                        this.correlation,
+                        this.field_mask,
+                        MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+                            completed_steps: Vec::new(),
+                            failed_step: None,
+                            failure: MacOsSystemProxyRestoreFailureKind::Cancelled,
+                        },
+                    ));
+                }
+                Poll::Ready(SimulatedRestoreWake::Clock) => {
+                    this.waiter = None;
+                    context.waker().wake_by_ref();
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        Poll::Pending
+    }
+}
+
+impl Drop for SimulatedRestoreFuture<'_> {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        self.completed = true;
+        let _ = self.host.finish_exact_restore(
+            self.correlation,
+            self.field_mask,
+            MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+                completed_steps: Vec::new(),
+                failed_step: None,
+                failure: MacOsSystemProxyRestoreFailureKind::Cancelled,
+            },
+        );
+    }
+}
+
+impl MacOsCommandRunner for SimulatedHost {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        Box::pin(ready(self.run_simulated_command(command)))
+    }
+}
+
+impl MacOsSystemProxyRestoreAdapter for SimulatedHost {
+    fn restore_exact_fields(
+        &self,
+        service: String,
+        fields: Vec<MacOsSystemProxyRestoreField>,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, MacOsSystemProxyRestoreOutcome> {
+        let service_valid = !service.is_empty() && !service.chars().any(char::is_control);
+        let service_matches = self
+            .model
+            .lock()
+            .expect("simulated host lock poisoned")
+            .proxy_state
+            .service_id
+            == service;
+        if !service_valid || !service_matches {
+            return Box::pin(ready(MacOsSystemProxyRestoreOutcome::Failed {
+                failed_step: None,
+                failure: MacOsSystemProxyRestoreFailureKind::InvalidRequest,
+            }));
+        }
+        if fields.is_empty() {
+            return Box::pin(ready(MacOsSystemProxyRestoreOutcome::Restored {
+                completed_steps: Vec::new(),
+            }));
+        }
+        let (correlation, field_mask, plan) = match self.begin_exact_restore(&fields) {
+            Ok(value) => value,
+            Err(_) => {
+                return Box::pin(ready(MacOsSystemProxyRestoreOutcome::Failed {
+                    failed_step: None,
+                    failure: MacOsSystemProxyRestoreFailureKind::InvalidRequest,
+                }));
+            }
+        };
+        if cancellation.is_cancelled() {
+            return Box::pin(ready(self.finish_exact_restore(
+                correlation,
+                field_mask,
+                MacOsSystemProxyRestoreOutcome::PartiallyRestored {
+                    completed_steps: Vec::new(),
+                    failed_step: None,
+                    failure: MacOsSystemProxyRestoreFailureKind::Cancelled,
+                },
+            )));
+        }
+        match plan {
+            Some(SyntheticSystemProxyRestoreFailurePlan::AwaitCancellation) => {
+                self.register_restore_cancellation(cancellation.clone());
+                Box::pin(SimulatedRestoreFuture {
+                    host: self,
+                    cancellation,
+                    correlation,
+                    field_mask,
+                    wait: SimulatedRestoreWait::Cancellation,
+                    waiter: None,
+                    completed: false,
+                })
+            }
+            Some(SyntheticSystemProxyRestoreFailurePlan::AwaitTimeout) => {
+                self.register_restore_cancellation(cancellation.clone());
+                Box::pin(SimulatedRestoreFuture {
+                    host: self,
+                    cancellation,
+                    correlation,
+                    field_mask,
+                    wait: SimulatedRestoreWait::Timeout {
+                        deadline: self.current_logical_time().saturating_add(1),
+                    },
+                    waiter: None,
+                    completed: false,
+                })
+            }
+            Some(plan) => Box::pin(ready(self.finish_exact_restore(
+                correlation,
+                field_mask,
+                Self::outcome_for_restore_plan(plan).expect("immediate restore plan"),
+            ))),
+            None => Box::pin(ready(self.finish_exact_restore(
+                correlation,
+                field_mask,
+                MacOsSystemProxyRestoreOutcome::Restored {
+                    completed_steps: vec![
+                        MacOsSystemProxyRestoreStep::Preferences,
+                        MacOsSystemProxyRestoreStep::DynamicStore,
+                    ],
+                },
+            ))),
+        }
     }
 }
 
@@ -1371,6 +2182,22 @@ impl CapturePlatform for SimulatedHost {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        let production_platform = self
+            .production_platform
+            .lock()
+            .expect("simulated production platform lock poisoned")
+            .clone();
+        if let Some(production_platform) = production_platform {
+            return Box::pin(async move {
+                self.emit(EffectKind::CaptureApply, EffectResultKind::Applied)
+                    .map_err(Self::capture_error)?;
+                let result = production_platform.apply_service(target).await;
+                if result.is_ok() {
+                    self.finish_proxy_application();
+                }
+                result
+            });
+        }
         Box::pin(async move {
             self.emit(EffectKind::CaptureApply, EffectResultKind::Applied)
                 .map_err(Self::capture_error)?;
@@ -1418,20 +2245,7 @@ impl CapturePlatform for SimulatedHost {
                     return Err(Self::capture_error(error));
                 }
             }
-            let mut model = self.model.lock().expect("simulated host lock poisoned");
-            if self.scenario.propagation_delay == 0 {
-                model.proxy_observation = model.proxy_state.clone();
-                model.proxy_observed_revision = model.proxy_actual_revision;
-                model.pending_proxy_observation = None;
-            } else {
-                model.pending_proxy_observation = Some(PendingProxyObservation {
-                    state: model.proxy_state.clone(),
-                    visible_at: model
-                        .logical_time
-                        .saturating_add(self.scenario.propagation_delay),
-                    stale_observation_returned: false,
-                });
-            }
+            self.finish_proxy_application();
             Ok(())
         })
     }
@@ -1620,6 +2434,7 @@ impl ScenarioRuntime {
         profile_service.reconcile_profile_directory().await?;
 
         let host = Arc::new(SimulatedHost::new(scenario)?);
+        host.attach_production_platform();
         let platform: Arc<dyn CapturePlatform> = host.clone();
         let journal: Arc<dyn CaptureJournalStore> = host.clone();
         let capture = Arc::new(CaptureReconciler::new(

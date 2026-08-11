@@ -36,6 +36,13 @@ import {
   ReleasePathError,
   writeContainedReleaseFile,
 } from "./release-path-containment.ts";
+import { readTrustedReleasePolicy } from "./trusted-release-policy.ts";
+import {
+  slsaProvenancePredicateType,
+  spdxPredicateType,
+  verifyTrustedAttestation,
+  type AttestationTrustMaterial,
+} from "./trusted-release-attestation.ts";
 
 const apiVersion = "2026-03-10";
 const architecture = "arm64";
@@ -132,6 +139,14 @@ export type SignedReleaseCredentials = {
   notaryApiPrivateKey: string;
   signingIdentity: string;
 };
+
+export type SignedReleaseAttestationTrust = AttestationTrustMaterial &
+  Partial<{
+    repository: string;
+    repositoryId: string;
+    repositoryOwnerId: string;
+    workflowRef: string;
+  }>;
 
 export type SignedReleasePlanningBoundary = {
   contentsPermission: string;
@@ -1077,9 +1092,18 @@ export function executeProtectedSignedRelease(options: {
   return evidence;
 }
 
-function assertAttestation(id: string, url: string, label: string): { id: string; url: string } {
+function assertAttestation(
+  id: string,
+  url: string,
+  label: string,
+  expectedRepository: string,
+): { id: string; url: string } {
   invariant(/^\d+$/u.test(id), `${label} attestation ID is invalid.`);
   invariant(attestationUrl.test(url), `${label} attestation URL is invalid.`);
+  invariant(
+    url === `https://github.com/${expectedRepository}/attestations/${id}`,
+    `${label} attestation URL repository is invalid.`,
+  );
   return { id, url };
 }
 
@@ -1091,6 +1115,7 @@ export function finalizeSignedReleaseCandidate(options: {
   sbomBundle: string;
   sbomId: string;
   sbomUrl: string;
+  attestationTrust?: SignedReleaseAttestationTrust;
 }): SignedReleaseEvidence {
   const directory = path.resolve(options.artifactDirectory);
   const artifactRoot = assertPrivateNoFollowRoot(directory);
@@ -1103,25 +1128,93 @@ export function finalizeSignedReleaseCandidate(options: {
     evidence.stages.at(-1)?.stage === "cleanup-confirmed",
     "Attestations require complete protected execution and cleanup evidence.",
   );
-  const provenance = assertAttestation(options.provenanceId, options.provenanceUrl, "Provenance");
-  const sbomAttestation = assertAttestation(options.sbomId, options.sbomUrl, "SBOM");
+  invariant(options.attestationTrust, "Signed release attestation trust material is required.");
+  const policy = readTrustedReleasePolicy();
+  const {
+    repository: configuredRepository,
+    repositoryId: configuredRepositoryId,
+    repositoryOwnerId: configuredRepositoryOwnerId,
+    workflowRef: configuredWorkflowRef,
+    ...trustMaterial
+  } = options.attestationTrust;
+  const repository = configuredRepository ?? policy.repository.name;
+  const repositoryId = configuredRepositoryId ?? policy.repository.id;
+  const repositoryOwnerId = configuredRepositoryOwnerId ?? policy.repository.ownerId;
+  const workflowRef = configuredWorkflowRef ?? policy.dispatch.workflowRef;
+  invariant(
+    repository === policy.repository.name &&
+      repositoryId === policy.repository.id &&
+      repositoryOwnerId === policy.repository.ownerId &&
+      workflowRef === policy.dispatch.workflowRef,
+    "Signed release attestation identity does not match trusted release policy.",
+  );
+  const provenance = assertAttestation(
+    options.provenanceId,
+    options.provenanceUrl,
+    "Provenance",
+    repository,
+  );
+  const sbomAttestation = assertAttestation(options.sbomId, options.sbomUrl, "SBOM", repository);
   const provenanceSource = assertPrivateNoFollowFile(options.provenanceBundle);
   const sbomSource = assertPrivateNoFollowFile(options.sbomBundle);
+  const dmg = artifactRoot.contain(evidence.identity.dmgName, "file");
+  const dmgBytes = readContainedReleaseFile(dmg);
+  const artifactSha256 = sha256(dmgBytes);
+  const provenanceBytes = readContainedReleaseFile(provenanceSource);
+  const sbomBytes = readContainedReleaseFile(sbomSource);
+  verifyTrustedAttestation(
+    provenanceBytes,
+    {
+      artifactName: evidence.identity.dmgName,
+      artifactSha256,
+      predicateType: slsaProvenancePredicateType,
+      repository,
+      repositoryId,
+      repositoryOwnerId,
+      sourceSha: evidence.identity.sourceSha,
+      workflowRef,
+      requireBuildIdentity: true,
+    },
+    trustMaterial,
+  );
+  verifyTrustedAttestation(
+    sbomBytes,
+    {
+      artifactName: evidence.identity.dmgName,
+      artifactSha256,
+      predicateType: spdxPredicateType,
+      repository,
+      repositoryId,
+      repositoryOwnerId,
+      sourceSha: evidence.identity.sourceSha,
+      workflowRef,
+      requireBuildIdentity: false,
+    },
+    trustMaterial,
+  );
+  artifactRoot.assertCurrent();
+  dmg.assertCurrent();
+  provenanceSource.assertCurrent();
+  sbomSource.assertCurrent();
   const provenanceDestination = writeContainedReleaseFile(
     artifactRoot,
     signedReleaseProvenanceBundleName,
-    readContainedReleaseFile(provenanceSource),
+    provenanceBytes,
     { mode: 0o644 },
   );
   const sbomDestination = writeContainedReleaseFile(
     artifactRoot,
     signedReleaseSbomBundleName,
-    readContainedReleaseFile(sbomSource),
+    sbomBytes,
     { mode: 0o644 },
   );
+  const copiedProvenance = readContainedReleaseFile(provenanceDestination);
+  const copiedSbom = readContainedReleaseFile(sbomDestination);
   invariant(
-    readContainedReleaseFile(provenanceDestination).length > 0 &&
-      readContainedReleaseFile(sbomDestination).length > 0,
+    copiedProvenance.length > 0 &&
+      copiedSbom.length > 0 &&
+      copiedProvenance.equals(provenanceBytes) &&
+      copiedSbom.equals(sbomBytes),
     "Signed release attestation bundle is empty.",
   );
 
@@ -1131,7 +1224,6 @@ export function finalizeSignedReleaseCandidate(options: {
     "provenance-generated",
     `GitHub provenance ${provenance.id} and SBOM ${sbomAttestation.id} attested`,
   );
-  const dmg = artifactRoot.contain(evidence.identity.dmgName, "file");
   const sbom = artifactRoot.contain(signedReleaseSbomName, "file");
   evidence.artifactIdentity = {
     dmgSha256: sha256(readContainedReleaseFile(dmg)),
@@ -1757,6 +1849,19 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "finalize-attestations") {
+    const trustedPublicKeyPath = option(arguments_, "--attestation-trusted-public-key", false);
+    const rootCertificatePath = option(arguments_, "--attestation-root-certificate", false);
+    const trustMaterial: AttestationTrustMaterial = {};
+    if (trustedPublicKeyPath) {
+      trustMaterial.publicKeySpki = readContainedReleaseFile(
+        assertPrivateNoFollowFile(trustedPublicKeyPath),
+      );
+    }
+    if (rootCertificatePath) {
+      trustMaterial.rootCertificates = [
+        readContainedReleaseFile(assertPrivateNoFollowFile(rootCertificatePath)),
+      ];
+    }
     const evidence = finalizeSignedReleaseCandidate({
       artifactDirectory: option(arguments_, "--artifact-directory") as string,
       provenanceBundle: option(arguments_, "--provenance-bundle") as string,
@@ -1765,6 +1870,7 @@ async function main(): Promise<void> {
       sbomBundle: option(arguments_, "--sbom-bundle") as string,
       sbomId: option(arguments_, "--sbom-id") as string,
       sbomUrl: option(arguments_, "--sbom-url") as string,
+      attestationTrust: trustMaterial,
     });
     appendOutput({
       dmg_sha256: evidence.artifactIdentity?.dmgSha256 ?? "",
