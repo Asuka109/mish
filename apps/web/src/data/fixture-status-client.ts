@@ -342,7 +342,6 @@ function createMonitorId() {
 
 export class FixtureStatusClient implements StatusClient {
   private snapshot = cloneSnapshot(initialSnapshot);
-  private captureOperationId = 0;
   private recentTrafficSession = 0;
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
   private readonly snapshotListeners = new Set<
@@ -372,7 +371,7 @@ export class FixtureStatusClient implements StatusClient {
   }
 
   supportsCommand(command: StatusCommand): boolean {
-    return command !== "group-delay";
+    return command !== "capture" && command !== "group-delay";
   }
 
   private async snapshotAfterCommand() {
@@ -423,77 +422,17 @@ export class FixtureStatusClient implements StatusClient {
   }
 
   async setCapture(
-    selection: CaptureSelectionDto,
-    active: boolean,
+    _selection: CaptureSelectionDto,
+    _active: boolean,
     options?: { signal?: AbortSignal },
-  ) {
+  ): Promise<StatusSnapshotDto> {
     if (options?.signal?.aborted) {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
-    const systemProxyEnabled = active && selection.systemProxy;
-    const tunEnabled = active && selection.tun;
-    const captureActive = systemProxyEnabled || tunEnabled;
-    this.captureOperationId += 1;
-    this.snapshot.metrics.uptimeSeconds = captureActive ? 1 : 0;
-    this.snapshot.runtime = {
-      captureOperation: {
-        failure: null,
-        operationId: this.captureOperationId.toString(),
-        phase: "applied",
-        scopeEpoch: "fixture-capture-scope",
-      },
-      captureSelection: { ...selection },
-      message: captureActive ? "Fixture capture is active" : "Fixture capture is inactive",
-      phase: captureActive ? "healthy" : "inactive",
-      systemProxy: {
-        desired: systemProxyEnabled,
-        failure: null,
-        observed: systemProxyEnabled ? "mish" : "disabled",
-        phase: systemProxyEnabled ? "applied" : "off",
-        recoveryActions: [],
-      },
-      systemProxyEnabled,
-      tun: {
-        desired: tunEnabled,
-        failure: null,
-        observation: tunEnabled
-          ? {
-              core: "confirmed",
-              dns: "confirmed",
-              interface: "confirmed",
-              observedAt: Date.now(),
-              routes: "confirmed",
-              schemaVersion: 1,
-            }
-          : null,
-        observed: tunEnabled ? "enabled" : "disabled",
-        phase: tunEnabled ? "applied" : "off",
-      },
-      tunEnabled,
-    };
-    this.snapshot.recentTraffic.revision += 1;
-    if (captureActive) {
-      if (this.snapshot.recentTraffic.phase === "idle") {
-        this.recentTrafficSession += 1;
-        this.snapshot.recentTraffic.sessionId = `fixture-status-session-${this.recentTrafficSession}`;
-      }
-      this.snapshot.recentTraffic.phase = "active";
-      this.snapshot.recentTraffic.profileId = this.snapshot.activeProfileId;
-    } else {
-      this.snapshot.recentTraffic = {
-        ...this.snapshot.recentTraffic,
-        revision: this.snapshot.recentTraffic.revision,
-        phase: "idle",
-        sessionId: null,
-        profileId: null,
-        downloadedBytes: 0,
-        uploadedBytes: 0,
-        downloadBytesPerSecond: 0,
-        uploadBytesPerSecond: 0,
-        samples: [],
-      };
-    }
-    return this.snapshotAfterCommand();
+    throw new StatusClientError(
+      "unsupported",
+      "Demo mode does not implement native Capture effects; system and network state are unchanged",
+    );
   }
 
   async recoverSystemProxy(

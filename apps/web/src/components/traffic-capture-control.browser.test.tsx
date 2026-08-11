@@ -75,6 +75,38 @@ function renderHost(
   return onTunChange;
 }
 
+function renderFixtureHost() {
+  const onSystemProxyChange = vi.fn();
+  root.render(
+    <TypesafeI18n locale="en">
+      <MemoryRouter>
+        <TooltipProvider>
+          <span className="sr-only" id="fixture-action-description">
+            This action changes local fixture data only and does not change system or network state.
+          </span>
+          <span className="sr-only" id="tun-unavailable-description">
+            {unavailableMessage}
+          </span>
+          <TrafficCaptureControl
+            adapterKind="fixture"
+            capabilities={{ systemProxy: "fixture-only", tun: "fixture-only" }}
+            commandSupported={false}
+            onSystemProxyChange={onSystemProxyChange}
+            onTunChange={vi.fn()}
+            systemProxyEnabled={false}
+            systemProxySelected={false}
+            systemProxyStatus={systemProxyStatus}
+            tunEnabled={false}
+            tunSelected={false}
+            tunStatus={tunStatus}
+          />
+        </TooltipProvider>
+      </MemoryRouter>
+    </TypesafeI18n>,
+  );
+  return onSystemProxyChange;
+}
+
 beforeAll(async () => {
   loadAllLocales();
   disposeFocusVisibility = installFocusVisibility();
@@ -305,4 +337,17 @@ describe("Capture action feedback", () => {
       await expect.element(systemProxy).toBeEnabled();
     },
   );
+});
+
+describe("browser fixture Capture boundary", () => {
+  test("does not present browser fixture controls as native Capture actions", async () => {
+    const onSystemProxyChange = renderFixtureHost();
+    const systemProxy = page.getByRole("button", { name: /System Proxy, not selected/ });
+    const tun = page.getByRole("button", { name: /Virtual Interface, not selected/ });
+
+    await expect.element(systemProxy).toBeDisabled();
+    await expect.element(systemProxy).toHaveAccessibleDescription(/local fixture data only/);
+    await expect.element(tun).toBeDisabled();
+    expect(onSystemProxyChange).not.toHaveBeenCalled();
+  });
 });
