@@ -25,6 +25,27 @@ signing/publication Environments do not exist, and OIDC does not bind the exact
 workflow identity. No production credential or signing identity may be added
 or inferred from the successful credential-free runs.
 
+## CI drift and external-check evidence boundary
+
+The checked-in CI validators are repository evidence only. `check:ci` discovers
+every workflow file, validates every job and action reference, and requires the
+reviewed CI job and platform-target inventories to stay explicit. A passing
+offline fixture proves that the checked-in parser would reject an added,
+deleted, renamed, unsupported, or bypass-shaped workflow/job/action/target
+entry; it does not prove that GitHub branch protection requires the resulting
+check.
+
+The trusted policy names `CI / Fast PR gate` and `CI / Android platform Rust
+gate` as required pull-request status checks. `pnpm audit:ci:trust-settings` is
+the only check in this repository that reads that server-side fact. It is
+read-only and accepts either an exact classic branch-protection response or an
+active main-branch ruleset with the reviewed required-check contexts. A missing,
+unavailable, partial, or mismatched branch-protection/ruleset response fails
+closed; a successful workflow run, a local fixture, or an external provider's
+dashboard cannot substitute for this read-back. The audit never creates,
+updates, or deletes branch protection, rulesets, Environments, OIDC settings,
+runners, or external checks.
+
 ## Threat model
 
 The boundary treats pull-request code, fork code, merge refs, arbitrary refs,
