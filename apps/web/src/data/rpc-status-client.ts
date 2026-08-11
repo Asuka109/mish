@@ -411,15 +411,13 @@ export class RpcStatusClient implements StatusClient {
       const mapped = mapStatusRpcError(error);
       if (mapped.snapshot === null) throw mapped;
       const result = this.sessionAuthority.accept(ticket, mapped.snapshot, "command");
-      const snapshot = this.acceptSnapshot(
-        result.kind === "conflict" ? mapped.snapshot : (result.snapshot ?? mapped.snapshot),
-      );
-      if (result.kind === "conflict") {
+      const snapshot = result.snapshot ? this.acceptSnapshot(result.snapshot) : null;
+      if (result.kind === "conflict" || result.kind === "stale") {
         this.emitConnectionState({ ...this.connectionState, stale: true });
       } else {
         this.emitSnapshotConnectionState();
       }
-      void this.ensureCommandCapabilities(snapshot.activeProfileId);
+      if (snapshot) void this.ensureCommandCapabilities(snapshot.activeProfileId);
       throw new StatusClientError(mapped.code, mapped.message, mapped.retryable, snapshot);
     }
   }
