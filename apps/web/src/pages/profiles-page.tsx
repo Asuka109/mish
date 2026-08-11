@@ -202,6 +202,7 @@ export function ProfilesPage({
   }
 
   function openHttpsImport() {
+    profiles.cancelImport();
     setUrl("");
     setFileName("");
     setPreview(null);
@@ -209,6 +210,7 @@ export function ProfilesPage({
   }
 
   function closeImport() {
+    profiles.cancelImport();
     setImportOpen(false);
     setPreview(null);
     setUrl("");

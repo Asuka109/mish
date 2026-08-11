@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fs,
     path::{Component, Path, PathBuf},
     time::{Duration, Instant},
@@ -13,13 +13,12 @@ use uuid::Uuid;
 use crate::{
     AtomicWriter, AttemptOutcome, FileProfileRepository, Fingerprint, HttpsSourceReader,
     ImportError, ImportPreflight, ImportRequest, LocalSourceReader, PolicyDisposition,
-    PreflightReport, ProfileAttempt, ProfileId, ProfilePatchError, ProfileRefreshPolicy,
-    ProfileRefreshState, ProfileSelectionAuthority, ProfileSelectionSnapshot, ProfileSource,
-    ProfileSourceType, RepositoryError, RevisionId, SourceReadPolicy, StdAtomicWriter, Timestamp,
-    ValidationIssueCode,
+    PreflightReport, ProfileAttempt, ProfileGenerationId, ProfileId, ProfilePatchError,
+    ProfileRefreshPolicy, ProfileRefreshState, ProfileSelectionAuthority, ProfileSelectionSnapshot,
+    ProfileSource, ProfileSourceType, RepositoryError, RevisionId, SourceReadPolicy,
+    StdAtomicWriter, Timestamp, ValidationIssueCode,
 };
 
-const MAX_PENDING_PREFLIGHTS: usize = 4;
 const PREFLIGHT_TTL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -190,12 +189,15 @@ impl From<RepositoryError> for ProfileServiceError {
 
 struct PendingPreflight {
     created_at: Instant,
+    generation: Option<ProfileGenerationId>,
+    request_sequence: u64,
     report: PreflightReport,
 }
 
 #[derive(Default)]
 struct PendingPreflights {
-    order: VecDeque<String>,
+    active_request: Option<u64>,
+    next_request_sequence: u64,
     reports: HashMap<String, PendingPreflight>,
 }
 
@@ -910,47 +912,94 @@ where
         source: ProfileSource,
         label: Option<String>,
     ) -> Result<ProfilePreview, ProfileServiceError> {
+        // Starting a new preflight retires every older request before the
+        // asynchronous source read. The captured repository generation is
+        // revalidated when the redacted preview is published and when it is
+        // consumed by save_preview.
+        let generation = self.current_generation_id()?;
+        let request_sequence = self.begin_pending_request().await;
         let report =
             ImportPreflight::new(&self.local_reader, &self.https_reader, self.policy.clone())
                 .run(ImportRequest { label, source })
                 .await?;
-        self.store_pending(report).await
+        self.store_pending(report, generation, request_sequence)
+            .await
     }
 
     async fn store_pending(
         &self,
         report: PreflightReport,
+        generation: Option<ProfileGenerationId>,
+        request_sequence: u64,
     ) -> Result<ProfilePreview, ProfileServiceError> {
         let preview_id = Uuid::new_v4().to_string();
         let preview = profile_preview(&preview_id, &report);
         let mut pending = self.pending.lock().await;
         pending.remove_expired();
-        while pending.reports.len() >= MAX_PENDING_PREFLIGHTS {
-            let Some(expired_id) = pending.order.pop_front() else {
-                break;
-            };
-            pending.reports.remove(&expired_id);
+        if pending.active_request != Some(request_sequence)
+            || self.current_generation_id()? != generation
+        {
+            return Err(ProfileServiceError::PreviewNotFound);
         }
-        pending.order.push_back(preview_id.clone());
         pending.reports.insert(
-            preview_id,
+            preview_id.clone(),
             PendingPreflight {
                 created_at: Instant::now(),
+                generation: generation.clone(),
+                request_sequence,
                 report,
             },
         );
+        // A repository write may race the publication check. Retire the
+        // preview immediately if the accepted generation changed; take_pending
+        // repeats this check as the final save authorization boundary.
+        if pending.active_request != Some(request_sequence)
+            || self.current_generation_id()? != generation
+        {
+            pending.reports.remove(&preview_id);
+            return Err(ProfileServiceError::PreviewNotFound);
+        }
         Ok(preview)
     }
 
     async fn take_pending(&self, preview_id: &str) -> Result<PreflightReport, ProfileServiceError> {
+        let generation = self.current_generation_id()?;
         let mut pending = self.pending.lock().await;
         pending.remove_expired();
-        pending.order.retain(|id| id != preview_id);
+        let Some(candidate) = pending.reports.get(preview_id) else {
+            return Err(ProfileServiceError::PreviewNotFound);
+        };
+        if pending.active_request != Some(candidate.request_sequence)
+            || candidate.generation != generation
+            || self.current_generation_id()? != generation
+        {
+            pending.reports.remove(preview_id);
+            return Err(ProfileServiceError::PreviewNotFound);
+        }
         pending
             .reports
             .remove(preview_id)
             .map(|pending| pending.report)
             .ok_or(ProfileServiceError::PreviewNotFound)
+    }
+
+    fn current_generation_id(&self) -> Result<Option<ProfileGenerationId>, ProfileServiceError> {
+        Ok(self
+            .repository
+            .read_current_generation()?
+            .map(|generation| generation.id))
+    }
+
+    async fn begin_pending_request(&self) -> u64 {
+        let mut pending = self.pending.lock().await;
+        pending.next_request_sequence = pending
+            .next_request_sequence
+            .checked_add(1)
+            .expect("profile preflight request sequence exhausted");
+        let request_sequence = pending.next_request_sequence;
+        pending.active_request = Some(request_sequence);
+        pending.reports.clear();
+        request_sequence
     }
 }
 
@@ -959,7 +1008,6 @@ impl PendingPreflights {
         let now = Instant::now();
         self.reports
             .retain(|_, pending| now.duration_since(pending.created_at) <= PREFLIGHT_TTL);
-        self.order.retain(|id| self.reports.contains_key(id));
     }
 }
 

@@ -30,6 +30,10 @@ import {
   type CommandFeedbackOperation,
 } from "./command-feedback";
 import { createFixtureProfileClient } from "./fixture-profile-client";
+import {
+  ProfileHttpsImportAuthority,
+  type ProfileHttpsImportAuthorityFailure,
+} from "./profile-https-import-authority";
 
 export type ProfileOperation =
   | "activate"
@@ -64,6 +68,7 @@ export interface ProfileDerivedAuthority {
 interface ProfileContextValue {
   activateProfile(profileId: string): Promise<ProfileOperationResult>;
   cancelActivation(): Promise<ProfileOperationResult>;
+  cancelImport(): void;
   connection: ProfileConnectionState;
   createProfile(fileName: string): Promise<ProfileOperationResult>;
   createProfileAvailable: boolean;
@@ -157,6 +162,10 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   const profileOperationKey = useRef<{ key: string; operationId: string } | null>(null);
   const selectionProjectionRef = useRef<ProfileSelectionProjection | null>(null);
   const sessionAuthority = useRef(new RpcSessionAuthority<ProfileSnapshotDto>());
+  const profileHttpsImportAuthority = useMemo(
+    () => new ProfileHttpsImportAuthority(sessionAuthority.current),
+    [],
+  );
   const activationWaiters = useRef(
     new Map<
       string,
@@ -202,6 +211,9 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       }
       if (!result.snapshot) return false;
       nextSnapshot = result.snapshot;
+      if (current && (delivery === "baseline" || !hasSameApplicationOrder(current, nextSnapshot))) {
+        profileHttpsImportAuthority.invalidate();
+      }
       const command = profileCommand.current;
       if (command) {
         const nextScope = profileCommandScope(nextSnapshot);
@@ -240,7 +252,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       waiter.resolve(activation);
       return true;
     },
-    [confirmCommandAuthority, transitionCommandFeedback, updateSelectionProjection],
+    [
+      confirmCommandAuthority,
+      profileHttpsImportAuthority,
+      transitionCommandFeedback,
+      updateSelectionProjection,
+    ],
   );
 
   useEffect(() => {
@@ -250,6 +267,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     profileCommand.current = null;
     profileOperationKey.current = null;
     updateSelectionProjection(null);
+    profileHttpsImportAuthority.invalidate();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       sessionAuthority.current.observeTransport(
         nextConnection.phase === "connected" || nextConnection.phase === "fixture",
@@ -261,6 +279,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       ) {
         profileCommand.current?.controller.abort();
         profileCommand.current = null;
+        profileHttpsImportAuthority.invalidate();
         resetPendingCommandFeedback("disconnected");
         for (const waiter of activationWaiters.current.values()) {
           waiter.reject(new ProfileClientError("disconnected", "Profile connection was lost"));
@@ -283,6 +302,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       controller.abort();
       profileCommand.current?.controller.abort();
       profileCommand.current = null;
+      profileHttpsImportAuthority.invalidate();
       resetPendingCommandFeedback("cancelled");
       unsubscribeConnection();
       unsubscribeSnapshots();
@@ -295,6 +315,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     acceptSnapshot,
     resetCommandFeedback,
     resetPendingCommandFeedback,
+    profileHttpsImportAuthority,
     resolvedClient,
     updateSelectionProjection,
   ]);
@@ -324,6 +345,19 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       profileCommand.current = null;
     }
   }, []);
+
+  const cancelImport = useCallback(() => {
+    const command = profileCommand.current;
+    if (command && profileOperationKey.current?.key === "preflight") {
+      command.controller.abort();
+      if (isCurrentCommandFeedback(command.operation, "pending")) {
+        transitionCommandFeedback(command.operation, "cancelled");
+      }
+      profileCommand.current = null;
+      profileOperationKey.current = null;
+    }
+    profileHttpsImportAuthority.invalidate();
+  }, [isCurrentCommandFeedback, profileHttpsImportAuthority, transitionCommandFeedback]);
 
   const runMutation = useCallback(
     async (
@@ -382,18 +416,47 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
 
   const runPreflight = useCallback(
     async (
+      sourceType: "https" | "local-file",
       preflight: (signal: AbortSignal) => Promise<ProfilePreviewDto | null>,
     ): Promise<ProfilePreviewResult> => {
       const command = beginProfileCommand(operationKey("preflight"));
       if (!command) return conflict();
+      if (sourceType !== "https") profileHttpsImportAuthority.invalidate();
+      const request =
+        sourceType === "https"
+          ? profileHttpsImportAuthority.beginPreview(latestSnapshot.current?.applicationOrder)
+          : null;
+      if (request && request.kind !== "accepted") {
+        const typedError = profileHttpsImportAuthorityError(request.kind);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
+        finishProfileCommand(command);
+        return { error: typedError, ok: false };
+      }
       try {
         const preview = await preflight(command.controller.signal);
         if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          if (sourceType === "https") profileHttpsImportAuthority.invalidate();
           return cancelledPreview();
+        }
+        if (sourceType === "https") {
+          if (!request || request.kind !== "accepted") {
+            return cancelledPreview();
+          }
+          const accepted = profileHttpsImportAuthority.acceptPreview(request.request, preview);
+          if (accepted.kind !== "accepted") {
+            const typedError = profileHttpsImportAuthorityError(accepted.kind);
+            setError(typedError);
+            transitionCommandFeedback(command.operation, "failure");
+            return { error: typedError, ok: false };
+          }
         }
         transitionCommandFeedback(command.operation, "success");
         return { ok: true, preview };
       } catch (failure) {
+        if (sourceType === "https") profileHttpsImportAuthority.invalidate();
         const typedError = toProfileClientError(failure);
         if (isCurrentCommandFeedback(command.operation, "pending")) {
           setError(typedError);
@@ -408,6 +471,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       beginProfileCommand,
       finishProfileCommand,
       isCurrentCommandFeedback,
+      profileHttpsImportAuthority,
       transitionCommandFeedback,
     ],
   );
@@ -732,6 +796,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
           true,
         );
       },
+      cancelImport,
       connection,
       createProfile: (fileName) =>
         resolvedClient.createProfile
@@ -781,8 +846,9 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
             : undefined,
         ),
       preflightHttps: (url, label) =>
-        runPreflight((signal) => resolvedClient.preflightHttps(url, label, { signal })),
-      preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
+        runPreflight("https", (signal) => resolvedClient.preflightHttps(url, label, { signal })),
+      preflightLocal: (label) =>
+        runPreflight("local-file", () => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
         runMutation("refresh", profileId, (signal) =>
           resolvedClient.refreshProfile(profileId, { signal }),
@@ -791,10 +857,24 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         runMutation("schedule", profileId, (signal) =>
           resolvedClient.setRefreshPolicy(profileId, policy, { signal }),
         ),
-      savePreview: (previewId) =>
-        runMutation("save", undefined, (signal) =>
+      savePreview: (previewId) => {
+        const binding = profileHttpsImportAuthority.snapshot();
+        if (binding) {
+          const authorized = profileHttpsImportAuthority.authorizeSave(
+            latestSnapshot.current?.applicationOrder,
+            { ...binding.preview, previewId },
+            binding.generation,
+          );
+          if (authorized.kind !== "accepted") {
+            const typedError = profileHttpsImportAuthorityError(authorized.kind);
+            setError(typedError);
+            return Promise.resolve({ error: typedError, ok: false as const });
+          }
+        }
+        return runMutation("save", undefined, (signal) =>
           resolvedClient.savePreview(previewId, { signal }),
-        ),
+        );
+      },
       selectedProfileId,
       selectedProfileAuthority,
       selectedProfileRevision: snapshot?.selection.revision ?? 0,
@@ -815,9 +895,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       waitForProfileActivation,
     }),
     [
+      cancelImport,
       connection,
       error,
       pendingKey,
+      profileHttpsImportAuthority,
       resolvedClient,
       runActivation,
       runMutation,
@@ -873,6 +955,20 @@ function cancelledError() {
   return new ProfileClientError(
     "cancelled",
     "The Profile operation was replaced before it completed",
+    true,
+  );
+}
+
+function profileHttpsImportAuthorityError(kind: ProfileHttpsImportAuthorityFailure) {
+  if (kind === "malformed" || kind === "unsupported-source") {
+    return new ProfileClientError(
+      "invalid-request",
+      "The Profile HTTPS import preview did not satisfy the accepted source contract",
+    );
+  }
+  return new ProfileClientError(
+    "conflict",
+    "The Profile HTTPS import preview is no longer authorized for this session",
     true,
   );
 }
