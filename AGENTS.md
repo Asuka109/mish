@@ -32,6 +32,24 @@ code. Never infer that a task is free merely because no branch or PR is visible.
   progress, delivery, acceptance, merge, integration, deferral, or blocker
   changes.
 
+## Dispatch ordering
+
+Worker creation uses a two-phase ledger so a new worktree never races an older
+progress snapshot:
+
+1. Before creating any worker, the coordinator records the exact Issue/task,
+   model, reasoning effort, language, acceptance style, and `dispatching` state
+   in both progress documents, then commits and pushes `progress.md`.
+2. A newly created worker may proceed when its packet exactly matches that
+   pre-published `dispatching` entry even while its task ID and worktree fields
+   are still marked `pending`.
+3. Immediately after creation, the coordinator replaces the pending fields
+   with the real task ID/worktree and advances the state to `active`.
+
+A pending task ID is therefore not a conflict by itself. A worker must stop if
+its Issue/task is absent, its model or scope differs, another active worker owns
+the same task, or either progress document records a cancellation or blocker.
+
 ## System interaction boundary
 
 Any change that touches controllers, operating-system effects, process or
@@ -45,7 +63,8 @@ scenarios, and keep real-host acceptance separate from automated evidence.
 ## Worker coordination
 
 - Use the exact task packet, linked Issue, dependency wave, acceptance style,
-  language, and Luna Max compute tier assigned by the coordinator.
+  language, and Luna Max compute tier assigned by the coordinator. In this
+  repository, Luna Max means model `gpt-5.6-luna` with reasoning effort `max`.
 - Do not expand scope, mutate unrelated tracker items, replace another worker,
   merge without explicit human acceptance, or claim real-system behavior from
   browser-only or simulated evidence.

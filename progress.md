@@ -6,46 +6,51 @@ Owner: thread-master coordinator
 ## Current checkpoint
 
 - Backlog preparation and Wave 1 were explicitly approved by the maintainer.
-- Governance baseline `76719cd` is published on `main`; the dispatch ledger is
-  published in a later progress-only commit.
-- Seven Wave 1 workers correctly paused after reading the pre-dispatch ledger
-  during worktree setup. They are resuming the same tasks from current
-  `origin/main`; no replacement worker was created.
-- All planned workers must use Luna Max (`gpt-5.6-sol`) with `high` or `medium`
-  reasoning and report in Chinese.
+- The first seven Wave 1 workers used the wrong compute mapping and correctly
+  stopped before changing files. Their task objects were permanently deleted
+  and their seven clean worktrees were removed; they will not be resumed.
+- Dispatch now uses a two-phase ledger: publish the complete manifest first,
+  then create workers, then backfill task IDs and worktrees.
+- All planned workers must use Luna Max: `gpt-5.6-luna` with reasoning effort
+  `max`, reporting in Chinese.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
 
 ## Active tasks
 
+None. Worker creation may begin only after the dispatch manifest below is
+committed and visible on `origin/main`.
+
+## Wave 1 dispatch manifest
+
 | Task | Worker task ID | Worktree | State | Dependencies | Acceptance | Latest evidence / next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.1 | `019fefa0-b70c-7320-8eca-5ceddc5da41b` | `a9cf` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; resume from current `origin/main`. |
-| #448 A2.1 | `019fefa0-baec-7a83-a800-577891f9b4e0` | `ddf0` | resuming | none for A2.1 | confirmation-only | Correctly paused on the pre-dispatch ledger; no host mutation is authorized. |
-| #437 A3.1 | `019fefa0-b70e-7fc2-98b5-3d5b40b92243` | `6111` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains Rust model semantics. |
-| #438 A4.1 | `019fefa0-b70e-7fc2-98b5-3d368f7d879f` | `d3c9` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains truthful fixture behavior. |
-| #439 A5.1 | `019fefa0-b70c-7320-8eca-5c86e4d00cb5` | `99cd` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; no real process signal is authorized. |
-| #440 B1.1 | `019fefa0-b70c-7320-8eca-5cb1a0a56202` | `e8d0` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; scope remains transport hardening. |
-| #443 E2.1 | `019fefa0-b70b-7892-9d33-7e4efe0cad88` | `3a87` | resuming | none | confirmation-only | Correctly paused on the pre-dispatch ledger; no repository settings mutation is authorized. |
+| #436 A1.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; create one Luna Max worker after this ledger is published. |
+| #448 A2.1 | pending | pending | dispatching | none for A2.1 | confirmation-only | Pre-authorized manifest entry; no host mutation is authorized. |
+| #437 A3.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to Rust model semantics. |
+| #438 A4.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to truthful fixture behavior. |
+| #439 A5.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; no real process signal is authorized. |
+| #440 B1.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; scope is limited to transport hardening. |
+| #443 E2.1 | pending | pending | dispatching | none | confirmation-only | Pre-authorized manifest entry; no repository settings mutation is authorized. |
 
 ## Planned issue graph
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | active: A1.1 | none | confirmation-only |
-| System Proxy restoration | #448 | active: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
-| SimulatedHost truthfulness | #437 | active: A3.1 | none | confirmation-only |
-| Browser fixture truthfulness | #438 | active: A4.1 | none | confirmation-only |
-| Process identity | #439 | active: A5.1 | none | confirmation-only |
-| RPC Session Authority | #440 | active: B1.1 | none | confirmation-only |
+| Owned operations | #436 | dispatching: A1.1 | none | confirmation-only |
+| System Proxy restoration | #448 | dispatching: A2.1 | #436 for task A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
+| SimulatedHost truthfulness | #437 | dispatching: A3.1 | none | confirmation-only |
+| Browser fixture truthfulness | #438 | dispatching: A4.1 | none | confirmation-only |
+| Process identity | #439 | dispatching: A5.1 | none | confirmation-only |
+| RPC Session Authority | #440 | dispatching: B1.1 | none | confirmation-only |
 | Profile credential privacy | #449 | blocked | #440 | confirmation-only |
 | Atomic profile generations | #441 | planned | none | confirmation-only |
 | Backup preview authority | #450 | blocked | #440 | confirmation-only |
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | active: E2.1 | none | confirmation-only |
+| CI policy coverage | #443 | dispatching: E2.1 | none | confirmation-only |
 | Settings editor serialization | #452 | blocked | #440 | confirmation-only |
 | Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
@@ -67,13 +72,13 @@ Owner: thread-master coordinator
 
 | Task | Intended result | Model | Dependencies | Readiness |
 | --- | --- | --- | --- | --- |
-| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-sol/high` | none | active |
-| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-sol/high` | none for A2.1 | active |
-| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-sol/medium` | none | active |
-| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-sol/medium` | none | active |
-| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-sol/high` | none | active |
-| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-sol/medium` | none | active |
-| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-sol/medium` | none | active |
+| #436 A1.1 | Bounded forced-retirement/finalizer/shutdown kernel | `gpt-5.6-luna/max` | none | dispatching |
+| #448 A2.1 | Exact System Proxy restore adapter | `gpt-5.6-luna/max` | none for A2.1 | dispatching |
+| #437 A3.1 | Truthful effect ordering, ownership, and bounded faults | `gpt-5.6-luna/max` | none | dispatching |
+| #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | dispatching |
+| #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-luna/max` | none | dispatching |
+| #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-luna/max` | none | dispatching |
+| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | dispatching |
 
 All seven tasks are AFK and confirmation-only. Each worker receives an isolated
 worktree, one linked Issue/task, Chinese reporting, final-only escalation, and
@@ -93,8 +98,8 @@ explicit human acceptance.
 
 ## Update protocol
 
-For every dispatched task, add or update an Active task row with Issue/task,
-worker task ID, branch/worktree, lifecycle state, dependencies, latest concrete
-evidence, acceptance style, PR, tracker state, and next action. Move completed
-work through accepted, merged, and integrated separately; passing CI alone is
-not acceptance.
+Before worker creation, publish every exact task as `dispatching` with pending
+identity fields. After creation, backfill worker task ID, branch/worktree,
+lifecycle state, dependencies, latest concrete evidence, acceptance style, PR,
+tracker state, and next action. Move completed work through accepted, merged,
+and integrated separately; passing CI alone is not acceptance.
