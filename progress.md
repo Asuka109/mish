@@ -1,6 +1,6 @@
 # Mish Delivery Progress
 
-Last updated: 2026-08-11 (Asia/Shanghai)
+Last updated: 2026-08-12 (Asia/Shanghai)
 Owner: thread-master coordinator
 
 ## Current checkpoint
@@ -19,9 +19,9 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A, 2B, and 2C are fully integrated. The maintainer approved the exact
-two-task AFK Wave 2D on 2026-08-11. Both visible Luna Max Workers are active in
-isolated worktrees, and eight repository concurrency slots remain unreserved.
+Waves 2A through 2D are fully integrated. No new Worker is active. Completion
+of #440 unlocks #449 C1.1, #450 C3.1, #451 D1.1, #452 F1.1, and #453 F2.1;
+an exact next wave still requires maintainer confirmation before publication.
 
 ## Wave 1 worker ledger
 
@@ -60,16 +60,16 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
-| RPC Session Authority | #440 | B1.1-B1.4 integrated; B1.5 ready | none | confirmation-only |
-| Profile credential privacy | #449 | blocked; not dispatched | complete #440 | confirmation-only |
+| RPC Session Authority | #440 | completed: B1.1-B1.5 integrated; Issue closed | none | accepted |
+| Profile credential privacy | #449 | C1.1 ready; C1.2/C1.3 sequential | #440 completed | confirmation-only |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
-| Backup preview authority | #450 | blocked; not dispatched | complete #440 | confirmation-only |
-| Android VPN authority | #451 | blocked | #440; #436 is complete | confirmation-only; physical residual stays in #268 |
+| Backup preview authority | #450 | C3.1 ready; C3.2 sequential | #440 completed | confirmation-only |
+| Android VPN authority | #451 | D1.1 ready; D1.2-D1.4 sequential | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
-| Release trust boundary | #442 | E1.1-E1.3 integrated; E1.4 ready | none | confirmation-only; real signing stays in #173 |
+| Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
-| Settings editor serialization | #452 | blocked; not dispatched | complete #440 | confirmation-only |
-| Remove Profile Patch Editor | #453 | blocked; not dispatched | complete #440 | confirmation-only |
+| Settings editor serialization | #452 | F1.1 ready; F1.2 sequential | #440 completed | confirmation-only |
+| Remove Profile Patch Editor | #453 | F2.1 ready; F2.2/F2.3 sequential | #440 completed | confirmation-only |
 | Lazy-route recovery | #444 | completed: G1.1 integrated; Issue closed | none | accepted |
 | Traffic details accessibility | #445 | completed: G2.1 integrated; Issue closed | none | accepted |
 | Clipboard failure feedback | #446 | completed: G3.1 integrated; Issue closed | none | accepted |
@@ -121,8 +121,8 @@ physical-host mutation, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #440 B1.5 | `019ff17f-35cb-7103-9517-2e1923f0f695` | `c5a6` | active | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | Visible Luna Max Worker is active; own RPC authority cleanup, documentation, and gates only; do not add product behavior or change domain DTO authority |
-| #442 E1.4 | `019ff17f-35cd-7602-a70d-c61f73117922` | `393d` | active | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | Visible Luna Max Worker is active; own release adversarial fixtures/gates only and perform no real signing, notarization, upload, install, credential read, or host mutation |
+| #440 B1.5 | `019ff17f-35cb-7103-9517-2e1923f0f695` | `c5a6` | integrated | B1.1-B1.4 integrated | Delete duplicate sequencing logic and finish the RPC Session Authority contract documentation and static gates | PR #485 merged as `d64df01`; local final `check:pr`, Android gate, and all Fast PR job steps passed, while the GitHub run envelope remains stale `in_progress`; Issue #440 closed completed |
+| #442 E1.4 | `019ff17f-35cd-7602-a70d-c61f73117922` | `393d` | integrated | E1.1-E1.3 integrated | Add the credential-free adversarial matrix and complete fail-closed release gate | PR #484 merged as `949b4fd`; release security, final `check:pr`, Fast PR, and Android gates passed without credentials or real signing; Issue #442 closed completed |
 
 ## Existing issue coordination
 
@@ -152,8 +152,10 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- #440 B1.4 is integrated; B1.5 is ready. #449, #450, #451, #452, and #453
-  remain blocked until #440 completes. #442 E1.4 is independently ready.
+- #440 is complete. #449 C1.1, #450 C3.1, #451 D1.1, #452 F1.1, and #453
+  F2.1 are dependency-ready but remain undispatched pending an approved wave.
+- #442 is complete. Its credential-free security prerequisite does not replace
+  the real signing and release acceptance retained in #173, #174, and #274.
 - #451 remains blocked until #440 completes; complete #451 D1.2 before #454 starts.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
