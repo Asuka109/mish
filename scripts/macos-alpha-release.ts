@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  writeContainedReleaseFile,
+} from "./release-path-containment.ts";
 
 const repositoryRoot = path.resolve(
   process.env.MISH_RELEASE_REPOSITORY_ROOT ?? path.resolve(import.meta.dirname, ".."),
@@ -380,37 +379,38 @@ export function prepareReleaseArtifacts(options: {
     fullSha.test(options.sourceSha),
     "Artifact generation requires one full source commit SHA.",
   );
-  const dmgPath = path.resolve(options.dmgPath);
+  const dmg = assertPrivateNoFollowFile(options.dmgPath);
   const outputDirectory = path.resolve(options.outputDirectory);
-  invariant(existsSync(dmgPath) && statSync(dmgPath).isFile(), `Alpha DMG is missing: ${dmgPath}`);
-  mkdirSync(outputDirectory, { recursive: true });
-  invariant(
-    readdirSync(outputDirectory).length === 0,
-    `Release artifact directory must be empty: ${outputDirectory}`,
-  );
+  if (!existsSync(outputDirectory)) mkdirSync(outputDirectory, { recursive: true, mode: 0o700 });
+  const outputRoot = assertPrivateNoFollowRoot(outputDirectory);
+  invariant(readdirSync(outputDirectory).length === 0, "Release artifact directory must be empty.");
 
   const dmgName = `Mish-${parsed.version}-arm64.dmg`;
-  const destinationDmg = path.join(outputDirectory, dmgName);
-  copyFileSync(dmgPath, destinationDmg);
-  invariant(statSync(destinationDmg).size > 0, "Versioned Alpha DMG is empty.");
+  const destinationDmg = writeContainedReleaseFile(
+    outputRoot,
+    dmgName,
+    readContainedReleaseFile(dmg),
+    { mode: 0o644 },
+  );
+  invariant(readContainedReleaseFile(destinationDmg).length > 0, "Versioned Alpha DMG is empty.");
 
   const metadata = releaseMetadata({
     sourceSha: options.sourceSha,
     version: parsed.version,
   });
   const metadataName = "release-metadata.json";
-  const metadataPath = path.join(outputDirectory, metadataName);
-  writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o644,
-  });
+  const metadataPath = writeContainedReleaseFile(
+    outputRoot,
+    metadataName,
+    `${JSON.stringify(metadata, null, 2)}\n`,
+    { mode: 0o644 },
+  );
 
   const checksums = [
-    `${sha256(readFileSync(destinationDmg))}  ${dmgName}`,
-    `${sha256(readFileSync(metadataPath))}  ${metadataName}`,
+    `${sha256(readContainedReleaseFile(destinationDmg))}  ${dmgName}`,
+    `${sha256(readContainedReleaseFile(metadataPath))}  ${metadataName}`,
   ];
-  writeFileSync(path.join(outputDirectory, "SHA256SUMS.txt"), `${checksums.join("\n")}\n`, {
-    encoding: "utf8",
+  writeContainedReleaseFile(outputRoot, "SHA256SUMS.txt", `${checksums.join("\n")}\n`, {
     mode: 0o644,
   });
   return readLocalReleaseAssets(outputDirectory, {
@@ -437,6 +437,7 @@ export function readLocalReleaseAssets(
 ): LocalReleaseAsset[] {
   invariant(fullSha.test(request.sourceSha), "Artifact verification requires one full source SHA.");
   const absoluteDirectory = path.resolve(directory);
+  const root = assertPrivateNoFollowRoot(absoluteDirectory);
   const expectedNames = releaseAssetNames(request.version);
   const actualNames = readdirSync(absoluteDirectory).sort();
   invariant(
@@ -444,12 +445,12 @@ export function readLocalReleaseAssets(
     `Release artifact set is wrong: ${actualNames.join(", ")}`,
   );
   const metadata = JSON.parse(
-    readFileSync(path.join(absoluteDirectory, "release-metadata.json"), "utf8"),
+    readContainedReleaseFile(root.contain("release-metadata.json", "file")).toString("utf8"),
   ) as ReleaseMetadata;
   assertMetadata(metadata, request);
 
   const checksums = parseChecksumManifest(
-    readFileSync(path.join(absoluteDirectory, "SHA256SUMS.txt"), "utf8"),
+    readContainedReleaseFile(root.contain("SHA256SUMS.txt", "file")).toString("utf8"),
   );
   const checksumTargets = expectedNames.filter((name) => name !== "SHA256SUMS.txt");
   invariant(
@@ -458,21 +459,21 @@ export function readLocalReleaseAssets(
   );
   for (const [name, digest] of checksums) {
     invariant(
-      sha256(readFileSync(path.join(absoluteDirectory, name))) === digest,
+      sha256(readContainedReleaseFile(root.contain(name, "file"))) === digest,
       `Checksum mismatch for ${name}.`,
     );
   }
 
   return expectedNames.map((name) => {
-    const assetPath = path.join(absoluteDirectory, name);
-    const content = readFileSync(assetPath);
+    const guarded = root.contain(name, "file");
+    const content = readContainedReleaseFile(guarded);
     invariant(content.length > 0, `Release asset is empty: ${name}`);
     return {
       content,
       contentType: contentType(name),
       digest: sha256(content),
       name,
-      path: assetPath,
+      path: guarded.absolute,
       size: content.length,
     };
   });

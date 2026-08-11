@@ -1,9 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmod,
   cp,
-  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -12,11 +10,16 @@ import {
   realpath,
   rename,
   rmdir,
-  stat,
   utimes,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+
+import {
+  assertPrivateNoFollowFile,
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  writeContainedReleaseFile,
+} from "./release-path-containment.ts";
 
 export const internalTunAlphaProfile = "internal-tun-alpha" as const;
 export const internalTunAlphaManifestName = "internal-tun-alpha-manifest.json";
@@ -95,10 +98,6 @@ function digest(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function digestFile(file: string): Promise<string> {
-  return digest(await readFile(file));
-}
-
 function isDigest(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
@@ -167,15 +166,18 @@ export async function createInternalTunAlphaManifest(
   application: string,
   versions: { coreVersion: string; helperVersion: string },
 ): Promise<InternalTunAlphaManifest> {
+  const applicationRoot = assertPrivateNoFollowRoot(application);
   const fixedFiles = await Promise.all(
     expectedFiles.map(async ({ mode, path: relative, role }) => {
-      const absolute = path.join(application, relative);
-      const metadata = await stat(absolute);
+      const guarded = applicationRoot.contain(relative, mode & 0o111 ? "executable" : "file");
+      const content = readContainedReleaseFile(guarded);
+      const metadata = await lstat(guarded.absolute);
+      guarded.assertCurrent();
       return {
         mode,
         path: relative,
         role,
-        sha256: await digestFile(absolute),
+        sha256: digest(content),
         size: metadata.size,
       };
     }),
@@ -191,13 +193,19 @@ export async function createInternalTunAlphaManifest(
         return null;
       }
       const absolute = path.join(application, relative);
-      const metadata = await stat(absolute);
+      const metadata = await lstat(absolute);
+      const guarded = applicationRoot.contain(
+        relative,
+        metadata.isDirectory() ? "directory" : "file",
+      );
       if (!metadata.isFile()) return null;
+      const content = readContainedReleaseFile(guarded);
+      guarded.assertCurrent();
       return {
         mode: metadata.mode & 0o777,
         path: relative,
         role: "application" as const,
-        sha256: await digestFile(absolute),
+        sha256: digest(content),
         size: metadata.size,
       };
     }),
@@ -205,6 +213,7 @@ export async function createInternalTunAlphaManifest(
   const files = [...fixedFiles, ...applicationFiles.filter((file) => file !== null)].sort(
     (left, right) => left.path.localeCompare(right.path),
   );
+  applicationRoot.assertCurrent();
   return {
     allowTun: true,
     architecture: "arm64",
@@ -360,6 +369,9 @@ export async function verifyInternalTunAlphaPackage(
   options: InternalTunAlphaVerificationOptions = {},
 ): Promise<InternalTunAlphaManifest> {
   const application = await applicationRootFromPackageRoot(root);
+  const packageRootGuard = assertPrivateNoFollowRoot(root);
+  const applicationRoot = assertPrivateNoFollowRoot(application);
+  packageRootGuard.assertCurrent();
   const applicationMetadata = await lstat(application);
   const currentUid = process.getuid?.();
   const ownerUid = options.expectedOwnerUid ?? applicationMetadata.uid;
@@ -375,23 +387,26 @@ export async function verifyInternalTunAlphaPackage(
       "Internal TUN Alpha package root contains unexpected installation items",
     );
   }
-  await validateDirectory(application, ownerUid);
-  await validateDirectory(path.join(application, "Contents"), ownerUid);
-  await validateDirectory(path.join(application, internalTunAlphaPayloadRelativePath), ownerUid);
-  await validateFile(
-    path.join(application, applicationMainExecutableRelativePath),
+  await validateDirectory(applicationRoot.absolute, ownerUid);
+  await validateDirectory(applicationRoot.contain("Contents", "directory").absolute, ownerUid);
+  await validateDirectory(
+    applicationRoot.contain(internalTunAlphaPayloadRelativePath, "directory").absolute,
     ownerUid,
-    0o755,
   );
+  const mainExecutable = applicationRoot.contain(
+    applicationMainExecutableRelativePath,
+    "executable",
+  );
+  await validateFile(mainExecutable.absolute, ownerUid, 0o755);
 
-  const manifestFile = path.join(application, internalTunAlphaManifestRelativePath);
-  const manifestMetadata = await lstat(manifestFile);
+  const manifestFile = applicationRoot.contain(internalTunAlphaManifestRelativePath, "file");
+  const manifestMetadata = await lstat(manifestFile.absolute);
   invariant(
     manifestMetadata.size > 0 && manifestMetadata.size <= manifestMaximumBytes,
     "Internal TUN Alpha manifest size is invalid",
   );
-  await validateFile(manifestFile, ownerUid, 0o644, manifestMetadata.size);
-  const manifestBytes = await readFile(manifestFile);
+  await validateFile(manifestFile.absolute, ownerUid, 0o644, manifestMetadata.size);
+  const manifestBytes = readContainedReleaseFile(manifestFile);
   let parsed: unknown;
   try {
     parsed = JSON.parse(manifestBytes.toString("utf8"));
@@ -401,20 +416,23 @@ export async function verifyInternalTunAlphaPackage(
   validateManifestShape(parsed);
 
   for (const file of parsed.files) {
-    const absolute = path.join(application, file.path);
-    await validateFile(absolute, ownerUid, file.mode, file.size);
-    invariant(
-      (await digestFile(absolute)) === file.sha256,
-      `Internal TUN Alpha digest differs: ${file.path}`,
-    );
+    const guarded = applicationRoot.contain(file.path, "file");
+    await validateFile(guarded.absolute, ownerUid, file.mode, file.size);
+    const content = readContainedReleaseFile(guarded);
+    invariant(digest(content) === file.sha256, `Internal TUN Alpha digest differs: ${file.path}`);
   }
-  const signature = path.join(application, applicationSignatureRelativePath);
-  await validateFile(signature, ownerUid, 0o644);
+  const signature = applicationRoot.contain(applicationSignatureRelativePath, "file");
+  await validateFile(signature.absolute, ownerUid, 0o644);
+  signature.assertCurrent();
   const discovered = await walk(application);
   for (const relative of discovered) {
     const absolute = path.join(application, relative);
-    if ((await lstat(absolute)).isDirectory()) {
+    const metadata = await lstat(absolute);
+    if (metadata.isDirectory()) {
+      applicationRoot.contain(relative, "directory").assertCurrent();
       await validateDirectory(absolute, ownerUid);
+    } else {
+      applicationRoot.contain(relative, "file").assertCurrent();
     }
   }
   const expected = new Set<string>([
@@ -438,10 +456,9 @@ export async function verifyInternalTunAlphaPackage(
     "Internal TUN Alpha package contains unexpected, duplicate, or missing files",
   );
 
-  const template = await readFile(
-    path.join(application, internalTunAlphaPlistTemplateRelativePath),
-    "utf8",
-  );
+  const template = readContainedReleaseFile(
+    applicationRoot.contain(internalTunAlphaPlistTemplateRelativePath, "file"),
+  ).toString("utf8");
   for (const placeholder of [
     "__MISH_ALLOWED_UID__",
     "__MISH_INSTALLATION_ID__",
@@ -474,14 +491,27 @@ export async function verifyInternalTunAlphaPackage(
       internalTunAlphaCoreRelativePath,
       applicationMainExecutableRelativePath,
     ]) {
-      verifyMachOArchitecture(path.join(application, relative));
+      const executable = applicationRoot.contain(relative, "executable");
+      executable.assertCurrent();
+      verifyMachOArchitecture(executable.absolute);
+      executable.assertCurrent();
     }
-    verifyAdHocSignature(path.join(application, internalTunAlphaControllerRelativePath));
-    verifyAdHocSignature(path.join(application, internalTunAlphaHelperRelativePath));
-    verifyAdHocSignature(application);
-    verifyAdHocBundleSignature(application);
-    const core = path.join(application, internalTunAlphaCoreRelativePath);
-    const coreVersion = execFileSync(core, ["-v"], {
+    const controller = applicationRoot.contain(
+      internalTunAlphaControllerRelativePath,
+      "executable",
+    );
+    const helper = applicationRoot.contain(internalTunAlphaHelperRelativePath, "executable");
+    const core = applicationRoot.contain(internalTunAlphaCoreRelativePath, "executable");
+    controller.assertCurrent();
+    verifyAdHocSignature(controller.absolute);
+    helper.assertCurrent();
+    verifyAdHocSignature(helper.absolute);
+    mainExecutable.assertCurrent();
+    applicationRoot.assertCurrent();
+    verifyAdHocSignature(applicationRoot.absolute);
+    verifyAdHocBundleSignature(applicationRoot.absolute);
+    core.assertCurrent();
+    const coreVersion = execFileSync(core.absolute, ["-v"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 5_000,
@@ -495,8 +525,14 @@ export async function verifyInternalTunAlphaPackage(
 }
 
 async function copyWithMode(source: string, destination: string, mode: number): Promise<void> {
-  await copyFile(source, destination);
-  await chmod(destination, mode);
+  const sourceGuard = assertPrivateNoFollowFile(source);
+  const destinationRoot = assertPrivateNoFollowRoot(path.dirname(destination));
+  writeContainedReleaseFile(
+    destinationRoot,
+    path.basename(destination),
+    readContainedReleaseFile(sourceGuard),
+    { mode },
+  );
 }
 
 function signAdHoc(file: string, identifier: string): void {
@@ -569,11 +605,13 @@ export async function buildInternalTunAlphaPackage(): Promise<{
   } catch {
     execFileSync(process.execPath, ["scripts/prepare-mihomo.ts"], { stdio: "inherit" });
   }
+  const coreSourceGuard = assertPrivateNoFollowFile(coreSource);
   invariant(
-    (await digestFile(coreSource)) === release.binarySha256,
+    digest(readContainedReleaseFile(coreSourceGuard)) === release.binarySha256,
     "Pinned macOS Core digest differs before packaging",
   );
-  const coreVersion = execFileSync(coreSource, ["-v"], {
+  coreSourceGuard.assertCurrent();
+  const coreVersion = execFileSync(coreSourceGuard.absolute, ["-v"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 5_000,
@@ -625,6 +663,7 @@ export async function buildInternalTunAlphaPackage(): Promise<{
 
   const outputParent = path.join(repositoryRoot, "target/internal-tun-alpha");
   await mkdir(outputParent, { recursive: true, mode: 0o755 });
+  const outputParentGuard = assertPrivateNoFollowRoot(outputParent);
   const outputRoot = path.join(outputParent, packageRootName);
   try {
     await lstat(outputRoot);
@@ -640,11 +679,23 @@ export async function buildInternalTunAlphaPackage(): Promise<{
     const application = path.join(packageRoot, "Mish.app");
     const payload = path.join(application, internalTunAlphaPayloadRelativePath);
     await mkdir(packageRoot, { recursive: true, mode: 0o755 });
-    await cp(path.join(repositoryRoot, "target/release/bundle/macos/Mish.app"), application, {
+    const sourceApplication = assertPrivateNoFollowRoot(
+      path.join(repositoryRoot, "target/release/bundle/macos/Mish.app"),
+    );
+    sourceApplication.assertCurrent();
+    await cp(sourceApplication.absolute, application, {
       recursive: true,
       preserveTimestamps: false,
     });
     await mkdir(payload, { recursive: true, mode: 0o755 });
+    const applicationRoot = assertPrivateNoFollowRoot(application);
+    const payloadRoot = assertPrivateNoFollowRoot(payload);
+    payloadRoot.assertCurrent();
+    const mainExecutable = applicationRoot.contain(
+      applicationMainExecutableRelativePath,
+      "executable",
+    );
+    mainExecutable.assertCurrent();
 
     await copyWithMode(
       path.join(repositoryRoot, "target/release/mish-internal-tun-alpha-ctl"),
@@ -656,7 +707,11 @@ export async function buildInternalTunAlphaPackage(): Promise<{
       path.join(application, internalTunAlphaHelperRelativePath),
       0o755,
     );
-    await copyWithMode(coreSource, path.join(application, internalTunAlphaCoreRelativePath), 0o755);
+    await copyWithMode(
+      coreSourceGuard.absolute,
+      path.join(application, internalTunAlphaCoreRelativePath),
+      0o755,
+    );
     await copyWithMode(
       path.join(
         repositoryRoot,
@@ -666,35 +721,55 @@ export async function buildInternalTunAlphaPackage(): Promise<{
       0o644,
     );
 
-    signAdHoc(
-      path.join(application, internalTunAlphaControllerRelativePath),
-      "com.asuka109.mish.internal-tun-alpha",
+    const controller = applicationRoot.contain(
+      internalTunAlphaControllerRelativePath,
+      "executable",
     );
-    signAdHoc(
-      path.join(application, internalTunAlphaHelperRelativePath),
-      "com.asuka109.mish.tun-helper.dev",
-    );
+    const helper = applicationRoot.contain(internalTunAlphaHelperRelativePath, "executable");
+    controller.assertCurrent();
+    signAdHoc(controller.absolute, "com.asuka109.mish.internal-tun-alpha");
+    helper.assertCurrent();
+    signAdHoc(helper.absolute, "com.asuka109.mish.tun-helper.dev");
+    const signedCore = applicationRoot.contain(internalTunAlphaCoreRelativePath, "executable");
+    signedCore.assertCurrent();
     invariant(
-      (await digestFile(path.join(application, internalTunAlphaCoreRelativePath))) ===
-        release.binarySha256,
+      digest(readContainedReleaseFile(signedCore)) === release.binarySha256,
       "Packaging changed the exact pinned Core",
     );
 
     await setFixedTimes(application);
     // The app seal owns the self-signing main executable. The manifest hashes the
     // remaining application resources and fixed payload before the final seal.
+    for (const relative of [
+      internalTunAlphaControllerRelativePath,
+      internalTunAlphaHelperRelativePath,
+      internalTunAlphaCoreRelativePath,
+      applicationMainExecutableRelativePath,
+    ]) {
+      applicationRoot.contain(relative, "executable").assertCurrent();
+    }
+    applicationRoot.assertCurrent();
     signAdHoc(application, "com.asuka109.mish");
     await setFixedTimes(application);
     const manifest = await createInternalTunAlphaManifest(application, {
       coreVersion: release.version,
       helperVersion,
     });
-    await writeFile(
-      path.join(application, internalTunAlphaManifestRelativePath),
+    writeContainedReleaseFile(
+      applicationRoot,
+      internalTunAlphaManifestRelativePath,
       `${JSON.stringify(manifest, null, 2)}\n`,
       { mode: 0o644 },
     );
-    await chmod(path.join(application, internalTunAlphaManifestRelativePath), 0o644);
+    for (const relative of [
+      internalTunAlphaControllerRelativePath,
+      internalTunAlphaHelperRelativePath,
+      internalTunAlphaCoreRelativePath,
+      applicationMainExecutableRelativePath,
+    ]) {
+      applicationRoot.contain(relative, "executable").assertCurrent();
+    }
+    applicationRoot.assertCurrent();
     signAdHoc(application, "com.asuka109.mish");
     await setFixedTimes(application);
     await verifyInternalTunAlphaPackage(packageRoot);
@@ -706,7 +781,10 @@ export async function buildInternalTunAlphaPackage(): Promise<{
       },
       stdio: "inherit",
     });
+    applicationRoot.assertCurrent();
+    outputParentGuard.assertCurrent();
     await rename(packageRoot, outputRoot);
+    assertPrivateNoFollowRoot(outputRoot).assertCurrent();
     await rmdir(staging);
   } catch (error) {
     try {
@@ -773,8 +851,13 @@ export async function buildInternalTunAlphaPackage(): Promise<{
   );
   return {
     archive,
-    manifestSha256: await digestFile(
-      path.join(outputRoot, "Mish.app", internalTunAlphaManifestRelativePath),
+    manifestSha256: digest(
+      readContainedReleaseFile(
+        assertPrivateNoFollowRoot(outputRoot).contain(
+          `Mish.app/${internalTunAlphaManifestRelativePath}`,
+          "file",
+        ),
+      ),
     ),
     packageRoot: outputRoot,
   };
@@ -796,8 +879,13 @@ async function main() {
     const application = await applicationRootFromPackageRoot(root);
     console.log(
       JSON.stringify({
-        manifestSha256: await digestFile(
-          path.join(application, internalTunAlphaManifestRelativePath),
+        manifestSha256: digest(
+          readContainedReleaseFile(
+            assertPrivateNoFollowRoot(application).contain(
+              internalTunAlphaManifestRelativePath,
+              "file",
+            ),
+          ),
         ),
         ok: true,
         packageVersion: manifest.packageVersion,

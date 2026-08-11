@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
-  lstatSync,
   mkdirSync,
   mkdtempDisposableSync,
   readFileSync,
@@ -10,6 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import {
+  assertPrivateNoFollowRoot,
+  readContainedReleaseFile,
+  ReleasePathError,
+  writeContainedReleaseFile,
+  type PrivateNoFollowRoot,
+} from "./release-path-containment.ts";
 
 const fullSha = /^[0-9a-f]{40}$/u;
 const sha256Digest = /^[0-9a-f]{64}$/u;
@@ -180,21 +187,27 @@ function booleanOption(arguments_: string[], name: string): boolean {
 
 function normalizeRelativePath(root: string, absolute: string): string {
   const relative = path.relative(root, absolute).split(path.sep).join("/");
-  invariant(safeRelativePath.test(relative), `Candidate path is unsafe: ${relative}`);
+  if (!safeRelativePath.test(relative)) throw new ReleasePathError("relative-escape");
   return relative;
 }
 
-function filesUnder(root: string, directory = root, depth = 0, state = { entries: 0 }): string[] {
+function filesUnder(
+  root: string,
+  rootGuard: PrivateNoFollowRoot,
+  directory = root,
+  depth = 0,
+  state = { entries: 0 },
+): string[] {
   invariant(depth <= maximumCandidateDepth, "Candidate directory nesting is too deep.");
   return readdirSync(directory, { withFileTypes: true })
     .flatMap((entry) => {
       const absolute = path.join(directory, entry.name);
+      const relative = normalizeRelativePath(root, absolute);
       state.entries += 1;
       invariant(state.entries <= maximumCandidateEntries, "Candidate contains too many entries.");
-      invariant(!entry.isSymbolicLink(), `Candidate contains a symlink: ${absolute}`);
-      if (entry.isDirectory()) return filesUnder(root, absolute, depth + 1, state);
-      invariant(entry.isFile(), `Candidate contains an unsupported entry: ${absolute}`);
-      invariant(lstatSync(absolute).nlink === 1, `Candidate contains a hard link: ${absolute}`);
+      rootGuard.contain(relative, entry.isDirectory() ? "directory" : "file");
+      if (entry.isDirectory()) return filesUnder(root, rootGuard, absolute, depth + 1, state);
+      if (!entry.isFile()) throw new ReleasePathError("non-regular");
       return [absolute];
     })
     .sort((left, right) =>
@@ -205,24 +218,25 @@ function filesUnder(root: string, directory = root, depth = 0, state = { entries
 function collectCandidateFiles(
   directory: string,
   manifestName: string,
+  rootGuard: PrivateNoFollowRoot,
   roles: Record<string, string> = {},
 ): CandidateFile[] {
   let totalBytes = 0;
-  const files = filesUnder(directory)
+  const files = filesUnder(directory, rootGuard)
     .map((absolute): CandidateFile | null => {
       const relative = normalizeRelativePath(directory, absolute);
       if (relative === manifestName) return null;
-      const metadata = lstatSync(absolute);
+      const guarded = rootGuard.contain(relative, "file");
+      const content = readContainedReleaseFile(guarded);
       invariant(
-        metadata.size > 0 && metadata.size <= maximumCandidateFileBytes,
+        content.byteLength > 0 && content.byteLength <= maximumCandidateFileBytes,
         `Candidate file size is invalid or unbounded: ${relative}`,
       );
-      totalBytes += metadata.size;
+      totalBytes += content.byteLength;
       invariant(
         totalBytes <= maximumCandidateTotalBytes,
         "Candidate total payload exceeds its size limit.",
       );
-      const content = readFileSync(absolute);
       return {
         path: relative,
         role: roles[relative] ?? "payload",
@@ -368,11 +382,13 @@ export function createCandidateManifest(options: {
   const policy = options.policy ?? readTrustedReleasePolicy();
   assertDispatchShape(options.identity);
   const directory = path.resolve(options.directory);
-  invariant(
-    lstatSync(directory).isDirectory(),
-    "Candidate manifest input must be a real directory.",
+  const rootGuard = assertPrivateNoFollowRoot(directory);
+  const files = collectCandidateFiles(
+    directory,
+    policy.artifact.manifestName,
+    rootGuard,
+    options.roles,
   );
-  const files = collectCandidateFiles(directory, policy.artifact.manifestName, options.roles);
   invariant(files.length > 0, "Candidate manifest cannot describe an empty artifact.");
   const manifest: CandidateManifest = {
     schemaVersion: policy.artifact.schemaVersion,
@@ -382,10 +398,11 @@ export function createCandidateManifest(options: {
     files,
     bundleSha256: sha256(canonicalBundle(files)),
   };
-  writeFileSync(
-    path.join(directory, policy.artifact.manifestName),
+  writeContainedReleaseFile(
+    rootGuard,
+    policy.artifact.manifestName,
     `${JSON.stringify(manifest, null, 2)}\n`,
-    { mode: 0o444 },
+    { mode: 0o444, overwrite: true },
   );
   return manifest;
 }
@@ -404,17 +421,14 @@ export function verifyCandidateManifest(options: {
     "Candidate verification requires an immutable numeric artifact ID.",
   );
   const directory = path.resolve(options.directory);
-  const manifestPath = path.join(directory, policy.artifact.manifestName);
-  const manifestMetadata = lstatSync(manifestPath);
+  const rootGuard = assertPrivateNoFollowRoot(directory);
+  const manifestPath = rootGuard.contain(policy.artifact.manifestName, "file");
+  const manifestBytes = readContainedReleaseFile(manifestPath);
   invariant(
-    manifestMetadata.isFile() && !manifestMetadata.isSymbolicLink() && manifestMetadata.nlink === 1,
-    "Candidate manifest must be one regular unlinked file.",
-  );
-  invariant(
-    manifestMetadata.size <= maximumManifestBytes,
+    manifestBytes.byteLength <= maximumManifestBytes,
     "Candidate manifest exceeds its size limit.",
   );
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as CandidateManifest;
+  const manifest = JSON.parse(manifestBytes.toString("utf8")) as CandidateManifest;
   invariant(
     manifest &&
       typeof manifest === "object" &&
@@ -466,6 +480,7 @@ export function verifyCandidateManifest(options: {
   const observedFiles = collectCandidateFiles(
     directory,
     policy.artifact.manifestName,
+    rootGuard,
     Object.fromEntries(manifest.files.map((file) => [file.path, file.role])),
   );
   invariant(

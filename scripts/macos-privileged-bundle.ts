@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { assertPrivateNoFollowRoot, readContainedReleaseFile } from "./release-path-containment.ts";
+
 export const productionHelperRelativePath = "Contents/Resources/mish-tun-helper";
 export const productionPlistRelativePath =
   "Contents/Library/LaunchDaemons/com.asuka109.mish.tun-helper.plist";
@@ -15,12 +17,19 @@ export const internalTunAlphaManifestRelativePath = `${internalTunAlphaPayloadRe
 export type MacOsPrivilegedBundleMode = "ad-hoc" | "internal-tun-alpha" | "production";
 
 async function digest(file: string) {
-  return createHash("sha256")
-    .update(await readFile(file))
-    .digest("hex");
+  return digestBytes(await readFile(file));
 }
 
-async function walk(root: string, directory = root): Promise<string[]> {
+function digestBytes(content: Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function walk(
+  root: string,
+  directory = root,
+  rootGuard = assertPrivateNoFollowRoot(root),
+): Promise<string[]> {
+  rootGuard.assertCurrent();
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -32,10 +41,15 @@ async function walk(root: string, directory = root): Promise<string[]> {
     entries.map(async (entry) => {
       const absolute = path.join(directory, entry.name);
       const relative = path.relative(root, absolute);
-      if (entry.isDirectory()) return [relative, ...(await walk(root, absolute))];
+      const guarded = rootGuard.contain(relative, entry.isDirectory() ? "directory" : "file");
+      guarded.assertCurrent();
+      if (entry.isDirectory())
+        return [relative, ...(await walk(root, guarded.absolute, rootGuard))];
+      if (!entry.isFile()) throw new Error("Privileged bundle contains an unsupported file type");
       return [relative];
     }),
   );
+  rootGuard.assertCurrent();
   return discovered.flat().sort();
 }
 
@@ -85,7 +99,8 @@ export async function verifyMacOsPrivilegedBundle(
   application: string,
   mode: MacOsPrivilegedBundleMode,
 ) {
-  const discovered = await walk(application);
+  const applicationRoot = assertPrivateNoFollowRoot(application);
+  const discovered = await walk(application, application, applicationRoot);
   const privileged = discovered.filter(isPrivilegedPath);
 
   if (mode === "ad-hoc") {
@@ -115,17 +130,25 @@ export async function verifyMacOsPrivilegedBundle(
         `Internal TUN Alpha bundle contains unexpected privileged artifacts: ${unexpected.join(", ")}`,
       );
     }
-    await requireDirectory(path.join(application, internalTunAlphaPayloadRelativePath));
-    await requireRegularFile(path.join(application, internalTunAlphaControllerRelativePath), true);
-    await requireRegularFile(path.join(application, internalTunAlphaHelperRelativePath), true);
-    await requireRegularFile(path.join(application, internalTunAlphaCoreRelativePath), true);
-    const plist = path.join(application, internalTunAlphaPlistRelativePath);
-    await requireRegularFile(plist, false);
-    await requireRegularFile(path.join(application, internalTunAlphaManifestRelativePath), false);
+    const payload = applicationRoot.contain(internalTunAlphaPayloadRelativePath, "directory");
+    const controller = applicationRoot.contain(
+      internalTunAlphaControllerRelativePath,
+      "executable",
+    );
+    const helper = applicationRoot.contain(internalTunAlphaHelperRelativePath, "executable");
+    const core = applicationRoot.contain(internalTunAlphaCoreRelativePath, "executable");
+    const plist = applicationRoot.contain(internalTunAlphaPlistRelativePath, "file");
+    const manifest = applicationRoot.contain(internalTunAlphaManifestRelativePath, "file");
+    await requireDirectory(payload.absolute);
+    await requireRegularFile(controller.absolute, true);
+    await requireRegularFile(helper.absolute, true);
+    await requireRegularFile(core.absolute, true);
+    await requireRegularFile(plist.absolute, false);
+    await requireRegularFile(manifest.absolute, false);
     const sourcePlist = path.resolve(
       "resources/internal-tun-alpha/com.asuka109.mish.tun-helper.dev.plist.template",
     );
-    if ((await digest(plist)) !== (await digest(sourcePlist))) {
+    if (digestBytes(readContainedReleaseFile(plist)) !== (await digest(sourcePlist))) {
       throw new Error(
         "Internal TUN Alpha bundled LaunchDaemon property list does not match the repository contract",
       );
@@ -151,15 +174,15 @@ export async function verifyMacOsPrivilegedBundle(
     );
   }
 
-  const helper = path.join(application, productionHelperRelativePath);
-  const plist = path.join(application, productionPlistRelativePath);
-  await requireDirectory(path.dirname(plist));
-  await requireRegularFile(helper, true);
-  await requireRegularFile(plist, false);
+  const helper = applicationRoot.contain(productionHelperRelativePath, "executable");
+  const plist = applicationRoot.contain(productionPlistRelativePath, "file");
+  await requireDirectory(path.dirname(plist.absolute));
+  await requireRegularFile(helper.absolute, true);
+  await requireRegularFile(plist.absolute, false);
   const sourcePlist = path.resolve(
     "apps/desktop/src-tauri/macos/LaunchDaemons/com.asuka109.mish.tun-helper.plist",
   );
-  if ((await digest(plist)) !== (await digest(sourcePlist))) {
+  if (digestBytes(readContainedReleaseFile(plist)) !== (await digest(sourcePlist))) {
     throw new Error("Bundled LaunchDaemon property list does not match the repository contract");
   }
 
@@ -169,4 +192,5 @@ export async function verifyMacOsPrivilegedBundle(
       throw new Error(`Production bundle contains a set-id artifact: ${relative}`);
     }
   }
+  applicationRoot.assertCurrent();
 }

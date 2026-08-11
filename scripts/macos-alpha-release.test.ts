@@ -225,7 +225,7 @@ test("artifact failure produces no candidate directory", () => {
         sourceSha,
         version,
       }),
-    /Alpha DMG is missing/u,
+    /release-path-rejected:missing/u,
   );
   assert.equal(existsSync(output), false);
 });
