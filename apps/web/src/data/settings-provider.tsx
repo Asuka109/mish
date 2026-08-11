@@ -20,6 +20,7 @@ import type {
 import { TunHelperFailureKindSchema } from "@mish/contracts";
 import { RpcRemoteError, RpcSessionAuthority } from "@mish/rpc-client";
 import { UnavailableLocalBackupClient } from "../platform/local-backup";
+import { LocalBackupExportAuthority } from "../platform/local-backup-authority";
 import TypesafeI18n from "../i18n/i18n-react";
 import { projectLocale } from "../i18n/locale";
 import {
@@ -44,6 +45,7 @@ export interface TunHelperSetupOptions {
 interface SettingsContextValue {
   acceptSnapshot(snapshot: SettingsSnapshotDto, delivery?: SettingsSnapshotDelivery): void;
   error: string | null;
+  localBackupExportAuthority: LocalBackupExportAuthority;
   pending: boolean;
   installTunHelper(options?: TunHelperSetupOptions): Promise<TunHelperOperationResult>;
   localBackupClient: LocalBackupClient;
@@ -83,6 +85,7 @@ export function SettingsProvider({
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const sessionAuthority = useRef(new RpcSessionAuthority<SettingsSnapshotDto>());
+  const localBackupExportAuthority = useRef<LocalBackupExportAuthority | null>(null);
   const initializedAcceptance = useRef(false);
   if (!initializedAcceptance.current) {
     sessionAuthority.current.observeTransport(true);
@@ -92,6 +95,9 @@ export function SettingsProvider({
       "baseline",
     );
     initializedAcceptance.current = true;
+  }
+  if (!localBackupExportAuthority.current) {
+    localBackupExportAuthority.current = new LocalBackupExportAuthority(sessionAuthority.current);
   }
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
@@ -205,6 +211,7 @@ export function SettingsProvider({
     () => ({
       acceptSnapshot,
       error,
+      localBackupExportAuthority: localBackupExportAuthority.current!,
       installTunHelper: (options) =>
         runTunHelper(() => client.installTunHelper(tunHelperLifecycleOptions(options))),
       localBackupClient,
