@@ -27,6 +27,7 @@ export interface TrustPolicy {
     trustedRef: string;
   };
   protected: {
+    requiredStatusChecks: string[];
     environments: Record<string, EnvironmentPolicy>;
   };
 }
@@ -109,6 +110,11 @@ function safeObservation(name: string, result: ApiResult): unknown {
         require_code_owner_reviews?: boolean;
         required_approving_review_count?: number;
       };
+      required_status_checks?: {
+        strict?: boolean;
+        contexts?: string[];
+        checks?: Array<{ context?: string; app_id?: number | null }>;
+      } | null;
     };
     return {
       body: {
@@ -121,6 +127,13 @@ function safeObservation(name: string, result: ApiResult): unknown {
                 body.required_pull_request_reviews.require_code_owner_reviews,
               required_approving_review_count:
                 body.required_pull_request_reviews.required_approving_review_count,
+            }
+          : undefined,
+        required_status_checks: body.required_status_checks
+          ? {
+              strict: body.required_status_checks.strict,
+              contexts: body.required_status_checks.contexts,
+              checks: body.required_status_checks.checks,
             }
           : undefined,
       },
@@ -370,6 +383,52 @@ function isClassicMainReviewProtected(result: ApiResult): boolean {
   );
 }
 
+function requiredStatusCheckContexts(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return [
+      ...new Set(
+        value.flatMap((check) => {
+          if (typeof check !== "object" || check === null || Array.isArray(check)) return [];
+          const context = (check as { context?: unknown }).context;
+          return typeof context === "string" ? [context] : [];
+        }),
+      ),
+    ];
+  }
+  if (typeof value !== "object" || value === null) return [];
+  const record = value as {
+    contexts?: unknown;
+    checks?: unknown;
+  };
+  const contexts = Array.isArray(record.contexts)
+    ? record.contexts.filter((context): context is string => typeof context === "string")
+    : [];
+  const checks = Array.isArray(record.checks)
+    ? record.checks.flatMap((check) => {
+        if (typeof check !== "object" || check === null || Array.isArray(check)) return [];
+        const context = (check as { context?: unknown }).context;
+        return typeof context === "string" ? [context] : [];
+      })
+    : [];
+  return [...new Set([...contexts, ...checks])];
+}
+
+function isClassicRequiredStatusChecksProtected(
+  result: ApiResult,
+  expectedChecks: readonly string[],
+): boolean {
+  if (result.status !== 0 || expectedChecks.length === 0) return false;
+  const body = result.body as {
+    required_status_checks?: { strict?: boolean; contexts?: unknown; checks?: unknown } | null;
+  };
+  const required = body.required_status_checks;
+  const contexts = requiredStatusCheckContexts(required);
+  return (
+    required?.strict === true &&
+    expectedChecks.every((expectedCheck) => contexts.includes(expectedCheck))
+  );
+}
+
 function isActiveMainReviewRuleset(result: ApiResult, defaultBranch: string): boolean {
   if (result.status !== 0) return false;
   const body = result.body as {
@@ -397,6 +456,42 @@ function isActiveMainReviewRuleset(result: ApiResult, defaultBranch: string): bo
     (refs?.exclude?.length ?? 0) === 0 &&
     pullRequestRule?.parameters?.require_code_owner_review === true &&
     (pullRequestRule.parameters.required_approving_review_count ?? 0) >= 1
+  );
+}
+
+function isActiveMainRequiredStatusRuleset(
+  result: ApiResult,
+  defaultBranch: string,
+  expectedChecks: readonly string[],
+): boolean {
+  if (result.status !== 0 || expectedChecks.length === 0) return false;
+  const body = result.body as {
+    bypass_actors?: unknown[];
+    conditions?: { ref_name?: { exclude?: string[]; include?: string[] } };
+    enforcement?: string;
+    rules?: Array<{
+      parameters?: {
+        required_status_checks?: unknown;
+        strict_required_status_checks_policy?: boolean;
+      };
+      type?: string;
+    }>;
+    target?: string;
+  };
+  const refs = body.conditions?.ref_name;
+  const acceptedIncludes = new Set(["~ALL", "~DEFAULT_BRANCH", `refs/heads/${defaultBranch}`]);
+  const statusRule = body.rules?.find((rule) => rule.type === "required_status_checks");
+  const parameters = statusRule?.parameters;
+  const contexts = requiredStatusCheckContexts(parameters?.required_status_checks);
+  return (
+    body.target === "branch" &&
+    body.enforcement === "active" &&
+    Array.isArray(body.bypass_actors) &&
+    body.bypass_actors.length === 0 &&
+    (refs?.include ?? []).some((entry) => acceptedIncludes.has(entry)) &&
+    (refs?.exclude?.length ?? 0) === 0 &&
+    parameters?.strict_required_status_checks_policy === true &&
+    expectedChecks.every((expectedCheck) => contexts.includes(expectedCheck))
   );
 }
 
@@ -491,12 +586,35 @@ export function evaluateGitHubTrustSettings(
     );
   }
 
-  const rulesetProtectsMain = Object.entries(endpoints)
-    .filter(([name]) => name.startsWith("ruleset:"))
-    .some(([, result]) => isActiveMainReviewRuleset(result, trustPolicy.repository.defaultBranch));
-  if (!isClassicMainReviewProtected(endpoints.branchProtection) && !rulesetProtectsMain) {
+  const rulesetResults = Object.entries(endpoints).filter(([name]) => name.startsWith("ruleset:"));
+  const rulesetProtectsMain = rulesetResults
+    .map(([, result]) => result)
+    .some((result) => isActiveMainReviewRuleset(result, trustPolicy.repository.defaultBranch));
+  const rulesetProtectsRequiredChecks = rulesetResults
+    .map(([, result]) => result)
+    .some((result) =>
+      isActiveMainRequiredStatusRuleset(
+        result,
+        trustPolicy.repository.defaultBranch,
+        trustPolicy.protected.requiredStatusChecks,
+      ),
+    );
+  const classicReviewProtected = isClassicMainReviewProtected(endpoints.branchProtection);
+  if (!classicReviewProtected && !rulesetProtectsMain) {
     blockers.push(
       "Required main-branch review and CODEOWNERS enforcement are unavailable or do not match the fail-closed policy.",
+    );
+  }
+  const classicRequiredChecksProtected = isClassicRequiredStatusChecksProtected(
+    endpoints.branchProtection,
+    trustPolicy.protected.requiredStatusChecks,
+  );
+  if (
+    trustPolicy.protected.requiredStatusChecks.length === 0 ||
+    (!classicRequiredChecksProtected && !rulesetProtectsRequiredChecks)
+  ) {
+    blockers.push(
+      "Required pull-request external checks are unavailable or do not match the fail-closed policy.",
     );
   }
 

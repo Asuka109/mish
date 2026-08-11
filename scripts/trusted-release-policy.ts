@@ -75,6 +75,7 @@ export interface TrustedReleasePolicy {
         branches: string[];
       }
     >;
+    requiredStatusChecks: string[];
     requiredPredecessors: string[];
     artifactRetentionDays: number;
   };
@@ -87,6 +88,7 @@ export interface TrustedReleasePolicy {
   actions: {
     requireFullCommitSha: boolean;
     allowed: Record<string, string>;
+    allowedLocalActions: string[];
     allowedReusableWorkflows: string[];
   };
   artifact: {
