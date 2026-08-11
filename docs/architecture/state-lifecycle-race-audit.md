@@ -202,6 +202,20 @@ Core/platform observation may enter `Applied`. Scope epoch, operation ID,
 revision, and effect correlation retire stale, duplicate, equal-revision, and
 late completions without mutating the active aggregate.
 
+The lifecycle authority is recorded once as
+`capture-owned-operation-lifecycle` in
+`docs/architecture/state-machine-registry.json`. The kernel owns forced
+retirement, cancellation, finalizer joining, and shutdown draining;
+`CaptureMachine` owns the typed finalization and replacement transitions; and
+the single `CaptureReconciler` runner is the runtime admission/shutdown
+facade. Platform reconcilers only execute effects, while
+`CaptureRuntimeTransition`, the outer Profile/Core saga, and the
+`CaptureLifecycleObserver` projection are non-owners. No other production
+module may construct a Capture runner, write a terminal Capture lifecycle
+input through a bypass, or publish a second lifecycle stream. The registry and
+runtime ownership gates fail closed when these ownership facts or this
+documentation drift.
+
 ### Bridge reconnect and subscription replacement
 
 ```mermaid

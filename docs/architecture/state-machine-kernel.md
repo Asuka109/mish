@@ -77,6 +77,43 @@ the reducer. Adapter resource locks do not become machine authority, and no
 detached task or lock held across an await can mutate the reducer-owned state.
 Domain projections remain the only public DTO/RPC surface.
 
+## Single lifecycle authority for Capture owned operations
+
+The `capture-owned-operation-lifecycle` contract in
+[`state-machine-registry.json`](state-machine-registry.json) defines one
+lifecycle authority for Capture operations. The contract has deliberately
+separate implementation seams, but those seams do not create separate
+lifecycles:
+
+| Concern                              | Sole owner                                                                                                                                                                          | Boundary that is not an owner                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Forced retirement and task ownership | `mish-state-machine`'s `RunnerHandle`, `finish_effect`, and bounded `drain` path                                                                                                    | `CaptureReconciler` only holds the runner; `abort_for_process_termination` is the explicitly separate process-crash path             |
+| Cancellation                         | The kernel-owned task cancellation token, followed by `CaptureMachine::task_failed` or `TaskCancelled`                                                                              | `CaptureRuntimeTransition` reserves replacement admission; it does not cancel or finalize a machine                                  |
+| Finalization                         | `CaptureMachine::finalizer` creates the one `CaptureEffect::Finalize`; the kernel owns its task, correlation, join, and deadline                                                    | `CaptureEffectAdapter` only executes the typed effect and returns an input                                                           |
+| Replacement                          | `CaptureMachine` admits `TransitionMode::RuntimeReplacement` and the kernel retires stale completions by correlation                                                                | Profile/Core activation may hold the `CaptureRuntimeTransition` guard; it cannot write Capture state or publish a replacement result |
+| Shutdown                             | `CaptureReconciler` is the only production facade that calls the Capture runner's `shutdown`; the kernel applies `CaptureInput::Shutdown`, drains, and returns `RetirementTerminal` | System Proxy/TUN reconcilers restore platform state; they do not retire the Capture machine                                          |
+
+`CaptureMachine` is the data-bearing domain reducer and owns the Capture
+transition vocabulary. `CaptureReconciler` owns exactly one
+`RunnerHandle<CaptureMachine>` and is the only admission/shutdown facade.
+`CaptureEffectAdapter`, `SystemProxyReconciler`, and `TunReconciler` are effect
+seams and serialized platform guards, not lifecycle authorities. The
+`CaptureProjectionObserver` and the feature-gated `CaptureLifecycleObserver`
+only project bounded transitions to consumers; the SimulatedHost transcript
+sink is test evidence and never owns a reducer, task, cancellation token, or
+finalizer.
+
+This distinction is mandatory for every operation phase: forced retirement,
+cancellation, finalization, replacement, and shutdown must remain one
+correlated path through the kernel and Capture reducer. A new Capture runner,
+direct `CaptureInput::TaskFailed`, direct `CaptureEffect::Finalize`, detached
+Capture task, second lifecycle observer, or platform callback that publishes a
+Capture terminal state is an authority violation. The registry and its static
+inspection fail closed when an owner path, marker, responsibility, or
+non-owner boundary drifts. Normal shutdown and its bounded finalizer window
+remain distinct from process termination, which intentionally does not run
+application finalizers and is used only by restart/crash harnesses.
+
 ## Desired state is not observed state
 
 An admitted command expresses intent only. `Starting`, `Applying`,
