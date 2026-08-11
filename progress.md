@@ -21,10 +21,11 @@ Owner: thread-master coordinator
 
 Waves 2A through 2D are fully integrated. In Wave 2E, #449 C1.1, #450 C3.1,
 #452 F1.1, and #453 F2.1 are integrated; #451 D1.1 remains active in its
-isolated worktree. Nine repository concurrency slots remain unreserved. The
-next safe AFK candidates are #450 C3.2, #452 F1.2, and #453 F2.2, pending the
-maintainer's exact-wave approval. #449 C1.2 must not run concurrently with
-#453 F2.2 because both own overlapping Profile/bridge files.
+isolated worktree. The maintainer approved the exact three-task AFK Wave 2F on
+2026-08-12. #450 C3.2, #452 F1.2, and #453 F2.2 are reserved as `dispatching`
+pending visible Worker creation, leaving six repository concurrency slots
+unreserved. #449 C1.2 must not run concurrently with #453 F2.2 because both
+own overlapping Profile/bridge files.
 
 ## Wave 1 worker ledger
 
@@ -142,6 +143,22 @@ other hands-on work.
 | #451 D1.1 | `019ff1b0-737d-7651-badf-08f9bc0eed79` | `ecd5` | active | #436 and #440 completed | Harden Rust Android VPN replacement, cleanup barriers, and the `Stopped` invariant | Visible Luna Max Worker is active; own Rust lifecycle authority only and do not change Kotlin/JavaScript or claim physical-device acceptance |
 | #452 F1.1 | `019ff1b0-737c-7ed0-9392-1f373f75ee5a` | `b3af` | integrated | #440 completed | Implement one editor operation identity and unified pending exclusion policy | PR #486 merged as `39c279f`; local/remote gates passed; Issue #452 remains open with only F1.1 checked |
 | #453 F2.1 | `019ff1b0-737c-7ed0-9392-1f5e14e25def` | `fded` | integrated | #440 completed | Produce a read-only reachability trace and exact Profile Patch Editor deletion manifest | PR #487 merged as `911ac9f`; the trace found no supported runtime entry and authorizes exact-manifest deletion in F2.2; Issue #453 remains open with only F2.1 checked |
+
+## Wave 2F dispatch manifest
+
+The maintainer approved this exact three-task AFK wave. Every entry uses model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. Workers
+must read both progress ledgers and follow the transcript-driven system-test
+skill for boundary, fixture, bridge, or simulated-host changes. This wave
+authorizes no credentials, physical-device acceptance, real-host mutation, or
+other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #450 C3.2 | `pending` | `pending` | dispatching | C3.1 integrated | Implement Browser Mode deferred, replacement, and stale-preview behavior plus save-blocking tests | Own Backup Browser Mode/UI/fixture behavior and tests only; preserve C3.1 fingerprint authority and do not expand the backup contract |
+| #452 F1.2 | `pending` | `pending` | dispatching | F1.1 integrated | Implement Restore Defaults confirmation/cancellation behavior and failure/late-completion tests | Own service-monitor confirmation/cancellation UI and deterministic tests only; preserve F1.1 operation identity and pending exclusion authority |
+| #453 F2.2 | `pending` | `pending` | dispatching | F2.1 integrated | Delete the dead Profile Patch Editor path and exact dependent contracts, styles, tests, and generated artifacts | Follow the F2.1 exact deletion manifest; preserve active Profile import/save/cancel and durable patch-engine behavior; do not implement F2.3 or touch #449 C1.2 |
 
 ## Existing issue coordination
 
