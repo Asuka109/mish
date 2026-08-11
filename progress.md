@@ -19,13 +19,10 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Wave 2A is fully integrated. The maintainer approved the exact seven-task Wave
-2B on 2026-08-11. All seven Luna Max Workers were created from the published
-manifest baseline `4df0ebe`; their identities and isolated worktrees are
-backfilled below. One Worker is active; #436 A1.3 and #441 C2.2 are merged with
-final handoffs pending; #448 A2.2, #439 A5.2, #440 B1.3, and #442 E1.2 are
-integrated. No dispatch reservation remains, and nine concurrency slots are
-unreserved.
+Waves 2A and 2B are fully integrated. The exact seven-task Wave 2B was created
+from published manifest baseline `4df0ebe`; all seven Luna Max Workers are now
+idle or unloaded after accepted ordinary merges and tracker read-back. No Worker
+or dispatch reservation is active, and all ten concurrency slots are unreserved.
 
 ## Wave 1 worker ledger
 
@@ -59,19 +56,19 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | A1.1/A1.2 integrated; A1.3 merged with final handoff pending | none | confirmation-only |
+| Owned operations | #436 | completed: A1.1-A1.3 integrated; Issue closed | none | accepted |
 | System Proxy restoration | #448 | A2.1/A2.2 integrated; A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
 | RPC Session Authority | #440 | B1.1/B1.2/B1.3 integrated; B1.4/B1.5 planned | none | confirmation-only |
 | Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Atomic profile generations | #441 | C2.1 integrated; C2.2 merged with final handoff pending; C2.3 planned | none | confirmation-only |
+| Atomic profile generations | #441 | C2.1/C2.2 integrated; C2.3 planned | none | confirmation-only |
 | Backup preview authority | #450 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
-| Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
+| Android VPN authority | #451 | blocked | #440; #436 is complete | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | E1.1/E1.2 integrated; E1.3/E1.4 planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | E2.1/E2.2 integrated; E2.3 planned | none | confirmation-only |
+| CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
 | Settings editor serialization | #452 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Remove Profile Patch Editor | #453 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
@@ -89,19 +86,19 @@ branch-protection mutation, or other hands-on acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | merged; handoff pending | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | PR #471 merged as `abb82c1`; await the Worker's final evidence/tracker handoff before integration; do not infer Issue completion from the merge alone |
+| #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | integrated | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | PR #471 merged as `abb82c1`; final local/remote gates passed, all acceptance criteria were checked, and Issue #436 closed without claiming #353 physical acceptance |
 | #448 A2.2 | `019ff06b-2dbe-7653-abf7-03eed0131628` | `7719` | integrated | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | PR #474 merged as `2c1d89d`; local final `pnpm check:pr`, Fast PR, and Android gates passed; no Tart or developer-host mutation and A2.3 remains hands-on |
 | #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | integrated | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 merged as `dc80bf4`; final `pnpm check:pr`, Fast PR, and Android gates passed after preserving A2.2 overlap; Issue #439 closed, while #353 remains independent |
 | #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | integrated | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | PR #470 merged as `bbcd699`; acceptance follow-up PR #476 merged as `7cec8f9`; Status 17/17 plus full local/remote gates passed; B1.4/B1.5 remain open |
-| #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | merged; handoff pending | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | PR #472 merged as `ef7380e`; await the Worker's final evidence/tracker handoff before integration; C2.3 remains separate |
+| #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | integrated | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | PR #472 merged as `ef7380e`; Profile 8/27/20, activation 52 passed/3 ignored, full local/remote gates passed; C2.3 remains open |
 | #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | integrated | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | PR #473 merged as `c9fa882`; Fast PR and Android gates plus post-merge `pnpm check:pr` passed; E1.3/E1.4 remain open and no real credentials or release mutation were used |
-| #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | active | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | No branch-protection or external repository setting mutation |
+| #443 E2.3 | `019ff06b-2dc0-7350-906c-4baafbeecbe7` | `0746` | integrated | E2.1/E2.2 integrated | Add workflow/target drift fixtures, evidence-boundary documentation, and read-only branch-protection checks | PR #469 merged as `4bb72f6`; local policy/docs gates and remote CI passed, all criteria were checked, and Issue #443 closed without external setting mutation |
 
 ## Existing issue coordination
 
 | Issue | State | Coordination rule |
 | --- | --- | --- |
-| #353 | needs-input | Preserve the existing visible worker; do not silently replace it. Resume physical acceptance only after relevant #436/#448/#439 evidence is integrated. |
+| #353 | needs-input | Preserve the existing visible worker; do not silently replace it. Relevant #436/#448/#439 automated evidence is integrated; any resume remains an explicit hands-on physical-host action. |
 | #352 | needs-info | Wait for recurrence; use #437's corrected harness to retain evidence. |
 | #435 | needs-triage | Do not duplicate. Plan repair-flow work after #440 establishes session authority; hands-on acceptance remains last. |
 | #265/#266/#268/#281/#283/#284 | blocked | Their Issue bodies now record #451/#454 as architecture dependencies; #265 also records #441. |
@@ -127,7 +124,7 @@ final-only escalation, and explicit human acceptance before merge.
 
 - #440 B1.2 is integrated. #449, #450, #452, and #453 are dependency-ready but
   remain undispatched pending an approved wave; #451 still also depends on #436.
-- Complete #436 before #451 starts; complete #451 D1.2 before #454 starts.
+- #451 remains blocked until #440 completes; complete #451 D1.2 before #454 starts.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
