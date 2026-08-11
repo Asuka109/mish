@@ -1,9 +1,11 @@
 use std::{
     ffi::OsString,
+    fmt,
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{self, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
+    process::Stdio,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -12,6 +14,11 @@ use futures_util::future::BoxFuture;
 use mish_runtime::{LocalProxyOwnership, LoopbackProxyEndpoint};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::Command,
+    time::timeout,
+};
 use uuid::Uuid;
 
 pub const MANAGED_CORE_TOKEN_ENV: &str = "MISH_MANAGED_CORE_TOKEN";
@@ -20,14 +27,31 @@ const LEASE_FILE: &str = "desktop-instance.lock";
 const OWNERSHIP_SCHEMA_VERSION: u32 = 1;
 const MAX_OWNERSHIP_BYTES: u64 = 16 * 1024;
 const RECOVERY_GRACE: Duration = Duration::from_secs(5);
+const IDENTITY_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const LAUNCH_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(1);
+const LISTENER_PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_LISTENER_OUTPUT_BYTES: usize = 16 * 1024;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ManagedCoreLaunchSpec {
     binary: PathBuf,
     config_directory: PathBuf,
     config_file: PathBuf,
     generation_id: String,
     launch_token: String,
+}
+
+impl fmt::Debug for ManagedCoreLaunchSpec {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedCoreLaunchSpec")
+            .field("binary", &"[redacted]")
+            .field("config_directory", &"[redacted]")
+            .field("config_file", &"[redacted]")
+            .field("generation_id", &self.generation_id)
+            .field("launch_token", &"[redacted]")
+            .finish()
+    }
 }
 
 impl ManagedCoreLaunchSpec {
@@ -52,7 +76,7 @@ impl ManagedCoreLaunchSpec {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ManagedProcessObservation {
     binary: PathBuf,
     config_directory: PathBuf,
@@ -60,6 +84,33 @@ pub struct ManagedProcessObservation {
     launch_token: String,
     pid: u32,
     started_at: u64,
+}
+
+impl fmt::Debug for ManagedProcessObservation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedProcessObservation")
+            .field("pid", &self.pid)
+            .field("started_at", &self.started_at)
+            .field("binary", &"[redacted]")
+            .field("config_directory", &"[redacted]")
+            .field("config_file", &"[redacted]")
+            .field("launch_token", &"[redacted]")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedProcessSignalOutcome {
+    Signalled,
+    AlreadyExited,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ManagedProcessWaitOutcome {
+    Exited,
+    Replaced,
+    TimedOut,
 }
 
 impl ManagedProcessObservation {
@@ -105,12 +156,20 @@ impl ManagedProcessObservation {
 pub enum ManagedProcessPlatformError {
     #[error("managed process identity could not be observed")]
     ObservationFailed,
+    #[error("managed process identity observation timed out")]
+    ObservationTimeout,
+    #[error("managed process identity did not match the expected process")]
+    IdentityMismatch,
     #[error("managed process signal could not be delivered")]
     SignalFailed,
     #[error("managed process exit could not be confirmed")]
     WaitFailed,
     #[error("managed listener ownership could not be confirmed")]
     ListenerInspectionFailed,
+    #[error("managed listener ownership probe timed out")]
+    ListenerProbeTimeout,
+    #[error("managed listener ownership probe output exceeded its bound")]
+    ListenerOutputTooLarge,
 }
 
 pub trait ManagedProcessPlatform: Send + Sync {
@@ -124,23 +183,29 @@ pub trait ManagedProcessPlatform: Send + Sync {
     fn inspect(
         &self,
         pid: u32,
-    ) -> Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError>;
+    ) -> BoxFuture<'_, Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError>>;
     fn find_launch(
         &self,
-        spec: &ManagedCoreLaunchSpec,
-    ) -> Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError>;
-    fn terminate(&self, pid: u32) -> Result<(), ManagedProcessPlatformError>;
-    fn kill(&self, pid: u32) -> Result<(), ManagedProcessPlatformError>;
+        spec: ManagedCoreLaunchSpec,
+    ) -> BoxFuture<'_, Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError>>;
+    fn terminate(
+        &self,
+        process: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>>;
+    fn kill(
+        &self,
+        process: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>>;
     fn wait_for_exit(
         &self,
-        pid: u32,
+        process: ManagedProcessObservation,
         deadline: Duration,
-    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>>;
+    ) -> BoxFuture<'_, Result<ManagedProcessWaitOutcome, ManagedProcessPlatformError>>;
     fn owns_listener(
         &self,
-        process: &ManagedProcessObservation,
-        endpoint: &LoopbackProxyEndpoint,
-    ) -> Result<bool, ManagedProcessPlatformError>;
+        process: ManagedProcessObservation,
+        endpoint: LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>>;
 }
 
 #[derive(Debug)]
@@ -209,6 +274,14 @@ pub enum ManagedCoreOwnershipError {
     InvalidRecord,
     #[error("managed Core process identity could not be confirmed")]
     IdentityMismatch,
+    #[error("managed Core process identity observation failed")]
+    ObservationFailed,
+    #[error("managed Core process identity observation timed out")]
+    ObservationTimeout,
+    #[error("managed Core process was replaced before the guarded operation")]
+    ReplacementDetected,
+    #[error("managed Core process signal was rejected")]
+    SignalFailed,
     #[error("managed Core process recovery is ambiguous")]
     AmbiguousRecovery,
     #[error("managed Core process could not be terminated and reaped")]
@@ -224,6 +297,10 @@ pub struct ManagedCoreProcess {
 impl ManagedCoreProcess {
     pub fn pid(&self) -> u32 {
         self.observation.pid
+    }
+
+    pub fn observation(&self) -> &ManagedProcessObservation {
+        &self.observation
     }
 }
 
@@ -380,14 +457,21 @@ impl ManagedCoreOwnership {
         {
             return Err(ManagedCoreOwnershipError::InvalidRecord);
         }
-        let deadline = Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + LAUNCH_OBSERVATION_TIMEOUT;
         let observation = loop {
-            match self.platform.inspect(pid) {
+            match self.inspect(pid).await {
                 Ok(Some(observation)) => break observation,
-                Ok(None) | Err(_) if Instant::now() < deadline => {
+                Ok(None) if Instant::now() < deadline => {
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                Ok(None) | Err(_) => return Err(ManagedCoreOwnershipError::IdentityMismatch),
+                Ok(None) => return Err(ManagedCoreOwnershipError::ObservationTimeout),
+                Err(
+                    ManagedCoreOwnershipError::ObservationFailed
+                    | ManagedCoreOwnershipError::ObservationTimeout,
+                ) if Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(error) => return Err(error),
             }
         };
         if !current.matches(&observation) {
@@ -423,12 +507,12 @@ impl ManagedCoreOwnership {
         self.load_record().map(|record| record.is_some())
     }
 
-    pub fn process_listener_ownership(
+    pub async fn process_listener_ownership(
         &self,
         process: &ManagedCoreProcess,
         endpoint: &LoopbackProxyEndpoint,
     ) -> LocalProxyOwnership {
-        let current = match self.platform.inspect(process.pid()) {
+        let current = match self.inspect(process.pid()).await {
             Ok(Some(current)) => current,
             Ok(None) => return LocalProxyOwnership::Unowned,
             Err(_) => return LocalProxyOwnership::Unknown,
@@ -436,11 +520,11 @@ impl ManagedCoreOwnership {
         if current != process.observation {
             return LocalProxyOwnership::Unowned;
         }
-        let owns = match self.platform.owns_listener(&current, endpoint) {
+        let owns = match self.listener_probe(&current, endpoint).await {
             Ok(owns) => owns,
             Err(_) => return LocalProxyOwnership::Unknown,
         };
-        match self.platform.inspect(process.pid()) {
+        match self.inspect(process.pid()).await {
             Ok(Some(confirmed)) if confirmed == current => {
                 if owns {
                     LocalProxyOwnership::Owned
@@ -461,10 +545,10 @@ impl ManagedCoreOwnership {
         };
         let observation = match record.phase {
             OwnershipPhase::Launching => {
+                let spec = record.spec();
                 let matches = self
-                    .platform
-                    .find_launch(&record.spec())
-                    .map_err(|_| ManagedCoreOwnershipError::IdentityMismatch)?
+                    .find_launch(&spec)
+                    .await?
                     .into_iter()
                     .filter(|observation| record.matches(observation))
                     .collect::<Vec<_>>();
@@ -479,54 +563,140 @@ impl ManagedCoreOwnership {
             }
             OwnershipPhase::Running => {
                 let pid = record.pid.ok_or(ManagedCoreOwnershipError::InvalidRecord)?;
-                let Some(observation) = self
-                    .platform
-                    .inspect(pid)
-                    .map_err(|_| ManagedCoreOwnershipError::IdentityMismatch)?
-                else {
+                let Some(observation) = self.inspect(pid).await? else {
                     self.clear_record()?;
                     return Ok(ManagedCoreRecoveryOutcome::ClearedExitedProcess);
                 };
                 if !record.matches(&observation) {
-                    return Err(ManagedCoreOwnershipError::IdentityMismatch);
+                    return Err(ManagedCoreOwnershipError::ReplacementDetected);
                 }
                 observation
             }
         };
 
-        self.platform
-            .terminate(observation.pid)
-            .map_err(|_| ManagedCoreOwnershipError::TerminationFailed)?;
-        let exited = self
-            .platform
-            .wait_for_exit(observation.pid, RECOVERY_GRACE)
-            .await
-            .map_err(|_| ManagedCoreOwnershipError::TerminationFailed)?;
-        if !exited {
-            let current = self
-                .platform
-                .inspect(observation.pid)
-                .map_err(|_| ManagedCoreOwnershipError::TerminationFailed)?
-                .ok_or(ManagedCoreOwnershipError::TerminationFailed)?;
-            if current != observation {
-                return Err(ManagedCoreOwnershipError::IdentityMismatch);
+        match self.terminate(&observation).await? {
+            ManagedProcessSignalOutcome::AlreadyExited => {
+                self.clear_record()?;
+                return Ok(ManagedCoreRecoveryOutcome::ClearedExitedProcess);
             }
-            self.platform
-                .kill(observation.pid)
-                .map_err(|_| ManagedCoreOwnershipError::TerminationFailed)?;
-            if !self
-                .platform
-                .wait_for_exit(observation.pid, RECOVERY_GRACE)
-                .await
-                .map_err(|_| ManagedCoreOwnershipError::TerminationFailed)?
-            {
-                return Err(ManagedCoreOwnershipError::TerminationFailed);
+            ManagedProcessSignalOutcome::Signalled => {}
+        }
+        match self.wait_for_exit(&observation, RECOVERY_GRACE).await? {
+            ManagedProcessWaitOutcome::Exited => {}
+            ManagedProcessWaitOutcome::Replaced => {
+                return Err(ManagedCoreOwnershipError::ReplacementDetected);
+            }
+            ManagedProcessWaitOutcome::TimedOut => {
+                match self.kill(&observation).await? {
+                    ManagedProcessSignalOutcome::AlreadyExited => {}
+                    ManagedProcessSignalOutcome::Signalled => {}
+                }
+                match self.wait_for_exit(&observation, RECOVERY_GRACE).await? {
+                    ManagedProcessWaitOutcome::Exited => {}
+                    ManagedProcessWaitOutcome::Replaced => {
+                        return Err(ManagedCoreOwnershipError::ReplacementDetected);
+                    }
+                    ManagedProcessWaitOutcome::TimedOut => {
+                        return Err(ManagedCoreOwnershipError::TerminationFailed);
+                    }
+                }
             }
         }
         self.clear_record()?;
         Ok(ManagedCoreRecoveryOutcome::Recovered {
             pid: observation.pid,
         })
+    }
+
+    pub async fn terminate(
+        &self,
+        process: &ManagedProcessObservation,
+    ) -> Result<ManagedProcessSignalOutcome, ManagedCoreOwnershipError> {
+        self.signal(process, false).await
+    }
+
+    pub async fn kill(
+        &self,
+        process: &ManagedProcessObservation,
+    ) -> Result<ManagedProcessSignalOutcome, ManagedCoreOwnershipError> {
+        self.signal(process, true).await
+    }
+
+    pub async fn wait_for_exit(
+        &self,
+        process: &ManagedProcessObservation,
+        deadline: Duration,
+    ) -> Result<ManagedProcessWaitOutcome, ManagedCoreOwnershipError> {
+        if deadline.is_zero() {
+            return Ok(ManagedProcessWaitOutcome::TimedOut);
+        }
+        match timeout(
+            deadline,
+            self.platform.wait_for_exit(process.clone(), deadline),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(map_platform_error),
+            Err(_) => Ok(ManagedProcessWaitOutcome::TimedOut),
+        }
+    }
+
+    async fn inspect(
+        &self,
+        pid: u32,
+    ) -> Result<Option<ManagedProcessObservation>, ManagedCoreOwnershipError> {
+        let result = timeout(IDENTITY_PROBE_TIMEOUT, self.platform.inspect(pid))
+            .await
+            .map_err(|_| ManagedCoreOwnershipError::ObservationTimeout)?;
+        result.map_err(map_platform_error)
+    }
+
+    async fn find_launch(
+        &self,
+        spec: &ManagedCoreLaunchSpec,
+    ) -> Result<Vec<ManagedProcessObservation>, ManagedCoreOwnershipError> {
+        let result = timeout(
+            LAUNCH_OBSERVATION_TIMEOUT,
+            self.platform.find_launch(spec.clone()),
+        )
+        .await
+        .map_err(|_| ManagedCoreOwnershipError::ObservationTimeout)?;
+        result.map_err(map_platform_error)
+    }
+
+    async fn listener_probe(
+        &self,
+        process: &ManagedProcessObservation,
+        endpoint: &LoopbackProxyEndpoint,
+    ) -> Result<bool, ManagedCoreOwnershipError> {
+        let result = timeout(
+            LISTENER_PROBE_TIMEOUT,
+            self.platform
+                .owns_listener(process.clone(), endpoint.clone()),
+        )
+        .await
+        .map_err(|_| ManagedCoreOwnershipError::ObservationTimeout)?;
+        result.map_err(map_platform_error)
+    }
+
+    async fn signal(
+        &self,
+        process: &ManagedProcessObservation,
+        kill: bool,
+    ) -> Result<ManagedProcessSignalOutcome, ManagedCoreOwnershipError> {
+        match self.inspect(process.pid()).await? {
+            None => return Ok(ManagedProcessSignalOutcome::AlreadyExited),
+            Some(current) if current != *process => {
+                return Err(ManagedCoreOwnershipError::ReplacementDetected);
+            }
+            Some(_) => {}
+        }
+        let result = if kill {
+            self.platform.kill(process.clone()).await
+        } else {
+            self.platform.terminate(process.clone()).await
+        };
+        result.map_err(map_platform_error)
     }
 
     fn clear_generation(&self, generation_id: &str) -> Result<(), ManagedCoreOwnershipError> {
@@ -648,6 +818,29 @@ impl ManagedCoreOwnership {
     }
 }
 
+fn map_platform_error(error: ManagedProcessPlatformError) -> ManagedCoreOwnershipError {
+    match error {
+        ManagedProcessPlatformError::ObservationFailed => {
+            ManagedCoreOwnershipError::ObservationFailed
+        }
+        ManagedProcessPlatformError::ObservationTimeout
+        | ManagedProcessPlatformError::ListenerProbeTimeout => {
+            ManagedCoreOwnershipError::ObservationTimeout
+        }
+        ManagedProcessPlatformError::IdentityMismatch => {
+            ManagedCoreOwnershipError::ReplacementDetected
+        }
+        ManagedProcessPlatformError::SignalFailed => ManagedCoreOwnershipError::SignalFailed,
+        ManagedProcessPlatformError::ListenerInspectionFailed => {
+            ManagedCoreOwnershipError::ObservationFailed
+        }
+        ManagedProcessPlatformError::ListenerOutputTooLarge => {
+            ManagedCoreOwnershipError::ObservationFailed
+        }
+        ManagedProcessPlatformError::WaitFailed => ManagedCoreOwnershipError::TerminationFailed,
+    }
+}
+
 fn prepare_private_directory(path: &Path) -> Result<(), ManagedCoreOwnershipError> {
     fs::create_dir_all(path).map_err(|_| ManagedCoreOwnershipError::StorageUnavailable)?;
     let metadata =
@@ -757,49 +950,62 @@ impl ManagedProcessPlatform for RealManagedProcessPlatform {
     fn inspect(
         &self,
         pid: u32,
-    ) -> Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError> {
-        inspect_process(pid)
+    ) -> BoxFuture<'_, Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError>> {
+        Box::pin(async move { inspect_process(pid) })
     }
 
     fn find_launch(
         &self,
-        spec: &ManagedCoreLaunchSpec,
-    ) -> Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError> {
-        let mut matches = Vec::new();
-        for pid in list_process_ids()? {
-            if process_binary(pid)?.as_deref() != Some(spec.binary()) {
-                continue;
+        spec: ManagedCoreLaunchSpec,
+    ) -> BoxFuture<'_, Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError>> {
+        Box::pin(async move {
+            let mut matches = Vec::new();
+            for pid in list_process_ids()? {
+                if process_binary(pid)?.as_deref() != Some(spec.binary()) {
+                    continue;
+                }
+                if let Some(process) = inspect_process(pid)?
+                    && process.launch_token == spec.launch_token
+                {
+                    matches.push(process);
+                }
+                tokio::task::yield_now().await;
             }
-            if let Some(process) = inspect_process(pid)?
-                && process.launch_token == spec.launch_token
-            {
-                matches.push(process);
-            }
-        }
-        Ok(matches)
+            Ok(matches)
+        })
     }
 
-    fn terminate(&self, pid: u32) -> Result<(), ManagedProcessPlatformError> {
-        send_signal(pid, libc::SIGTERM)
+    fn terminate(
+        &self,
+        process: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>> {
+        Box::pin(async move { guarded_signal(&process, libc::SIGTERM) })
     }
 
-    fn kill(&self, pid: u32) -> Result<(), ManagedProcessPlatformError> {
-        send_signal(pid, libc::SIGKILL)
+    fn kill(
+        &self,
+        process: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>> {
+        Box::pin(async move { guarded_signal(&process, libc::SIGKILL) })
     }
 
     fn wait_for_exit(
         &self,
-        pid: u32,
+        process: ManagedProcessObservation,
         deadline: Duration,
-    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>> {
+    ) -> BoxFuture<'_, Result<ManagedProcessWaitOutcome, ManagedProcessPlatformError>> {
         Box::pin(async move {
             let expires = Instant::now() + deadline;
             loop {
-                if inspect_process(pid)?.is_none() {
-                    return Ok(true);
+                match inspect_process(process.pid)? {
+                    None => return Ok(ManagedProcessWaitOutcome::Exited),
+                    Some(current) if current != process => {
+                        return Ok(ManagedProcessWaitOutcome::Replaced);
+                    }
+                    Some(_) => {}
                 }
                 if Instant::now() >= expires {
-                    return Ok(false);
+                    return Ok(ManagedProcessWaitOutcome::TimedOut);
                 }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
@@ -808,41 +1014,102 @@ impl ManagedProcessPlatform for RealManagedProcessPlatform {
 
     fn owns_listener(
         &self,
-        process: &ManagedProcessObservation,
-        endpoint: &LoopbackProxyEndpoint,
-    ) -> Result<bool, ManagedProcessPlatformError> {
-        let current = inspect_process(process.pid)?;
-        if current.as_ref() != Some(process) {
-            return Ok(false);
+        process: ManagedProcessObservation,
+        endpoint: LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>> {
+        Box::pin(async move {
+            let current = inspect_process(process.pid)?;
+            if current.as_ref() != Some(&process) {
+                return Ok(false);
+            }
+            let address: SocketAddr = format!("{}:{}", endpoint.host(), endpoint.port())
+                .parse()
+                .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
+            let executable = if cfg!(target_os = "macos") {
+                "/usr/sbin/lsof"
+            } else {
+                "/usr/bin/lsof"
+            };
+            let mut command = Command::new(executable);
+            command
+                .args([
+                    "-nP".to_owned(),
+                    "-a".to_owned(),
+                    "-p".to_owned(),
+                    process.pid.to_string(),
+                    format!("-iTCP@{address}"),
+                    "-sTCP:LISTEN".to_owned(),
+                    "-Fpn".to_owned(),
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            let mut child = command
+                .spawn()
+                .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
+            let mut stdout = child
+                .stdout
+                .take()
+                .ok_or(ManagedProcessPlatformError::ListenerInspectionFailed)?;
+            let probe = async {
+                let (output, status) = tokio::try_join!(
+                    read_bounded(&mut stdout, MAX_LISTENER_OUTPUT_BYTES),
+                    child.wait(),
+                )
+                .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
+                Ok::<_, ManagedProcessPlatformError>((output, status))
+            };
+            let ((output, truncated), status) = timeout(LISTENER_PROBE_TIMEOUT, probe)
+                .await
+                .map_err(|_| ManagedProcessPlatformError::ListenerProbeTimeout)??;
+            if truncated {
+                return Err(ManagedProcessPlatformError::ListenerOutputTooLarge);
+            }
+            if !status.success() {
+                return Ok(false);
+            }
+            let text = String::from_utf8(output)
+                .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
+            let owns = text.lines().any(|line| line == format!("p{}", process.pid))
+                && text.lines().any(|line| line == format!("n{address}"));
+            Ok(owns && inspect_process(process.pid)?.as_ref() == Some(&process))
+        })
+    }
+}
+
+fn guarded_signal(
+    process: &ManagedProcessObservation,
+    signal: i32,
+) -> Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError> {
+    match inspect_process(process.pid)? {
+        None => Ok(ManagedProcessSignalOutcome::AlreadyExited),
+        Some(current) if current != *process => Err(ManagedProcessPlatformError::IdentityMismatch),
+        Some(_) => {
+            send_signal(process.pid, signal).map(|()| ManagedProcessSignalOutcome::Signalled)
         }
-        let address: SocketAddr = format!("{}:{}", endpoint.host(), endpoint.port())
-            .parse()
-            .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
-        let executable = if cfg!(target_os = "macos") {
-            "/usr/sbin/lsof"
+    }
+}
+
+async fn read_bounded<R>(reader: &mut R, limit: usize) -> io::Result<(Vec<u8>, bool)>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut retained = Vec::with_capacity(limit.min(4096));
+    let mut buffer = [0_u8; 4096];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok((retained, truncated));
+        }
+        if retained.len() < limit {
+            let keep = (limit - retained.len()).min(read);
+            retained.extend_from_slice(&buffer[..keep]);
+            truncated |= keep < read;
         } else {
-            "/usr/bin/lsof"
-        };
-        let output = std::process::Command::new(executable)
-            .args([
-                "-nP".to_owned(),
-                "-a".to_owned(),
-                "-p".to_owned(),
-                process.pid.to_string(),
-                format!("-iTCP@{address}"),
-                "-sTCP:LISTEN".to_owned(),
-                "-Fpn".to_owned(),
-            ])
-            .output()
-            .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
-        if !output.status.success() {
-            return Ok(false);
+            truncated = true;
         }
-        let text = String::from_utf8(output.stdout)
-            .map_err(|_| ManagedProcessPlatformError::ListenerInspectionFailed)?;
-        let owns = text.lines().any(|line| line == format!("p{}", process.pid))
-            && text.lines().any(|line| line == format!("n{address}"));
-        Ok(owns && inspect_process(process.pid)?.as_ref() == Some(process))
     }
 }
 

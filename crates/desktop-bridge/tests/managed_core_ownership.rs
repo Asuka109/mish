@@ -7,11 +7,11 @@ use std::{
     time::Duration,
 };
 
-use futures_util::future::{BoxFuture, ready};
+use futures_util::future::BoxFuture;
 use mish_bridge::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreLaunchSpec, ManagedCoreOwnership,
     ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
-    ManagedRuntimeLease,
+    ManagedProcessSignalOutcome, ManagedProcessWaitOutcome, ManagedRuntimeLease,
 };
 use mish_runtime::{
     CoreError, CoreLifecycleMutation, CoreLifecycleOperation, CorePhase, CoreRuntime, CoreStatus,
@@ -42,6 +42,11 @@ struct FakeProcessPlatform {
     processes: Mutex<HashMap<u32, FakeProcess>>,
     next_pid: Mutex<u32>,
     terminations: Mutex<Vec<u32>>,
+    inspect_delay: Mutex<Option<Duration>>,
+    listener_probe_delay: Mutex<Option<Duration>>,
+    replace_before_listener_confirmation: Mutex<Option<ManagedProcessObservation>>,
+    replace_before_signal: Mutex<Option<ManagedProcessObservation>>,
+    observation_fails: AtomicBool,
     listener_inspection_fails: AtomicBool,
     listener_owned: AtomicBool,
 }
@@ -94,6 +99,26 @@ impl FakeProcessPlatform {
         self.listener_inspection_fails
             .store(true, Ordering::Relaxed);
     }
+
+    fn delay_identity_observation(&self, delay: Duration) {
+        *self.inspect_delay.lock().unwrap() = Some(delay);
+    }
+
+    fn delay_listener_probe(&self, delay: Duration) {
+        *self.listener_probe_delay.lock().unwrap() = Some(delay);
+    }
+
+    fn fail_identity_observation(&self) {
+        self.observation_fails.store(true, Ordering::Relaxed);
+    }
+
+    fn replace_before_next_signal(&self, observation: ManagedProcessObservation) {
+        *self.replace_before_signal.lock().unwrap() = Some(observation);
+    }
+
+    fn replace_before_listener_confirmation(&self, observation: ManagedProcessObservation) {
+        *self.replace_before_listener_confirmation.lock().unwrap() = Some(observation);
+    }
 }
 
 impl ManagedProcessPlatform for FakeProcessPlatform {
@@ -108,74 +133,136 @@ impl ManagedProcessPlatform for FakeProcessPlatform {
     fn inspect(
         &self,
         pid: u32,
-    ) -> Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError> {
-        let mut processes = self.processes.lock().unwrap();
-        if !processes.contains_key(&pid)
-            && let Some(spec) = self.prepared.lock().unwrap().clone()
-        {
-            processes.insert(
-                pid,
-                FakeProcess {
-                    observation: ManagedProcessObservation::from_launch(
-                        pid,
-                        900_000 + u64::from(pid),
-                        &spec,
-                    ),
-                    running: true,
-                },
-            );
-        }
-        Ok(processes
-            .get(&pid)
-            .filter(|process| process.running)
-            .map(|process| process.observation.clone()))
+    ) -> BoxFuture<'_, Result<Option<ManagedProcessObservation>, ManagedProcessPlatformError>> {
+        let delay = *self.inspect_delay.lock().unwrap();
+        Box::pin(async move {
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
+            }
+            if self.observation_fails.load(Ordering::Relaxed) {
+                return Err(ManagedProcessPlatformError::ObservationFailed);
+            }
+            let mut processes = self.processes.lock().unwrap();
+            if !processes.contains_key(&pid)
+                && let Some(spec) = self.prepared.lock().unwrap().clone()
+            {
+                processes.insert(
+                    pid,
+                    FakeProcess {
+                        observation: ManagedProcessObservation::from_launch(
+                            pid,
+                            900_000 + u64::from(pid),
+                            &spec,
+                        ),
+                        running: true,
+                    },
+                );
+            }
+            Ok(processes
+                .get(&pid)
+                .filter(|process| process.running)
+                .map(|process| process.observation.clone()))
+        })
     }
 
     fn find_launch(
         &self,
-        spec: &ManagedCoreLaunchSpec,
-    ) -> Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError> {
-        Ok(self
-            .processes
-            .lock()
-            .unwrap()
-            .values()
-            .filter(|process| {
-                process.running && process.observation.launch_token() == spec.launch_token()
-            })
-            .map(|process| process.observation.clone())
-            .collect())
+        spec: ManagedCoreLaunchSpec,
+    ) -> BoxFuture<'_, Result<Vec<ManagedProcessObservation>, ManagedProcessPlatformError>> {
+        Box::pin(async move {
+            Ok(self
+                .processes
+                .lock()
+                .unwrap()
+                .values()
+                .filter(|process| {
+                    process.running && process.observation.launch_token() == spec.launch_token()
+                })
+                .map(|process| process.observation.clone())
+                .collect())
+        })
     }
 
-    fn terminate(&self, pid: u32) -> Result<(), ManagedProcessPlatformError> {
-        self.terminations.lock().unwrap().push(pid);
-        if let Some(process) = self.processes.lock().unwrap().get_mut(&pid) {
+    fn terminate(
+        &self,
+        expected: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>> {
+        Box::pin(async move {
+            if let Some(replacement) = self.replace_before_signal.lock().unwrap().take() {
+                self.replace_observation(expected.pid(), replacement);
+            }
+            let mut processes = self.processes.lock().unwrap();
+            let Some(process) = processes.get_mut(&expected.pid()) else {
+                return Ok(ManagedProcessSignalOutcome::AlreadyExited);
+            };
+            if !process.running {
+                return Ok(ManagedProcessSignalOutcome::AlreadyExited);
+            }
+            if process.observation != expected {
+                return Err(ManagedProcessPlatformError::IdentityMismatch);
+            }
+            self.terminations.lock().unwrap().push(expected.pid());
             process.running = false;
-        }
-        Ok(())
+            Ok(ManagedProcessSignalOutcome::Signalled)
+        })
     }
 
-    fn kill(&self, pid: u32) -> Result<(), ManagedProcessPlatformError> {
-        self.terminate(pid)
+    fn kill(
+        &self,
+        expected: ManagedProcessObservation,
+    ) -> BoxFuture<'_, Result<ManagedProcessSignalOutcome, ManagedProcessPlatformError>> {
+        self.terminate(expected)
     }
 
     fn wait_for_exit(
         &self,
-        pid: u32,
-        _deadline: Duration,
-    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>> {
-        Box::pin(ready(Ok(!self.running(pid))))
+        expected: ManagedProcessObservation,
+        deadline: Duration,
+    ) -> BoxFuture<'_, Result<ManagedProcessWaitOutcome, ManagedProcessPlatformError>> {
+        Box::pin(async move {
+            let expires = tokio::time::Instant::now() + deadline;
+            loop {
+                let process = self.processes.lock().unwrap().get(&expected.pid()).cloned();
+                match process {
+                    None => return Ok(ManagedProcessWaitOutcome::Exited),
+                    Some(process) if !process.running => {
+                        return Ok(ManagedProcessWaitOutcome::Exited);
+                    }
+                    Some(process) if process.observation != expected => {
+                        return Ok(ManagedProcessWaitOutcome::Replaced);
+                    }
+                    Some(_) if tokio::time::Instant::now() >= expires => {
+                        return Ok(ManagedProcessWaitOutcome::TimedOut);
+                    }
+                    Some(_) => tokio::time::sleep(Duration::from_millis(5)).await,
+                }
+            }
+        })
     }
 
     fn owns_listener(
         &self,
-        process: &ManagedProcessObservation,
-        _endpoint: &LoopbackProxyEndpoint,
-    ) -> Result<bool, ManagedProcessPlatformError> {
-        if self.listener_inspection_fails.load(Ordering::Relaxed) {
-            return Err(ManagedProcessPlatformError::ListenerInspectionFailed);
-        }
-        Ok(self.running(process.pid()) && self.listener_owned.load(Ordering::Relaxed))
+        process: ManagedProcessObservation,
+        _endpoint: LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, ManagedProcessPlatformError>> {
+        let delay = *self.listener_probe_delay.lock().unwrap();
+        Box::pin(async move {
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
+            }
+            if let Some(replacement) = self
+                .replace_before_listener_confirmation
+                .lock()
+                .unwrap()
+                .take()
+            {
+                self.replace_observation(process.pid(), replacement);
+            }
+            if self.listener_inspection_fails.load(Ordering::Relaxed) {
+                return Err(ManagedProcessPlatformError::ListenerInspectionFailed);
+            }
+            Ok(self.running(process.pid()) && self.listener_owned.load(Ordering::Relaxed))
+        })
     }
 }
 
@@ -267,11 +354,168 @@ async fn recovery_rejects_pid_reuse_without_signalling_the_replacement_process()
 
     assert_eq!(
         error.to_string(),
-        "managed Core process identity could not be confirmed"
+        "managed Core process was replaced before the guarded operation"
     );
     assert_eq!(fixture.platform.termination_count(), 0);
     assert!(fixture.platform.running(pid));
     assert!(second.has_record().unwrap());
+}
+
+#[tokio::test]
+async fn recovery_rechecks_identity_at_the_signal_boundary() {
+    let fixture = OwnershipFixture::new();
+    let (first, launch, pid) = fixture.committed_process().await;
+    drop(first);
+    fixture
+        .platform
+        .replace_before_next_signal(ManagedProcessObservation::from_launch(
+            pid,
+            42,
+            launch.spec(),
+        ));
+    let second = fixture.reopen();
+
+    assert_eq!(
+        second.recover_startup().await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ReplacementDetected
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+    assert!(fixture.platform.running(pid));
+    assert!(second.has_record().unwrap());
+}
+
+#[tokio::test]
+async fn commit_types_a_bounded_identity_observation_timeout() {
+    let fixture = OwnershipFixture::new();
+    let first = fixture.first();
+    let launch = first
+        .begin_launch(
+            fixture.binary.clone(),
+            fixture.config_directory.clone(),
+            fixture.config_file.clone(),
+        )
+        .unwrap();
+    fixture
+        .platform
+        .delay_identity_observation(Duration::from_secs(1));
+
+    assert_eq!(
+        first.commit_launch(&launch, 4242).await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ObservationTimeout
+    );
+    assert!(first.has_record().unwrap());
+}
+
+#[tokio::test]
+async fn identity_debug_output_redacts_paths_and_launch_tokens() {
+    let fixture = OwnershipFixture::new();
+    let first = fixture.first();
+    let launch = fixture.begin_launch(&first).unwrap();
+    let launch_debug = format!("{launch:?}");
+
+    assert!(!launch_debug.contains(launch.launch_token()));
+    assert!(!launch_debug.contains(fixture.binary.to_str().unwrap()));
+    assert!(launch_debug.contains("[redacted]"));
+
+    let pid = fixture.platform.spawn(launch.spec());
+    let process = first.commit_launch(&launch, pid).await.unwrap();
+    let process_debug = format!("{process:?}");
+    assert!(!process_debug.contains(process.observation().launch_token()));
+    assert!(!process_debug.contains(fixture.config_file.to_str().unwrap()));
+}
+
+#[tokio::test]
+async fn recovery_types_observation_failure_without_signalling() {
+    let fixture = OwnershipFixture::new();
+    let (first, _launch, pid) = fixture.committed_process().await;
+    drop(first);
+    fixture.platform.fail_identity_observation();
+    let second = fixture.reopen();
+
+    assert_eq!(
+        second.recover_startup().await.unwrap_err(),
+        mish_bridge::ManagedCoreOwnershipError::ObservationFailed
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+    assert!(fixture.platform.running(pid));
+    assert!(second.has_record().unwrap());
+}
+
+#[tokio::test]
+async fn wait_types_replacement_without_signalling() {
+    let fixture = OwnershipFixture::new();
+    let first = fixture.first();
+    let launch = fixture
+        .begin_launch(&first)
+        .expect("launch admission should succeed");
+    let pid = fixture.platform.spawn(launch.spec());
+    let process = first.commit_launch(&launch, pid).await.unwrap();
+    fixture.platform.replace_observation(
+        pid,
+        ManagedProcessObservation::from_launch(pid, 42, launch.spec()),
+    );
+
+    assert_eq!(
+        first
+            .wait_for_exit(process.observation(), Duration::from_millis(20))
+            .await
+            .unwrap(),
+        ManagedProcessWaitOutcome::Replaced
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn wait_types_timeout_without_signalling() {
+    let fixture = OwnershipFixture::new();
+    let (first, _launch, process, _pid) = fixture.committed_process_with_handle().await;
+
+    assert_eq!(
+        first
+            .wait_for_exit(process.observation(), Duration::from_millis(20))
+            .await
+            .unwrap(),
+        ManagedProcessWaitOutcome::TimedOut
+    );
+    assert_eq!(fixture.platform.termination_count(), 0);
+}
+
+#[tokio::test]
+async fn listener_probe_timeout_is_unknown_and_never_owned() {
+    let fixture = OwnershipFixture::new();
+    let (first, _launch, process, _pid) = fixture.committed_process_with_handle().await;
+    fixture.platform.set_listener_owned(true);
+    fixture
+        .platform
+        .delay_listener_probe(Duration::from_secs(2));
+
+    assert_eq!(
+        first
+            .process_listener_ownership(&process, &LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Unknown
+    );
+}
+
+#[tokio::test]
+async fn listener_probe_revalidates_identity_after_observation() {
+    let fixture = OwnershipFixture::new();
+    let (first, launch, process, pid) = fixture.committed_process_with_handle().await;
+    fixture.platform.set_listener_owned(true);
+    fixture
+        .platform
+        .replace_before_listener_confirmation(ManagedProcessObservation::from_launch(
+            pid,
+            42,
+            launch.spec(),
+        ));
+
+    assert_eq!(
+        first
+            .process_listener_ownership(&process, &LoopbackProxyEndpoint::managed())
+            .await,
+        LocalProxyOwnership::Unowned
+    );
 }
 
 #[tokio::test]
@@ -555,9 +799,32 @@ impl OwnershipFixture {
         self.first()
     }
 
+    fn begin_launch(
+        &self,
+        ownership: &ManagedCoreOwnership,
+    ) -> Result<mish_bridge::ManagedCoreLaunch, mish_bridge::ManagedCoreOwnershipError> {
+        ownership.begin_launch(
+            self.binary.clone(),
+            self.config_directory.clone(),
+            self.config_file.clone(),
+        )
+    }
+
     async fn committed_process(
         &self,
     ) -> (ManagedCoreOwnership, mish_bridge::ManagedCoreLaunch, u32) {
+        let (first, launch, _process, pid) = self.committed_process_with_handle().await;
+        (first, launch, pid)
+    }
+
+    async fn committed_process_with_handle(
+        &self,
+    ) -> (
+        ManagedCoreOwnership,
+        mish_bridge::ManagedCoreLaunch,
+        mish_bridge::ManagedCoreProcess,
+        u32,
+    ) {
         let first = self.first();
         let launch = first
             .begin_launch(
@@ -567,8 +834,8 @@ impl OwnershipFixture {
             )
             .unwrap();
         let pid = self.platform.spawn(launch.spec());
-        first.commit_launch(&launch, pid).await.unwrap();
-        (first, launch, pid)
+        let process = first.commit_launch(&launch, pid).await.unwrap();
+        (first, launch, process, pid)
     }
 }
 
