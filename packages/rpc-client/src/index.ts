@@ -851,3 +851,5 @@ async function readBinaryMessage(data: unknown) {
 export function createBrowserWebSocketTransportFactory(url: string, protocols?: string | string[]) {
   return () => new WebSocket(url, protocols) as unknown as WebSocketLike;
 }
+
+export * from "./session-authority";
