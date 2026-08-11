@@ -8,6 +8,7 @@ import {
   classifyWorkflowStep,
   parseWorkflowFixture,
   readPlatformTargetPolicy,
+  validateWorkflowInventory,
   validatePlatformTargetCoverage,
   validateWorkflow,
   validateWorkflowReference,
@@ -17,6 +18,7 @@ import { readTrustedReleasePolicy } from "./trusted-release-policy.ts";
 const fixtureRoot = path.join(import.meta.dirname, "fixtures/trusted-ci");
 const policy = readTrustedReleasePolicy();
 const reusablePolicy = structuredClone(policy);
+reusablePolicy.actions.allowedLocalActions = ["./.github/actions/fixture"];
 reusablePolicy.actions.allowedReusableWorkflows = ["./.github/workflows/reusable-fixture.yml"];
 
 function fixture(name: string) {
@@ -107,6 +109,62 @@ test("every job is checked and unsupported or bypass-shaped syntax fails closed"
     validateWorkflow(reusablePolicy, "fixture.yml", mixedStep.workflow).some((error) =>
       error.includes("must contain exactly one of run or uses"),
     ),
+  );
+});
+
+test("new workflows and reusable or local actions cannot escape the policy inventory", () => {
+  const caller = fixture("multi-job.yml");
+  const addedWorkflow = structuredClone(caller.workflow);
+  addedWorkflow.jobs?.["run-step"]?.steps?.push({
+    name: "Unsupported new workflow action",
+    uses: "docker://alpine:3.20",
+  });
+  assert.ok(
+    validateWorkflow(policy, ".github/workflows/new-workflow.yml", addedWorkflow).some((error) =>
+      error.includes("Unsupported step uses reference"),
+    ),
+  );
+
+  const addedReusableCall = structuredClone(caller.workflow);
+  addedReusableCall.jobs = {
+    ...addedReusableCall.jobs,
+    "new-reusable-call": {
+      uses: "./.github/workflows/new-reusable.yml",
+    },
+  };
+  assert.ok(
+    validateWorkflow(policy, ".github/workflows/ci.yml", addedReusableCall, {
+      knownWorkflowPaths: [".github/workflows/ci.yml", ".github/workflows/new-reusable.yml"],
+    }).some((error) => error.includes("Reusable workflow is not allowlisted")),
+  );
+
+  assert.ok(
+    validateWorkflow(policy, ".github/workflows/ci.yml", caller.workflow).some((error) =>
+      error.includes("Local action is not allowlisted"),
+    ),
+  );
+  assert.deepEqual(
+    validateWorkflow(reusablePolicy, ".github/workflows/ci.yml", caller.workflow, {
+      knownWorkflowPaths: [".github/workflows/ci.yml", ".github/workflows/reusable-fixture.yml"],
+    }),
+    [],
+  );
+});
+
+test("required workflow inventory fails closed on deletion and rename", () => {
+  const required = [".github/workflows/ci.yml", ".github/workflows/stage-macos-alpha-release.yml"];
+  assert.deepEqual(validateWorkflowInventory(required), []);
+  assert.deepEqual(validateWorkflowInventory([".github/workflows/ci.yml"]), [
+    "Required workflow is missing from the inventory: .github/workflows/stage-macos-alpha-release.yml.",
+  ]);
+  assert.deepEqual(
+    validateWorkflowInventory([
+      ".github/workflows/ci.yml",
+      ".github/workflows/stage-macos-release.yml",
+    ]),
+    [
+      "Required workflow is missing from the inventory: .github/workflows/stage-macos-alpha-release.yml.",
+    ],
   );
 });
 
@@ -203,4 +261,65 @@ test("platform target policy rejects unsupported runners and missing target comm
     policy: missingTargetPolicy,
   });
   assert.ok(targetErrors.some((error) => error.includes("Clippy policy does not cover target")));
+});
+
+test("platform target policy fails closed on new, removed, and renamed target crates", () => {
+  const policy = readPlatformTargetPolicy();
+  const workflow = parseWorkflowFixture(
+    readFileSync(path.join(import.meta.dirname, "../.github/workflows/ci.yml"), "utf8"),
+    ".github/workflows/ci.yml",
+  );
+  const packageJson = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
+  ) as {
+    scripts: Record<string, string>;
+  };
+  const cargoPackages = policy.packages.map(({ name, manifest }) => ({
+    name,
+    manifest_path: manifest,
+  }));
+  const input = {
+    policy,
+    workflows: [workflow],
+    packageScripts: packageJson.scripts,
+    cargoPackages,
+  };
+
+  const addedPackageErrors = validatePlatformTargetCoverage({
+    ...input,
+    cargoPackages: [
+      ...cargoPackages,
+      { name: "mish-platform-new", manifest_path: "crates/platform-new/Cargo.toml" },
+    ],
+  });
+  assert.ok(
+    addedPackageErrors.some((error) => error.includes("mish-platform-new")),
+    "A new platform target crate must require an explicit policy entry.",
+  );
+
+  const removedPolicy = structuredClone(policy);
+  removedPolicy.packages = removedPolicy.packages.filter(
+    ({ name }) => name !== "mish-platform-macos",
+  );
+  const removedPolicyErrors = validatePlatformTargetCoverage({
+    ...input,
+    policy: removedPolicy,
+  });
+  assert.ok(
+    removedPolicyErrors.some((error) => error.includes("mish-platform-macos")),
+    "Removing a target crate policy entry must fail closed.",
+  );
+
+  const renamedPackageErrors = validatePlatformTargetCoverage({
+    ...input,
+    cargoPackages: cargoPackages.map((package_) =>
+      package_.name === "mish-platform-macos"
+        ? { ...package_, manifest_path: "crates/platform-renamed/Cargo.toml" }
+        : package_,
+    ),
+  });
+  assert.ok(
+    renamedPackageErrors.some((error) => error.includes("mish-platform-macos moved")),
+    "Renaming a target crate manifest must require an explicit policy update.",
+  );
 });
