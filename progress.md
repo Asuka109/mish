@@ -19,8 +19,8 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Seven Luna Max workers are active from the pre-published manifest and clean
-detached baseline `12831ad`.
+Six Luna Max workers remain active from the pre-published manifest. #443 E2.1
+was accepted, merged, and integrated; E2.2/E2.3 remain unassigned.
 
 ## Wave 1 worker ledger
 
@@ -32,7 +32,7 @@ detached baseline `12831ad`.
 | #438 A4.1 | `019fefb6-db98-70d1-af16-de78daa9dc75` | `cb17` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to truthful fixture behavior. |
 | #439 A5.1 | `019fefb6-dbaf-7681-9870-208086d1043d` | `e87b` | active | none | confirmation-only | Clean detached `12831ad`; no real process signal is authorized. |
 | #440 B1.1 | `019fefb6-db98-70d1-af16-de5e1c0c457e` | `3ab4` | active | none | confirmation-only | Clean detached `12831ad`; scope is limited to transport hardening. |
-| #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | active | none | confirmation-only | Clean detached `12831ad`; no repository settings mutation is authorized. |
+| #443 E2.1 | `019fefb6-dbbd-78a1-b4d1-4cca4ae1099b` | `2d87` | integrated | none | accepted | PR #456 merged as `f27a711a`; Fast PR gate passed, Issue checklist synced, E2.2/E2.3 remain open. |
 
 ## Planned issue graph
 
@@ -50,7 +50,7 @@ detached baseline `12831ad`.
 | Android VPN authority | #451 | blocked | #436, #440 | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
 | Release trust boundary | #442 | planned | none | confirmation-only; real signing stays in #173 |
-| CI policy coverage | #443 | active: E2.1 | none | confirmation-only |
+| CI policy coverage | #443 | E2.1 integrated; E2.2/E2.3 planned | none | confirmation-only |
 | Settings editor serialization | #452 | blocked | #440 | confirmation-only |
 | Remove Profile Patch Editor | #453 | blocked | #440 | confirmation-only |
 | Lazy-route recovery | #444 | planned | none | confirmation-only |
@@ -78,12 +78,13 @@ detached baseline `12831ad`.
 | #438 A4.1 | Typed unsupported/simulated browser Capture behavior | `gpt-5.6-luna/max` | none | active |
 | #439 A5.1 | Identity-bound Core termination and probes | `gpt-5.6-luna/max` | none | active |
 | #440 B1.1 | Bounded RPC transport IDs, deadlines, and envelopes | `gpt-5.6-luna/max` | none | active |
-| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | active |
+| #443 E2.1 | Complete workflow/job policy parsing | `gpt-5.6-luna/max` | none | integrated (`f27a711a`) |
 
-All seven tasks are AFK and confirmation-only. Each worker receives an isolated
-worktree, one linked Issue/task, Chinese reporting, final-only escalation, and
-authority to commit/push/open a PR after dispatch. Merge remains gated on
-explicit human acceptance.
+The Wave 1 tasks are AFK and confirmation-only. Six workers remain active and
+one is integrated. Each worker receives an isolated worktree, one linked
+Issue/task, Chinese reporting, final-only escalation, and authority to
+commit/push/open a PR after dispatch. Merge remains gated on explicit human
+acceptance.
 
 ## Later-wave gates
 
