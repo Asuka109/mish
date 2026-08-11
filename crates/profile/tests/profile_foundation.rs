@@ -3,7 +3,7 @@ use std::{
     future::pending,
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -12,9 +12,9 @@ use mish_profile::{
     AtomicWriter, FileProfileRepository, HttpsSourceReader, ImportError, ImportPreflight,
     ImportRequest, LocalSourceReader, PROFILE_SCHEMA_VERSION, PolicyDisposition, PolicyOwner,
     ProfileId, ProfileSource, RedirectTarget, RejectingHttpsSourceReader, RepositoryComponent,
-    RepositoryError, RuleInsertPosition, SensitiveDataNotice, SensitivePath, SensitiveUrl,
-    SourceContent, SourceReadError, SourceReadPolicy, StdAtomicWriter, StdLocalSourceReader,
-    StructuredRule, Timestamp, ValidationIssueCode,
+    RepositoryError, RepositoryStorageOperation, RuleInsertPosition, SensitiveDataNotice,
+    SensitivePath, SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy, StdAtomicWriter,
+    StdLocalSourceReader, StructuredRule, Timestamp, ValidationIssueCode,
 };
 
 struct TestDir(PathBuf);
@@ -819,6 +819,293 @@ async fn repository_rejects_symlinked_profile_paths() {
 
     assert!(matches!(
         repository.load(&id),
+        Err(RepositoryError::UnsafeStoragePath)
+    ));
+}
+
+#[tokio::test]
+async fn generation_staging_is_private_and_not_current_until_pointer_publish() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let id = ProfileId::new();
+    let record = record_for_repository(id).await;
+    let expected_metadata = record.metadata.clone();
+
+    let staged = repository.stage_generation(&[record]).unwrap();
+    assert!(
+        !root
+            .join(mish_profile::PROFILE_CURRENT_GENERATION_FILE)
+            .exists()
+    );
+    let staging_path = root
+        .join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+        .join(format!(".staging-{}", staged.id().as_str()));
+    assert!(staging_path.is_dir());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(
+            fs::metadata(&staging_path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(staging_path.join("manifest.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    let published_id = repository.publish_generation(staged).unwrap();
+    let current = repository
+        .read_current_generation()
+        .unwrap()
+        .expect("published generation");
+    assert_eq!(current.id, published_id);
+    assert_eq!(current.profiles.len(), 1);
+    assert_eq!(current.profiles[0].metadata, expected_metadata);
+}
+
+#[tokio::test]
+async fn interrupted_staging_cannot_be_published_as_current() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let id = ProfileId::new();
+    let record = record_for_repository(id.clone()).await;
+    let staged = repository.stage_generation(&[record]).unwrap();
+    let metadata_path = root
+        .join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+        .join(format!(".staging-{}", staged.id().as_str()))
+        .join("profiles")
+        .join(id.as_str())
+        .join("metadata.json");
+    fs::remove_file(metadata_path).unwrap();
+
+    assert!(matches!(
+        repository.publish_generation(staged),
+        Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata
+        })
+    ));
+    assert!(
+        !root
+            .join(mish_profile::PROFILE_CURRENT_GENERATION_FILE)
+            .exists()
+    );
+}
+
+#[tokio::test]
+async fn generation_staging_rejects_a_noncanonical_profile_id() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root);
+    let mut record = record_for_repository(ProfileId::new()).await;
+    record.metadata.id = serde_json::from_value(serde_json::json!("../../outside")).unwrap();
+
+    assert!(matches!(
+        repository.stage_generation(&[record]),
+        Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata
+        })
+    ));
+}
+
+#[derive(Clone, Copy)]
+enum GenerationFailurePoint {
+    Rename,
+    SyncGenerations,
+    PointerWrite,
+}
+
+#[derive(Clone)]
+struct RecordingGenerationWriter {
+    failure: Option<GenerationFailurePoint>,
+    events: Arc<Mutex<Vec<RepositoryStorageOperation>>>,
+}
+
+impl RecordingGenerationWriter {
+    fn new(failure: Option<GenerationFailurePoint>) -> Self {
+        Self {
+            failure,
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl AtomicWriter for RecordingGenerationWriter {
+    fn write(&self, destination: &Path, contents: &[u8]) -> io::Result<()> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(RepositoryStorageOperation::AtomicFileWrite);
+        if matches!(self.failure, Some(GenerationFailurePoint::PointerWrite))
+            && destination
+                .file_name()
+                .is_some_and(|name| name == "current.json")
+        {
+            return Err(io::Error::other("injected pointer publication failure"));
+        }
+        StdAtomicWriter.write(destination, contents)
+    }
+
+    fn create_private_dir(&self, path: &Path) -> io::Result<()> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(RepositoryStorageOperation::CreatePrivateDirectory);
+        StdAtomicWriter.create_private_dir(path)
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(RepositoryStorageOperation::Rename);
+        if matches!(self.failure, Some(GenerationFailurePoint::Rename))
+            && from
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(".staging-"))
+        {
+            return Err(io::Error::other("injected generation rename failure"));
+        }
+        StdAtomicWriter.rename(from, to)
+    }
+
+    fn sync_directory(&self, path: &Path) -> io::Result<()> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(RepositoryStorageOperation::SyncDirectory);
+        if matches!(self.failure, Some(GenerationFailurePoint::SyncGenerations))
+            && path.file_name().is_some_and(|name| name == "generations")
+        {
+            return Err(io::Error::other("injected generation sync failure"));
+        }
+        StdAtomicWriter.sync_directory(path)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(RepositoryStorageOperation::RemoveDirectory);
+        StdAtomicWriter.remove_dir_all(path)
+    }
+}
+
+#[tokio::test]
+async fn every_publication_boundary_failure_keeps_the_prior_current_generation() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let id = ProfileId::new();
+    let initial = record_for_repository(id.clone()).await;
+    let initial_stage = repository.stage_generation(&[initial]).unwrap();
+    let initial_id = repository.publish_generation(initial_stage).unwrap();
+
+    for failure in [
+        GenerationFailurePoint::Rename,
+        GenerationFailurePoint::SyncGenerations,
+        GenerationFailurePoint::PointerWrite,
+    ] {
+        let writer = RecordingGenerationWriter::new(Some(failure));
+        let failing = FileProfileRepository::with_writer(root.clone(), writer.clone());
+        let candidate = record_for_repository(id.clone()).await;
+        let staged = failing.stage_generation(&[candidate]).unwrap();
+        assert!(matches!(
+            failing.publish_generation(staged),
+            Err(RepositoryError::AtomicWriteFailed)
+        ));
+
+        let current = FileProfileRepository::new(root.clone())
+            .read_current_generation()
+            .unwrap()
+            .expect("prior current generation");
+        assert_eq!(current.id, initial_id);
+
+        let events = writer.events.lock().unwrap();
+        assert!(events.contains(&RepositoryStorageOperation::AtomicFileWrite));
+        assert!(events.contains(&RepositoryStorageOperation::SyncDirectory));
+    }
+}
+
+#[tokio::test]
+async fn incomplete_current_generation_fails_closed_without_exposing_partial_records() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let record = record_for_repository(ProfileId::new()).await;
+    let staged = repository.stage_generation(&[record]).unwrap();
+    let generation_id = repository.publish_generation(staged).unwrap();
+    let metadata_path = root
+        .join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+        .join(generation_id.as_str())
+        .join("profiles")
+        .join(
+            fs::read_dir(
+                root.join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)
+                    .join(generation_id.as_str())
+                    .join("profiles"),
+            )
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name(),
+        )
+        .join("metadata.json");
+    fs::remove_file(metadata_path).unwrap();
+
+    assert!(matches!(
+        repository.read_current_generation(),
+        Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Metadata
+        })
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn current_pointer_and_generation_root_reject_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let record = record_for_repository(ProfileId::new()).await;
+    let staged = repository.stage_generation(&[record]).unwrap();
+    repository.publish_generation(staged).unwrap();
+
+    let outside = temp.path().join("outside-pointer");
+    fs::write(&outside, b"not a pointer").unwrap();
+    fs::remove_file(root.join(mish_profile::PROFILE_CURRENT_GENERATION_FILE)).unwrap();
+    symlink(
+        &outside,
+        root.join(mish_profile::PROFILE_CURRENT_GENERATION_FILE),
+    )
+    .unwrap();
+    assert!(matches!(
+        repository.read_current_generation(),
+        Err(RepositoryError::UnsafeStoragePath)
+    ));
+
+    fs::remove_file(root.join(mish_profile::PROFILE_CURRENT_GENERATION_FILE)).unwrap();
+    fs::remove_dir_all(root.join(mish_profile::PROFILE_GENERATIONS_DIRECTORY)).unwrap();
+    symlink(
+        temp.path(),
+        root.join(mish_profile::PROFILE_GENERATIONS_DIRECTORY),
+    )
+    .unwrap();
+    let record = record_for_repository(ProfileId::new()).await;
+    assert!(matches!(
+        repository.stage_generation(&[record]),
         Err(RepositoryError::UnsafeStoragePath)
     ));
 }
