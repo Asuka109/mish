@@ -2,6 +2,7 @@ import type {
   EventsClient,
   EventsConnectionState,
   EventsSnapshotDto,
+  ApplicationSnapshotDelivery,
   SupportBundleClient,
   SupportBundlePreviewDto,
 } from "@mish/contracts";
@@ -15,10 +16,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ApplicationSnapshotAcceptance,
-  type SnapshotDelivery,
-} from "./application-snapshot-acceptance";
+import { RpcSessionAuthority } from "@mish/rpc-client";
+type SnapshotDelivery = ApplicationSnapshotDelivery | "command" | "request";
 import {
   applicationCommandAuthority,
   applicationCommandScope,
@@ -94,7 +93,7 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
   );
   const [supportBundleResult, setSupportBundleResult] = useState<SupportBundleResult>("idle");
   const latestSnapshot = useRef<EventsSnapshotDto | null>(null);
-  const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<EventsSnapshotDto>());
+  const sessionAuthority = useRef(new RpcSessionAuthority<EventsSnapshotDto>());
   const reconcileCommandScopes = useCallback(
     (nextSnapshot: EventsSnapshotDto) => {
       const nextScope = eventsCommandScope(nextSnapshot);
@@ -108,16 +107,25 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
   );
   const acceptSnapshot = useCallback(
     (nextSnapshot: EventsSnapshotDto, delivery: SnapshotDelivery) => {
-      const result = snapshotAcceptance.current.accept(nextSnapshot, delivery);
+      if (delivery === "request" && sessionAuthority.current.getGeneration() === 0) {
+        sessionAuthority.current.observeTransport(true);
+      }
+      const ticket =
+        delivery === "baseline" || delivery === "update"
+          ? sessionAuthority.current.beginSubscription()
+          : sessionAuthority.current.beginRequest();
+      const result = sessionAuthority.current.accept(ticket, nextSnapshot, delivery);
       if (result.kind === "stale" || result.kind === "duplicate") return false;
       if (result.kind === "conflict") {
         setError("Events snapshot order conflict.");
         return false;
       }
-      reconcileCommandScopes(result.snapshot);
-      latestSnapshot.current = result.snapshot;
-      setSnapshot(result.snapshot);
-      setBuffer((current) => reconcileEventsSnapshot(current, result.snapshot));
+      const acceptedSnapshot = result.snapshot;
+      if (!acceptedSnapshot) return false;
+      reconcileCommandScopes(acceptedSnapshot);
+      latestSnapshot.current = acceptedSnapshot;
+      setSnapshot(acceptedSnapshot);
+      setBuffer((current) => reconcileEventsSnapshot(current, acceptedSnapshot));
       setError(null);
       return true;
     },
@@ -126,15 +134,14 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
 
   useEffect(() => {
     const controller = new AbortController();
-    snapshotAcceptance.current.clear();
+    sessionAuthority.current.clear();
     latestSnapshot.current = null;
     resetCommandFeedback("cancelled");
     eventsCommands.current.clear();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
-      if (nextConnection.phase === "connected") {
-        if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
-        else snapshotAcceptance.current.confirmReconnect();
-      }
+      sessionAuthority.current.observeTransport(
+        nextConnection.phase === "connected" || nextConnection.phase === "fixture",
+      );
       if (
         nextConnection.phase !== "connected" &&
         nextConnection.phase !== "fixture" &&

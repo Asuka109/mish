@@ -261,6 +261,18 @@ describe("RpcNotificationClient", () => {
       result: { claim: null, snapshot: snapshot(1), subscriptionId: "notifications-1" },
     });
     await flushMicrotasks();
+
+    const conflict = snapshot(1);
+    conflict.notifications[0]!.read = true;
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "notifications.snapshot",
+      params: { snapshot: conflict, subscriptionId: "notifications-1" },
+    });
+    await flushMicrotasks();
+    expect(deliveries).toEqual(["baseline:1"]);
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: true });
+
     transports[0].respond({
       jsonrpc: "2.0",
       method: "notifications.snapshot",
@@ -278,6 +290,7 @@ describe("RpcNotificationClient", () => {
     });
     await flushMicrotasks();
     expect(deliveries).toEqual(["baseline:1", "update:2"]);
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
 
     transports[0].close(1006, "gap");
     await vi.advanceTimersByTimeAsync(5);

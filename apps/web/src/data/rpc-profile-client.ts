@@ -14,11 +14,12 @@ import {
   type ProviderAuthorityDto,
   type ProviderKind,
 } from "@mish/contracts";
-import { RpcRemoteError, type RpcRequestOptions } from "@mish/rpc-client";
 import {
-  ApplicationSnapshotAcceptance,
-  type SnapshotDelivery,
-} from "./application-snapshot-acceptance";
+  RpcRemoteError,
+  RpcSessionAuthority,
+  type RpcRequestOptions,
+  type RpcSessionTicket,
+} from "@mish/rpc-client";
 import {
   projectRpcClientFailure,
   projectRpcConnectionState,
@@ -27,6 +28,15 @@ import {
 
 export type MishRpcClient = WebRpcTransport;
 export type LocalProfilePreflight = (label?: string) => Promise<unknown>;
+type ProfileSnapshotMethod =
+  | "profiles.create"
+  | "profiles.delete"
+  | "profiles.detachSubscription"
+  | "profiles.getSnapshot"
+  | "profiles.refresh"
+  | "profiles.save"
+  | "profiles.select"
+  | "profiles.setRefreshPolicy";
 
 export class RpcProfileClient implements ProfileClient {
   private readonly connectionListeners = new Set<(state: ProfileConnectionState) => void>();
@@ -40,7 +50,8 @@ export class RpcProfileClient implements ProfileClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
-  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<ProfileSnapshotDto>();
+  private readonly sessionAuthority = new RpcSessionAuthority<ProfileSnapshotDto>();
+  private subscriptionTicket: RpcSessionTicket | null = null;
 
   constructor(
     private readonly rpc: MishRpcClient,
@@ -66,27 +77,19 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   createProfile(fileName: string, options?: RpcRequestOptions) {
-    return this.request("profiles.create", { fileName }, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.create", { fileName }, options);
   }
 
   deleteProfile(profileId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.delete", { profileId }, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.delete", { profileId }, options);
   }
 
   detachSubscription(profileId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.detachSubscription", { profileId }, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.detachSubscription", { profileId }, options);
   }
 
   getSnapshot(options?: RpcRequestOptions) {
-    return this.request("profiles.getSnapshot", {}, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot, "request"),
-    );
+    return this.requestSnapshot("profiles.getSnapshot", {}, options, "request");
   }
 
   openProfileDirectory(options?: RpcRequestOptions) {
@@ -106,6 +109,7 @@ export class RpcProfileClient implements ProfileClient {
     this.disposed = true;
     this.unsubscribeNotification();
     this.unsubscribeRpcConnection();
+    this.sessionAuthority.dispose();
     this.connectionListeners.clear();
     this.snapshotListeners.clear();
   }
@@ -134,9 +138,7 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   refreshProfile(profileId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.refresh", { profileId }, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.refresh", { profileId }, options);
   }
 
   replacePatches(
@@ -152,15 +154,11 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy, options?: RpcRequestOptions) {
-    return this.request("profiles.setRefreshPolicy", { profileId, policy }, options).then(
-      (snapshot) => this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.setRefreshPolicy", { profileId, policy }, options);
   }
 
   savePreview(previewId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.save", { previewId }, options).then((snapshot) =>
-      this.normalizeSnapshot(snapshot),
-    );
+    return this.requestSnapshot("profiles.save", { previewId }, options);
   }
 
   selectProfile(
@@ -169,11 +167,11 @@ export class RpcProfileClient implements ProfileClient {
       expectedSelection?: ProfileSnapshotDto["selection"];
     },
   ) {
-    return this.request(
+    return this.requestSnapshot(
       "profiles.select",
       { expectedSelection: options?.expectedSelection, profileId },
       options,
-    ).then((snapshot) => this.normalizeSnapshot(snapshot));
+    );
   }
 
   stopActiveProfile(commandId: string, options?: RpcRequestOptions) {
@@ -223,15 +221,21 @@ export class RpcProfileClient implements ProfileClient {
       this.subscriptionRetryPending = true;
       return;
     }
+    const ticket = this.sessionAuthority.beginSubscription();
     this.subscriptionPromise = this.rpc
       .request("profiles.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
-        if (this.snapshotListeners.size === 0) {
+        if (
+          this.snapshotListeners.size === 0 ||
+          (ticket.generation !== null &&
+            ticket.generation !== this.sessionAuthority.getGeneration())
+        ) {
           void this.rpc.request("profiles.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
+        this.subscriptionTicket = ticket;
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline", ticket);
       })
       .catch(() => {
         if (this.connectionState.phase !== "connected") return;
@@ -248,9 +252,10 @@ export class RpcProfileClient implements ProfileClient {
 
   private receiveConnectionState(state: ReturnType<WebRpcTransport["getConnectionState"]>) {
     const mapped = projectRpcConnectionState(state);
+    this.sessionAuthority.observeTransport(mapped.phase === "connected");
     if (mapped.phase === "connected") {
-      this.snapshotAcceptance.armReconnect();
       this.remoteSubscriptionId = null;
+      this.subscriptionTicket = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
@@ -261,27 +266,43 @@ export class RpcProfileClient implements ProfileClient {
   private receiveSnapshot(
     notification: ProfileSnapshotNotificationDto,
     delivery: ApplicationSnapshotDelivery = "update",
+    ticket = this.subscriptionTicket,
   ) {
-    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (notification.subscriptionId !== this.remoteSubscriptionId || !ticket) return;
+    const result = this.sessionAuthority.accept(ticket, notification.snapshot, delivery);
     if (result.kind === "conflict") {
       this.emitConnectionState({ ...this.connectionState, stale: true });
       return;
     }
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
-    if (result.kind !== "accepted") return;
+    if (result.kind !== "accepted" || !result.snapshot) return;
     const snapshot = this.projectCapabilities(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
   }
 
-  private normalizeSnapshot(snapshot: ProfileSnapshotDto, delivery: SnapshotDelivery = "command") {
-    const result = this.snapshotAcceptance.accept(snapshot, delivery);
+  private async requestSnapshot(
+    method: ProfileSnapshotMethod,
+    params: Parameters<MishRpcClient["request"]>[1],
+    options?: RpcRequestOptions,
+    delivery: "command" | "request" = method === "profiles.getSnapshot" ? "request" : "command",
+  ) {
+    const ticket = this.sessionAuthority.beginRequest();
+    const result = this.sessionAuthority.accept(
+      ticket,
+      (await this.request(method, params, options)) as ProfileSnapshotDto,
+      delivery,
+    );
     if (result.kind === "conflict") {
       throw new ProfileClientError("validation", "Profile snapshot order conflict");
     }
-    if (result.kind === "duplicate") this.snapshotAcceptance.completeReconnect();
     this.emitSnapshotConnectionState();
+    if (!result.snapshot) {
+      throw new ProfileClientError(
+        "disconnected",
+        "Profile snapshot baseline is not established",
+        true,
+      );
+    }
     return this.projectCapabilities(result.snapshot);
   }
 
@@ -289,7 +310,7 @@ export class RpcProfileClient implements ProfileClient {
     this.emitConnectionState({
       attempt: 0,
       phase: "connected",
-      stale: this.snapshotAcceptance.isReconnectPending(),
+      stale: this.sessionAuthority.isStale(),
     });
   }
 
