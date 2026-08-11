@@ -22,8 +22,9 @@ Owner: thread-master coordinator
 Wave 2A is fully integrated. The maintainer approved the exact seven-task Wave
 2B on 2026-08-11. All seven Luna Max Workers were created from the published
 manifest baseline `4df0ebe`; their identities and isolated worktrees are
-backfilled below. Five Workers are active, including #439 A5.2 refreshing onto
-the latest main after its first green CI run; #448 A2.2 is merged with its
+backfilled below. Three Workers are active; #439 A5.2 is delivered on the latest
+code baseline and awaiting confirmation-only acceptance; #436 A1.3 is merged with final
+handoff pending, #448 A2.2 is merged with its
 post-merge Fast PR gate passed and is integrated, #442 E1.2 is integrated, no
 dispatch reservation remains, and five concurrency slots are unreserved. #440 B1.3 merged in PR #470,
 but coordinator acceptance review found that Status error reconciliation can
@@ -62,11 +63,11 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 
 | Theme | Issue | State | Blocked by | Acceptance |
 | --- | --- | --- | --- | --- |
-| Owned operations | #436 | A1.1/A1.2 integrated; A1.3 planned | none | confirmation-only |
+| Owned operations | #436 | A1.1/A1.2 integrated; A1.3 merged with final handoff pending | none | confirmation-only |
 | System Proxy restoration | #448 | A2.1/A2.2 integrated; A2.3 planned | #436 A1.1 for A2.2 | A2.1/A2.2 confirmation-only; A2.3 hands-on |
 | SimulatedHost truthfulness | #437 | completed: A3.1/A3.2 integrated; Issue closed | none | accepted |
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
-| Process identity | #439 | A5.1 integrated; A5.2 delivered in PR #475, refreshing latest main before acceptance | none | confirmation-only |
+| Process identity | #439 | A5.1 integrated; A5.2 delivered in PR #475, awaiting acceptance | none | confirmation-only |
 | RPC Session Authority | #440 | B1.1/B1.2 integrated; B1.3 merged with bounded acceptance rework; B1.4/B1.5 planned | none | confirmation-only |
 | Profile credential privacy | #449 | ready; not dispatched | #440 B1.2 integrated | confirmation-only |
 | Atomic profile generations | #441 | C2.1 integrated; C2.2/C2.3 planned | none | confirmation-only |
@@ -92,9 +93,9 @@ branch-protection mutation, or other hands-on acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | active | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | Own registry, architecture documentation, and lifecycle-owner gates only; system-boundary changes must follow the transcript skill |
+| #436 A1.3 | `019ff06b-345d-7993-a0ac-3303ad0919cb` | `5e41` | merged; handoff pending | A1.1/A1.2 integrated | Register and document the single owned-operation lifecycle authority and enforce it statically | PR #471 merged as `abb82c1`; await the Worker's final evidence/tracker handoff before integration; do not infer Issue completion from the merge alone |
 | #448 A2.2 | `019ff06b-2dbe-7653-abf7-03eed0131628` | `7719` | integrated | A1.1 and A2.1 integrated | Record the exact System Proxy invocation/result matrix and replay it through SimulatedHost | PR #474 merged as `2c1d89d`; local final `pnpm check:pr`, Fast PR, and Android gates passed; no Tart or developer-host mutation and A2.3 remains hands-on |
-| #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | active | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 passed Fast PR and Android gates on its delivered base; merge latest `origin/main@9fd6338`, preserve A2.2 overlap, rerun gates, then request maintainer confirmation; preserve #353 |
+| #439 A5.2 | `019ff06b-2dc1-7f93-9a65-b7ce552e2ab2` | `c3b7` | awaiting acceptance | A5.1 integrated | Migrate activation/recovery to identity-bound process control and add PID reuse/replacement/timeout transcripts | PR #475 is CLEAN on code baseline `a8823b6`; final `pnpm check:pr`, Fast PR, and Android gates passed after preserving A2.2 overlap; explicit maintainer confirmation is required before ordinary merge; preserve #353 |
 | #440 B1.3 | `019ff06b-2dbc-7af2-ad28-80f04ef51b7d` | `46eb` | rework | B1.2 integrated | Migrate Status, Traffic, and Updater consumers to `RpcSessionAuthority` | PR #470 merged as `bbcd699`; reject or authority-project conflicting Status error reconciliation snapshots, add the missing deterministic regression, and do not touch B1.4/B1.5 |
 | #441 C2.2 | `019ff06b-2dbe-7653-abf7-03be5ddcf3e8` | `d144` | active | C2.1 integrated | Make reconciliation, selection, detach, and activation read only complete Profile generations | C2.3 adversarial/crash/restart matrix remains separate; follow the transcript skill |
 | #442 E1.2 | `019ff06b-2dc0-7350-906c-4b8b771619c6` | `0996` | integrated | E1.1 integrated | Verify attestation signature, predicate, repository/workflow identity, commit SHA, and artifact digest | PR #473 merged as `c9fa882`; Fast PR and Android gates plus post-merge `pnpm check:pr` passed; E1.3/E1.4 remain open and no real credentials or release mutation were used |
