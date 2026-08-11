@@ -22,8 +22,8 @@ Owner: thread-master coordinator
 Waves 2A through 2D are fully integrated. In Wave 2E, #449 C1.1, #450 C3.1,
 #452 F1.1, and #453 F2.1 are integrated; #451 D1.1 remains active in its
 isolated worktree. The maintainer approved the exact three-task AFK Wave 2F on
-2026-08-12. #450 C3.2, #452 F1.2, and #453 F2.2 are reserved as `dispatching`
-pending visible Worker creation, leaving six repository concurrency slots
+2026-08-12. #450 C3.2, #452 F1.2, and #453 F2.2 are active as visible Luna Max
+Workers in isolated worktrees, leaving six repository concurrency slots
 unreserved. #449 C1.2 must not run concurrently with #453 F2.2 because both
 own overlapping Profile/bridge files.
 
@@ -156,9 +156,9 @@ other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #450 C3.2 | `pending` | `pending` | dispatching | C3.1 integrated | Implement Browser Mode deferred, replacement, and stale-preview behavior plus save-blocking tests | Own Backup Browser Mode/UI/fixture behavior and tests only; preserve C3.1 fingerprint authority and do not expand the backup contract |
-| #452 F1.2 | `pending` | `pending` | dispatching | F1.1 integrated | Implement Restore Defaults confirmation/cancellation behavior and failure/late-completion tests | Own service-monitor confirmation/cancellation UI and deterministic tests only; preserve F1.1 operation identity and pending exclusion authority |
-| #453 F2.2 | `pending` | `pending` | dispatching | F2.1 integrated | Delete the dead Profile Patch Editor path and exact dependent contracts, styles, tests, and generated artifacts | Follow the F2.1 exact deletion manifest; preserve active Profile import/save/cancel and durable patch-engine behavior; do not implement F2.3 or touch #449 C1.2 |
+| #450 C3.2 | `019ff1fe-e059-7f10-af58-d536cb062052` | `c4a5` | active | C3.1 integrated | Implement Browser Mode deferred, replacement, and stale-preview behavior plus save-blocking tests | Visible Luna Max Worker is active; own Backup Browser Mode/UI/fixture behavior and tests only, preserve C3.1 fingerprint authority, and do not expand the backup contract |
+| #452 F1.2 | `019ff1fe-e059-7f10-af58-d559eb52bc37` | `e791` | active | F1.1 integrated | Implement Restore Defaults confirmation/cancellation behavior and failure/late-completion tests | Visible Luna Max Worker is active; own service-monitor confirmation/cancellation UI and deterministic tests only, preserving F1.1 operation identity and pending exclusion authority |
+| #453 F2.2 | `019ff1fe-e059-7f10-af58-d574154512c1` | `ecac` | active | F2.1 integrated | Delete the dead Profile Patch Editor path and exact dependent contracts, styles, tests, and generated artifacts | Visible Luna Max Worker is active; follow the F2.1 exact deletion manifest, preserve active Profile import/save/cancel and durable patch-engine behavior, and do not implement F2.3 or touch #449 C1.2 |
 
 ## Existing issue coordination
 
