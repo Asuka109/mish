@@ -53,10 +53,12 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
+#[cfg(target_os = "macos")]
+use mish_runtime::PlatformLifecycleEventKind;
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureFailureKind, CaptureJournal,
     CaptureJournalStore, CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint,
-    ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent,
     PlatformLifecycleEventSource, SystemProxyObservationStage, TunHelperAvailability,
     TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
     TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
