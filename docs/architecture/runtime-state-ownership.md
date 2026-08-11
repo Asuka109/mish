@@ -40,6 +40,31 @@ deep: deleting it would spread session identity, baselines, resets, retention,
 and ordering back across every client. A Web wrapper that only renames the DTO
 would be shallow and must not become a new Seam.
 
+## Capture owned-operation authority
+
+The registry entry `capture-owned-operation-lifecycle` is the canonical
+authority record for Capture/System Proxy/TUN owned operations. It assigns one
+lifecycle path to the five responsibilities that can retire or complete an
+owned operation: forced retirement, cancellation, finalization, runtime
+replacement, and shutdown.
+
+`CaptureMachine` in `crates/runtime/src/capture/machine.rs` is the data-bearing
+domain reducer. The repository kernel in `crates/state-machine/src/lib.rs`
+owns correlation checks, task cancellation, forced-retirement deadlines,
+finalizer joining, and shutdown draining. `CaptureReconciler` in
+`crates/runtime/src/capture.rs` owns exactly one `RunnerHandle<CaptureMachine>`
+as the runtime admission and shutdown facade; its effect adapter executes
+typed platform effects but cannot retire the machine. The outer
+`ProfileActivationCoordinator` may guard a runtime replacement saga, but it
+does not own Capture transitions.
+
+`CaptureRuntimeTransition`, the System Proxy/TUN reconcilers, and
+`CaptureLifecycleObserver` are explicitly non-owners. The observer and
+`SimulatedHost` projection are bounded test evidence only; they cannot admit,
+cancel, finalize, replace, or shut down a Capture operation. A second runner,
+direct kernel/finalizer bypass, detached lifecycle task, or documentation and
+registry drift is a contract violation and must fail the static gates closed.
+
 ## Evidence-backed ownership matrix
 
 Priority uses `P0` for the accepted first migration, `P1` for another proven

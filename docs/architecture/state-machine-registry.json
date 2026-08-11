@@ -1,6 +1,52 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "classifications": ["conforming", "migration-required", "intentionally-excluded"],
+  "lifecycleAuthorities": [
+    {
+      "id": "capture-owned-operation-lifecycle",
+      "machineId": "capture-system-proxy",
+      "kernelOwner": "crates/state-machine/src/lib.rs",
+      "runnerOwner": "crates/runtime/src/capture.rs",
+      "domainOwner": "crates/runtime/src/capture/machine.rs",
+      "effectOwner": "crates/runtime/src/capture.rs",
+      "projectionOwner": "crates/runtime/src/capture/machine.rs",
+      "testProjectionOwner": "crates/simulated-host/src/lib.rs",
+      "responsibilities": [
+        "forced-retirement",
+        "cancellation",
+        "finalization",
+        "replacement",
+        "shutdown"
+      ],
+      "nonOwners": [
+        {
+          "file": "crates/runtime/src/capture.rs",
+          "marker": "pub struct CaptureRuntimeTransition",
+          "role": "runtime replacement admission guard"
+        },
+        {
+          "file": "crates/runtime/src/capture.rs",
+          "marker": "pub struct SystemProxyReconciler",
+          "role": "platform effect adapter"
+        },
+        {
+          "file": "crates/runtime/src/capture.rs",
+          "marker": "struct TunReconciler",
+          "role": "platform effect adapter"
+        },
+        {
+          "file": "crates/desktop-bridge/src/activation.rs",
+          "marker": "CaptureRuntimeTransition",
+          "role": "outer Profile/Core saga guard"
+        },
+        {
+          "file": "crates/simulated-host/src/lib.rs",
+          "marker": "CaptureLifecycleObserver",
+          "role": "test-only transcript projection"
+        }
+      ]
+    }
+  ],
   "machines": [
     {
       "id": "updater-check",
@@ -30,6 +76,7 @@
       "id": "capture-system-proxy",
       "classification": "conforming",
       "canonicalOwner": "crates/runtime/src/capture/machine.rs",
+      "lifecycleAuthority": "capture-owned-operation-lifecycle",
       "recoveryBoundary": "The existing Capture journal and exact prior System Proxy/TUN state remain authoritative; restart and every terminal apply restore are decided from fresh platform observation and explicit drift/recovery-required evidence."
     },
     {
