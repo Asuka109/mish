@@ -195,10 +195,15 @@ describe("Traffic page", () => {
     expect(within(row).getByText("Fixture Browser")).toHaveAttribute("tabindex", "0");
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
     expect(within(row).getByRole("button", { name: "Close" })).toBeDisabled();
-    expect(row).toHaveAttribute("tabindex", "0");
+    const details = within(row).getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    expect(details).toHaveAttribute("aria-controls", "traffic-connection-details");
+    expect(details).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(row);
+    await user.click(details);
     const dialog = screen.getByRole("dialog", { name: "Connection details" });
+    expect(details).toHaveAttribute("aria-expanded", "true");
     expect(dialog).toHaveTextContent("TCP · HTTPS");
     const chain = within(dialog).getByRole("list");
     expect(within(chain).getAllByRole("listitem")).toHaveLength(3);
@@ -208,6 +213,26 @@ describe("Traffic page", () => {
         .map((item) => item.textContent),
     ).toEqual(["1Fixture Policy", "2Fixture Relay", "3Fixture Exit"]);
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
+  });
+
+  it("opens details from the named action with keyboard and restores focus after closing", async () => {
+    const user = userEvent.setup();
+    renderTraffic(new FixtureTrafficClient());
+
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    const details = within(row).getByRole("button", {
+      name: /Connection details.*docs\.fixture\.invalid/,
+    });
+    details.focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    expect(details).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(details).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).toBe(details);
   });
 
   it("keeps canonical identifiers identical in English and Chinese", async () => {
@@ -255,7 +280,9 @@ describe("Traffic page", () => {
     renderTraffic(client);
 
     const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
-    await user.click(row);
+    await user.click(
+      within(row).getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ }),
+    );
     const dialog = screen.getByRole("dialog", { name: "Connection details" });
     expect(dialog).toHaveTextContent("Provider chain");
     expect(dialog).toHaveTextContent("Unavailable");
@@ -272,7 +299,12 @@ describe("Traffic page", () => {
       ],
       sequence: snapshot.sequence + 2,
     });
-    await user.click(await screen.findByRole("row", { name: /docs\.fixture\.invalid/ }));
+    const updatedRow = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    await user.click(
+      within(updatedRow).getByRole("button", {
+        name: /Connection details.*docs\.fixture\.invalid/,
+      }),
+    );
     expect(screen.getByRole("dialog", { name: "Connection details" })).toHaveTextContent(
       "Provider A → 东京 🚀 → Provider A",
     );

@@ -76,6 +76,8 @@ interface CloseVisibleTarget {
   connectionIds: string[];
 }
 
+const TRAFFIC_CONNECTION_DETAILS_ID = "traffic-connection-details";
+
 const connectionSortValues: ConnectionSort[] = [
   "started-desc",
   "destination-asc",
@@ -127,10 +129,6 @@ const trafficStyles = tv({
       "[&_.ui-table-head:nth-child(2)]:w-33 [&_.ui-table-head:nth-child(3)]:w-28",
       "[&_.ui-table-head:nth-child(4)]:w-28 [&_.ui-table-head:nth-child(5)]:w-28",
       "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-25",
-    ),
-    connectionRow: cx(
-      "cursor-pointer outline-none",
-      "data-[mish-focus-visible=keyboard]:[--mish-focus-outline-offset:-2px]",
     ),
     connectionAction: "text-clip",
     rulesTable: cx(
@@ -503,6 +501,7 @@ export function TrafficPage() {
               !isCloseAllPending &&
               !isCloseFilteredVisiblePending
             }
+            expandedConnectionId={selectedConnection?.id ?? null}
             isClosePending={isCloseConnectionPending}
             onRequestClose={setCloseTarget}
             onSelect={setSelectedConnection}
@@ -522,6 +521,7 @@ export function TrafficPage() {
             }
             locale={locale}
             canClose={false}
+            expandedConnectionId={selectedConnection?.id ?? null}
             isClosePending={() => false}
             onRequestClose={() => undefined}
             onSelect={setSelectedConnection}
@@ -755,6 +755,7 @@ interface ConnectionPanelProps<T extends TrafficConnectionDto> {
   connections: T[];
   emptyDescription: string;
   emptyTitle: string;
+  expandedConnectionId: string | null;
   locale: Locales;
   isClosePending(connectionId: string): boolean;
   onRequestClose(connection: T): void;
@@ -767,6 +768,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
   connections,
   emptyDescription,
   emptyTitle,
+  expandedConnectionId,
   locale,
   isClosePending,
   onRequestClose,
@@ -804,35 +806,20 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
       </TableHeader>
       <TableBody>
         {connections.map((connection) => (
-          <TableRow
-            className={trafficStyles().connectionRow()}
-            key={connection.id}
-            onClick={(event) => {
-              if (
-                event.target instanceof Element &&
-                event.target.closest("[data-traffic-row-action]")
-              ) {
-                return;
-              }
-              onSelect(connection);
-            }}
-            onKeyDown={(event) => {
-              if (
-                event.target !== event.currentTarget ||
-                (event.key !== "Enter" && event.key !== " ")
-              ) {
-                return;
-              }
-              event.preventDefault();
-              onSelect(connection);
-            }}
-            tabIndex={0}
-          >
+          <TableRow key={connection.id}>
             <TableCell>
-              <span className={trafficStyles().destination()}>
+              <Button
+                aria-controls={TRAFFIC_CONNECTION_DETAILS_ID}
+                aria-expanded={expandedConnectionId === connection.id}
+                aria-label={`${LL.traffic.connectionDetails()}: ${destinationLabel(connection) || LL.traffic.unavailable()}:${connection.destinationPort}`}
+                className={trafficStyles().destination()}
+                onClick={() => onSelect(connection)}
+                type="button"
+                variant="ghost"
+              >
                 <span>{destinationLabel(connection) || LL.traffic.unavailable()}</span>
                 <small className="tabular-nums">:{connection.destinationPort}</small>
-              </span>
+              </Button>
             </TableCell>
             <TableCell>
               <ProcessIdentity connection={connection} LL={LL} />
@@ -1071,7 +1058,11 @@ function ConnectionDetailDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
-      <DialogContent className={trafficStyles().detailDialog()} closeLabel={LL.common.close()}>
+      <DialogContent
+        className={trafficStyles().detailDialog()}
+        closeLabel={LL.common.close()}
+        id={TRAFFIC_CONNECTION_DETAILS_ID}
+      >
         <DialogHeader className={trafficStyles().detailHeader()}>
           <div>
             <DialogTitle className="dialog-title">{LL.traffic.connectionDetails()}</DialogTitle>
