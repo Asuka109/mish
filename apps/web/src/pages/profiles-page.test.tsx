@@ -313,6 +313,46 @@ describe("profiles page", () => {
     expect(screen.getByText("office-route-set")).toBeVisible();
   });
 
+  it("keeps the active Profile import/save journey and discards cancelled edits", async () => {
+    const user = userEvent.setup();
+    const client = createDesktopClient();
+    renderProfiles(client);
+    await screen.findByText("studio-route-set");
+
+    await user.click(screen.getByRole("button", { name: "New Profile" }));
+    await user.type(screen.getByLabelText("Local file name"), "discard-me");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Create local profile")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "New Profile" }));
+    expect(screen.getByLabelText("Local file name")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByRole("button", { name: "Add Subscription" }));
+    await user.type(screen.getByLabelText("Local file name"), "discarded-import");
+    await user.type(screen.getByLabelText("Subscription URL"), "https://profiles.example/discard");
+    await user.click(screen.getByRole("button", { name: "Check and Save" }));
+    expect(await screen.findByText("Ready to save")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Ready to save")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Add Subscription" }));
+    expect(screen.getByLabelText("Local file name")).toHaveValue("");
+    expect(screen.getByLabelText("Subscription URL")).toHaveValue("");
+    await user.type(screen.getByLabelText("Local file name"), "saved-import");
+    await user.type(screen.getByLabelText("Subscription URL"), "https://profiles.example/saved");
+    await user.click(screen.getByRole("button", { name: "Check and Save" }));
+    expect(await screen.findByText("Ready to save")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    await waitFor(() =>
+      expect(client.savePreview).toHaveBeenCalledWith("preview-office", {
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("Ready to save")).not.toBeInTheDocument());
+  });
+
   it("admits only redacted subscription summaries and structured profile events", () => {
     expect(
       ProfileSubscriptionSummarySchema.safeParse({
