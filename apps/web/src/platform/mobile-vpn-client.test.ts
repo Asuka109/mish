@@ -179,6 +179,9 @@ describe("MobileVpnFixtureClient", () => {
         evidence: { ...provenance.evidence, artifactDigest: "a".repeat(65) },
       }).success,
     ).toBe(false);
+    expect(
+      MobileCoreProvenanceSnapshotSchema.safeParse({ ...provenance, evidence: null }).success,
+    ).toBe(false);
   });
 
   it("checks the complete generated Android facts schema and rejects drift", () => {

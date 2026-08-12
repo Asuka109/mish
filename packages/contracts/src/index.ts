@@ -201,7 +201,10 @@ export const MobileCoreProvenanceSnapshotSchema = z
     if ((snapshot.state === "admitted") !== (snapshot.classification === "available")) {
       context.addIssue({ code: "custom", message: "Admitted provenance must be available" });
     }
-    if (snapshot.state === "admitted" && snapshot.evidence?.artifactDigest === null) {
+    if (
+      snapshot.state === "admitted" &&
+      (snapshot.evidence === null || snapshot.evidence.artifactDigest === null)
+    ) {
       context.addIssue({
         code: "custom",
         message: "Admitted provenance requires artifact identity",

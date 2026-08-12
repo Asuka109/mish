@@ -73,6 +73,13 @@ impl MobileCoreProvenanceSnapshot {
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         };
+        let source_version = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 32
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'+')
+                })
+        };
         if self.schema_version != 1
             || !identifier(&self.authority_id)
             || self.generation > 9_007_199_254_740_991
@@ -83,6 +90,12 @@ impl MobileCoreProvenanceSnapshot {
                     self.classification,
                     MobileCoreProvenanceClassification::Available
                 ))
+            || (matches!(self.state, MobileCoreProvenanceState::Admitted)
+                && self
+                    .evidence
+                    .as_ref()
+                    .and_then(|evidence| evidence.artifact_digest.as_ref())
+                    .is_none())
         {
             return false;
         }
@@ -97,12 +110,15 @@ impl MobileCoreProvenanceSnapshot {
                 && evidence.artifact_digest.as_deref().is_none_or(&digest)
                 && evidence.signer_fingerprint.as_deref().is_none_or(&digest)
                 && evidence.source_commit.as_deref().is_none_or(|value| {
-                    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    value.len() == 40
+                        && value
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
                 })
                 && evidence
                     .source_version
                     .as_deref()
-                    .is_none_or(|value| !value.is_empty() && value.len() <= 32 && identifier(value))
+                    .is_none_or(source_version)
                 && evidence
                     .wrapper_revision
                     .as_deref()
