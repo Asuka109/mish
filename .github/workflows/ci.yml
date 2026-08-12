@@ -271,6 +271,7 @@ jobs:
             ANDROID_USER_HOME="$android_user_home" \
             "$emulator_binary" \
             -avd "$avd_name" \
+            -accel off \
             -no-window \
             -gpu swiftshader_indirect \
             -no-snapshot \
