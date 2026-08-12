@@ -244,8 +244,8 @@ signing, deployment, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #454 D2.2 | `pending` | `pending` | dispatching | D2.1 integrated | Add a deterministic adversarial matrix proving artifact, manifest, ABI, signer, and replacement drift fail closed before Mobile Core effects | Own D2.2 tests and the minimum narrow production/test seams required by discovered gaps; preserve D2.3 diagnostics scope; merge first |
-| #451 D1.4 | `pending` | `pending` | dispatching | D1.1-D1.3 and D2.1 integrated; final delivery after D2.2 target integration | Complete cross-layer Rust/Kotlin/JavaScript replacement, cancellation, failure, cleanup, recreation, and stale-delivery transcripts plus repository-owned automated emulator acceptance | Preserve the single real lifecycle authority; no physical-device or real VPN/TUN claim; ordinary-merge D2.2 target before final verification; merge second |
+| #454 D2.2 | `019ff5a4-b257-75e1-8169-08e40a2fb47d` | `6cf1` | active | D2.1 integrated | Add a deterministic adversarial matrix proving artifact, manifest, ABI, signer, and replacement drift fail closed before Mobile Core effects | Own D2.2 tests and the minimum narrow production/test seams required by discovered gaps; preserve D2.3 diagnostics scope; merge first |
+| #451 D1.4 | `019ff5a4-b257-75e1-8169-08cf04f49933` | `262d` | active | D1.1-D1.3 and D2.1 integrated; final delivery after D2.2 target integration | Complete cross-layer Rust/Kotlin/JavaScript replacement, cancellation, failure, cleanup, recreation, and stale-delivery transcripts plus repository-owned automated emulator acceptance | Preserve the single real lifecycle authority; no physical-device or real VPN/TUN claim; ordinary-merge D2.2 target before final verification; merge second |
 
 ## Existing issue coordination
 
