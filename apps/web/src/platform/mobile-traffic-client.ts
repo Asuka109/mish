@@ -67,7 +67,10 @@ export class MobileTrafficClient implements TrafficClient {
         },
       }),
     );
-    this.acceptSnapshot(result.snapshot, "command");
+    // The provider owns command-result reconciliation. Retain the authoritative
+    // snapshot locally, but do not publish it as a subscription update: doing so
+    // would supersede and abort the command that is still returning this result.
+    this.acceptSnapshot(result.snapshot, "command", false);
     if (options.signal?.aborted) return this.cancelledResult("close-connection", result.snapshot);
     const { operationId: _operationId, ...sharedResult } = result;
     return sharedResult;
@@ -137,6 +140,7 @@ export class MobileTrafficClient implements TrafficClient {
   private acceptSnapshot(
     snapshot: TrafficDataSnapshotDto,
     delivery: ApplicationSnapshotDelivery | "command" | "request",
+    publish = true,
   ) {
     if (this.disposed) return;
     const previous = this.snapshot;
@@ -155,6 +159,7 @@ export class MobileTrafficClient implements TrafficClient {
     this.snapshot = structuredClone(snapshot);
     this.connection = { attempt: 0, phase: "connected", stale: false };
     this.publishConnection();
+    if (!publish) return;
     const publishedDelivery: ApplicationSnapshotDelivery =
       delivery === "command" || delivery === "request" ? "update" : delivery;
     for (const listener of this.snapshotListeners) {

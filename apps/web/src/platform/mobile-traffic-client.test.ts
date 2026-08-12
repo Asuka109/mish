@@ -66,6 +66,8 @@ describe("MobileTrafficClient", () => {
       invoke,
       setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
     });
+    const delivered: number[] = [];
+    client.subscribeSnapshots((value) => delivered.push(value.sequence));
     await client.getSnapshot();
     const result = await client.closeConnection(
       { profileId: "profile-a", sequence: 1, sessionId: "traffic-a" },
@@ -83,6 +85,7 @@ describe("MobileTrafficClient", () => {
       },
     });
     expect(result).toMatchObject({ status: "success", snapshot: { activeConnections: [] } });
+    expect(delivered).not.toContain(2);
   });
 
   it("exposes only close-one and marks polling failures stale", async () => {
@@ -160,7 +163,8 @@ describe("MobileTrafficClient", () => {
       { operationId: "racing-operation", signal: controller.signal },
     );
     expect(result.failure).toBe("disconnected");
-    expect(snapshots).toContain(2);
+    expect(result.snapshot.activeConnections).toEqual([]);
+    expect(snapshots).not.toContain(2);
     expect((await client.getSnapshot()).activeConnections).toEqual([]);
   });
 });
