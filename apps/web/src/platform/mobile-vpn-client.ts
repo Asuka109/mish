@@ -22,6 +22,27 @@ interface MobileVpnTransport {
   listen(handler: (payload: unknown) => void): Promise<MobileVpnListener>;
 }
 
+export type MobileVpnDeliveryTraceEvent =
+  | {
+      generation: number;
+      kind: "generation";
+      phase: "baseline-pending" | "baseline-accepted" | "disposed";
+    }
+  | {
+      acceptance: "accepted" | "duplicate" | "stale" | "retired";
+      authorityId: string;
+      delivery: "baseline" | "notification" | "command" | "load";
+      generation: number;
+      kind: "delivery";
+      revision: number;
+      sequence: number;
+      sessionId: string;
+    };
+
+export interface MobileVpnClientOptions {
+  trace?: (event: MobileVpnDeliveryTraceEvent) => void;
+}
+
 interface MobileVpnListener {
   unregister(): Promise<void>;
 }
@@ -42,6 +63,38 @@ interface MobileConfigLoadOptions {
   timeoutMillis?: number;
 }
 
+interface MobileVpnAuthority {
+  authorityId: string;
+  revision: number;
+  sequence: number;
+  sessionId: string;
+}
+
+interface MobileValidationOperation {
+  cancellationRequested: boolean;
+  generation: number;
+  retired: boolean;
+}
+
+interface MobileLoadOperation {
+  authority: MobileVpnAuthority;
+  cancellationRequested: boolean;
+  generation: number;
+  operationId: string;
+  retired: boolean;
+}
+
+interface MobileLifecycleOperation {
+  authority?: MobileVpnAuthority;
+  cancellationRequested: boolean;
+  generation: number;
+  kind: "request-notification-permission" | "request-vpn-consent" | "start" | "stop";
+  operationId: string;
+  requestCancellation?: () => void;
+  retired: boolean;
+  terminalSettled: boolean;
+}
+
 export interface MobileVpnClient {
   dispose(): void;
   getSnapshot(): MobileVpnSnapshotDto | undefined;
@@ -51,10 +104,10 @@ export interface MobileVpnClient {
     identity: MobileConfigRevisionIdentity,
     options?: MobileConfigLoadOptions,
   ): Promise<MobileConfigLoadResultDto>;
-  requestNotificationPermission(): Promise<MobileVpnSnapshotDto>;
-  requestVpnConsent(): Promise<MobileVpnSnapshotDto>;
+  requestNotificationPermission(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
+  requestVpnConsent(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   start(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
-  stop(): Promise<MobileVpnSnapshotDto>;
+  stop(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void): () => void;
   validateConfig(
     configBytes: Uint8Array,
@@ -71,57 +124,69 @@ const defaultTransport: MobileVpnTransport = {
 };
 
 export class MobileVpnFixtureClient implements MobileVpnClient {
-  private validationPending = false;
-  private loadPending = false;
   private loadSequence = 0;
   private lifecycleOperationSequence = 0;
   private listener?: MobileVpnListener;
+  private listenerGeneration = 0;
   private baselineAccepted = false;
+  private clientGeneration = 0;
+  private disposed = false;
   private readonly pendingEvents = new Map<string, MobileVpnSnapshotDto>();
   private snapshot?: MobileVpnSnapshotDto;
   private readonly retiredAuthorityIds = new Set<string>();
   private readonly retiredSessionIds = new Set<string>();
   private readonly subscribers = new Set<(snapshot: MobileVpnSnapshotDto) => void>();
+  private validationOperation?: MobileValidationOperation;
+  private activeLoadOperationId?: string;
+  private readonly loadOperations = new Map<string, MobileLoadOperation>();
+  private readonly lifecycleOperations = new Map<string, MobileLifecycleOperation>();
 
-  constructor(private readonly transport: MobileVpnTransport = defaultTransport) {}
+  constructor(
+    private readonly transport: MobileVpnTransport = defaultTransport,
+    private readonly options: MobileVpnClientOptions = {},
+  ) {}
 
   async initialize(): Promise<MobileVpnSnapshotDto> {
-    if (!this.listener) {
-      this.listener = await this.transport.listen((payload) => {
-        const event = MobileVpnEventSchema.parse(payload);
-        if (!this.baselineAccepted) {
-          this.queuePendingSnapshot(event.snapshot);
-          return;
-        }
-        this.acceptSnapshot(event.snapshot);
-      });
+    const generation = this.beginGeneration();
+    await this.installListener(generation);
+    if (!this.isCurrentGeneration(generation)) {
+      throw new Error("The mobile VPN baseline was retired before it was requested.");
     }
     const baseline = MobileVpnSnapshotSchema.parse(await this.transport.invoke("get_snapshot"));
+    if (!this.isCurrentGeneration(generation)) {
+      throw new Error("The mobile VPN baseline was retired before it was accepted.");
+    }
     this.acceptBaseline(baseline);
+    if (!this.baselineAccepted) {
+      throw new Error("The mobile VPN baseline was stale or conflicting.");
+    }
     return this.snapshot ?? baseline;
   }
 
   getSnapshot(): MobileVpnSnapshotDto | undefined {
-    return this.snapshot;
+    return this.baselineAccepted ? this.snapshot : undefined;
   }
 
-  requestNotificationPermission(): Promise<MobileVpnSnapshotDto> {
+  requestNotificationPermission(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MobileVpnSnapshotDto> {
     return this.runLifecycleCommand(
       "request_notification_permission",
       "request-notification-permission",
+      options,
     );
   }
 
-  requestVpnConsent(): Promise<MobileVpnSnapshotDto> {
-    return this.runLifecycleCommand("request_vpn_consent", "request-vpn-consent");
+  requestVpnConsent(options: { signal?: AbortSignal } = {}): Promise<MobileVpnSnapshotDto> {
+    return this.runLifecycleCommand("request_vpn_consent", "request-vpn-consent", options);
   }
 
   start(options: { signal?: AbortSignal } = {}): Promise<MobileVpnSnapshotDto> {
     return this.runLifecycleCommand("start", "start", options);
   }
 
-  stop(): Promise<MobileVpnSnapshotDto> {
-    return this.runLifecycleCommand("stop", "stop");
+  stop(options: { signal?: AbortSignal } = {}): Promise<MobileVpnSnapshotDto> {
+    return this.runLifecycleCommand("stop", "stop", options);
   }
 
   async validateConfig(
@@ -145,7 +210,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         authority,
       );
     }
-    if (this.validationPending) {
+    if (this.validationOperation) {
       return validationFailure(
         "duplicate-command",
         "Another configuration validation is already pending.",
@@ -153,7 +218,12 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
       );
     }
 
-    this.validationPending = true;
+    const operation: MobileValidationOperation = {
+      cancellationRequested: false,
+      generation: this.clientGeneration,
+      retired: false,
+    };
+    this.validationOperation = operation;
     const payloadBytes = Array.from(configBytes);
     const validation = (async (): Promise<MobileConfigValidationResultDto> => {
       try {
@@ -166,6 +236,17 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
             },
           }),
         );
+        if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
+          return validationFailure(
+            operation.cancellationRequested && this.isCurrentGeneration(operation.generation)
+              ? "cancelled"
+              : "stale-authority",
+            operation.cancellationRequested && this.isCurrentGeneration(operation.generation)
+              ? "Configuration validation was cancelled."
+              : "The mobile runtime authority changed during configuration validation.",
+            this.currentAuthority(),
+          );
+        }
         if (options.signal?.aborted) {
           return validationFailure(
             "cancelled",
@@ -189,6 +270,17 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         }
         return result;
       } catch {
+        if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
+          return validationFailure(
+            operation.cancellationRequested && this.isCurrentGeneration(operation.generation)
+              ? "cancelled"
+              : "stale-authority",
+            operation.cancellationRequested && this.isCurrentGeneration(operation.generation)
+              ? "Configuration validation was cancelled."
+              : "The mobile runtime authority changed during configuration validation.",
+            this.currentAuthority(),
+          );
+        }
         return validationFailure(
           options.signal?.aborted ? "cancelled" : "plugin-failure",
           options.signal?.aborted
@@ -198,7 +290,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         );
       } finally {
         payloadBytes.fill(0);
-        this.validationPending = false;
+        if (this.validationOperation === operation) this.validationOperation = undefined;
       }
     })();
 
@@ -207,6 +299,8 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     let settleCancellation: (() => void) | undefined;
     const cancellation = new Promise<MobileConfigValidationResultDto>((resolve) => {
       settleCancellation = () => {
+        operation.cancellationRequested = true;
+        operation.retired = true;
         resolve(
           validationFailure(
             "cancelled",
@@ -233,6 +327,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     identity: MobileConfigRevisionIdentity,
     options: MobileConfigLoadOptions = {},
   ): Promise<MobileConfigLoadResultDto> {
+    const generation = this.clientGeneration;
     const authority = this.currentAuthority();
     const operationId =
       options.operationId ?? `mobile-config-load-${Date.now()}-${++this.loadSequence}`;
@@ -288,7 +383,25 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         this.snapshot,
       );
     }
-    if (this.loadPending) {
+    if (options.signal?.aborted) {
+      return loadFailure(
+        base,
+        "cancelled",
+        "Configuration loading was cancelled before native dispatch.",
+        this.snapshot,
+        "cancelled",
+        "before-load",
+      );
+    }
+    if (!this.isCurrentGeneration(generation)) {
+      return loadFailure(
+        base,
+        "runtime-replaced",
+        "The mobile configuration load was retired before native dispatch.",
+        this.snapshot,
+      );
+    }
+    if (this.activeLoadOperationId) {
       return loadFailure(
         base,
         "duplicate-command",
@@ -297,9 +410,20 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
       );
     }
 
-    this.loadPending = true;
+    const operation: MobileLoadOperation = {
+      authority,
+      cancellationRequested: false,
+      generation,
+      operationId,
+      retired: false,
+    };
+    this.loadOperations.set(operationId, operation);
+    this.activeLoadOperationId = operationId;
     const payloadBytes = Array.from(configBytes);
     const onAbort = () => {
+      if (operation.cancellationRequested) return;
+      operation.cancellationRequested = true;
+      operation.retired = true;
       void this.transport
         .invoke("cancel_config_load", { request: { operationId } })
         .then((value) => MobileConfigCancelResultSchema.parse(value))
@@ -333,9 +457,72 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
           this.snapshot,
         );
       }
-      if (result.snapshot) this.acceptSnapshot(result.snapshot);
+      if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
+        if (
+          operation.cancellationRequested &&
+          options.signal?.aborted &&
+          this.isCurrentGeneration(operation.generation)
+        ) {
+          const cancellation =
+            result.cancellation === "not-requested" ? "too-late" : result.cancellation;
+          return loadFailure(
+            base,
+            "cancelled",
+            "Configuration loading was cancelled before its result could be accepted.",
+            this.snapshot,
+            "cancelled",
+            cancellation,
+          );
+        }
+        return loadFailure(
+          base,
+          "runtime-replaced",
+          "The mobile configuration load was retired before its native result arrived.",
+          this.snapshot,
+        );
+      }
+      if (result.snapshot) {
+        const accepted = this.acceptCommandSnapshot(
+          result.snapshot,
+          operation.authority,
+          result.failure === "runtime-replaced",
+          "load",
+        );
+        if (!accepted) {
+          return loadFailure(
+            base,
+            result.failure === "runtime-replaced" ? "runtime-replaced" : "stale-authority",
+            "The mobile configuration load result was stale for the accepted native authority.",
+            this.snapshot,
+            "failed",
+            result.cancellation,
+          );
+        }
+      }
       return result;
     } catch {
+      if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
+        if (
+          operation.cancellationRequested &&
+          options.signal?.aborted &&
+          this.isCurrentGeneration(operation.generation)
+        ) {
+          return loadFailure(
+            base,
+            "cancelled",
+            "Configuration loading was cancelled before its result could be accepted.",
+            this.snapshot,
+            "cancelled",
+            "too-late",
+          );
+        }
+        return loadFailure(
+          base,
+          "runtime-replaced",
+          "The mobile configuration load was retired before its native result arrived.",
+          this.snapshot,
+        );
+      }
       return loadFailure(
         base,
         options.signal?.aborted ? "cancelled" : "plugin-failure",
@@ -349,22 +536,28 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
       payloadBytes.fill(0);
-      this.loadPending = false;
+      this.loadOperations.delete(operationId);
+      if (this.activeLoadOperationId === operationId) this.activeLoadOperationId = undefined;
     }
   }
 
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void): () => void {
     this.subscribers.add(handler);
-    if (this.snapshot) handler(this.snapshot);
+    if (!this.disposed && this.baselineAccepted && this.snapshot) handler(this.snapshot);
     return () => this.subscribers.delete(handler);
   }
 
   dispose(): void {
+    this.retireOperations();
+    this.disposed = true;
+    this.clientGeneration += 1;
     void this.listener?.unregister().catch(() => undefined);
     this.listener = undefined;
+    this.listenerGeneration = 0;
     this.baselineAccepted = false;
     this.pendingEvents.clear();
     this.subscribers.clear();
+    this.emitTrace({ generation: this.clientGeneration, kind: "generation", phase: "disposed" });
   }
 
   private async runLifecycleCommand(
@@ -372,70 +565,256 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     kind: "request-notification-permission" | "request-vpn-consent" | "start" | "stop",
     options: { signal?: AbortSignal } = {},
   ): Promise<MobileVpnSnapshotDto> {
+    const generation = this.clientGeneration;
     const operationId = `mobile-vpn-${kind}-${Date.now()}-${++this.lifecycleOperationSequence}`;
-    const onAbort = () => {
+    const operation: MobileLifecycleOperation = {
+      authority: this.currentAuthority(),
+      cancellationRequested: false,
+      generation,
+      kind,
+      operationId,
+      retired: false,
+      terminalSettled: false,
+    };
+    this.lifecycleOperations.set(operationId, operation);
+    let resolveCancellation: ((result: MobileVpnCommandResultDto) => void) | undefined;
+    const cancellation = new Promise<MobileVpnCommandResultDto>((resolve) => {
+      resolveCancellation = resolve;
+    });
+    const requestCancellation = () => {
+      if (operation.cancellationRequested || operation.terminalSettled) return;
+      operation.cancellationRequested = true;
       void this.transport
         .invoke("cancel_lifecycle_operation", { request: { operationId } })
         .then((value) => MobileVpnCommandResultSchema.parse(value))
-        .then((value) => this.acceptSnapshot(value.snapshot))
+        .then((value) => {
+          resolveCancellation?.(value);
+          return value;
+        })
         .catch(() => undefined);
     };
+    operation.requestCancellation = requestCancellation;
+    const onAbort = requestCancellation;
     options.signal?.addEventListener("abort", onAbort, { once: true });
-    if (options.signal?.aborted) onAbort();
-    let result: MobileVpnCommandResultDto;
     try {
-      result = MobileVpnCommandResultSchema.parse(
-        await this.transport.invoke(command, { request: { operationId } }),
+      const commandResult = this.transport
+        .invoke(command, { request: { operationId } })
+        .then((value) => MobileVpnCommandResultSchema.parse(value))
+        .then((value) => ({ source: "command" as const, value }));
+      if (options.signal?.aborted) onAbort();
+      const settled = await Promise.race([
+        commandResult,
+        cancellation.then((value) => ({ source: "cancel" as const, value })),
+      ]);
+      operation.terminalSettled = true;
+      const result = settled.value;
+      if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
+        return this.snapshot ?? result.snapshot;
+      }
+      if (result.operation.operationId !== operationId || result.operation.kind !== kind) {
+        throw new Error("The mobile VPN lifecycle result identity was invalid.");
+      }
+      this.acceptCommandSnapshot(
+        result.snapshot,
+        operation.authority,
+        result.operation.failure === "stale-platform-authority",
+        "command",
       );
+      return this.snapshot ?? result.snapshot;
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
+      this.lifecycleOperations.delete(operationId);
     }
-    if (result.operation.operationId !== operationId || result.operation.kind !== kind) {
-      throw new Error("The mobile VPN lifecycle result identity was invalid.");
+  }
+
+  private beginGeneration(): number {
+    this.retireOperations();
+    this.disposed = false;
+    this.clientGeneration += 1;
+    this.baselineAccepted = false;
+    this.pendingEvents.clear();
+    const listener = this.listener;
+    this.listener = undefined;
+    this.listenerGeneration = 0;
+    if (listener) void listener.unregister().catch(() => undefined);
+    this.emitTrace({
+      generation: this.clientGeneration,
+      kind: "generation",
+      phase: "baseline-pending",
+    });
+    return this.clientGeneration;
+  }
+
+  private async installListener(generation: number): Promise<void> {
+    if (this.listenerGeneration === generation && this.listener) return;
+    const listenerPromise = this.transport.listen((payload) => {
+      if (!this.isCurrentGeneration(generation)) return;
+      const event = MobileVpnEventSchema.parse(payload);
+      if (!this.baselineAccepted) {
+        this.queuePendingSnapshot(event.snapshot);
+        return;
+      }
+      this.acceptSnapshot(event.snapshot);
+    });
+    const listener = await listenerPromise;
+    if (!this.isCurrentGeneration(generation)) {
+      await listener.unregister().catch(() => undefined);
+      return;
     }
-    this.acceptSnapshot(result.snapshot);
-    return this.snapshot ?? result.snapshot;
+    this.listener = listener;
+    this.listenerGeneration = generation;
   }
 
   private acceptBaseline(baseline: MobileVpnSnapshotDto): void {
-    this.snapshot = baseline;
+    if (!this.snapshot) {
+      this.snapshot = baseline;
+    } else if (this.retiredAuthorityIds.has(baseline.authorityId)) {
+      return;
+    } else if (baseline.authorityId !== this.snapshot.authorityId) {
+      this.retireAuthority(this.snapshot.authorityId);
+      this.snapshot = baseline;
+    } else if (baseline.sessionId !== this.snapshot.sessionId) {
+      if (this.retiredSessionIds.has(baseline.sessionId)) return;
+      if (
+        baseline.sequence < this.snapshot.sequence ||
+        baseline.revision < this.snapshot.revision
+      ) {
+        return;
+      }
+      this.retireSession(this.snapshot.sessionId);
+      this.snapshot = baseline;
+    } else if (
+      baseline.sequence < this.snapshot.sequence ||
+      baseline.revision < this.snapshot.revision ||
+      (baseline.revision === this.snapshot.revision && !sameSnapshot(this.snapshot, baseline))
+    ) {
+      return;
+    } else {
+      this.snapshot = baseline;
+    }
     this.baselineAccepted = true;
-    this.retiredAuthorityIds.clear();
-    this.retiredSessionIds.clear();
-    for (const subscriber of this.subscribers) subscriber(baseline);
+    this.emitTrace({
+      generation: this.clientGeneration,
+      kind: "generation",
+      phase: "baseline-accepted",
+    });
+    this.emitTrace({
+      acceptance: "accepted",
+      authorityId: baseline.authorityId,
+      delivery: "baseline",
+      generation: this.clientGeneration,
+      kind: "delivery",
+      revision: baseline.revision,
+      sequence: baseline.sequence,
+      sessionId: baseline.sessionId,
+    });
+    this.notify(baseline);
     const pending = [...this.pendingEvents.values()].sort(
       (left, right) => left.sequence - right.sequence,
     );
     this.pendingEvents.clear();
-    for (const snapshot of pending) this.acceptSnapshot(snapshot);
+    for (const snapshot of pending) {
+      if (snapshot.authorityId === baseline.authorityId)
+        this.acceptSnapshot(snapshot, "notification");
+    }
   }
 
-  private acceptSnapshot(snapshot: MobileVpnSnapshotDto): void {
+  private acceptSnapshot(
+    snapshot: MobileVpnSnapshotDto,
+    delivery: "notification" | "command" | "load" = "notification",
+  ): boolean {
     if (!this.baselineAccepted) {
       this.queuePendingSnapshot(snapshot);
-      return;
+      return false;
     }
-    if (this.retiredAuthorityIds.has(snapshot.authorityId)) return;
-    if (this.retiredSessionIds.has(snapshot.sessionId)) return;
-    if (this.snapshot?.authorityId !== snapshot.authorityId) {
-      this.retiredAuthorityIds.add(snapshot.authorityId);
-      trimSet(this.retiredAuthorityIds);
-      return;
+    if (!this.snapshot) return false;
+    if (this.retiredAuthorityIds.has(snapshot.authorityId)) {
+      this.traceDelivery(snapshot, delivery, "retired");
+      return false;
     }
-    if (snapshot.sequence <= this.snapshot.sequence || snapshot.revision < this.snapshot.revision) {
-      return;
+    if (this.retiredSessionIds.has(snapshot.sessionId)) {
+      this.traceDelivery(snapshot, delivery, "retired");
+      return false;
     }
-    if (this.snapshot.sessionId !== snapshot.sessionId) {
-      this.retiredSessionIds.add(this.snapshot.sessionId);
-      trimSet(this.retiredSessionIds);
+    if (this.snapshot.authorityId !== snapshot.authorityId) {
+      this.traceDelivery(snapshot, delivery, "stale");
+      return false;
     }
+    if (snapshot.sequence < this.snapshot.sequence || snapshot.revision < this.snapshot.revision) {
+      this.traceDelivery(snapshot, delivery, "stale");
+      return false;
+    }
+    if (
+      snapshot.sequence === this.snapshot.sequence &&
+      snapshot.revision === this.snapshot.revision
+    ) {
+      const acceptance = sameSnapshot(this.snapshot, snapshot) ? "duplicate" : "stale";
+      this.traceDelivery(snapshot, delivery, acceptance);
+      return false;
+    }
+    if (this.snapshot.sessionId !== snapshot.sessionId) this.retireSession(this.snapshot.sessionId);
     this.snapshot = snapshot;
-    for (const subscriber of this.subscribers) subscriber(snapshot);
+    this.traceDelivery(snapshot, delivery, "accepted");
+    this.notify(snapshot);
+    return true;
   }
 
-  private currentAuthority(): { sequence: number; sessionId: string } | undefined {
-    if (!this.snapshot) return undefined;
-    return { sequence: this.snapshot.sequence, sessionId: this.snapshot.sessionId };
+  private acceptCommandSnapshot(
+    snapshot: MobileVpnSnapshotDto,
+    authority: MobileVpnAuthority | undefined,
+    allowReplacement: boolean,
+    delivery: "command" | "load" = "command",
+  ): boolean {
+    if (
+      !this.isCurrentGeneration(this.clientGeneration) ||
+      !this.baselineAccepted ||
+      !this.snapshot
+    ) {
+      return false;
+    }
+    if (
+      !authority ||
+      snapshot.authorityId !== authority.authorityId ||
+      snapshot.sessionId !== authority.sessionId
+    ) {
+      if (!allowReplacement || this.retiredAuthorityIds.has(snapshot.authorityId)) {
+        this.traceDelivery(snapshot, delivery, "stale");
+        return false;
+      }
+      if (
+        snapshot.authorityId === this.snapshot.authorityId &&
+        (snapshot.sequence <= this.snapshot.sequence || snapshot.revision < this.snapshot.revision)
+      ) {
+        this.traceDelivery(snapshot, delivery, "stale");
+        return false;
+      }
+      if (this.snapshot.authorityId !== snapshot.authorityId) {
+        this.retireAuthority(this.snapshot.authorityId);
+      } else if (this.snapshot.sessionId !== snapshot.sessionId) {
+        if (this.retiredSessionIds.has(snapshot.sessionId)) return false;
+        this.retireSession(this.snapshot.sessionId);
+      }
+      this.snapshot = snapshot;
+      this.baselineAccepted = true;
+      this.traceDelivery(snapshot, delivery, "accepted");
+      this.notify(snapshot);
+      return true;
+    }
+    if (sameSnapshot(this.snapshot, snapshot)) {
+      this.traceDelivery(snapshot, delivery, "duplicate");
+      return true;
+    }
+    return this.acceptSnapshot(snapshot, delivery);
+  }
+
+  private currentAuthority(): MobileVpnAuthority | undefined {
+    if (!this.snapshot || !this.baselineAccepted) return undefined;
+    return {
+      authorityId: this.snapshot.authorityId,
+      revision: this.snapshot.revision,
+      sequence: this.snapshot.sequence,
+      sessionId: this.snapshot.sessionId,
+    };
   }
 
   private queuePendingSnapshot(snapshot: MobileVpnSnapshotDto): void {
@@ -448,6 +827,65 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
       this.pendingEvents.delete(this.pendingEvents.keys().next().value!);
     }
   }
+
+  private isCurrentGeneration(generation: number): boolean {
+    return !this.disposed && generation === this.clientGeneration;
+  }
+
+  private notify(snapshot: MobileVpnSnapshotDto): void {
+    if (!this.baselineAccepted || this.disposed) return;
+    for (const subscriber of this.subscribers) subscriber(snapshot);
+  }
+
+  private retireAuthority(authorityId: string): void {
+    this.retiredAuthorityIds.add(authorityId);
+    trimSet(this.retiredAuthorityIds);
+  }
+
+  private retireSession(sessionId: string): void {
+    this.retiredSessionIds.add(sessionId);
+    trimSet(this.retiredSessionIds);
+  }
+
+  private retireOperations(): void {
+    if (this.validationOperation) this.validationOperation.retired = true;
+    for (const operation of this.loadOperations.values()) {
+      operation.retired = true;
+      if (!operation.cancellationRequested) {
+        operation.cancellationRequested = true;
+        void this.transport
+          .invoke("cancel_config_load", { request: { operationId: operation.operationId } })
+          .then((value) => MobileConfigCancelResultSchema.parse(value))
+          .catch(() => undefined);
+      }
+    }
+    for (const operation of this.lifecycleOperations.values()) {
+      operation.retired = true;
+      if (!operation.cancellationRequested && !operation.terminalSettled)
+        operation.requestCancellation?.();
+    }
+  }
+
+  private traceDelivery(
+    snapshot: MobileVpnSnapshotDto,
+    delivery: "baseline" | "notification" | "command" | "load",
+    acceptance: "accepted" | "duplicate" | "stale" | "retired",
+  ): void {
+    this.options.trace?.({
+      acceptance,
+      authorityId: snapshot.authorityId,
+      delivery,
+      generation: this.clientGeneration,
+      kind: "delivery",
+      revision: snapshot.revision,
+      sequence: snapshot.sequence,
+      sessionId: snapshot.sessionId,
+    });
+  }
+
+  private emitTrace(event: MobileVpnDeliveryTraceEvent): void {
+    this.options.trace?.(event);
+  }
 }
 
 function trimSet(values: Set<string>): void {
@@ -457,6 +895,10 @@ function trimSet(values: Set<string>): void {
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sameSnapshot(left: MobileVpnSnapshotDto, right: MobileVpnSnapshotDto): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function validationFailure(

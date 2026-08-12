@@ -307,6 +307,7 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
   const [loadInFlight, setLoadInFlight] = useState(false);
   const commandInFlight = useRef(false);
   const lifecycleAbortController = useRef<AbortController | undefined>(undefined);
+  const configAbortController = useRef<AbortController | undefined>(undefined);
   const loadInFlightRef = useRef(false);
   const projection = projectMobileHome(LL, snapshot);
   const core = coreEvidence(LL, snapshot);
@@ -320,6 +321,14 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
     }
     retire(mobileLifecycleFailureNotificationKey);
   }, [publish, retire, snapshot.phase]);
+
+  useEffect(
+    () => () => {
+      lifecycleAbortController.current?.abort();
+      configAbortController.current?.abort();
+    },
+    [],
+  );
 
   async function runLifecycleAction() {
     if (commandInFlight.current) {
@@ -366,9 +375,12 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
       (action === "reject" && snapshot.loadedConfigRevision !== fictionalConfigBIdentity.revision);
     const bytes = useSecond ? fictionalConfigB : fictionalConfigA;
     const identity = useSecond ? fictionalConfigBIdentity : fictionalConfigAIdentity;
+    const controller = new AbortController();
+    configAbortController.current = controller;
     try {
       const result = await vpnClient.loadConfig(bytes, identity, {
         injectFailure: action === "reject",
+        signal: controller.signal,
         timeoutMillis: 10_000,
       });
       if (result.failure) {
@@ -379,6 +391,7 @@ export function MobileHomePage({ fixture, initialSnapshot, vpnClient }: MobileHo
     } catch {
       publish(configFailureNotification());
     } finally {
+      if (configAbortController.current === controller) configAbortController.current = undefined;
       loadInFlightRef.current = false;
       setLoadInFlight(false);
     }
