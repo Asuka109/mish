@@ -23,9 +23,8 @@ Owner: thread-master coordinator
 Waves 2A through 2F are integrated. Coordinator review of combined
 `origin/main@e475a22f` found no delivery defect and the full `pnpm check:pr`
 passed. The maintainer approved the exact three-task AFK Wave 2G on 2026-08-12:
-#449 C1.2, #451 D1.2, and #453 F2.3 are reserved as `dispatching` pending
-visible Luna Max Worker creation. Seven repository concurrency slots remain
-unreserved.
+#449 C1.2, #451 D1.2, and #453 F2.3 are active as visible Luna Max Workers in
+isolated worktrees. Seven repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -173,9 +172,9 @@ or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.2 | `pending` | `pending` | dispatching | C1.1 and F2.2 integrated | Bind HTTPS import requests to the current accepted generation and reject stale previews/requests | Own active Profile HTTPS import generation authority and deterministic privacy-safe tests only; preserve F2.2 deletion, do not restore Patch Editor contracts, and do not implement C1.3 detach confirmation |
-| #451 D1.2 | `pending` | `pending` | dispatching | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | Own Kotlin VPN service/store/owned-resource authority and tests only; preserve Rust D1.1 authority, do not implement JavaScript D1.3 or device/emulator D1.4, and do not claim physical-device acceptance |
-| #453 F2.3 | `pending` | `pending` | dispatching | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | Own post-deletion static/route regression and active Profile journey tests only; do not change product behavior or implement #449 C1.2. Merge before C1.2, then C1.2 must integrate latest main and rerun the overlapping Profile journey |
+| #449 C1.2 | `019ff22f-8c1c-7d71-8862-69aa7000dff8` | `aa93` | active | C1.1 and F2.2 integrated | Bind HTTPS import requests to the current accepted generation and reject stale previews/requests | Visible Luna Max Worker is active; own active Profile HTTPS import generation authority and deterministic privacy-safe tests only, preserve F2.2 deletion, do not restore Patch Editor contracts, and do not implement C1.3 detach confirmation |
+| #451 D1.2 | `019ff22f-8c1c-7d71-8862-69c06b43c5a0` | `2a8b` | active | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | Visible Luna Max Worker is active; own Kotlin VPN service/store/owned-resource authority and tests only, preserve Rust D1.1 authority, do not implement JavaScript D1.3 or device/emulator D1.4, and do not claim physical-device acceptance |
+| #453 F2.3 | `019ff22f-8c1c-7d71-8862-69e066d54506` | `9b1e` | active | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | Visible Luna Max Worker is active; own post-deletion static/route regression and active Profile journey tests only, do not change product behavior or implement #449 C1.2; merge before C1.2, then C1.2 must integrate latest main and rerun the overlapping Profile journey |
 
 ## Existing issue coordination
 

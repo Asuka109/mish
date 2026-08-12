@@ -251,3 +251,25 @@ The audit found no supported runtime entry to the editor, so F2.2 is safely
 unblocked after applying the manifest and preserving the guardrails above.
 F2.2 must regenerate bridge, presentation, and i18n artifacts and run the
 active Profile import/save/cancel and patch-engine tests after the deletion.
+
+## F2.3 persistent regression gate
+
+The deletion is now guarded by `pnpm check:profile-patch-editor`, which runs as
+part of `pnpm check:docs` and therefore the pull-request gate. The gate keeps a
+small product/static inventory rather than a second route scanner. It checks the
+supported `/profiles` route and active import/save path, rejects the exact dead
+editor route/import, public bridge methods, presentation IDs, localization
+keys, and generated contract tokens, and verifies that the production Web graph
+does not reach test-only sources. Bridge, presentation, and i18n freshness
+remain owned by their existing generators and checks; this gate verifies that
+their generated outputs still contain no deleted editor surface.
+
+`scripts/check-profile-patch-editor-removal.test.ts` supplies one clean
+repository fixture and bounded negative fixtures for a dangling route, import,
+public contract, localization key, generated binding, and production test-only
+reachability. The positive fixture deliberately retains the active
+`ProfilePatchSet` persistence/application layer and Profile import/save/cancel
+flow, so the guard cannot be satisfied by deleting the supported Profile path.
+
+The evidence is static and deterministic. It does not claim real macOS, Core,
+network, signing, packaging, or device behavior.
