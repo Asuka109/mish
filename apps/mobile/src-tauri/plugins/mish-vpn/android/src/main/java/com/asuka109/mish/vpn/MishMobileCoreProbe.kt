@@ -109,6 +109,16 @@ internal interface MobileCoreRuntime {
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
 
+internal data class NativeTrafficCloseResult(
+    val failure: String?,
+    val snapshot: JSONObject,
+)
+
+internal interface MobileCoreTrafficAdapter {
+    fun snapshotTraffic(): JSONObject?
+    fun closeTrafficConnection(connectionId: String, eventSequence: String, sessionId: String): NativeTrafficCloseResult
+}
+
 internal class MishMobileCoreProbe internal constructor(
     private val applicationContext: Context? = null,
     private val admissionReader: (() -> MobileCoreAdmissionResult)? = null,
@@ -118,7 +128,8 @@ internal class MishMobileCoreProbe internal constructor(
     MobileCoreConfigValidator,
     MobileCoreConfigLoader,
     MobileCoreConfigInspector,
-    MobileCoreRuntime {
+    MobileCoreRuntime,
+    MobileCoreTrafficAdapter {
     private val admissionLock = Any()
     private val admissionGate = MobileCoreAdmissionGate(::ensureAdmitted)
     private val provenanceProjection = MobileCoreProvenanceProjection()
@@ -319,6 +330,44 @@ internal class MishMobileCoreProbe internal constructor(
 
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
 
+    override fun snapshotTraffic(): JSONObject? = trafficCall(MobileCoreEffectOperation.TRAFFIC_SNAPSHOT) {
+        val encoded = nativeTrafficSnapshot() ?: return@trafficCall null
+        parseTrafficSnapshotEnvelope(encoded)
+    }
+
+    override fun closeTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): NativeTrafficCloseResult = trafficCall(MobileCoreEffectOperation.TRAFFIC_CLOSE) {
+        if (!connectionId.matches(Regex("^[A-Za-z0-9._-]{1,128}$"))) {
+            return@trafficCall NativeTrafficCloseResult("invalid-request", emptyTrafficSnapshot())
+        }
+        if (!eventSequence.matches(Regex("^[0-9]{1,20}$")) ||
+            !sessionId.matches(Regex("^[A-Za-z0-9._-]{1,128}$"))
+        ) {
+            return@trafficCall NativeTrafficCloseResult("invalid-request", emptyTrafficSnapshot())
+        }
+        val encoded = nativeCloseTrafficConnection(connectionId, eventSequence, sessionId)
+            ?: return@trafficCall NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+        parseNativeCloseResult(encoded)
+            ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+    } ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+
+    private fun <T> trafficCall(operation: MobileCoreEffectOperation, call: () -> T?): T? = admissionGate.invoke(
+        operation = operation,
+        rejected = { null },
+        effect = { runCatching(call).getOrNull() },
+    )
+
+    private external fun nativeTrafficSnapshot(): String?
+
+    private external fun nativeCloseTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): String?
+
     companion object {
         @Volatile
         private var shimLoaded = false
@@ -399,5 +448,30 @@ internal class MishMobileCoreProbe internal constructor(
                 ?: NativeRuntimeCode.NATIVE_FAILED
             return NativeRuntimeResult(code, encoded[1])
         }
+
+        internal fun parseTrafficSnapshotEnvelope(encoded: String): JSONObject? = runCatching {
+            val root = JSONObject(encoded)
+            requireJsonKeys(root, setOf("abiVersion", "data"))
+            check(root.getInt("abiVersion") == CONTRACT_VERSION)
+            root.getJSONObject("data")
+        }.getOrNull()
+
+        internal fun parseNativeCloseResult(encoded: String): NativeTrafficCloseResult? = runCatching {
+            val root = JSONObject(encoded)
+            requireJsonKeys(root, setOf("abiVersion", "data"))
+            check(root.getInt("abiVersion") == CONTRACT_VERSION)
+            val data = root.getJSONObject("data")
+            requireJsonKeys(data, setOf("failure", "snapshot"))
+            val failure = data.takeUnless { it.isNull("failure") }?.getString("failure")
+            check(failure == null || failure in setOf("invalid-request", "stale-connection", "core-failure"))
+            NativeTrafficCloseResult(failure, data.getJSONObject("snapshot"))
+        }.getOrNull()
+
+        internal fun emptyTrafficSnapshot(): JSONObject = JSONObject()
+            .put("connections", org.json.JSONArray())
+            .put("eventSequence", "0")
+            .put("running", false)
+            .put("sessionId", "unavailable")
+            .put("truncated", false)
     }
 }

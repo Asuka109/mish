@@ -14,6 +14,7 @@ mod generated {
     pub(crate) mod platform_facts;
 }
 mod lifecycle;
+mod mobile_traffic;
 #[cfg(feature = "simulated-host")]
 pub use lifecycle::simulated_host;
 #[cfg(feature = "tauri-runtime")]
@@ -33,6 +34,7 @@ use android as platform;
 pub use error::{Error, Result};
 #[cfg(all(feature = "tauri-runtime", not(target_os = "android")))]
 use fallback as platform;
+pub use mobile_traffic::{MobileTrafficCloseRequest, MobileTrafficCommandResult};
 #[cfg(feature = "tauri-runtime")]
 pub use models::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadCancellation,
@@ -56,6 +58,27 @@ async fn get_core_provenance<R: Runtime>(
 ) -> Result<MobileCoreProvenanceSnapshot> {
     app.state::<platform::MishVpn<R>>()
         .get_core_provenance()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn get_traffic_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<mish_runtime::TrafficDataSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_traffic_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn close_traffic_connection<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileTrafficCloseRequest,
+) -> Result<MobileTrafficCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .close_traffic_connection(request)
         .await
 }
 
@@ -148,6 +171,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_core_provenance,
+            get_traffic_snapshot,
+            close_traffic_connection,
             request_notification_permission,
             request_vpn_consent,
             start,

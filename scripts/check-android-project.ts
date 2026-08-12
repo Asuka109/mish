@@ -53,6 +53,7 @@ const pluginRustLifecycle = source(`${pluginRoot}/src/lifecycle.rs`);
 const pluginRustAndroid = source(`${pluginRoot}/src/android.rs`);
 const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
 const mobileVpnClientTest = source("apps/web/src/platform/mobile-vpn-client.test.ts");
+const mobileTrafficClient = source("apps/web/src/platform/mobile-traffic-client.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.json")) as {
   schemaVersion: number;
@@ -452,6 +453,7 @@ for (const requirement of [
   "mish_core_start_v1",
   "mish_core_stop_v1",
   "mish_core_snapshot_v1",
+  "mish_core_close_connection_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
@@ -471,6 +473,24 @@ for (const requirement of [
 invariant(
   !pluginNativeBridge.includes("mish_core_command_v1"),
   "Android JNI must not resolve the unbounded Mobile Core command symbol.",
+);
+const trafficCleanup = pluginNativeBridge.slice(
+  pluginNativeBridge.indexOf("static jstring invoke_json_envelope"),
+  pluginNativeBridge.indexOf(
+    "JNIEXPORT jstring JNICALL",
+    pluginNativeBridge.indexOf("static jstring invoke_json_envelope"),
+  ),
+);
+invariant(
+  trafficCleanup.match(/core_api\.free_buffer\(&response\);/gu)?.length === 1 &&
+    trafficCleanup.includes("goto cleanup;") &&
+    trafficCleanup.includes("cleanup:"),
+  "Android Traffic JNI responses must cross one exactly-once native buffer cleanup point.",
+);
+invariant(
+  !/https?:\/\/|wss?:\/\/|Controller|controller/u.test(mobileTrafficClient) &&
+    !kotlin.includes("TrafficStore"),
+  "Android Traffic must not use a loopback/Controller client or retain a Kotlin product store.",
 );
 for (const requirement of [
   "SHA256SUMS",

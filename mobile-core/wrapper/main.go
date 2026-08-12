@@ -177,6 +177,15 @@ func mish_core_command_v1(
 	return invokeWithInput(request, requestLength, maxRequestBytes, response, mobileCore.command)
 }
 
+//export mish_core_close_connection_v1
+func mish_core_close_connection_v1(
+	connectionID *C.uint8_t,
+	connectionIDLength C.uint64_t,
+	response *C.MishCoreBufferV1,
+) C.int32_t {
+	return invokeWithInput(connectionID, connectionIDLength, maxRequestBytes, response, mobileCore.closeConnection)
+}
+
 //export mish_core_poll_events_v1
 func mish_core_poll_events_v1(
 	request *C.uint8_t,

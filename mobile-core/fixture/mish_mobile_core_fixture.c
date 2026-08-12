@@ -8,6 +8,7 @@
 static int fixture_initialized = 0;
 static int fixture_loaded = 0;
 static int fixture_running = 0;
+static int fixture_connection_active = 0;
 static uint64_t fixture_sequence = 0;
 static char fixture_session[129] = {0};
 static char fixture_machine_authority[129] = {0};
@@ -282,6 +283,7 @@ int32_t mish_core_start_v1(uint8_t *request,
   strcpy(fixture_session, session);
   record_lifecycle(machine, scope, operation, revision, effect);
   fixture_running = 1;
+  fixture_connection_active = 1;
   fixture_sequence++;
   return status_response(response);
 }
@@ -322,6 +324,7 @@ int32_t mish_core_stop_v1(uint8_t *request,
   record_lifecycle(machine, scope, operation, revision, effect);
   if (fixture_running) {
     fixture_running = 0;
+    fixture_connection_active = 0;
     fixture_session[0] = '\0';
     fixture_sequence++;
   }
@@ -357,8 +360,16 @@ int32_t mish_core_snapshot_v1(uint8_t *request,
   }
   if (strstr(json, "\"kind\":\"connections\"") != NULL) {
     free(json);
-    return set_response(response, MISH_CORE_OK_V1,
-                        "{\"abiVersion\":1,\"data\":{\"connections\":[],\"truncated\":false}}");
+    char payload[2048];
+    snprintf(
+        payload, sizeof(payload),
+        "{\"abiVersion\":1,\"data\":{\"connections\":%s,\"eventSequence\":\"%llu\",\"running\":%s,\"sessionId\":\"%s\",\"truncated\":false}}",
+        fixture_connection_active
+            ? "[{\"destinationHost\":\"traffic.fixture.invalid\",\"destinationIp\":\"192.0.2.44\",\"destinationPort\":443,\"downloadBytes\":\"2048\",\"id\":\"fixture-connection-current\",\"matchedRulePayload\":\"fixture.invalid\",\"matchedRuleType\":\"DomainSuffix\",\"network\":\"tcp\",\"processName\":\"Fixture App\",\"protocol\":\"Tun\",\"providerChain\":[],\"remoteDestination\":null,\"routeChain\":[\"Fixture Group\",\"Fixture Exit\"],\"sniffHost\":null,\"sourcePort\":40000,\"startedAt\":\"2026-08-13T00:00:00Z\",\"uploadBytes\":\"1024\"}]"
+            : "[]",
+        (unsigned long long)fixture_sequence, fixture_running ? "true" : "false",
+        fixture_session);
+    return set_response(response, MISH_CORE_OK_V1, payload);
   }
   free(json);
   return set_error(response, MISH_CORE_UNSUPPORTED_V1, "unsupported",
@@ -390,9 +401,67 @@ int32_t mish_core_command_v1(uint8_t *request,
     return set_error(response, MISH_CORE_UNSUPPORTED_V1, "unsupported",
                      "command operation is unsupported");
   }
+  if (strstr(json, "\"operation\":\"close-connection\"") != NULL) {
+    char connection[129] = {0};
+    if (!extract_string(json, "connectionId", connection, sizeof(connection)) ||
+        !fixture_connection_active ||
+        strcmp(connection, "fixture-connection-current") != 0) {
+      free(json);
+      return set_error(response, MISH_CORE_INVALID_ARGUMENT_V1,
+                       "invalid-argument", "connection was not found");
+    }
+    fixture_connection_active = 0;
+  }
   free(json);
   fixture_sequence++;
   return status_response(response);
+}
+
+int32_t mish_core_close_connection_v1(uint8_t *connection_id,
+                                      uint64_t connection_id_length,
+                                      MishCoreBufferV1 *response) {
+  char *connection;
+  char connection_value[129] = {0};
+  char session_value[129] = {0};
+  char sequence_value[32] = {0};
+  char payload[2048];
+  const char *failure = "null";
+  int32_t initialized = require_initialized(response);
+  if (initialized != MISH_CORE_OK_V1) return initialized;
+  if (!fixture_running) {
+    return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                     "commands require a running Core");
+  }
+  connection = copy_input(connection_id, connection_id_length,
+                          MISH_CORE_MAX_REQUEST_BYTES_V1);
+  if (connection == NULL || connection_id_length == 0 ||
+      !extract_string(connection, "connectionId", connection_value,
+                      sizeof(connection_value)) ||
+      !extract_string(connection, "eventSequence", sequence_value,
+                      sizeof(sequence_value)) ||
+      !extract_string(connection, "sessionId", session_value,
+                      sizeof(session_value))) {
+    free(connection);
+    return set_error(response, MISH_CORE_INVALID_ARGUMENT_V1, "invalid-argument",
+                     "connection identifier is invalid");
+  }
+  char expected_sequence[32];
+  snprintf(expected_sequence, sizeof(expected_sequence), "%llu",
+           (unsigned long long)fixture_sequence);
+  if (strcmp(session_value, fixture_session) != 0 ||
+      strcmp(sequence_value, expected_sequence) != 0 ||
+      !fixture_connection_active ||
+      strcmp(connection_value, "fixture-connection-current") != 0) {
+    failure = "\"stale-connection\"";
+  } else {
+    fixture_connection_active = 0;
+    fixture_sequence++;
+  }
+  free(connection);
+  snprintf(payload, sizeof(payload),
+           "{\"abiVersion\":1,\"data\":{\"failure\":%s,\"snapshot\":{\"connections\":[],\"eventSequence\":\"%llu\",\"running\":true,\"sessionId\":\"%s\",\"truncated\":false}}}",
+           failure, (unsigned long long)fixture_sequence, fixture_session);
+  return set_response(response, MISH_CORE_OK_V1, payload);
 }
 
 int32_t mish_core_poll_events_v1(uint8_t *request,

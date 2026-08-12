@@ -390,6 +390,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       if (!command) return null;
       try {
         const result = await resolvedClient.closeConnection(authority, connectionId, {
+          operationId: command.operation.operationId,
           signal: command.controller.signal,
         });
         if (!isCurrentCommandFeedback(command.operation, "pending")) return result;
@@ -536,7 +537,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
         commandFeedbackState.operations.get(`traffic:close:${connectionId}`)?.phase === "pending",
       isCloseFilteredVisiblePending,
       isCommandSupported: (command) =>
-        latestSnapshot?.adapterKind === "rpc" &&
+        (latestSnapshot?.adapterKind === "rpc" || latestSnapshot?.adapterKind === "native") &&
         latestSnapshot.phase === "ready" &&
         !connection.stale &&
         resolvedClient.supportsCommand(command),

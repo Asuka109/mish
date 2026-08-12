@@ -67,6 +67,7 @@ const manifestPath = path.join(repositoryRoot, "mobile-core/source-manifest.json
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SourceManifest;
 const expectedSymbols = [
   "mish_core_abi_version_v1",
+  "mish_core_close_connection_v1",
   "mish_core_command_v1",
   "mish_core_free_buffer_v1",
   "mish_core_initialize_v1",

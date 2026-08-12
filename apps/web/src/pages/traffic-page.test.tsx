@@ -342,6 +342,36 @@ describe("Traffic page", () => {
     expect(await screen.findByText("docs.fixture.invalid")).toBeVisible();
   });
 
+  it("resets Traffic view-local filters, selection, and confirmation on replacement", async () => {
+    const user = userEvent.setup();
+    const client = await commandClient();
+    renderTraffic(client);
+    const search = await screen.findByRole("textbox", { name: "Search Traffic" });
+    await user.type(search, "process:browser");
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    await user.click(
+      within(row).getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ }),
+    );
+    expect(screen.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    await user.click(within(row).getByRole("button", { name: "Close" }));
+    expect(
+      screen.getByRole("alertdialog", { name: "Close this active connection?" }),
+    ).toBeVisible();
+
+    const current = await client.getSnapshot();
+    client.publishSnapshot({
+      ...current,
+      profileId: "replacement-profile",
+      sequence: 1,
+      sessionId: "replacement-session",
+    });
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(search).toHaveValue("");
+    expect(screen.queryByRole("dialog", { name: "Connection details" })).not.toBeInTheDocument();
+  });
+
   it("closes all current active connections regardless of filters and supports keyboard cancel", async () => {
     const user = userEvent.setup();
     renderTraffic(await commandClient());

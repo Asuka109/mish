@@ -1,6 +1,8 @@
 const COMMANDS: &[&str] = &[
     "get_snapshot",
     "get_core_provenance",
+    "get_traffic_snapshot",
+    "close_traffic_connection",
     "register_listener",
     "registerListener",
     "remove_listener",

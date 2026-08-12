@@ -64,6 +64,13 @@ internal class StopLifecycleArgs {
     var effectIdentity: String = ""
 }
 
+@InvokeArg
+internal class CloseTrafficConnectionArgs {
+    var connectionId: String = ""
+    var eventSequence: String = ""
+    var sessionId: String = ""
+}
+
 internal fun JSONObject.optIntOrNull(name: String): Int? =
     if (isNull(name)) null else optInt(name).takeIf { it > 0 }
 

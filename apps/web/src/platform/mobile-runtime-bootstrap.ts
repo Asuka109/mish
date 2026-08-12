@@ -16,6 +16,7 @@ import type { StartupStatusClient } from "./runtime-bootstrap";
 import { UnavailableSupportBundleClient } from "./support-bundle";
 import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
 import { MobileSettingsClient } from "./mobile-settings-client";
+import { MobileTrafficClient } from "./mobile-traffic-client";
 
 interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
@@ -126,6 +127,9 @@ export async function resolveMobileStartup(
     settingsClient,
     settingsSnapshot: await settingsClient.getSnapshot(),
     supportBundleClient: new UnavailableSupportBundleClient(),
-    trafficClient: new MobileFixtureTrafficClient(),
+    trafficClient:
+      fixture.platform === "android" && fixture.core.kind === "native"
+        ? new MobileTrafficClient()
+        : new MobileFixtureTrafficClient(),
   };
 }

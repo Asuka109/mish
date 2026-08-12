@@ -254,10 +254,17 @@ export function TrafficPage() {
   useEffect(() => setTab(trafficTab(searchParams.get("tab"))), [searchParams]);
 
   useEffect(() => {
+    setTab("active");
+    setQuery("");
+    setNetwork("all");
+    setConnectionSort("started-desc");
+    setRuleSort("priority-asc");
+    setVisibleLimit(TRAFFIC_RENDER_BATCH_SIZE);
     setSelectedConnection(null);
     setCloseTarget(null);
     setCloseVisibleTarget(null);
     setCloseAllConfirmationOpen(false);
+    setSearchHelpOpen(false);
   }, [snapshot?.profileId, snapshot?.sessionId]);
 
   async function confirmCloseConnection() {

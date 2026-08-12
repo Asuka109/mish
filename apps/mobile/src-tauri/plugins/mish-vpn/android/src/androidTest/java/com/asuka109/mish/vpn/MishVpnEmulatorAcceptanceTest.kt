@@ -115,6 +115,27 @@ class MishVpnEmulatorAcceptanceTest {
         assertNull(EmulatorLifecycleTranscript.parse(overflow.toString()))
     }
 
+    @Test
+    fun trafficTranscriptObservesClosesExactIdAndRejectsReplacedId() {
+        val transcript = EmulatorLifecycleTranscript(EmulatorScenario.TRAFFIC_EXACT_CLOSE)
+        val authority = authority("1")
+        var active = linkedSetOf("connection-current")
+        transcript.record(authority, "traffic-observe", "observed")
+        transcript.record(authority.copy(effectIdentity = "2"), "traffic-view-pause", "applied")
+        assertEquals(setOf("connection-current"), active)
+        transcript.record(authority.copy(effectIdentity = "3"), "traffic-view-resume", "applied")
+        assertTrue(active.remove("connection-current"))
+        transcript.record(authority.copy(effectIdentity = "4"), "traffic-close-one", "completed")
+        assertTrue(active.isEmpty())
+
+        active = linkedSetOf("connection-replacement")
+        transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "1"), "traffic-replacement", "replaced")
+        assertFalse(active.remove("connection-current"))
+        transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "2"), "traffic-close-one", "retired")
+        assertEquals(setOf("connection-replacement"), active)
+        assertEquals(transcript, EmulatorLifecycleTranscript.parse(transcript.toJson().toString()))
+    }
+
     private fun authority(effectIdentity: String): CoreLifecycleAuthority = CoreLifecycleAuthority(
         machineAuthority = "vpn-authority-acceptance",
         scopeEpoch = 1,
@@ -172,6 +193,11 @@ private data class EmulatorLifecycleTranscript(
             "mobile-core-admission",
             "process-recreated",
             "stale-delivery",
+            "traffic-close-one",
+            "traffic-observe",
+            "traffic-replacement",
+            "traffic-view-pause",
+            "traffic-view-resume",
         )
         private val RESULTS = setOf(
             "applied",
@@ -231,7 +257,8 @@ private data class EmulatorLifecycleTranscript(
 
 private enum class EmulatorScenario(val wireName: String) {
     ADMISSION_REJECTED("admission-rejected"),
-    RECREATION_CLEANUP_RETRY("recreation-cleanup-retry");
+    RECREATION_CLEANUP_RETRY("recreation-cleanup-retry"),
+    TRAFFIC_EXACT_CLOSE("traffic-exact-close");
 
     companion object {
         fun fromWireName(value: String): EmulatorScenario? = entries.singleOrNull { it.wireName == value }

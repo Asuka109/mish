@@ -5,7 +5,8 @@ use crate::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadFailure,
     MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
     MobileConfigValidationRequest, MobileConfigValidationResult, MobileCoreProvenanceSnapshot,
-    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
+    MobileTrafficCloseRequest, MobileTrafficCommandResult, MobileVpnCommandRequest,
+    MobileVpnCommandResult, MobileVpnSnapshot, Result,
 };
 
 #[derive(Clone)]
@@ -22,6 +23,29 @@ impl<R: Runtime> MishVpn<R> {
 
     pub async fn get_core_provenance(&self) -> Result<MobileCoreProvenanceSnapshot> {
         Ok(MobileCoreProvenanceSnapshot::unavailable())
+    }
+
+    pub async fn get_traffic_snapshot(&self) -> Result<mish_runtime::TrafficDataSnapshot> {
+        Ok(mish_runtime::TrafficDataSnapshot::unavailable(
+            mish_runtime::StatusAdapterKind::Native,
+        ))
+    }
+
+    pub async fn close_traffic_connection(
+        &self,
+        request: MobileTrafficCloseRequest,
+    ) -> Result<MobileTrafficCommandResult> {
+        Ok(MobileTrafficCommandResult {
+            failure: Some(mish_runtime::TrafficCommandFailureKind::Unsupported),
+            operation: mish_runtime::TrafficCommandOperation::CloseConnection,
+            operation_id: request.operation_id,
+            remaining_connection_ids: Vec::new(),
+            snapshot: mish_runtime::TrafficDataSnapshot::unavailable(
+                mish_runtime::StatusAdapterKind::Native,
+            ),
+            status: mish_runtime::TrafficCommandStatus::Failure,
+            target_count: 1,
+        })
     }
 
     pub async fn request_notification_permission(

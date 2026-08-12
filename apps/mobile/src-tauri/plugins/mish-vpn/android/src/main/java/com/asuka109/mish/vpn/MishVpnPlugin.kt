@@ -23,6 +23,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 
@@ -79,6 +80,26 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun getCoreProvenance(invoke: Invoke) {
         invoke.resolveObject(coreProbe.provenanceSnapshot().toJson())
+    }
+
+    @Command
+    fun getTrafficSnapshot(invoke: Invoke) {
+        invoke.resolveObject(coreProbe.snapshotTraffic() ?: emptyTrafficSnapshot())
+    }
+
+    @Command
+    fun closeTrafficConnection(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(CloseTrafficConnectionArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(trafficCloseResult("invalid-request", emptyTrafficSnapshot()))
+                return
+            }
+        val result = coreProbe.closeTrafficConnection(
+            args.connectionId,
+            args.eventSequence,
+            args.sessionId,
+        )
+        invoke.resolveObject(trafficCloseResult(result.failure, result.snapshot))
     }
 
     @Command
@@ -322,6 +343,15 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         if (latest.coreRunning) return latest
         return store.reconcileLoadedConfig(coreProbe.inspectLoaded(latest.loadedConfigDigest))
     }
+
+    private fun emptyTrafficSnapshot(): JSObject = JSObject(MishMobileCoreProbe.emptyTrafficSnapshot().toString())
+
+    private fun trafficCloseResult(failure: String?, snapshot: JSONObject): JSObject = JSObject(
+        JSONObject()
+            .put("failure", failure ?: JSONObject.NULL)
+            .put("snapshot", snapshot)
+            .toString(),
+    )
 
     private fun resolveAfterPlatformEffect(
         invoke: Invoke,

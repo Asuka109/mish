@@ -23,6 +23,10 @@ use crate::{
         ActivationAuthority, LifecycleCommandKind, LifecycleEffect, LifecycleInput,
         LifecycleMachine, LifecycleState, PlatformAction, PlatformFacts,
     },
+    mobile_traffic::{
+        MobileTrafficAuthority, MobileTrafficCloseRequest, MobileTrafficCommandResult,
+        NativeTrafficCloseResult, NativeTrafficSnapshot,
+    },
     models::{MobileConfigValidationOutcome, MobileVpnEvent},
     observation::{ObservationAdmission, PlatformObservationIngress},
 };
@@ -34,6 +38,7 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 pub struct MishVpn<R: Runtime> {
     handle: PluginHandle<R>,
     lifecycle: Arc<Mutex<Option<Arc<LifecycleRuntime>>>>,
+    traffic: Arc<Mutex<MobileTrafficAuthority>>,
 }
 
 struct LifecycleRuntime {
@@ -83,6 +88,14 @@ struct NativeListenerPayload {
 
 #[derive(Serialize)]
 struct EmptyPayload {}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformTrafficCloseRequest {
+    connection_id: String,
+    event_sequence: String,
+    session_id: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +204,7 @@ pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishV
     Ok(MishVpn {
         handle,
         lifecycle: Arc::new(Mutex::new(None)),
+        traffic: Arc::new(Mutex::new(MobileTrafficAuthority::default())),
     })
 }
 
@@ -340,6 +354,143 @@ impl<R: Runtime> MishVpn<R> {
             return Err(crate::Error::PlatformFactsSchemaRejected);
         }
         Ok(snapshot)
+    }
+
+    pub async fn get_traffic_snapshot(&self) -> Result<mish_runtime::TrafficDataSnapshot> {
+        let runtime = self.runtime().await?;
+        let state = runtime.runner.snapshot();
+        let profile_id = state
+            .facts
+            .loaded_config_revision
+            .as_deref()
+            .unwrap_or("mobile-profile-unavailable");
+        let mut traffic = self.traffic.lock().await;
+        if state.phase != crate::lifecycle::LifecyclePhase::Running {
+            return Ok(traffic.unavailable(&state.authority_id, state.scope_epoch, profile_id));
+        }
+        let native: NativeTrafficSnapshot = self
+            .handle
+            .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+            .await?;
+        traffic
+            .project(&state.authority_id, state.scope_epoch, profile_id, native)
+            .map_err(|_| crate::Error::TrafficObservationRejected)
+    }
+
+    pub async fn close_traffic_connection(
+        &self,
+        request: MobileTrafficCloseRequest,
+    ) -> Result<MobileTrafficCommandResult> {
+        let runtime = self.runtime().await?;
+        let state = runtime.runner.snapshot();
+        let profile_id = state
+            .facts
+            .loaded_config_revision
+            .as_deref()
+            .unwrap_or("mobile-profile-unavailable");
+        let mut traffic = self.traffic.lock().await;
+        if let Some(result) = traffic.duplicate(&request) {
+            return Ok(result);
+        }
+        if let Err(failure) = traffic.validate_request(&request) {
+            return Ok(traffic.failure(request, failure, false));
+        }
+        if state.phase != crate::lifecycle::LifecyclePhase::Running
+            || state.authority_id != request.runtime_authority_id
+            || state.scope_epoch != traffic.current().application_order.epoch
+            || profile_id != request.profile_id
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+
+        // This is the required TOCTOU barrier. The native adapter performs a closed,
+        // bounded snapshot call immediately before it is allowed to mutate one ID.
+        let fresh: NativeTrafficSnapshot = self
+            .handle
+            .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+            .await?;
+        let native_event_sequence = fresh.event_sequence.clone();
+        let native_session_id = fresh.session_id.clone();
+        if traffic
+            .project(&state.authority_id, state.scope_epoch, profile_id, fresh)
+            .is_err()
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::InconsistentObservation,
+                false,
+            ));
+        }
+        if !traffic.same_scope(&request) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+        if !traffic.has_connection(&request.connection_id) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::StaleConnection,
+                false,
+            ));
+        }
+
+        let native: NativeTrafficCloseResult = self
+            .handle
+            .run_mobile_plugin_async(
+                "closeTrafficConnection",
+                PlatformTrafficCloseRequest {
+                    connection_id: request.connection_id.clone(),
+                    event_sequence: native_event_sequence,
+                    session_id: native_session_id,
+                },
+            )
+            .await?;
+        if traffic
+            .project(
+                &state.authority_id,
+                state.scope_epoch,
+                profile_id,
+                native.snapshot,
+            )
+            .is_err()
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::InconsistentObservation,
+                true,
+            ));
+        }
+        let current_state = runtime.runner.snapshot();
+        if current_state.authority_id != state.authority_id
+            || current_state.scope_epoch != state.scope_epoch
+        {
+            let connection_remains = traffic.has_connection(&request.connection_id);
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                connection_remains,
+            ));
+        }
+        if let Some(failure) = native.failure {
+            let remains = traffic.has_connection(&request.connection_id);
+            return Ok(traffic.failure(request, failure.command_failure(), remains));
+        }
+        if traffic.has_connection(&request.connection_id) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::PartialRemaining,
+                true,
+            ));
+        }
+        let result =
+            MobileTrafficCommandResult::success(request.operation_id.clone(), traffic.current());
+        Ok(traffic.remember(request, result))
     }
 
     pub async fn request_notification_permission(
