@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -12,6 +13,7 @@ function invariant(condition: unknown, message: string): asserts condition {
 }
 
 const gradle = source("apps/mobile/src-tauri/gen/android/app/build.gradle.kts");
+const androidSignerVerifier = source("scripts/verify-android-apk-signature.ts");
 const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
@@ -48,6 +50,14 @@ const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.
 };
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
 const mobileAppIgnore = source("apps/mobile/src-tauri/gen/android/app/.gitignore");
+const debugKeystorePath = resolve(
+  root,
+  "apps/mobile/src-tauri/gen/android/app/signing/mish-fixture-debug.keystore",
+);
+const debugCertificatePath = resolve(
+  root,
+  "apps/mobile/src-tauri/plugins/mish-vpn/android/src/test/resources/mish-fixture-debug.cer",
+);
 const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
   scripts?: Record<string, string>;
 };
@@ -122,6 +132,38 @@ invariant(
   mobilePackage.scripts?.["android:build"] ===
     "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
   "Android debug builds must remain split and limited to ARM64 and x86_64.",
+);
+invariant(
+  existsSync(debugKeystorePath) && existsSync(debugCertificatePath),
+  "The credential-free debug signer must provide its checked-in test-only keystore and public certificate fixture.",
+);
+invariant(
+  gradle.includes('val mishFixtureDebugKeystore = file("signing/mish-fixture-debug.keystore")') &&
+    gradle.includes('create("mishFixtureDebug")') &&
+    gradle.includes('storeType = "JKS"') &&
+    gradle.includes('signingConfig = signingConfigs.getByName("mishFixtureDebug")'),
+  "Android debug builds must use the repository-owned synthetic signer authority.",
+);
+const releaseStart = gradle.indexOf('getByName("release")');
+const releaseBody = releaseStart >= 0 ? gradle.slice(releaseStart) : "";
+invariant(
+  releaseStart >= 0 &&
+    !releaseBody.includes("mishFixtureDebug") &&
+    !releaseBody.includes("mish-fixture-debug.keystore"),
+  "Release Android builds must not reference the synthetic debug signer.",
+);
+const debugCertificateSha256 = createHash("sha256")
+  .update(readFileSync(debugCertificatePath))
+  .digest("hex");
+invariant(
+  debugCertificateSha256 === mobileCoreSourceManifest.android.signing.signerSha256,
+  "The source manifest signer pin must match the checked-in public debug certificate fixture.",
+);
+invariant(
+  androidSignerVerifier.includes("parseApksignerVerification") &&
+    androidSignerVerifier.includes("exactly one signer") &&
+    androidSignerVerifier.includes("does not match the pinned Mobile Core signer"),
+  "The Android package gate must parse and compare the actual APK signer before packaging effects.",
 );
 invariant(
   mobilePackage.scripts?.["android:init"] ===

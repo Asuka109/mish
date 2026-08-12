@@ -42,7 +42,7 @@
       "policy": "synthetic-debug-v1",
       "scheme": "android-package-signature-v1",
       "verification": "package-signer",
-      "signerSha256": "dc6d9f4a64a2a0683846923f724c37e1185d78cd327594227535f9bc44e5b56d"
+      "signerSha256": "8e55b6922b8010c1ebd6c2fdce16ab1b10163f700068e67583aec20870b76934"
     },
     "artifacts": [
       {

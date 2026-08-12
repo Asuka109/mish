@@ -28,6 +28,13 @@ pnpm mobile:android:configure
 pnpm mobile:android:test
 ```
 
+Debug APKs use the repository-owned `mishFixtureDebug` JKS and its paired public
+certificate fixture. This credential-free signer is only for deterministic
+debug/test admission evidence; the release build type does not reference it,
+and it must never be treated as a release or store signing identity. CI reads
+the certificate SHA-256 from each actual APK and compares it with the pinned
+`mobile-core/source-manifest.json` value before upload.
+
 Run `pnpm mobile:android:init` only when intentionally regenerating a missing
 project, then inspect every diff. See the
 [Android Phase 0 guide](../../docs/operations/android-phase0-prototype.md) for

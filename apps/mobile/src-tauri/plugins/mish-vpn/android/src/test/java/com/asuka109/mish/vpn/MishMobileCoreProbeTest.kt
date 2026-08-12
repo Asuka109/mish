@@ -179,16 +179,22 @@ class MishMobileCoreProbeTest {
     }
 
     @Test
-    fun `observes only one bounded synthetic signer fingerprint`() {
+    fun `observes the checked in debug certificate as one bounded signer fingerprint`() {
+        val fixtureCertificate =
+            javaClass.getResourceAsStream("/mish-fixture-debug.cer")?.use { it.readBytes() }
+                ?: error("missing synthetic debug certificate fixture")
         val expected = observePackageSigners(
-            listOf("mish-synthetic-debug-certificate-v1".toByteArray()),
+            listOf(fixtureCertificate),
         )
         assertEquals(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, expected?.fingerprintSha256)
         assertTrue(expected?.verified == true)
         assertNull(observePackageSigners(emptyList()))
         assertNull(
             observePackageSigners(
-                listOf("mish-synthetic-debug-certificate-v1".toByteArray(), "foreign".toByteArray()),
+                listOf(
+                    javaClass.getResourceAsStream("/mish-fixture-debug.cer")!!.use { it.readBytes() },
+                    "foreign".toByteArray(),
+                ),
             ),
         )
         assertNull(observePackageSigners(listOf(ByteArray(0))))
