@@ -40,6 +40,7 @@ export const requiredCiJobIds = [
   "pr-gate",
   "platform-macos-gate",
   "platform-android-gate",
+  "android-emulator-gate",
   "inspect-main",
   "inspect-browser",
   "package-macos",
@@ -50,6 +51,7 @@ export const requiredCiJobNames = {
   "pr-gate": "Fast PR gate",
   "platform-macos-gate": "macOS platform Rust gate",
   "platform-android-gate": "Android platform Rust gate",
+  "android-emulator-gate": "Android lifecycle emulator gate",
   "inspect-main": "Inspect main",
   "inspect-browser": "Inspect browser",
   "package-macos": "Package macOS ARM64",
@@ -315,6 +317,8 @@ for (const requirement of [
   "platforms;android-36",
   "build-tools;36.1.0",
   "ndk;29.0.14206865",
+  "system-images;android-36;google_apis;arm64-v8a",
+  'grep -F "system-images;android-36;google_apis;arm64-v8a | 7"',
   "aarch64-linux-android",
   "x86_64-linux-android",
   "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER",
@@ -335,6 +339,92 @@ invariant(
     step(platformAndroid, "Compile mobile Rust test targets").run === "pnpm test:rust:mobile",
   "Android platform coverage must run compile, Clippy, and test-target commands.",
 );
+const androidEmulator = job("android-emulator-gate");
+invariant(androidEmulator.if === pullRequestOnly, "Android emulator coverage must run on PRs.");
+invariant(
+  androidEmulator["runs-on"] === "macos-15-intel",
+  "Android emulator coverage must use the root-free macOS runner.",
+);
+invariant(
+  androidEmulator["timeout-minutes"] === 30,
+  "Android emulator coverage must retain its thirty-minute ceiling.",
+);
+assertNodeCache(androidEmulator, "Android emulator coverage");
+assertRustCache(
+  androidEmulator,
+  "Cache Rust dependencies and build outputs",
+  "pr-android-emulator",
+);
+const emulatorJavaSetup = step(androidEmulator, "Set up Java");
+invariant(
+  emulatorJavaSetup.uses === setupJavaAction &&
+    emulatorJavaSetup.with?.distribution === "temurin" &&
+    emulatorJavaSetup.with?.["java-version"] === 17,
+  "Android emulator coverage must pin Java 17.",
+);
+const emulatorAndroidTools = step(androidEmulator, "Set up Android SDK tools");
+invariant(
+  emulatorAndroidTools.uses === setupAndroidAction &&
+    emulatorAndroidTools.with?.["cmdline-tools-version"] === 14742923 &&
+    emulatorAndroidTools.with?.packages === "",
+  "Android emulator coverage must pin Android setup without implicit packages.",
+);
+const emulatorToolchain = step(androidEmulator, "Install pinned Android test toolchain").run;
+for (const requirement of [
+  "platforms;android-36",
+  "build-tools;36.1.0",
+  "ndk;29.0.14206865",
+  "system-images;android-28;default;x86_64",
+  'grep -F "system-images;android-28;default;x86_64 | 4"',
+  "aarch64-linux-android",
+  "darwin-x86_64",
+]) {
+  invariant(
+    emulatorToolchain?.includes(requirement),
+    `Android emulator coverage must pin ${requirement}.`,
+  );
+}
+invariant(
+  step(androidEmulator, "Install dependencies").run === "pnpm install --frozen-lockfile",
+  "Android emulator coverage must install frozen dependencies.",
+);
+const emulatorAcceptance = step(
+  androidEmulator,
+  "Run credential-free Android lifecycle emulator acceptance",
+);
+invariant(
+  emulatorAcceptance.uses === undefined &&
+    emulatorAcceptance.run?.includes("build_id 15917651") &&
+    emulatorAcceptance.run?.includes("emulator-darwin_x64-15917651.zip") &&
+    emulatorAcceptance.run?.includes(
+      "c1a3890f95b8868198918fad05ffca16fa20404d93547ba545ff5a5867ee7005",
+    ) &&
+    emulatorAcceptance.run?.includes("system-images;android-28;default;x86_64") &&
+    emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
+    emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
+    emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&
+    emulatorAcceptance.run?.includes('--device "small_phone"') &&
+    emulatorAcceptance.run?.includes("</dev/null") &&
+    emulatorAcceptance.run?.includes("for attempt in {1..900}") &&
+    emulatorAcceptance.run?.includes("adb get-state") &&
+    emulatorAcceptance.run?.includes("kill -0"),
+  "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
+);
+const emulatorOptions = emulatorAcceptance.run ?? "";
+for (const option of [
+  "-accel off",
+  "-cores 1",
+  "-memory 512",
+  "-no-window",
+  "-gpu off",
+  "-no-skin",
+  "-no-snapshot",
+  "-noaudio",
+  "-no-metrics",
+  "-no-sim",
+]) {
+  invariant(emulatorOptions.includes(option), `Android emulator acceptance must retain ${option}.`);
+}
 
 const inspectMain = job("inspect-main");
 invariant(inspectMain.if === inspectionOnly, "Heavy validation must be inspection-only.");

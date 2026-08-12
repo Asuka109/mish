@@ -527,6 +527,28 @@ describe("MobileVpnFixtureClient", () => {
     ).toThrow();
   });
 
+  it("fails closed when the bounded delivery transcript overflows", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    const client = new MobileVpnFixtureClient(
+      {
+        invoke: async () => snapshot(1),
+        listen: async (nextHandler) => {
+          handler = nextHandler;
+          return { unregister: vi.fn() } as unknown as PluginListener;
+        },
+      },
+      { trace: () => undefined },
+    );
+    await client.initialize();
+
+    for (let sequence = 2; sequence <= 30; sequence += 1) {
+      handler?.(eventPayload(snapshot(sequence)));
+    }
+    expect(() => handler?.(eventPayload(snapshot(31)))).toThrow(
+      "The mobile VPN delivery transcript overflowed.",
+    );
+  });
+
   it("accepts runtime replacement once and rejects late events from the retired session", async () => {
     let handler: ((payload: unknown) => void) | undefined;
     const client = new MobileVpnFixtureClient({

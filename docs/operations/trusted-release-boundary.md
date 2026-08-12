@@ -60,8 +60,13 @@ and runner state as untrusted. A malicious contribution must not be able to:
 - invoke a privileged reusable workflow with attacker-controlled inputs; or
 - create a tag, Release, attestation, deployment, or Mish-signed artifact.
 
-Routine PR validation runs only on `ubuntu-24.04` with `contents: read`. It does
-not use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
+Routine PR validation runs on isolated GitHub-hosted `ubuntu-24.04`; the
+Android lifecycle instrumentation gate uses isolated GitHub-hosted
+`macos-15-intel` so its x86_64 emulator can run without host VM acceleration or
+root. That runner
+exception is bound to the reviewed `android-emulator-gate` job ID; every other
+PR job remains Ubuntu-only. Every PR job has only `contents: read`. They do not
+use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
 upload.
 
 ## Current executable workflow

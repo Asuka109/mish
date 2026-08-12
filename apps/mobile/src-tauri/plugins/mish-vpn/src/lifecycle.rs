@@ -1396,7 +1396,7 @@ fn reduce_shutdown(
 #[cfg(feature = "simulated-host")]
 pub mod simulated_host {
     use mish_state_machine::{Correlation, Disposition, Machine, Transition};
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
 
     use super::{
         CoreConfigState, LifecycleCommandKind, LifecycleFailure, LifecycleInput, LifecycleMachine,
@@ -1406,10 +1406,10 @@ pub mod simulated_host {
     };
     use crate::generated::platform_facts::{NotificationPermission, PlatformAvailability};
 
-    const TRANSCRIPT_SCHEMA_VERSION: u8 = 1;
-    const TRANSCRIPT_LIMIT: usize = 32;
+    const TRANSCRIPT_SCHEMA_VERSION: u8 = 2;
+    pub const TRANSCRIPT_LIMIT: usize = 32;
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Scenario {
         Success,
@@ -1419,9 +1419,12 @@ pub mod simulated_host {
         Replacement,
         LateCompletion,
         CleanupRetry,
+        FinalizerBarrier,
+        Recreation,
+        AdmissionRejected,
     }
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum EffectKind {
         Command,
@@ -1430,9 +1433,10 @@ pub mod simulated_host {
         Callback,
         LateCompletion,
         Replacement,
+        Admission,
     }
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum ResultKind {
         Pending,
@@ -1444,9 +1448,10 @@ pub mod simulated_host {
         Replaced,
         Retired,
         RecoveryRequired,
+        Rejected,
     }
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct TranscriptEvent {
         pub authority_id: u8,
@@ -1455,11 +1460,12 @@ pub mod simulated_host {
         pub operation_id: u8,
         pub admitted_revision: u64,
         pub effect_id: u64,
+        pub logical_time: u64,
         pub effect: EffectKind,
         pub result: ResultKind,
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct Transcript {
         pub schema_version: u8,
@@ -1470,6 +1476,29 @@ pub mod simulated_host {
         pub final_outcome: Option<LifecycleOperationOutcome>,
         pub stopped_clean: bool,
         pub stale_completion_retired: bool,
+    }
+
+    impl Transcript {
+        pub fn parse(encoded: &str) -> Result<Self, &'static str> {
+            let transcript: Self =
+                serde_json::from_str(encoded).map_err(|_| "android transcript schema rejected")?;
+            if transcript.schema_version != TRANSCRIPT_SCHEMA_VERSION
+                || transcript.events.is_empty()
+                || transcript.events.len() > TRANSCRIPT_LIMIT
+                || transcript.events.iter().enumerate().any(|(index, event)| {
+                    event.authority_id == 0
+                        || event.runtime_id == 0
+                        || event.scope_epoch == 0
+                        || event.operation_id == 0
+                        || event.admitted_revision == 0
+                        || event.effect_id == 0
+                        || event.logical_time != index as u64 + 1
+                })
+            {
+                return Err("android transcript bounds rejected");
+            }
+            Ok(transcript)
+        }
     }
 
     struct SimulatedHost {
@@ -1560,6 +1589,7 @@ pub mod simulated_host {
                 operation_id: 1,
                 admitted_revision: correlation.admitted_revision,
                 effect_id: correlation.effect_id,
+                logical_time: self.events.len() as u64 + 1,
                 effect,
                 result,
             });
@@ -1626,7 +1656,7 @@ pub mod simulated_host {
 
     pub fn run(scenario: Scenario) -> Transcript {
         match scenario {
-            Scenario::Success => {
+            Scenario::Success | Scenario::FinalizerBarrier => {
                 let mut host = SimulatedHost::active_stop();
                 let correlation = host.correlation(1);
                 host.apply(
@@ -1693,7 +1723,7 @@ pub mod simulated_host {
                 host.apply(
                     LifecycleInput::Command {
                         command: LifecycleCommandKind::Start,
-                        correlation,
+                        correlation: correlation.clone(),
                         new_session_id: Some("vpn-session-2".into()),
                     },
                     EffectKind::Command,
@@ -1787,6 +1817,57 @@ pub mod simulated_host {
                     Some(&old),
                 );
                 assert_eq!(disposition, Disposition::Retired);
+                host.transcript(scenario)
+            }
+            Scenario::Recreation => {
+                let mut host = SimulatedHost::active_stop();
+                let persisted = host
+                    .state
+                    .facts
+                    .lifecycle_authority
+                    .clone()
+                    .expect("active scenario must carry persisted authority");
+                let mut recovered = facts(2);
+                recovered.activation_session_id = Some("vpn-session-1".into());
+                recovered.lifecycle_authority = Some(persisted);
+                recovered.recovery_evidence = PlatformRecoveryEvidence::ForegroundExpected;
+                host.state = LifecycleState::initial(
+                    "replacement-authority".into(),
+                    "replacement-session".into(),
+                    recovered,
+                );
+                let correlation = host.correlation(1);
+                host.apply(
+                    LifecycleInput::Command {
+                        command: LifecycleCommandKind::Stop,
+                        correlation,
+                        new_session_id: None,
+                    },
+                    EffectKind::Command,
+                    ResultKind::Pending,
+                    None,
+                );
+                host.stop_result(3, true);
+                host.stop_callback(4, true);
+                host.transcript(scenario)
+            }
+            Scenario::AdmissionRejected => {
+                let mut host = SimulatedHost::new();
+                host.state.facts.core_config_state = CoreConfigState::Unloaded;
+                host.state.facts.loaded_config_digest = None;
+                host.state.facts.loaded_config_revision = None;
+                let correlation = host.correlation(1);
+                let disposition = host.apply(
+                    LifecycleInput::Command {
+                        command: LifecycleCommandKind::Start,
+                        correlation: correlation.clone(),
+                        new_session_id: Some("vpn-session-2".into()),
+                    },
+                    EffectKind::Admission,
+                    ResultKind::Rejected,
+                    Some(&correlation),
+                );
+                assert_eq!(disposition, Disposition::Committed);
                 host.transcript(scenario)
             }
         }

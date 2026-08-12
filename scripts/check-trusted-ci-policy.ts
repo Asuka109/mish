@@ -234,7 +234,7 @@ function packageManifestByName(
   return new Map(packages.map((package_) => [package_.name, package_]));
 }
 
-const supportedPlatformRunners = new Set(["macos-15", "ubuntu-24.04"]);
+const supportedPlatformRunners = new Set(["macos-15", "macos-15-intel", "ubuntu-24.04"]);
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -1118,10 +1118,12 @@ export function validateUntrustedWorkflowJob(
   job: WorkflowJob,
   workflow?: Workflow,
   references: WorkflowReference[] = [],
+  reviewedRunner?: string,
 ): string[] {
   const errors: string[] = [];
   const runner = job["runs-on"];
-  if (JSON.stringify(runner) !== JSON.stringify(policy.untrusted.runnerLabels[0])) {
+  const allowedRunner = reviewedRunner ?? policy.untrusted.runnerLabels[0];
+  if (JSON.stringify(runner) !== JSON.stringify(allowedRunner)) {
     errors.push("untrusted job runner is not the isolated GitHub-hosted runner");
   }
   const permissions = job.permissions ?? workflow?.permissions ?? policy.untrusted.permissions;
@@ -1249,8 +1251,12 @@ export function validateWorkflow(
     }
     const jobReferences = references.filter((reference) => reference.jobName === jobName);
     if (eventNames.has("pull_request") && jobMayRunOnPullRequest(workflow, job)) {
+      const reviewedRunner =
+        relative === ".github/workflows/ci.yml" && jobName === "android-emulator-gate"
+          ? "macos-15-intel"
+          : undefined;
       errors.push(
-        ...validateUntrustedWorkflowJob(policy, job, workflow, jobReferences).map(
+        ...validateUntrustedWorkflowJob(policy, job, workflow, jobReferences, reviewedRunner).map(
           (error) => `${relative} job ${jobName}: ${error}`,
         ),
       );
