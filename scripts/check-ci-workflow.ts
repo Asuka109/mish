@@ -318,6 +318,7 @@ for (const requirement of [
   "build-tools;36.1.0",
   "ndk;29.0.14206865",
   "system-images;android-36;google_apis;arm64-v8a",
+  'grep -F "system-images;android-36;google_apis;arm64-v8a | 7"',
   "aarch64-linux-android",
   "x86_64-linux-android",
   "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER",
@@ -398,6 +399,8 @@ invariant(
     ) &&
     emulatorAcceptance.run?.includes("system-images;android-36;google_apis;arm64-v8a") &&
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
+    emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
+    emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&
     emulatorAcceptance.run?.includes("for attempt in {1..300}") &&
     emulatorAcceptance.run?.includes("kill -0"),
   "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",

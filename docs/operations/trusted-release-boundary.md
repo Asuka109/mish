@@ -62,9 +62,11 @@ and runner state as untrusted. A malicious contribution must not be able to:
 
 Routine PR validation runs on isolated GitHub-hosted `ubuntu-24.04`; the
 Android lifecycle instrumentation gate uses isolated GitHub-hosted `macos-15`
-so its ARM64 emulator can use the platform hypervisor without root. Every PR
-job has only `contents: read`. They do not use a self-hosted runner, secret,
-OIDC token, reusable workflow, or artifact upload.
+so its ARM64 emulator can use the platform hypervisor without root. That runner
+exception is bound to the reviewed `android-emulator-gate` job ID; every other
+PR job remains Ubuntu-only. Every PR job has only `contents: read`. They do not
+use a self-hosted runner, secret, OIDC token, reusable workflow, or artifact
+upload.
 
 ## Current executable workflow
 

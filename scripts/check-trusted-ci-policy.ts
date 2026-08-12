@@ -1118,10 +1118,12 @@ export function validateUntrustedWorkflowJob(
   job: WorkflowJob,
   workflow?: Workflow,
   references: WorkflowReference[] = [],
+  reviewedRunner?: string,
 ): string[] {
   const errors: string[] = [];
   const runner = job["runs-on"];
-  if (typeof runner !== "string" || !policy.untrusted.runnerLabels.includes(runner)) {
+  const allowedRunner = reviewedRunner ?? policy.untrusted.runnerLabels[0];
+  if (JSON.stringify(runner) !== JSON.stringify(allowedRunner)) {
     errors.push("untrusted job runner is not the isolated GitHub-hosted runner");
   }
   const permissions = job.permissions ?? workflow?.permissions ?? policy.untrusted.permissions;
@@ -1249,8 +1251,12 @@ export function validateWorkflow(
     }
     const jobReferences = references.filter((reference) => reference.jobName === jobName);
     if (eventNames.has("pull_request") && jobMayRunOnPullRequest(workflow, job)) {
+      const reviewedRunner =
+        relative === ".github/workflows/ci.yml" && jobName === "android-emulator-gate"
+          ? "macos-15"
+          : undefined;
       errors.push(
-        ...validateUntrustedWorkflowJob(policy, job, workflow, jobReferences).map(
+        ...validateUntrustedWorkflowJob(policy, job, workflow, jobReferences, reviewedRunner).map(
           (error) => `${relative} job ${jobName}: ${error}`,
         ),
       );
