@@ -297,7 +297,7 @@ describe("MobileVpnFixtureClient", () => {
 
     const pending = client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-a" },
     );
     await vi.waitFor(() => expect(resolveLoad).toBeDefined());
@@ -684,6 +684,7 @@ describe("MobileVpnFixtureClient", () => {
           digest: configADigest,
           injectFailure: false,
           operationId: "load-a",
+          profileId: "profile-a",
           revision: "fixture-a",
           sequence: 4,
           sessionId: "session-1",
@@ -700,7 +701,7 @@ describe("MobileVpnFixtureClient", () => {
 
     const result = await client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-a", timeoutMillis: 5_000 },
     );
 
@@ -728,7 +729,7 @@ describe("MobileVpnFixtureClient", () => {
     const controller = new AbortController();
     const pending = client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-a", signal: controller.signal },
     );
     await vi.waitFor(() => {
@@ -775,7 +776,7 @@ describe("MobileVpnFixtureClient", () => {
     const controller = new AbortController();
     const pending = client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-a", signal: controller.signal },
     );
     await vi.waitFor(() => expect(resolveLoad).toBeDefined());
@@ -808,7 +809,7 @@ describe("MobileVpnFixtureClient", () => {
     await client.initialize();
     const first = client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-a" },
     );
     await vi.waitFor(() => {
@@ -817,7 +818,7 @@ describe("MobileVpnFixtureClient", () => {
 
     const duplicate = await client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-b" },
     );
     expect(duplicate).toMatchObject({ failure: "duplicate-command", outcome: "failed" });
@@ -831,7 +832,7 @@ describe("MobileVpnFixtureClient", () => {
     };
     const malformed = await client.loadConfig(
       new TextEncoder().encode(configA),
-      { digest: configADigest, revision: "fixture-a" },
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
       { operationId: "load-c" },
     );
     expect(malformed).toMatchObject({ failure: "plugin-failure" });

@@ -94,17 +94,19 @@ const mobileHomeStyles = tv({
 type HomeTone = "error" | "neutral" | "pending" | "success" | "warning";
 
 const fictionalConfigA = new TextEncoder().encode(
-  "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n",
+  "mode: rule\nproxies: []\nproxy-groups:\n  - name: Proxy\n    type: select\n    proxies: [DIRECT, REJECT]\nrules: []\n",
 );
 const fictionalConfigB = new TextEncoder().encode(
-  "mode: direct\nproxies: []\nproxy-groups: []\nrules: []\n",
+  "mode: direct\nproxies: []\nproxy-groups:\n  - name: Proxy\n    type: select\n    proxies: [REJECT, DIRECT]\nrules: []\n",
 );
 const fictionalConfigAIdentity = {
-  digest: "68f2de0232c31d5790035632a9b745bc2e3dfb926d55cd36c4e0fdfa8d54ddc5",
+  digest: "20e03e6ac98ba86b1b19faa3e6b93b178e91cf684a8fdb0597360b31e13f9121",
+  profileId: "mobile-fictional-profile",
   revision: "fictional-a-v1",
 };
 const fictionalConfigBIdentity = {
-  digest: "b9692e9a47cdab4379c8125bcd83407a89d5290cbfa4c6218bb58e1d50bae686",
+  digest: "168ba9437df72036654e83eb2abeb34fd5f3eac13a9471005ffa3da456821634",
+  profileId: "mobile-fictional-profile",
   revision: "fictional-b-v1",
 };
 

@@ -452,6 +452,7 @@ for (const requirement of [
   "mish_core_start_v1",
   "mish_core_stop_v1",
   "mish_core_snapshot_v1",
+  "mish_core_command_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
@@ -468,10 +469,18 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
-invariant(
-  !pluginNativeBridge.includes("mish_core_command_v1"),
-  "Android JNI must not resolve the unbounded Mobile Core command symbol.",
-);
+for (const requirement of [
+  "nativeRouteOperation",
+  'static const char status_request[] = "{\\"kind\\":\\"status\\"}"',
+  'static const char routes_request[] = "{\\"kind\\":\\"routes\\",\\"limit\\":512}"',
+  "MishVpnCoreCommandFn",
+  "core_api.command",
+]) {
+  invariant(
+    pluginNativeBridge.includes(requirement),
+    `Android JNI Route command boundary is missing: ${requirement}`,
+  );
+}
 for (const requirement of [
   "SHA256SUMS",
   "--evidence-dir",

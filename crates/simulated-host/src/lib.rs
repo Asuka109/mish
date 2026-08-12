@@ -38,6 +38,8 @@ use tokio_util::sync::CancellationToken;
 mod internal_tun;
 
 #[cfg(feature = "android-vpn-scenario")]
+pub mod android_routes;
+#[cfg(feature = "android-vpn-scenario")]
 pub mod android_vpn;
 
 pub use internal_tun::{

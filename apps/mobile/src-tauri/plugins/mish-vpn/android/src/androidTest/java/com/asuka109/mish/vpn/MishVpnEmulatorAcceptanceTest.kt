@@ -19,6 +19,37 @@ import org.junit.Test
  */
 class MishVpnEmulatorAcceptanceTest {
     @Test
+    fun routeSelectionUsesOnlyTypedFakeNativeEffectsAndRecreationGetsFullBaseline() {
+        val core = EmulatorRoutes()
+        val command = routeArgs("route-emulator-1", "proxy:beta", "Beta")
+
+        val selected = MobileCoreRouteAdapter.execute(core, command)
+        val duplicate = MobileCoreRouteAdapter.execute(core, command)
+        val invalid = MobileCoreRouteAdapter.execute(
+            core,
+            routeArgs("route-invalid", "proxy:unknown", "Unknown"),
+        )
+        core.runtimeAuthority = "runtime-replacement"
+        val delayed = MobileCoreRouteAdapter.execute(
+            core,
+            routeArgs("route-delayed", "proxy:alpha", "Alpha"),
+        )
+        val recreatedComponentBaseline = MobileCoreRouteAdapter.execute(core, RouteOperationArgs())
+
+        assertEquals("Beta", selected.getJSONObject("routes").getJSONArray("groups")
+            .getJSONObject(0).getString("selected"))
+        assertEquals(1, core.mutationCount)
+        assertNull(duplicate.opt("failure"))
+        assertEquals("invalid-request", invalid.getString("failure"))
+        assertEquals("conflict", delayed.getString("failure"))
+        assertEquals(1, core.mutationCount)
+        assertEquals("Beta", recreatedComponentBaseline.getJSONObject("routes")
+            .getJSONArray("groups").getJSONObject(0).getString("selected"))
+        assertEquals("session-emulator", recreatedComponentBaseline.getJSONObject("status")
+            .getString("sessionId"))
+    }
+
+    @Test
     fun lifecycleAuthoritySurvivesRecreationAndCleanupRetryWithoutPlatformEffects() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val authority = authority(effectIdentity = "2")
@@ -122,6 +153,82 @@ class MishVpnEmulatorAcceptanceTest {
         admittedRevision = 1,
         effectIdentity = effectIdentity,
     )
+
+    private fun routeArgs(operationId: String, childId: String, nativeChild: String) =
+        RouteOperationArgs().apply {
+            this.childId = childId
+            currentChildId = "proxy:alpha"
+            groupId = "group:proxy"
+            this.nativeChild = nativeChild
+            nativeCurrentChild = "Alpha"
+            nativeGroup = "Proxy"
+            this.operationId = operationId
+            profileId = "profile-emulator"
+            profileRevision = "revision-emulator"
+            runtimeAuthority = "runtime-emulator"
+        }
+}
+
+private class EmulatorRoutes : MobileCoreRoutes {
+    var mutationCount = 0
+    var runtimeAuthority = "runtime-emulator"
+    private var selected = "Alpha"
+    private val completed = mutableMapOf<String, String>()
+
+    override fun snapshot(): NativeRouteOperationResult = response(null, 0)
+
+    override fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult {
+        if (runtimeAuthority != this.runtimeAuthority) return response(operationId, 5)
+        val fingerprint = listOf(
+            profileId, profileRevision, groupId, currentChildId, childId,
+            nativeGroup, nativeCurrentChild, nativeChild,
+        ).joinToString("|")
+        completed[operationId]?.let { return response(operationId, if (it == fingerprint) 0 else 5) }
+        if (nativeGroup != "Proxy" || nativeCurrentChild != selected || nativeChild !in setOf("Alpha", "Beta")) {
+            return response(operationId, 1)
+        }
+        completed[operationId] = fingerprint
+        selected = nativeChild
+        mutationCount += 1
+        return response(operationId, 0)
+    }
+
+    private fun response(operationId: String?, commandStatus: Int): NativeRouteOperationResult {
+        fun envelope(data: JSONObject) = JSONObject().put("abiVersion", 1).put("data", data).toString()
+        val status = envelope(JSONObject()
+            .put("configSha256", "a".repeat(64))
+            .put("eventSequence", mutationCount.toString())
+            .put("loaded", true)
+            .put("mode", "rule")
+            .put("phase", "running")
+            .put("sessionId", "session-emulator"))
+        val routes = envelope(JSONObject()
+            .put("groups", JSONArray().put(JSONObject()
+                .put("candidates", JSONArray().put("Alpha").put("Beta"))
+                .put("name", "Proxy")
+                .put("selected", selected)))
+            .put("mode", "rule")
+            .put("truncated", false))
+        return NativeRouteOperationResult(
+            commandStatus,
+            if (operationId == null) null else envelope(JSONObject().put("eventSequence", mutationCount.toString())),
+            0,
+            status,
+            0,
+            routes,
+        )
+    }
 }
 
 private data class EmulatorLifecycleEvent(

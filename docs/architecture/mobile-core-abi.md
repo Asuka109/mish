@@ -129,13 +129,25 @@ does not lose 64-bit precision.
 Commands form a closed set:
 
 - `set-routing-mode` with `rule`, `global`, or `direct`;
-- `select-policy` with a current group and current child;
+- `select-policy` with a bounded operation ID, current runtime authority,
+  committed Profile identity/revision, stable group/current/target child IDs,
+  and the Shared Rust-resolved native group/current/target labels;
 - `close-connection` with one current connection identifier; and
 - `close-all-connections`.
 
 There is no generic Mihomo action, URL, filesystem path, shell command, or
 Controller endpoint. Commands require a running Core and return an authoritative
 status after mutation.
+
+`select-policy` additionally requires the supplied runtime authority to match
+the currently admitted lifecycle machine. The selector's observed current
+child must match the request before `Set`. The wrapper retains at most 32
+completed Route operation identities: an exact duplicate returns success
+without another mutation or event, while the same operation ID with any
+different authority, Profile, stable ID, or native label returns `CONFLICT`.
+A successful configuration load clears that bounded cache. Shared Rust remains
+the Profile relationship authority; Kotlin/JNI and the wrapper cannot derive a
+new product membership from labels.
 
 `mish_core_poll_events_v1` accepts a decimal `afterSequence` and a limit no
 greater than 128. The Core retains at most 256 lifecycle and observation events.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureSettingsSnapshot } from "../data/fixture-settings-client";
+import { FixtureStatusClient } from "../data/fixture-status-client";
 import { resolveMobileStartup } from "./mobile-runtime-bootstrap";
 import { MobileSettingsClient } from "./mobile-settings-client";
 import type { MobileVpnClient } from "./mobile-vpn-client";
@@ -93,6 +94,21 @@ function createSettingsClient() {
 }
 
 describe("mobile native fixture bootstrap", () => {
+  it("uses and disposes the injected native Status adapter", async () => {
+    const mobileStatusClient = new FixtureStatusClient();
+    const disposeStatus = vi.spyOn(mobileStatusClient, "dispose");
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => fixture,
+      mobileSettingsClient: createSettingsClient(),
+      mobileStatusClient,
+      mobileVpnClient: createVpnClient(),
+    });
+
+    expect(startup.client).toBe(mobileStatusClient);
+    startup.dispose();
+    expect(disposeStatus).toHaveBeenCalledOnce();
+  });
+
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
     const invokeBootstrap = vi.fn(async () => fixture);
     const mobileVpnClient = createVpnClient();

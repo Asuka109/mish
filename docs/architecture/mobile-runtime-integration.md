@@ -92,6 +92,28 @@ the already accepted mobile lifecycle snapshot as read-only facts. They link to
 Home for consent, start, stop, and recovery so neither React nor the Settings
 adapter duplicates `VpnService` ownership or lifecycle command handling.
 
+Android Routes is the first live mobile Status slice. After one configuration
+load, Shared Rust derives the stable Profile route catalog from the exact
+committed bytes, binds it to Profile ID/revision and current Runtime authority,
+and returns a full ordered native Status baseline. A selection carries bounded
+operation ID, runtime authority, Profile identity/revision, group ID, current
+child ID, and target child ID through Tauri. Only Shared Rust resolves those
+IDs to configured native labels and validates selector membership/current
+selection before invoking Kotlin/JNI. The native effect returns one atomic
+command/status/routes result; Shared Rust accepts only the exact config digest,
+mode, session, configured group/member ordering, and authoritative selected
+child before publishing the next application order.
+
+The Route gate linearizes snapshot, duplicate, cancellation, and effect
+commit. Exact duplicates are no-ops; a conflicting reuse, stale/replaced
+authority, invalid relation, cancellation that wins before the gate, malformed
+response, or delayed retired completion adds no mutation. Cancellation after
+native effect admission is too late and the complete authoritative result is
+returned. Activity/plugin recreation reuses only the in-process committed
+catalog cache, creates a fresh Shared Rust lifecycle baseline, and rebinds that
+catalog only while the platform is observed stopped and clean; it never infers
+a running authority or a Profile from Kotlin state.
+
 React Router and the React `MobileShell` are the sole authorities for persistent
 mobile product chrome, top-level destinations, product routes, internal history
 and Back, page/sheet state, `canGoBack`, scroll state, and DOM focus. Platform
@@ -163,6 +185,13 @@ results cross JNI. A well-formed failed v1 replacement preserves the prior
 loaded identity. Malformed, interrupted, or runtime-replaced outcomes publish
 unknown instead of inventing loaded state. This slice never starts Core,
 supplies a TUN descriptor, or changes VPN authority.
+
+The Android Route adapter uses a fixed typed `select-policy` request followed
+under the same native mutex by bounded `status` and `routes` snapshots. JNI
+copies each response into a Java `ByteArray`, frees every Core buffer exactly
+once on every path, and Kotlin accepts only strict round-tripping UTF-8 before
+closed JSON validation. Kotlin owns no group membership, selection, ordering,
+or operation history. Mobile never starts the desktop RPC/loopback bridge.
 
 ## Android lifecycle
 

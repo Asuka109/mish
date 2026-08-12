@@ -63,6 +63,7 @@ internal class LoadConfigArgs {
     lateinit var digest: String
     var injectFailure: Boolean = false
     lateinit var operationId: String
+    lateinit var profileId: String
     lateinit var revision: String
     var sequence: Long = -1
     var sessionId: String = ""

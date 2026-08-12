@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/metacubex/mihomo/config"
+	"github.com/metacubex/mihomo/hub/executor"
 )
 
 const fixtureConfig = `
@@ -109,5 +110,62 @@ func TestInvalidLimitsReturnTypedErrors(t *testing.T) {
 	envelope := decodeEnvelope(t, result)
 	if envelope.Error == nil || envelope.Error.Code != "limit-exceeded" {
 		t.Fatalf("unexpected error: %#v", envelope.Error)
+	}
+}
+
+func TestRouteSelectionIsAuthoritativeIdempotentAndStaleSafe(t *testing.T) {
+	const routeConfig = `
+mode: rule
+log-level: warning
+proxies: []
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [DIRECT, REJECT]
+rules:
+  - MATCH,DIRECT
+`
+	core := &coreRuntime{phase: phaseInactive}
+	if result := core.initialize([]byte(`{"abiVersion":1}`), func(int) error { return nil }); result.status != statusOK {
+		t.Fatalf("initialize: %s", result.payload)
+	}
+	if result := core.loadConfig([]byte(routeConfig)); result.status != statusOK {
+		t.Fatalf("load: %s", result.payload)
+	}
+	executor.ApplyConfig(core.loaded, true)
+	t.Cleanup(executor.Shutdown)
+	core.phase = phaseRunning
+	core.session = "session-a"
+	core.lifecycle = &lifecycleAuthority{
+		MachineAuthority: "runtime-a", ScopeEpoch: 1, OperationID: "start-a",
+		AdmittedRevision: 1, EffectIdentity: "1",
+	}
+
+	command := []byte(`{"operation":"select-policy","operationId":"route-a","runtimeAuthority":"runtime-a","profileId":"profile-a","profileRevision":"revision-a","groupId":"group:stable","currentChildId":"proxy:direct","childId":"proxy:reject","group":"Proxy","currentChild":"DIRECT","selection":"REJECT"}`)
+	if result := core.command(command); result.status != statusOK {
+		t.Fatalf("select: %s", result.payload)
+	}
+	selectedSequence := core.sequence
+	if result := core.command(command); result.status != statusOK {
+		t.Fatalf("duplicate: %s", result.payload)
+	}
+	if core.sequence != selectedSequence {
+		t.Fatalf("duplicate mutated sequence: %d != %d", core.sequence, selectedSequence)
+	}
+
+	conflict := []byte(`{"operation":"select-policy","operationId":"route-a","runtimeAuthority":"runtime-a","profileId":"profile-a","profileRevision":"revision-a","groupId":"group:stable","currentChildId":"proxy:direct","childId":"proxy:direct","group":"Proxy","currentChild":"DIRECT","selection":"DIRECT"}`)
+	if result := core.command(conflict); result.status != statusConflict {
+		t.Fatalf("identity conflict status = %d", result.status)
+	}
+	stale := []byte(`{"operation":"select-policy","operationId":"route-stale","runtimeAuthority":"runtime-old","profileId":"profile-a","profileRevision":"revision-a","groupId":"group:stable","currentChildId":"proxy:reject","childId":"proxy:direct","group":"Proxy","currentChild":"REJECT","selection":"DIRECT"}`)
+	if result := core.command(stale); result.status != statusConflict {
+		t.Fatalf("stale authority status = %d", result.status)
+	}
+	snapshot := core.snapshot([]byte(`{"kind":"routes","limit":512}`))
+	if snapshot.status != statusOK || !strings.Contains(string(snapshot.payload), `"selected":"REJECT"`) {
+		t.Fatalf("authoritative routes snapshot: %s", snapshot.payload)
+	}
+	if core.sequence != selectedSequence {
+		t.Fatalf("rejected commands mutated sequence: %d != %d", core.sequence, selectedSequence)
 	}
 }

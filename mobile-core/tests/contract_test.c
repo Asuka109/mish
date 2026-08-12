@@ -59,8 +59,15 @@ int main(void) {
       "\"sessionId\":\"session-2\",\"tunFileDescriptor\":43,\"stack\":\"mixed\","
       "\"addresses\":[\"172.19.0.1/30\"],\"dnsHijack\":[],\"mtu\":1500}";
   const char *status_snapshot = "{\"kind\":\"status\"}";
+  const char *routes_snapshot = "{\"kind\":\"routes\",\"limit\":512}";
   const char *set_mode =
       "{\"operation\":\"set-routing-mode\",\"mode\":\"global\"}";
+  const char *select_beta =
+      "{\"operation\":\"select-policy\",\"operationId\":\"route-op-1\",\"runtimeAuthority\":\"mobile-authority\",\"profileId\":\"profile-a\",\"profileRevision\":\"revision-a\",\"groupId\":\"group:stable\",\"currentChildId\":\"proxy:alpha\",\"childId\":\"proxy:beta\",\"group\":\"Proxy\",\"currentChild\":\"Alpha\",\"selection\":\"Beta\"}";
+  const char *select_conflict =
+      "{\"operation\":\"select-policy\",\"operationId\":\"route-op-1\",\"runtimeAuthority\":\"mobile-authority\",\"profileId\":\"profile-a\",\"profileRevision\":\"revision-a\",\"groupId\":\"group:stable\",\"currentChildId\":\"proxy:alpha\",\"childId\":\"proxy:alpha\",\"group\":\"Proxy\",\"currentChild\":\"Alpha\",\"selection\":\"Alpha\"}";
+  const char *select_stale =
+      "{\"operation\":\"select-policy\",\"operationId\":\"route-op-stale\",\"runtimeAuthority\":\"retired-authority\",\"profileId\":\"profile-a\",\"profileRevision\":\"revision-a\",\"groupId\":\"group:stable\",\"currentChildId\":\"proxy:beta\",\"childId\":\"proxy:alpha\",\"group\":\"Proxy\",\"currentChild\":\"Beta\",\"selection\":\"Alpha\"}";
   const char *poll_events = "{\"afterSequence\":\"0\",\"limit\":16}";
   const char *stop =
       "{\"machineAuthority\":\"mobile-authority\",\"scopeEpoch\":1,\"operationId\":\"stop-op\",\"admittedRevision\":2,\"effectIdentity\":\"1\",\"sessionId\":\"session-1\"}";
@@ -129,6 +136,30 @@ int main(void) {
 
   assert(mish_core_command_v1((uint8_t *)set_mode, strlen(set_mode),
                               &response) == MISH_CORE_OK_V1);
+  release(&response);
+
+  assert(mish_core_snapshot_v1((uint8_t *)routes_snapshot,
+                               strlen(routes_snapshot), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "\"selected\":\"Alpha\""));
+  release(&response);
+  assert(mish_core_command_v1((uint8_t *)select_beta, strlen(select_beta),
+                              &response) == MISH_CORE_OK_V1);
+  release(&response);
+  assert(mish_core_command_v1((uint8_t *)select_beta, strlen(select_beta),
+                              &response) == MISH_CORE_OK_V1);
+  release(&response);
+  assert(mish_core_command_v1((uint8_t *)select_conflict,
+                              strlen(select_conflict), &response) ==
+         MISH_CORE_CONFLICT_V1);
+  release(&response);
+  assert(mish_core_command_v1((uint8_t *)select_stale, strlen(select_stale),
+                              &response) == MISH_CORE_CONFLICT_V1);
+  release(&response);
+  assert(mish_core_snapshot_v1((uint8_t *)routes_snapshot,
+                               strlen(routes_snapshot), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "\"selected\":\"Beta\""));
   release(&response);
 
   assert(mish_core_poll_events_v1((uint8_t *)poll_events,

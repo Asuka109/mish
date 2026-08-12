@@ -55,6 +55,7 @@ interface MobileConfigValidationOptions {
 
 export interface MobileConfigRevisionIdentity {
   digest: string;
+  profileId: string;
   revision: string;
 }
 
@@ -373,6 +374,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     }
     if (
       !/^[0-9a-f]{64}$/u.test(identity.digest) ||
+      !/^[A-Za-z0-9._:-]{1,128}$/u.test(identity.profileId) ||
       identity.revision.length === 0 ||
       identity.revision.length > 128 ||
       operationId.length === 0 ||
@@ -448,6 +450,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
             digest: identity.digest,
             injectFailure: options.injectFailure ?? false,
             operationId,
+            profileId: identity.profileId,
             revision: identity.revision,
             sequence: authority.sequence,
             sessionId: authority.sessionId,

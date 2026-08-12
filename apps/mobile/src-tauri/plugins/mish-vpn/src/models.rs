@@ -510,6 +510,7 @@ pub struct MobileConfigLoadRequest {
     pub digest: String,
     pub inject_failure: bool,
     pub operation_id: String,
+    pub profile_id: String,
     pub revision: String,
     pub sequence: u64,
     pub session_id: String,
@@ -611,6 +612,7 @@ impl MobileConfigLoadResult {
             ))
         } else if request.operation_id.is_empty()
             || request.operation_id.len() > 128
+            || !valid_identifier(&request.profile_id)
             || request.revision.is_empty()
             || request.revision.len() > 128
             || !valid_digest(&request.digest)
@@ -696,6 +698,14 @@ fn valid_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 impl MobileConfigValidationResult {
@@ -804,6 +814,7 @@ mod validation_tests {
             digest: format!("{:x}", Sha256::digest(config)),
             inject_failure: false,
             operation_id: "load-operation".into(),
+            profile_id: "profile-a".into(),
             revision: "fixture-revision".into(),
             sequence: 7,
             session_id: "fixture-session".into(),

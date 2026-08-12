@@ -14,8 +14,11 @@ mod generated {
     pub(crate) mod platform_facts;
 }
 mod lifecycle;
+mod mobile_routes;
 #[cfg(feature = "simulated-host")]
 pub use lifecycle::simulated_host;
+#[cfg(feature = "simulated-host")]
+pub use mobile_routes::simulated_host as simulated_routes;
 #[cfg(feature = "tauri-runtime")]
 mod models;
 #[cfg(feature = "tauri-runtime")]
@@ -34,6 +37,11 @@ pub use error::{Error, Result};
 #[cfg(all(feature = "tauri-runtime", not(target_os = "android")))]
 use fallback as platform;
 #[cfg(feature = "tauri-runtime")]
+pub use mobile_routes::{
+    MobileRouteCancelRequest, MobileRouteCancelResult, MobileRouteCommandRequest,
+    MobileRouteCommandResult, MobileRouteSnapshot,
+};
+#[cfg(feature = "tauri-runtime")]
 pub use models::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadCancellation,
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
@@ -42,6 +50,36 @@ pub use models::{
     MobileCoreProvenanceSnapshot, MobileVpnCommandRequest, MobileVpnCommandResult,
     MobileVpnSnapshot,
 };
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn get_route_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileRouteSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_route_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn select_route_child<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileRouteCommandRequest,
+) -> Result<MobileRouteCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .select_route_child(request)
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn cancel_route_selection<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileRouteCancelRequest,
+) -> MobileRouteCancelResult {
+    app.state::<platform::MishVpn<R>>()
+        .cancel_route_selection(request)
+        .await
+}
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
@@ -148,6 +186,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_core_provenance,
+            get_route_snapshot,
+            select_route_child,
+            cancel_route_selection,
             request_notification_permission,
             request_vpn_consent,
             start,

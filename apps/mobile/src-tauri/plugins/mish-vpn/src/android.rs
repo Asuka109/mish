@@ -1,4 +1,9 @@
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use mish_state_machine::{
     Correlation, EffectExecutor, RunnerConfig, RunnerHandle, TransitionObserver, spawn_runner,
@@ -30,10 +35,14 @@ use crate::{
 const PLUGIN_IDENTIFIER: &str = "com.asuka109.mish.vpn";
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
+static MOBILE_ROUTES: OnceLock<Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>> =
+    OnceLock::new();
+
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime> {
     handle: PluginHandle<R>,
     lifecycle: Arc<Mutex<Option<Arc<LifecycleRuntime>>>>,
+    routes: Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>,
 }
 
 struct LifecycleRuntime {
@@ -164,6 +173,7 @@ struct PlatformConfigLoadRequest {
     digest: String,
     inject_failure: bool,
     operation_id: String,
+    profile_id: String,
     revision: String,
     sequence: u64,
     session_id: String,
@@ -186,15 +196,178 @@ struct PlatformConfigLoadResult {
     timing: MobileConfigLoadTiming,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformRouteRequest {
+    child_id: Option<String>,
+    current_child_id: Option<String>,
+    group_id: Option<String>,
+    native_child: Option<String>,
+    native_current_child: Option<String>,
+    native_group: Option<String>,
+    operation_id: Option<String>,
+    profile_id: Option<String>,
+    profile_revision: Option<String>,
+    runtime_authority: Option<String>,
+}
+
 pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishVpn<R>> {
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "MishVpnPlugin")?;
     Ok(MishVpn {
         handle,
         lifecycle: Arc::new(Mutex::new(None)),
+        routes: MOBILE_ROUTES
+            .get_or_init(|| Arc::new(Mutex::new(None)))
+            .clone(),
     })
 }
 
 impl<R: Runtime> MishVpn<R> {
+    async fn native_route_result(
+        &self,
+        request: Option<&crate::MobileRouteCommandRequest>,
+        native_labels: Option<(&str, &str, &str)>,
+    ) -> Result<crate::mobile_routes::NativeRouteResult> {
+        Ok(self
+            .handle
+            .run_mobile_plugin_async(
+                if request.is_some() {
+                    "selectRouteChild"
+                } else {
+                    "getRouteSnapshot"
+                },
+                PlatformRouteRequest {
+                    child_id: request.map(|request| request.child_id.clone()),
+                    current_child_id: request.map(|request| request.current_child_id.clone()),
+                    group_id: request.map(|request| request.group_id.clone()),
+                    native_child: native_labels.map(|(_, _, child)| child.to_owned()),
+                    native_current_child: native_labels
+                        .map(|(_, current_child, _)| current_child.to_owned()),
+                    native_group: native_labels.map(|(group, _, _)| group.to_owned()),
+                    operation_id: request.map(|request| request.operation_id.clone()),
+                    profile_id: request.map(|request| request.profile_id.clone()),
+                    profile_revision: request.map(|request| request.profile_revision.clone()),
+                    runtime_authority: request.map(|request| request.runtime_authority.clone()),
+                },
+            )
+            .await?)
+    }
+
+    pub async fn get_route_snapshot(&self) -> Result<crate::MobileRouteSnapshot> {
+        let current = self.runtime().await?.runner.snapshot();
+        let mut routes = self.routes.lock().await;
+        let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
+        if authority.runtime_authority() != current.authority_id {
+            if current.phase == crate::lifecycle::LifecyclePhase::Stopped
+                && current.platform_clean()
+            {
+                authority
+                    .rebind_inactive_runtime(current.authority_id.clone(), current.scope_epoch);
+            } else {
+                return Err(crate::Error::RoutesUnavailable);
+            }
+        }
+        let native = self.native_route_result(None, None).await?;
+        authority
+            .project(native, None)
+            .map_err(|_| crate::Error::RoutesUnavailable)
+    }
+
+    pub async fn select_route_child(
+        &self,
+        request: crate::MobileRouteCommandRequest,
+    ) -> Result<crate::MobileRouteCommandResult> {
+        let initial = self.runtime().await?.runner.snapshot();
+        let mut routes = self.routes.lock().await;
+        let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
+        if authority.runtime_authority() != initial.authority_id {
+            if initial.phase == crate::lifecycle::LifecyclePhase::Stopped
+                && initial.platform_clean()
+            {
+                authority
+                    .rebind_inactive_runtime(initial.authority_id.clone(), initial.scope_epoch);
+            } else {
+                return Err(crate::Error::RoutesUnavailable);
+            }
+        }
+        // This mutex is the Route effect/snapshot linearization gate. It keeps
+        // stale native reads from being projected after a newer selection and
+        // gives cancellation an exact before-effect or too-late ordering.
+        let baseline_native = self.native_route_result(None, None).await?;
+        let baseline = authority
+            .project(baseline_native, None)
+            .map_err(|_| crate::Error::RoutesUnavailable)?;
+        match authority.duplicate(&request) {
+            Ok(Some(mut result)) => {
+                result.snapshot = baseline;
+                return Ok(result);
+            }
+            Err(failure) => {
+                return Ok(authority.failure_result(
+                    request.operation_id.clone(),
+                    failure,
+                    baseline,
+                ));
+            }
+            Ok(None) => {}
+        }
+        let (group, current_child, child) = match authority.preflight(&request) {
+            Ok(labels) => labels,
+            Err(failure) => {
+                let result =
+                    authority.failure_result(request.operation_id.clone(), failure, baseline);
+                authority.remember(request, result.clone());
+                return Ok(result);
+            }
+        };
+        let native = self
+            .native_route_result(Some(&request), Some((&group, &current_child, &child)))
+            .await?;
+        let current = self.runtime().await?.runner.snapshot();
+        let result = if current.authority_id != initial.authority_id
+            || current.session_id != initial.session_id
+            || authority.runtime_authority() != current.authority_id
+        {
+            authority.failure_result(
+                request.operation_id.clone(),
+                crate::mobile_routes::MobileRouteFailure::RuntimeReplaced,
+                baseline,
+            )
+        } else {
+            match authority.project(native, Some(&request.operation_id)) {
+                Ok(snapshot) => crate::MobileRouteCommandResult {
+                    contract_version: 1,
+                    failure: None,
+                    operation_id: request.operation_id.clone(),
+                    snapshot,
+                    status: crate::mobile_routes::MobileRouteCommandStatus::Success,
+                },
+                Err(failure) => {
+                    authority.failure_result(request.operation_id.clone(), failure, baseline)
+                }
+            }
+        };
+        authority.remember(request, result.clone());
+        Ok(result)
+    }
+
+    pub async fn cancel_route_selection(
+        &self,
+        request: crate::MobileRouteCancelRequest,
+    ) -> crate::MobileRouteCancelResult {
+        let accepted = self
+            .routes
+            .lock()
+            .await
+            .as_mut()
+            .is_some_and(|authority| authority.cancel(&request.operation_id));
+        crate::MobileRouteCancelResult {
+            accepted,
+            contract_version: 1,
+            operation_id: request.operation_id,
+        }
+    }
+
     async fn cleanup_before_replacement(&self, runtime: &LifecycleRuntime) -> Result<bool> {
         let retirement = runtime.runner.shutdown().await;
         if retirement.state.phase == crate::lifecycle::LifecyclePhase::Stopped
@@ -584,6 +757,7 @@ impl<R: Runtime> MishVpn<R> {
             digest: request.digest.clone(),
             inject_failure: request.inject_failure,
             operation_id: request.operation_id.clone(),
+            profile_id: request.profile_id.clone(),
             revision: request.revision.clone(),
             sequence: initial.facts.fact_sequence,
             session_id: initial.facts.platform_session_id.clone(),
@@ -657,6 +831,24 @@ impl<R: Runtime> MishVpn<R> {
                 "The mobile runtime was replaced during configuration loading.",
                 Some(MobileVpnSnapshot::from_lifecycle(&current)),
             );
+        }
+        if result.failure.is_none()
+            && matches!(
+                result.outcome,
+                MobileConfigLoadOutcome::FirstLoad
+                    | MobileConfigLoadOutcome::Replacement
+                    | MobileConfigLoadOutcome::NoOp
+            )
+        {
+            *self.routes.lock().await =
+                crate::mobile_routes::MobileRouteAuthority::from_committed_profile(
+                    &request.profile_id,
+                    &request.revision,
+                    &request.digest,
+                    &request.config_bytes,
+                    current.authority_id.clone(),
+                    current.scope_epoch,
+                );
         }
         MobileConfigLoadResult {
             cancellation: result.cancellation,

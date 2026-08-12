@@ -83,6 +83,17 @@ pub fn profile_route_catalog_with_selections(
     )
 }
 
+/// Derives the configured route catalog from one already committed effective
+/// Profile generation. Mobile hosts use this after the same bytes have been
+/// admitted by Mobile Core; the function performs no platform or Core I/O.
+pub fn profile_route_catalog_from_effective_bytes(
+    profile_id: &str,
+    fingerprint: &str,
+    bytes: &[u8],
+) -> Result<ProfileRouteCatalog, ProfilePatchError> {
+    profile_route_catalog_from_bytes(profile_id, fingerprint, bytes, &HashMap::new())
+}
+
 pub fn profile_store_selected(record: &ProfileRecord) -> Result<bool, ProfilePatchError> {
     let applied = apply_profile_patches(
         &record.normalized_bytes,
