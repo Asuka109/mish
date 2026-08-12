@@ -123,8 +123,6 @@ const rustCacheAction = "Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99
 const uploadArtifactAction = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const setupJavaAction = "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95";
 const setupAndroidAction = "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699";
-const androidEmulatorAction =
-  "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d";
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -319,6 +317,7 @@ for (const requirement of [
   "platforms;android-36",
   "build-tools;36.1.0",
   "ndk;29.0.14206865",
+  "system-images;android-36;google_apis;arm64-v8a",
   "aarch64-linux-android",
   "x86_64-linux-android",
   "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER",
@@ -391,18 +390,15 @@ const emulatorAcceptance = step(
   "Run credential-free Android lifecycle emulator acceptance",
 );
 invariant(
-  emulatorAcceptance.uses === androidEmulatorAction,
-  "Android emulator acceptance must pin the reviewed runner commit.",
+  emulatorAcceptance.uses === undefined &&
+    emulatorAcceptance.run?.includes("build_id 15917651") &&
+    emulatorAcceptance.run?.includes("system-images;android-36;google_apis;arm64-v8a") &&
+    emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
+    emulatorAcceptance.run?.includes("for attempt in {1..300}") &&
+    emulatorAcceptance.run?.includes("kill -0"),
+  "Android emulator acceptance must retain the pinned, bounded, repository-owned runner.",
 );
-invariant(
-  emulatorAcceptance.with?.["api-level"] === 36 &&
-    emulatorAcceptance.with?.arch === "arm64-v8a" &&
-    emulatorAcceptance.with?.target === "google_apis" &&
-    emulatorAcceptance.with?.["emulator-build"] === 15917651 &&
-    emulatorAcceptance.with?.script === "pnpm mobile:android:test:emulator",
-  "Android emulator acceptance must retain the pinned API, ABI, emulator, and repository gate.",
-);
-const emulatorOptions = String(emulatorAcceptance.with?.["emulator-options"] ?? "");
+const emulatorOptions = emulatorAcceptance.run ?? "";
 for (const option of ["-no-window", "-no-snapshot", "-noaudio", "-no-metrics", "-no-sim"]) {
   invariant(emulatorOptions.includes(option), `Android emulator acceptance must retain ${option}.`);
 }

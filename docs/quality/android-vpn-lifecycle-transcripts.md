@@ -97,7 +97,9 @@ pnpm mobile:android:test:emulator
 Pull requests run the same instrumentation task in `Android lifecycle emulator
 gate` on the root-free `macos-15` ARM64 GitHub-hosted runner. The workflow pins
 API 36, Build Tools 36.1.0, NDK 29.0.14206865, emulator build 15917651, and the
-reviewed emulator-runner commit.
+repository-owned bounded boot/run/cleanup contract. The workflow uses no
+third-party emulator action and rejects an unexpected emulator build before it
+creates the test AVD.
 
 ## Evidence limits
 

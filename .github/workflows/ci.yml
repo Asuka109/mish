@@ -147,9 +147,12 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager \
+            "emulator" \
+            "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.1.0" \
-            "ndk;29.0.14206865"
+            "ndk;29.0.14206865" \
+            "system-images;android-36;google_apis;arm64-v8a"
           rustup target add aarch64-linux-android x86_64-linux-android
           ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
           toolchain="$ndk_home/toolchains/llvm/prebuilt/linux-x86_64"
@@ -231,15 +234,48 @@ jobs:
           shared-key: pr-android-emulator
           cache-on-failure: true
       - name: Run credential-free Android lifecycle emulator acceptance
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        with:
-          api-level: 36
-          arch: arm64-v8a
-          target: google_apis
-          emulator-build: 15917651
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -no-metrics -no-sim
-          disable-animations: true
-          script: pnpm mobile:android:test:emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          emulator_version="$(emulator -version 2>&1)"
+          grep -F "build_id 15917651" <<< "$emulator_version"
+          avd_name="mish_vpn_api36"
+          echo no | avdmanager create avd \
+            --force \
+            --name "$avd_name" \
+            --package "system-images;android-36;google_apis;arm64-v8a" \
+            --device pixel_7
+          emulator \
+            -avd "$avd_name" \
+            -no-window \
+            -gpu swiftshader_indirect \
+            -no-snapshot \
+            -noaudio \
+            -no-boot-anim \
+            -camera-back none \
+            -camera-front none \
+            -no-metrics \
+            -no-sim \
+            > "$RUNNER_TEMP/mish-vpn-emulator.log" 2>&1 &
+          emulator_pid=$!
+          cleanup() {
+            kill "$emulator_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          adb start-server
+          for attempt in {1..300}; do
+            if ! kill -0 "$emulator_pid" 2>/dev/null; then
+              tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
+              exit 1
+            fi
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              pnpm mobile:android:test:emulator
+              exit 0
+            fi
+            sleep 1
+          done
+          tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
+          exit 1
 
   inspect-main:
     name: Inspect main
