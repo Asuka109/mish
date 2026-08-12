@@ -81,6 +81,22 @@ replacement with a persisted foreground-expected record starts as
 `recovery-required`; it never replays activation. **Clean Up VPN** performs an
 idempotent stop and removes the recovery record only after cleanup is observed.
 
+## Kotlin authority admission and retryable cleanup
+
+The Tauri adapter and `MishVpnService` admit the complete Rust lifecycle
+authority before enqueuing `startForegroundService`, promoting the foreground
+notification, establishing a TUN, starting Core, or persisting activation
+facts. An exact retry is idempotent; only the Rust-defined successor authority
+may advance the persisted record. Malformed, foreign, or stale intents are
+ignored without cleaning the current owner.
+
+Cleanup tracks Core, TUN, and network callback ownership independently. A
+partial result is published as foreground-expected recovery evidence and keeps
+the authority plus failed resource owned. Later stop/recreation cleanup retries
+only the failed resources; `STOP_COMPLETED`/clean facts are published only
+after every owned resource releases successfully. This is a closed semantic
+JVM contract and does not claim emulator or physical-device behavior.
+
 ## Local verification
 
 Build and contract checks:

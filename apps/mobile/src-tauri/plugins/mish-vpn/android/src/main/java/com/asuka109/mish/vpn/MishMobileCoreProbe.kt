@@ -38,17 +38,17 @@ internal data class CoreLifecycleAuthority(
     val effectIdentity: String,
 ) {
     fun nextEffect(): CoreLifecycleAuthority? {
-        val effect = effectIdentity.toULongOrNull() ?: return null
-        if (effect == ULong.MAX_VALUE) return null
-        return copy(effectIdentity = (effect + 1u).toString())
+        val effect = effectIdentity.toLongOrNull() ?: return null
+        if (effect >= ANDROID_PLATFORM_FACTS_SAFE_INTEGER_MAX) return null
+        return copy(effectIdentity = (effect + 1).toString())
     }
 
     fun isValid(): Boolean =
         machineAuthority.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
-            scopeEpoch > 0 &&
+            scopeEpoch in 1..ANDROID_PLATFORM_FACTS_SAFE_INTEGER_MAX &&
             operationId.matches(LIFECYCLE_IDENTIFIER_PATTERN) &&
-            admittedRevision in 1 until Long.MAX_VALUE &&
-            effectIdentity.toULongOrNull()?.let { it > 0uL } == true
+            admittedRevision in 1..ANDROID_PLATFORM_FACTS_SAFE_INTEGER_MAX &&
+            effectIdentity.toLongOrNull()?.let { it in 1..ANDROID_PLATFORM_FACTS_SAFE_INTEGER_MAX } == true
 
     fun toJson(): JSONObject = JSONObject()
         .put("admittedRevision", admittedRevision)
@@ -77,6 +77,7 @@ internal fun lifecycleAuthorityIsSuccessor(
     candidate: CoreLifecycleAuthority,
     current: CoreLifecycleAuthority?,
 ): Boolean {
+    if (!candidate.isValid() || current?.isValid() == false) return false
     if (current == null) return true
     if (candidate.machineAuthority != current.machineAuthority) return false
     if (candidate.scopeEpoch != current.scopeEpoch) {
@@ -87,6 +88,12 @@ internal fun lifecycleAuthorityIsSuccessor(
     }
     return candidate == current.nextEffect()
 }
+
+internal fun lifecycleAuthorityMatchesOrIsSuccessor(
+    candidate: CoreLifecycleAuthority,
+    current: CoreLifecycleAuthority?,
+): Boolean = candidate.isValid() && current?.isValid() != false &&
+    (candidate == current || lifecycleAuthorityIsSuccessor(candidate, current))
 
 internal interface MobileCoreRuntime {
     fun start(
