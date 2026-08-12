@@ -8,8 +8,8 @@ snapshots. Its replaceable fixture backend never creates a TUN interface,
 captures traffic, or starts Mihomo. A separately verified Mobile Core build may
 be staged into generated `jniLibs`; staging also generates the ignored bounded
 admission manifest, and the native probe admits the exact source, wrapper, ABI,
-digest, and package-signature contract before JNI validation, load, or Core
-effects. Rejection remains unavailable without exposing paths, certificate
+digest, signature scheme, and build-owned signer fingerprint before JNI
+validation, load, or Core effects. Rejection remains observable without exposing paths, certificate
 bytes, or native text; the native probe then reports its bounded ABI and
 version identity without claiming that VPN traffic capture is connected.
 The bounded configuration slice validates and loads only repository-owned

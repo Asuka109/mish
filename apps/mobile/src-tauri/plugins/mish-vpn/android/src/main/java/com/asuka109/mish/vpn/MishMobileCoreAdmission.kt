@@ -8,13 +8,15 @@ import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 
-internal const val MOBILE_CORE_ADMISSION_SCHEMA_VERSION = 1
+internal const val MOBILE_CORE_ADMISSION_SCHEMA_VERSION = 2
 internal const val MOBILE_CORE_ADMISSION_MANIFEST_ASSET = "mish-mobile-core-admission.json"
 internal const val MOBILE_CORE_ADMISSION_MAX_MANIFEST_BYTES = 16 * 1024
 internal const val MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES = 128L * 1024 * 1024
 internal const val MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES = 16 * 1024
-internal const val MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY = "android-package-signature-v1"
+internal const val MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME = "android-package-signature-v1"
 internal const val MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION = "package-signer"
+internal const val MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256 =
+    "dc6d9f4a64a2a0683846923f724c37e1185d78cd327594227535f9bc44e5b56d"
 
 internal data class MobileCoreAdmissionManifest(
     val schemaVersion: Int,
@@ -24,8 +26,9 @@ internal data class MobileCoreAdmissionManifest(
     val wrapperRevision: String,
     val wrapperContractVersion: Int,
     val artifacts: List<MobileCoreAdmissionArtifact>,
-    val signatureIdentity: String,
+    val signatureScheme: String,
     val signatureVerification: String,
+    val signerSha256: String,
 ) {
     companion object {
         internal fun parse(encoded: String): MobileCoreAdmissionManifest? = runCatching {
@@ -36,8 +39,9 @@ internal data class MobileCoreAdmissionManifest(
                     "abiVersion",
                     "artifacts",
                     "schemaVersion",
-                    "signatureIdentity",
+                    "signatureScheme",
                     "signatureVerification",
+                    "signerSha256",
                     "sourceCommit",
                     "sourceVersion",
                     "wrapperContractVersion",
@@ -72,8 +76,9 @@ internal data class MobileCoreAdmissionManifest(
                 wrapperRevision = requiredString(root, "wrapperRevision"),
                 wrapperContractVersion = requiredInt(root, "wrapperContractVersion"),
                 artifacts = artifacts,
-                signatureIdentity = requiredString(root, "signatureIdentity"),
+                signatureScheme = requiredString(root, "signatureScheme"),
                 signatureVerification = requiredString(root, "signatureVerification"),
+                signerSha256 = requiredString(root, "signerSha256"),
             )
         }.getOrNull()
 
@@ -105,7 +110,7 @@ internal data class MobileCoreAdmissionArtifact(
 )
 
 internal data class MobileCoreSignatureEvidence(
-    val identity: String,
+    val fingerprintSha256: String,
     val verified: Boolean,
 )
 
@@ -121,6 +126,7 @@ internal enum class MobileCoreAdmissionFailure(val wireName: String) {
     SIGNATURE_MISSING("signature-missing"),
     SIGNATURE_UNVERIFIED("signature-unverified"),
     IDENTITY_MISMATCH("identity-mismatch"),
+    SIGNER_FINGERPRINT_MISMATCH("signer-fingerprint-mismatch"),
 }
 
 internal data class MobileCoreAdmissionResult(
@@ -128,18 +134,15 @@ internal data class MobileCoreAdmissionResult(
     val failure: MobileCoreAdmissionFailure? = null,
     val artifactAbi: String? = null,
     val artifactDigest: String? = null,
-    val signatureIdentity: String? = null,
 ) {
     companion object {
         fun accepted(
             artifactAbi: String,
             artifactDigest: String,
-            signatureIdentity: String,
         ): MobileCoreAdmissionResult = MobileCoreAdmissionResult(
             admitted = true,
             artifactAbi = artifactAbi,
             artifactDigest = artifactDigest,
-            signatureIdentity = signatureIdentity,
         )
 
         fun rejected(failure: MobileCoreAdmissionFailure): MobileCoreAdmissionResult =
@@ -247,23 +250,31 @@ internal object MobileCoreAdmissionPolicy {
         if (observedArtifactDigest == null || observedArtifactDigest != artifact.sha256) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH)
         }
-        if (manifest.signatureIdentity != MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY) {
+        if (manifest.signatureScheme != MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.IDENTITY_MISMATCH)
         }
         if (manifest.signatureVerification != MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNATURE_MISSING)
         }
-        if (signature == null) return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNATURE_MISSING)
-        if (signature.identity != MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY) {
-            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.IDENTITY_MISMATCH)
+        if (
+            !DIGEST_PATTERN.matches(manifest.signerSha256) ||
+                manifest.signerSha256 != MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256
+        ) {
+            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH)
         }
+        if (signature == null) return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNATURE_MISSING)
         if (!signature.verified) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNATURE_UNVERIFIED)
+        }
+        if (
+            !DIGEST_PATTERN.matches(signature.fingerprintSha256) ||
+                signature.fingerprintSha256 != MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256
+        ) {
+            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH)
         }
         return MobileCoreAdmissionResult.accepted(
             artifactAbi = runtimeAbi,
             artifactDigest = artifact.sha256,
-            signatureIdentity = signature.identity,
         )
     }
 
@@ -366,17 +377,24 @@ internal class MobileCoreArtifactAdmission(
             val signingInfo = packageInfo.signingInfo ?: return null
             val signers = signingInfo.apkContentsSigners
             if (signers.size != 1) return null
-            val certificateBytes = signers[0].toByteArray()
-            if (certificateBytes.isEmpty() || certificateBytes.size > MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES) {
-                return null
-            }
-            // PackageManager only returns certificates for the APK it verified.
-            // The identity is intentionally the bounded package-signature contract;
-            // the certificate bytes never enter product facts or diagnostics.
-            return MobileCoreSignatureEvidence(
-                identity = MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY,
-                verified = true,
-            )
+            return observePackageSigners(signers.map { it.toByteArray() })
         }
     }
+}
+
+/**
+ * Converts the one signer returned by PackageManager into a bounded digest-only
+ * observation. Certificate bytes never enter admission facts, transcripts, or
+ * diagnostics.
+ */
+internal fun observePackageSigners(signers: List<ByteArray>): MobileCoreSignatureEvidence? {
+    if (signers.size != 1) return null
+    val certificateBytes = signers.single()
+    if (certificateBytes.isEmpty() || certificateBytes.size > MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES) {
+        return null
+    }
+    val fingerprint = MessageDigest.getInstance("SHA-256")
+        .digest(certificateBytes)
+        .joinToString("") { byte -> "%02x".format(byte) }
+    return MobileCoreSignatureEvidence(fingerprintSha256 = fingerprint, verified = true)
 }
