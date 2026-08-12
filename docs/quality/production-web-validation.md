@@ -253,6 +253,24 @@ Automated tests cover:
   Status/Routes/Traffic/Events observation, restart, failed activation rollback,
   drift repair, and safe stop.
 
+### Profile Patch Editor deletion guard
+
+`pnpm check:profile-patch-editor` is a persistent post-deletion route/static
+gate included by `pnpm check:docs` and `pnpm check:pr`. It checks the supported
+`/profiles` route and active Profile import/save path, the absence of the exact
+dead editor route/import, public bridge methods, presentation IDs,
+localization keys, and generated contract tokens, plus production Web graph
+exclusion of test-only sources. Its companion script tests use clean and
+negative in-memory fixtures for each reintroduction shape. Existing bridge,
+presentation, and i18n generation checks remain the source of truth for
+freshness and run before the static gate in the PR workflow.
+
+The active UI journey in `apps/web/src/pages/profiles-page.test.tsx` covers
+Profile creation/import editing, preview save, and cancel/discard reset. This
+fixture-backed browser/UI evidence proves application projection only; it does
+not claim real filesystem, subscription, Core, network, packaging, or device
+behavior.
+
 The installed-app steps and P0 blockers for that journey are defined in
 [`macos-p0-acceptance.md`](macos-p0-acceptance.md).
 
