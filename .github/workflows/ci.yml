@@ -272,8 +272,11 @@ jobs:
             "$emulator_binary" \
             -avd "$avd_name" \
             -accel off \
+            -cores 1 \
+            -memory 1024 \
             -no-window \
-            -gpu swiftshader_indirect \
+            -gpu off \
+            -no-skin \
             -no-snapshot \
             -noaudio \
             -no-boot-anim \
@@ -288,7 +291,7 @@ jobs:
           }
           trap cleanup EXIT
           adb start-server
-          for attempt in {1..300}; do
+          for attempt in {1..900}; do
             if ! kill -0 "$emulator_pid" 2>/dev/null; then
               tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
               exit 1
@@ -299,6 +302,7 @@ jobs:
             fi
             sleep 1
           done
+          adb devices -l
           tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
           exit 1
 

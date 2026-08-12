@@ -103,8 +103,10 @@ creates the test AVD. The exact Google Android emulator archive is additionally
 bound to its reviewed SHA-256 before extraction into runner-temporary storage,
 and the API 36 Google APIs x86_64 system image must resolve to revision 7. The
 emulator runs without VM acceleration because GitHub-hosted macOS runners do not
-expose nested virtualization; the instrumentation remains closed to Kotlin
-authority/store/cleanup seams and does not load a real Core, VPN, or TUN.
+expose nested virtualization. The headless AVD disables graphics, uses one core
+and 1024 MB RAM, and has a bounded 900-observation boot poll inside the job's
+30-minute ceiling. The instrumentation remains closed to Kotlin authority/store/
+cleanup seams and does not load a real Core, VPN, or TUN.
 
 ## Evidence limits
 

@@ -401,12 +401,23 @@ invariant(
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
     emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
     emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&
-    emulatorAcceptance.run?.includes("for attempt in {1..300}") &&
+    emulatorAcceptance.run?.includes("for attempt in {1..900}") &&
     emulatorAcceptance.run?.includes("kill -0"),
   "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
 );
 const emulatorOptions = emulatorAcceptance.run ?? "";
-for (const option of ["-no-window", "-no-snapshot", "-noaudio", "-no-metrics", "-no-sim"]) {
+for (const option of [
+  "-accel off",
+  "-cores 1",
+  "-memory 1024",
+  "-no-window",
+  "-gpu off",
+  "-no-skin",
+  "-no-snapshot",
+  "-noaudio",
+  "-no-metrics",
+  "-no-sim",
+]) {
   invariant(emulatorOptions.includes(option), `Android emulator acceptance must retain ${option}.`);
 }
 
