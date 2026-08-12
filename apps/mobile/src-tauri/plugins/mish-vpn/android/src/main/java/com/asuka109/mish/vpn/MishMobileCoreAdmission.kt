@@ -122,12 +122,41 @@ internal enum class MobileCoreAdmissionFailure(val wireName: String) {
     WRAPPER_MISMATCH("wrapper-mismatch"),
     ABI_MISMATCH("abi-mismatch"),
     ARTIFACT_MISSING("artifact-missing"),
+    ARTIFACT_TRUNCATED("artifact-truncated"),
+    ARTIFACT_OVERSIZED("artifact-oversized"),
+    ARTIFACT_REPLACED("artifact-replaced"),
     ARTIFACT_DIGEST_MISMATCH("artifact-digest-mismatch"),
     SIGNATURE_MISSING("signature-missing"),
     SIGNATURE_UNVERIFIED("signature-unverified"),
     IDENTITY_MISMATCH("identity-mismatch"),
     SIGNER_FINGERPRINT_MISMATCH("signer-fingerprint-mismatch"),
 }
+
+internal enum class MobileCoreAdmissionBoundaryEffect {
+    MANIFEST_READ,
+    MANIFEST_PARSE,
+    ABI_OBSERVE,
+    ARTIFACT_OBSERVE,
+    SIGNATURE_OBSERVE,
+    PROTECTED_USE_RECHECK,
+}
+
+internal enum class MobileCoreAdmissionBoundaryResult {
+    ACCEPTED,
+    MISSING,
+    MALFORMED,
+    UNSUPPORTED,
+    TRUNCATED,
+    OVERSIZED,
+    MISMATCH,
+    UNVERIFIED,
+    REPLACED,
+}
+
+internal data class MobileCoreAdmissionBoundaryInvocation(
+    val effect: MobileCoreAdmissionBoundaryEffect,
+    val result: MobileCoreAdmissionBoundaryResult,
+)
 
 internal data class MobileCoreAdmissionResult(
     val admitted: Boolean,
@@ -287,48 +316,135 @@ internal object MobileCoreAdmissionPolicy {
 }
 
 internal fun interface MobileCoreArtifactDigestReader {
-    fun read(file: File): String?
+    fun read(file: File): MobileCoreArtifactObservation
 }
 
 internal fun interface MobileCoreSignatureVerifier {
     fun verify(context: Context): MobileCoreSignatureEvidence?
 }
 
-internal class MobileCoreArtifactAdmission(
-    private val context: Context,
-    private val digestReader: MobileCoreArtifactDigestReader = MobileCoreArtifactDigestReader { file -> sha256(file) },
-    private val signatureVerifier: MobileCoreSignatureVerifier = MobileCoreSignatureVerifier { value -> verifyPackageSignature(value) },
+internal data class MobileCoreArtifactObservation(
+    val digestSha256: String? = null,
+    val failure: MobileCoreAdmissionFailure? = null,
 ) {
+    init {
+        require((digestSha256 == null) != (failure == null))
+    }
+}
+
+internal interface MobileCoreAdmissionSource {
+    fun readManifest(): String?
+    fun runtimeAbi(): String?
+    fun observeArtifact(): MobileCoreArtifactObservation
+    fun observeSignature(): MobileCoreSignatureEvidence?
+}
+
+internal class MobileCoreArtifactAdmission(
+    private val source: MobileCoreAdmissionSource,
+    private val boundaryObserver: (MobileCoreAdmissionBoundaryInvocation) -> Unit = {},
+) {
+    constructor(
+        context: Context,
+        digestReader: MobileCoreArtifactDigestReader = MobileCoreArtifactDigestReader(::sha256),
+        signatureVerifier: MobileCoreSignatureVerifier = MobileCoreSignatureVerifier(::verifyPackageSignature),
+        boundaryObserver: (MobileCoreAdmissionBoundaryInvocation) -> Unit = {},
+    ) : this(
+        source = AndroidMobileCoreAdmissionSource(context, digestReader, signatureVerifier),
+        boundaryObserver = boundaryObserver,
+    )
+
+    private val transcript = java.util.ArrayDeque<MobileCoreAdmissionBoundaryInvocation>()
+
     fun admit(): MobileCoreAdmissionResult {
-        val manifestText = readManifest() ?:
+        val manifestText = source.readManifest()
+        record(
+            MobileCoreAdmissionBoundaryEffect.MANIFEST_READ,
+            if (manifestText == null) MobileCoreAdmissionBoundaryResult.MISSING else MobileCoreAdmissionBoundaryResult.ACCEPTED,
+        )
+        if (manifestText == null) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MISSING)
+        }
         val manifest = MobileCoreAdmissionManifest.parse(manifestText)
-            ?: return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MALFORMED)
-        val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull()
+        record(
+            MobileCoreAdmissionBoundaryEffect.MANIFEST_PARSE,
+            if (manifest == null) MobileCoreAdmissionBoundaryResult.MALFORMED else MobileCoreAdmissionBoundaryResult.ACCEPTED,
+        )
+        if (manifest == null) {
+            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MALFORMED)
+        }
+        val runtimeAbi = source.runtimeAbi()
+        record(
+            MobileCoreAdmissionBoundaryEffect.ABI_OBSERVE,
+            if (runtimeAbi in MobileCoreAdmissionPolicy.SUPPORTED_ABIS) {
+                MobileCoreAdmissionBoundaryResult.ACCEPTED
+            } else {
+                MobileCoreAdmissionBoundaryResult.UNSUPPORTED
+            },
+        )
         if (runtimeAbi == null || runtimeAbi !in MobileCoreAdmissionPolicy.SUPPORTED_ABIS) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ABI_MISMATCH)
         }
-        val artifact = runtimeAbi.let {
-            context.applicationInfo.nativeLibraryDir?.let { directory ->
-                File(directory, "libmish_mobile_core.so")
-            }
+        val artifact = runCatching { source.observeArtifact() }.getOrElse {
+            MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_MISSING)
         }
-        if (artifact == null || !artifact.isFile) {
-            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+        record(MobileCoreAdmissionBoundaryEffect.ARTIFACT_OBSERVE, artifact.boundaryResult())
+        artifact.failure?.let { return MobileCoreAdmissionResult.rejected(it) }
+
+        val signature = runCatching { source.observeSignature() }.getOrNull()
+        val candidate = MobileCoreAdmissionPolicy.evaluate(
+            manifest,
+            runtimeAbi,
+            artifact.digestSha256,
+            signature,
+        )
+        record(
+            MobileCoreAdmissionBoundaryEffect.SIGNATURE_OBSERVE,
+            when (candidate.failure) {
+                null -> MobileCoreAdmissionBoundaryResult.ACCEPTED
+                MobileCoreAdmissionFailure.SIGNATURE_UNVERIFIED -> MobileCoreAdmissionBoundaryResult.UNVERIFIED
+                MobileCoreAdmissionFailure.SIGNATURE_MISSING -> MobileCoreAdmissionBoundaryResult.MISSING
+                else -> MobileCoreAdmissionBoundaryResult.MISMATCH
+            },
+        )
+        if (!candidate.admitted) return candidate
+
+        val protectedUse = runCatching { source.observeArtifact() }.getOrElse {
+            MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_REPLACED)
         }
-        val digest = runCatching { digestReader.read(artifact) }.getOrNull()
-        val signature = runCatching { signatureVerifier.verify(context) }.getOrNull()
-        return MobileCoreAdmissionPolicy.evaluate(manifest, runtimeAbi, digest, signature)
+        if (
+            protectedUse.failure != null ||
+            protectedUse.digestSha256 != artifact.digestSha256
+        ) {
+            record(
+                MobileCoreAdmissionBoundaryEffect.PROTECTED_USE_RECHECK,
+                MobileCoreAdmissionBoundaryResult.REPLACED,
+            )
+            return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_REPLACED)
+        }
+        record(
+            MobileCoreAdmissionBoundaryEffect.PROTECTED_USE_RECHECK,
+            MobileCoreAdmissionBoundaryResult.ACCEPTED,
+        )
+        return candidate
     }
 
-    private fun readManifest(): String? = runCatching {
-        context.assets.open(MOBILE_CORE_ADMISSION_MANIFEST_ASSET).use { input ->
-            readBoundedUtf8(input, MOBILE_CORE_ADMISSION_MAX_MANIFEST_BYTES)
+    internal fun recentBoundaryInvocations(): List<MobileCoreAdmissionBoundaryInvocation> =
+        synchronized(transcript) { transcript.toList() }
+
+    private fun record(
+        effect: MobileCoreAdmissionBoundaryEffect,
+        result: MobileCoreAdmissionBoundaryResult,
+    ) {
+        val invocation = MobileCoreAdmissionBoundaryInvocation(effect, result)
+        synchronized(transcript) {
+            if (transcript.size == 16) transcript.removeFirst()
+            transcript.addLast(invocation)
         }
-    }.getOrNull()
+        boundaryObserver(invocation)
+    }
 
     companion object {
-        private fun readBoundedUtf8(input: InputStream, maximumBytes: Int): String {
+        internal fun readBoundedUtf8(input: InputStream, maximumBytes: Int): String {
             val bytes = input.readBytesBounded(maximumBytes)
             return bytes.toString(Charsets.UTF_8).also {
                 require(it.toByteArray(Charsets.UTF_8).contentEquals(bytes))
@@ -349,23 +465,37 @@ internal class MobileCoreArtifactAdmission(
             return output.toByteArray()
         }
 
-        private fun sha256(file: File): String? {
-            if (!file.isFile || file.length() <= 0L || file.length() > MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES) {
-                return null
+        private fun sha256(file: File): MobileCoreArtifactObservation {
+            if (!file.isFile) {
+                return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+            }
+            val expectedLength = file.length()
+            if (expectedLength <= 0L) {
+                return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_TRUNCATED)
+            }
+            if (expectedLength > MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES) {
+                return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_OVERSIZED)
             }
             val digest = MessageDigest.getInstance("SHA-256")
+            var total = 0L
             file.inputStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
-                var total = 0L
                 while (true) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     total += count
-                    if (total > MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES) return null
+                    if (total > MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES) {
+                        return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_OVERSIZED)
+                    }
                     digest.update(buffer, 0, count)
                 }
             }
-            return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+            if (total != expectedLength || file.length() != expectedLength) {
+                return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_TRUNCATED)
+            }
+            return MobileCoreArtifactObservation(
+                digestSha256 = digest.digest().joinToString("") { byte -> "%02x".format(byte) },
+            )
         }
 
         private fun verifyPackageSignature(context: Context): MobileCoreSignatureEvidence? {
@@ -381,6 +511,42 @@ internal class MobileCoreArtifactAdmission(
         }
     }
 }
+
+private class AndroidMobileCoreAdmissionSource(
+    private val context: Context,
+    private val digestReader: MobileCoreArtifactDigestReader,
+    private val signatureVerifier: MobileCoreSignatureVerifier,
+) : MobileCoreAdmissionSource {
+    private val artifact: File?
+        get() = context.applicationInfo.nativeLibraryDir?.let { directory ->
+            File(directory, "libmish_mobile_core.so")
+        }
+
+    override fun readManifest(): String? = runCatching {
+        context.assets.open(MOBILE_CORE_ADMISSION_MANIFEST_ASSET).use { input ->
+            MobileCoreArtifactAdmission.readBoundedUtf8(input, MOBILE_CORE_ADMISSION_MAX_MANIFEST_BYTES)
+        }
+    }.getOrNull()
+
+    override fun runtimeAbi(): String? = Build.SUPPORTED_ABIS.firstOrNull()
+
+    override fun observeArtifact(): MobileCoreArtifactObservation {
+        val current = artifact
+            ?: return MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+        return digestReader.read(current)
+    }
+
+    override fun observeSignature(): MobileCoreSignatureEvidence? = signatureVerifier.verify(context)
+}
+
+private fun MobileCoreArtifactObservation.boundaryResult(): MobileCoreAdmissionBoundaryResult =
+    when (failure) {
+        null -> MobileCoreAdmissionBoundaryResult.ACCEPTED
+        MobileCoreAdmissionFailure.ARTIFACT_MISSING -> MobileCoreAdmissionBoundaryResult.MISSING
+        MobileCoreAdmissionFailure.ARTIFACT_TRUNCATED -> MobileCoreAdmissionBoundaryResult.TRUNCATED
+        MobileCoreAdmissionFailure.ARTIFACT_OVERSIZED -> MobileCoreAdmissionBoundaryResult.OVERSIZED
+        else -> MobileCoreAdmissionBoundaryResult.MISMATCH
+    }
 
 /**
  * Converts the one signer returned by PackageManager into a bounded digest-only

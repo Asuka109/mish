@@ -111,6 +111,8 @@ internal interface MobileCoreRuntime {
 
 internal class MishMobileCoreProbe internal constructor(
     private val applicationContext: Context? = null,
+    private val admissionReader: (() -> MobileCoreAdmissionResult)? = null,
+    private val shimLoader: () -> Boolean = ::loadShimOnce,
 ) :
     MobileCoreProbe,
     MobileCoreConfigValidator,
@@ -125,12 +127,13 @@ internal class MishMobileCoreProbe internal constructor(
 
     private fun ensureAdmitted(): MobileCoreAdmissionResult {
         synchronized(admissionLock) {
-            if (applicationContext == null) {
+            if (applicationContext == null && admissionReader == null) {
                 return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MISSING)
             }
-            val admitted = MobileCoreArtifactAdmission(applicationContext).admit()
+            val admitted = admissionReader?.invoke()
+                ?: MobileCoreArtifactAdmission(checkNotNull(applicationContext)).admit()
             if (!admitted.admitted) return admitted
-            if (!loadShimOnce()) {
+            if (!shimLoader()) {
                 return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_MISSING)
             }
             val nativeIdentity = runCatching {
