@@ -3,12 +3,14 @@ import type {
   TrafficCommandAuthorityDto,
   TrafficCommandOperation,
   TrafficCommandResultDto,
+  TrafficClient,
   TrafficConnectionState,
   TrafficDataSnapshotDto,
 } from "@mish/contracts";
 import { describe, expect, it } from "vitest";
 import { FixtureTrafficClient } from "./fixture-traffic-client";
 import { TrafficProvider, useTraffic } from "./traffic-provider";
+import { MobileTrafficClient } from "../platform/mobile-traffic-client";
 
 let traffic: ReturnType<typeof useTraffic> | null = null;
 
@@ -138,7 +140,7 @@ class DelayedTrafficClient extends FixtureTrafficClient {
   }
 }
 
-function renderProvider(client: FixtureTrafficClient) {
+function renderProvider(client: TrafficClient) {
   traffic = null;
   return render(
     <TrafficProvider client={client}>
@@ -148,6 +150,48 @@ function renderProvider(client: FixtureTrafficClient) {
 }
 
 describe("TrafficProvider displayed snapshot", () => {
+  it("accepts a mobile command delivery without superseding its own pending close", async () => {
+    const initialClient = new FixtureTrafficClient();
+    const initial = await initialClient.getSnapshot();
+    const closed = {
+      ...initial,
+      activeConnections: initial.activeConnections.slice(1),
+      adapterKind: "native" as const,
+      applicationOrder: { ...initial.applicationOrder, order: initial.applicationOrder.order + 1 },
+      sequence: initial.sequence + 1,
+    };
+    const client = new MobileTrafficClient({
+      clearInterval: () => {},
+      invoke: async (command, args) => {
+        if (command === "get_traffic_snapshot") return { ...initial, adapterKind: "native" };
+        const operationId = (args?.request as { operationId: string }).operationId;
+        return {
+          failure: null,
+          operation: "close-connection",
+          operationId,
+          remainingConnectionIds: [],
+          snapshot: closed,
+          status: "success",
+          targetCount: 1,
+        };
+      },
+      setInterval: () => 1 as unknown as ReturnType<typeof setInterval>,
+    });
+    renderProvider(client);
+    await waitFor(() => expect(traffic?.snapshot?.adapterKind).toBe("native"));
+
+    let result: TrafficCommandResultDto | null | undefined;
+    await act(async () => {
+      result = await traffic?.closeConnection(initial.activeConnections[0]!.id);
+    });
+
+    expect(result?.status).toBe("success");
+    expect(traffic?.isCloseConnectionPending(initial.activeConnections[0]!.id)).toBe(false);
+    expect(traffic?.authoritativeSnapshot?.activeConnections).toHaveLength(
+      initial.activeConnections.length - 1,
+    );
+  });
+
   it("retains current authority while one complete displayed snapshot is paused, then resumes atomically", async () => {
     const client = new FixtureTrafficClient();
     const initial = await client.getSnapshot();
