@@ -25,6 +25,8 @@ target/
 # Generated mobile and signing material
 *.keystore
 *.jks
+# This checked-in JKS is a synthetic debug/test fixture; release signing stays external.
+!apps/mobile/src-tauri/gen/android/app/signing/mish-fixture-debug.keystore
 *.mobileprovision
 *.p12
 

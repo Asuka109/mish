@@ -16,7 +16,7 @@ internal const val MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES = 16 * 1024
 internal const val MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME = "android-package-signature-v1"
 internal const val MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION = "package-signer"
 internal const val MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256 =
-    "dc6d9f4a64a2a0683846923f724c37e1185d78cd327594227535f9bc44e5b56d"
+    "8e55b6922b8010c1ebd6c2fdce16ab1b10163f700068e67583aec20870b76934"
 
 internal data class MobileCoreAdmissionManifest(
     val schemaVersion: Int,

@@ -607,6 +607,7 @@ for (const requirement of [
   ".scratch/mobile-core/evidence/SHA256SUMS",
   "actual_core",
   "expected_core",
+  'pnpm android:verify-signer -- --apk "$apk"',
 ]) {
   invariant(
     androidVerification.includes(requirement),

@@ -13,6 +13,9 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val mishFixtureDebugKeystore = file("signing/mish-fixture-debug.keystore")
+val mishFixtureDebugPassword = "mish-fixture-debug-v1"
+
 android {
     buildToolsVersion = "36.1.0"
     compileSdk = 36
@@ -26,8 +29,18 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        create("mishFixtureDebug") {
+            storeFile = mishFixtureDebugKeystore
+            storePassword = mishFixtureDebugPassword
+            keyAlias = "mish-fixture-debug"
+            keyPassword = mishFixtureDebugPassword
+            storeType = "JKS"
+        }
+    }
     buildTypes {
         getByName("debug") {
+            signingConfig = signingConfigs.getByName("mishFixtureDebug")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
