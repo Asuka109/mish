@@ -216,7 +216,9 @@ jobs:
           sdkmanager \
             "platforms;android-36" \
             "build-tools;36.1.0" \
-            "ndk;29.0.14206865"
+            "ndk;29.0.14206865" \
+            "system-images;android-36;google_apis;arm64-v8a"
+          sdkmanager --list_installed | grep -F "system-images;android-36;google_apis;arm64-v8a | 7"
           rustup target add aarch64-linux-android
           ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
           toolchain="$ndk_home/toolchains/llvm/prebuilt/darwin-x86_64"
