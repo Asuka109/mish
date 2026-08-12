@@ -37,11 +37,13 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 static MOBILE_ROUTES: OnceLock<Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>> =
     OnceLock::new();
+static MOBILE_ROUTE_CONFIG_GATE: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime> {
     handle: PluginHandle<R>,
     lifecycle: Arc<Mutex<Option<Arc<LifecycleRuntime>>>>,
+    route_config_gate: Arc<Mutex<()>>,
     routes: Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>,
 }
 
@@ -216,6 +218,9 @@ pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishV
     Ok(MishVpn {
         handle,
         lifecycle: Arc::new(Mutex::new(None)),
+        route_config_gate: MOBILE_ROUTE_CONFIG_GATE
+            .get_or_init(|| Arc::new(Mutex::new(())))
+            .clone(),
         routes: MOBILE_ROUTES
             .get_or_init(|| Arc::new(Mutex::new(None)))
             .clone(),
@@ -254,6 +259,7 @@ impl<R: Runtime> MishVpn<R> {
     }
 
     pub async fn get_route_snapshot(&self) -> Result<crate::MobileRouteSnapshot> {
+        let _route_config_guard = self.route_config_gate.lock().await;
         let current = self.runtime().await?.runner.snapshot();
         let mut routes = self.routes.lock().await;
         let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
@@ -277,6 +283,7 @@ impl<R: Runtime> MishVpn<R> {
         &self,
         request: crate::MobileRouteCommandRequest,
     ) -> Result<crate::MobileRouteCommandResult> {
+        let _route_config_guard = self.route_config_gate.lock().await;
         let initial = self.runtime().await?.runner.snapshot();
         let mut routes = self.routes.lock().await;
         let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
@@ -740,6 +747,11 @@ impl<R: Runtime> MishVpn<R> {
         if let Some(result) = MobileConfigLoadResult::preflight(&request) {
             return result;
         }
+        // Configuration replacement and Route native effects share this
+        // process-wide gate. A command admitted for one committed profile can
+        // therefore never reach a replacement Core before its new Route
+        // authority is published, including across Activity recreation.
+        let _route_config_guard = self.route_config_gate.lock().await;
         let Ok(runtime) = self.runtime().await else {
             return MobileConfigLoadResult::plugin_failure(&request, None);
         };

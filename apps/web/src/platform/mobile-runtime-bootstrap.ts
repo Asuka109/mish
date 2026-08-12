@@ -120,9 +120,13 @@ export async function resolveMobileStartup(
     fixture.platform === "android" && fixture.core.kind === "native"
       ? (dependencies.mobileStatusClient ?? new MobileFixtureStatusClient(fixture))
       : new MobileFixtureStatusClient(fixture);
+  const unsubscribeConfigCommits = dependencies.mobileVpnClient.subscribeConfigCommits?.(() => {
+    void statusClient.getSnapshot().catch(() => undefined);
+  });
   return {
     client: statusClient,
     dispose: () => {
+      unsubscribeConfigCommits?.();
       statusClient.dispose();
       dependencies.mobileVpnClient.dispose();
     },

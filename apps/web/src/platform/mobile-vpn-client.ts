@@ -113,6 +113,7 @@ export interface MobileVpnClient {
   start(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   stop(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void): () => void;
+  subscribeConfigCommits?(handler: () => void): () => void;
   validateConfig(
     configBytes: Uint8Array,
     options?: MobileConfigValidationOptions,
@@ -140,6 +141,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private readonly retiredAuthorityIds = new Set<string>();
   private readonly retiredSessionIds = new Set<string>();
   private readonly subscribers = new Set<(snapshot: MobileVpnSnapshotDto) => void>();
+  private readonly configCommitSubscribers = new Set<() => void>();
   private validationOperation?: MobileValidationOperation;
   private activeLoadOperationId?: string;
   private readonly loadOperations = new Map<string, MobileLoadOperation>();
@@ -512,6 +514,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
           );
         }
       }
+      if (result.failure === null) this.publishConfigCommit();
       return result;
     } catch {
       if (operation.retired || !this.isCurrentGeneration(operation.generation)) {
@@ -560,6 +563,11 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     return () => this.subscribers.delete(handler);
   }
 
+  subscribeConfigCommits(handler: () => void): () => void {
+    this.configCommitSubscribers.add(handler);
+    return () => this.configCommitSubscribers.delete(handler);
+  }
+
   dispose(): void {
     this.retireOperations();
     this.disposed = true;
@@ -570,7 +578,19 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     this.baselineAccepted = false;
     this.pendingEvents.clear();
     this.subscribers.clear();
+    this.configCommitSubscribers.clear();
     this.emitTrace({ generation: this.clientGeneration, kind: "generation", phase: "disposed" });
+  }
+
+  private publishConfigCommit(): void {
+    if (this.disposed) return;
+    for (const subscriber of this.configCommitSubscribers) {
+      try {
+        subscriber();
+      } catch {
+        // A product refresh observer cannot change the accepted native result.
+      }
+    }
   }
 
   private async runLifecycleCommand(

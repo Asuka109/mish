@@ -574,6 +574,12 @@ invariant(
     pluginRustAndroid.includes('run_mobile_plugin_async("getCoreProvenance"'),
   "The D2.3 product DTO must cross only the strict mobile Kotlin/Rust/TypeScript boundary.",
 );
+invariant(
+  pluginRustAndroid.includes("static MOBILE_ROUTE_CONFIG_GATE") &&
+    pluginRustAndroid.includes("route_config_gate: Arc<Mutex<()>>") &&
+    (pluginRustAndroid.match(/self\.route_config_gate\.lock\(\)\.await/g)?.length ?? 0) === 3,
+  "Config load/publication and Route reads/effects must share one process-wide Rust gate.",
+);
 for (const forbidden of [
   "recentBoundaryInvocations",
   "MobileCoreAdmissionBoundaryInvocation",

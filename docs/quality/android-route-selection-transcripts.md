@@ -18,15 +18,15 @@ not own product route identifiers, membership, selection state, or ordering.
 
 ## Deterministic evidence
 
-| Layer               | Retained production authority                                                                                               | Closed test seam                                        | Evidence                                                                                                              |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Shared Rust         | Config-derived Profile route catalog, stable IDs, runtime authority/epoch, operation admission, projection order, redaction | Bounded synthetic native result                         | Success, duplicate conflict, invalid relation, cancellation-before-effect, replacement, malformed ordering, redaction |
-| Mobile Core wrapper | Current lifecycle authority, selector current child, mutation, recent operation identity                                    | Parsed in-memory configuration; no TUN start or network | Success, duplicate no-op, reused-ID conflict, stale authority, authoritative Routes snapshot                          |
-| C fake-native       | ABI command/status/routes envelopes and explicit buffer release contract                                                    | One fictional selector with `Alpha` and `Beta`          | Success, duplicate, conflict, stale authority, ordered snapshot                                                       |
-| Kotlin/JNI          | Typed field mapping, strict envelope parsing, response limits, native buffer lifetime                                       | `MobileCoreRoutes` fake                                 | Stable IDs plus resolved labels, malformed response, native rejection, no adapter-owned state                         |
-| Tauri/TypeScript    | Least-privilege commands, complete authority envelope, application-order acceptance                                         | Typed invoke transport                                  | Baseline, success, abort-before-effect, replacement, delayed stale result, malformed envelope                         |
-| SimulatedHost       | Production transcript schema and production feature boundary                                                                | Closed logical-time model                               | Nine scenarios, zero-mutation failures, full recreation baseline, unknown/overflow rejection                          |
-| Android emulator    | Real Android test APK and production Kotlin adapter classes                                                                 | In-memory fake native effect only                       | Success, duplicate, invalid relation, replacement, delayed stale command, component-style baseline reacquisition      |
+| Layer               | Retained production authority                                                                                               | Closed test seam                                        | Evidence                                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Shared Rust         | Config-derived Profile route catalog, stable IDs, runtime authority/epoch, operation admission, projection order, redaction | Bounded synthetic native result                         | Success, duplicate conflict, invalid relation, cancellation-before-effect, replacement, malformed ordering, redaction       |
+| Mobile Core wrapper | Current lifecycle authority, selector current child, mutation, recent operation identity                                    | Parsed in-memory configuration; no TUN start or network | Success, duplicate no-op, reused-ID conflict, stale authority, authoritative Routes snapshot                                |
+| C fake-native       | ABI command/status/routes envelopes and explicit buffer release contract                                                    | One fictional selector with `Alpha` and `Beta`          | Success, duplicate, conflict, stale authority, ordered snapshot                                                             |
+| Kotlin/JNI          | Typed field mapping, strict envelope parsing, response limits, native buffer lifetime                                       | `MobileCoreRoutes` fake                                 | Stable IDs plus resolved labels, malformed response, native rejection, no adapter-owned state                               |
+| Tauri/TypeScript    | Least-privilege commands, complete authority envelope, application-order acceptance                                         | Typed invoke transport                                  | Baseline, success, post-config baseline refresh, abort-before-effect, replacement, delayed stale result, malformed envelope |
+| SimulatedHost       | Production transcript schema and production feature boundary                                                                | Closed logical-time model                               | Nine scenarios, zero-mutation failures, full recreation baseline, unknown/overflow rejection                                |
+| Android emulator    | Real Android test APK and production Kotlin adapter classes                                                                 | In-memory fake native effect only                       | Success, duplicate, invalid relation, replacement, delayed stale command, component-style baseline reacquisition            |
 
 The transcript schema is versioned and bounded to 16 events. Events contain
 only synthetic numeric operation, runtime, and Profile-revision identities,
@@ -35,6 +35,13 @@ fields, overflow, invalid identities, and non-monotonic logical time fail
 closed. There is no field for configuration bytes, host, URL, path, provider,
 credential, token, native output, socket, descriptor, packet, or arbitrary
 text.
+
+Android Rust serializes configuration load/publication and Route snapshot/effect
+calls through one process-wide gate. This prevents a command admitted for the
+old committed Profile from reaching a replacement Core. After a successful
+configuration commit, the Web mobile bootstrap requests and publishes a fresh
+full Routes baseline; an earlier unloaded baseline failure therefore does not
+require a WebView reload.
 
 ## Commands
 

@@ -697,6 +697,8 @@ describe("MobileVpnFixtureClient", () => {
       invoke,
       listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
     });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
     await client.initialize();
 
     const result = await client.loadConfig(
@@ -706,8 +708,34 @@ describe("MobileVpnFixtureClient", () => {
     );
 
     expect(result.outcome).toBe("first-load");
+    expect(committed).toHaveBeenCalledOnce();
     expect(client.getSnapshot()).toEqual(loadedSnapshot);
     expect(JSON.stringify(result)).not.toContain(configA);
+  });
+
+  it("does not publish a config commit for a rejected native load", async () => {
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command) => {
+        if (command === "get_snapshot") return snapshot(4);
+        return loadResult(snapshot(5), {
+          failure: "configuration-rejected",
+          outcome: "failed",
+          rollback: "unloaded",
+        });
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
+    await client.initialize();
+
+    await client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
+      { operationId: "load-rejected" },
+    );
+
+    expect(committed).not.toHaveBeenCalled();
   });
 
   it("orders cancellation through the native barrier without inventing unloaded state", async () => {

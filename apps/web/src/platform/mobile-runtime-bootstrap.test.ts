@@ -54,7 +54,8 @@ const vpnSnapshot = {
   tunEstablished: false,
 };
 
-function createVpnClient(): MobileVpnClient {
+function createVpnClient(): MobileVpnClient & { publishConfigCommit(): void } {
+  const configCommitSubscribers = new Set<() => void>();
   return {
     dispose: vi.fn(),
     getSnapshot: () => vpnSnapshot,
@@ -77,6 +78,13 @@ function createVpnClient(): MobileVpnClient {
     start: vi.fn(async () => vpnSnapshot),
     stop: vi.fn(async () => vpnSnapshot),
     subscribe: vi.fn(() => () => undefined),
+    subscribeConfigCommits: vi.fn((handler) => {
+      configCommitSubscribers.add(handler);
+      return () => configCommitSubscribers.delete(handler);
+    }),
+    publishConfigCommit: () => {
+      for (const subscriber of configCommitSubscribers) subscriber();
+    },
     validateConfig: vi.fn(async () => ({
       contractVersion: 1 as const,
       failure: "core-unavailable" as const,
@@ -107,6 +115,27 @@ describe("mobile native fixture bootstrap", () => {
     expect(startup.client).toBe(mobileStatusClient);
     startup.dispose();
     expect(disposeStatus).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the authoritative Routes baseline after a native config commit", async () => {
+    const mobileStatusClient = new FixtureStatusClient();
+    const refresh = vi
+      .spyOn(mobileStatusClient, "getSnapshot")
+      .mockRejectedValueOnce(new Error("Routes are unavailable before the first config commit."));
+    const mobileVpnClient = createVpnClient();
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => fixture,
+      mobileSettingsClient: createSettingsClient(),
+      mobileStatusClient,
+      mobileVpnClient,
+    });
+
+    await expect(startup.client?.getSnapshot()).rejects.toThrow("Routes are unavailable");
+    mobileVpnClient.publishConfigCommit();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    startup.dispose();
+    mobileVpnClient.publishConfigCommit();
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
