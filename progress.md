@@ -26,8 +26,8 @@ combined `pnpm check:pr` passed (Web 69 files / 603 tests and scripts 232
 tests, plus Rust, simulated-host, Browser, production-exclusion,
 documentation, and release gates). The maintainer approved the exact
 three-task AFK Wave 2H on 2026-08-12: #449 C1.3, #451 D1.3, and #454 D2.1 are
-reserved as `dispatching` with pending visible-task identities/worktrees.
-Seven repository concurrency slots remain unreserved.
+active as visible Luna Max Workers in isolated worktrees. Seven repository
+concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -194,9 +194,9 @@ work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.3 | `pending` | `pending` | dispatching | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | Own Profile detach confirmation and token-negative end-to-end evidence only; preserve C1.2 generation authority and F2 deletion; no real credentials/network or unrelated Profile behavior |
-| #451 D1.3 | `pending` | `pending` | dispatching | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Own Web/JavaScript mobile client, bootstrap/hook/UI projection and deterministic tests only; preserve Rust/Kotlin authority; do not implement D1.4 or claim emulator/device behavior; after D2.1 merges, integrate latest main and rerun affected cross-layer contracts |
-| #454 D2.1 | `pending` | `pending` | dispatching | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Own Kotlin/native artifact admission seams, bounded manifests and focused deterministic evidence only; do not implement the full D2.2 adversarial matrix or D2.3 diagnostic DTO; no real signing/device/network; merge before D1.3 |
+| #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | active | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | Visible Luna Max Worker owns Profile detach confirmation and token-negative end-to-end evidence only; preserve C1.2 generation authority and F2 deletion; no real credentials/network or unrelated Profile behavior |
+| #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | active | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Visible Luna Max Worker owns Web/JavaScript mobile client, bootstrap/hook/UI projection and deterministic tests only; preserve Rust/Kotlin authority; do not implement D1.4 or claim emulator/device behavior; after D2.1 merges, integrate latest main and rerun affected cross-layer contracts |
+| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | active | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Visible Luna Max Worker owns Kotlin/native artifact admission seams, bounded manifests and focused deterministic evidence only; do not implement the full D2.2 adversarial matrix or D2.3 diagnostic DTO; no real signing/device/network; merge before D1.3 |
 
 ## Existing issue coordination
 
@@ -227,8 +227,8 @@ final-only escalation, and explicit human acceptance before merge.
 ## Later-wave gates
 
 - The exact approved Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. All are
-  AFK, confirmation-only, Chinese-reporting Luna Max (`gpt-5.6-luna/max`)
-  tasks reserved as `dispatching` pending visible-task identity backfill.
+  active AFK, confirmation-only, Chinese-reporting Luna Max
+  (`gpt-5.6-luna/max`) visible tasks with isolated worktrees.
 - #449 C1.3 is independent of the mobile tasks and completes detach
   confirmation plus credential-token negative evidence without real
   credentials or external network access.
