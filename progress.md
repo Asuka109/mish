@@ -28,16 +28,15 @@ tests, plus Rust, simulated-host, Browser, production-exclusion,
 documentation, and release gates). The maintainer approved the exact
 three-task AFK Wave 2H on 2026-08-12. #449 C1.3 is integrated through PR #498
 and Issue #449 is closed. #451 D1.3 is integrated through PR #497. #454 D2.1
-merged PRs #499 and #500, but coordinator review found that the manifest's
-synthetic signer pin is not wired to the certificate that actually signs the
-built APK; the original Worker must resume for a second bounded follow-up.
-Coordinator post-merge `pnpm check:pr` passed at `origin/main@176351ec` (Web 69
-files / 613 tests, scripts 232 tests, Rust, simulated-host, Browser,
-production-exclusion, documentation, and release gates). The maintainer
-approved exact Wave 2I containing only independent #435 H1.1 and explicitly
-selected `gpt-5.6-sol/high`; visible Worker
-`019ff541-1dd8-7922-87f3-5a4e4f6894fd` is active in isolated worktree `c3da`.
-Eight repository concurrency slots remain unreserved.
+merged PRs #499 and #500; its original Worker completed the second bounded
+build-signer follow-up in PR #501, which is green and must refresh onto latest
+main before a fresh confirmation-only acceptance request. Wave 2I #435 H1.1
+was explicitly dispatched with `gpt-5.6-sol/high`, accepted, and integrated
+through PR #502 as `c18c2f3b`. Coordinator review found no authority or evidence
+defect; post-merge focused Web 115 tests, Internal TUN 24 tests, full
+SimulatedHost Rust/browser scenarios, and production exclusions 11 + 4 passed.
+Issue #435 remains open only for H1.2 hands-on macOS acceptance. Nine repository
+concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -82,7 +81,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
 | Android VPN authority | #451 | D1.1-D1.3 integrated; D1.4 blocked on operational D2.1 signer/build closure | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
 | Mobile Core provenance | #454 | D2.1 second build-signer follow-up active; D2.2/D2.3 sequential afterward | #451 D1.2 integrated | confirmation-only |
-| System-component repair feedback | #435 | H1.1 automated vertical repair ready; H1.2 hands-on residual later | none; preserve existing Helper/Capture authority | H1.1 confirmation-only; H1.2 hands-on |
+| System-component repair feedback | #435 | H1.1 integrated; H1.2 hands-on residual ready only with explicit target/authorization | none; preserve existing Helper/Capture authority | H1.1 accepted; H1.2 hands-on |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
 | Settings editor serialization | #452 | completed: F1.1/F1.2 integrated; Issue closed | #440 completed | accepted |
@@ -207,7 +206,7 @@ work.
 | --- | --- | --- | --- | --- | --- | --- |
 | #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | integrated | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | PR #498 merged as `5239df6f`; local/remote gates passed, all Issue #449 criteria read back checked, and Issue closed completed without real credentials/network claims |
 | #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | integrated | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | PR #497 merged as `176351ec`; focused/full local gates and remote Fast PR/Android gates passed; Issue #451 remains open with D1.4 pending and no device claim |
-| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | active; second review follow-up | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PRs #499 / `32ac48ba` and #500 / `817a933e` merged, but the synthetic manifest fingerprint is not the signer of the produced APK and CI only verifies signature presence; the same Worker must close build signer -> manifest pin -> PackageManager observation or report a precise credential-free blocker; D2.2/D2.3 remain untouched |
+| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | verifying; latest-main refresh required | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PR #501 closes the actual credential-free debug APK build signer -> manifest pin -> artifact verification chain and passed local/remote gates on its previous baseline; the original Worker must ordinary-merge latest main after PR #502, rerun affected/full gates, and then request fresh acceptance; D2.2/D2.3 remain untouched |
 
 ## Wave 2I dispatch manifest
 
@@ -221,7 +220,7 @@ physical-host acceptance, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #435 H1.1 | `019ff541-1dd8-7922-87f3-5a4e4f6894fd` | `c3da` | active | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | Automated/synthetic only: do not repair the underlying Helper installation failure, invoke a real administrator prompt, or claim actual host mutation; H1.2 retains hands-on authorization and Remove-mutation validation |
+| #435 H1.1 | `019ff541-1dd8-7922-87f3-5a4e4f6894fd` | `c3da` | integrated | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | PR #502 merged as `c18c2f3b`; local/remote and coordinator post-merge gates passed; Issue #435 has H1.1 plus four automated criteria checked and remains open with H1.2/real macOS authorization and Remove mutation unchecked |
 
 ## Existing issue coordination
 
@@ -229,7 +228,7 @@ physical-host acceptance, or other hands-on work.
 | --- | --- | --- |
 | #353 | needs-input | Preserve the existing visible worker; do not silently replace it. Relevant #436/#448/#439 automated evidence is integrated; any resume remains an explicit hands-on physical-host action. |
 | #352 | needs-info | Wait for recurrence; use #437's corrected harness to retain evidence. |
-| #435 | ready-for-agent | Wave 2I H1.1 dispatching under one visible Worker; H1.2 hands-on acceptance remains last. Do not duplicate. |
+| #435 | ready-for-human | H1.1 integrated. H1.2 requires an explicitly selected disposable macOS target, administrator authorization, mutation observation, and cleanup; do not dispatch without a new explicit hands-on confirmation. |
 | #265/#266/#268/#281/#283/#284 | blocked | Their Issue bodies now record #451/#454 as architecture dependencies; #265 also records #441. |
 | #173/#174/#274 | planned dependencies | #442 supplies security prerequisites without replacing their release/signing acceptance. |
 
@@ -270,20 +269,18 @@ final-only escalation, and explicit human acceptance before merge.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
 - Complete #454 D2.1 before D2.2, D2.3, or #451 D1.4.
-- Approved Wave 2I contains one independent AFK task: #435 H1.1. It will
-  preserve the Rust/Helper/Capture lifecycle as the only product authority,
+- Approved Wave 2I contained one independent AFK task: #435 H1.1. It
+  preserved the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
   notification feedback exactly once, correct action copy, and add bounded
   invocation/result transcripts plus deterministic Rust/RPC/React journeys.
   It must not repair the underlying Helper installation failure or invoke a
   real administrator prompt. The later H1.2 hands-on residual will validate
   authorization and actual Remove mutation in a disposable target.
-- #435 H1.1 is independent of the Android Wave 2H files and may run while the
-  D2.1 follow-up finishes. The maintainer explicitly overrode the earlier Luna
-  Max project setting for this task and selected `gpt-5.6-sol/high`, Chinese
-  reporting, confirmation-only acceptance, final-only escalation, and an
-  isolated worktree. Visible Worker `019ff541-1dd8-7922-87f3-5a4e4f6894fd`
-  is active in worktree `c3da`.
+- #435 H1.1 was independent of the Android Wave 2H files. The maintainer
+  explicitly selected `gpt-5.6-sol/high`; visible Worker
+  `019ff541-1dd8-7922-87f3-5a4e4f6894fd` completed confirmation-only delivery
+  through PR #502 / `c18c2f3b`. H1.2 remains a separate hands-on task.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
