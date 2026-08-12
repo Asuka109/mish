@@ -82,17 +82,19 @@ describe("Traffic closed history", () => {
     expect(state.baseline?.connections.size).toBe(0);
   });
 
-  it("expires old rows and never infers closure across stale or reconnected sessions", () => {
+  it("resets closed rows and never infers closure across stale or replaced sessions", () => {
     const first = snapshot(1, [connection("a")]);
     let state = reconcileTrafficSnapshot(createTrafficHistoryState(), first);
+    state = reconcileTrafficSnapshot(state, snapshot(2, []));
+    expect(state.closed.map(({ id }) => id)).toEqual(["a"]);
     state = reconcileTrafficSnapshot(state, {
       ...first,
       phase: "stale",
-      sequence: 2,
+      sequence: 3,
     });
     state = reconcileTrafficSnapshot(
       state,
-      snapshot(3, [], {
+      snapshot(4, [], {
         reconnectCount: 1,
         sessionId: "session-b",
       }),
@@ -105,11 +107,27 @@ describe("Traffic closed history", () => {
     };
     state = reconcileTrafficSnapshot(
       state,
-      snapshot(4, [], { reconnectCount: 1, sessionId: "session-b" }),
+      snapshot(5, [], { reconnectCount: 1, sessionId: "session-b" }),
       new Date("2026-01-01T01:00:00Z"),
       { maxAgeMilliseconds: 1_000, maxEntries: 512 },
     );
     expect(state.closed).toEqual([]);
+  });
+
+  it("resets closed rows when the Profile changes within one Traffic session", () => {
+    let state = reconcileTrafficSnapshot(
+      createTrafficHistoryState(),
+      snapshot(1, [connection("a")]),
+    );
+    state = reconcileTrafficSnapshot(state, snapshot(2, []));
+    expect(state.closed.map(({ id }) => id)).toEqual(["a"]);
+
+    state = reconcileTrafficSnapshot(
+      state,
+      snapshot(1, [connection("b")], { profileId: "replacement-profile" }),
+    );
+    expect(state.closed).toEqual([]);
+    expect(state.baseline?.profileId).toBe("replacement-profile");
   });
 });
 
