@@ -41,8 +41,9 @@ was explicitly dispatched with `gpt-5.6-sol/high`, accepted, and integrated
 through PR #502 as `c18c2f3b`. Coordinator review found no authority or evidence
 defect; post-merge focused Web 115 tests, Internal TUN 24 tests, full
 SimulatedHost Rust/browser scenarios, and production exclusions 11 + 4 passed.
-Issue #435 remains open only for H1.2 hands-on macOS acceptance. Wave 2J has
-two dispatching reservations; eight repository concurrency slots remain
+Issue #435 remains open only for H1.2 hands-on macOS acceptance. Wave 2J D2.2
+is integrated through PR #503 / `0e0bc567`; D1.4 remains active. D2.3 is
+unlocked but not dispatched. Nine repository concurrency slots remain
 unreserved.
 
 ## Wave 1 worker ledger
@@ -86,8 +87,8 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Profile credential privacy | #449 | completed: C1.1-C1.3 integrated; Issue closed | #440 completed | accepted |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
-| Android VPN authority | #451 | D1.1-D1.3 integrated; D1.4 blocked on operational D2.1 signer/build closure | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
-| Mobile Core provenance | #454 | D2.1 second build-signer follow-up active; D2.2/D2.3 sequential afterward | #451 D1.2 integrated | confirmation-only |
+| Android VPN authority | #451 | D1.1-D1.3 integrated; D1.4 active and must finalize on integrated D2.2 | #440, #436, and D2.1 completed | confirmation-only; physical residual stays in #268 |
+| Mobile Core provenance | #454 | D2.1/D2.2 integrated; D2.3 unlocked but not dispatched | #451 D1.2 integrated | confirmation-only |
 | System-component repair feedback | #435 | H1.1 integrated; H1.2 hands-on residual ready only with explicit target/authorization | none; preserve existing Helper/Capture authority | H1.1 accepted; H1.2 hands-on |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
@@ -244,8 +245,8 @@ signing, deployment, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #454 D2.2 | `019ff5a4-b257-75e1-8169-08e40a2fb47d` | `6cf1` | active | D2.1 integrated | Add a deterministic adversarial matrix proving artifact, manifest, ABI, signer, and replacement drift fail closed before Mobile Core effects | Own D2.2 tests and the minimum narrow production/test seams required by discovered gaps; preserve D2.3 diagnostics scope; merge first |
-| #451 D1.4 | `019ff5a4-b257-75e1-8169-08cf04f49933` | `262d` | active | D1.1-D1.3 and D2.1 integrated; final delivery after D2.2 target integration | Complete cross-layer Rust/Kotlin/JavaScript replacement, cancellation, failure, cleanup, recreation, and stale-delivery transcripts plus repository-owned automated emulator acceptance | Preserve the single real lifecycle authority; no physical-device or real VPN/TUN claim; ordinary-merge D2.2 target before final verification; merge second |
+| #454 D2.2 | `019ff5a4-b257-75e1-8169-08e40a2fb47d` | `6cf1` | integrated | D2.1 integrated | Add a deterministic adversarial matrix proving artifact, manifest, ABI, signer, and replacement drift fail closed before Mobile Core effects | PR #503 merged as `0e0bc567` after explicit acceptance; Kotlin 43/43, signer 5/5, full local/remote gates, and coordinator post-merge Android/exclusion checks passed. Issue #454 has D2.2/adversarial criterion checked; D2.3 unlocked and open |
+| #451 D1.4 | `019ff5a4-b257-75e1-8169-08cf04f49933` | `262d` | active | D1.1-D1.3, D2.1, and D2.2 integrated | Complete cross-layer Rust/Kotlin/JavaScript replacement, cancellation, failure, cleanup, recreation, and stale-delivery transcripts plus repository-owned automated emulator acceptance | Preserve the single real lifecycle authority; no physical-device or real VPN/TUN claim; Worker instructed to ordinary-merge `origin/main@0e0bc567` before final verification; merge second |
 
 ## Existing issue coordination
 
@@ -293,8 +294,9 @@ final-only escalation, and explicit human acceptance before merge.
   emulator/device or release-signing acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- Wave 2J dispatches #454 D2.2 and #451 D1.4 in parallel with merge order D2.2
-  then D1.4. D2.3 remains blocked on integrated D2.2.
+- Wave 2J D2.2 is integrated. D1.4 remains active and must finalize on the
+  integrated D2.2 baseline. D2.3 is unlocked but requires a separately approved
+  dispatch wave.
 - Approved Wave 2I contained one independent AFK task: #435 H1.1. It
   preserved the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
