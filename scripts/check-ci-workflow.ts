@@ -401,6 +401,8 @@ invariant(
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
     emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
     emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&
+    emulatorAcceptance.run?.includes('--device "medium_phone"') &&
+    emulatorAcceptance.run?.includes("</dev/null") &&
     emulatorAcceptance.run?.includes("for attempt in {1..900}") &&
     emulatorAcceptance.run?.includes("kill -0"),
   "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
