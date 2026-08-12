@@ -5,7 +5,11 @@ import {
   type MobileVpnSnapshotDto,
 } from "@mish/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { MOBILE_CORE_MAX_CONFIG_BYTES_V1, MobileVpnFixtureClient } from "./mobile-vpn-client";
+import {
+  MOBILE_CORE_MAX_CONFIG_BYTES_V1,
+  MobileVpnFixtureClient,
+  type MobileVpnDeliveryTraceEvent,
+} from "./mobile-vpn-client";
 
 function snapshot(
   sequence: number,
@@ -63,6 +67,18 @@ function lifecycleResult(
     contractVersion: 1,
     operation,
     snapshot: { ...value, operation },
+  };
+}
+
+function eventPayload(value: MobileVpnSnapshotDto) {
+  return {
+    authorityId: value.authorityId,
+    eventKind: "snapshot-changed" as const,
+    eventVersion: 2 as const,
+    revision: value.revision,
+    sequence: value.sequence,
+    sessionId: value.sessionId,
+    snapshot: value,
   };
 }
 
@@ -205,6 +221,80 @@ describe("MobileVpnFixtureClient", () => {
     expect(client.getSnapshot()?.phase).toBe("unavailable");
   });
 
+  it("keeps the initial baseline authoritative when a newer notification beats a late load", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    let resolveLoad: ((value: unknown) => void) | undefined;
+    const traces: MobileVpnDeliveryTraceEvent[] = [];
+    const client = new MobileVpnFixtureClient(
+      {
+        invoke: async (command) => {
+          if (command === "get_snapshot") return snapshot(4);
+          return new Promise((resolve) => {
+            resolveLoad = resolve;
+          });
+        },
+        listen: async (nextHandler) => {
+          handler = nextHandler;
+          return { unregister: vi.fn() } as unknown as PluginListener;
+        },
+      },
+      { trace: (event) => traces.push(event) },
+    );
+    await client.initialize();
+
+    const pending = client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-a" },
+    );
+    await vi.waitFor(() => expect(resolveLoad).toBeDefined());
+    const newer = loadedConfigSnapshot(5);
+    handler?.(eventPayload(newer));
+    const resolve = resolveLoad;
+    if (resolve) resolve(loadResult(loadedConfigSnapshot(4)));
+
+    await expect(pending).resolves.toMatchObject({
+      failure: "stale-authority",
+      outcome: "failed",
+    });
+    expect(client.getSnapshot()).toMatchObject({ sequence: 5, loadedConfigRevision: "fixture-a" });
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        acceptance: "stale",
+        delivery: "load",
+        sequence: 4,
+      }),
+    );
+  });
+
+  it("rejects equal-order conflicting snapshots and late events from an old authority", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    const traces: MobileVpnDeliveryTraceEvent[] = [];
+    const client = new MobileVpnFixtureClient(
+      {
+        invoke: async () => snapshot(4),
+        listen: async (nextHandler) => {
+          handler = nextHandler;
+          return { unregister: vi.fn() } as unknown as PluginListener;
+        },
+      },
+      { trace: (event) => traces.push(event) },
+    );
+    await client.initialize();
+
+    handler?.(eventPayload(snapshot(4, "unavailable")));
+    handler?.(eventPayload(snapshot(5, "stopped", "session-2", "authority-2")));
+    handler?.(eventPayload(snapshot(3, "unavailable", "session-1", "authority-1")));
+
+    expect(client.getSnapshot()).toMatchObject({ authorityId: "authority-1", sequence: 4 });
+    expect(traces.filter((event) => event.kind === "delivery")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ acceptance: "stale", sequence: 4 }),
+        expect.objectContaining({ acceptance: "stale", authorityId: "authority-2" }),
+      ]),
+    );
+  });
+
   it("routes start cancellation through the typed native cleanup barrier", async () => {
     let resolveStart: ((value: unknown) => void) | undefined;
     const commands: string[] = [];
@@ -232,7 +322,8 @@ describe("MobileVpnFixtureClient", () => {
             operation,
             snapshot: { ...snapshot(2), operation },
           };
-          resolveStart?.(result);
+          const resolve = resolveStart;
+          if (resolve) resolve(result);
           return result;
         }
         throw new Error(`Unexpected command: ${command}`);
@@ -249,6 +340,86 @@ describe("MobileVpnFixtureClient", () => {
     expect(commands).toEqual(["get_snapshot", "start", "cancel_lifecycle_operation"]);
     expect(terminal.operation?.outcome).toBe("cancelled");
     expect(terminal.phase).toBe("stopped");
+  });
+
+  it("accepts a valid replacement command once and retires the old session", async () => {
+    const replacement = snapshot(6, "stopped", "session-2", "authority-2");
+    const operation = {
+      failure: "stale-platform-authority" as const,
+      kind: "stop" as const,
+      operationId: "replacement-stop",
+      outcome: "rejected" as const,
+    };
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command, args) => {
+        if (command === "get_snapshot") return snapshot(4);
+        const request = args?.request as { operationId: string } | undefined;
+        if (!request) throw new Error(`Missing request for command: ${command}`);
+        const operationId = request.operationId;
+        return {
+          contractVersion: 1,
+          operation: { ...operation, operationId },
+          snapshot: { ...replacement, operation: { ...operation, operationId } },
+        };
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+
+    const result = await client.stop();
+
+    expect(result).toMatchObject({ authorityId: "authority-2" });
+    expect(client.getSnapshot()).toMatchObject({
+      authorityId: "authority-2",
+      sessionId: "session-2",
+    });
+  });
+
+  it("retires pending lifecycle work on dispose and permits a clean remount baseline", async () => {
+    let handler: ((payload: unknown) => void) | undefined;
+    let resolveStart: ((value: unknown) => void) | undefined;
+    const unlisten = vi.fn(async () => undefined);
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_snapshot") return snapshot(1);
+      if (command === "cancel_lifecycle_operation") {
+        const request = args?.request as { operationId: string } | undefined;
+        if (!request) throw new Error(`Missing request for command: ${command}`);
+        const operationId = request.operationId;
+        const operation = {
+          failure: "cancelled" as const,
+          kind: "start" as const,
+          operationId,
+          outcome: "cancelled" as const,
+        };
+        return { contractVersion: 1, operation, snapshot: { ...snapshot(2), operation } };
+      }
+      return new Promise((resolve) => {
+        resolveStart = resolve;
+      });
+    });
+    const observed: number[] = [];
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async (nextHandler) => {
+        handler = nextHandler;
+        return { unregister: unlisten } as unknown as PluginListener;
+      },
+    });
+    await client.initialize();
+    client.subscribe((value) => observed.push(value.sequence));
+    const pending = client.start();
+    await vi.waitFor(() => expect(resolveStart).toBeDefined());
+
+    client.dispose();
+    const resolve = resolveStart;
+    if (resolve) resolve(lifecycleResult("start", "mobile-vpn-start-ignored-1", snapshot(3)));
+    await expect(pending).resolves.toMatchObject({ sequence: 1 });
+    handler?.(eventPayload(snapshot(4, "unavailable")));
+    expect(observed).toEqual([1]);
+    expect(unlisten).toHaveBeenCalledOnce();
+
+    await expect(client.initialize()).resolves.toMatchObject({ sequence: 1 });
+    expect(client.getSnapshot()).toMatchObject({ sequence: 1 });
   });
 
   it("requires a complete baseline before replaying only same-authority events", async () => {
@@ -490,15 +661,17 @@ describe("MobileVpnFixtureClient", () => {
     });
     controller.abort();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    resolveLoad?.(
-      loadResult(snapshot(5), {
-        cancellation: "before-load",
-        failure: "cancelled",
-        message: "Configuration loading was cancelled before the native load barrier.",
-        outcome: "cancelled",
-        rollback: "unloaded",
-      }),
-    );
+    const resolve = resolveLoad;
+    if (resolve)
+      resolve(
+        loadResult(snapshot(5), {
+          cancellation: "before-load",
+          failure: "cancelled",
+          message: "Configuration loading was cancelled before the native load barrier.",
+          outcome: "cancelled",
+          rollback: "unloaded",
+        }),
+      );
 
     await expect(pending).resolves.toMatchObject({
       cancellation: "before-load",
@@ -507,6 +680,41 @@ describe("MobileVpnFixtureClient", () => {
     });
     expect(invoke.mock.calls.map(([command]) => command)).toContain("cancel_config_load");
     expect(client.getSnapshot()?.coreConfigState).toBe("unloaded");
+  });
+
+  it("retires a late successful load after abort without projecting its snapshot", async () => {
+    let resolveLoad: ((value: unknown) => void) | undefined;
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "get_snapshot") return snapshot(4);
+      if (command === "cancel_config_load")
+        return { accepted: true, contractVersion: 1, operationId: "load-a" };
+      return new Promise((resolve) => {
+        resolveLoad = resolve;
+      });
+    });
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+    const controller = new AbortController();
+    const pending = client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, revision: "fixture-a" },
+      { operationId: "load-a", signal: controller.signal },
+    );
+    await vi.waitFor(() => expect(resolveLoad).toBeDefined());
+
+    controller.abort();
+    const resolve = resolveLoad;
+    if (resolve) resolve(loadResult(loadedConfigSnapshot(5)));
+
+    await expect(pending).resolves.toMatchObject({
+      cancellation: "too-late",
+      failure: "cancelled",
+      outcome: "cancelled",
+    });
+    expect(client.getSnapshot()).toMatchObject({ coreConfigState: "unloaded", sequence: 4 });
   });
 
   it("rejects repeated loads and malformed native completion without exposing response text", async () => {
@@ -538,7 +746,8 @@ describe("MobileVpnFixtureClient", () => {
       { operationId: "load-b" },
     );
     expect(duplicate).toMatchObject({ failure: "duplicate-command", outcome: "failed" });
-    resolveLoad?.(loadResult(loadedConfigSnapshot(5)));
+    const resolve = resolveLoad;
+    if (resolve) resolve(loadResult(loadedConfigSnapshot(5)));
     await expect(first).resolves.toMatchObject({ outcome: "first-load" });
 
     response = {
@@ -619,7 +828,8 @@ describe("MobileVpnFixtureClient", () => {
     const duplicate = await client.validateConfig(new Uint8Array([4, 5, 6]));
     expect(duplicate).toMatchObject({ failure: "duplicate-command", outcome: "failed" });
 
-    resolveValidation?.(validationResult(7));
+    const resolve = resolveValidation;
+    if (resolve) resolve(validationResult(7));
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await expect(client.validateConfig(new Uint8Array([7, 8, 9]))).resolves.toMatchObject({
       failure: null,
@@ -688,7 +898,8 @@ describe("MobileVpnFixtureClient", () => {
       sessionId: "session-1",
       snapshot: snapshot(13),
     });
-    resolveValidation?.(validationResult(12));
+    const resolve = resolveValidation;
+    if (resolve) resolve(validationResult(12));
 
     await expect(pending).resolves.toMatchObject({
       failure: "stale-authority",
