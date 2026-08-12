@@ -23,7 +23,7 @@ opens a socket, changes a route or DNS setting, or sends network traffic.
 | Tauri/Shared Rust | Real VPN reducer, state-machine runner correlation, effect identity, cleanup barrier, final outcome, and observation projection | Closed `simulated-host` platform effect/result adapter                 | Versioned events for command, result, callback, replacement, retirement, cleanup retry, finalizer, recreation, and admission rejection            |
 | Kotlin            | Real `CoreLifecycleAuthority`, `MishVpnPlatformStore`, `MobileCoreAdmissionGate`, and `MishVpnOwnedResourceCleanup`             | Closed lambdas for Core/TUN/network cleanup results; no Android effect | Persist-before-effect, exact retry, successor replacement, stale retirement, recreation, retryable cleanup, and admission rejection before effect |
 | Android emulator  | Real Android instrumentation process, application context, `SharedPreferences`, plugin classes, and Gradle test APK             | Store/component re-instantiation and the same closed cleanup lambdas   | Authority recovery in a new store instance, clean-record removal, strict transcript parsing, and effect counters                                  |
-| CI/build policy   | Reviewed workflow, pinned SDK/NDK/emulator/action inputs, and production package graph                                          | Credential-free PR test runner                                         | Root-free ARM64 emulator gate plus source/dependency production-exclusion checks                                                                  |
+| CI/build policy   | Reviewed workflow, pinned SDK/NDK/emulator/action inputs, and production package graph                                          | Credential-free PR test runner                                         | Root-free x86_64 emulator gate plus source/dependency production-exclusion checks                                                                 |
 
 The JavaScript mock and emulator fixture cannot return a canned lifecycle
 success. JavaScript only delivers typed snapshots produced by its transport;
@@ -88,20 +88,23 @@ pnpm mobile:android:test
 node --test scripts/simulated-host-exclusion.test.ts
 ```
 
-With one repository-supported API 36 ARM64 emulator already running, run:
+With one repository-supported API 36 ARM64 or x86_64 emulator already running, run:
 
 ```sh
 pnpm mobile:android:test:emulator
 ```
 
 Pull requests run the same instrumentation task in `Android lifecycle emulator
-gate` on the root-free `macos-15` ARM64 GitHub-hosted runner. The workflow pins
+gate` on the root-free `macos-15-intel` GitHub-hosted runner. The workflow pins
 API 36, Build Tools 36.1.0, NDK 29.0.14206865, emulator build 15917651, and the
 repository-owned bounded boot/run/cleanup contract. The workflow uses no
 third-party emulator action and rejects an unexpected emulator build before it
 creates the test AVD. The exact Google Android emulator archive is additionally
 bound to its reviewed SHA-256 before extraction into runner-temporary storage,
-and the API 36 Google APIs ARM64 system image must resolve to revision 7.
+and the API 36 Google APIs x86_64 system image must resolve to revision 7. The
+emulator runs without VM acceleration because GitHub-hosted macOS runners do not
+expose nested virtualization; the instrumentation remains closed to Kotlin
+authority/store/cleanup seams and does not load a real Core, VPN, or TUN.
 
 ## Evidence limits
 

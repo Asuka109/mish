@@ -234,7 +234,7 @@ function packageManifestByName(
   return new Map(packages.map((package_) => [package_.name, package_]));
 }
 
-const supportedPlatformRunners = new Set(["macos-15", "ubuntu-24.04"]);
+const supportedPlatformRunners = new Set(["macos-15", "macos-15-intel", "ubuntu-24.04"]);
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -1253,7 +1253,7 @@ export function validateWorkflow(
     if (eventNames.has("pull_request") && jobMayRunOnPullRequest(workflow, job)) {
       const reviewedRunner =
         relative === ".github/workflows/ci.yml" && jobName === "android-emulator-gate"
-          ? "macos-15"
+          ? "macos-15-intel"
           : undefined;
       errors.push(
         ...validateUntrustedWorkflowJob(policy, job, workflow, jobReferences, reviewedRunner).map(

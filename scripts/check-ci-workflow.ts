@@ -342,7 +342,7 @@ invariant(
 const androidEmulator = job("android-emulator-gate");
 invariant(androidEmulator.if === pullRequestOnly, "Android emulator coverage must run on PRs.");
 invariant(
-  androidEmulator["runs-on"] === "macos-15",
+  androidEmulator["runs-on"] === "macos-15-intel",
   "Android emulator coverage must use the root-free macOS runner.",
 );
 invariant(
@@ -393,11 +393,11 @@ const emulatorAcceptance = step(
 invariant(
   emulatorAcceptance.uses === undefined &&
     emulatorAcceptance.run?.includes("build_id 15917651") &&
-    emulatorAcceptance.run?.includes("emulator-darwin_aarch64-15917651.zip") &&
+    emulatorAcceptance.run?.includes("emulator-darwin_x64-15917651.zip") &&
     emulatorAcceptance.run?.includes(
-      "22530de9363f34ea945ecb5cad74523abd4b615f27f3c1a9899efb183ea9e144",
+      "c1a3890f95b8868198918fad05ffca16fa20404d93547ba545ff5a5867ee7005",
     ) &&
-    emulatorAcceptance.run?.includes("system-images;android-36;google_apis;arm64-v8a") &&
+    emulatorAcceptance.run?.includes("system-images;android-36;google_apis;x86_64") &&
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
     emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
     emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&

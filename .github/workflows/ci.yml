@@ -180,7 +180,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - name: Check out repository
@@ -217,8 +217,8 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.1.0" \
             "ndk;29.0.14206865" \
-            "system-images;android-36;google_apis;arm64-v8a"
-          sdkmanager --list_installed | grep -F "system-images;android-36;google_apis;arm64-v8a | 7"
+            "system-images;android-36;google_apis;x86_64"
+          sdkmanager --list_installed | grep -F "system-images;android-36;google_apis;x86_64 | 7"
           rustup target add aarch64-linux-android
           ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
           toolchain="$ndk_home/toolchains/llvm/prebuilt/darwin-x86_64"
@@ -248,8 +248,8 @@ jobs:
             --location \
             --retry 3 \
             --output "$emulator_archive" \
-            https://dl.google.com/android/repository/emulator-darwin_aarch64-15917651.zip
-          echo "22530de9363f34ea945ecb5cad74523abd4b615f27f3c1a9899efb183ea9e144  $emulator_archive" | shasum -a 256 --check
+            https://dl.google.com/android/repository/emulator-darwin_x64-15917651.zip
+          echo "c1a3890f95b8868198918fad05ffca16fa20404d93547ba545ff5a5867ee7005  $emulator_archive" | shasum -a 256 --check
           mkdir -p "$emulator_root"
           unzip -q "$emulator_archive" -d "$emulator_root"
           emulator_binary="$emulator_root/emulator/emulator"
@@ -265,7 +265,7 @@ jobs:
             avdmanager create avd \
             --force \
             --name "$avd_name" \
-            --package "system-images;android-36;google_apis;arm64-v8a"
+            --package "system-images;android-36;google_apis;x86_64"
           env \
             ANDROID_AVD_HOME="$avd_home" \
             ANDROID_USER_HOME="$android_user_home" \
