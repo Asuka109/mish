@@ -122,7 +122,6 @@ class MishVpnService : VpnService() {
             VpnService.prepare(this) != null -> PlatformFailureKind.PERMISSION_REVOKED
             initial.platformSessionId != request.platformSessionId ||
                 initial.factSequence != request.factSequence -> PlatformFailureKind.CONFIGURATION_NOT_LOADED
-            !core.admission().admitted -> PlatformFailureKind.CORE_UNAVAILABLE
             initial.coreAvailability != "available" -> PlatformFailureKind.CORE_UNAVAILABLE
             initial.coreConfigState != "loaded" ||
                 initial.loadedConfigDigest != request.configDigest ||
@@ -155,6 +154,10 @@ class MishVpnService : VpnService() {
                 request.productSessionId,
                 request.lifecycleAuthority,
             )
+            if (!core.admission().admitted) {
+                failAfterCleanup(PlatformFailureKind.CORE_UNAVAILABLE, startId)
+                return
+            }
             promoteToForeground()
             store.foregroundStarted()
             registerUnderlyingNetworkObservation()

@@ -16,6 +16,9 @@ const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
 const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xml`);
+const pluginService = source(
+  `${pluginRoot}/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt`,
+);
 const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
@@ -354,6 +357,15 @@ for (const requirement of [
 invariant(
   mobileAppIgnore.includes("/src/main/assets/mish-mobile-core-admission.json"),
   "The generated Android admission manifest must remain ignored build input.",
+);
+const authorityPersistenceIndex = pluginService.indexOf("store.activationStarting(");
+const admissionIndex = pluginService.indexOf("if (!core.admission().admitted)");
+const foregroundIndex = pluginService.indexOf("promoteToForeground()");
+invariant(
+  authorityPersistenceIndex >= 0 &&
+    admissionIndex > authorityPersistenceIndex &&
+    foregroundIndex > admissionIndex,
+  "Mobile Core admission must follow persisted lifecycle authority and precede foreground effects.",
 );
 for (const requirement of [
   `PINNED_SOURCE_COMMIT = "${mobileCoreSourceManifest.mihomo.commit}"`,
