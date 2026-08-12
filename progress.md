@@ -29,8 +29,10 @@ documentation, and release gates). The maintainer approved the exact
 three-task AFK Wave 2H on 2026-08-12. #449 C1.3 is integrated through PR #498
 and Issue #449 is closed. #451 D1.3 is integrated through PR #497. #454 D2.1
 merged PRs #499 and #500; its original Worker completed the second bounded
-build-signer follow-up in PR #501, which is green and must refresh onto latest
-main before a fresh confirmation-only acceptance request. Wave 2I #435 H1.1
+build-signer follow-up in PR #501, ordinary-merged latest main as `415fb274`,
+and is ready for fresh confirmation-only acceptance after focused/full local
+verification, actual ARM64/x86_64 APK signer-pin checks, and refreshed Fast PR
+and Android gates passed. Wave 2I #435 H1.1
 was explicitly dispatched with `gpt-5.6-sol/high`, accepted, and integrated
 through PR #502 as `c18c2f3b`. Coordinator review found no authority or evidence
 defect; post-merge focused Web 115 tests, Internal TUN 24 tests, full
@@ -206,7 +208,7 @@ work.
 | --- | --- | --- | --- | --- | --- | --- |
 | #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | integrated | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | PR #498 merged as `5239df6f`; local/remote gates passed, all Issue #449 criteria read back checked, and Issue closed completed without real credentials/network claims |
 | #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | integrated | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | PR #497 merged as `176351ec`; focused/full local gates and remote Fast PR/Android gates passed; Issue #451 remains open with D1.4 pending and no device claim |
-| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | verifying; latest-main refresh required | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PR #501 closes the actual credential-free debug APK build signer -> manifest pin -> artifact verification chain and passed local/remote gates on its previous baseline; the original Worker must ordinary-merge latest main after PR #502, rerun affected/full gates, and then request fresh acceptance; D2.2/D2.3 remain untouched |
+| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | ready-for-acceptance | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PR #501 ordinary-merged latest main as `415fb274`; focused signer/admission/privacy/exclusion gates, full `check:pr`, actual ARM64/x86_64 debug APK signer-pin verification, and refreshed Fast PR/Android gates passed. PR remains OPEN/CLEAN pending explicit confirmation-only acceptance; D2.2/D2.3 remain untouched |
 
 ## Wave 2I dispatch manifest
 
@@ -251,9 +253,9 @@ final-only escalation, and explicit human acceptance before merge.
 ## Later-wave gates
 
 - The exact approved Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. #449 C1.3
-  and #451 D1.3 are integrated; #454 D2.1 remains active in its original AFK,
-  confirmation-only, Chinese-reporting Luna Max (`gpt-5.6-luna/max`) visible
-  task and isolated worktree.
+  and #451 D1.3 are integrated; #454 D2.1 is ready for explicit
+  confirmation-only acceptance in its original Chinese-reporting Luna Max
+  (`gpt-5.6-luna/max`) visible task and isolated worktree.
 - #449 C1.3 is independent of the mobile tasks and completes detach
   confirmation plus credential-token negative evidence without real
   credentials or external network access.
