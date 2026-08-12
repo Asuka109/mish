@@ -156,6 +156,9 @@ impl MobileTrafficAuthority {
         runtime_epoch: u64,
         profile_id: &str,
     ) -> TrafficDataSnapshot {
+        if self.current.session_id.is_some() {
+            self.reconnect_count = self.reconnect_count.saturating_add(1);
+        }
         self.application_order = self.application_order.saturating_add(1);
         self.current = TrafficDataSnapshot {
             active_connections: Vec::new(),
@@ -497,6 +500,27 @@ mod tests {
             .unwrap();
         assert_eq!(replaced.sequence, 1);
         assert_eq!(replaced.reconnect_count, 1);
+    }
+
+    #[test]
+    fn unavailable_boundary_counts_one_reconnect_before_the_next_baseline() {
+        let mut authority = MobileTrafficAuthority::default();
+        authority
+            .project("runtime-a", 1, "profile-a", native("traffic-a", &["a"]))
+            .unwrap();
+        let unavailable = authority.unavailable("runtime-a", 1, "profile-a");
+        assert_eq!(unavailable.reconnect_count, 1);
+        assert_eq!(
+            authority
+                .unavailable("runtime-a", 1, "profile-a")
+                .reconnect_count,
+            1
+        );
+        let reconnected = authority
+            .project("runtime-a", 1, "profile-a", native("traffic-b", &["b"]))
+            .unwrap();
+        assert_eq!(reconnected.reconnect_count, 1);
+        assert_eq!(reconnected.sequence, 1);
     }
 
     #[test]
