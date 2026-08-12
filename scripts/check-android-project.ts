@@ -36,6 +36,15 @@ const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.
   abiVersion: number;
   wrapperRevision: string;
   mihomo: { commit: string; version: string };
+  android: {
+    signing: {
+      admissionSchemaVersion: number;
+      policy: string;
+      scheme: string;
+      verification: string;
+      signerSha256: string;
+    };
+  };
 };
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
 const mobileAppIgnore = source("apps/mobile/src-tauri/gen/android/app/.gitignore");
@@ -343,8 +352,9 @@ for (const requirement of [
   "verify-mobile-core.ts",
   "writeAdmissionManifest",
   "mish-mobile-core-admission.json",
-  "signatureIdentity",
+  "signatureScheme",
   "signatureVerification",
+  "signerSha256",
   "readUInt16LE(18)",
   "libmish_mobile_core.so",
   "apps/mobile/src-tauri/gen/android/app/src/main/jniLibs",
@@ -354,6 +364,22 @@ for (const requirement of [
     `Android Mobile Core staging verification is missing: ${requirement}`,
   );
 }
+invariant(
+  mobileCoreSourceManifest.android.signing.admissionSchemaVersion === 2 &&
+    mobileCoreSourceManifest.android.signing.policy === "synthetic-debug-v1" &&
+    mobileCoreSourceManifest.android.signing.scheme === "android-package-signature-v1" &&
+    mobileCoreSourceManifest.android.signing.verification === "package-signer" &&
+    /^[a-f0-9]{64}$/u.test(mobileCoreSourceManifest.android.signing.signerSha256),
+  "Android Mobile Core signer policy must be one bounded synthetic fingerprint.",
+);
+invariant(
+  mobileCoreStage.includes(`signerSha256: sourceManifest.android.signing.signerSha256`),
+  "Android staging must source the signer fingerprint from mobile-core/source-manifest.json.",
+);
+invariant(
+  mobileCoreStage.includes("schemaVersion: sourceManifest.android.signing.admissionSchemaVersion"),
+  "Android staging must source the admission schema version from the signer policy authority.",
+);
 invariant(
   mobileAppIgnore.includes("/src/main/assets/mish-mobile-core-admission.json"),
   "The generated Android admission manifest must remain ignored build input.",
@@ -368,10 +394,14 @@ invariant(
   "Mobile Core admission must follow persisted lifecycle authority and precede foreground effects.",
 );
 for (const requirement of [
+  `MOBILE_CORE_ADMISSION_SCHEMA_VERSION = ${mobileCoreSourceManifest.android.signing.admissionSchemaVersion}`,
+  `MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME = "${mobileCoreSourceManifest.android.signing.scheme}"`,
+  `MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION = "${mobileCoreSourceManifest.android.signing.verification}"`,
   `PINNED_SOURCE_COMMIT = "${mobileCoreSourceManifest.mihomo.commit}"`,
   `PINNED_SOURCE_VERSION = "${mobileCoreSourceManifest.mihomo.version}"`,
   `PINNED_WRAPPER_REVISION = "${mobileCoreSourceManifest.wrapperRevision}"`,
   `PINNED_ABI_VERSION = ${mobileCoreSourceManifest.abiVersion}`,
+  `MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256 =\n    \"${mobileCoreSourceManifest.android.signing.signerSha256}\"`,
 ]) {
   invariant(
     mobileCoreSourceManifest.schemaVersion === 1 && kotlin.includes(requirement),

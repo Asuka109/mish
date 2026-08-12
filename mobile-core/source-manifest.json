@@ -37,6 +37,13 @@
     "ndkVersion": "29.0.14206865",
     "minimumApi": 28,
     "buildTags": ["cmfa", "with_gvisor"],
+    "signing": {
+      "admissionSchemaVersion": 2,
+      "policy": "synthetic-debug-v1",
+      "scheme": "android-package-signature-v1",
+      "verification": "package-signer",
+      "signerSha256": "dc6d9f4a64a2a0683846923f724c37e1185d78cd327594227535f9bc44e5b56d"
+    },
     "artifacts": [
       {
         "abi": "arm64-v8a",

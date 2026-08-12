@@ -78,7 +78,16 @@ function writeAdmissionManifest(evidenceRoot: string, destination: string): void
     abiVersion: number;
     wrapperRevision: string;
     mihomo: { commit: string; version: string };
-    android: { artifacts: Array<{ abi: string }> };
+    android: {
+      signing: {
+        admissionSchemaVersion: number;
+        policy: string;
+        scheme: string;
+        verification: string;
+        signerSha256: string;
+      };
+      artifacts: Array<{ abi: string }>;
+    };
   };
   if (
     sourceManifest.schemaVersion !== 1 ||
@@ -88,6 +97,15 @@ function writeAdmissionManifest(evidenceRoot: string, destination: string): void
     throw new Error("Mobile Core source manifest is not the pinned admission schema");
   }
   const sourceAbis = sourceManifest.android.artifacts.map(({ abi }) => abi);
+  if (
+    sourceManifest.android.signing.admissionSchemaVersion !== 2 ||
+    sourceManifest.android.signing.policy !== "synthetic-debug-v1" ||
+    sourceManifest.android.signing.scheme !== "android-package-signature-v1" ||
+    sourceManifest.android.signing.verification !== "package-signer" ||
+    !/^[a-f0-9]{64}$/u.test(sourceManifest.android.signing.signerSha256)
+  ) {
+    throw new Error("Mobile Core source manifest signer pin is not a bounded synthetic policy");
+  }
   if (
     sourceAbis.length !== artifacts.length ||
     new Set(sourceAbis).size !== sourceAbis.length ||
@@ -105,15 +123,16 @@ function writeAdmissionManifest(evidenceRoot: string, destination: string): void
     return { abi: artifact.abi, sha256 };
   });
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: sourceManifest.android.signing.admissionSchemaVersion,
     abiVersion: sourceManifest.abiVersion,
     sourceCommit: sourceManifest.mihomo.commit,
     sourceVersion: sourceManifest.mihomo.version,
     wrapperRevision: sourceManifest.wrapperRevision,
     wrapperContractVersion: 1,
     artifacts: manifestArtifacts,
-    signatureIdentity: "android-package-signature-v1",
-    signatureVerification: "package-signer",
+    signatureScheme: sourceManifest.android.signing.scheme,
+    signatureVerification: sourceManifest.android.signing.verification,
+    signerSha256: sourceManifest.android.signing.signerSha256,
   };
   mkdirSync(dirname(destination), { recursive: true });
   writeFileSync(destination, `${JSON.stringify(manifest)}\n`);
