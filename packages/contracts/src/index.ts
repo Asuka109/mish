@@ -2078,6 +2078,40 @@ export const TunHelperSnapshotSchema = z
   .strict();
 export interface TunHelperSnapshotDto extends z.infer<typeof TunHelperSnapshotSchema> {}
 
+export const TunHelperLifecycleOperationSchema = z.enum(["install", "remove", "repair"]);
+export const TunHelperOperationPhaseSchema = z.enum(["idle", "pending", "finalizing", "terminal"]);
+export const TunHelperOperationOutcomeSchema = z.enum([
+  "applied",
+  "authorization-cancelled",
+  "authorization-failed",
+  "observation-incomplete",
+  "removal-failed",
+  "removed",
+  "recovery-required",
+  "shutdown-failed",
+]);
+export const TunHelperOperationSnapshotSchema = z
+  .object({
+    admittedRevision: z.number().int().min(0),
+    failure: TunHelperFailureKindSchema.nullable(),
+    operation: TunHelperLifecycleOperationSchema.nullable(),
+    operationId: IdentifierSchema.nullable(),
+    outcome: TunHelperOperationOutcomeSchema.nullable(),
+    phase: TunHelperOperationPhaseSchema,
+  })
+  .strict()
+  .default({
+    admittedRevision: 0,
+    failure: null,
+    operation: null,
+    operationId: null,
+    outcome: null,
+    phase: "idle",
+  });
+export interface TunHelperOperationSnapshotDto extends z.infer<
+  typeof TunHelperOperationSnapshotSchema
+> {}
+
 export const SettingsSnapshotSchema = z
   .object({
     adapterKind: SettingsAdapterKindSchema,
@@ -2139,6 +2173,7 @@ export const SettingsSnapshotSchema = z
     startupRegistration: StartupRegistrationSnapshotSchema,
     storageRecovered: z.boolean(),
     tunHelper: TunHelperSnapshotSchema,
+    tunHelperOperation: TunHelperOperationSnapshotSchema,
   })
   .strict();
 export interface SettingsSnapshotDto extends z.infer<typeof SettingsSnapshotSchema> {}
@@ -3602,7 +3637,10 @@ export const SetCloseOldConnectionsAfterGroupSwitchCommandSchema = z
   .strict();
 
 export const TunHelperLifecycleCommandSchema = z
-  .object({ resumeCapture: z.boolean().optional() })
+  .object({
+    operationId: z.string().uuid().max(96),
+    resumeCapture: z.boolean().optional(),
+  })
   .strict();
 export interface TunHelperLifecycleCommand extends z.infer<
   typeof TunHelperLifecycleCommandSchema
@@ -3623,7 +3661,7 @@ export const settingsRpcMethods = {
     result: RpcSettingsSnapshotSchema,
   },
   "settings.removeTunHelper": {
-    params: EmptyCommandSchema,
+    params: TunHelperLifecycleCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.setAppearance": {
@@ -3888,7 +3926,7 @@ export interface SettingsClient {
   refreshNetworkDns(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   installTunHelper(options?: TunHelperLifecycleOptions): Promise<SettingsSnapshotDto>;
   repairTunHelper(options?: TunHelperLifecycleOptions): Promise<SettingsSnapshotDto>;
-  removeTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  removeTunHelper(options?: TunHelperLifecycleOptions): Promise<SettingsSnapshotDto>;
   setAppearance(
     appearance: AppearancePreference,
     options?: { signal?: AbortSignal },
@@ -3944,6 +3982,7 @@ export interface SettingsClient {
 }
 
 export interface TunHelperLifecycleOptions {
+  operationId?: string;
   resumeCapture?: boolean;
   signal?: AbortSignal;
 }

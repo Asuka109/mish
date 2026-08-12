@@ -77,7 +77,7 @@ export class MobileSettingsClient implements SettingsClient {
     return Promise.reject<SettingsSnapshotDto>(unavailableError("The macOS TUN Helper"));
   }
 
-  removeTunHelper(_options?: { signal?: AbortSignal }) {
+  removeTunHelper(_options?: TunHelperLifecycleOptions) {
     return Promise.reject<SettingsSnapshotDto>(unavailableError("The macOS TUN Helper"));
   }
 

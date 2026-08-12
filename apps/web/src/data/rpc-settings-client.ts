@@ -102,27 +102,45 @@ export class RpcSettingsClient implements SettingsClient {
   }
 
   installTunHelper(options?: TunHelperLifecycleOptions) {
-    const { resumeCapture = false, ...requestOptions } = options ?? {};
+    const {
+      operationId = crypto.randomUUID(),
+      resumeCapture = false,
+      ...requestOptions
+    } = options ?? {};
     return this.requestSnapshot(
       "settings.installTunHelper",
-      { resumeCapture },
+      { operationId, resumeCapture },
       requestOptions,
       "command",
     );
   }
 
   repairTunHelper(options?: TunHelperLifecycleOptions) {
-    const { resumeCapture = false, ...requestOptions } = options ?? {};
+    const {
+      operationId = crypto.randomUUID(),
+      resumeCapture = false,
+      ...requestOptions
+    } = options ?? {};
     return this.requestSnapshot(
       "settings.repairTunHelper",
-      { resumeCapture },
+      { operationId, resumeCapture },
       requestOptions,
       "command",
     );
   }
 
-  removeTunHelper(options?: RpcRequestOptions) {
-    return this.requestSnapshot("settings.removeTunHelper", {}, options, "command");
+  removeTunHelper(options?: TunHelperLifecycleOptions) {
+    const {
+      operationId = crypto.randomUUID(),
+      resumeCapture = false,
+      ...requestOptions
+    } = options ?? {};
+    return this.requestSnapshot(
+      "settings.removeTunHelper",
+      { operationId, resumeCapture },
+      requestOptions,
+      "command",
+    );
   }
 
   setAppearance(appearance: AppearancePreference, options?: RpcRequestOptions) {

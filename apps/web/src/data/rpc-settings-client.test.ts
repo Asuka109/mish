@@ -89,6 +89,22 @@ describe("RPC settings client", () => {
     ]);
   });
 
+  it("keeps one bounded lifecycle identity across repair and remove commands", async () => {
+    const request = vi.fn(async (..._arguments: unknown[]) => rpcSnapshot());
+    const client = new RpcSettingsClient({ request } as unknown as RpcClient<
+      typeof mishRpcMethods
+    >);
+    const operationId = "43500000-0000-4000-8000-000000000043";
+
+    await client.repairTunHelper({ operationId, resumeCapture: true });
+    await client.removeTunHelper({ operationId });
+
+    expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ["settings.repairTunHelper", { operationId, resumeCapture: true }],
+      ["settings.removeTunHelper", { operationId, resumeCapture: false }],
+    ]);
+  });
+
   it("resubscribes after reconnect and projects the authoritative cleanup preference", async () => {
     const connection = {
       listener: null as ((state: RpcConnectionState) => void) | null,

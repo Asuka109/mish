@@ -138,7 +138,7 @@ const zh: Translation = {
         "当前 macOS 版本无法完成{operation}。请使用受支持的 macOS 版本，或改用系统代理。",
     },
     tunHelperLifecyclePending: "{operation}正在等待 macOS 确认。",
-    tunHelperLifecycleReinstallRecovery: "请前往“设置”选择“清理并重装”。",
+    tunHelperLifecycleReinstallRecovery: "请前往“设置”选择“修复系统组件”或“移除系统组件”。",
     tunHelperLifecycleRemoveRecovery: "请重新启动 Mish 后再次尝试移除。",
     tunHelperLifecycleRetryInstall: "再次尝试安装。",
     tunHelperLifecycleRetryRemove: "再次尝试移除。",
@@ -259,8 +259,8 @@ const zh: Translation = {
       unavailable: "不可用",
     },
     removeTunHelper: "移除系统组件",
-    reinstallTunHelper: "清理并重装",
-    reinstallTunHelperBlocked: "请先停止正在使用的配置，再重新安装系统组件。",
+    reinstallTunHelper: "修复系统组件",
+    reinstallTunHelperBlocked: "请先停止正在使用的配置，再修复系统组件。",
     repairTunHelper: "修复系统组件",
     quitOnClose: "退出 Mish",
     showWindow: "显示窗口",
@@ -622,7 +622,7 @@ const zh: Translation = {
     tunGuide: {
       authorizationCancelled: "已取消管理员授权。系统组件和虚拟网卡都没有变化。",
       confirmationFailed:
-        "系统组件可能已经安装，但 Mish 无法确认它是否可用。请到“设置”中选择“清理并重装”。",
+        "系统组件可能已经安装，但 Mish 无法确认它是否可用。请到“设置”中选择“修复系统组件”或“移除系统组件”。",
       description: "虚拟网卡需要系统组件。准备期间，Mish 会让它保持关闭。",
       enable: "启用虚拟网卡",
       helperDescription:
@@ -630,7 +630,7 @@ const zh: Translation = {
       helperTitle: "需要安装系统组件",
       installFailed: "系统组件安装失败，虚拟网卡没有变化。请重试并允许 macOS 管理员授权。",
       installationFailed:
-        "管理员授权已完成，但系统组件安装失败。原有组件仍保留，请到“设置”中选择“清理并重装”。",
+        "管理员授权已完成，但系统组件安装失败。原有组件仍保留，请到“设置”中选择“修复系统组件”或“移除系统组件”。",
       installHelper: "安装系统组件",
       installingHelper: "正在请求 macOS 授权…",
       installerUnavailable: "无法启动开发版安装工具。请用 pnpm 重新启动开发版应用后再试。",

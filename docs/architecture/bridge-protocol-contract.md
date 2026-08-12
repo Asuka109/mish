@@ -74,3 +74,10 @@ It adds no public method: Browser Client and WebView callers retain only the
 existing non-privileged updater check, download, cancel, snapshot, and
 subscription surface. Installation, relaunch, Capture, System Proxy, and TUN
 mutation remain unavailable through the bridge.
+
+Protocol 39 makes every Helper install, repair, and removal command carry one
+bounded UUID operation identity. The resulting Settings snapshot returns that
+identity with its Rust-admitted revision and pending/finalizing/terminal state,
+so reconnecting or remounted clients accept only the matching terminal result.
+The UUID is correlation metadata, never authorization material or a Web-owned
+Helper lifecycle.

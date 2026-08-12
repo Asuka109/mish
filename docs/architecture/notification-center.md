@@ -38,10 +38,12 @@ Managed listener collisions use the separate
 `profile.activation-listener-conflict` type and an activation-failure key; they
 never replace or reuse a GeoData notification.
 
-Internal TUN lifecycle operations publish `tun-helper.lifecycle` with a fresh
-operation ID and reuse that dedupe key from pinned `pending` to `applied` or
-`recovery-required`. The record carries only the closed operation, outcome, and
-typed failure category. It replaces the generic Settings failure publication,
+Internal TUN lifecycle operations publish `tun-helper.lifecycle` with the
+bounded operation ID admitted by Settings and reuse that dedupe key from pinned
+`pending`/`finalizing` to one terminal outcome. The record carries only the
+closed operation, outcome, and typed failure category. Terminal failures expose
+only `open-settings`; successful and pending records expose no inert action.
+It replaces the generic Settings failure publication,
 so install, repair, and remove cannot create duplicate frontend-only errors.
 Removal uses the same operation ID in its private bounded occurrence record.
 On process restart, retained failed or interrupted removal occurrences are

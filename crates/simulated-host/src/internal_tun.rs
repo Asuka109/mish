@@ -47,8 +47,8 @@ use mish_runtime::{
     CaptureJournalStore, CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection,
     CoreRuntime, LoopbackProxyEndpoint, MishRuntime, StatusAdapterKind, TunHelperAvailability,
     TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
-    TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
-    TunHelperRemovalCapability, TunHelperSnapshot, TunNetworkObservation,
+    TunHelperLifecycleCorrelation, TunHelperLifecycleOperation, TunHelperObservation,
+    TunHelperPlatform, TunHelperRemovalCapability, TunHelperSnapshot, TunNetworkObservation,
     TunObservationComponentState, tun_observation_now,
 };
 use mish_settings::{
@@ -803,7 +803,23 @@ impl MaintenanceEngine {
             TunHelperLifecycleOperation::Repair => PackageOperationKind::Repair,
             TunHelperLifecycleOperation::Remove => PackageOperationKind::Uninstall,
         };
-        self.run_package_operation(kind)
+        self.run_package_operation(kind, None)
+            .await
+            .map(|_| ())
+            .map_err(|error| helper_error(&error))
+    }
+
+    async fn run_lifecycle_correlated(
+        &self,
+        operation: TunHelperLifecycleOperation,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<(), TunHelperError> {
+        let kind = match operation {
+            TunHelperLifecycleOperation::Install => PackageOperationKind::Install,
+            TunHelperLifecycleOperation::Repair => PackageOperationKind::Repair,
+            TunHelperLifecycleOperation::Remove => PackageOperationKind::Uninstall,
+        };
+        self.run_package_operation(kind, Some(correlation.admitted_revision))
             .await
             .map(|_| ())
             .map_err(|error| helper_error(&error))
@@ -812,6 +828,7 @@ impl MaintenanceEngine {
     pub async fn run_package_operation(
         &self,
         kind: PackageOperationKind,
+        correlated_revision: Option<u64>,
     ) -> Result<MaintenanceTerminalOutcome, MaintenanceHarnessError> {
         let _operation = self
             .operation
@@ -832,7 +849,7 @@ impl MaintenanceEngine {
             let operation_id = maintenance.next_operation_id;
             maintenance.next_operation_id = maintenance.next_operation_id.saturating_add(1);
             maintenance.active_operation = Some(operation_id);
-            let admitted_revision = operation_id;
+            let admitted_revision = correlated_revision.unwrap_or(operation_id);
             let observed = maintenance.observed_package_state();
             let installed = maintenance.installed.as_ref();
             let identical = kind != PackageOperationKind::Uninstall
@@ -2519,6 +2536,25 @@ impl TunHelperPlatform for SimulatedHost {
                 )
             })?;
             engine.run_lifecycle(operation).await
+        })
+    }
+
+    fn run_lifecycle_correlated(
+        &self,
+        operation: TunHelperLifecycleOperation,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        let engine = self.maintenance_engine();
+        Box::pin(async move {
+            let engine = engine.ok_or_else(|| {
+                TunHelperError::new(
+                    TunHelperFailureKind::UnsupportedSystem,
+                    "Internal TUN simulation was not configured",
+                )
+            })?;
+            engine
+                .run_lifecycle_correlated(operation, correlation)
+                .await
         })
     }
 

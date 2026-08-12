@@ -46,6 +46,7 @@ export const applicationActionIds = [
   "find-ports-and-retry",
   "leave-as-is",
   "open-profiles",
+  "open-settings",
   "open-system-proxy-settings",
   "open-welcome",
   "repair",
@@ -721,8 +722,8 @@ export const applicationNotificationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       actionIds: z
-        .array(z.never())
-        .max(0)
+        .array(z.enum(["open-settings"]))
+        .max(1)
         .refine((ids) => new Set(ids).size === ids.length, "Action IDs must be unique"),
       data: applicationNotificationTunHelperLifecycleDataSchema,
       kind: z.literal("tun-helper.lifecycle"),

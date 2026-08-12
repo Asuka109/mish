@@ -35,8 +35,8 @@ import {
 } from "react";
 
 export type TunHelperOperationResult =
-  | { ok: true }
-  | { failure: TunHelperFailureKind | null; ok: false };
+  | { ok: true; operationId?: string }
+  | { failure: TunHelperFailureKind | null; ok: false; operationId?: string };
 
 export interface TunHelperSetupOptions {
   resumeCapture?: boolean;
@@ -132,8 +132,9 @@ export function SettingsProvider({
       setPending(true);
       setError(null);
       try {
-        acceptSnapshot(await operation(), "command");
-        return { ok: true } as const;
+        const snapshot = await operation();
+        acceptSnapshot(snapshot, "command");
+        return { ok: true, snapshot } as const;
       } catch (operationError) {
         setError("settings-update-failed");
         try {
@@ -190,10 +191,25 @@ export function SettingsProvider({
   }, [acceptSnapshot, client]);
 
   const runTunHelper = useCallback(
-    async (operation: () => Promise<SettingsSnapshotDto>): Promise<TunHelperOperationResult> => {
+    async (
+      operationId: string,
+      operation: () => Promise<SettingsSnapshotDto>,
+    ): Promise<TunHelperOperationResult> => {
       setTunHelperFailure(null);
       const result = await run(operation);
-      if (result.ok) return result;
+      if (result.ok) {
+        const terminal = result.snapshot.tunHelperOperation;
+        if (
+          terminal.operationId === operationId &&
+          terminal.phase === "terminal" &&
+          (terminal.outcome === "applied" || terminal.outcome === "removed")
+        ) {
+          return { ok: true, operationId };
+        }
+        const failure = terminal.operationId === operationId ? terminal.failure : null;
+        setTunHelperFailure(failure);
+        return { failure, ok: false, operationId };
+      }
       const parsed =
         result.error instanceof RpcRemoteError
           ? TunHelperFailureKindSchema.safeParse(
@@ -202,7 +218,7 @@ export function SettingsProvider({
           : null;
       const failure = parsed?.success ? parsed.data : null;
       setTunHelperFailure(failure);
-      return { failure, ok: false };
+      return { failure, ok: false, operationId };
     },
     [run],
   );
@@ -212,14 +228,28 @@ export function SettingsProvider({
       acceptSnapshot,
       error,
       localBackupExportAuthority: localBackupExportAuthority.current!,
-      installTunHelper: (options) =>
-        runTunHelper(() => client.installTunHelper(tunHelperLifecycleOptions(options))),
+      installTunHelper: (options) => {
+        const operationId = crypto.randomUUID();
+        return runTunHelper(operationId, () =>
+          client.installTunHelper(tunHelperLifecycleOptions(options, operationId)),
+        );
+      },
       localBackupClient,
-      pending,
+      pending:
+        pending ||
+        snapshot.tunHelperOperation.phase === "pending" ||
+        snapshot.tunHelperOperation.phase === "finalizing",
       refreshNetworkDns,
-      removeTunHelper: async () => (await runTunHelper(() => client.removeTunHelper())).ok,
-      repairTunHelper: (options) =>
-        runTunHelper(() => client.repairTunHelper(tunHelperLifecycleOptions(options))),
+      removeTunHelper: async () => {
+        const operationId = crypto.randomUUID();
+        return (await runTunHelper(operationId, () => client.removeTunHelper({ operationId }))).ok;
+      },
+      repairTunHelper: (options) => {
+        const operationId = crypto.randomUUID();
+        return runTunHelper(operationId, () =>
+          client.repairTunHelper(tunHelperLifecycleOptions(options, operationId)),
+        );
+      },
       setAppearance: async (appearance) => (await run(() => client.setAppearance(appearance))).ok,
       setLanguage: async (language) => (await run(() => client.setLanguage(language))).ok,
       setOnboardingWelcomeState: async (action) =>
@@ -261,9 +291,9 @@ export function SettingsProvider({
 
 function tunHelperLifecycleOptions(
   options: TunHelperSetupOptions | undefined,
-): TunHelperLifecycleOptions | undefined {
-  if (!options?.resumeCapture) return undefined;
-  return { resumeCapture: true };
+  operationId: string,
+): TunHelperLifecycleOptions {
+  return { operationId, resumeCapture: options?.resumeCapture === true };
 }
 
 export function useSettings() {

@@ -452,22 +452,28 @@ for (const [scenario, action] of [
   });
 }
 
-test("Remove Helper follows the authenticated Rust fault and recovery journey", async () => {
+test("Remove System Components follows the authenticated Rust fault and recovery journey", async () => {
   const scenario = "helper-removal-recovery";
   registerFailureEvidence(
     scenario,
     "active TUN handoff, bounded maintenance rejection, fault clear, and confirmed React retry",
   );
   await mountScenario(scenario, true);
-  const removeHelper = () => page.getByRole("button", { name: "Remove Helper", exact: true });
+  const removeHelper = () =>
+    page.getByRole("button", { name: "Remove System Components", exact: true });
   await expect.element(removeHelper()).toBeEnabled();
   expect((await observation(scenario)).terminalAuthority.tun.enabled).toBe(true);
 
-  await userEvent.click(removeHelper());
+  if (!mounted?.settingsClient) throw new Error("Missing authenticated Settings client");
+  const firstRemoval = mounted.rpc.request("settings.removeTunHelper", {
+    operationId: crypto.randomUUID(),
+    resumeCapture: false,
+  });
   await vi.waitFor(async () => {
     expect((await observation(scenario)).signals.maintenance?.journalPresent).toBe(true);
   });
   await advanceTo(scenario, 1);
+  await firstRemoval.catch(() => undefined);
   await vi.waitFor(async () => {
     expect((await observation(scenario)).terminalAuthority.notifications).toContainEqual(
       expect.objectContaining({
@@ -477,6 +483,15 @@ test("Remove Helper follows the authenticated Rust fault and recovery journey", 
       }),
     );
   });
+  await userEvent.click(page.getByRole("button", { name: /Notifications/ }));
+  const notificationCenter = page.getByRole("dialog", { name: "Notifications" });
+  await expect
+    .element(notificationCenter.getByRole("button", { name: "Open Settings" }))
+    .toBeVisible();
+  (
+    notificationCenter.getByRole("button", { name: "Open Settings" }).element() as HTMLButtonElement
+  ).click();
+  await expect.element(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   const rejected = await observation(scenario);
   expect(rejected.terminalAuthority.tunHelper).toMatchObject({
     availability: "repair-required",
@@ -493,7 +508,9 @@ test("Remove Helper follows the authenticated Rust fault and recovery journey", 
 
   await control(scenario, "clear-maintenance-faults");
   await expect.element(removeHelper()).toBeEnabled();
-  await userEvent.click(removeHelper());
+  await mounted.settingsClient.removeTunHelper({
+    operationId: crypto.randomUUID(),
+  });
   await vi.waitFor(async () => {
     expect((await observation(scenario)).terminalAuthority.tunHelper).toMatchObject({
       health: "not-installed",

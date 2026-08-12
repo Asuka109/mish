@@ -354,11 +354,18 @@ impl TunHelperObservation {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TunHelperLifecycleOperation {
     Install,
     Remove,
     Repair,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TunHelperLifecycleCorrelation {
+    pub admitted_revision: u64,
+    pub operation_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -390,6 +397,15 @@ pub trait TunHelperPlatform: Send + Sync {
         &self,
         operation: TunHelperLifecycleOperation,
     ) -> BoxFuture<'_, Result<(), TunHelperError>>;
+
+    fn run_lifecycle_correlated(
+        &self,
+        operation: TunHelperLifecycleOperation,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        let _ = correlation;
+        self.run_lifecycle(operation)
+    }
 
     fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>>;
 
@@ -447,13 +463,37 @@ impl TunHelperController {
             .await
     }
 
+    pub async fn install_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<TunHelperSnapshot, TunHelperError> {
+        self.run_lifecycle_correlated(TunHelperLifecycleOperation::Install, correlation)
+            .await
+    }
+
     pub async fn repair(&self) -> Result<TunHelperSnapshot, TunHelperError> {
         self.run_lifecycle(TunHelperLifecycleOperation::Repair)
             .await
     }
 
+    pub async fn repair_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<TunHelperSnapshot, TunHelperError> {
+        self.run_lifecycle_correlated(TunHelperLifecycleOperation::Repair, correlation)
+            .await
+    }
+
     pub async fn remove(&self) -> Result<TunHelperSnapshot, TunHelperError> {
         self.run_lifecycle(TunHelperLifecycleOperation::Remove)
+            .await
+    }
+
+    pub async fn remove_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<TunHelperSnapshot, TunHelperError> {
+        self.run_lifecycle_correlated(TunHelperLifecycleOperation::Remove, correlation)
             .await
     }
 
@@ -532,6 +572,22 @@ impl TunHelperController {
         &self,
         operation: TunHelperLifecycleOperation,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
+        self.run_lifecycle_inner(operation, None).await
+    }
+
+    async fn run_lifecycle_correlated(
+        &self,
+        operation: TunHelperLifecycleOperation,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<TunHelperSnapshot, TunHelperError> {
+        self.run_lifecycle_inner(operation, Some(correlation)).await
+    }
+
+    async fn run_lifecycle_inner(
+        &self,
+        operation: TunHelperLifecycleOperation,
+        correlation: Option<TunHelperLifecycleCorrelation>,
+    ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
         let admitted = if operation == TunHelperLifecycleOperation::Remove {
             self.refresh_locked(None).await
@@ -599,7 +655,14 @@ impl TunHelperController {
             TunHelperLifecycleOperation::Repair => TunHelperLifecyclePhase::Repairing,
             TunHelperLifecycleOperation::Remove => TunHelperLifecyclePhase::Removing,
         });
-        let result = self.platform.run_lifecycle(operation).await;
+        let result = match correlation {
+            Some(correlation) => {
+                self.platform
+                    .run_lifecycle_correlated(operation, correlation)
+                    .await
+            }
+            None => self.platform.run_lifecycle(operation).await,
+        };
         let failure = result.as_ref().err().map(|error| error.kind);
         let observed = self.refresh_locked(failure).await;
         result?;
