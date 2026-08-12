@@ -14,6 +14,7 @@ may be presented as proof of a later one.
 | Compiled shell         | Native project and shared Web assets compile                | Platform toolchain build and generated-project integrity checks              |
 | Installable app        | A signed or debug artifact installs and launches            | Device or emulator installation, offline assets, and native-client bootstrap |
 | Native fixture         | Mobile UI receives typed native snapshots and commands      | Plugin contract tests, reconnect, cancellation, and lifecycle fixtures       |
+| Lifecycle emulator     | Rust/Kotlin/JavaScript authority survives Android bootstrap | Root-free instrumentation with all VPN/TUN/Core/network effects replaced     |
 | Device VPN             | Real device traffic traverses the embedded Core             | Permission, TCP, UDP, DNS, routing, lifecycle, recovery, and stop evidence   |
 | Distribution candidate | Store-shaped artifact preserves capabilities and provenance | Signing, entitlement, artifact inspection, SBOM, privacy, and update gates   |
 
@@ -118,6 +119,16 @@ emulator where practical.
   before accepting later events.
 - Prior-authority, retired-session, out-of-order, unknown, oversized, stale, or
   malformed native messages are rejected.
+
+The deterministic lifecycle-emulator gate is documented in
+[`android-vpn-lifecycle-transcripts.md`](android-vpn-lifecycle-transcripts.md).
+It runs the real Shared Rust reducer, Kotlin authority/recovery/cleanup
+contracts, and JavaScript delivery projection while replacing every
+VPN/TUN/Core/network effect at the narrow owned seam. It proves emulator
+process, storage, component-bootstrap, and instrumentation behavior only. It
+does not prove physical-device installation, permission UI, a live VPN service,
+TUN or packet flow, routing/DNS/network propagation, or PackageManager
+deployment.
 
 The retained Phase 0 fixture evidence predates the real VPN slice and remains
 historical only. Current Android acceptance uses the native backend and must not

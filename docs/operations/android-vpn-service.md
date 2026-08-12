@@ -95,7 +95,12 @@ partial result is published as foreground-expected recovery evidence and keeps
 the authority plus failed resource owned. Later stop/recreation cleanup retries
 only the failed resources; `STOP_COMPLETED`/clean facts are published only
 after every owned resource releases successfully. This is a closed semantic
-JVM contract and does not claim emulator or physical-device behavior.
+JVM contract. The repository-owned instrumentation gate additionally proves
+that the same store, admission, and cleanup contracts execute in an Android
+emulator process and survive a new store/component bootstrap instance. It does not start
+this service or claim physical-device, VPN permission, TUN, Core, packet, or
+network behavior; see
+[`android-vpn-lifecycle-transcripts.md`](../quality/android-vpn-lifecycle-transcripts.md).
 
 ## Local verification
 
@@ -105,6 +110,7 @@ Build and contract checks:
 pnpm mobile-core:contract
 pnpm mobile-core:verify
 pnpm mobile:android:test
+pnpm mobile:android:test:emulator
 pnpm mobile:android:build
 pnpm check:android
 ```
@@ -113,7 +119,9 @@ The Android build produces separate ARM64 and x86_64 debug APKs. Generated Core
 libraries and APKs remain ignored build outputs; committed evidence contains
 only the pinned inputs, checksums, provenance, symbols, notices, and SBOM.
 
-Device acceptance must use one explicit target and the Appium workflow in
+The emulator transcript command requires one already-running repository-
+supported API 36 emulator and exercises no VPN effect. Device acceptance must
+use one explicit target and the Appium workflow in
 [`mobile-validation.md`](../quality/mobile-validation.md). Record only bounded
 facts for start, background/foreground, Activity recreation, cancellation,
 network loss/recovery, process recovery, and stop. Physical ARM64 and x86_64

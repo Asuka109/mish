@@ -168,6 +168,15 @@ and its runner matches closed request kinds rather than enforcing capture order.
 It does not replace this semantic model or make raw command order observable to
 Runtime/Capture tests.
 
+The Android VPN lifecycle slice described in
+[`../quality/android-vpn-lifecycle-transcripts.md`](../quality/android-vpn-lifecycle-transcripts.md)
+uses the same transcript rules while retaining the mobile Shared Rust reducer,
+Kotlin authority/store/cleanup contracts, and JavaScript delivery projection.
+Its instrumentation harness owns Android process/storage bootstrap and closed
+effect injection only. The emulator gate is therefore Android
+process/service-contract evidence, not VPN permission, TUN, Core, packet-flow,
+network, or physical-device evidence.
+
 ## Structural privacy
 
 Privacy is an admission rule, not a redaction pass. Scenario and transcript

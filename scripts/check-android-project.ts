@@ -176,6 +176,13 @@ invariant(
   "The Kotlin lifecycle state-machine tests must remain directly runnable.",
 );
 invariant(
+  mobilePackage.scripts?.["android:test:emulator"]?.includes("android:prepare-plugin-tests") &&
+    mobilePackage.scripts?.["android:test:emulator"]?.includes(
+      ":tauri-plugin-mish-vpn:connectedDebugAndroidTest",
+    ),
+  "The repository-owned Android emulator lifecycle acceptance must remain directly runnable.",
+);
+invariant(
   mobilePackage.scripts?.tauri === "tauri",
   "Nested Gradle Rust tasks must be able to re-enter the package-local Tauri CLI.",
 );

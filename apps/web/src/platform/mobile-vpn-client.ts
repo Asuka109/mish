@@ -140,6 +140,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private activeLoadOperationId?: string;
   private readonly loadOperations = new Map<string, MobileLoadOperation>();
   private readonly lifecycleOperations = new Map<string, MobileLifecycleOperation>();
+  private traceCount = 0;
 
   constructor(
     private readonly transport: MobileVpnTransport = defaultTransport,
@@ -871,7 +872,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     delivery: "baseline" | "notification" | "command" | "load",
     acceptance: "accepted" | "duplicate" | "stale" | "retired",
   ): void {
-    this.options.trace?.({
+    this.emitTrace({
       acceptance,
       authorityId: snapshot.authorityId,
       delivery,
@@ -884,6 +885,9 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   }
 
   private emitTrace(event: MobileVpnDeliveryTraceEvent): void {
+    if (!this.options.trace) return;
+    if (this.traceCount >= 32) throw new Error("The mobile VPN delivery transcript overflowed.");
+    this.traceCount += 1;
     this.options.trace?.(event);
   }
 }

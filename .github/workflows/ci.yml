@@ -172,6 +172,74 @@ jobs:
         run: pnpm check:rust:mobile
       - name: Compile mobile Rust test targets
         run: pnpm test:rust:mobile
+  android-emulator-gate:
+    name: Android lifecycle emulator gate
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.10.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          cmdline-tools-version: 14742923
+          log-accepted-android-sdk-licenses: false
+          packages: ""
+      - name: Install pinned Android test toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.1.0" \
+            "ndk;29.0.14206865"
+          rustup target add aarch64-linux-android
+          ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
+          toolchain="$ndk_home/toolchains/llvm/prebuilt/darwin-x86_64"
+          test -x "$toolchain/bin/aarch64-linux-android35-clang"
+          {
+            echo "ANDROID_NDK_HOME=$ndk_home"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android35-clang"
+            echo "PATH=$toolchain/bin:$PATH"
+          } >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pr-android-emulator
+          cache-on-failure: true
+      - name: Run credential-free Android lifecycle emulator acceptance
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          arch: arm64-v8a
+          target: google_apis
+          emulator-build: 15917651
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -no-metrics -no-sim
+          disable-animations: true
+          script: pnpm mobile:android:test:emulator
 
   inspect-main:
     name: Inspect main

@@ -68,6 +68,14 @@ const simulatedControlMarkers = [
   "scenario-harness",
   "simulated-host",
 ];
+const androidEmulatorTestRoot = path.join(
+  "apps/mobile/src-tauri/plugins/mish-vpn/android/src/androidTest",
+);
+const androidEmulatorControlMarkers = [
+  "EmulatorLifecycleTranscript",
+  "recreation-cleanup-retry",
+  "admission-rejected",
+];
 
 function extractLocalImportSpecifiers(source: string): string[] {
   const specifiers = new Set<string>();
@@ -356,6 +364,38 @@ test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude
       `${file} makes test-only SimulatedHost data reachable from a release or product input: ${leakedMarkers.join(", ")}`,
     );
   }
+});
+
+test("Android emulator lifecycle controls stay out of product source and APK inputs", () => {
+  const testSources = filesUnder(androidEmulatorTestRoot);
+  assert.ok(
+    testSources.some((file) => read(file).includes("EmulatorLifecycleTranscript")),
+    "The Android emulator lifecycle acceptance is missing.",
+  );
+
+  for (const root of [
+    "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main",
+    "apps/mobile/src-tauri/gen/android/app/src/main",
+    "apps/mobile/src-tauri/src",
+  ]) {
+    const leaked = filesUnder(root).filter((file) => {
+      const content = read(file);
+      return androidEmulatorControlMarkers.some((marker) => content.includes(marker));
+    });
+    assert.deepEqual(
+      leaked,
+      [],
+      `${root} imports an Android emulator-only lifecycle control: ${leaked.join(", ")}`,
+    );
+  }
+
+  const pluginGradle = read("apps/mobile/src-tauri/plugins/mish-vpn/android/build.gradle.kts");
+  assert.equal(
+    pluginGradle.includes("androidTestImplementation") &&
+      !pluginGradle.includes('implementation("androidx.test:'),
+    true,
+    "Android instrumentation dependencies must remain androidTest-only.",
+  );
 });
 
 test("Web production sources cannot import the scenario control API or synthetic identities", () => {

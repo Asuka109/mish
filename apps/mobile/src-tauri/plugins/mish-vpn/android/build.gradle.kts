@@ -48,4 +48,6 @@ dependencies {
     testImplementation("com.fasterxml.jackson.core:jackson-databind:2.15.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("junit:junit:4.13.2")
 }

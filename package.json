@@ -111,6 +111,7 @@
     "mobile:android:init": "pnpm --filter @mish/mobile android:init",
     "mobile:android:prepare-tests": "pnpm --filter @mish/mobile android:prepare-plugin-tests",
     "mobile:android:test": "pnpm --filter @mish/mobile android:test",
+    "mobile:android:test:emulator": "pnpm --filter @mish/mobile android:test:emulator",
     "prepare:mihomo": "node scripts/prepare-mihomo.ts",
     "preview": "pnpm web:preview",
     "release:macos:fixture": "node scripts/macos-alpha-release.ts fixture",
