@@ -20,11 +20,13 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A through 2F are integrated. Coordinator review of combined
-`origin/main@e475a22f` found no delivery defect and the full `pnpm check:pr`
-passed. The maintainer approved the exact three-task AFK Wave 2G on 2026-08-12:
-#449 C1.2, #451 D1.2, and #453 F2.3 are active as visible Luna Max Workers in
-isolated worktrees. Seven repository concurrency slots remain unreserved.
+Waves 2A through 2G are integrated and no implementation Worker is active.
+Wave 2G landed through PRs #494-#496 on `origin/main@45842ccb`; coordinator
+review found no delivery defect and the combined `pnpm check:pr` passed (Web 69
+files / 603 tests and scripts 232 tests, plus Rust, simulated-host, Browser,
+production-exclusion, documentation, and release gates). The exact three-task
+AFK Wave 2H candidate is awaiting maintainer confirmation: #449 C1.3, #451
+D1.3, and #454 D2.1. All ten repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -64,15 +66,15 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
 | RPC Session Authority | #440 | completed: B1.1-B1.5 integrated; Issue closed | none | accepted |
-| Profile credential privacy | #449 | C1.1 integrated; C1.2/C1.3 sequential | #440 completed | confirmation-only |
+| Profile credential privacy | #449 | C1.1/C1.2 integrated; C1.3 ready | #440 completed | confirmation-only |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
-| Android VPN authority | #451 | D1.1 integrated; D1.2 ready; D1.3-D1.4 sequential | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
-| Mobile Core provenance | #454 | blocked | #451 | confirmation-only |
+| Android VPN authority | #451 | D1.1/D1.2 integrated; D1.3 ready, then D1.4 | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
+| Mobile Core provenance | #454 | D2.1 ready; D2.2/D2.3 sequential | #451 D1.2 integrated | confirmation-only |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
 | Settings editor serialization | #452 | completed: F1.1/F1.2 integrated; Issue closed | #440 completed | accepted |
-| Remove Profile Patch Editor | #453 | F2.1/F2.2 integrated; F2.3 ready | #440 completed | confirmation-only |
+| Remove Profile Patch Editor | #453 | completed: F2.1-F2.3 integrated; Issue closed | #440 completed | accepted |
 | Lazy-route recovery | #444 | completed: G1.1 integrated; Issue closed | none | accepted |
 | Traffic details accessibility | #445 | completed: G2.1 integrated; Issue closed | none | accepted |
 | Clipboard failure feedback | #446 | completed: G3.1 integrated; Issue closed | none | accepted |
@@ -172,9 +174,9 @@ or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.2 | `019ff22f-8c1c-7d71-8862-69aa7000dff8` | `aa93` | active | C1.1 and F2.2 integrated | Bind HTTPS import requests to the current accepted generation and reject stale previews/requests | Visible Luna Max Worker is active; own active Profile HTTPS import generation authority and deterministic privacy-safe tests only, preserve F2.2 deletion, do not restore Patch Editor contracts, and do not implement C1.3 detach confirmation |
-| #451 D1.2 | `019ff22f-8c1c-7d71-8862-69c06b43c5a0` | `2a8b` | active | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | Visible Luna Max Worker is active; own Kotlin VPN service/store/owned-resource authority and tests only, preserve Rust D1.1 authority, do not implement JavaScript D1.3 or device/emulator D1.4, and do not claim physical-device acceptance |
-| #453 F2.3 | `019ff22f-8c1c-7d71-8862-69e066d54506` | `9b1e` | active | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | Visible Luna Max Worker is active; own post-deletion static/route regression and active Profile journey tests only, do not change product behavior or implement #449 C1.2; merge before C1.2, then C1.2 must integrate latest main and rerun the overlapping Profile journey |
+| #449 C1.2 | `019ff22f-8c1c-7d71-8862-69aa7000dff8` | `aa93` | integrated | C1.1 and F2.2 integrated | Bind HTTPS import requests to the current accepted generation and reject stale previews/requests | PR #495 merged as `9596812f`; latest-main integration and full local/remote gates passed; Issue #449 remains open with C1.3 pending |
+| #451 D1.2 | `019ff22f-8c1c-7d71-8862-69c06b43c5a0` | `2a8b` | integrated | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | PR #496 merged as `45842ccb`; local mobile/full gates and remote Fast/Android gates passed; Issue #451 remains open with D1.3/D1.4 pending |
+| #453 F2.3 | `019ff22f-8c1c-7d71-8862-69e066d54506` | `9b1e` | integrated | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | PR #494 merged as `c54e5345`; removal gate 9/9, Profile journey 7/7, and full local/remote gates passed; Issue #453 closed completed |
 
 ## Existing issue coordination
 
@@ -204,16 +206,23 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- #449 C1.2, #451 D1.2, and #453 F2.3 are dependency-ready AFK candidates.
-  If C1.2 and F2.3 run concurrently, freeze both on the same baseline, merge
-  F2.3 first, then integrate latest main into C1.2 and rerun the active Profile
-  journey because their test surfaces may overlap.
+- The exact candidate Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. All are
+  AFK, confirmation-only, Chinese-reporting Luna Max (`gpt-5.6-luna/max`)
+  tasks and remain undispatched pending maintainer confirmation.
+- #449 C1.3 is independent of the mobile tasks and completes detach
+  confirmation plus credential-token negative evidence without real
+  credentials or external network access.
+- #451 D1.3 owns only the Web/JavaScript mobile lifecycle authority,
+  abort/dispose, baseline, and stale-load surface. #454 D2.1 owns only
+  Kotlin/native pinned Mobile Core artifact admission. They may start in
+  parallel, but merge D2.1 first; D1.3 must then integrate latest main and
+  rerun affected cross-layer contracts. Neither task may implement D1.4,
+  D2.2, D2.3, or claim emulator/physical-device acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- Complete #451 D1.2 before #454 D2.1 starts.
-- Before dispatch, reconcile the current thread-master Codex compute table with
-  the repository's Luna-only AGENTS.md rule; do not create a Worker while those
-  instructions disagree.
+- Complete #454 D2.1 before D2.2 and D2.3, and complete #451 D1.3 before D1.4.
+- The maintainer's explicit Luna Max requirement overrides the thread-master
+  default compute table for every Mish implementation Worker.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
