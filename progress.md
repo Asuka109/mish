@@ -20,6 +20,9 @@ Owner: thread-master coordinator
   reporting and confirmation-only acceptance.
 - The maintainer approved exact Wave 2K on 2026-08-12: #454 D2.3 uses
   `gpt-5.6-sol/medium`, Chinese reporting, and confirmation-only acceptance.
+- The maintainer approved exact Wave 2L on 2026-08-13: desktop #172 and Android
+  #281/#283/#284 each use `gpt-5.6-sol/high`, Chinese reporting, and
+  confirmation-only acceptance. All four are repository-only AFK slices.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -47,7 +50,8 @@ Issue #435 remains open only for H1.2 hands-on macOS acceptance. Wave 2J is
 fully integrated: D2.2 through PR #503 / `0e0bc567` and D1.4 through PR #504 /
 `2b1a0dcf`. Wave 2K is fully integrated: D2.3 merged through PR #505 /
 `f0c6cd78` after explicit acceptance, all local/remote gates passed, and Issue
-#454 closed completed. Ten repository concurrency slots remain unreserved.
+#454 closed completed. Wave 2L has four dispatching reservations; six
+repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -264,6 +268,25 @@ other hands-on work.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #454 D2.3 | `019ff661-9c28-75d1-829d-424b58c77f2a` | `d5ce` | integrated | D2.1/D2.2 integrated | Expose a bounded redacted Mobile Core provenance snapshot and diagnostics coverage from the one existing admission authority | PR #505 merged as `f0c6cd78` after explicit acceptance; local `check:pr`, Kotlin 48, plugin Rust 22, focused TypeScript 25, dual-ABI Android Rust, fresh Fast PR/Android Rust/emulator gates, and coordinator post-merge 31-test Android/boundary/exclusion review passed. Issue #454 closed completed; no physical-device, PackageManager deployment, real Core/VPN/TUN/network, release/store-signing, publication, or deployment claim |
+
+## Wave 2L dispatch manifest
+
+The maintainer approved this exact four-task AFK wave. Every entry uses model
+`gpt-5.6-sol`, reasoning effort `high`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. All four
+must follow the transcript-driven system-test contract. Android tasks may
+implement in parallel, with integration order #283, #281, then #284. This wave
+authorizes repository-owned deterministic, fake-native, and automated emulator
+evidence only. It authorizes no physical device, real VPN/TUN/network mutation,
+Apple credentials, real Developer ID signing/notarization, publication,
+deployment, or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #172 credential-free signed-direct slice | `pending` | `pending` | dispatching | #168 closed; #171 required only for live signing | Add the explicit System Proxy-only `signed-direct` profile, hardened-runtime/entitlement policy, privileged-TUN exclusions, and synthetic-identity fixture coverage | Keep Issue #172 open for live Developer ID verification; no credentials, Apple trust, notarization, updater, publication, Intel, or production TUN claim |
+| #283 Android Route selection authority | `pending` | `pending` | dispatching | #263/#451/#454 completed | Project one live policy-group child selection through Shared Rust and the closed Android Mobile Core adapter | Preserve Rust authority and desktop Routes; repository-owned automated demo only; no physical-device or real VPN/TUN/network claim; first Android integration position |
+| #281 Android Traffic authority | `pending` | `pending` | dispatching | #263/#451/#454 completed | Project bounded active connections and one close-current-connection command with stable identity and redaction | Preserve Rust authority, native buffer ownership, and desktop Traffic; repository-owned automated demo only; integrate after #283 |
+| #284 Android Events/diagnostic authority | `pending` | `pending` | dispatching | #263/#451/#454 completed | Publish ordered redacted Android lifecycle Events and one fixed cancellable diagnostic | Fixed target/timeout only; no arbitrary endpoint, raw JNI text, persistent history, or physical/real-network claim; integrate after #281 |
 
 ## Existing issue coordination
 
