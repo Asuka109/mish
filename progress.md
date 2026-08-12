@@ -35,9 +35,9 @@ Coordinator post-merge `pnpm check:pr` passed at `origin/main@176351ec` (Web 69
 files / 613 tests, scripts 232 tests, Rust, simulated-host, Browser,
 production-exclusion, documentation, and release gates). The maintainer
 approved exact Wave 2I containing only independent #435 H1.1 and explicitly
-selected `gpt-5.6-sol/high`; its visible-task identity and worktree are pending
-creation under the published `dispatching` reservation. Eight repository
-concurrency slots remain unreserved after this reservation.
+selected `gpt-5.6-sol/high`; visible Worker
+`019ff541-1dd8-7922-87f3-5a4e4f6894fd` is active in isolated worktree `c3da`.
+Eight repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -221,7 +221,7 @@ physical-host acceptance, or other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #435 H1.1 | `pending` | `pending` | dispatching | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | Automated/synthetic only: do not repair the underlying Helper installation failure, invoke a real administrator prompt, or claim actual host mutation; H1.2 retains hands-on authorization and Remove-mutation validation |
+| #435 H1.1 | `019ff541-1dd8-7922-87f3-5a4e4f6894fd` | `c3da` | active | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | Automated/synthetic only: do not repair the underlying Helper installation failure, invoke a real administrator prompt, or claim actual host mutation; H1.2 retains hands-on authorization and Remove-mutation validation |
 
 ## Existing issue coordination
 
@@ -282,8 +282,8 @@ final-only escalation, and explicit human acceptance before merge.
   D2.1 follow-up finishes. The maintainer explicitly overrode the earlier Luna
   Max project setting for this task and selected `gpt-5.6-sol/high`, Chinese
   reporting, confirmation-only acceptance, final-only escalation, and an
-  isolated worktree. Its exact `dispatching` reservation is published before
-  visible-task creation.
+  isolated worktree. Visible Worker `019ff541-1dd8-7922-87f3-5a4e4f6894fd`
+  is active in worktree `c3da`.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
