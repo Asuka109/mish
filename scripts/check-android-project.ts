@@ -21,6 +21,12 @@ const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xm
 const pluginService = source(
   `${pluginRoot}/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt`,
 );
+const mobileCoreAdmission = source(
+  `${pluginRoot}/android/src/main/java/com/asuka109/mish/vpn/MishMobileCoreAdmission.kt`,
+);
+const mobileCoreAdversarialTest = source(
+  `${pluginRoot}/android/src/test/java/com/asuka109/mish/vpn/MobileCoreProvenanceAdversarialTest.kt`,
+);
 const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
@@ -217,6 +223,31 @@ for (const requirement of [
   invariant(
     pluginManifest.includes(requirement),
     `Android VPN plugin Manifest is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "MobileCoreAdmissionBoundaryEffect",
+  "MobileCoreAdmissionBoundaryResult",
+  "PROTECTED_USE_RECHECK",
+  "MobileCoreAdmissionSource",
+  "source.observeArtifact()",
+  "MobileCoreAdmissionFailure.ARTIFACT_REPLACED",
+]) {
+  invariant(
+    mobileCoreAdmission.includes(requirement),
+    `Mobile Core admission must retain the D2.2 protected-use boundary: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "manifest adversarial matrix fails closed before every runtime effect",
+  "ABI and artifact adversarial matrix fails closed before every runtime effect",
+  "signer adversarial matrix fails closed before every runtime effect",
+  "occurrence bounded replacement at protected use boundary rejects before JNI and runtime effects",
+  "closed boundary transcript is bounded and contains no private payload shape",
+]) {
+  invariant(
+    mobileCoreAdversarialTest.includes(requirement),
+    `Mobile Core D2.2 adversarial use case is missing: ${requirement}`,
   );
 }
 invariant(
