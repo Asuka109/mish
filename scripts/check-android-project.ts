@@ -16,6 +16,9 @@ const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
 const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xml`);
+const pluginService = source(
+  `${pluginRoot}/android/src/main/java/com/asuka109/mish/vpn/MishVpnService.kt`,
+);
 const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
@@ -28,7 +31,14 @@ const pluginRustLifecycle = source(`${pluginRoot}/src/lifecycle.rs`);
 const pluginRustAndroid = source(`${pluginRoot}/src/android.rs`);
 const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
+const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.json")) as {
+  schemaVersion: number;
+  abiVersion: number;
+  wrapperRevision: string;
+  mihomo: { commit: string; version: string };
+};
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
+const mobileAppIgnore = source("apps/mobile/src-tauri/gen/android/app/.gitignore");
 const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
   scripts?: Record<string, string>;
 };
@@ -175,6 +185,7 @@ for (const requirement of [
   "serviceDestroyed",
   'System.loadLibrary("mish_vpn_jni")',
   "class MishMobileCoreProbe",
+  "core.admission()",
   "class MobileConfigValidationCoordinator",
   "class MobileConfigLoadCoordinator",
   "nativeValidateConfig",
@@ -183,6 +194,17 @@ for (const requirement of [
   "nativeStartCore",
   "nativeStopCore",
   "nativeInspectRuntime",
+  "class MobileCoreArtifactAdmission",
+  "MobileCoreAdmissionPolicy",
+  "MOBILE_CORE_ADMISSION_MANIFEST_ASSET",
+  "MOBILE_CORE_ADMISSION_MAX_MANIFEST_BYTES",
+  "MOBILE_CORE_ADMISSION_MAX_ARTIFACT_BYTES",
+  "MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES",
+  "GET_SIGNING_CERTIFICATES",
+  "MobileCoreAdmissionFailure",
+  "MobileCoreAdmissionInvocation",
+  "MobileCoreEffectOperation",
+  "ensureAdmitted()",
   "MOBILE_CORE_MAX_CONFIG_BYTES_V1",
   "getPlatformFacts",
   "startPlatformLifecycle",
@@ -319,6 +341,10 @@ for (const requirement of [
   "SHA256SUMS",
   "--evidence-dir",
   "verify-mobile-core.ts",
+  "writeAdmissionManifest",
+  "mish-mobile-core-admission.json",
+  "signatureIdentity",
+  "signatureVerification",
   "readUInt16LE(18)",
   "libmish_mobile_core.so",
   "apps/mobile/src-tauri/gen/android/app/src/main/jniLibs",
@@ -326,6 +352,30 @@ for (const requirement of [
   invariant(
     mobileCoreStage.includes(requirement),
     `Android Mobile Core staging verification is missing: ${requirement}`,
+  );
+}
+invariant(
+  mobileAppIgnore.includes("/src/main/assets/mish-mobile-core-admission.json"),
+  "The generated Android admission manifest must remain ignored build input.",
+);
+const authorityPersistenceIndex = pluginService.indexOf("store.activationStarting(");
+const admissionIndex = pluginService.indexOf("if (!core.admission().admitted)");
+const foregroundIndex = pluginService.indexOf("promoteToForeground()");
+invariant(
+  authorityPersistenceIndex >= 0 &&
+    admissionIndex > authorityPersistenceIndex &&
+    foregroundIndex > admissionIndex,
+  "Mobile Core admission must follow persisted lifecycle authority and precede foreground effects.",
+);
+for (const requirement of [
+  `PINNED_SOURCE_COMMIT = "${mobileCoreSourceManifest.mihomo.commit}"`,
+  `PINNED_SOURCE_VERSION = "${mobileCoreSourceManifest.mihomo.version}"`,
+  `PINNED_WRAPPER_REVISION = "${mobileCoreSourceManifest.wrapperRevision}"`,
+  `PINNED_ABI_VERSION = ${mobileCoreSourceManifest.abiVersion}`,
+]) {
+  invariant(
+    mobileCoreSourceManifest.schemaVersion === 1 && kotlin.includes(requirement),
+    `Kotlin admission pins must match mobile-core/source-manifest.json: ${requirement}`,
   );
 }
 for (const command of [

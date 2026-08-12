@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -9,6 +9,10 @@ const defaultSourceRoot = resolve(repositoryRoot, ".scratch/mobile-core/pass-1/a
 const defaultDestinationRoot = resolve(
   repositoryRoot,
   "apps/mobile/src-tauri/gen/android/app/src/main/jniLibs",
+);
+const defaultAdmissionManifest = resolve(
+  repositoryRoot,
+  "apps/mobile/src-tauri/gen/android/app/src/main/assets/mish-mobile-core-admission.json",
 );
 
 interface AndroidArtifact {
@@ -66,6 +70,55 @@ function expectedChecksums(evidenceRoot: string): Map<string, string> {
   );
 }
 
+function writeAdmissionManifest(evidenceRoot: string, destination: string): void {
+  const sourceManifest = JSON.parse(
+    readFileSync(resolve(repositoryRoot, "mobile-core/source-manifest.json"), "utf8"),
+  ) as {
+    schemaVersion: number;
+    abiVersion: number;
+    wrapperRevision: string;
+    mihomo: { commit: string; version: string };
+    android: { artifacts: Array<{ abi: string }> };
+  };
+  if (
+    sourceManifest.schemaVersion !== 1 ||
+    sourceManifest.abiVersion !== 1 ||
+    sourceManifest.wrapperRevision !== "mish-mobile-core-v1"
+  ) {
+    throw new Error("Mobile Core source manifest is not the pinned admission schema");
+  }
+  const sourceAbis = sourceManifest.android.artifacts.map(({ abi }) => abi);
+  if (
+    sourceAbis.length !== artifacts.length ||
+    new Set(sourceAbis).size !== sourceAbis.length ||
+    artifacts.some(({ abi }) => !sourceAbis.includes(abi))
+  ) {
+    throw new Error(
+      "Mobile Core source manifest ABI set differs from the Android staging contract",
+    );
+  }
+  const checksums = expectedChecksums(evidenceRoot);
+  const manifestArtifacts = sourceManifest.android.artifacts.map((artifact) => {
+    const relativePath = `${artifact.abi}/libmish_mobile_core.so`;
+    const sha256 = checksums.get(relativePath);
+    if (!sha256) throw new Error(`Missing ${artifact.abi} Mobile Core checksum evidence`);
+    return { abi: artifact.abi, sha256 };
+  });
+  const manifest = {
+    schemaVersion: 1,
+    abiVersion: sourceManifest.abiVersion,
+    sourceCommit: sourceManifest.mihomo.commit,
+    sourceVersion: sourceManifest.mihomo.version,
+    wrapperRevision: sourceManifest.wrapperRevision,
+    wrapperContractVersion: 1,
+    artifacts: manifestArtifacts,
+    signatureIdentity: "android-package-signature-v1",
+    signatureVerification: "package-signer",
+  };
+  mkdirSync(dirname(destination), { recursive: true });
+  writeFileSync(destination, `${JSON.stringify(manifest)}\n`);
+}
+
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -84,6 +137,7 @@ function main(): void {
   const sourceRoot = resolve(argument("--source-dir") ?? defaultSourceRoot);
   const destinationRoot = resolve(argument("--destination-dir") ?? defaultDestinationRoot);
   const evidenceRoot = resolve(argument("--evidence-dir") ?? canonicalEvidenceRoot);
+  const admissionManifest = resolve(argument("--admission-manifest") ?? defaultAdmissionManifest);
   execFileSync(
     process.execPath,
     [
@@ -113,6 +167,7 @@ function main(): void {
     copyFileSync(source, destination);
     console.log(`Staged verified ${artifact.abi} Mobile Core at ${destination}`);
   }
+  writeAdmissionManifest(evidenceRoot, admissionManifest);
 }
 
 main();

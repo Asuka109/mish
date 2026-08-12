@@ -154,6 +154,10 @@ class MishVpnService : VpnService() {
                 request.productSessionId,
                 request.lifecycleAuthority,
             )
+            if (!core.admission().admitted) {
+                failAfterCleanup(PlatformFailureKind.CORE_UNAVAILABLE, startId)
+                return
+            }
             promoteToForeground()
             store.foregroundStarted()
             registerUnderlyingNetworkObservation()
