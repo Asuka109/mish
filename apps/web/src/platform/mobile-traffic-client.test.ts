@@ -134,6 +134,35 @@ describe("MobileTrafficClient", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects a close result bound to another operation identity", async () => {
+    const client = new MobileTrafficClient({
+      clearInterval: vi.fn(),
+      invoke: vi.fn(async (command) =>
+        command === "get_traffic_snapshot"
+          ? snapshot()
+          : {
+              failure: null,
+              operation: "close-connection",
+              operationId: "another-operation",
+              remainingConnectionIds: [],
+              snapshot: snapshot({ activeConnections: [], sequence: 2 }),
+              status: "success",
+              targetCount: 1,
+            },
+      ),
+      setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
+    });
+    await client.getSnapshot();
+
+    await expect(
+      client.closeConnection(
+        { profileId: "profile-a", sequence: 1, sessionId: "traffic-a" },
+        "fixture-connection-current",
+        { operationId: "expected-operation" },
+      ),
+    ).rejects.toThrow("operation identity mismatch");
+  });
+
   it("accepts an authoritative close snapshot even when cancellation races after dispatch", async () => {
     const controller = new AbortController();
     const closed = snapshot({ activeConnections: [], sequence: 2 });

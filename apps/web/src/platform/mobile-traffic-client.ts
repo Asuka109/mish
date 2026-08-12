@@ -54,12 +54,13 @@ export class MobileTrafficClient implements TrafficClient {
   ): Promise<TrafficCommandResultDto> {
     if (options.signal?.aborted) return this.cancelledResult("close-connection");
     const current = this.snapshot ?? (await this.getSnapshot(options));
+    const operationId =
+      options.operationId ?? `mobile-traffic-${Date.now()}-${++this.operationSequence}`;
     const result = MobileTrafficCommandResultSchema.parse(
       await this.transport.invoke("close_traffic_connection", {
         request: {
           connectionId,
-          operationId:
-            options.operationId ?? `mobile-traffic-${Date.now()}-${++this.operationSequence}`,
+          operationId,
           profileId: authority.profileId,
           runtimeAuthorityId: current.applicationOrder.authorityId,
           sequence: authority.sequence,
@@ -67,6 +68,9 @@ export class MobileTrafficClient implements TrafficClient {
         },
       }),
     );
+    if (result.operationId !== operationId) {
+      throw new Error("Mobile Traffic operation identity mismatch");
+    }
     // The provider owns command-result reconciliation. Retain the authoritative
     // snapshot locally, but do not publish it as a subscription update: doing so
     // would supersede and abort the command that is still returning this result.
