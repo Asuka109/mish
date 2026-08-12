@@ -470,11 +470,42 @@ impl<R: Runtime> MishVpn<R> {
         if current_state.authority_id != state.authority_id
             || current_state.scope_epoch != state.scope_epoch
         {
-            let connection_remains = traffic.has_connection(&request.connection_id);
+            let current_profile_id = current_state
+                .facts
+                .loaded_config_revision
+                .as_deref()
+                .unwrap_or("mobile-profile-unavailable");
+            if current_state.phase == crate::lifecycle::LifecyclePhase::Running {
+                let current_native: NativeTrafficSnapshot = self
+                    .handle
+                    .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+                    .await?;
+                if traffic
+                    .project(
+                        &current_state.authority_id,
+                        current_state.scope_epoch,
+                        current_profile_id,
+                        current_native,
+                    )
+                    .is_err()
+                {
+                    traffic.unavailable(
+                        &current_state.authority_id,
+                        current_state.scope_epoch,
+                        current_profile_id,
+                    );
+                }
+            } else {
+                traffic.unavailable(
+                    &current_state.authority_id,
+                    current_state.scope_epoch,
+                    current_profile_id,
+                );
+            }
             return Ok(traffic.failure(
                 request,
                 mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
-                connection_remains,
+                false,
             ));
         }
         if let Some(failure) = native.failure {
