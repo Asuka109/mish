@@ -5,7 +5,9 @@ use crate::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadFailure,
     MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
     MobileConfigValidationRequest, MobileConfigValidationResult, MobileCoreProvenanceSnapshot,
-    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
+    MobileDiagnosticCommandRequest, MobileDiagnosticCommandResult, MobileDiagnosticSnapshot,
+    MobileEventsSnapshot, MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot,
+    Result,
 };
 
 #[derive(Clone)]
@@ -22,6 +24,38 @@ impl<R: Runtime> MishVpn<R> {
 
     pub async fn get_core_provenance(&self) -> Result<MobileCoreProvenanceSnapshot> {
         Ok(MobileCoreProvenanceSnapshot::unavailable())
+    }
+
+    pub async fn get_events_snapshot(&self) -> Result<MobileEventsSnapshot> {
+        Ok(MobileEventsSnapshot::unsupported())
+    }
+
+    pub async fn get_diagnostic_snapshot(&self) -> Result<MobileDiagnosticSnapshot> {
+        Ok(MobileDiagnosticSnapshot::unsupported())
+    }
+
+    pub async fn start_diagnostic(
+        &self,
+        request: MobileDiagnosticCommandRequest,
+    ) -> Result<MobileDiagnosticCommandResult> {
+        Ok(MobileDiagnosticCommandResult {
+            accepted: false,
+            operation_id: request.operation_id,
+            run_id: None,
+            snapshot: MobileDiagnosticSnapshot::unsupported(),
+        })
+    }
+
+    pub async fn cancel_diagnostic(
+        &self,
+        request: MobileDiagnosticCommandRequest,
+    ) -> Result<MobileDiagnosticCommandResult> {
+        Ok(MobileDiagnosticCommandResult {
+            accepted: false,
+            operation_id: request.operation_id,
+            run_id: request.run_id,
+            snapshot: MobileDiagnosticSnapshot::unsupported(),
+        })
     }
 
     pub async fn request_notification_permission(

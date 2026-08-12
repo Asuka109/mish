@@ -25,6 +25,7 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.UUID
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 @TauriPlugin(
     permissions = [
@@ -47,6 +48,8 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val loadCoordinator = coreRuntime.loadCoordinator
     private val configExecutor: ExecutorService = coreRuntime.configExecutor
     private val platformExecutor: ExecutorService = coreRuntime.platformExecutor
+    private val diagnosticExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val diagnosticEffect = MishFixedDiagnosticEffect()
     private val authorityAdmissionId = "tauri-admission-${UUID.randomUUID()}"
     private var receiverRegistered = false
     private val factsReceiver = object : BroadcastReceiver() {
@@ -69,6 +72,8 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
             this.activity.unregisterReceiver(factsReceiver)
             receiverRegistered = false
         }
+        diagnosticEffect.cancelAll()
+        diagnosticExecutor.shutdownNow()
     }
 
     @Command
@@ -304,6 +309,38 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 return
             }
         invoke.resolveObject(loadCoordinator.cancel(args.operationId))
+    }
+
+    @Command
+    fun runFixedDiagnostic(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(FixedDiagnosticArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(JSObject()
+                    .put("checks", org.json.JSONArray())
+                    .put("failure", "platform-failure")
+                    .put("outcome", "failed")
+                    .put("runId", "invalid-run"))
+                return
+            }
+        runCatching {
+            diagnosticExecutor.execute { invoke.resolveObject(diagnosticEffect.run(args.runId)) }
+        }.onFailure {
+            invoke.resolveObject(JSObject()
+                .put("checks", org.json.JSONArray())
+                .put("failure", "platform-failure")
+                .put("outcome", "failed")
+                .put("runId", args.runId))
+        }
+    }
+
+    @Command
+    fun cancelFixedDiagnostic(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(FixedDiagnosticArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(JSObject().put("accepted", false))
+                return
+            }
+        invoke.resolveObject(JSObject().put("accepted", diagnosticEffect.cancel(args.runId)))
     }
 
     private fun observePlatformFacts(): MobilePlatformFacts {

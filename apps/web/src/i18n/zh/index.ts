@@ -1236,6 +1236,28 @@ const zh: Translation = {
     unavailableNotice: "当前环境无法提供事件记录。",
   },
   diagnostics: {
+    mobile: {
+      cancel: "取消探测",
+      description: "运行唯一固定的 Android 连通性策略；目标与超时不能更改。",
+      phase: {
+        pending: "固定探测正在运行。",
+        completed: "固定探测已完成。",
+        failed: "固定探测失败，仅保留脱敏证据。",
+        cancelled: "固定探测已取消。",
+        "timed-out": "固定探测已超时。",
+        replaced: "固定探测已因运行时替换而终止。",
+      },
+      failure: {
+        cancelled: "匹配的探测已取消。",
+        "fixed-target-unavailable": "固定公网目标未返回预期结果。",
+        "network-unavailable": "Android 未发现可用网络路径。",
+        "platform-failure": "Android 探测失败，未保留原生错误文本。",
+        "runtime-replaced": "探测完成前 Android 运行时已被替换。",
+        timeout: "固定的 5 秒探测期限已到。",
+      },
+      start: "运行固定探测",
+      title: "Android 连通性探测",
+    },
     export: {
       categories: "包含的类别",
       category: {

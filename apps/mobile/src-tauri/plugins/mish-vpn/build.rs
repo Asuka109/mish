@@ -1,5 +1,9 @@
 const COMMANDS: &[&str] = &[
     "get_snapshot",
+    "get_events_snapshot",
+    "get_diagnostic_snapshot",
+    "start_diagnostic",
+    "cancel_diagnostic",
     "get_core_provenance",
     "register_listener",
     "registerListener",

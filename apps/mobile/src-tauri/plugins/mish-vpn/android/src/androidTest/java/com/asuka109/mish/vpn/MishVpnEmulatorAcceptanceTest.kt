@@ -8,6 +8,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 /**
  * Credential-free emulator acceptance for the Android process/storage seam.
@@ -115,6 +118,35 @@ class MishVpnEmulatorAcceptanceTest {
         assertNull(EmulatorLifecycleTranscript.parse(overflow.toString()))
     }
 
+    @Test
+    fun fixedDiagnosticDemoUsesClosedFakeEffectAndMatchingCancellationWithoutNetwork() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val transcript = EmulatorLifecycleTranscript(EmulatorScenario.FIXED_DIAGNOSTIC_DEMO)
+        val effect = MishFixedDiagnosticEffect { cancellation ->
+            entered.countDown()
+            release.await(1, TimeUnit.SECONDS)
+            if (cancellation.isCancelled()) {
+                MishFixedDiagnosticTransportResult.CANCELLED
+            } else {
+                MishFixedDiagnosticTransportResult.COMPLETED
+            }
+        }
+        var result: app.tauri.plugin.JSObject? = null
+        val worker = thread { result = effect.run("run-acceptance-1") }
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+        transcript.record(authority("1"), "fixed-diagnostic", "started")
+        assertFalse(effect.cancel("retired-run"))
+        transcript.record(authority("2"), "stale-delivery", "retired")
+        assertTrue(effect.cancel("run-acceptance-1"))
+        transcript.record(authority("3"), "fixed-diagnostic", "cancelled")
+        release.countDown()
+        worker.join(1_000)
+        assertEquals("cancelled", result?.getString("outcome"))
+        assertFalse(result.toString().contains("https://"))
+        assertEquals(transcript, EmulatorLifecycleTranscript.parse(transcript.toJson().toString()))
+    }
+
     private fun authority(effectIdentity: String): CoreLifecycleAuthority = CoreLifecycleAuthority(
         machineAuthority = "vpn-authority-acceptance",
         scopeEpoch = 1,
@@ -169,12 +201,14 @@ private data class EmulatorLifecycleTranscript(
         private val EFFECTS = setOf(
             "authority-persisted",
             "cleanup",
+            "fixed-diagnostic",
             "mobile-core-admission",
             "process-recreated",
             "stale-delivery",
         )
         private val RESULTS = setOf(
             "applied",
+            "cancelled",
             "completed",
             "duplicate",
             "observed",
@@ -182,6 +216,7 @@ private data class EmulatorLifecycleTranscript(
             "replaced",
             "retired",
             "retryable",
+            "started",
         )
 
         fun parse(encoded: String): EmulatorLifecycleTranscript? = runCatching {
@@ -231,6 +266,7 @@ private data class EmulatorLifecycleTranscript(
 
 private enum class EmulatorScenario(val wireName: String) {
     ADMISSION_REJECTED("admission-rejected"),
+    FIXED_DIAGNOSTIC_DEMO("fixed-diagnostic-demo"),
     RECREATION_CLEANUP_RETRY("recreation-cleanup-retry");
 
     companion object {

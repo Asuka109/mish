@@ -3,6 +3,8 @@ import { createFixtureSettingsSnapshot } from "../data/fixture-settings-client";
 import { resolveMobileStartup } from "./mobile-runtime-bootstrap";
 import { MobileSettingsClient } from "./mobile-settings-client";
 import type { MobileVpnClient } from "./mobile-vpn-client";
+import type { EventsSnapshotDto, MobileDiagnosticSnapshotDto } from "@mish/contracts";
+import { MobileEventsClient } from "./mobile-events-client";
 
 const fixture = {
   adapterKind: "native",
@@ -92,6 +94,42 @@ function createSettingsClient() {
   return new MobileSettingsClient({ invoke: vi.fn(async () => snapshot) });
 }
 
+function createMobileEventsClient() {
+  const events: EventsSnapshotDto = {
+    adapterKind: "native",
+    applicationOrder: { authorityId: "events-authority", epoch: 1, order: 1 },
+    events: [],
+    phase: "ready",
+    profileId: "android-mobile-runtime",
+    reconnectCount: 0,
+    sequence: 1,
+    sessionId: "events-session",
+    sourceStatuses: ["application", "core", "platform", "rpc"].map((source) => ({
+      detail: null,
+      phase: source === "platform" ? "ready" : "unavailable",
+      source,
+    })) as EventsSnapshotDto["sourceStatuses"],
+  };
+  const diagnostic: MobileDiagnosticSnapshotDto = {
+    activeRun: null,
+    adapterKind: "native",
+    applicationOrder: { authorityId: "diagnostic-authority", epoch: 1, order: 1 },
+    authorityId: "diagnostic-authority",
+    history: [],
+    policy: {
+      policyId: "android-connectivity-v1",
+      target: "https://www.gstatic.com/generate_204",
+      timeoutMillis: 5_000,
+    },
+    sequence: 1,
+    sessionId: "diagnostic-session",
+  };
+  return new MobileEventsClient({
+    invoke: vi.fn(async (command) => (command === "get_events_snapshot" ? events : diagnostic)),
+    listen: vi.fn(async () => () => undefined),
+  });
+}
+
 describe("mobile native fixture bootstrap", () => {
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
     const invokeBootstrap = vi.fn(async () => fixture);
@@ -100,6 +138,7 @@ describe("mobile native fixture bootstrap", () => {
       invokeBootstrap,
       mobileSettingsClient: createSettingsClient(),
       mobileVpnClient,
+      mobileEventsClient: createMobileEventsClient(),
     });
 
     expect(invokeBootstrap).toHaveBeenCalledOnce();
@@ -125,6 +164,7 @@ describe("mobile native fixture bootstrap", () => {
       invokeBootstrap: async () => hostFixture,
       mobileSettingsClient: createSettingsClient(),
       mobileVpnClient: createVpnClient(),
+      mobileEventsClient: createMobileEventsClient(),
     });
 
     expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
@@ -135,6 +175,7 @@ describe("mobile native fixture bootstrap", () => {
       invokeBootstrap: async () => fixture,
       mobileSettingsClient: createSettingsClient(),
       mobileVpnClient: createVpnClient(),
+      mobileEventsClient: createMobileEventsClient(),
     });
     const client = startup.client;
     if (!client) throw new Error("Missing mobile fixture status client");

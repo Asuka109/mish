@@ -256,7 +256,10 @@ export function checkRepositoryMobileCapabilityBoundary() {
   );
   invariant(
     isExactStringSet(vpnDefaultPermissions, [
+      "allow-cancel-diagnostic",
       "allow-get-core-provenance",
+      "allow-get-diagnostic-snapshot",
+      "allow-get-events-snapshot",
       "allow-get-snapshot",
       "allow-register-listener",
       "allow-registerListener",
@@ -265,6 +268,7 @@ export function checkRepositoryMobileCapabilityBoundary() {
       "allow-request-notification-permission",
       "allow-request-vpn-consent",
       "allow-start",
+      "allow-start-diagnostic",
       "allow-stop",
       "allow-cancel-lifecycle-operation",
       "allow-validate-config",

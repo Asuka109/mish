@@ -108,6 +108,49 @@ describe("Events page", () => {
     expect((await client.getSnapshot()).events).toHaveLength(4);
   });
 
+  it("resets every view-local control and cleared buffer on session replacement", async () => {
+    const user = userEvent.setup();
+    const client = new FixtureEventsClient();
+    renderEvents(client);
+    await screen.findByText(/Synthetic DNS lookup timed out/);
+    const search = screen.getByRole("searchbox", { name: "Search Events" });
+    await user.type(search, "route check");
+    await user.click(screen.getByRole("combobox", { name: "Filter by level" }));
+    await user.click(await screen.findByRole("option", { name: "Error" }));
+    await user.click(screen.getByRole("combobox", { name: "Filter by source" }));
+    await user.click(await screen.findByRole("option", { name: "Mihomo core" }));
+    await user.click(screen.getByRole("combobox", { name: "Event order" }));
+    await user.click(await screen.findByRole("option", { name: "Newest first" }));
+    await user.click(screen.getByRole("button", { name: "Pause View" }));
+    await user.click(screen.getByRole("button", { name: "Clear Local" }));
+
+    const current = await client.getSnapshot();
+    client.publishSnapshot({
+      ...current,
+      applicationOrder: {
+        authorityId: current.applicationOrder.authorityId,
+        epoch: 2,
+        order: 1,
+      },
+      events: current.events,
+      profileId: "replacement-profile",
+      sequence: 3,
+      sessionId: "replacement-events-session",
+    });
+
+    await waitFor(() => expect(search).toHaveValue(""));
+    expect(screen.getByRole("combobox", { name: "Filter by level" })).toHaveTextContent(
+      "All levels",
+    );
+    expect(screen.getByRole("combobox", { name: "Filter by source" })).toHaveTextContent(
+      "All sources",
+    );
+    expect(screen.getByRole("combobox", { name: "Event order" })).toHaveTextContent("Oldest first");
+    expect(screen.getByRole("button", { name: "Pause View" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Following latest" })).toBeVisible();
+    expect(await screen.findByText(/Synthetic DNS lookup timed out/)).toBeVisible();
+  });
+
   it("keeps the wide toolbar controls icon-only, named, focusable, and actionable", async () => {
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());

@@ -1276,6 +1276,130 @@ export const RpcEventsSnapshotSchema = EventsSnapshotBaseSchema.extend({
 }).superRefine(validateEventsSnapshot);
 export interface RpcEventsSnapshotDto extends z.infer<typeof RpcEventsSnapshotSchema> {}
 
+export const MobileDiagnosticPhaseSchema = z.enum([
+  "pending",
+  "completed",
+  "failed",
+  "cancelled",
+  "timed-out",
+  "replaced",
+]);
+export type MobileDiagnosticPhase = z.infer<typeof MobileDiagnosticPhaseSchema>;
+
+export const MobileDiagnosticFailureSchema = z.enum([
+  "cancelled",
+  "fixed-target-unavailable",
+  "network-unavailable",
+  "platform-failure",
+  "runtime-replaced",
+  "timeout",
+]);
+export type MobileDiagnosticFailure = z.infer<typeof MobileDiagnosticFailureSchema>;
+
+export const MobileDiagnosticCheckSchema = z
+  .object({
+    kind: z.enum(["active-network", "https-handshake", "http204"]),
+    outcome: z.enum(["passed", "failed", "skipped"]),
+  })
+  .strict();
+export interface MobileDiagnosticCheckDto extends z.infer<typeof MobileDiagnosticCheckSchema> {}
+
+export const MobileDiagnosticRunSchema = z
+  .object({
+    checks: z.array(MobileDiagnosticCheckSchema).max(4),
+    failure: MobileDiagnosticFailureSchema.nullable(),
+    operationId: IdentifierSchema,
+    phase: MobileDiagnosticPhaseSchema,
+    runId: IdentifierSchema,
+  })
+  .strict()
+  .superRefine((run, context) => {
+    if (run.phase === "pending" && run.failure !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "A pending diagnostic has no failure and a failed terminal has one",
+        path: ["failure"],
+      });
+    }
+    if (run.phase !== "pending" && run.phase !== "completed" && run.failure === null) {
+      context.addIssue({
+        code: "custom",
+        message: "A non-success diagnostic terminal requires a typed failure",
+        path: ["failure"],
+      });
+    }
+    if (run.phase === "completed" && run.failure !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "A completed diagnostic cannot carry a failure",
+        path: ["failure"],
+      });
+    }
+  });
+export interface MobileDiagnosticRunDto extends z.infer<typeof MobileDiagnosticRunSchema> {}
+
+export const MobileDiagnosticSnapshotSchema = z
+  .object({
+    activeRun: MobileDiagnosticRunSchema.nullable(),
+    adapterKind: z.enum(["fixture", "native"]),
+    applicationOrder: ApplicationSnapshotOrderSchema,
+    authorityId: IdentifierSchema,
+    history: z.array(MobileDiagnosticRunSchema).max(8),
+    policy: z
+      .object({
+        policyId: z.literal("android-connectivity-v1"),
+        target: z.literal("https://www.gstatic.com/generate_204"),
+        timeoutMillis: z.literal(5_000),
+      })
+      .strict(),
+    sequence: NonNegativeIntegerSchema,
+    sessionId: IdentifierSchema,
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (snapshot.activeRun?.phase !== undefined && snapshot.activeRun.phase !== "pending") {
+      context.addIssue({
+        code: "custom",
+        message: "Only a pending diagnostic can be active",
+        path: ["activeRun", "phase"],
+      });
+    }
+    snapshot.history.forEach((run, index) => {
+      if (run.phase === "pending") {
+        context.addIssue({
+          code: "custom",
+          message: "Diagnostic history contains terminal runs only",
+          path: ["history", index, "phase"],
+        });
+      }
+    });
+    if (
+      snapshot.sequence !== snapshot.applicationOrder.order ||
+      snapshot.authorityId !== snapshot.applicationOrder.authorityId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Diagnostic order must be bound to its authority and sequence",
+        path: ["applicationOrder"],
+      });
+    }
+  });
+export interface MobileDiagnosticSnapshotDto extends z.infer<
+  typeof MobileDiagnosticSnapshotSchema
+> {}
+
+export const MobileDiagnosticCommandResultSchema = z
+  .object({
+    accepted: z.boolean(),
+    operationId: IdentifierSchema,
+    runId: IdentifierSchema.nullable(),
+    snapshot: MobileDiagnosticSnapshotSchema,
+  })
+  .strict();
+export interface MobileDiagnosticCommandResultDto extends z.infer<
+  typeof MobileDiagnosticCommandResultSchema
+> {}
+
 export const NotificationSeveritySchema = z.enum(["debug", "info", "success", "warning", "error"]);
 export type NotificationSeverity = z.infer<typeof NotificationSeveritySchema>;
 
@@ -4226,6 +4350,21 @@ export interface EventsClient {
   subscribeSnapshots(
     listener: (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
   ): () => void;
+}
+
+export interface MobileDiagnosticClient {
+  readonly availability: "supported" | "unavailable";
+  cancel(
+    operationId: string,
+    runId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<MobileDiagnosticCommandResultDto>;
+  getDiagnosticSnapshot(options?: { signal?: AbortSignal }): Promise<MobileDiagnosticSnapshotDto>;
+  start(
+    operationId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<MobileDiagnosticCommandResultDto>;
+  subscribe(listener: (snapshot: MobileDiagnosticSnapshotDto) => void): () => void;
 }
 
 export type UpdaterConnectionState = StatusConnectionState;

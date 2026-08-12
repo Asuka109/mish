@@ -16,11 +16,13 @@ import type { StartupStatusClient } from "./runtime-bootstrap";
 import { UnavailableSupportBundleClient } from "./support-bundle";
 import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
 import { MobileSettingsClient } from "./mobile-settings-client";
+import { MobileEventsClient } from "./mobile-events-client";
 
 interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
   mobileSettingsClient: SettingsClient;
   mobileVpnClient: MobileVpnClient;
+  mobileEventsClient?: MobileEventsClient;
 }
 
 const defaultDependencies: MobileBootstrapDependencies = {
@@ -106,6 +108,11 @@ export async function resolveMobileStartup(
 ): Promise<StartupStatusClient> {
   const fixture = MobileFixtureBootstrapSchema.parse(await dependencies.invokeBootstrap());
   const mobileVpnSnapshot = await dependencies.mobileVpnClient.initialize();
+  const nativeMobileRuntime = fixture.platform === "android" && fixture.core.kind === "native";
+  const mobileEventsClient = nativeMobileRuntime
+    ? (dependencies.mobileEventsClient ?? new MobileEventsClient())
+    : undefined;
+  await mobileEventsClient?.initialize();
   const settingsClient =
     fixture.platform === "android" &&
     fixture.core.kind === "native" &&
@@ -114,8 +121,12 @@ export async function resolveMobileStartup(
       : new FixtureSettingsClient();
   return {
     client: new MobileFixtureStatusClient(fixture),
-    dispose: () => dependencies.mobileVpnClient.dispose(),
-    eventsClient: new MobileFixtureEventsClient(),
+    dispose: () => {
+      mobileEventsClient?.dispose();
+      dependencies.mobileVpnClient.dispose();
+    },
+    eventsClient: nativeMobileRuntime ? mobileEventsClient : new MobileFixtureEventsClient(),
+    mobileDiagnosticClient: nativeMobileRuntime ? mobileEventsClient : undefined,
     localBackupClient: new UnavailableLocalBackupClient(),
     mobileFixture: fixture,
     mobileVpnClient: dependencies.mobileVpnClient,

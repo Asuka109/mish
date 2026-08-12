@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import "./android-events-diagnostic-exclusion.test.ts";
 import {
   checkRepositoryMobileCapabilityBoundary,
   findMobileCapabilityBoundaryViolations,
@@ -97,6 +98,10 @@ test("accepts reviewed typed platform capabilities", () => {
     {
       path: "apps/web/src/platform/mobile-vpn-client.ts",
       text: 'invoke("plugin:mish-vpn|request_vpn_consent", { request: { operationId } });',
+    },
+    {
+      path: "apps/web/src/platform/mobile-events-client.ts",
+      text: 'invoke("plugin:mish-vpn|start_diagnostic", { request: { operationId } });',
     },
     {
       path: "apps/web/src/platform/mobile-settings-client.ts",

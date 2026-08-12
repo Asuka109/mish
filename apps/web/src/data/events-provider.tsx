@@ -2,6 +2,8 @@ import type {
   EventsClient,
   EventsConnectionState,
   EventsSnapshotDto,
+  MobileDiagnosticClient,
+  MobileDiagnosticSnapshotDto,
   ApplicationSnapshotDelivery,
   SupportBundleClient,
   SupportBundlePreviewDto,
@@ -41,6 +43,10 @@ interface EventsContextValue {
   events: ReturnType<typeof createEventsBufferState>["events"];
   isLoading: boolean;
   snapshot: EventsSnapshotDto | null;
+  diagnosticSnapshot: MobileDiagnosticSnapshotDto | null;
+  diagnosticPending: boolean;
+  startDiagnostic(): Promise<void>;
+  cancelDiagnostic(): Promise<void>;
   clearSupportBundlePreview(): void;
   previewSupportBundle(): Promise<void>;
   saveSupportBundle(previewId: string): Promise<void>;
@@ -56,6 +62,7 @@ interface EventsProviderProps {
   children: ReactNode;
   client?: EventsClient;
   supportBundleClient?: SupportBundleClient;
+  mobileDiagnosticClient?: MobileDiagnosticClient;
 }
 
 interface EventsCommand {
@@ -69,7 +76,12 @@ function eventsCommandScope(snapshot: EventsSnapshotDto | null) {
     : "events:unconfirmed";
 }
 
-export function EventsProvider({ children, client, supportBundleClient }: EventsProviderProps) {
+export function EventsProvider({
+  children,
+  client,
+  mobileDiagnosticClient,
+  supportBundleClient,
+}: EventsProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureEventsClient(), [client]);
   const resolvedSupportBundleClient = useMemo(
     () => supportBundleClient ?? new UnavailableSupportBundleClient(),
@@ -92,6 +104,11 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
     null,
   );
   const [supportBundleResult, setSupportBundleResult] = useState<SupportBundleResult>("idle");
+  const [diagnosticSnapshot, setDiagnosticSnapshot] = useState<MobileDiagnosticSnapshotDto | null>(
+    null,
+  );
+  const diagnosticController = useRef<AbortController | null>(null);
+  const diagnosticOperation = useRef(0);
   const latestSnapshot = useRef<EventsSnapshotDto | null>(null);
   const sessionAuthority = useRef(new RpcSessionAuthority<EventsSnapshotDto>());
   const reconcileCommandScopes = useCallback(
@@ -186,6 +203,25 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
     [resolvedSupportBundleClient, transitionCommandFeedback],
   );
 
+  useEffect(() => {
+    if (!mobileDiagnosticClient || mobileDiagnosticClient.availability !== "supported") {
+      setDiagnosticSnapshot(null);
+      return;
+    }
+    const controller = new AbortController();
+    const unsubscribe = mobileDiagnosticClient.subscribe(setDiagnosticSnapshot);
+    mobileDiagnosticClient
+      .getDiagnosticSnapshot({ signal: controller.signal })
+      .then(setDiagnosticSnapshot)
+      .catch(() => undefined);
+    return () => {
+      controller.abort();
+      diagnosticController.current?.abort();
+      diagnosticController.current = null;
+      unsubscribe();
+    };
+  }, [mobileDiagnosticClient]);
+
   const beginEventsCommand = useCallback(
     (domainKey: string) => {
       const current = latestSnapshot.current;
@@ -222,10 +258,37 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
         setSupportBundleResult("idle");
       },
       connection,
+      diagnosticPending: diagnosticSnapshot?.activeRun?.phase === "pending",
+      diagnosticSnapshot,
       error,
       events: buffer.events,
       isLoading: snapshot === null && error === null,
       snapshot,
+      startDiagnostic: async () => {
+        if (!mobileDiagnosticClient || mobileDiagnosticClient.availability !== "supported") return;
+        diagnosticController.current?.abort();
+        const controller = new AbortController();
+        diagnosticController.current = controller;
+        const operationId = `mobile-diagnostic-${Date.now()}-${++diagnosticOperation.current}`;
+        try {
+          const result = await mobileDiagnosticClient.start(operationId, {
+            signal: controller.signal,
+          });
+          setDiagnosticSnapshot(result.snapshot);
+        } catch {
+          // The authoritative subscription or next baseline owns recovery.
+        }
+      },
+      cancelDiagnostic: async () => {
+        const active = diagnosticSnapshot?.activeRun;
+        if (!mobileDiagnosticClient || !active) return;
+        try {
+          const result = await mobileDiagnosticClient.cancel(active.operationId, active.runId);
+          setDiagnosticSnapshot(result.snapshot);
+        } catch {
+          // Keep the pending authority until a terminal subscription arrives.
+        }
+      },
       previewSupportBundle: async () => {
         if (resolvedSupportBundleClient.availability !== "supported") return;
         const command = beginEventsCommand("events:support-bundle");
@@ -285,9 +348,11 @@ export function EventsProvider({ children, client, supportBundleClient }: Events
       beginEventsCommand,
       buffer.events,
       connection,
+      diagnosticSnapshot,
       error,
       finishEventsCommand,
       isCurrentCommandFeedback,
+      mobileDiagnosticClient,
       resolvedSupportBundleClient,
       snapshot,
       supportBundlePending,
