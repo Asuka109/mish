@@ -1,6 +1,7 @@
 //! Transport-neutral application settings and bounded private persistence.
 
 use std::{
+    collections::VecDeque,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -14,8 +15,9 @@ use std::{
 use futures_util::future::BoxFuture;
 use mish_runtime::{
     ApplicationSnapshotOrder, CaptureSelection, PINNED_MIHOMO_VERSION, SystemProxyTakeoverPolicy,
-    TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperRemovalCapability, TunHelperSnapshot,
+    TunHelperAvailability, TunHelperController, TunHelperFailureKind,
+    TunHelperLifecycleCorrelation, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperRemovalCapability, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -27,6 +29,7 @@ use tokio::sync::broadcast;
 const CURRENT_SCHEMA_VERSION: u8 = 12;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
+const TUN_HELPER_OPERATION_HISTORY_LIMIT: usize = 16;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -324,6 +327,59 @@ pub struct SettingsSnapshot {
     pub startup_registration: StartupRegistrationSnapshot,
     pub storage_recovered: bool,
     pub tun_helper: TunHelperSnapshot,
+    pub tun_helper_operation: TunHelperOperationSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TunHelperOperationPhase {
+    Idle,
+    Pending,
+    Finalizing,
+    Terminal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TunHelperOperationOutcome {
+    Applied,
+    AuthorizationCancelled,
+    AuthorizationFailed,
+    ObservationIncomplete,
+    RemovalFailed,
+    Removed,
+    RecoveryRequired,
+    ShutdownFailed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunHelperOperationSnapshot {
+    pub admitted_revision: u64,
+    pub failure: Option<TunHelperFailureKind>,
+    pub operation: Option<TunHelperLifecycleOperation>,
+    pub operation_id: Option<String>,
+    pub outcome: Option<TunHelperOperationOutcome>,
+    pub phase: TunHelperOperationPhase,
+}
+
+impl Default for TunHelperOperationSnapshot {
+    fn default() -> Self {
+        Self {
+            admitted_revision: 0,
+            failure: None,
+            operation: None,
+            operation_id: None,
+            outcome: None,
+            phase: TunHelperOperationPhase::Idle,
+        }
+    }
+}
+
+impl TunHelperOperationSnapshot {
+    pub fn terminal(&self) -> bool {
+        self.phase == TunHelperOperationPhase::Terminal
+    }
 }
 
 /// Versions shown by Settings come from the packaged application build and the pinned Core.
@@ -516,7 +572,7 @@ pub struct SettingsService {
     startup_platform: Option<Arc<dyn StartupPlatform>>,
     state: Mutex<SettingsState>,
     tun_helper: Option<Arc<TunHelperController>>,
-    tun_helper_lifecycle: Mutex<Option<TunHelperLifecycleOperation>>,
+    tun_helper_lifecycle: Mutex<TunHelperLifecycleState>,
     window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
 }
 
@@ -533,21 +589,94 @@ struct SettingsServiceConfiguration {
 #[must_use = "the lifecycle publication must remain alive until the operation is terminal"]
 pub struct TunHelperLifecyclePublication {
     active: bool,
+    duplicate_snapshot: Option<SettingsSnapshot>,
+    identity: TunHelperOperationIdentity,
     service: Arc<SettingsService>,
 }
 
 impl TunHelperLifecyclePublication {
+    pub fn identity(&self) -> (&str, u64) {
+        (&self.identity.operation_id, self.identity.admitted_revision)
+    }
+
+    pub fn correlation(&self) -> TunHelperLifecycleCorrelation {
+        TunHelperLifecycleCorrelation {
+            admitted_revision: self.identity.admitted_revision,
+            operation_id: self.identity.operation_id.clone(),
+        }
+    }
+
+    pub fn is_duplicate(&self) -> bool {
+        self.duplicate_snapshot.is_some()
+    }
+
+    pub fn snapshot(&self) -> SettingsSnapshot {
+        self.duplicate_snapshot
+            .clone()
+            .unwrap_or_else(|| self.service.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    pub fn finalizing(&self) -> SettingsSnapshot {
+        if self.is_duplicate() {
+            return self.snapshot();
+        }
+        self.service
+            .update_tun_helper_lifecycle(&self.identity, TunHelperOperationPhase::Finalizing)
+    }
+
     /// Clears the admitted operation and publishes one terminal controller snapshot.
     pub fn finish(mut self) -> SettingsSnapshot {
+        self.finish_with(TunHelperOperationOutcome::Applied, None)
+    }
+
+    pub fn finish_with(
+        &mut self,
+        outcome: TunHelperOperationOutcome,
+        failure: Option<TunHelperFailureKind>,
+    ) -> SettingsSnapshot {
+        if let Some(snapshot) = &self.duplicate_snapshot {
+            return snapshot.clone();
+        }
         self.active = false;
-        self.service.finish_tun_helper_lifecycle()
+        self.service
+            .finish_tun_helper_lifecycle(&self.identity, outcome, failure)
     }
 }
 
 impl Drop for TunHelperLifecyclePublication {
     fn drop(&mut self) {
         if self.active {
-            self.service.finish_tun_helper_lifecycle();
+            self.service.finish_tun_helper_lifecycle(
+                &self.identity,
+                TunHelperOperationOutcome::RecoveryRequired,
+                Some(TunHelperFailureKind::OperationFailed),
+            );
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TunHelperOperationIdentity {
+    admitted_revision: u64,
+    operation: TunHelperLifecycleOperation,
+    operation_id: String,
+}
+
+#[derive(Debug)]
+struct TunHelperLifecycleState {
+    active: Option<TunHelperOperationIdentity>,
+    latest: TunHelperOperationSnapshot,
+    next_revision: u64,
+    seen: VecDeque<TunHelperOperationIdentity>,
+}
+
+impl Default for TunHelperLifecycleState {
+    fn default() -> Self {
+        Self {
+            active: None,
+            latest: TunHelperOperationSnapshot::default(),
+            next_revision: 1,
+            seen: VecDeque::with_capacity(TUN_HELPER_OPERATION_HISTORY_LIMIT),
         }
     }
 }
@@ -862,7 +991,7 @@ impl SettingsService {
                 storage_recovered,
             }),
             tun_helper,
-            tun_helper_lifecycle: Mutex::new(None),
+            tun_helper_lifecycle: Mutex::new(TunHelperLifecycleState::default()),
             window_surface_platform,
         })
     }
@@ -885,10 +1014,17 @@ impl SettingsService {
             .map_or_else(TunHelperSnapshot::browser_unavailable, |helper| {
                 helper.snapshot()
             });
-        if let Some(operation) = *self
+        let tun_helper_operation = self
             .tun_helper_lifecycle
             .lock()
             .expect("TUN helper lifecycle lock poisoned")
+            .latest
+            .clone();
+        if let Some(operation) = tun_helper_operation.operation
+            && matches!(
+                tun_helper_operation.phase,
+                TunHelperOperationPhase::Pending | TunHelperOperationPhase::Finalizing
+            )
         {
             project_tun_helper_lifecycle(&mut tun_helper, operation);
         }
@@ -933,6 +1069,7 @@ impl SettingsService {
             startup_registration,
             storage_recovered: state.storage_recovered,
             tun_helper,
+            tun_helper_operation,
         };
         snapshot.application_order = self.snapshot_authority.stamp(snapshot_ticket, &snapshot);
         snapshot
@@ -961,18 +1098,67 @@ impl SettingsService {
         self: &Arc<Self>,
         operation: TunHelperLifecycleOperation,
     ) -> Result<TunHelperLifecyclePublication, SettingsServiceError> {
+        self.begin_tun_helper_lifecycle_with_identity(operation, uuid::Uuid::new_v4().to_string())
+    }
+
+    pub fn begin_tun_helper_lifecycle_with_identity(
+        self: &Arc<Self>,
+        operation: TunHelperLifecycleOperation,
+        operation_id: String,
+    ) -> Result<TunHelperLifecyclePublication, SettingsServiceError> {
         let mut lifecycle = self
             .tun_helper_lifecycle
             .lock()
             .expect("TUN helper lifecycle lock poisoned");
-        if lifecycle.is_some() {
+        if uuid::Uuid::parse_str(&operation_id).is_err() || operation_id.len() > 96 {
             return Err(SettingsServiceError::Busy);
         }
-        *lifecycle = Some(operation);
+        if let Some(previous) = lifecycle
+            .seen
+            .iter()
+            .find(|identity| identity.operation_id == operation_id)
+            .cloned()
+        {
+            if previous.operation != operation {
+                return Err(SettingsServiceError::Busy);
+            }
+            drop(lifecycle);
+            let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+            return Ok(TunHelperLifecyclePublication {
+                active: false,
+                duplicate_snapshot: Some(snapshot),
+                identity: previous,
+                service: self.clone(),
+            });
+        }
+        if lifecycle.active.is_some() {
+            return Err(SettingsServiceError::Busy);
+        }
+        let identity = TunHelperOperationIdentity {
+            admitted_revision: lifecycle.next_revision,
+            operation,
+            operation_id: operation_id.clone(),
+        };
+        lifecycle.next_revision = lifecycle.next_revision.saturating_add(1);
+        lifecycle.active = Some(identity.clone());
+        lifecycle.seen.push_back(identity.clone());
+        if lifecycle.seen.len() > TUN_HELPER_OPERATION_HISTORY_LIMIT {
+            lifecycle.seen.pop_front();
+        }
+        lifecycle.latest = TunHelperOperationSnapshot {
+            admitted_revision: identity.admitted_revision,
+            failure: None,
+            operation: Some(operation),
+            operation_id: Some(operation_id),
+            outcome: None,
+            phase: TunHelperOperationPhase::Pending,
+        };
         drop(lifecycle);
         self.publish_current_snapshot();
         Ok(TunHelperLifecyclePublication {
             active: true,
+            duplicate_snapshot: None,
+            identity,
             service: self.clone(),
         })
     }
@@ -1028,6 +1214,17 @@ impl SettingsService {
             .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
+    pub async fn install_tun_helper_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let result = self.tun_helper()?.install_correlated(correlation).await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
+    }
+
     pub async fn repair_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         let result = self.tun_helper()?.repair().await;
         let snapshot = self.publish_current_snapshot();
@@ -1036,8 +1233,30 @@ impl SettingsService {
             .map_err(|error| SettingsServiceError::TunHelper(error.kind))
     }
 
+    pub async fn repair_tun_helper_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let result = self.tun_helper()?.repair_correlated(correlation).await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
+    }
+
     pub async fn remove_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         let result = self.tun_helper()?.remove().await;
+        let snapshot = self.publish_current_snapshot();
+        result
+            .map(|_| snapshot)
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))
+    }
+
+    pub async fn remove_tun_helper_correlated(
+        &self,
+        correlation: TunHelperLifecycleCorrelation,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let result = self.tun_helper()?.remove_correlated(correlation).await;
         let snapshot = self.publish_current_snapshot();
         result
             .map(|_| snapshot)
@@ -1429,12 +1648,38 @@ impl SettingsService {
         self.publish_snapshot_value(self.snapshot(SettingsAdapterKind::Rpc))
     }
 
-    fn finish_tun_helper_lifecycle(&self) -> SettingsSnapshot {
+    fn update_tun_helper_lifecycle(
+        &self,
+        identity: &TunHelperOperationIdentity,
+        phase: TunHelperOperationPhase,
+    ) -> SettingsSnapshot {
         let mut lifecycle = self
             .tun_helper_lifecycle
             .lock()
             .expect("TUN helper lifecycle lock poisoned");
-        *lifecycle = None;
+        if lifecycle.active.as_ref() == Some(identity) {
+            lifecycle.latest.phase = phase;
+        }
+        drop(lifecycle);
+        self.publish_current_snapshot()
+    }
+
+    fn finish_tun_helper_lifecycle(
+        &self,
+        identity: &TunHelperOperationIdentity,
+        outcome: TunHelperOperationOutcome,
+        failure: Option<TunHelperFailureKind>,
+    ) -> SettingsSnapshot {
+        let mut lifecycle = self
+            .tun_helper_lifecycle
+            .lock()
+            .expect("TUN helper lifecycle lock poisoned");
+        if lifecycle.active.as_ref() == Some(identity) {
+            lifecycle.active = None;
+            lifecycle.latest.failure = failure;
+            lifecycle.latest.outcome = Some(outcome);
+            lifecycle.latest.phase = TunHelperOperationPhase::Terminal;
+        }
         drop(lifecycle);
         self.publish_current_snapshot()
     }
@@ -3304,13 +3549,24 @@ mod tests {
         let mut existing_updates = service.subscribe();
 
         let lifecycle = service
-            .begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Repair)
+            .begin_tun_helper_lifecycle_with_identity(
+                TunHelperLifecycleOperation::Repair,
+                "11111111-1111-4111-8111-111111111111".into(),
+            )
             .expect("admitted lifecycle");
         let existing_pending = existing_updates.try_recv().expect("pending publication");
         assert_eq!(
             existing_pending.tun_helper.phase,
             TunHelperLifecyclePhase::Repairing
         );
+        assert_eq!(
+            existing_pending
+                .tun_helper_operation
+                .operation_id
+                .as_deref(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+        assert_eq!(existing_pending.tun_helper_operation.admitted_revision, 1);
         assert_eq!(
             service.snapshot(SettingsAdapterKind::Rpc).tun_helper.phase,
             TunHelperLifecyclePhase::Repairing
@@ -3322,12 +3578,33 @@ mod tests {
             TunHelperLifecyclePhase::Repairing
         );
         assert!(matches!(
-            service.begin_tun_helper_lifecycle(TunHelperLifecycleOperation::Install),
+            service.begin_tun_helper_lifecycle_with_identity(
+                TunHelperLifecycleOperation::Install,
+                "22222222-2222-4222-8222-222222222222".into(),
+            ),
             Err(SettingsServiceError::Busy)
         ));
 
         let terminal = lifecycle.finish();
         assert_eq!(terminal.tun_helper.phase, TunHelperLifecyclePhase::Idle);
+        assert_eq!(
+            terminal.tun_helper_operation.operation_id.as_deref(),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+        assert_eq!(terminal.tun_helper_operation.admitted_revision, 1);
+        assert!(terminal.tun_helper_operation.terminal());
+
+        let duplicate = service
+            .begin_tun_helper_lifecycle_with_identity(
+                TunHelperLifecycleOperation::Repair,
+                "11111111-1111-4111-8111-111111111111".into(),
+            )
+            .expect("duplicate terminal lifecycle");
+        assert!(duplicate.is_duplicate());
+        assert_eq!(
+            duplicate.snapshot().tun_helper_operation.operation_id,
+            terminal.tun_helper_operation.operation_id
+        );
         assert_eq!(
             existing_updates
                 .try_recv()
@@ -3343,6 +3620,35 @@ mod tests {
                 .tun_helper
                 .phase,
             TunHelperLifecyclePhase::Idle
+        );
+
+        let mut newer = service
+            .begin_tun_helper_lifecycle_with_identity(
+                TunHelperLifecycleOperation::Remove,
+                "22222222-2222-4222-8222-222222222222".into(),
+            )
+            .expect("newer lifecycle");
+        let newer_terminal = newer.finish_with(TunHelperOperationOutcome::Removed, None);
+        let stale_duplicate = service
+            .begin_tun_helper_lifecycle_with_identity(
+                TunHelperLifecycleOperation::Repair,
+                "11111111-1111-4111-8111-111111111111".into(),
+            )
+            .expect("bounded stale duplicate");
+        assert!(stale_duplicate.is_duplicate());
+        assert_eq!(
+            stale_duplicate.snapshot().tun_helper_operation.operation_id,
+            newer_terminal.tun_helper_operation.operation_id
+        );
+        assert_eq!(
+            stale_duplicate.identity(),
+            ("11111111-1111-4111-8111-111111111111", 1)
+        );
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .tun_helper_operation,
+            newer_terminal.tun_helper_operation
         );
     }
 

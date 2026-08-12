@@ -126,6 +126,9 @@ export function NotificationBubble({
         else if (actionId === "open-profiles") {
           setOpen(false);
           navigate("/profiles");
+        } else if (actionId === "open-settings") {
+          setOpen(false);
+          navigate("/settings");
         } else if (actionId === "find-ports-and-retry" && settings && snapshot) {
           if (!(await settings.findManagedPorts())) return;
           const selection =

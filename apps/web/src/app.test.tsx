@@ -29,6 +29,7 @@ import {
   type StatusCommand,
   type StatusConnectionState,
   type StatusSnapshotDto,
+  type TunHelperLifecycleOptions,
   type WindowSurfacePreference,
 } from "@mish/contracts";
 import { AppRoutes, RoutePending } from "./app";
@@ -289,9 +290,31 @@ class DesktopSettingsClient implements SettingsClient {
     this.advanceSnapshot(false);
     return this.getSnapshot();
   });
-  installTunHelper = vi.fn(async () => this.getSnapshot());
-  repairTunHelper = vi.fn(async () => this.getSnapshot());
-  removeTunHelper = vi.fn(async () => this.getSnapshot());
+  completeTunHelperOperation(
+    operation: "install" | "remove" | "repair",
+    options?: TunHelperLifecycleOptions,
+  ) {
+    this.snapshot.tunHelperOperation = {
+      admittedRevision: this.snapshot.tunHelperOperation.admittedRevision + 1,
+      failure: null,
+      operation,
+      operationId: options?.operationId ?? null,
+      outcome: operation === "remove" ? "removed" : "applied",
+      phase: "terminal",
+    };
+    this.advanceSnapshot(false);
+    return this.getSnapshot();
+  }
+
+  installTunHelper = vi.fn(async (options?: TunHelperLifecycleOptions) =>
+    this.completeTunHelperOperation("install", options),
+  );
+  repairTunHelper = vi.fn(async (options?: TunHelperLifecycleOptions) =>
+    this.completeTunHelperOperation("repair", options),
+  );
+  removeTunHelper = vi.fn(async (options?: TunHelperLifecycleOptions) =>
+    this.completeTunHelperOperation("remove", options),
+  );
   setAppearance = vi.fn(async (appearance: AppearancePreference) => {
     this.snapshot.preferences.appearance = appearance;
     this.advanceSnapshot();
@@ -1649,7 +1672,7 @@ describe("production routes", () => {
     expect(notificationCenter).toHaveTextContent("Mish could not use 127.0.0.1:7890.");
   });
 
-  it("offers a clean helper reinstall when the desktop core is inactive", async () => {
+  it("offers the existing Repair System Components action when the desktop core is inactive", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
     settingsClient.snapshot.capabilities.tun = "supported";
@@ -1672,7 +1695,7 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    const reinstall = await screen.findByRole("button", { name: "Clean Reinstall" });
+    const reinstall = await screen.findByRole("button", { name: "Repair System Components" });
     expect(reinstall).toBeEnabled();
     await user.click(reinstall);
 
@@ -1721,8 +1744,8 @@ describe("production routes", () => {
       notificationClient,
     );
 
-    expect(await screen.findByRole("button", { name: "Clean Reinstall" })).toBeDisabled();
-    const remove = screen.getByRole("button", { name: "Remove Helper" });
+    expect(await screen.findByRole("button", { name: "Repair System Components" })).toBeDisabled();
+    const remove = screen.getByRole("button", { name: "Remove System Components" });
     expect(remove).toBeEnabled();
     await user.click(remove);
 
@@ -1730,10 +1753,10 @@ describe("production routes", () => {
     await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
     const notificationCenter = await screen.findByRole("dialog");
     expect(notificationCenter).toHaveTextContent(
-      "Remove Helper may have finished, but Mish could not confirm the final state. Restart Mish, then try removing it again.",
+      "Remove System Components may have finished, but Mish could not confirm the final state. Restart Mish, then try removing it again.",
     );
     expect(notificationCenter).not.toHaveTextContent("Install Helper");
-    expect(notificationCenter).not.toHaveTextContent("Repair Helper");
+    expect(notificationCenter).not.toHaveTextContent("Repair System Components");
   });
 
   it("uses the Rust Helper-removal capability for degraded and pending states", async () => {
@@ -1758,7 +1781,7 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(await screen.findByRole("button", { name: "Remove Helper" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Remove System Components" })).toBeEnabled();
 
     view.unmount();
     settingsClient.snapshot.tunHelper.removal = "maintenance-pending";
@@ -1771,7 +1794,7 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(await screen.findByRole("button", { name: "Remove Helper" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Remove System Components" })).toBeDisabled();
   });
 
   it("installs the development TUN helper from native Settings", async () => {
@@ -2789,7 +2812,7 @@ describe("desktop RPC experience", () => {
       phase: "idle",
       removal: "not-installed",
     };
-    settingsClient.installTunHelper.mockImplementation(async () => {
+    settingsClient.installTunHelper.mockImplementation(async (options) => {
       settingsClient.snapshot.tunHelper = {
         availability: "available",
         expectedVersion: "3",
@@ -2800,7 +2823,7 @@ describe("desktop RPC experience", () => {
         phase: "idle",
         removal: "available",
       };
-      return settingsClient.getSnapshot();
+      return settingsClient.completeTunHelperOperation("install", options);
     });
     renderRoute(
       "/status",
@@ -2821,7 +2844,10 @@ describe("desktop RPC experience", () => {
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Install System Component" }));
 
-    expect(settingsClient.installTunHelper).toHaveBeenCalledWith({ resumeCapture: true });
+    expect(settingsClient.installTunHelper).toHaveBeenCalledWith({
+      operationId: expect.any(String),
+      resumeCapture: true,
+    });
     expect(setCapture).not.toHaveBeenCalled();
   });
 
@@ -2845,7 +2871,7 @@ describe("desktop RPC experience", () => {
       phase: "idle",
       removal: "available",
     };
-    settingsClient.repairTunHelper.mockImplementation(async () => {
+    settingsClient.repairTunHelper.mockImplementation(async (options) => {
       await notificationClient.publish(
         notificationPublication("tun-helper.lifecycle", {
           data: {
@@ -2857,7 +2883,7 @@ describe("desktop RPC experience", () => {
           severity: "error",
         }),
       );
-      return settingsClient.getSnapshot();
+      return settingsClient.completeTunHelperOperation("repair", options);
     });
     renderRoute(
       "/status",
@@ -2880,13 +2906,16 @@ describe("desktop RPC experience", () => {
     await user.click(screen.getByRole("button", { name: "Repair System Component" }));
 
     await waitFor(() =>
-      expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({ resumeCapture: true }),
+      expect(settingsClient.repairTunHelper).toHaveBeenCalledWith({
+        operationId: expect.any(String),
+        resumeCapture: true,
+      }),
     );
     expect(setCapture).not.toHaveBeenCalled();
     await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
     const notificationCenter = await screen.findByRole("dialog");
     expect(notificationCenter).toHaveTextContent(
-      "Repair Helper could not start because Mish could not prepare the required files. macOS was not asked for authorization. Restart Mish, then try repairing it again.",
+      "Repair System Components could not start because Mish could not prepare the required files. macOS was not asked for authorization. Restart Mish, then try repairing it again.",
     );
   });
 

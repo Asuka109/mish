@@ -159,7 +159,8 @@ const en = {
         "{operation:string} could not be completed on this version of macOS. Use a supported macOS version or System Proxy instead.",
     },
     tunHelperLifecyclePending: "{operation:string} is awaiting macOS confirmation.",
-    tunHelperLifecycleReinstallRecovery: "Open Settings and choose Clean Reinstall.",
+    tunHelperLifecycleReinstallRecovery:
+      "Open Settings and choose Repair System Components or Remove System Components.",
     tunHelperLifecycleRemoveRecovery: "Restart Mish, then try removing it again.",
     tunHelperLifecycleRetryInstall: "try installing it again.",
     tunHelperLifecycleRetryRemove: "try removing it again.",
@@ -293,10 +294,10 @@ const en = {
       failed: "Observation failed",
       unavailable: "Unavailable",
     },
-    removeTunHelper: "Remove Helper",
-    reinstallTunHelper: "Clean Reinstall",
-    reinstallTunHelperBlocked: "Stop the active profile before reinstalling the helper.",
-    repairTunHelper: "Repair Helper",
+    removeTunHelper: "Remove System Components",
+    reinstallTunHelper: "Repair System Components",
+    reinstallTunHelperBlocked: "Stop the active profile before repairing system components.",
+    repairTunHelper: "Repair System Components",
     quitOnClose: "Quit Mish",
     showWindow: "Show Window",
     softwareUpdates: "App, core, and GeoData updates",
@@ -695,7 +696,7 @@ const en = {
       authorizationCancelled:
         "Administrator authorization was cancelled. The installed helper and TUN state were not changed.",
       confirmationFailed:
-        "Installation finished, but Mish could not confirm the helper version and health. Use Clean reinstall in Settings, then retry.",
+        "Installation finished, but Mish could not confirm the helper version and health. Open Settings and choose Repair System Components or Remove System Components.",
       description:
         "Virtual Interface needs a system component. It remains off while Mish prepares that component.",
       enable: "Enable Virtual Interface",
@@ -705,7 +706,7 @@ const en = {
       installFailed:
         "The helper was not installed. No TUN change was made; retry and approve the macOS administrator prompt.",
       installationFailed:
-        "macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; use Clean reinstall in Settings and retry.",
+        "macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; open Settings and choose Repair System Components or Remove System Components.",
       installHelper: "Install System Component",
       installingHelper: "Waiting for macOS permission…",
       installerUnavailable:

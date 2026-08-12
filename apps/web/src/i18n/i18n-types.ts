@@ -494,7 +494,7 @@ type RootTranslation = {
 		 */
 		tunHelperLifecyclePending: RequiredParams<'operation'>
 		/**
-		 * O​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​c​h​o​o​s​e​ ​C​l​e​a​n​ ​R​e​i​n​s​t​a​l​l​.
+		 * O​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​c​h​o​o​s​e​ ​R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​ ​o​r​ ​R​e​m​o​v​e​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​.
 		 */
 		tunHelperLifecycleReinstallRecovery: string
 		/**
@@ -892,19 +892,19 @@ type RootTranslation = {
 			unavailable: string
 		}
 		/**
-		 * R​e​m​o​v​e​ ​H​e​l​p​e​r
+		 * R​e​m​o​v​e​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s
 		 */
 		removeTunHelper: string
 		/**
-		 * C​l​e​a​n​ ​R​e​i​n​s​t​a​l​l
+		 * R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s
 		 */
 		reinstallTunHelper: string
 		/**
-		 * S​t​o​p​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​r​e​i​n​s​t​a​l​l​i​n​g​ ​t​h​e​ ​h​e​l​p​e​r​.
+		 * S​t​o​p​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​r​e​p​a​i​r​i​n​g​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​s​.
 		 */
 		reinstallTunHelperBlocked: string
 		/**
-		 * R​e​p​a​i​r​ ​H​e​l​p​e​r
+		 * R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s
 		 */
 		repairTunHelper: string
 		/**
@@ -2187,7 +2187,7 @@ type RootTranslation = {
 			 */
 			authorizationCancelled: string
 			/**
-			 * I​n​s​t​a​l​l​a​t​i​o​n​ ​f​i​n​i​s​h​e​d​,​ ​b​u​t​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​h​e​l​p​e​r​ ​v​e​r​s​i​o​n​ ​a​n​d​ ​h​e​a​l​t​h​.​ ​U​s​e​ ​C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l​ ​i​n​ ​S​e​t​t​i​n​g​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 * I​n​s​t​a​l​l​a​t​i​o​n​ ​f​i​n​i​s​h​e​d​,​ ​b​u​t​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​h​e​l​p​e​r​ ​v​e​r​s​i​o​n​ ​a​n​d​ ​h​e​a​l​t​h​.​ ​O​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​c​h​o​o​s​e​ ​R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​ ​o​r​ ​R​e​m​o​v​e​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​.
 			 */
 			confirmationFailed: string
 			/**
@@ -2211,7 +2211,7 @@ type RootTranslation = {
 			 */
 			installFailed: string
 			/**
-			 * m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​c​o​m​p​l​e​t​e​d​,​ ​b​u​t​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​i​n​s​t​a​l​l​a​t​i​o​n​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​l​p​e​r​ ​w​a​s​ ​l​e​f​t​ ​i​n​ ​p​l​a​c​e​;​ ​u​s​e​ ​C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l​ ​i​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​r​e​t​r​y​.
+			 * m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​c​o​m​p​l​e​t​e​d​,​ ​b​u​t​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​i​n​s​t​a​l​l​a​t​i​o​n​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​l​p​e​r​ ​w​a​s​ ​l​e​f​t​ ​i​n​ ​p​l​a​c​e​;​ ​o​p​e​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​c​h​o​o​s​e​ ​R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​ ​o​r​ ​R​e​m​o​v​e​ ​S​y​s​t​e​m​ ​C​o​m​p​o​n​e​n​t​s​.
 			 */
 			installationFailed: string
 			/**
@@ -5558,7 +5558,7 @@ export type TranslationFunctions = {
 		 */
 		tunHelperLifecyclePending: (arg: { operation: string }) => LocalizedString
 		/**
-		 * Open Settings and choose Clean Reinstall.
+		 * Open Settings and choose Repair System Components or Remove System Components.
 		 */
 		tunHelperLifecycleReinstallRecovery: () => LocalizedString
 		/**
@@ -5952,19 +5952,19 @@ export type TranslationFunctions = {
 			unavailable: () => LocalizedString
 		}
 		/**
-		 * Remove Helper
+		 * Remove System Components
 		 */
 		removeTunHelper: () => LocalizedString
 		/**
-		 * Clean Reinstall
+		 * Repair System Components
 		 */
 		reinstallTunHelper: () => LocalizedString
 		/**
-		 * Stop the active profile before reinstalling the helper.
+		 * Stop the active profile before repairing system components.
 		 */
 		reinstallTunHelperBlocked: () => LocalizedString
 		/**
-		 * Repair Helper
+		 * Repair System Components
 		 */
 		repairTunHelper: () => LocalizedString
 		/**
@@ -7231,7 +7231,7 @@ export type TranslationFunctions = {
 			 */
 			authorizationCancelled: () => LocalizedString
 			/**
-			 * Installation finished, but Mish could not confirm the helper version and health. Use Clean reinstall in Settings, then retry.
+			 * Installation finished, but Mish could not confirm the helper version and health. Open Settings and choose Repair System Components or Remove System Components.
 			 */
 			confirmationFailed: () => LocalizedString
 			/**
@@ -7255,7 +7255,7 @@ export type TranslationFunctions = {
 			 */
 			installFailed: () => LocalizedString
 			/**
-			 * macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; use Clean reinstall in Settings and retry.
+			 * macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; open Settings and choose Repair System Components or Remove System Components.
 			 */
 			installationFailed: () => LocalizedString
 			/**

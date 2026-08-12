@@ -160,6 +160,8 @@ pub enum ApplicationActionId {
     LeaveAsIs,
     #[serde(rename = "open-profiles")]
     OpenProfiles,
+    #[serde(rename = "open-settings")]
+    OpenSettings,
     #[serde(rename = "open-system-proxy-settings")]
     OpenSystemProxySettings,
     #[serde(rename = "open-welcome")]
@@ -177,6 +179,7 @@ impl ApplicationActionId {
             Self::FindPortsAndRetry => "find-ports-and-retry",
             Self::LeaveAsIs => "leave-as-is",
             Self::OpenProfiles => "open-profiles",
+            Self::OpenSettings => "open-settings",
             Self::OpenSystemProxySettings => "open-system-proxy-settings",
             Self::OpenWelcome => "open-welcome",
             Self::Repair => "repair",
@@ -604,7 +607,7 @@ impl ApplicationNotificationContent {
             Self::TrafficConnectionClosed(_) => &[],
             Self::TrafficConnectionsClosed(_) => &[],
             Self::TrafficOperationFailed(_) => &[],
-            Self::TunHelperLifecycle(_) => &[],
+            Self::TunHelperLifecycle(_) => &[ApplicationActionId::OpenSettings],
             Self::TunDrift(_) => &[],
             Self::TunFailed(_) => &[],
         }

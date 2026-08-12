@@ -104,6 +104,14 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       phase: "idle",
       removal: "unavailable",
     },
+    tunHelperOperation: {
+      admittedRevision: 0,
+      failure: null,
+      operation: null,
+      operationId: null,
+      outcome: null,
+      phase: "idle",
+    },
   };
 }
 
