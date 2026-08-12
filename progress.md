@@ -11,9 +11,10 @@ Owner: thread-master coordinator
   and their seven clean worktrees were removed; they will not be resumed.
 - Dispatch now uses a two-phase ledger: publish the complete manifest first,
   then create workers, then backfill task IDs and worktrees.
-- The maintainer's project-specific Luna Max requirement explicitly overrides
-  the thread-master default Codex compute table. All implementation Workers,
-  including future waves, use `gpt-5.6-luna/max` with Chinese reporting.
+- The maintainer's project-specific Luna Max requirement explicitly overrode
+  the thread-master default Codex compute table through Wave 2H. For Wave 2I,
+  the maintainer explicitly selected `gpt-5.6-sol/high` for #435 H1.1. Chinese
+  reporting remains required.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -32,9 +33,11 @@ synthetic signer pin is not wired to the certificate that actually signs the
 built APK; the original Worker must resume for a second bounded follow-up.
 Coordinator post-merge `pnpm check:pr` passed at `origin/main@176351ec` (Web 69
 files / 613 tests, scripts 232 tests, Rust, simulated-host, Browser,
-production-exclusion, documentation, and release gates). Candidate Wave 2I
-contains only independent #435 H1.1 and awaits maintainer confirmation. Nine
-repository concurrency slots remain unreserved before that new dispatch.
+production-exclusion, documentation, and release gates). The maintainer
+approved exact Wave 2I containing only independent #435 H1.1 and explicitly
+selected `gpt-5.6-sol/high`; its visible-task identity and worktree are pending
+creation under the published `dispatching` reservation. Eight repository
+concurrency slots remain unreserved after this reservation.
 
 ## Wave 1 worker ledger
 
@@ -206,13 +209,27 @@ work.
 | #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | integrated | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | PR #497 merged as `176351ec`; focused/full local gates and remote Fast PR/Android gates passed; Issue #451 remains open with D1.4 pending and no device claim |
 | #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | active; second review follow-up | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PRs #499 / `32ac48ba` and #500 / `817a933e` merged, but the synthetic manifest fingerprint is not the signer of the produced APK and CI only verifies signature presence; the same Worker must close build signer -> manifest pin -> PackageManager observation or report a precise credential-free blocker; D2.2/D2.3 remain untouched |
 
+## Wave 2I dispatch manifest
+
+The maintainer approved this exact one-task AFK wave and explicitly selected
+model `gpt-5.6-sol`, reasoning effort `high`, Chinese reporting,
+confirmation-only acceptance, final-only parent escalation, and an isolated
+worktree. The Worker must read both progress ledgers and follow the
+transcript-driven system-test skill. This wave authorizes no real administrator
+prompt, Helper/Core installation, system-component mutation, credentials,
+physical-host acceptance, or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #435 H1.1 | `pending` | `pending` | dispatching | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | Automated/synthetic only: do not repair the underlying Helper installation failure, invoke a real administrator prompt, or claim actual host mutation; H1.2 retains hands-on authorization and Remove-mutation validation |
+
 ## Existing issue coordination
 
 | Issue | State | Coordination rule |
 | --- | --- | --- |
 | #353 | needs-input | Preserve the existing visible worker; do not silently replace it. Relevant #436/#448/#439 automated evidence is integrated; any resume remains an explicit hands-on physical-host action. |
 | #352 | needs-info | Wait for recurrence; use #437's corrected harness to retain evidence. |
-| #435 | needs-triage | Do not duplicate. Plan repair-flow work after #440 establishes session authority; hands-on acceptance remains last. |
+| #435 | ready-for-agent | Wave 2I H1.1 dispatching under one visible Worker; H1.2 hands-on acceptance remains last. Do not duplicate. |
 | #265/#266/#268/#281/#283/#284 | blocked | Their Issue bodies now record #451/#454 as architecture dependencies; #265 also records #441. |
 | #173/#174/#274 | planned dependencies | #442 supplies security prerequisites without replacing their release/signing acceptance. |
 
@@ -253,7 +270,7 @@ final-only escalation, and explicit human acceptance before merge.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
 - Complete #454 D2.1 before D2.2, D2.3, or #451 D1.4.
-- Candidate Wave 2I contains one independent AFK task: #435 H1.1. It will
+- Approved Wave 2I contains one independent AFK task: #435 H1.1. It will
   preserve the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
   notification feedback exactly once, correct action copy, and add bounded
@@ -261,12 +278,12 @@ final-only escalation, and explicit human acceptance before merge.
   It must not repair the underlying Helper installation failure or invoke a
   real administrator prompt. The later H1.2 hands-on residual will validate
   authorization and actual Remove mutation in a disposable target.
-- #435 H1.1 is independent of the Android Wave 2H files and may run while D1.3
-  finishes. It uses Luna Max (`gpt-5.6-luna/max`), Chinese reporting,
-  confirmation-only acceptance, final-only escalation, and an isolated
-  worktree. It remains undispatched pending maintainer confirmation.
-- The maintainer's explicit Luna Max requirement overrides the thread-master
-  default compute table for every Mish implementation Worker.
+- #435 H1.1 is independent of the Android Wave 2H files and may run while the
+  D2.1 follow-up finishes. The maintainer explicitly overrode the earlier Luna
+  Max project setting for this task and selected `gpt-5.6-sol/high`, Chinese
+  reporting, confirmation-only acceptance, final-only escalation, and an
+  isolated worktree. Its exact `dispatching` reservation is published before
+  visible-task creation.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,
   #173 real signing, #268 physical-device acceptance, and other human checks
   behind AFK implementation and automated evidence.
