@@ -25,9 +25,13 @@ Waves 2A through 2G are integrated. Wave 2G landed through PRs #494-#496 on
 combined `pnpm check:pr` passed (Web 69 files / 603 tests and scripts 232
 tests, plus Rust, simulated-host, Browser, production-exclusion,
 documentation, and release gates). The maintainer approved the exact
-three-task AFK Wave 2H on 2026-08-12: #449 C1.3, #451 D1.3, and #454 D2.1 are
-active as visible Luna Max Workers in isolated worktrees. Seven repository
-concurrency slots remain unreserved.
+three-task AFK Wave 2H on 2026-08-12. #449 C1.3 is integrated through PR #498
+and Issue #449 is closed. #451 D1.3 is the only running Worker; PR #497 is
+green but remains integration-gated. #454 D2.1's bounded signer-pin follow-up
+PR #500 passed local and remote gates and is `ready-for-acceptance`; it must be
+explicitly accepted and merged before D1.3 refreshes and completes. Candidate
+Wave 2I contains only independent #435 H1.1 and awaits maintainer confirmation.
+Eight repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -67,11 +71,12 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Browser fixture truthfulness | #438 | completed: A4.1/A4.2 integrated; Issue closed | none | accepted |
 | Process identity | #439 | completed: A5.1/A5.2 integrated; Issue closed | none | accepted |
 | RPC Session Authority | #440 | completed: B1.1-B1.5 integrated; Issue closed | none | accepted |
-| Profile credential privacy | #449 | C1.1/C1.2 integrated; C1.3 ready | #440 completed | confirmation-only |
+| Profile credential privacy | #449 | completed: C1.1-C1.3 integrated; Issue closed | #440 completed | accepted |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
 | Android VPN authority | #451 | D1.1/D1.2 integrated; D1.3 ready, then D1.4 | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
-| Mobile Core provenance | #454 | D2.1 ready; D2.2/D2.3 sequential | #451 D1.2 integrated | confirmation-only |
+| Mobile Core provenance | #454 | D2.1 signer-pin follow-up ready for acceptance; D2.2/D2.3 sequential | #451 D1.2 integrated | confirmation-only |
+| System-component repair feedback | #435 | H1.1 automated vertical repair ready; H1.2 hands-on residual later | none; preserve existing Helper/Capture authority | H1.1 confirmation-only; H1.2 hands-on |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
 | Settings editor serialization | #452 | completed: F1.1/F1.2 integrated; Issue closed | #440 completed | accepted |
@@ -194,9 +199,9 @@ work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | active | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | Visible Luna Max Worker owns Profile detach confirmation and token-negative end-to-end evidence only; preserve C1.2 generation authority and F2 deletion; no real credentials/network or unrelated Profile behavior |
-| #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | active | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Visible Luna Max Worker owns Web/JavaScript mobile client, bootstrap/hook/UI projection and deterministic tests only; preserve Rust/Kotlin authority; do not implement D1.4 or claim emulator/device behavior; after D2.1 merges, integrate latest main and rerun affected cross-layer contracts |
-| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | active | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Visible Luna Max Worker owns Kotlin/native artifact admission seams, bounded manifests and focused deterministic evidence only; do not implement the full D2.2 adversarial matrix or D2.3 diagnostic DTO; no real signing/device/network; merge before D1.3 |
+| #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | integrated | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | PR #498 merged as `5239df6f`; local/remote gates passed, all Issue #449 criteria read back checked, and Issue closed completed without real credentials/network claims |
+| #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | active; integration-gated | D1.1/D1.2 integrated; corrected D2.1 required | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Worker may continue implementation but must not request final acceptance or merge until the D2.1 pinned-signer follow-up is integrated; then ordinary-merge latest main and rerun affected cross-layer contracts; no D1.4/device claim |
+| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | ready-for-acceptance | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Follow-up PR #500 binds the signer fingerprint and passed focused/full local gates plus Fast PR and Android gates; explicit fresh acceptance and ordinary merge are required before D2.1 integration or D1.3 final delivery; D2.2/D2.3 remain untouched |
 
 ## Existing issue coordination
 
@@ -234,13 +239,27 @@ final-only escalation, and explicit human acceptance before merge.
   credentials or external network access.
 - #451 D1.3 owns only the Web/JavaScript mobile lifecycle authority,
   abort/dispose, baseline, and stale-load surface. #454 D2.1 owns only
-  Kotlin/native pinned Mobile Core artifact admission. They may start in
-  parallel, but merge D2.1 first; D1.3 must then integrate latest main and
-  rerun affected cross-layer contracts. Neither task may implement D1.4,
-  D2.2, D2.3, or claim emulator/physical-device acceptance.
+  Kotlin/native pinned Mobile Core artifact admission. D2.1's first merge
+  does not pin the signer identity: the original Worker must bind admission to
+  one build-owned expected signer fingerprint/identity and prove a differently
+  signed APK fails closed, without credentials or private certificate bytes.
+  D1.3 remains integration-gated until that accepted follow-up lands; neither
+  task may implement D1.4, D2.2, D2.3, or claim device acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
 - Complete #454 D2.1 before D2.2 and D2.3, and complete #451 D1.3 before D1.4.
+- Candidate Wave 2I contains one independent AFK task: #435 H1.1. It will
+  preserve the Rust/Helper/Capture lifecycle as the only product authority,
+  correlate Repair/Remove/retry under one operation identity, settle modal and
+  notification feedback exactly once, correct action copy, and add bounded
+  invocation/result transcripts plus deterministic Rust/RPC/React journeys.
+  It must not repair the underlying Helper installation failure or invoke a
+  real administrator prompt. The later H1.2 hands-on residual will validate
+  authorization and actual Remove mutation in a disposable target.
+- #435 H1.1 is independent of the Android Wave 2H files and may run while D1.3
+  finishes. It uses Luna Max (`gpt-5.6-luna/max`), Chinese reporting,
+  confirmation-only acceptance, final-only escalation, and an isolated
+  worktree. It remains undispatched pending maintainer confirmation.
 - The maintainer's explicit Luna Max requirement overrides the thread-master
   default compute table for every Mish implementation Worker.
 - Keep #448 A2.3, #353 physical-host work, #435 hands-on repair validation,

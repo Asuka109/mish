@@ -45,7 +45,7 @@ class MishMobileCoreProbeTest {
             runtimeAbi = "arm64-v8a",
             observedArtifactDigest = "a".repeat(64),
             signature = MobileCoreSignatureEvidence(
-                identity = MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY,
+                fingerprintSha256 = MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256,
                 verified = true,
             ),
         )
@@ -75,7 +75,7 @@ class MishMobileCoreProbeTest {
                 drifted,
                 "arm64-v8a",
                 "a".repeat(64),
-                MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true),
+                MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true),
             )
             assertFalse(result.admitted)
             assertEquals(expected, result.failure)
@@ -86,10 +86,10 @@ class MishMobileCoreProbeTest {
     fun `rejects ABI digest and signature mismatch before runtime effects`() {
         val manifest = admissionManifest()
         val inputs = listOf(
-            Triple("mips", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
-            Triple("arm64-v8a", "b".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
-            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, false)) to MobileCoreAdmissionFailure.SIGNATURE_UNVERIFIED,
-            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence("foreign-signer", true)) to MobileCoreAdmissionFailure.IDENTITY_MISMATCH,
+            Triple("mips", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
+            Triple("arm64-v8a", "b".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
+            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, false)) to MobileCoreAdmissionFailure.SIGNATURE_UNVERIFIED,
+            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence("8f285b7d4829e694b5e8c11590807b4cf1a06c417fca4a9f7cbae9e4ee0fa5d0", true)) to MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH,
         )
 
         inputs.forEach { (input, expected) ->
@@ -103,10 +103,10 @@ class MishMobileCoreProbeTest {
     fun `rejects missing or unverifiable required admission facts`() {
         val manifest = admissionManifest()
         val cases = listOf(
-            Triple(null, "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.MANIFEST_MALFORMED,
-            Triple(manifest, null, MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
+            Triple(null, "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true)) to MobileCoreAdmissionFailure.MANIFEST_MALFORMED,
+            Triple(manifest, null, MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
             Triple(manifest, "a".repeat(64), null) to MobileCoreAdmissionFailure.SIGNATURE_MISSING,
-            Triple(manifest.copy(artifacts = listOf(manifest.artifacts.first())), "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
+            Triple(manifest.copy(artifacts = listOf(manifest.artifacts.first())), "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
         )
 
         cases.forEach { (input, expected) ->
@@ -137,7 +137,7 @@ class MishMobileCoreProbeTest {
             rejected = { it },
             effect = {
                 effects += 1
-                MobileCoreAdmissionResult.accepted("arm64-v8a", "a".repeat(64), "never")
+                MobileCoreAdmissionResult.accepted("arm64-v8a", "a".repeat(64))
             },
         )
 
@@ -152,15 +152,93 @@ class MishMobileCoreProbeTest {
     }
 
     @Test
+    fun `rejects a differently signed APK before native effect`() {
+        val foreign = MobileCoreSignatureEvidence(
+            fingerprintSha256 = "8f285b7d4829e694b5e8c11590807b4cf1a06c417fca4a9f7cbae9e4ee0fa5d0",
+            verified = true,
+        )
+        val admission = MobileCoreAdmissionPolicy.evaluate(
+            admissionManifest(),
+            "arm64-v8a",
+            "a".repeat(64),
+            foreign,
+        )
+        var effects = 0
+        val result = MobileCoreAdmissionGate(admit = { admission }).invoke(
+            operation = MobileCoreEffectOperation.START,
+            rejected = { it },
+            effect = {
+                effects += 1
+                MobileCoreAdmissionResult.accepted("arm64-v8a", "a".repeat(64))
+            },
+        )
+
+        assertFalse(result.admitted)
+        assertEquals(MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH, result.failure)
+        assertEquals(0, effects)
+    }
+
+    @Test
+    fun `observes only one bounded synthetic signer fingerprint`() {
+        val expected = observePackageSigners(
+            listOf("mish-synthetic-debug-certificate-v1".toByteArray()),
+        )
+        assertEquals(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, expected?.fingerprintSha256)
+        assertTrue(expected?.verified == true)
+        assertNull(observePackageSigners(emptyList()))
+        assertNull(
+            observePackageSigners(
+                listOf("mish-synthetic-debug-certificate-v1".toByteArray(), "foreign".toByteArray()),
+            ),
+        )
+        assertNull(observePackageSigners(listOf(ByteArray(0))))
+        assertNull(observePackageSigners(listOf(ByteArray(MOBILE_CORE_ADMISSION_MAX_SIGNATURE_BYTES + 1))))
+    }
+
+    @Test
+    fun `rejects malformed signer fingerprints`() {
+        listOf(
+            "not-a-digest",
+            "8f285b7d4829e694b5e8c11590807b4cf1a06c417fca4a9f7cbae9e4ee0fa5d0",
+        )
+            .forEach { signerSha256 ->
+                val result = MobileCoreAdmissionPolicy.evaluate(
+                    admissionManifest().copy(signerSha256 = signerSha256),
+                    "arm64-v8a",
+                    "a".repeat(64),
+                    MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256, true),
+                )
+                assertFalse(result.admitted)
+                assertEquals(MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH, result.failure)
+            }
+        val runtimeMalformed = MobileCoreAdmissionPolicy.evaluate(
+            admissionManifest(),
+            "arm64-v8a",
+            "a".repeat(64),
+            MobileCoreSignatureEvidence("NOT-A-LOWERCASE-DIGEST", true),
+        )
+        assertFalse(runtimeMalformed.admitted)
+        assertEquals(MobileCoreAdmissionFailure.SIGNER_FINGERPRINT_MISMATCH, runtimeMalformed.failure)
+    }
+
+    @Test
     fun `rejects malformed manifest fields and unknown artifact keys`() {
         assertNull(
             MobileCoreAdmissionManifest.parse(
-                admissionManifestJson().replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
+                admissionManifestJson().replace("\"schemaVersion\":2", "\"schemaVersion\":3"),
             ),
         )
         assertNull(
             MobileCoreAdmissionManifest.parse(
                 admissionManifestJson().replace("\"abi\":\"arm64-v8a\"", "\"abi\":\"mips\",\"unexpected\":true"),
+            ),
+        )
+        assertNull(
+            MobileCoreAdmissionManifest.parse(
+                admissionManifestJson().replace(
+                    ",\"signerSha256\":\"$MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256\"",
+                    "",
+                ),
             ),
         )
     }
@@ -217,7 +295,7 @@ class MishMobileCoreProbeTest {
 }
 
 private fun admissionManifest(): MobileCoreAdmissionManifest = MobileCoreAdmissionManifest(
-    schemaVersion = 1,
+    schemaVersion = 2,
     abiVersion = 1,
     sourceCommit = MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT,
     sourceVersion = MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION,
@@ -227,9 +305,10 @@ private fun admissionManifest(): MobileCoreAdmissionManifest = MobileCoreAdmissi
         MobileCoreAdmissionArtifact("arm64-v8a", "a".repeat(64)),
         MobileCoreAdmissionArtifact("x86_64", "b".repeat(64)),
     ),
-    signatureIdentity = MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY,
+    signatureScheme = MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME,
     signatureVerification = MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION,
+    signerSha256 = MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256,
 )
 
 private fun admissionManifestJson(): String =
-    """{"schemaVersion":1,"abiVersion":1,"sourceCommit":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT}","sourceVersion":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION}","wrapperRevision":"${MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION}","wrapperContractVersion":1,"artifacts":[{"abi":"arm64-v8a","sha256":"${"a".repeat(64)}"},{"abi":"x86_64","sha256":"${"b".repeat(64)}"}],"signatureIdentity":"$MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY","signatureVerification":"$MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION"}"""
+    """{"schemaVersion":2,"abiVersion":1,"sourceCommit":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT}","sourceVersion":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION}","wrapperRevision":"${MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION}","wrapperContractVersion":1,"artifacts":[{"abi":"arm64-v8a","sha256":"${"a".repeat(64)}"},{"abi":"x86_64","sha256":"${"b".repeat(64)}"}],"signatureScheme":"$MOBILE_CORE_ADMISSION_SIGNATURE_SCHEME","signatureVerification":"$MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION","signerSha256":"$MOBILE_CORE_ADMISSION_EXPECTED_SIGNER_SHA256"}"""
