@@ -303,6 +303,33 @@ duplicates, privileged content, and a layout that advertises TUN. Credential-
 free tests use synthetic identity evidence and prove this policy without
 claiming Apple trust, notarization, or release readiness:
 
+The verifier records those release-boundary effects as a closed schema-1
+invocation/result transcript. Its fixed eight-event success path is explicit
+profile selection, TUN-unavailable capability evidence, nested-before-app
+signing order, immutable layout inspection, nested and application signature
+inspection, then strict deep verification. A failure records only the rejected
+effect and stops; the transcript contains no path, identity, team, argv,
+environment, command output, or arbitrary string, and is limited to 16 events.
+Synthetic fixtures replay the complete sequence and the capability, privileged
+layout, and strict-verification rejection terminals. The production verifier
+uses the same recorder around its existing policy and `codesign` seams; the
+fixture does not replace or simulate Apple trust.
+
+The signed-direct system boundary remains intentionally unavailable for TUN.
+The packaged runtime selects the ordinary unpackaged helper adapter, whose
+closed observation reports `Unpackaged`; install, repair, remove, TUN
+observation, and both enable/disable requests all fail before any helper,
+SMAppService, LaunchDaemon, or privileged network effect. This is deterministic
+adapter evidence, not a real host mutation.
+
+| Effect                     | Owner and result                                               | Transcript/replay                                  | Evidence limit                                    |
+| -------------------------- | -------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| Profile selection          | `build-macos-bundle.ts`; explicit `signed-direct` or rejection | `profile-selection` / accepted or rejected         | No protected credential availability              |
+| Runtime capability         | packaged release evidence; TUN must be unavailable             | `capability-probe` / `tun-unavailable` or rejected | No real System Proxy or TUN behavior              |
+| Nested signing order       | bundle builder and Tauri app seal                              | two ordered `signing-order` events                 | Synthetic identity does not establish Apple trust |
+| Layout and signatures      | signed-direct policy verifier                                  | layout plus two signature-inspection events        | No notarization or Gatekeeper claim               |
+| Strict bundle verification | `codesign --verify --deep --strict` in the bundle verifier     | terminal strict-verified or rejected event         | A fixture proves invocation/result policy only    |
+
 ```sh
 pnpm test:macos:bundle
 pnpm desktop:bundle:fixture:signed-direct:macos
