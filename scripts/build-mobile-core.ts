@@ -289,11 +289,13 @@ function prepareBuildTree(sourceDirectory: string, scratchRoot: string): BuildTr
 }
 
 function buildEnvironment(
+  goBinary: string,
   goArch: string,
   goAmd64: string | undefined,
   compiler: string,
   scratchRoot: string,
 ): NodeJS.ProcessEnv {
+  const goRoot = path.dirname(path.dirname(goBinary));
   return {
     ...process.env,
     CC: compiler,
@@ -304,6 +306,7 @@ function buildEnvironment(
     GOCACHE: path.join(scratchRoot, "cache/build"),
     GOMODCACHE: path.join(scratchRoot, "cache/modules"),
     GOTOOLCHAIN: "local",
+    GOROOT: goRoot,
     SOURCE_DATE_EPOCH: String(manifest.mihomo.sourceDateEpoch),
   };
 }
@@ -347,7 +350,13 @@ function buildPass(
     const output = path.join(scratchRoot, pass, target.path);
     mkdirSync(path.dirname(output), { recursive: true });
     const compiler = `${path.join(ndkToolchain, "bin/clang")} --target=${target.targetTriple}${manifest.android.minimumApi}`;
-    const environment = buildEnvironment(target.goArch, target.goAmd64, compiler, scratchRoot);
+    const environment = buildEnvironment(
+      goBinary,
+      target.goArch,
+      target.goAmd64,
+      compiler,
+      scratchRoot,
+    );
     run(
       goBinary,
       [
@@ -402,6 +411,7 @@ function collectModules(goBinary: string, moduleRoot: string, scratchRoot: strin
     ...process.env,
     GOMODCACHE: path.join(scratchRoot, "cache/modules"),
     GOTOOLCHAIN: "local",
+    GOROOT: path.dirname(path.dirname(goBinary)),
   };
   const output = run(goBinary, ["list", "-mod=readonly", "-m", "-json", "all"], {
     cwd: moduleRoot,

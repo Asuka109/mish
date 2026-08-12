@@ -13,7 +13,7 @@
   },
   "wrapper": {
     "revision": "mish-mobile-core-v1",
-    "sha256": "d0989ab1b899c608e318bfe7d77e99404548b9f5a95a0837e50a25e22299fcef"
+    "sha256": "5035b9f2481201a440da4472485aa09b15912e7dc12395519016cefc58b0c4ad"
   },
   "toolchains": {
     "go": {
@@ -52,6 +52,7 @@
       "path": "android/arm64-v8a/libmish_mobile_core.so",
       "exportedSymbols": [
         "mish_core_abi_version_v1",
+        "mish_core_close_connection_v1",
         "mish_core_command_v1",
         "mish_core_free_buffer_v1",
         "mish_core_initialize_v1",
@@ -64,8 +65,8 @@
         "mish_core_version_v1"
       ],
       "machine": "AArch64",
-      "sha256": "32f60461233f8bbb0052e122df49ab2ab92b603f56af211f68d3f951d05ddc6d",
-      "size": 42647000
+      "sha256": "db9746bc0eeda8ef875720237b2e65335b86304381ee8c291c3426c34636fc5e",
+      "size": 42653880
     },
     {
       "abi": "x86_64",
@@ -75,6 +76,7 @@
       "path": "android/x86_64/libmish_mobile_core.so",
       "exportedSymbols": [
         "mish_core_abi_version_v1",
+        "mish_core_close_connection_v1",
         "mish_core_command_v1",
         "mish_core_free_buffer_v1",
         "mish_core_initialize_v1",
@@ -87,8 +89,8 @@
         "mish_core_version_v1"
       ],
       "machine": "Advanced Micro Devices X86-64",
-      "sha256": "a9d4390a1acf690e15c0ecf452969f10f31d18f659a3faa9e18322df34458e61",
-      "size": 46784472
+      "sha256": "96b725bf260d60cd3b4a99df244e95837e961dee72e24924d42e2c5833e5424f",
+      "size": 46792088
     }
   ]
 }
