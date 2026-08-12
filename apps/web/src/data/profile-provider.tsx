@@ -10,6 +10,7 @@ import {
   type ProviderAuthorityDto,
   type ProviderKind,
   type ProfilePreviewDto,
+  ProfileSubscriptionSummarySchema,
   type ProfileSnapshotDto,
 } from "@mish/contracts";
 import {
@@ -183,6 +184,14 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: ProfileSnapshotDto, delivery: SnapshotDelivery) => {
+      if (
+        nextSnapshot.profiles.some(
+          (profile) => !ProfileSubscriptionSummarySchema.safeParse(profile.source).success,
+        )
+      ) {
+        setError(new ProfileClientError("validation", "Profile source summary validation failed"));
+        return false;
+      }
       const current = latestSnapshot.current;
       const authorityChangedAtBaseline =
         delivery === "baseline" &&

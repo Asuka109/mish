@@ -9,6 +9,14 @@ import { cx, tv } from "@mish/ui/tv";
 import {
   Badge,
   Button,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -35,7 +43,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
-import type { ProfileListItemDto, ProfilePreviewDto, ProfileRefreshPolicy } from "@mish/contracts";
+import {
+  ProfileSubscriptionSummarySchema,
+  type ProfileListItemDto,
+  type ProfilePreviewDto,
+  type ProfileRefreshPolicy,
+  type ProfileSubscriptionSummaryDto,
+} from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -140,6 +154,11 @@ interface ProfilesPageProps {
   selectionPending?: boolean;
 }
 
+interface ProfileDetachTarget {
+  id: string;
+  source: ProfileSubscriptionSummaryDto;
+}
+
 export function ProfilesPage({
   onSelectProfile,
   selectedProfileId,
@@ -154,6 +173,7 @@ export function ProfilesPage({
   const [preview, setPreview] = useState<ProfilePreviewDto | null>(null);
   const [url, setUrl] = useState("");
   const [fileName, setFileName] = useState("");
+  const [detachTarget, setDetachTarget] = useState<ProfileDetachTarget | null>(null);
   const dateFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(locale, {
@@ -278,14 +298,23 @@ export function ProfilesPage({
       );
   }
 
-  async function detachSubscription(profile: ProfileListItemDto) {
-    const result = await profiles.detachSubscription(profile.id);
+  function requestDetach(profile: ProfileListItemDto) {
+    const source = ProfileSubscriptionSummarySchema.safeParse(profile.source);
+    if (!source.success) return;
+    setDetachTarget({ id: profile.id, source: source.data });
+  }
+
+  async function confirmDetach() {
+    const target = detachTarget;
+    if (!target) return;
+    const result = await profiles.detachSubscription(target.id);
     if (!result.ok) {
       publish(
         notificationPublication("profile.detach-failed", {
           severity: "error",
         }),
       );
+      setDetachTarget((current) => (current?.id === target.id ? null : current));
       return;
     }
     publish(
@@ -293,6 +322,7 @@ export function ProfilesPage({
         severity: "success",
       }),
     );
+    setDetachTarget((current) => (current?.id === target.id ? null : current));
   }
 
   async function openDirectory() {
@@ -351,9 +381,10 @@ export function ProfilesPage({
             <ProfileCard
               LL={LL}
               dateFormatter={dateFormatter}
+              detachPending={profiles.isPending("detach", profile.id)}
               fileActionsSupported={fileActionsSupported}
               key={profile.id}
-              onDetach={() => void detachSubscription(profile)}
+              onDetach={() => requestDetach(profile)}
               onRefresh={() => void refreshProfile(profile)}
               onOpenDirectory={() => void openDirectory()}
               onSelect={onSelectProfile ? () => onSelectProfile(profile.id) : undefined}
@@ -369,6 +400,37 @@ export function ProfilesPage({
           ))}
         </section>
       ) : null}
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          const pending = detachTarget ? profiles.isPending("detach", detachTarget.id) : false;
+          if (!pending) setDetachTarget(open ? detachTarget : null);
+        }}
+        open={detachTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.profiles.detachConfirmationTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.profiles.detachConfirmationDescription({
+                source: detachTarget?.source.display ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!detachTarget || profiles.isPending("detach", detachTarget.id)}
+              loading={Boolean(detachTarget && profiles.isPending("detach", detachTarget.id))}
+              loadingText={LL.profiles.detachingSubscription()}
+              onClick={() => void confirmDetach()}
+              variant="destructive"
+            >
+              {LL.profiles.detachSubscription()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreate())}
@@ -516,6 +578,7 @@ export function ProfilesPage({
 interface ProfileCardProps {
   LL: TranslationFunctions;
   dateFormatter: Intl.DateTimeFormat;
+  detachPending: boolean;
   fileActionsSupported: boolean;
   onDetach(): void;
   onRefresh(): void;
@@ -534,6 +597,7 @@ interface ProfileCardProps {
 function ProfileCard({
   LL,
   dateFormatter,
+  detachPending,
   fileActionsSupported,
   onDetach,
   onRefresh,
@@ -671,7 +735,7 @@ function ProfileCard({
             <WarningCircle aria-hidden="true" />
             <span>
               {LL.profiles.subscriptionOverwriteBeforeDetach()}
-              <button onClick={onDetach} type="button">
+              <button disabled={detachPending} onClick={onDetach} type="button">
                 {LL.profiles.detachSubscription()}
               </button>
               {LL.profiles.subscriptionOverwriteAfterDetach()}

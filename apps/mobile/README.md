@@ -6,8 +6,12 @@ prototype requests VPN consent only after an explicit user action, exercises
 foreground-service and recovery semantics, and publishes authoritative typed
 snapshots. Its replaceable fixture backend never creates a TUN interface,
 captures traffic, or starts Mihomo. A separately verified Mobile Core build may
-be staged into generated `jniLibs`; the native probe then reports its bounded
-ABI and version identity without claiming that VPN traffic capture is connected.
+be staged into generated `jniLibs`; staging also generates the ignored bounded
+admission manifest, and the native probe admits the exact source, wrapper, ABI,
+digest, and package-signature contract before JNI validation, load, or Core
+effects. Rejection remains unavailable without exposing paths, certificate
+bytes, or native text; the native probe then reports its bounded ABI and
+version identity without claiming that VPN traffic capture is connected.
 The bounded configuration slice validates and loads only repository-owned
 fictional bytes, publishes revision/digest state with rollback or explicit
 unknown recovery, and still cannot start Core, create a TUN, or capture traffic.

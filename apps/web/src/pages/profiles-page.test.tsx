@@ -252,6 +252,21 @@ describe("profiles page", () => {
     expect(client.openProfileDirectory).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: "Detach the Subscription" }));
+    expect(client.detachSubscription).not.toHaveBeenCalled();
+    const detachDialog = await screen.findByRole("alertdialog");
+    expect(detachDialog).toHaveTextContent("Detach this subscription?");
+    expect(detachDialog).toHaveTextContent("https://profiles.example/…");
+    expect(detachDialog).not.toHaveTextContent("visible-token");
+    await user.click(within(detachDialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(client.detachSubscription).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Detach the Subscription" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Detach the Subscription",
+      }),
+    );
     expect(client.detachSubscription).toHaveBeenCalledWith("profile-subscription", {
       signal: expect.any(AbortSignal),
     });

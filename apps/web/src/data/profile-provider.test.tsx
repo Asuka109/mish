@@ -8,6 +8,7 @@ import type {
   StatusConnectionState,
   StatusSnapshotDto,
 } from "@mish/contracts";
+import { ProfileClientError } from "@mish/contracts";
 import { useConfiguredRouteCatalog } from "./configured-route-catalog";
 import { FixtureProfileClient } from "./fixture-profile-client";
 import { FixtureStatusClient } from "./fixture-status-client";
@@ -238,6 +239,62 @@ class DeferredAuthorityClient extends FixtureProfileClient {
   }
 }
 
+interface PendingDetach {
+  reject(error: unknown): void;
+  resolve(snapshot: ProfileSnapshotDto): void;
+  signal: AbortSignal | undefined;
+}
+
+class DetachRaceClient extends FixtureProfileClient {
+  private readonly listeners = new Set<
+    (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
+  private snapshotState: ProfileSnapshotDto;
+  pendingDetach: PendingDetach | null = null;
+
+  constructor(snapshot: ProfileSnapshotDto) {
+    super();
+    this.snapshotState = structuredClone(snapshot);
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.snapshotState);
+  }
+
+  override detachSubscription(
+    _profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto> {
+    return new Promise((resolve, reject) => {
+      this.pendingDetach = { reject, resolve, signal: options?.signal };
+    });
+  }
+
+  override subscribeSnapshots(
+    listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(snapshot: ProfileSnapshotDto, delivery: ApplicationSnapshotDelivery = "update") {
+    this.snapshotState = structuredClone(snapshot);
+    for (const listener of this.listeners) listener(structuredClone(snapshot), delivery);
+  }
+
+  rejectDetach(message = "The subscription could not be detached") {
+    const pending = this.pendingDetach;
+    this.pendingDetach = null;
+    pending?.reject(new ProfileClientError("remote", message));
+  }
+
+  resolveDetach(snapshot: ProfileSnapshotDto) {
+    const pending = this.pendingDetach;
+    this.pendingDetach = null;
+    pending?.resolve(structuredClone(snapshot));
+  }
+}
+
 function routeCatalog(
   profileId: string,
   fingerprint: string,
@@ -332,6 +389,29 @@ function ConfiguredRouteLabelProbe({
   const catalog = useConfiguredRouteCatalog(snapshot, connection);
   return (
     <output data-testid="configured-route-label">{catalog?.groups[0]?.label ?? "none"}</output>
+  );
+}
+
+function DetachProbe() {
+  const profiles = useProfiles();
+  const [result, setResult] = useState("idle");
+  return (
+    <>
+      <output data-testid="detach-source">
+        {profiles.snapshot?.profiles[0]?.source.display ?? "none"}
+      </output>
+      <output data-testid="detach-result">{result}</output>
+      <button
+        onClick={() => {
+          void profiles.detachSubscription("work").then((next) => {
+            setResult(next.ok ? "success" : next.error.code);
+          });
+        }}
+        type="button"
+      >
+        Detach Profile
+      </button>
+    </>
   );
 }
 
@@ -528,5 +608,78 @@ describe("ProfileProvider selected Profile authority", () => {
       </ProfileProvider>,
     );
     expect(screen.getByTestId("configured-route-label")).toHaveTextContent("none");
+  });
+
+  it("cancels a replaced detach authority and ignores the late completion", async () => {
+    const initial = await new FixtureProfileClient().getSnapshot();
+    const client = new DetachRaceClient(initial);
+    render(
+      <ProfileProvider client={client}>
+        <DetachProbe />
+      </ProfileProvider>,
+    );
+
+    expect(await screen.findByTestId("detach-source")).toHaveTextContent(
+      "https://profiles.example/…",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Detach Profile" }));
+    await waitFor(() => expect(client.pendingDetach).not.toBeNull());
+
+    const replacement = structuredClone(initial);
+    replacement.applicationOrder.order += 1;
+    client.emit(replacement);
+    expect(client.pendingDetach?.signal?.aborted).toBe(true);
+    client.resolveDetach(initial);
+
+    await waitFor(() => expect(screen.getByTestId("detach-result")).toHaveTextContent("cancelled"));
+    expect(screen.getByTestId("detach-source")).toHaveTextContent("https://profiles.example/…");
+  });
+
+  it("keeps detach failure evidence bounded and leaves the public snapshot redacted", async () => {
+    const initial = await new FixtureProfileClient().getSnapshot();
+    const client = new DetachRaceClient(initial);
+    const syntheticMarker = "synthetic-subscription-token";
+    render(
+      <ProfileProvider client={client}>
+        <DetachProbe />
+      </ProfileProvider>,
+    );
+
+    await screen.findByTestId("detach-source");
+    const unsafe = structuredClone(initial);
+    unsafe.profiles[0].source = {
+      display: `https://profiles.example/config.yaml?token=${syntheticMarker}`,
+      sourceType: "https",
+    };
+    client.emit(unsafe);
+    await waitFor(() =>
+      expect(screen.getByTestId("detach-source")).toHaveTextContent("https://profiles.example/…"),
+    );
+    expect(document.body).not.toHaveTextContent(syntheticMarker);
+
+    fireEvent.click(screen.getByRole("button", { name: "Detach Profile" }));
+    await waitFor(() => expect(client.pendingDetach).not.toBeNull());
+    client.rejectDetach("The subscription could not be detached");
+
+    await waitFor(() => expect(screen.getByTestId("detach-result")).toHaveTextContent("remote"));
+    expect(document.body).not.toHaveTextContent(syntheticMarker);
+    expect(screen.getByTestId("detach-source")).toHaveTextContent("https://profiles.example/…");
+  });
+
+  it("does not publish a late detach completion after the provider remounts", async () => {
+    const initial = await new FixtureProfileClient().getSnapshot();
+    const client = new DetachRaceClient(initial);
+    const rendered = render(
+      <ProfileProvider client={client}>
+        <DetachProbe />
+      </ProfileProvider>,
+    );
+
+    await screen.findByTestId("detach-source");
+    fireEvent.click(screen.getByRole("button", { name: "Detach Profile" }));
+    await waitFor(() => expect(client.pendingDetach).not.toBeNull());
+    rendered.unmount();
+    client.resolveDetach(initial);
+    expect(document.body).not.toHaveTextContent("synthetic-subscription-token");
   });
 });

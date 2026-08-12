@@ -1,5 +1,6 @@
 package com.asuka109.mish.vpn
 
+import android.content.Context
 import org.json.JSONObject
 
 internal data class MobileCoreIdentity(
@@ -108,18 +109,63 @@ internal interface MobileCoreRuntime {
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
 
-internal class MishMobileCoreProbe :
+internal class MishMobileCoreProbe internal constructor(
+    private val applicationContext: Context? = null,
+) :
     MobileCoreProbe,
     MobileCoreConfigValidator,
     MobileCoreConfigLoader,
     MobileCoreConfigInspector,
     MobileCoreRuntime {
-    override fun inspect(): MobileCoreIdentity? {
-        if (!shimLoaded) return null
+    private val admissionLock = Any()
+    private val admissionGate = MobileCoreAdmissionGate(::ensureAdmitted)
+
+    internal fun admission(): MobileCoreAdmissionResult =
+        admissionGate.check(MobileCoreEffectOperation.ADMISSION)
+
+    private fun ensureAdmitted(): MobileCoreAdmissionResult {
+        synchronized(admissionLock) {
+            if (applicationContext == null) {
+                return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MISSING)
+            }
+            val admitted = MobileCoreArtifactAdmission(applicationContext).admit()
+            if (!admitted.admitted) return admitted
+            if (!loadShimOnce()) {
+                return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+            }
+            val nativeIdentity = runCatching {
+                val abiVersion = nativeAbiVersion()
+                val encoded = nativeVersionEnvelope() ?: return@runCatching null
+                MishMobileCoreProbe.parseIdentity(encoded, abiVersion)
+            }.getOrNull()
+            if (!MobileCoreAdmissionPolicy.matchesIdentity(nativeIdentity)) {
+                val failure = when {
+                    nativeIdentity == null -> MobileCoreAdmissionFailure.ABI_MISMATCH
+                    nativeIdentity.commit != MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT ->
+                        MobileCoreAdmissionFailure.SOURCE_MISMATCH
+                    nativeIdentity.version != MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION ->
+                        MobileCoreAdmissionFailure.VERSION_MISMATCH
+                    nativeIdentity.wrapperRevision != MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION ->
+                        MobileCoreAdmissionFailure.WRAPPER_MISMATCH
+                    else -> MobileCoreAdmissionFailure.ABI_MISMATCH
+                }
+                return MobileCoreAdmissionResult.rejected(failure)
+            }
+            return admitted
+        }
+    }
+
+    override fun inspect(): MobileCoreIdentity? = admissionGate.invoke(
+        operation = MobileCoreEffectOperation.INSPECT,
+        rejected = { null },
+        effect = ::inspectAdmitted,
+    )
+
+    private fun inspectAdmitted(): MobileCoreIdentity? {
         val abiVersion = runCatching { nativeAbiVersion() }.getOrDefault(0)
         if (abiVersion != CONTRACT_VERSION) return null
         val encoded = runCatching { nativeVersionEnvelope() }.getOrNull() ?: return null
-        return parseIdentity(encoded, abiVersion)
+        return parseIdentity(encoded, abiVersion)?.takeIf(MobileCoreAdmissionPolicy::matchesIdentity)
     }
 
     private external fun nativeAbiVersion(): Int
@@ -129,46 +175,55 @@ internal class MishMobileCoreProbe :
     override fun validate(
         configBytes: ByteArray,
         expectedDigest: String,
-    ): NativeConfigValidationResult {
-        if (!shimLoaded) return NativeConfigValidationResult(NativeValidationCode.CORE_UNAVAILABLE)
-        val encoded = try {
-            nativeValidateConfig(configBytes, expectedDigest)
-        } catch (_: Throwable) {
-            return NativeConfigValidationResult(NativeValidationCode.JNI_EXCEPTION)
-        } ?: return NativeConfigValidationResult(NativeValidationCode.NATIVE_FAILED)
-        return parseValidation(encoded)
-    }
+    ): NativeConfigValidationResult = admissionGate.invoke(
+        operation = MobileCoreEffectOperation.VALIDATE,
+        rejected = { NativeConfigValidationResult(NativeValidationCode.CORE_UNAVAILABLE) },
+        effect = {
+            val encoded = try {
+                nativeValidateConfig(configBytes, expectedDigest)
+            } catch (_: Throwable) {
+                return@invoke NativeConfigValidationResult(NativeValidationCode.JNI_EXCEPTION)
+            } ?: return@invoke NativeConfigValidationResult(NativeValidationCode.NATIVE_FAILED)
+            parseValidation(encoded)
+        },
+    )
 
     override fun load(
         configBytes: ByteArray,
         expectedDigest: String,
         injectFailure: Boolean,
-    ): NativeConfigLoadResult {
-        if (!shimLoaded) return NativeConfigLoadResult(NativeLoadCode.CORE_UNAVAILABLE)
-        if (injectFailure) {
-            return NativeConfigLoadResult(
-                code = NativeLoadCode.NATIVE_FAILED,
-                abiStatus = 8,
-                rollbackGuaranteed = true,
-            )
-        }
-        val encoded = try {
-            nativeLoadConfig(configBytes, expectedDigest)
-        } catch (_: Throwable) {
-            return NativeConfigLoadResult(NativeLoadCode.JNI_EXCEPTION)
-        } ?: return NativeConfigLoadResult(NativeLoadCode.NATIVE_FAILED)
-        return parseLoad(encoded)
-    }
+    ): NativeConfigLoadResult = admissionGate.invoke(
+        operation = MobileCoreEffectOperation.LOAD,
+        rejected = { NativeConfigLoadResult(NativeLoadCode.CORE_UNAVAILABLE) },
+        effect = {
+            if (injectFailure) {
+                return@invoke NativeConfigLoadResult(
+                    code = NativeLoadCode.NATIVE_FAILED,
+                    abiStatus = 8,
+                    rollbackGuaranteed = true,
+                )
+            }
+            val encoded = try {
+                nativeLoadConfig(configBytes, expectedDigest)
+            } catch (_: Throwable) {
+                return@invoke NativeConfigLoadResult(NativeLoadCode.JNI_EXCEPTION)
+            } ?: return@invoke NativeConfigLoadResult(NativeLoadCode.NATIVE_FAILED)
+            parseLoad(encoded)
+        },
+    )
 
-    override fun inspectLoaded(expectedDigest: String?): NativeConfigInspectionResult {
-        if (!shimLoaded) return NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED)
-        val encoded = try {
-            nativeInspectLoadedConfig(expectedDigest)
-        } catch (_: Throwable) {
-            return NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED)
-        } ?: return NativeConfigInspectionResult(NativeInspectionCode.MALFORMED_RESPONSE)
-        return parseInspection(encoded)
-    }
+    override fun inspectLoaded(expectedDigest: String?): NativeConfigInspectionResult = admissionGate.invoke(
+        operation = MobileCoreEffectOperation.INSPECT_LOADED,
+        rejected = { NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED) },
+        effect = {
+            val encoded = try {
+                nativeInspectLoadedConfig(expectedDigest)
+            } catch (_: Throwable) {
+                return@invoke NativeConfigInspectionResult(NativeInspectionCode.NATIVE_FAILED)
+            } ?: return@invoke NativeConfigInspectionResult(NativeInspectionCode.MALFORMED_RESPONSE)
+            parseInspection(encoded)
+        },
+    )
 
     private external fun nativeValidateConfig(
         configBytes: ByteArray,
@@ -187,7 +242,7 @@ internal class MishMobileCoreProbe :
         productSessionId: String,
         tunFileDescriptor: Int,
         vpnService: MishVpnService,
-    ): NativeRuntimeResult = runtimeCall {
+    ): NativeRuntimeResult = runtimeCall(MobileCoreEffectOperation.START) {
         nativeStartCore(
             authority.machineAuthority,
             authority.scopeEpoch,
@@ -203,7 +258,7 @@ internal class MishMobileCoreProbe :
     override fun stop(
         authority: CoreLifecycleAuthority,
         productSessionId: String?,
-    ): NativeRuntimeResult = runtimeCall {
+    ): NativeRuntimeResult = runtimeCall(MobileCoreEffectOperation.STOP) {
         nativeStopCore(
             authority.machineAuthority,
             authority.scopeEpoch,
@@ -214,19 +269,25 @@ internal class MishMobileCoreProbe :
         )
     }
 
-    override fun inspectRuntime(productSessionId: String?): NativeRuntimeResult = runtimeCall {
+    override fun inspectRuntime(productSessionId: String?): NativeRuntimeResult = runtimeCall(MobileCoreEffectOperation.INSPECT_RUNTIME) {
         nativeInspectRuntime(productSessionId)
     }
 
-    private fun runtimeCall(call: () -> IntArray?): NativeRuntimeResult {
-        if (!shimLoaded) return NativeRuntimeResult(NativeRuntimeCode.CORE_UNAVAILABLE)
-        val encoded = try {
-            call()
-        } catch (_: Throwable) {
-            return NativeRuntimeResult(NativeRuntimeCode.JNI_EXCEPTION)
-        } ?: return NativeRuntimeResult(NativeRuntimeCode.MALFORMED_RESPONSE)
-        return parseRuntime(encoded)
-    }
+    private fun runtimeCall(
+        operation: MobileCoreEffectOperation,
+        call: () -> IntArray?,
+    ): NativeRuntimeResult = admissionGate.invoke(
+        operation = operation,
+        rejected = { NativeRuntimeResult(NativeRuntimeCode.CORE_UNAVAILABLE) },
+        effect = {
+            val encoded = try {
+                call()
+            } catch (_: Throwable) {
+                return@invoke NativeRuntimeResult(NativeRuntimeCode.JNI_EXCEPTION)
+            } ?: return@invoke NativeRuntimeResult(NativeRuntimeCode.MALFORMED_RESPONSE)
+            parseRuntime(encoded)
+        },
+    )
 
     private external fun nativeStartCore(
         machineAuthority: String,
@@ -251,13 +312,25 @@ internal class MishMobileCoreProbe :
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
 
     companion object {
-        private val shimLoaded = runCatching { System.loadLibrary("mish_vpn_jni") }.isSuccess
+        @Volatile
+        private var shimLoaded = false
+
+        private fun loadShimOnce(): Boolean {
+            if (shimLoaded) return true
+            return synchronized(this) {
+                if (shimLoaded) return@synchronized true
+                shimLoaded = runCatching { System.loadLibrary("mish_vpn_jni") }.isSuccess
+                shimLoaded
+            }
+        }
 
         internal fun parseIdentity(encoded: String, abiVersion: Int): MobileCoreIdentity? =
             runCatching {
                 val root = JSONObject(encoded)
-                if (root.optInt("abiVersion") != CONTRACT_VERSION || root.has("error")) return null
+                requireJsonKeys(root, setOf("abiVersion", "data"))
+                if (root.optInt("abiVersion") != CONTRACT_VERSION) return null
                 val data = root.getJSONObject("data")
+                requireJsonKeys(data, setOf("abiVersion", "goVersion", "mihomoCommit", "mihomoVersion", "wrapperRevision"))
                 val identity = MobileCoreIdentity(
                     abiVersion = data.getInt("abiVersion"),
                     commit = data.getString("mihomoCommit"),
@@ -274,6 +347,14 @@ internal class MishMobileCoreProbe :
                 }
                 identity
             }.getOrNull()
+
+        private fun requireJsonKeys(value: JSONObject, expected: Set<String>) {
+            require(value.length() == expected.size)
+            val actual = mutableSetOf<String>()
+            val keys = value.keys()
+            while (keys.hasNext()) actual += keys.next()
+            require(actual == expected)
+        }
 
         internal fun parseValidation(encoded: IntArray): NativeConfigValidationResult {
             if (encoded.size != 2) {
