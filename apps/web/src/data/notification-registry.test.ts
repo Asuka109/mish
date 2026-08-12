@@ -364,8 +364,8 @@ describe("notification presentation registry", () => {
         locale: "en",
         operations: {
           install: "Install Helper",
-          remove: "Remove Helper",
-          repair: "Repair Helper",
+          remove: "Remove System Components",
+          repair: "Repair System Components",
         },
       },
       {

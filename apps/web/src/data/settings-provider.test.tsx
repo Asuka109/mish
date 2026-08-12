@@ -1,5 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
-import type { SettingsSnapshotDelivery, SettingsSnapshotDto } from "@mish/contracts";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type {
+  SettingsSnapshotDelivery,
+  SettingsSnapshotDto,
+  TunHelperLifecycleOptions,
+} from "@mish/contracts";
 import { describe, expect, it } from "vitest";
 import { createFixtureSettingsSnapshot, FixtureSettingsClient } from "./fixture-settings-client";
 import { SettingsProvider, useSettings } from "./settings-provider";
@@ -55,6 +59,39 @@ function SettingsOrderHarness() {
   );
 }
 
+function TunHelperHarness() {
+  const { pending, repairTunHelper } = useSettings();
+  return (
+    <>
+      <output data-testid="helper-pending">{String(pending)}</output>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await repairTunHelper();
+          document.body.dataset.helperResult = String(result.ok);
+        }}
+      >
+        Repair
+      </button>
+    </>
+  );
+}
+
+class StaleTunHelperResultClient extends ControlledSettingsClient {
+  override repairTunHelper = async (_options?: TunHelperLifecycleOptions) => {
+    const value = snapshot("rust-a", 2, 7, "ready");
+    value.tunHelperOperation = {
+      admittedRevision: 1,
+      failure: null,
+      operation: "repair",
+      operationId: "43500000-0000-4000-8000-000000000000",
+      outcome: "applied",
+      phase: "terminal",
+    };
+    return value;
+  };
+}
+
 describe("SettingsProvider snapshot convergence", () => {
   it("accepts equal-preference observations and a lower-revision replacement baseline only", () => {
     const client = new ControlledSettingsClient();
@@ -74,5 +111,37 @@ describe("SettingsProvider snapshot convergence", () => {
 
     act(() => client.publish(snapshot("rust-a", 99, 99, "failed")));
     expect(screen.getByTestId("settings-order")).toHaveTextContent("rust-b:1:1:stale");
+  });
+
+  it("keeps authoritative pending state across remount", () => {
+    const client = new ControlledSettingsClient();
+    const initial = snapshot("rust-a", 1, 7, "unknown");
+    initial.tunHelperOperation = {
+      admittedRevision: 4,
+      failure: null,
+      operation: "repair",
+      operationId: "43500000-0000-4000-8000-000000000004",
+      outcome: null,
+      phase: "finalizing",
+    };
+    render(
+      <SettingsProvider client={client} initialSnapshot={initial}>
+        <TunHelperHarness />
+      </SettingsProvider>,
+    );
+    expect(screen.getByTestId("helper-pending")).toHaveTextContent("true");
+  });
+
+  it("does not settle a repair from a stale terminal operation", async () => {
+    delete document.body.dataset.helperResult;
+    const client = new StaleTunHelperResultClient();
+    render(
+      <SettingsProvider client={client} initialSnapshot={snapshot("rust-a", 1, 7, "unknown")}>
+        <TunHelperHarness />
+      </SettingsProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Repair" }));
+    await waitFor(() => expect(document.body.dataset.helperResult).toBe("false"));
+    expect(screen.getByTestId("helper-pending")).toHaveTextContent("false");
   });
 });

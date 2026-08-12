@@ -352,6 +352,14 @@ describe("desktop runtime bootstrap", () => {
           ...settingsSnapshot.preferences,
           captureSelection: { systemProxy: false, tun: false },
         },
+        tunHelperOperation: {
+          admittedRevision: 0,
+          failure: null,
+          operation: null,
+          operationId: null,
+          outcome: null,
+          phase: "idle",
+        },
       },
       supportBundleExport: true,
     });

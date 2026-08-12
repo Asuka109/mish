@@ -47,6 +47,7 @@
     "find-ports-and-retry",
     "leave-as-is",
     "open-profiles",
+    "open-settings",
     "open-system-proxy-settings",
     "open-welcome",
     "repair",
@@ -161,7 +162,8 @@
         "failure": { "type": "string", "optional": true },
         "operation": "string",
         "outcome": "string"
-      }
+      },
+      "actions": ["open-settings"]
     },
     "tun.drift": { "data": {} },
     "tun.failed": { "data": {} }

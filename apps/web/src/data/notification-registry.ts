@@ -343,6 +343,8 @@ function actionDescriptor(
       return openSystemProxySettingsAction(LL);
     case "open-profiles":
       return { id, label: LL.capture.openProfiles() };
+    case "open-settings":
+      return { id, label: LL.capture.tunGuide.reviewSetup() };
     case "open-welcome":
       return { id, label: LL.onboarding.notificationAction() };
     case "repair":

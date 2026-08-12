@@ -57,10 +57,15 @@ Protocol version 18 also accepts one closed onboarding welcome transition:
 private settings record. They do not invoke Core, capture, a network observer,
 a TUN helper, or any operating-system adapter.
 
-It also exposes empty-parameter, user-triggered `installTunHelper`,
-`repairTunHelper`, and `removeTunHelper` operations. Their snapshot reports
+It also exposes user-triggered `installTunHelper`, `repairTunHelper`, and
+`removeTunHelper` operations. Each command accepts one bounded UUID operation
+identity and an optional closed `resumeCapture` boolean. Their snapshot reports
 availability, installed and expected versions, health, lifecycle phase, and the
-last typed failure. It also reports a Rust-owned removal capability:
+last typed failure. The same snapshot also carries the Rust-owned operation,
+identity, admitted revision, pending/finalizing/terminal phase, closed outcome,
+and typed failure. React can therefore settle only the matching terminal after
+reconnect or remount; an equal, duplicate, stale, or late result cannot settle a
+replacement operation. It also reports a Rust-owned removal capability:
 `available` whenever the Helper is authoritatively installed, including
 repair-required and runtime-degraded states; `maintenance-pending` while a
 mutually exclusive Helper transaction is live; `not-installed`; or
@@ -68,6 +73,15 @@ mutually exclusive Helper transaction is live; `not-installed`; or
 Capture, or network health. Each operation reobserves the helper before
 returning. The closed privileged contract is defined in
 [`macos-tun-helper.md`](macos-tun-helper.md).
+
+### System-component maintenance boundary matrix
+
+| Changed effect or return                            | Owner and production seam                                                                                          | Transcript/model                                                                                                                                               | Deterministic use case                                                                             | Privacy and exclusions                                                                                                    | Evidence limit                                                                                                                 |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Repair/install/remove admission and terminal return | `SettingsService` plus the existing Helper/Capture lifecycle transaction; authenticated RPC only supplies the UUID | Settings operation snapshot and one semantic notification share identity/revision                                                                              | same-ID duplicate, retry, stale terminal, reconnect/remount                                        | UUID, closed enums, typed failure only; no credential, path, output, Profile, or config                                   | proves serialization and projection, not a real authorization prompt                                                           |
+| Helper platform invocation and verification result  | `TunHelperController` remains authority; `TunHelperPlatform::run_lifecycle_correlated` is the narrow seam          | shared stateful `SimulatedHost` maps the opaque UUID to a synthetic numeric operation and preserves the admitted revision in the closed maintenance transcript | authorization success/failure, verification failure, cancellation/finalizer, install/repair/remove | closed synthetic identities/effects/results with bounded logical time; raw process/platform output is structurally absent | proves the Rust/application path against synthetic host effects, not launchd, Helper/Core execution, signing, or host mutation |
+| Capture handoff and removal cleanup                 | existing Capture authority and bounded removal occurrence store                                                    | correlated Capture observations plus at most 16 redacted closed removal occurrences                                                                            | active-TUN removal, non-mutation on rejection, confirmed retry                                     | closed observation/cleanup/failure categories; unrelated inventory and private host state excluded                        | does not prove removal mutates a disposable physical target                                                                    |
+| Modal and notification projection                   | React consumes the authenticated Settings result and Rust notification; it owns no Helper lifecycle                | Browser Mode renders authoritative pending/terminal snapshots and one deduped notification with an `open-settings` action                                      | spinner settlement, late-result rejection, remount recovery, copy/action consistency               | localized closed copy; no transcript internals, scenario controls, test keys, or arbitrary strings                        | proves one browser journey and render behavior, not native authorization UI                                                    |
 
 `settings.refreshNetworkDns` is also an empty-parameter, read-only action. It
 returns a bounded current/stale/unknown/failed observation and never accepts an

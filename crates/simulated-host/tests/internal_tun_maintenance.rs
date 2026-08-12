@@ -1301,6 +1301,7 @@ async fn every_commit_boundary_and_fault_family_stays_bounded_and_preserves_unre
 
 #[tokio::test]
 async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serializes_duplicates() {
+    let operation_id = "43500000-0000-4000-8000-000000000001";
     let scenario = Arc::new(
         build(
             SyntheticMaintenanceInitial::HealthyV1,
@@ -1357,7 +1358,10 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
     let repair = tokio::spawn(async move {
         rpc_request(
             &mut commander,
-            json!({"jsonrpc":"2.0", "id":4, "method":"settings.repairTunHelper", "params":{}}),
+            json!({
+                "jsonrpc":"2.0", "id":4, "method":"settings.repairTunHelper",
+                "params":{"operationId": operation_id}
+            }),
         )
         .await
     });
@@ -1370,6 +1374,14 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
     assert_eq!(
         settings_during_lifecycle["result"]["tunHelper"]["removal"],
         "maintenance-pending"
+    );
+    assert_eq!(
+        settings_during_lifecycle["result"]["tunHelperOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        settings_during_lifecycle["result"]["tunHelperOperation"]["phase"],
+        "finalizing"
     );
     let during_lifecycle = scenario.capture.status();
     assert!(
@@ -1414,7 +1426,10 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
     let duplicate = tokio::spawn(async move {
         rpc_request_after_send(
             &mut duplicate,
-            json!({"jsonrpc":"2.0", "id":5, "method":"settings.repairTunHelper", "params":{}}),
+            json!({
+                "jsonrpc":"2.0", "id":5, "method":"settings.repairTunHelper",
+                "params":{"operationId": operation_id}
+            }),
             sent,
         )
         .await
@@ -1456,6 +1471,33 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
         .expect("serialized identical repair must settle")
         .unwrap();
     assert!(duplicate["result"].is_object());
+    assert_eq!(
+        duplicate["result"]["tunHelperOperation"]["operationId"],
+        operation_id
+    );
+    assert_eq!(
+        duplicate["result"]["tunHelperOperation"]["phase"],
+        "terminal"
+    );
+    let transcript = scenario.host.observation().transcript;
+    assert_eq!(
+        transcript
+            .events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::MaintenanceAuthorize)
+            .count(),
+        1,
+        "the same admitted operation may authorize only once"
+    );
+    assert!(
+        transcript
+            .events
+            .iter()
+            .filter(|event| event.effect_kind == EffectKind::MaintenanceAuthorize)
+            .all(|event| Some(event.admitted_revision)
+                == repaired["result"]["tunHelperOperation"]["admittedRevision"].as_u64()),
+        "the platform transcript and Settings terminal must share the admitted revision"
+    );
 
     let terminal = rpc_request(
         &mut notifications,
@@ -1468,7 +1510,11 @@ async fn authenticated_rpc_projects_maintenance_pending_finalizing_and_serialize
         .iter()
         .filter(|record| record["presentation"]["kind"] == "tun-helper.lifecycle")
         .collect::<Vec<_>>();
-    assert!(!lifecycles.is_empty());
+    assert_eq!(
+        lifecycles.len(),
+        1,
+        "one admitted operation has one notification"
+    );
     assert!(lifecycles.iter().all(|record| record["pinned"] == false));
     assert!(
         lifecycles
