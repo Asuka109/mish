@@ -35,7 +35,7 @@ internal object MobileCoreProcessRuntimeRegistry {
         context: Context,
         allowFailureInjection: Boolean,
     ): MobileCoreProcessRuntime {
-        val coreProbe = MishMobileCoreProbe()
+        val coreProbe = MishMobileCoreProbe(context.applicationContext)
         val store = MishVpnPlatformStore(context.applicationContext)
         return MobileCoreProcessRuntime(
             configExecutor = Executors.newSingleThreadExecutor { runnable ->

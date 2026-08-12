@@ -11,7 +11,7 @@ class MishMobileCoreProbeTest {
     @Test
     fun `accepts an exact bounded v1 identity envelope`() {
         val identity = MishMobileCoreProbe.parseIdentity(
-            """{"abiVersion":1,"data":{"abiVersion":1,"mihomoCommit":"e26714a181ac0e2fa803453c0a8e9a9ce94e31cb","mihomoVersion":"v1.19.29","wrapperRevision":"mish-mobile-core-v1"}}""",
+            """{"abiVersion":1,"data":{"abiVersion":1,"goVersion":"go1.26.0","mihomoCommit":"e26714a181ac0e2fa803453c0a8e9a9ce94e31cb","mihomoVersion":"v1.19.29","wrapperRevision":"mish-mobile-core-v1"}}""",
             1,
         )
 
@@ -31,8 +31,136 @@ class MishMobileCoreProbeTest {
         )
         assertNull(
             MishMobileCoreProbe.parseIdentity(
-                """{"abiVersion":1,"data":{"abiVersion":1,"mihomoCommit":"e26714a","mihomoVersion":"v1.19.29","wrapperRevision":"mish-mobile-core-v1"}}""",
+                """{"abiVersion":1,"data":{"abiVersion":1,"goVersion":"go1.26.0","mihomoCommit":"e26714a","mihomoVersion":"v1.19.29","wrapperRevision":"mish-mobile-core-v1"}}""",
                 2,
+            ),
+        )
+    }
+
+    @Test
+    fun `admits only the complete pinned provenance and verified package signature`() {
+        val manifest = admissionManifest()
+        val admitted = MobileCoreAdmissionPolicy.evaluate(
+            manifest = manifest,
+            runtimeAbi = "arm64-v8a",
+            observedArtifactDigest = "a".repeat(64),
+            signature = MobileCoreSignatureEvidence(
+                identity = MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY,
+                verified = true,
+            ),
+        )
+
+        assertTrue(admitted.admitted)
+        assertEquals("arm64-v8a", admitted.artifactAbi)
+        assertEquals("a".repeat(64), admitted.artifactDigest)
+    }
+
+    @Test
+    fun `rejects provenance drift before any native admission`() {
+        val cases = listOf(
+            MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT to MobileCoreAdmissionFailure.SOURCE_MISMATCH,
+            MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION to MobileCoreAdmissionFailure.VERSION_MISMATCH,
+            MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION to MobileCoreAdmissionFailure.WRAPPER_MISMATCH,
+        )
+
+        cases.forEachIndexed { index, (_, expected) ->
+            val drifted = admissionManifest().let { manifest ->
+                when (index) {
+                    0 -> manifest.copy(sourceCommit = "f".repeat(40))
+                    1 -> manifest.copy(sourceVersion = "v9.9.9")
+                    else -> manifest.copy(wrapperRevision = "mish-mobile-core-v2")
+                }
+            }
+            val result = MobileCoreAdmissionPolicy.evaluate(
+                drifted,
+                "arm64-v8a",
+                "a".repeat(64),
+                MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true),
+            )
+            assertFalse(result.admitted)
+            assertEquals(expected, result.failure)
+        }
+    }
+
+    @Test
+    fun `rejects ABI digest and signature mismatch before runtime effects`() {
+        val manifest = admissionManifest()
+        val inputs = listOf(
+            Triple("mips", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
+            Triple("arm64-v8a", "b".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
+            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, false)) to MobileCoreAdmissionFailure.SIGNATURE_UNVERIFIED,
+            Triple("arm64-v8a", "a".repeat(64), MobileCoreSignatureEvidence("foreign-signer", true)) to MobileCoreAdmissionFailure.IDENTITY_MISMATCH,
+        )
+
+        inputs.forEach { (input, expected) ->
+            val result = MobileCoreAdmissionPolicy.evaluate(manifest, input.first, input.second, input.third)
+            assertFalse(result.admitted)
+            assertEquals(expected, result.failure)
+        }
+    }
+
+    @Test
+    fun `rejects missing or unverifiable required admission facts`() {
+        val manifest = admissionManifest()
+        val cases = listOf(
+            Triple(null, "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.MANIFEST_MALFORMED,
+            Triple(manifest, null, MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ARTIFACT_DIGEST_MISMATCH,
+            Triple(manifest, "a".repeat(64), null) to MobileCoreAdmissionFailure.SIGNATURE_MISSING,
+            Triple(manifest.copy(artifacts = listOf(manifest.artifacts.first())), "a".repeat(64), MobileCoreSignatureEvidence(MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY, true)) to MobileCoreAdmissionFailure.ABI_MISMATCH,
+        )
+
+        cases.forEach { (input, expected) ->
+            val result = MobileCoreAdmissionPolicy.evaluate(
+                manifest = input.first,
+                runtimeAbi = "arm64-v8a",
+                observedArtifactDigest = input.second,
+                signature = input.third,
+            )
+            assertFalse(result.admitted)
+            assertEquals(expected, result.failure)
+        }
+    }
+
+    @Test
+    fun `records a closed rejection and never invokes the native effect`() {
+        val invocations = mutableListOf<MobileCoreAdmissionInvocation>()
+        var effects = 0
+        val gate = MobileCoreAdmissionGate(
+            admit = {
+                MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.SOURCE_MISMATCH)
+            },
+            observer = invocations::add,
+        )
+
+        val result = gate.invoke(
+            operation = MobileCoreEffectOperation.START,
+            rejected = { it },
+            effect = {
+                effects += 1
+                MobileCoreAdmissionResult.accepted("arm64-v8a", "a".repeat(64), "never")
+            },
+        )
+
+        assertFalse(result.admitted)
+        assertEquals(MobileCoreAdmissionFailure.SOURCE_MISMATCH, result.failure)
+        assertEquals(0, effects)
+        assertEquals(
+            listOf(MobileCoreAdmissionInvocation(MobileCoreEffectOperation.START, result)),
+            invocations,
+        )
+        assertEquals(invocations, gate.recentInvocations())
+    }
+
+    @Test
+    fun `rejects malformed manifest fields and unknown artifact keys`() {
+        assertNull(
+            MobileCoreAdmissionManifest.parse(
+                admissionManifestJson().replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
+            ),
+        )
+        assertNull(
+            MobileCoreAdmissionManifest.parse(
+                admissionManifestJson().replace("\"abi\":\"arm64-v8a\"", "\"abi\":\"mips\",\"unexpected\":true"),
             ),
         )
     }
@@ -87,3 +215,21 @@ class MishMobileCoreProbeTest {
         )
     }
 }
+
+private fun admissionManifest(): MobileCoreAdmissionManifest = MobileCoreAdmissionManifest(
+    schemaVersion = 1,
+    abiVersion = 1,
+    sourceCommit = MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT,
+    sourceVersion = MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION,
+    wrapperRevision = MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION,
+    wrapperContractVersion = 1,
+    artifacts = listOf(
+        MobileCoreAdmissionArtifact("arm64-v8a", "a".repeat(64)),
+        MobileCoreAdmissionArtifact("x86_64", "b".repeat(64)),
+    ),
+    signatureIdentity = MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY,
+    signatureVerification = MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION,
+)
+
+private fun admissionManifestJson(): String =
+    """{"schemaVersion":1,"abiVersion":1,"sourceCommit":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT}","sourceVersion":"${MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION}","wrapperRevision":"${MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION}","wrapperContractVersion":1,"artifacts":[{"abi":"arm64-v8a","sha256":"${"a".repeat(64)}"},{"abi":"x86_64","sha256":"${"b".repeat(64)}"}],"signatureIdentity":"$MOBILE_CORE_ADMISSION_SIGNATURE_IDENTITY","signatureVerification":"$MOBILE_CORE_ADMISSION_SIGNATURE_VERIFICATION"}"""
