@@ -164,7 +164,8 @@ describe("TrafficProvider displayed snapshot", () => {
       clearInterval: () => {},
       invoke: async (command, args) => {
         if (command === "get_traffic_snapshot") return { ...initial, adapterKind: "native" };
-        const operationId = (args?.request as { operationId: string }).operationId;
+        const operationId = (args?.request as { operationId?: string } | undefined)?.operationId;
+        if (!operationId) throw new Error("Missing operation identity");
         return {
           failure: null,
           operation: "close-connection",
