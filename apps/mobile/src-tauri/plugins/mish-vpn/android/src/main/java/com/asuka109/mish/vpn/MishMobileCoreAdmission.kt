@@ -163,6 +163,7 @@ internal data class MobileCoreAdmissionResult(
     val failure: MobileCoreAdmissionFailure? = null,
     val artifactAbi: String? = null,
     val artifactDigest: String? = null,
+    val provenance: MobileCoreProvenanceEvidence? = null,
 ) {
     companion object {
         fun accepted(
@@ -177,6 +178,9 @@ internal data class MobileCoreAdmissionResult(
         fun rejected(failure: MobileCoreAdmissionFailure): MobileCoreAdmissionResult =
             MobileCoreAdmissionResult(admitted = false, failure = failure)
     }
+
+    fun withProvenance(evidence: MobileCoreProvenanceEvidence?): MobileCoreAdmissionResult =
+        copy(provenance = evidence)
 }
 
 internal enum class MobileCoreEffectOperation {
@@ -372,6 +376,36 @@ internal class MobileCoreArtifactAdmission(
         if (manifest == null) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.MANIFEST_MALFORMED)
         }
+        fun evidence(
+            runtimeAbi: String? = null,
+            artifactDigest: String? = null,
+            signature: MobileCoreSignatureEvidence? = null,
+        ) = MobileCoreProvenanceEvidence(
+            manifestSchemaVersion = manifest.schemaVersion
+                .takeIf { it == MOBILE_CORE_ADMISSION_SCHEMA_VERSION },
+            sourceCommit = manifest.sourceCommit
+                .takeIf { it == MobileCoreAdmissionPolicy.PINNED_SOURCE_COMMIT },
+            sourceVersion = manifest.sourceVersion
+                .takeIf { it == MobileCoreAdmissionPolicy.PINNED_SOURCE_VERSION },
+            wrapperRevision = manifest.wrapperRevision
+                .takeIf { it == MobileCoreAdmissionPolicy.PINNED_WRAPPER_REVISION },
+            wrapperContractVersion = manifest.wrapperContractVersion
+                .takeIf { it == MobileCoreAdmissionPolicy.PINNED_WRAPPER_CONTRACT_VERSION },
+            abiVersion = manifest.abiVersion
+                .takeIf { it == MobileCoreAdmissionPolicy.PINNED_ABI_VERSION },
+            selectedAbi = runtimeAbi?.takeIf { it in MobileCoreAdmissionPolicy.SUPPORTED_ABIS },
+            artifactDigest = artifactDigest?.takeIf { observed ->
+                manifest.artifacts.any { it.abi == runtimeAbi && it.sha256 == observed }
+            },
+            signerFingerprint = signature?.fingerprintSha256
+                ?.takeIf { signature.verified && it == manifest.signerSha256 },
+            signatureVerification = when {
+                signature == null -> "missing"
+                !signature.verified -> "unverified"
+                signature.fingerprintSha256 == manifest.signerSha256 -> "verified"
+                else -> "mismatch"
+            },
+        )
         val runtimeAbi = source.runtimeAbi()
         record(
             MobileCoreAdmissionBoundaryEffect.ABI_OBSERVE,
@@ -383,12 +417,15 @@ internal class MobileCoreArtifactAdmission(
         )
         if (runtimeAbi == null || runtimeAbi !in MobileCoreAdmissionPolicy.SUPPORTED_ABIS) {
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ABI_MISMATCH)
+                .withProvenance(evidence())
         }
         val artifact = runCatching { source.observeArtifact() }.getOrElse {
             MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_MISSING)
         }
         record(MobileCoreAdmissionBoundaryEffect.ARTIFACT_OBSERVE, artifact.boundaryResult())
-        artifact.failure?.let { return MobileCoreAdmissionResult.rejected(it) }
+        artifact.failure?.let {
+            return MobileCoreAdmissionResult.rejected(it).withProvenance(evidence(runtimeAbi))
+        }
 
         val signature = runCatching { source.observeSignature() }.getOrNull()
         val candidate = MobileCoreAdmissionPolicy.evaluate(
@@ -406,7 +443,9 @@ internal class MobileCoreArtifactAdmission(
                 else -> MobileCoreAdmissionBoundaryResult.MISMATCH
             },
         )
-        if (!candidate.admitted) return candidate
+        if (!candidate.admitted) {
+            return candidate.withProvenance(evidence(runtimeAbi, artifact.digestSha256, signature))
+        }
 
         val protectedUse = runCatching { source.observeArtifact() }.getOrElse {
             MobileCoreArtifactObservation(failure = MobileCoreAdmissionFailure.ARTIFACT_REPLACED)
@@ -420,12 +459,13 @@ internal class MobileCoreArtifactAdmission(
                 MobileCoreAdmissionBoundaryResult.REPLACED,
             )
             return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_REPLACED)
+                .withProvenance(evidence(runtimeAbi, artifact.digestSha256, signature))
         }
         record(
             MobileCoreAdmissionBoundaryEffect.PROTECTED_USE_RECHECK,
             MobileCoreAdmissionBoundaryResult.ACCEPTED,
         )
-        return candidate
+        return candidate.withProvenance(evidence(runtimeAbi, artifact.digestSha256, signature))
     }
 
     internal fun recentBoundaryInvocations(): List<MobileCoreAdmissionBoundaryInvocation> =

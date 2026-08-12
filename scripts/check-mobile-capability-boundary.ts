@@ -256,6 +256,7 @@ export function checkRepositoryMobileCapabilityBoundary() {
   );
   invariant(
     isExactStringSet(vpnDefaultPermissions, [
+      "allow-get-core-provenance",
       "allow-get-snapshot",
       "allow-register-listener",
       "allow-registerListener",

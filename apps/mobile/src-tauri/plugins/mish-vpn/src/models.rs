@@ -10,6 +10,175 @@ pub const MOBILE_CORE_MAX_CONFIG_BYTES_V1: usize = 1_048_576;
 pub const MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS: u64 = 30_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MobileCoreProvenanceState {
+    NotEvaluated,
+    Admitted,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MobileCoreProvenanceClassification {
+    NotEvaluated,
+    Available,
+    Manifest,
+    Source,
+    Wrapper,
+    Abi,
+    Artifact,
+    Signer,
+    NativeIdentity,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MobileCoreProvenanceEvidence {
+    pub abi_version: Option<u8>,
+    pub artifact_digest: Option<String>,
+    pub manifest_schema_version: Option<u8>,
+    pub selected_abi: Option<String>,
+    pub signature_verification: Option<String>,
+    pub signer_fingerprint: Option<String>,
+    pub source_commit: Option<String>,
+    pub source_version: Option<String>,
+    pub wrapper_contract_version: Option<u8>,
+    pub wrapper_revision: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MobileCoreProvenanceSnapshot {
+    pub authority_id: String,
+    pub classification: MobileCoreProvenanceClassification,
+    pub evidence: Option<MobileCoreProvenanceEvidence>,
+    pub generation: u64,
+    pub schema_version: u8,
+    pub state: MobileCoreProvenanceState,
+}
+
+impl MobileCoreProvenanceSnapshot {
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn validate(&self) -> bool {
+        let identifier = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        };
+        let digest = |value: &str| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        };
+        if self.schema_version != 1
+            || !identifier(&self.authority_id)
+            || self.generation > 9_007_199_254_740_991
+            || (matches!(self.state, MobileCoreProvenanceState::NotEvaluated)
+                && self.evidence.is_some())
+            || (matches!(self.state, MobileCoreProvenanceState::Admitted)
+                != matches!(
+                    self.classification,
+                    MobileCoreProvenanceClassification::Available
+                ))
+        {
+            return false;
+        }
+        self.evidence.as_ref().is_none_or(|evidence| {
+            evidence.abi_version.is_none_or(|value| value == 1)
+                && evidence
+                    .manifest_schema_version
+                    .is_none_or(|value| value == 2)
+                && evidence
+                    .wrapper_contract_version
+                    .is_none_or(|value| value == 1)
+                && evidence.artifact_digest.as_deref().is_none_or(&digest)
+                && evidence.signer_fingerprint.as_deref().is_none_or(&digest)
+                && evidence.source_commit.as_deref().is_none_or(|value| {
+                    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                && evidence
+                    .source_version
+                    .as_deref()
+                    .is_none_or(|value| !value.is_empty() && value.len() <= 32 && identifier(value))
+                && evidence
+                    .wrapper_revision
+                    .as_deref()
+                    .is_none_or(|value| !value.is_empty() && value.len() <= 64 && identifier(value))
+                && evidence
+                    .selected_abi
+                    .as_deref()
+                    .is_none_or(|value| matches!(value, "arm64-v8a" | "x86_64"))
+                && evidence
+                    .signature_verification
+                    .as_deref()
+                    .is_none_or(|value| {
+                        matches!(value, "missing" | "mismatch" | "unverified" | "verified")
+                    })
+                && (evidence.signature_verification.as_deref() == Some("verified")
+                    || evidence.signer_fingerprint.is_none())
+                && (!matches!(self.state, MobileCoreProvenanceState::Admitted)
+                    || evidence.artifact_digest.is_some())
+        })
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub(crate) fn unavailable() -> Self {
+        Self {
+            authority_id: "non-android-provenance".into(),
+            classification: MobileCoreProvenanceClassification::NotEvaluated,
+            evidence: None,
+            generation: 0,
+            schema_version: 1,
+            state: MobileCoreProvenanceState::NotEvaluated,
+        }
+    }
+}
+
+#[cfg(test)]
+mod provenance_tests {
+    use super::*;
+
+    const ADMITTED: &str = r#"{"authorityId":"mobile-core-authority","classification":"available","evidence":{"abiVersion":1,"artifactDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifestSchemaVersion":2,"selectedAbi":"arm64-v8a","signatureVerification":"verified","signerFingerprint":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sourceCommit":"e26714a181ac0e2fa803453c0a8e9a9ce94e31cb","sourceVersion":"v1.19.29","wrapperContractVersion":1,"wrapperRevision":"mish-mobile-core-v1"},"generation":1,"schemaVersion":1,"state":"admitted"}"#;
+
+    #[test]
+    fn provenance_schema_rejects_unknown_private_fields() {
+        assert!(
+            serde_json::from_str::<MobileCoreProvenanceSnapshot>(ADMITTED)
+                .is_ok_and(|snapshot| snapshot.validate())
+        );
+        let unknown = ADMITTED.replace(
+            "\"generation\":1",
+            "\"privatePath\":\"/data/user/0/mish\",\"generation\":1",
+        );
+        let nested = ADMITTED.replace(
+            "\"abiVersion\":1",
+            "\"certificateBytes\":[1,2],\"abiVersion\":1",
+        );
+        assert!(serde_json::from_str::<MobileCoreProvenanceSnapshot>(&unknown).is_err());
+        assert!(serde_json::from_str::<MobileCoreProvenanceSnapshot>(&nested).is_err());
+    }
+
+    #[test]
+    fn provenance_schema_rejects_unknown_enums_and_oversized_records() {
+        assert!(
+            serde_json::from_str::<MobileCoreProvenanceSnapshot>(
+                &ADMITTED.replace("\"available\"", "\"future-policy\"")
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<MobileCoreProvenanceSnapshot>(
+                &ADMITTED.replace(&"a".repeat(64), &"a".repeat(65))
+            )
+            .is_ok_and(|snapshot| !snapshot.validate())
+        );
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileVpnSnapshot {
     pub activation_session_id: Option<String>,

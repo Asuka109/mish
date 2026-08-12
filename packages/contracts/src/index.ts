@@ -147,6 +147,71 @@ export interface MobileVpnLifecycleOperationDto extends z.infer<
   typeof MobileVpnLifecycleOperationSchema
 > {}
 
+const MobileCoreProvenanceDigestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
+export const MobileCoreProvenanceEvidenceSchema = z
+  .object({
+    abiVersion: z.literal(1).nullable(),
+    artifactDigest: MobileCoreProvenanceDigestSchema.nullable(),
+    manifestSchemaVersion: z.literal(2).nullable(),
+    selectedAbi: z.enum(["arm64-v8a", "x86_64"]).nullable(),
+    signatureVerification: z.enum(["missing", "mismatch", "unverified", "verified"]).nullable(),
+    signerFingerprint: MobileCoreProvenanceDigestSchema.nullable(),
+    sourceCommit: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/u)
+      .nullable(),
+    sourceVersion: z
+      .string()
+      .regex(/^[A-Za-z0-9._+-]{1,32}$/u)
+      .nullable(),
+    wrapperContractVersion: z.literal(1).nullable(),
+    wrapperRevision: z
+      .string()
+      .regex(/^[A-Za-z0-9._-]{1,64}$/u)
+      .nullable(),
+  })
+  .strict();
+export const MobileCoreProvenanceSnapshotSchema = z
+  .object({
+    authorityId: IdentifierSchema.max(128),
+    classification: z.enum([
+      "not-evaluated",
+      "available",
+      "manifest",
+      "source",
+      "wrapper",
+      "abi",
+      "artifact",
+      "signer",
+      "native-identity",
+    ]),
+    evidence: MobileCoreProvenanceEvidenceSchema.nullable(),
+    generation: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    schemaVersion: z.literal(1),
+    state: z.enum(["not-evaluated", "admitted", "rejected"]),
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (snapshot.state === "not-evaluated" && snapshot.evidence !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "Unevaluated provenance must not carry evidence",
+      });
+    }
+    if ((snapshot.state === "admitted") !== (snapshot.classification === "available")) {
+      context.addIssue({ code: "custom", message: "Admitted provenance must be available" });
+    }
+    if (snapshot.state === "admitted" && snapshot.evidence?.artifactDigest === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Admitted provenance requires artifact identity",
+      });
+    }
+  });
+export interface MobileCoreProvenanceSnapshotDto extends z.infer<
+  typeof MobileCoreProvenanceSnapshotSchema
+> {}
+
 export const MobileVpnSnapshotSchema = z
   .object({
     activationSessionId: z.string().min(1).max(128).nullable(),

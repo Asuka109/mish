@@ -4,8 +4,8 @@ use crate::lifecycle::LifecycleCommandKind;
 use crate::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadFailure,
     MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
-    MobileConfigValidationRequest, MobileConfigValidationResult, MobileVpnCommandRequest,
-    MobileVpnCommandResult, MobileVpnSnapshot, Result,
+    MobileConfigValidationRequest, MobileConfigValidationResult, MobileCoreProvenanceSnapshot,
+    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
 };
 
 #[derive(Clone)]
@@ -18,6 +18,10 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, _api: PluginApi<R, ()>) -> Result<Mi
 impl<R: Runtime> MishVpn<R> {
     pub async fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
         Ok(MobileVpnSnapshot::unsupported())
+    }
+
+    pub async fn get_core_provenance(&self) -> Result<MobileCoreProvenanceSnapshot> {
+        Ok(MobileCoreProvenanceSnapshot::unavailable())
     }
 
     pub async fn request_notification_permission(

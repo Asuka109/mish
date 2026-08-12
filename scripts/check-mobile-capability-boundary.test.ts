@@ -112,9 +112,9 @@ test("accepts reviewed typed platform capabilities", () => {
 });
 
 test("rejects additions to a named default permission bundle", () => {
-  const expected = ["allow-get-snapshot", "allow-start", "allow-stop"];
+  const expected = ["allow-get-core-provenance", "allow-get-snapshot", "allow-start", "allow-stop"];
   const actual = parseTomlStringArray(
-    'permissions = [\n  "allow-get-snapshot",\n  "allow-start",\n  "allow-stop",\n]',
+    'permissions = [\n  "allow-get-core-provenance",\n  "allow-get-snapshot",\n  "allow-start",\n  "allow-stop",\n]',
     "permissions",
   );
   assert.equal(isExactStringSet(actual, expected), true);

@@ -331,6 +331,17 @@ impl<R: Runtime> MishVpn<R> {
         ))
     }
 
+    pub async fn get_core_provenance(&self) -> Result<crate::MobileCoreProvenanceSnapshot> {
+        let snapshot: crate::MobileCoreProvenanceSnapshot = self
+            .handle
+            .run_mobile_plugin_async("getCoreProvenance", EmptyPayload {})
+            .await?;
+        if !snapshot.validate() {
+            return Err(crate::Error::PlatformFactsSchemaRejected);
+        }
+        Ok(snapshot)
+    }
+
     pub async fn request_notification_permission(
         &self,
         request: MobileVpnCommandRequest,

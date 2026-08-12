@@ -77,6 +77,11 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun getCoreProvenance(invoke: Invoke) {
+        invoke.resolveObject(coreProbe.provenanceSnapshot().toJson())
+    }
+
+    @Command
     fun requestVpnConsent(invoke: Invoke) {
         val consentIntent = VpnService.prepare(activity)
         if (consentIntent == null) {
