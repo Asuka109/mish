@@ -26,12 +26,15 @@ combined `pnpm check:pr` passed (Web 69 files / 603 tests and scripts 232
 tests, plus Rust, simulated-host, Browser, production-exclusion,
 documentation, and release gates). The maintainer approved the exact
 three-task AFK Wave 2H on 2026-08-12. #449 C1.3 is integrated through PR #498
-and Issue #449 is closed. #451 D1.3 is the only running Worker; PR #497 is
-green but remains integration-gated. #454 D2.1's bounded signer-pin follow-up
-PR #500 passed local and remote gates and is `ready-for-acceptance`; it must be
-explicitly accepted and merged before D1.3 refreshes and completes. Candidate
-Wave 2I contains only independent #435 H1.1 and awaits maintainer confirmation.
-Eight repository concurrency slots remain unreserved.
+and Issue #449 is closed. #451 D1.3 is integrated through PR #497. #454 D2.1
+merged PRs #499 and #500, but coordinator review found that the manifest's
+synthetic signer pin is not wired to the certificate that actually signs the
+built APK; the original Worker must resume for a second bounded follow-up.
+Coordinator post-merge `pnpm check:pr` passed at `origin/main@176351ec` (Web 69
+files / 613 tests, scripts 232 tests, Rust, simulated-host, Browser,
+production-exclusion, documentation, and release gates). Candidate Wave 2I
+contains only independent #435 H1.1 and awaits maintainer confirmation. Nine
+repository concurrency slots remain unreserved before that new dispatch.
 
 ## Wave 1 worker ledger
 
@@ -74,8 +77,8 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Profile credential privacy | #449 | completed: C1.1-C1.3 integrated; Issue closed | #440 completed | accepted |
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
-| Android VPN authority | #451 | D1.1/D1.2 integrated; D1.3 ready, then D1.4 | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
-| Mobile Core provenance | #454 | D2.1 signer-pin follow-up ready for acceptance; D2.2/D2.3 sequential | #451 D1.2 integrated | confirmation-only |
+| Android VPN authority | #451 | D1.1-D1.3 integrated; D1.4 blocked on operational D2.1 signer/build closure | #440 and #436 completed | confirmation-only; physical residual stays in #268 |
+| Mobile Core provenance | #454 | D2.1 second build-signer follow-up active; D2.2/D2.3 sequential afterward | #451 D1.2 integrated | confirmation-only |
 | System-component repair feedback | #435 | H1.1 automated vertical repair ready; H1.2 hands-on residual later | none; preserve existing Helper/Capture authority | H1.1 confirmation-only; H1.2 hands-on |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
@@ -200,8 +203,8 @@ work.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #449 C1.3 | `019ff3ec-8c5f-7321-80ce-81a078164789` | `2bd3` | integrated | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | PR #498 merged as `5239df6f`; local/remote gates passed, all Issue #449 criteria read back checked, and Issue closed completed without real credentials/network claims |
-| #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | active; integration-gated | D1.1/D1.2 integrated; corrected D2.1 required | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Worker may continue implementation but must not request final acceptance or merge until the D2.1 pinned-signer follow-up is integrated; then ordinary-merge latest main and rerun affected cross-layer contracts; no D1.4/device claim |
-| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | ready-for-acceptance | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Follow-up PR #500 binds the signer fingerprint and passed focused/full local gates plus Fast PR and Android gates; explicit fresh acceptance and ordinary merge are required before D2.1 integration or D1.3 final delivery; D2.2/D2.3 remain untouched |
+| #451 D1.3 | `019ff3ec-8c5f-7321-80ce-81e61066291c` | `603d` | integrated | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | PR #497 merged as `176351ec`; focused/full local gates and remote Fast PR/Android gates passed; Issue #451 remains open with D1.4 pending and no device claim |
+| #454 D2.1 | `019ff3ec-8c5f-7321-80ce-81c68e466c9f` | `37eb` | active; second review follow-up | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | PRs #499 / `32ac48ba` and #500 / `817a933e` merged, but the synthetic manifest fingerprint is not the signer of the produced APK and CI only verifies signature presence; the same Worker must close build signer -> manifest pin -> PackageManager observation or report a precise credential-free blocker; D2.2/D2.3 remain untouched |
 
 ## Existing issue coordination
 
@@ -231,23 +234,25 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- The exact approved Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. All are
-  active AFK, confirmation-only, Chinese-reporting Luna Max
-  (`gpt-5.6-luna/max`) visible tasks with isolated worktrees.
+- The exact approved Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. #449 C1.3
+  and #451 D1.3 are integrated; #454 D2.1 remains active in its original AFK,
+  confirmation-only, Chinese-reporting Luna Max (`gpt-5.6-luna/max`) visible
+  task and isolated worktree.
 - #449 C1.3 is independent of the mobile tasks and completes detach
   confirmation plus credential-token negative evidence without real
   credentials or external network access.
-- #451 D1.3 owns only the Web/JavaScript mobile lifecycle authority,
+- #451 D1.3 completed the Web/JavaScript mobile lifecycle authority,
   abort/dispose, baseline, and stale-load surface. #454 D2.1 owns only
-  Kotlin/native pinned Mobile Core artifact admission. D2.1's first merge
-  does not pin the signer identity: the original Worker must bind admission to
-  one build-owned expected signer fingerprint/identity and prove a differently
-  signed APK fails closed, without credentials or private certificate bytes.
-  D1.3 remains integration-gated until that accepted follow-up lands; neither
-  task may implement D1.4, D2.2, D2.3, or claim device acceptance.
+  Kotlin/native pinned Mobile Core artifact admission. Its second follow-up
+  must establish that the actual credential-free debug APK build signer, the
+  source-manifest pin, CI package verification, and PackageManager observation
+  are the same identity. If that cannot be done without committing sensitive
+  material or weakening release boundaries, the Worker must stop with a
+  precise design blocker. It may not implement D1.4, D2.2, D2.3, or claim
+  emulator/device or release-signing acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- Complete #454 D2.1 before D2.2 and D2.3, and complete #451 D1.3 before D1.4.
+- Complete #454 D2.1 before D2.2, D2.3, or #451 D1.4.
 - Candidate Wave 2I contains one independent AFK task: #435 H1.1. It will
   preserve the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
