@@ -21,6 +21,10 @@ use mish_bridge::{
     initialize_onboarding_welcome_notification, start_loopback_server,
     start_loopback_server_with_runtime_host,
 };
+use mish_profile::{
+    HttpsSourceReader, LocalSourceReader, ProfileService, RedirectTarget, SensitivePath,
+    SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy,
+};
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureTransitionError, CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase,
@@ -54,6 +58,48 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
+const PROFILE_FIXTURE: &[u8] =
+    b"mode: rule\nproxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n";
+const SYNTHETIC_SUBSCRIPTION_TOKEN: &str = "synthetic-subscription-token";
+
+#[derive(Clone, Copy)]
+struct DeterministicProfileReader;
+
+impl LocalSourceReader for DeterministicProfileReader {
+    fn read<'a>(
+        &'a self,
+        _path: &'a SensitivePath,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        Box::pin(async {
+            Ok(SourceContent {
+                bytes: PROFILE_FIXTURE.to_vec(),
+                content_type: Some("application/yaml".into()),
+                final_url: None,
+                redirects: 0,
+            })
+        })
+    }
+}
+
+impl HttpsSourceReader for DeterministicProfileReader {
+    fn read<'a>(
+        &'a self,
+        url: &'a SensitiveUrl,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        let final_url =
+            RedirectTarget::parse(url.expose()).map_err(|_| SourceReadError::Unavailable);
+        Box::pin(async move {
+            Ok(SourceContent {
+                bytes: PROFILE_FIXTURE.to_vec(),
+                content_type: Some("application/yaml".into()),
+                final_url: Some(final_url?),
+                redirects: 0,
+            })
+        })
+    }
+}
 
 struct BrowserAssets;
 
@@ -4495,6 +4541,78 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
 
     bridge.shutdown().await;
     let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn profile_detach_rpc_keeps_real_authority_and_failure_evidence_token_negative() {
+    let root = tempfile::tempdir().unwrap();
+    let seed_service = ProfileService::new(
+        root.path().to_path_buf(),
+        DeterministicProfileReader,
+        DeterministicProfileReader,
+        SourceReadPolicy::default(),
+    );
+    let preview = seed_service
+        .preflight_https(
+            &format!("https://profiles.example/config.yaml?token={SYNTHETIC_SUBSCRIPTION_TOKEN}"),
+            Some("deterministic-profile.yaml".into()),
+        )
+        .await
+        .unwrap();
+    let saved = seed_service
+        .save_preview(&preview.preview_id)
+        .await
+        .unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+    let saved_json = serde_json::to_string(&saved).unwrap();
+    assert!(!saved_json.contains(SYNTHETIC_SUBSCRIPTION_TOKEN));
+    assert!(saved_json.contains("https://profiles.example/…"));
+
+    let service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().to_path_buf()).unwrap());
+    let mut bridge_config = config();
+    bridge_config.profile_service = Some(service);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let detach = request(
+        &mut ws,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "profiles.detachSubscription",
+            "params": {"profileId": profile_id}
+        }),
+    )
+    .await;
+    assert!(detach.get("error").is_none(), "{detach}");
+    assert_eq!(
+        detach["result"]["profiles"][0]["source"]["sourceType"],
+        "local-file"
+    );
+    let detach_json = detach.to_string();
+    assert!(!detach_json.contains(SYNTHETIC_SUBSCRIPTION_TOKEN));
+    assert!(!detach_json.contains("config.yaml"));
+
+    let failed = request(
+        &mut ws,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "profiles.detachSubscription",
+            "params": {"profileId": "missing-profile"}
+        }),
+    )
+    .await;
+    assert_eq!(failed["error"]["code"], -32004);
+    let failed_json = failed.to_string();
+    assert!(!failed_json.contains(SYNTHETIC_SUBSCRIPTION_TOKEN));
+    assert!(!failed_json.contains("config.yaml"));
+
+    bridge.shutdown().await;
 }
 
 #[tokio::test]

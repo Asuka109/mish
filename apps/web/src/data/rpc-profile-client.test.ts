@@ -1,6 +1,9 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Fragment, createElement, useState } from "react";
 import { mishRpcMethods, type ProfileSnapshotDto } from "@mish/contracts";
 import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProfileProvider, useProfiles } from "./profile-provider";
 import { RpcProfileClient } from "./rpc-profile-client";
 
 class FakeTransport implements WebSocketLike {
@@ -135,6 +138,42 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
   };
 }
 
+function redactedHttpsSnapshot(activeProfileId: string | null) {
+  const snapshot = profileSnapshot(activeProfileId);
+  snapshot.profiles[0].source = {
+    display: "https://profiles.example/…",
+    sourceType: "https",
+  };
+  return snapshot;
+}
+
+function ProviderDetachProbe() {
+  const profiles = useProfiles();
+  const [result, setResult] = useState("idle");
+  return createElement(
+    Fragment,
+    null,
+    createElement(
+      "output",
+      { "data-testid": "rpc-detach-source" },
+      profiles.snapshot?.profiles[0]?.source.display ?? "none",
+    ),
+    createElement("output", { "data-testid": "rpc-detach-result" }, result),
+    createElement(
+      "button",
+      {
+        onClick: () => {
+          void profiles.detachSubscription("profile-a").then((next) => {
+            setResult(next.ok ? "success" : next.error.code);
+          });
+        },
+        type: "button",
+      },
+      "Detach through RPC",
+    ),
+  );
+}
+
 let profileSnapshotOrder = 0;
 
 async function waitForRequest(transport: FakeTransport, index: number) {
@@ -143,6 +182,18 @@ async function waitForRequest(transport: FakeTransport, index: number) {
     await Promise.resolve();
   }
   throw new Error(`RPC request ${index} was not sent`);
+}
+
+async function waitForMethod(transport: FakeTransport, method: string, startIndex = 0) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const request = transport.sent
+      .slice(startIndex)
+      .map((payload) => JSON.parse(payload))
+      .find((candidate) => candidate.method === method);
+    if (request) return request;
+    await Promise.resolve();
+  }
+  throw new Error(`RPC method ${method} was not sent`);
 }
 
 async function authenticate(transport: FakeTransport) {
@@ -336,6 +387,127 @@ describe("RpcProfileClient", () => {
     transport.respond({ id: select.id, jsonrpc: "2.0", result: selected });
     expect((await selectPromise).selection).toEqual({ profileId: "profile-a", revision: 2 });
 
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("sends a credential-free detach command and keeps response and failure evidence token-negative", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcProfileClient(rpc, async () => null);
+    const syntheticMarker = "synthetic-subscription-token";
+
+    const acceptedRequest = client.detachSubscription("profile-a");
+    await authenticate(transport);
+    const acceptedWire = await waitForRequest(transport, 1);
+    expect(acceptedWire).toMatchObject({
+      method: "profiles.detachSubscription",
+      params: { profileId: "profile-a" },
+    });
+    expect(Object.keys(acceptedWire.params)).toEqual(["profileId"]);
+    expect(JSON.stringify(acceptedWire)).not.toContain(syntheticMarker);
+    transport.respond({
+      id: acceptedWire.id,
+      jsonrpc: "2.0",
+      result: redactedHttpsSnapshot(null),
+    });
+    const accepted = await acceptedRequest;
+    expect(JSON.stringify(accepted)).not.toContain(syntheticMarker);
+    expect(accepted.profiles[0].source).toEqual({
+      display: "https://profiles.example/…",
+      sourceType: "https",
+    });
+
+    const failedRequest = client.detachSubscription("profile-a");
+    const failedWire = await waitForRequest(transport, 2);
+    expect(JSON.stringify(failedWire)).not.toContain(syntheticMarker);
+    transport.respond({
+      id: failedWire.id,
+      jsonrpc: "2.0",
+      error: {
+        code: -32_040,
+        data: { token: syntheticMarker },
+        message: "The subscription could not be detached",
+      },
+    });
+    const failure = await failedRequest.catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      code: "remote",
+      message: "The subscription could not be detached",
+    });
+    expect(JSON.stringify(failure)).not.toContain(syntheticMarker);
+    expect(transport.sent.join("\n")).not.toContain(syntheticMarker);
+
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("keeps the React-to-provider-to-RPC detach journey credential-free", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcProfileClient(rpc, null);
+    const rendered = render(
+      createElement(ProfileProvider, {
+        children: createElement(ProviderDetachProbe),
+        client,
+      }),
+    );
+    const syntheticMarker = "synthetic-subscription-token";
+
+    await authenticate(transport);
+    const subscribe = await waitForMethod(transport, "profiles.subscribe");
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: redactedHttpsSnapshot(null), subscriptionId: "profiles-test" },
+    });
+    const initialSnapshot = await waitForMethod(transport, "profiles.getSnapshot");
+    transport.respond({
+      id: initialSnapshot.id,
+      jsonrpc: "2.0",
+      result: redactedHttpsSnapshot(null),
+    });
+    const sourceOutput = await screen.findByTestId("rpc-detach-source");
+    await waitFor(() => expect(sourceOutput).toHaveTextContent("https://profiles.example/…"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Detach through RPC" }));
+    const detach = await waitForMethod(transport, "profiles.detachSubscription");
+    expect(detach.params).toEqual({ profileId: "profile-a" });
+    expect(JSON.stringify(detach)).not.toContain(syntheticMarker);
+    const detached = profileSnapshot(null);
+    detached.profiles[0].source = { display: "synthetic.yaml", sourceType: "local-file" };
+    transport.respond({ id: detach.id, jsonrpc: "2.0", result: detached });
+    await waitFor(() =>
+      expect(screen.getByTestId("rpc-detach-result")).toHaveTextContent("success"),
+    );
+    expect(document.body).not.toHaveTextContent(syntheticMarker);
+
+    const retryStart = transport.sent.length;
+    fireEvent.click(screen.getByRole("button", { name: "Detach through RPC" }));
+    const failedDetach = await waitForMethod(transport, "profiles.detachSubscription", retryStart);
+    transport.respond({
+      id: failedDetach.id,
+      jsonrpc: "2.0",
+      error: {
+        code: -32_040,
+        data: { token: syntheticMarker },
+        message: "The subscription could not be detached",
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("rpc-detach-result")).toHaveTextContent("remote"),
+    );
+    expect(document.body).not.toHaveTextContent(syntheticMarker);
+
+    rendered.unmount();
     client.dispose();
     rpc.dispose();
   });
