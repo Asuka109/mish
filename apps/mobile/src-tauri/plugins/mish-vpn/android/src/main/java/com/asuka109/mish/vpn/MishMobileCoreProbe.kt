@@ -121,9 +121,12 @@ internal class MishMobileCoreProbe internal constructor(
     MobileCoreRuntime {
     private val admissionLock = Any()
     private val admissionGate = MobileCoreAdmissionGate(::ensureAdmitted)
+    private val provenanceProjection = MobileCoreProvenanceProjection()
 
     internal fun admission(): MobileCoreAdmissionResult =
         admissionGate.check(MobileCoreEffectOperation.ADMISSION)
+
+    internal fun provenanceSnapshot(): MobileCoreProvenanceSnapshot = provenanceProjection.current()
 
     private fun ensureAdmitted(): MobileCoreAdmissionResult {
         synchronized(admissionLock) {
@@ -132,9 +135,10 @@ internal class MishMobileCoreProbe internal constructor(
             }
             val admitted = admissionReader?.invoke()
                 ?: MobileCoreArtifactAdmission(checkNotNull(applicationContext)).admit()
-            if (!admitted.admitted) return admitted
+            if (!admitted.admitted) return admitted.also(provenanceProjection::publish)
             if (!shimLoader()) {
-                return MobileCoreAdmissionResult.rejected(MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+                return admitted.copy(admitted = false, failure = MobileCoreAdmissionFailure.ARTIFACT_MISSING)
+                    .also(provenanceProjection::publish)
             }
             val nativeIdentity = runCatching {
                 val abiVersion = nativeAbiVersion()
@@ -152,9 +156,10 @@ internal class MishMobileCoreProbe internal constructor(
                         MobileCoreAdmissionFailure.WRAPPER_MISMATCH
                     else -> MobileCoreAdmissionFailure.ABI_MISMATCH
                 }
-                return MobileCoreAdmissionResult.rejected(failure)
+                return admitted.copy(admitted = false, failure = failure)
+                    .also(provenanceProjection::publish)
             }
-            return admitted
+            return admitted.also(provenanceProjection::publish)
         }
     }
 

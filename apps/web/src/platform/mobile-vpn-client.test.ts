@@ -2,6 +2,7 @@ import type { PluginListener } from "@tauri-apps/api/core";
 import {
   ANDROID_PLATFORM_FACTS_GOLDEN,
   AndroidPlatformFactsSchema,
+  MobileCoreProvenanceSnapshotSchema,
   type MobileVpnSnapshotDto,
 } from "@mish/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -131,6 +132,58 @@ function validationResult(sequence: number, overrides: Record<string, unknown> =
 }
 
 describe("MobileVpnFixtureClient", () => {
+  it("projects only the bounded Mobile Core provenance DTO", async () => {
+    const provenance = {
+      authorityId: "mobile-core-authority",
+      classification: "available",
+      evidence: {
+        abiVersion: 1,
+        artifactDigest: "a".repeat(64),
+        manifestSchemaVersion: 2,
+        selectedAbi: "arm64-v8a",
+        signatureVerification: "verified",
+        signerFingerprint: "b".repeat(64),
+        sourceCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+        sourceVersion: "v1.19.29",
+        wrapperContractVersion: 1,
+        wrapperRevision: "mish-mobile-core-v1",
+      },
+      generation: 1,
+      schemaVersion: 1,
+      state: "admitted",
+    } as const;
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command) => {
+        if (command !== "get_core_provenance") throw new Error(`Unexpected command: ${command}`);
+        return provenance;
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+
+    await expect(client.getCoreProvenance()).resolves.toEqual(provenance);
+    expect(
+      MobileCoreProvenanceSnapshotSchema.safeParse({
+        ...provenance,
+        privatePath: "/data/user/0/mish",
+      }).success,
+    ).toBe(false);
+    expect(
+      MobileCoreProvenanceSnapshotSchema.safeParse({
+        ...provenance,
+        evidence: { ...provenance.evidence, certificateBytes: [1, 2] },
+      }).success,
+    ).toBe(false);
+    expect(
+      MobileCoreProvenanceSnapshotSchema.safeParse({
+        ...provenance,
+        evidence: { ...provenance.evidence, artifactDigest: "a".repeat(65) },
+      }).success,
+    ).toBe(false);
+    expect(
+      MobileCoreProvenanceSnapshotSchema.safeParse({ ...provenance, evidence: null }).success,
+    ).toBe(false);
+  });
+
   it("checks the complete generated Android facts schema and rejects drift", () => {
     expect(AndroidPlatformFactsSchema.parse(ANDROID_PLATFORM_FACTS_GOLDEN)).toEqual(
       ANDROID_PLATFORM_FACTS_GOLDEN,

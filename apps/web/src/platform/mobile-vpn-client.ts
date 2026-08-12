@@ -2,6 +2,7 @@ import {
   MobileConfigCancelResultSchema,
   MobileConfigLoadResultSchema,
   MobileConfigValidationResultSchema,
+  MobileCoreProvenanceSnapshotSchema,
   MobileVpnCommandResultSchema,
   MobileVpnEventSchema,
   MobileVpnSnapshotSchema,
@@ -9,6 +10,7 @@ import {
   type MobileConfigLoadResultDto,
   type MobileConfigValidationFailure,
   type MobileConfigValidationResultDto,
+  type MobileCoreProvenanceSnapshotDto,
   type MobileVpnCommandResultDto,
   type MobileVpnSnapshotDto,
 } from "@mish/contracts";
@@ -98,6 +100,7 @@ interface MobileLifecycleOperation {
 export interface MobileVpnClient {
   dispose(): void;
   getSnapshot(): MobileVpnSnapshotDto | undefined;
+  getCoreProvenance?(): Promise<MobileCoreProvenanceSnapshotDto>;
   initialize(): Promise<MobileVpnSnapshotDto>;
   loadConfig(
     configBytes: Uint8Array,
@@ -166,6 +169,12 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
 
   getSnapshot(): MobileVpnSnapshotDto | undefined {
     return this.baselineAccepted ? this.snapshot : undefined;
+  }
+
+  async getCoreProvenance(): Promise<MobileCoreProvenanceSnapshotDto> {
+    return MobileCoreProvenanceSnapshotSchema.parse(
+      await this.transport.invoke("get_core_provenance"),
+    );
   }
 
   requestNotificationPermission(

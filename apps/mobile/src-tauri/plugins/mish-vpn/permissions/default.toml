@@ -4,6 +4,7 @@
 description = "Allows the installed mobile WebView to use the bounded Android VPN product lifecycle."
 permissions = [
   "allow-get-snapshot",
+  "allow-get-core-provenance",
   "allow-register-listener",
   "allow-registerListener",
   "allow-remove-listener",

@@ -39,13 +39,24 @@ pub use models::{
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
     MobileConfigLoadResult, MobileConfigLoadTiming, MobileConfigRollback,
     MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
-    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot,
+    MobileCoreProvenanceSnapshot, MobileVpnCommandRequest, MobileVpnCommandResult,
+    MobileVpnSnapshot,
 };
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 async fn get_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
     app.state::<platform::MishVpn<R>>().get_snapshot().await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn get_core_provenance<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<MobileCoreProvenanceSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_core_provenance()
+        .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -136,6 +147,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mish-vpn")
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            get_core_provenance,
             request_notification_permission,
             request_vpn_consent,
             start,

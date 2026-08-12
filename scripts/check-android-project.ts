@@ -27,6 +27,20 @@ const mobileCoreAdmission = source(
 const mobileCoreAdversarialTest = source(
   `${pluginRoot}/android/src/test/java/com/asuka109/mish/vpn/MobileCoreProvenanceAdversarialTest.kt`,
 );
+const mobileCoreProvenance = source(
+  `${pluginRoot}/android/src/main/java/com/asuka109/mish/vpn/MobileCoreProvenance.kt`,
+);
+const mobileCoreProvenanceTest = source(
+  `${pluginRoot}/android/src/test/java/com/asuka109/mish/vpn/MobileCoreProvenanceDiagnosticsTest.kt`,
+);
+const kotlinTestRoot = resolve(root, pluginRoot, "android/src/test");
+const productionExclusionRoots = [
+  ".github",
+  "apps/mobile/src-tauri/src",
+  `${pluginRoot}/src`,
+  `${pluginRoot}/android/src/main`,
+  "apps/web/src",
+];
 const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
 const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
@@ -38,6 +52,7 @@ const pluginRustModels = source(`${pluginRoot}/src/models.rs`);
 const pluginRustLifecycle = source(`${pluginRoot}/src/lifecycle.rs`);
 const pluginRustAndroid = source(`${pluginRoot}/src/android.rs`);
 const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
+const mobileVpnClientTest = source("apps/web/src/platform/mobile-vpn-client.test.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.json")) as {
   schemaVersion: number;
@@ -81,6 +96,13 @@ const kotlin = readdirSync(kotlinRoot)
   .filter((path) => path.endsWith(".kt"))
   .map((path) => readFileSync(resolve(kotlinRoot, path), "utf8"))
   .join("\n");
+
+function collectTextFiles(directory: string): string {
+  return readdirSync(resolve(root, directory), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => readFileSync(resolve(entry.parentPath, entry.name), "utf8"))
+    .join("\n");
+}
 
 function numericConstant(sourceText: string, pattern: RegExp, name: string): number {
   const match = sourceText.match(pattern);
@@ -230,6 +252,30 @@ for (const requirement of [
   invariant(
     pluginManifest.includes(requirement),
     `Android VPN plugin Manifest is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "MobileCoreProvenanceProjection",
+  "MobileCoreProvenanceSnapshot",
+  "NOT_EVALUATED",
+  "NATIVE_IDENTITY",
+  "AtomicReference",
+]) {
+  invariant(
+    mobileCoreProvenance.includes(requirement),
+    `Mobile Core D2.3 diagnostic projection is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "admitted decision publishes the exact bounded verified provenance",
+  "unavailable and every closed rejection class remain bounded",
+  "authority replacement starts a new bounded generation without history",
+  "diagnostic JSON contains exact keys and no private payload shapes",
+  "diagnostic rendering does not reobserve admission inputs",
+]) {
+  invariant(
+    mobileCoreProvenanceTest.includes(requirement),
+    `Mobile Core D2.3 diagnostic use case is missing: ${requirement}`,
   );
 }
 for (const requirement of [
@@ -490,6 +536,7 @@ for (const requirement of [
 }
 for (const command of [
   "get_snapshot",
+  "get_core_provenance",
   "request_notification_permission",
   "request_vpn_consent",
   "start",
@@ -502,13 +549,58 @@ for (const command of [
   invariant(pluginBuild.includes(`"${command}"`), `Typed VPN command is missing: ${command}`);
 }
 invariant(
-  pluginPermission.includes('"allow-request-vpn-consent"') &&
+  pluginPermission.includes('"allow-get-core-provenance"') &&
+    pluginPermission.includes('"allow-request-vpn-consent"') &&
     pluginPermission.includes('"allow-start"') &&
     pluginPermission.includes('"allow-validate-config"') &&
     pluginPermission.includes('"allow-load-config"') &&
     pluginPermission.includes('"allow-cancel-config-load"') &&
     mobileRust.includes("tauri_plugin_mish_vpn::init()"),
   "The bounded Mish VPN plugin and permissions must remain registered.",
+);
+invariant(
+  mobileVpnClient.includes("MobileCoreProvenanceSnapshotSchema.parse") &&
+    pluginRustModels.includes("deny_unknown_fields") &&
+    pluginRustModels.includes("MobileCoreProvenanceSnapshot") &&
+    pluginRustAndroid.includes('run_mobile_plugin_async("getCoreProvenance"'),
+  "The D2.3 product DTO must cross only the strict mobile Kotlin/Rust/TypeScript boundary.",
+);
+for (const forbidden of [
+  "recentBoundaryInvocations",
+  "MobileCoreAdmissionBoundaryInvocation",
+  "nativeLibraryDir",
+  "readManifest",
+  "observeSignature",
+]) {
+  invariant(
+    !pluginRustModels.includes(forbidden) && !mobileVpnClient.includes(forbidden),
+    `D2.3 public DTO must exclude synthetic controls and raw admission inputs: ${forbidden}`,
+  );
+}
+invariant(
+  !pluginRustModels.split("#[cfg(test)]")[0].includes("certificateBytes") &&
+    !mobileVpnClient.includes("certificateBytes:") &&
+    mobileVpnClientTest.includes("certificateBytes: [1, 2]") &&
+    mobileVpnClientTest.includes(").toBe(false)"),
+  "Certificate bytes must appear only as rejected TypeScript test input, never as a public DTO field.",
+);
+const productionExclusionGraph = productionExclusionRoots.map(collectTextFiles).join("\n");
+for (const testOnlyMarker of [
+  "MutableAdmissionSource",
+  "MobileCoreProvenanceDiagnosticsTest",
+  "authority replacement starts a new bounded generation without history",
+]) {
+  invariant(
+    !productionExclusionGraph.includes(testOnlyMarker),
+    `D2.3 synthetic evidence leaked into a production-inappropriate graph: ${testOnlyMarker}`,
+  );
+}
+invariant(
+  existsSync(kotlinTestRoot) &&
+    collectTextFiles(`${pluginRoot}/android/src/test`).includes(
+      "MobileCoreProvenanceDiagnosticsTest",
+    ),
+  "D2.3 synthetic diagnostics controls must remain in the Android JVM test graph.",
 );
 invariant(
   !tauri.includes("ws://127.0.0.1") && !tauri.includes("runtime_bootstrap"),
