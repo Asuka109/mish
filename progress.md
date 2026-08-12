@@ -1,6 +1,6 @@
 # Mish Delivery Progress
 
-Last updated: 2026-08-12 (Asia/Shanghai)
+Last updated: 2026-08-13 (Asia/Shanghai)
 Owner: thread-master coordinator
 
 ## Current checkpoint
@@ -45,8 +45,9 @@ defect; post-merge focused Web 115 tests, Internal TUN 24 tests, full
 SimulatedHost Rust/browser scenarios, and production exclusions 11 + 4 passed.
 Issue #435 remains open only for H1.2 hands-on macOS acceptance. Wave 2J is
 fully integrated: D2.2 through PR #503 / `0e0bc567` and D1.4 through PR #504 /
-`2b1a0dcf`. Wave 2K D2.3 is reserved for dispatch; nine repository concurrency
-slots remain unreserved.
+`2b1a0dcf`. Wave 2K is fully integrated: D2.3 merged through PR #505 /
+`f0c6cd78` after explicit acceptance, all local/remote gates passed, and Issue
+#454 closed completed. Ten repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -90,7 +91,7 @@ AFK and authorizes no real-host mutation or hands-on acceptance.
 | Atomic profile generations | #441 | completed: C2.1-C2.3 integrated; Issue closed | none | accepted |
 | Backup preview authority | #450 | completed: C3.1/C3.2 integrated; Issue closed | #440 completed | accepted |
 | Android VPN authority | #451 | D1.1-D1.4 integrated; Issue remains open only as a tracker boundary while physical-device residual stays in #268 | #440, #436, and D2.1 completed | accepted automated/emulator evidence; physical residual stays in #268 |
-| Mobile Core provenance | #454 | D2.1/D2.2 integrated; D2.3 dispatching in Wave 2K | #451 D1.2 integrated | confirmation-only |
+| Mobile Core provenance | #454 | completed: D2.1-D2.3 integrated; Issue closed | #451 D1.2 integrated | accepted |
 | System-component repair feedback | #435 | H1.1 integrated; H1.2 hands-on residual ready only with explicit target/authorization | none; preserve existing Helper/Capture authority | H1.1 accepted; H1.2 hands-on |
 | Release trust boundary | #442 | completed: E1.1-E1.4 integrated; Issue closed | none | accepted; real signing stays in #173 |
 | CI policy coverage | #443 | completed: E2.1-E2.3 integrated; Issue closed | none | accepted |
@@ -262,7 +263,7 @@ other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #454 D2.3 | `019ff661-9c28-75d1-829d-424b58c77f2a` | `d5ce` | active | D2.1/D2.2 integrated | Expose a bounded redacted Mobile Core provenance snapshot and diagnostics coverage from the one existing admission authority | Own only the diagnostic projection, bounded schema/redaction, and focused Rust/Kotlin/TypeScript coverage; do not create a second admission authority or expand into downstream Android composition; close Issue #454 only if all criteria read back satisfied |
+| #454 D2.3 | `019ff661-9c28-75d1-829d-424b58c77f2a` | `d5ce` | integrated | D2.1/D2.2 integrated | Expose a bounded redacted Mobile Core provenance snapshot and diagnostics coverage from the one existing admission authority | PR #505 merged as `f0c6cd78` after explicit acceptance; local `check:pr`, Kotlin 48, plugin Rust 22, focused TypeScript 25, dual-ABI Android Rust, fresh Fast PR/Android Rust/emulator gates, and coordinator post-merge 31-test Android/boundary/exclusion review passed. Issue #454 closed completed; no physical-device, PackageManager deployment, real Core/VPN/TUN/network, release/store-signing, publication, or deployment claim |
 
 ## Existing issue coordination
 
@@ -271,7 +272,8 @@ other hands-on work.
 | #353 | needs-input | Preserve the existing visible worker; do not silently replace it. Relevant #436/#448/#439 automated evidence is integrated; any resume remains an explicit hands-on physical-host action. |
 | #352 | needs-info | Wait for recurrence; use #437's corrected harness to retain evidence. |
 | #435 | ready-for-human | H1.1 integrated. H1.2 requires an explicitly selected disposable macOS target, administrator authorization, mutation observation, and cleanup; do not dispatch without a new explicit hands-on confirmation. |
-| #265/#266/#268/#281/#283/#284 | blocked | Their Issue bodies now record #451/#454 as architecture dependencies; #265 also records #441. |
+| #265/#266/#281/#283/#284 | dependency-unblocked; needs exact wave review | Their original blockers and architecture dependencies are closed/completed. Preserve hands-on/demo acceptance boundaries and review integration overlap before dispatch. |
+| #268 | blocked by downstream implementation and hands-on acceptance | #265/#266 remain open; physical emulator/ARM64-device acceptance requires explicit target and authorization. |
 | #173/#174/#274 | planned dependencies | #442 supplies security prerequisites without replacing their release/signing acceptance. |
 
 ## Wave 1 — approved for dispatch
@@ -310,8 +312,9 @@ final-only escalation, and explicit human acceptance before merge.
   emulator/device or release-signing acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- Wave 2J D2.2 and D1.4 are integrated. Wave 2K D2.3 is approved and reserved
-  for dispatch.
+- Wave 2J D2.2 and D1.4 and Wave 2K D2.3 are integrated. Issue #454 is closed
+  completed after PR #505 / `f0c6cd78`; its downstream architecture dependency
+  is satisfied.
 - Approved Wave 2I contained one independent AFK task: #435 H1.1. It
   preserved the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
