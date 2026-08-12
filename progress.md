@@ -15,6 +15,9 @@ Owner: thread-master coordinator
   the thread-master default Codex compute table through Wave 2H. For Wave 2I,
   the maintainer explicitly selected `gpt-5.6-sol/high` for #435 H1.1. Chinese
   reporting remains required.
+- The maintainer approved exact Wave 2J on 2026-08-12: #454 D2.2 uses
+  `gpt-5.6-sol/medium` and #451 D1.4 uses `gpt-5.6-sol/high`, both with Chinese
+  reporting and confirmation-only acceptance.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -38,8 +41,9 @@ was explicitly dispatched with `gpt-5.6-sol/high`, accepted, and integrated
 through PR #502 as `c18c2f3b`. Coordinator review found no authority or evidence
 defect; post-merge focused Web 115 tests, Internal TUN 24 tests, full
 SimulatedHost Rust/browser scenarios, and production exclusions 11 + 4 passed.
-Issue #435 remains open only for H1.2 hands-on macOS acceptance. Nine repository
-concurrency slots remain unreserved.
+Issue #435 remains open only for H1.2 hands-on macOS acceptance. Wave 2J has
+two dispatching reservations; eight repository concurrency slots remain
+unreserved.
 
 ## Wave 1 worker ledger
 
@@ -225,6 +229,24 @@ physical-host acceptance, or other hands-on work.
 | --- | --- | --- | --- | --- | --- | --- |
 | #435 H1.1 | `019ff541-1dd8-7922-87f3-5a4e4f6894fd` | `c3da` | integrated | none; preserve existing Helper/Capture authority | Correlate Repair/Remove/retry under one operation identity, settle modal and notification feedback exactly once, correct action copy, and add bounded invocation/result transcripts plus deterministic Rust/RPC/React journeys | PR #502 merged as `c18c2f3b`; local/remote and coordinator post-merge gates passed; Issue #435 has H1.1 plus four automated criteria checked and remains open with H1.2/real macOS authorization and Remove mutation unchecked |
 
+## Wave 2J dispatch manifest
+
+The maintainer approved this exact two-task AFK wave. #454 D2.2 uses model
+`gpt-5.6-sol`, reasoning effort `medium`; #451 D1.4 uses model `gpt-5.6-sol`,
+reasoning effort `high`. Both use Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and isolated worktrees. Both must
+follow the transcript-driven system-test contract. They may implement in
+parallel, but merge order is D2.2 then D1.4; D1.4 must ordinary-merge the final
+D2.2 target before final verification. This wave authorizes repository-owned
+automated emulator and synthetic transcript evidence only. It authorizes no
+physical device, real VPN/TUN/network mutation, credentials, release/store
+signing, deployment, or other hands-on work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #454 D2.2 | `pending` | `pending` | dispatching | D2.1 integrated | Add a deterministic adversarial matrix proving artifact, manifest, ABI, signer, and replacement drift fail closed before Mobile Core effects | Own D2.2 tests and the minimum narrow production/test seams required by discovered gaps; preserve D2.3 diagnostics scope; merge first |
+| #451 D1.4 | `pending` | `pending` | dispatching | D1.1-D1.3 and D2.1 integrated; final delivery after D2.2 target integration | Complete cross-layer Rust/Kotlin/JavaScript replacement, cancellation, failure, cleanup, recreation, and stale-delivery transcripts plus repository-owned automated emulator acceptance | Preserve the single real lifecycle authority; no physical-device or real VPN/TUN claim; ordinary-merge D2.2 target before final verification; merge second |
+
 ## Existing issue coordination
 
 | Issue | State | Coordination rule |
@@ -271,7 +293,8 @@ final-only escalation, and explicit human acceptance before merge.
   emulator/device or release-signing acceptance.
 - #442 is complete. Its credential-free security prerequisite does not replace
   the real signing and release acceptance retained in #173, #174, and #274.
-- Complete #454 D2.1 before D2.2, D2.3, or #451 D1.4.
+- Wave 2J dispatches #454 D2.2 and #451 D1.4 in parallel with merge order D2.2
+  then D1.4. D2.3 remains blocked on integrated D2.2.
 - Approved Wave 2I contained one independent AFK task: #435 H1.1. It
   preserved the Rust/Helper/Capture lifecycle as the only product authority,
   correlate Repair/Remove/retry under one operation identity, settle modal and
