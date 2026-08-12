@@ -392,11 +392,15 @@ const emulatorAcceptance = step(
 invariant(
   emulatorAcceptance.uses === undefined &&
     emulatorAcceptance.run?.includes("build_id 15917651") &&
+    emulatorAcceptance.run?.includes("emulator-darwin_aarch64-15917651.zip") &&
+    emulatorAcceptance.run?.includes(
+      "22530de9363f34ea945ecb5cad74523abd4b615f27f3c1a9899efb183ea9e144",
+    ) &&
     emulatorAcceptance.run?.includes("system-images;android-36;google_apis;arm64-v8a") &&
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
     emulatorAcceptance.run?.includes("for attempt in {1..300}") &&
     emulatorAcceptance.run?.includes("kill -0"),
-  "Android emulator acceptance must retain the pinned, bounded, repository-owned runner.",
+  "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
 );
 const emulatorOptions = emulatorAcceptance.run ?? "";
 for (const option of ["-no-window", "-no-snapshot", "-noaudio", "-no-metrics", "-no-sim"]) {

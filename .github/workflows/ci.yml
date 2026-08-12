@@ -147,7 +147,6 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager \
-            "emulator" \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.1.0" \
@@ -237,7 +236,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          emulator_version="$(emulator -version 2>&1)"
+          emulator_root="$RUNNER_TEMP/android-emulator-15917651"
+          emulator_archive="$RUNNER_TEMP/android-emulator-15917651.zip"
+          curl \
+            --proto '=https' \
+            --tlsv1.2 \
+            --fail \
+            --location \
+            --retry 3 \
+            --output "$emulator_archive" \
+            https://dl.google.com/android/repository/emulator-darwin_aarch64-15917651.zip
+          echo "22530de9363f34ea945ecb5cad74523abd4b615f27f3c1a9899efb183ea9e144  $emulator_archive" | shasum -a 256 --check
+          mkdir -p "$emulator_root"
+          unzip -q "$emulator_archive" -d "$emulator_root"
+          emulator_binary="$emulator_root/emulator/emulator"
+          emulator_version="$("$emulator_binary" -version 2>&1)"
           grep -F "build_id 15917651" <<< "$emulator_version"
           avd_name="mish_vpn_api36"
           echo no | avdmanager create avd \
@@ -245,7 +258,7 @@ jobs:
             --name "$avd_name" \
             --package "system-images;android-36;google_apis;arm64-v8a" \
             --device pixel_7
-          emulator \
+          "$emulator_binary" \
             -avd "$avd_name" \
             -no-window \
             -gpu swiftshader_indirect \

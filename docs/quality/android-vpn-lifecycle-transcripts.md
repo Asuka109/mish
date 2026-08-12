@@ -99,7 +99,8 @@ gate` on the root-free `macos-15` ARM64 GitHub-hosted runner. The workflow pins
 API 36, Build Tools 36.1.0, NDK 29.0.14206865, emulator build 15917651, and the
 repository-owned bounded boot/run/cleanup contract. The workflow uses no
 third-party emulator action and rejects an unexpected emulator build before it
-creates the test AVD.
+creates the test AVD. The exact Google Android emulator archive is additionally
+bound to its reviewed SHA-256 before extraction into runner-temporary storage.
 
 ## Evidence limits
 

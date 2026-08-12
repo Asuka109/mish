@@ -22,7 +22,7 @@
   },
   "untrusted": {
     "allowedEvents": ["pull_request"],
-    "runnerLabels": ["ubuntu-24.04"],
+    "runnerLabels": ["ubuntu-24.04", "macos-15"],
     "permissions": {
       "contents": "read"
     },

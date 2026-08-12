@@ -1121,7 +1121,7 @@ export function validateUntrustedWorkflowJob(
 ): string[] {
   const errors: string[] = [];
   const runner = job["runs-on"];
-  if (JSON.stringify(runner) !== JSON.stringify(policy.untrusted.runnerLabels[0])) {
+  if (typeof runner !== "string" || !policy.untrusted.runnerLabels.includes(runner)) {
     errors.push("untrusted job runner is not the isolated GitHub-hosted runner");
   }
   const permissions = job.permissions ?? workflow?.permissions ?? policy.untrusted.permissions;
