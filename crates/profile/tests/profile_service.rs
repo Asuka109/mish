@@ -211,6 +211,62 @@ impl HttpsSourceReader for GatedRefreshReader {
     }
 }
 
+#[derive(Clone)]
+struct GatedFirstPreflightReader {
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl GatedFirstPreflightReader {
+    fn new() -> Self {
+        Self {
+            calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            entered: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    fn read(&self) -> BoxFuture<'static, Result<SourceContent, SourceReadError>> {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let entered = self.entered.clone();
+        let release = self.release.clone();
+        async move {
+            if call == 0 {
+                entered.notify_one();
+                release.notified().await;
+            }
+            Ok(SourceContent {
+                bytes: VALID_PROFILE.as_bytes().to_vec(),
+                content_type: Some("application/yaml".to_owned()),
+                final_url: None,
+                redirects: 0,
+            })
+        }
+        .boxed()
+    }
+}
+
+impl LocalSourceReader for GatedFirstPreflightReader {
+    fn read<'a>(
+        &'a self,
+        _path: &'a SensitivePath,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        self.read()
+    }
+}
+
+impl HttpsSourceReader for GatedFirstPreflightReader {
+    fn read<'a>(
+        &'a self,
+        _url: &'a SensitiveUrl,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        self.read()
+    }
+}
+
 fn service(
     root: PathBuf,
     reader: SequencedReader,
@@ -1089,4 +1145,103 @@ async fn refresh_holds_mutation_authority_across_the_network_read() {
     reader.release.notify_one();
     refreshing.await.unwrap().unwrap();
     assert!(service.mutation_authority().try_acquire().is_ok());
+}
+
+#[tokio::test]
+async fn a_replaced_preview_cannot_authorize_save() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    let first = service
+        .preflight_https("https://profiles.example/first.yaml", Some("First".into()))
+        .await
+        .unwrap();
+    let second = service
+        .preflight_https(
+            "https://profiles.example/second.yaml",
+            Some("Second".into()),
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        service.save_preview(&first.preview_id).await,
+        Err(ProfileServiceError::PreviewNotFound)
+    ));
+    assert!(service.save_preview(&second.preview_id).await.is_ok());
+}
+
+#[tokio::test]
+async fn a_late_preflight_completion_cannot_publish_after_request_replacement() {
+    let temp = TestDir::new();
+    let reader = GatedFirstPreflightReader::new();
+    let service = Arc::new(ProfileService::new(
+        temp.path().to_path_buf(),
+        reader.clone(),
+        reader.clone(),
+        SourceReadPolicy::default(),
+    ));
+    let first_service = service.clone();
+    let first = tokio::spawn(async move {
+        first_service
+            .preflight_https("https://profiles.example/late.yaml", Some("Late".into()))
+            .await
+    });
+    reader.entered.notified().await;
+
+    let replacement = service
+        .preflight_https(
+            "https://profiles.example/replacement.yaml",
+            Some("Replacement".into()),
+        )
+        .await
+        .unwrap();
+    reader.release.notify_one();
+
+    assert!(matches!(
+        first.await.unwrap(),
+        Err(ProfileServiceError::PreviewNotFound)
+    ));
+    assert!(service.save_preview(&replacement.preview_id).await.is_ok());
+}
+
+#[tokio::test]
+async fn a_repository_generation_replacement_invalidates_a_pending_preview() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    let first = service
+        .preflight_https("https://profiles.example/first.yaml", Some("First".into()))
+        .await
+        .unwrap();
+    let profile_id = service
+        .save_preview(&first.preview_id)
+        .await
+        .unwrap()
+        .profiles[0]
+        .id
+        .clone();
+    let pending = service
+        .preflight_https(
+            "https://profiles.example/pending.yaml",
+            Some("Pending".into()),
+        )
+        .await
+        .unwrap();
+
+    service.delete(&profile_id).unwrap();
+    assert!(matches!(
+        service.save_preview(&pending.preview_id).await,
+        Err(ProfileServiceError::PreviewNotFound)
+    ));
 }
