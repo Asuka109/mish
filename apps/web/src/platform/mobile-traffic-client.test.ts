@@ -66,8 +66,8 @@ describe("MobileTrafficClient", () => {
       invoke,
       setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
     });
-    const delivered: number[] = [];
-    client.subscribeSnapshots((value) => delivered.push(value.sequence));
+    const delivered: Array<[number, string | undefined]> = [];
+    client.subscribeSnapshots((value, delivery) => delivered.push([value.sequence, delivery]));
     await client.getSnapshot();
     const result = await client.closeConnection(
       { profileId: "profile-a", sequence: 1, sessionId: "traffic-a" },
@@ -85,7 +85,7 @@ describe("MobileTrafficClient", () => {
       },
     });
     expect(result).toMatchObject({ status: "success", snapshot: { activeConnections: [] } });
-    expect(delivered).not.toContain(2);
+    expect(delivered).toContainEqual([2, "command"]);
   });
 
   it("exposes only close-one and marks polling failures stale", async () => {
@@ -166,7 +166,7 @@ describe("MobileTrafficClient", () => {
   it("accepts an authoritative close snapshot even when cancellation races after dispatch", async () => {
     const controller = new AbortController();
     const closed = snapshot({ activeConnections: [], sequence: 2 });
-    const snapshots: number[] = [];
+    const snapshots: Array<[number, string | undefined]> = [];
     const client = new MobileTrafficClient({
       clearInterval: vi.fn(),
       invoke: vi.fn(async (command) => {
@@ -184,7 +184,7 @@ describe("MobileTrafficClient", () => {
       }),
       setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
     });
-    client.subscribeSnapshots((value) => snapshots.push(value.sequence));
+    client.subscribeSnapshots((value, delivery) => snapshots.push([value.sequence, delivery]));
     await client.getSnapshot();
     const result = await client.closeConnection(
       { profileId: "profile-a", sequence: 1, sessionId: "traffic-a" },
@@ -193,7 +193,7 @@ describe("MobileTrafficClient", () => {
     );
     expect(result.failure).toBe("disconnected");
     expect(result.snapshot.activeConnections).toEqual([]);
-    expect(snapshots).not.toContain(2);
+    expect(snapshots).toContainEqual([2, "command"]);
     expect((await client.getSnapshot()).activeConnections).toEqual([]);
   });
 });

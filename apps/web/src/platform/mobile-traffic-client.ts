@@ -35,7 +35,7 @@ export class MobileTrafficClient implements TrafficClient {
   private polling = false;
   private snapshot?: TrafficDataSnapshotDto;
   private readonly snapshotListeners = new Set<
-    (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+    (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery | "command") => void
   >();
 
   constructor(private readonly transport: MobileTrafficTransport = defaultTransport) {}
@@ -71,10 +71,7 @@ export class MobileTrafficClient implements TrafficClient {
     if (result.operationId !== operationId) {
       throw new Error("Mobile Traffic operation identity mismatch");
     }
-    // The provider owns command-result reconciliation. Retain the authoritative
-    // snapshot locally, but do not publish it as a subscription update: doing so
-    // would supersede and abort the command that is still returning this result.
-    this.acceptSnapshot(result.snapshot, "command", false);
+    this.acceptSnapshot(result.snapshot, "command");
     if (options.signal?.aborted) return this.cancelledResult("close-connection", result.snapshot);
     const { operationId: _operationId, ...sharedResult } = result;
     return sharedResult;
@@ -128,7 +125,10 @@ export class MobileTrafficClient implements TrafficClient {
   }
 
   subscribeSnapshots(
-    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+    listener: (
+      snapshot: TrafficDataSnapshotDto,
+      delivery?: ApplicationSnapshotDelivery | "command",
+    ) => void,
   ) {
     this.snapshotListeners.add(listener);
     this.ensurePolling();
@@ -144,7 +144,6 @@ export class MobileTrafficClient implements TrafficClient {
   private acceptSnapshot(
     snapshot: TrafficDataSnapshotDto,
     delivery: ApplicationSnapshotDelivery | "command" | "request",
-    publish = true,
   ) {
     if (this.disposed) return;
     const previous = this.snapshot;
@@ -163,9 +162,8 @@ export class MobileTrafficClient implements TrafficClient {
     this.snapshot = structuredClone(snapshot);
     this.connection = { attempt: 0, phase: "connected", stale: false };
     this.publishConnection();
-    if (!publish) return;
-    const publishedDelivery: ApplicationSnapshotDelivery =
-      delivery === "command" || delivery === "request" ? "update" : delivery;
+    const publishedDelivery: ApplicationSnapshotDelivery | "command" =
+      delivery === "request" ? "update" : delivery;
     for (const listener of this.snapshotListeners) {
       listener(structuredClone(snapshot), publishedDelivery);
     }

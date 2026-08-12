@@ -4222,7 +4222,10 @@ export interface TrafficClient {
   supportsCommand(command: TrafficCommandOperation): boolean;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
   subscribeSnapshots(
-    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+    listener: (
+      snapshot: TrafficDataSnapshotDto,
+      delivery?: ApplicationSnapshotDelivery | "command",
+    ) => void,
   ): () => void;
 }
 
