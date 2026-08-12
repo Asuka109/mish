@@ -20,13 +20,14 @@ Owner: thread-master coordinator
 
 ## Active tasks
 
-Waves 2A through 2G are integrated and no implementation Worker is active.
-Wave 2G landed through PRs #494-#496 on `origin/main@45842ccb`; coordinator
-review found no delivery defect and the combined `pnpm check:pr` passed (Web 69
-files / 603 tests and scripts 232 tests, plus Rust, simulated-host, Browser,
-production-exclusion, documentation, and release gates). The exact three-task
-AFK Wave 2H candidate is awaiting maintainer confirmation: #449 C1.3, #451
-D1.3, and #454 D2.1. All ten repository concurrency slots remain unreserved.
+Waves 2A through 2G are integrated. Wave 2G landed through PRs #494-#496 on
+`origin/main@45842ccb`; coordinator review found no delivery defect and the
+combined `pnpm check:pr` passed (Web 69 files / 603 tests and scripts 232
+tests, plus Rust, simulated-host, Browser, production-exclusion,
+documentation, and release gates). The maintainer approved the exact
+three-task AFK Wave 2H on 2026-08-12: #449 C1.3, #451 D1.3, and #454 D2.1 are
+reserved as `dispatching` with pending visible-task identities/worktrees.
+Seven repository concurrency slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -178,6 +179,25 @@ or other hands-on work.
 | #451 D1.2 | `019ff22f-8c1c-7d71-8862-69c06b43c5a0` | `2a8b` | integrated | D1.1 integrated | Harden Kotlin authority acquisition before effects and retain retryable cleanup state after failure | PR #496 merged as `45842ccb`; local mobile/full gates and remote Fast/Android gates passed; Issue #451 remains open with D1.3/D1.4 pending |
 | #453 F2.3 | `019ff22f-8c1c-7d71-8862-69e066d54506` | `9b1e` | integrated | F2.2 integrated | Add route/static regression coverage and run the active Profile edit/save/discard journey | PR #494 merged as `c54e5345`; removal gate 9/9, Profile journey 7/7, and full local/remote gates passed; Issue #453 closed completed |
 
+## Wave 2H dispatch manifest
+
+The maintainer approved this exact three-task AFK wave. Every entry uses model
+`gpt-5.6-luna`, reasoning effort `max`, Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and an isolated worktree. Workers
+must read both progress ledgers. Boundary/native/lifecycle work must follow the
+transcript-driven system-test skill, retain real product authorities, record
+bounded invocation/results, add deterministic use cases, prove structural
+privacy and production exclusion, and state what simulated evidence cannot
+prove. This wave authorizes no credentials, external-network dependency,
+emulator/physical-device acceptance, real-host mutation, or other hands-on
+work.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #449 C1.3 | `pending` | `pending` | dispatching | C1.1/C1.2 integrated | Require explicit credential-free detach confirmation and prove subscription tokens are absent from snapshots, logs, events, and rendered UI | Own Profile detach confirmation and token-negative end-to-end evidence only; preserve C1.2 generation authority and F2 deletion; no real credentials/network or unrelated Profile behavior |
+| #451 D1.3 | `pending` | `pending` | dispatching | D1.1/D1.2 integrated | Migrate JavaScript mobile VPN baselines, stale-snapshot rejection, abort/dispose, and stale-load handling without creating another lifecycle owner | Own Web/JavaScript mobile client, bootstrap/hook/UI projection and deterministic tests only; preserve Rust/Kotlin authority; do not implement D1.4 or claim emulator/device behavior; after D2.1 merges, integrate latest main and rerun affected cross-layer contracts |
+| #454 D2.1 | `pending` | `pending` | dispatching | #451 D1.2 integrated | Admit Mobile Core only when exact source/version, wrapper contract, ABI, digest, and signature satisfy a pinned fail-closed native policy before effects | Own Kotlin/native artifact admission seams, bounded manifests and focused deterministic evidence only; do not implement the full D2.2 adversarial matrix or D2.3 diagnostic DTO; no real signing/device/network; merge before D1.3 |
+
 ## Existing issue coordination
 
 | Issue | State | Coordination rule |
@@ -206,9 +226,9 @@ final-only escalation, and explicit human acceptance before merge.
 
 ## Later-wave gates
 
-- The exact candidate Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. All are
+- The exact approved Wave 2H is #449 C1.3, #451 D1.3, and #454 D2.1. All are
   AFK, confirmation-only, Chinese-reporting Luna Max (`gpt-5.6-luna/max`)
-  tasks and remain undispatched pending maintainer confirmation.
+  tasks reserved as `dispatching` pending visible-task identity backfill.
 - #449 C1.3 is independent of the mobile tasks and completes detach
   confirmation plus credential-token negative evidence without real
   credentials or external network access.
