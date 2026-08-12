@@ -262,7 +262,7 @@ other hands-on work.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #454 D2.3 | `pending` | `pending` | dispatching | D2.1/D2.2 integrated | Expose a bounded redacted Mobile Core provenance snapshot and diagnostics coverage from the one existing admission authority | Own only the diagnostic projection, bounded schema/redaction, and focused Rust/Kotlin/TypeScript coverage; do not create a second admission authority or expand into downstream Android composition; close Issue #454 only if all criteria read back satisfied |
+| #454 D2.3 | `019ff661-9c28-75d1-829d-424b58c77f2a` | `d5ce` | active | D2.1/D2.2 integrated | Expose a bounded redacted Mobile Core provenance snapshot and diagnostics coverage from the one existing admission authority | Own only the diagnostic projection, bounded schema/redaction, and focused Rust/Kotlin/TypeScript coverage; do not create a second admission authority or expand into downstream Android composition; close Issue #454 only if all criteria read back satisfied |
 
 ## Existing issue coordination
 
