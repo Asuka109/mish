@@ -3007,6 +3007,19 @@ type RootTranslation = {
 		 */
 		detachSubscription: string
 		/**
+		 * D​e​t​a​c​h​ ​t​h​i​s​ ​s​u​b​s​c​r​i​p​t​i​o​n​?
+		 */
+		detachConfirmationTitle: string
+		/**
+		 * M​i​s​h​ ​w​i​l​l​ ​k​e​e​p​ ​t​h​e​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​ ​a​n​d​ ​s​t​o​p​ ​a​u​t​o​m​a​t​i​c​ ​r​e​f​r​e​s​h​ ​f​o​r​ ​{​s​o​u​r​c​e​}​.
+		 * @param {string} source
+		 */
+		detachConfirmationDescription: RequiredParams<'source'>
+		/**
+		 * D​e​t​a​c​h​i​n​g​…
+		 */
+		detachingSubscription: string
+		/**
 		 * T​h​e​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​d​e​t​a​c​h​e​d​.
 		 */
 		detachSubscriptionFailed: string
@@ -3047,7 +3060,7 @@ type RootTranslation = {
 		 */
 		groups: string
 		/**
-		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​a​d​d​r​e​s​s​ ​r​e​m​a​i​n​s​ ​v​i​s​i​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​r​o​f​i​l​e​'​s​ ​c​a​r​d​.
+		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​a​d​d​r​e​s​s​ ​i​s​ ​u​s​e​d​ ​d​u​r​i​n​g​ ​t​h​i​s​ ​i​m​p​o​r​t​ ​s​t​e​p​;​ ​s​a​v​e​d​ ​p​r​o​f​i​l​e​s​ ​s​h​o​w​ ​o​n​l​y​ ​a​ ​r​e​d​a​c​t​e​d​ ​s​o​u​r​c​e​ ​s​u​m​m​a​r​y​.
 		 */
 		httpsDescription: string
 		/**
@@ -7983,6 +7996,18 @@ export type TranslationFunctions = {
 		 */
 		detachSubscription: () => LocalizedString
 		/**
+		 * Detach this subscription?
+		 */
+		detachConfirmationTitle: () => LocalizedString
+		/**
+		 * Mish will keep the local YAML file and stop automatic refresh for {source}.
+		 */
+		detachConfirmationDescription: (arg: { source: string }) => LocalizedString
+		/**
+		 * Detaching…
+		 */
+		detachingSubscription: () => LocalizedString
+		/**
 		 * The subscription could not be detached.
 		 */
 		detachSubscriptionFailed: () => LocalizedString
@@ -8023,7 +8048,7 @@ export type TranslationFunctions = {
 		 */
 		groups: () => LocalizedString
 		/**
-		 * The complete address remains visible on this profile's card.
+		 * The complete address is used during this import step; saved profiles show only a redacted source summary.
 		 */
 		httpsDescription: () => LocalizedString
 		/**

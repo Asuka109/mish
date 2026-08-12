@@ -930,6 +930,10 @@ const en = {
     deleteTitle: "Delete {profile:string}?",
     deletedToast: "Profile deleted",
     detachSubscription: "Detach the Subscription",
+    detachConfirmationTitle: "Detach this subscription?",
+    detachConfirmationDescription:
+      "Mish will keep the local YAML file and stop automatic refresh for {source:string}.",
+    detachingSubscription: "Detaching…",
     detachSubscriptionFailed: "The subscription could not be detached.",
     description:
       "All profiles are stored as local YAML files; subscriptions keep their files up to date.",
@@ -943,7 +947,8 @@ const en = {
     fixtureDescription:
       "This demo uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.",
     groups: "Groups",
-    httpsDescription: "The complete address remains visible on this profile's card.",
+    httpsDescription:
+      "The complete address is used during this import step; saved profiles show only a redacted source summary.",
     httpsLabel: "Subscription URL",
     importDescription:
       "Preflight checks size, transport, YAML structure, and application/platform ownership before anything is saved.",

@@ -156,21 +156,21 @@ opened by the configuration page.
 `metadata.json` contains the redacted source summary, provenance hashes,
 validation state, attempts, success, and status flags. `source/source.json`
 contains the sensitive source descriptor, including a complete tokenized URL
-when one is required for refresh. The authenticated Profiles snapshot reads that
-descriptor so the configuration page can show the complete subscription address
-as an explicit user-facing source locator. Logs, events, diagnostics, previews,
-errors, and support bundles continue to use only redacted summaries. Revision
-YAML and artifact YAML may also contain credentials and private names. Patch
-state is private because typed rule values and user labels can still be
-sensitive.
+when one is required for refresh. The authenticated Profiles snapshot and
+configuration page expose only the bounded redacted source summary; the private
+descriptor is never projected through the React, RPC, event, or error boundary.
+Logs, events, diagnostics, previews, errors, and support bundles continue to use
+only redacted summaries. Revision YAML and artifact YAML may also contain
+credentials and private names. Patch state is private because typed rule values
+and user labels can still be sensitive.
 
 On Unix, managed directories are mode `0700` and atomically written files are
 created as mode `0600`. These permissions are defense in depth, not encryption;
 the host must choose the platform app-data location and may add operating-system
 data protection later. Sensitive files must never be copied to logs, error
-messages, clipboard payloads, or default diagnostics. The configuration page is
-the deliberate exception for displaying the complete subscription URL; users
-should expect it to be visible in screenshots of that page.
+messages, clipboard payloads, default diagnostics, or rendered UI. Screenshots
+of the configuration page must therefore contain only the redacted source
+summary.
 
 Initial save writes a private staging directory, fsyncs each temporary file,
 renames files within their destination directory, fsyncs directories, and
