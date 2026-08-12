@@ -217,8 +217,8 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.1.0" \
             "ndk;29.0.14206865" \
-            "system-images;android-36;google_apis;x86_64"
-          sdkmanager --list_installed | grep -F "system-images;android-36;google_apis;x86_64 | 7"
+            "system-images;android-28;default;x86_64"
+          sdkmanager --list_installed | grep -F "system-images;android-28;default;x86_64 | 4"
           rustup target add aarch64-linux-android
           ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
           toolchain="$ndk_home/toolchains/llvm/prebuilt/darwin-x86_64"
@@ -255,7 +255,7 @@ jobs:
           emulator_binary="$emulator_root/emulator/emulator"
           emulator_version="$("$emulator_binary" -version 2>&1)"
           grep -F "build_id 15917651" <<< "$emulator_version"
-          avd_name="mish_vpn_api36"
+          avd_name="mish_vpn_api28"
           avd_home="$RUNNER_TEMP/mish-vpn-avd"
           android_user_home="$RUNNER_TEMP/mish-vpn-android-user"
           mkdir -p "$avd_home" "$android_user_home"
@@ -265,8 +265,8 @@ jobs:
             avdmanager create avd \
             --force \
             --name "$avd_name" \
-            --device "medium_phone" \
-            --package "system-images;android-36;google_apis;x86_64" \
+            --device "small_phone" \
+            --package "system-images;android-28;default;x86_64" \
             </dev/null
           env \
             ANDROID_AVD_HOME="$avd_home" \
@@ -275,7 +275,7 @@ jobs:
             -avd "$avd_name" \
             -accel off \
             -cores 1 \
-            -memory 1024 \
+            -memory 512 \
             -no-window \
             -gpu off \
             -no-skin \
@@ -298,7 +298,8 @@ jobs:
               tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
               exit 1
             fi
-            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+            if [[ "$(adb get-state 2>/dev/null)" == "device" ]] && \
+              [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
               pnpm mobile:android:test:emulator
               exit 0
             fi

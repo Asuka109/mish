@@ -374,6 +374,8 @@ for (const requirement of [
   "platforms;android-36",
   "build-tools;36.1.0",
   "ndk;29.0.14206865",
+  "system-images;android-28;default;x86_64",
+  'grep -F "system-images;android-28;default;x86_64 | 4"',
   "aarch64-linux-android",
   "darwin-x86_64",
 ]) {
@@ -397,13 +399,14 @@ invariant(
     emulatorAcceptance.run?.includes(
       "c1a3890f95b8868198918fad05ffca16fa20404d93547ba545ff5a5867ee7005",
     ) &&
-    emulatorAcceptance.run?.includes("system-images;android-36;google_apis;x86_64") &&
+    emulatorAcceptance.run?.includes("system-images;android-28;default;x86_64") &&
     emulatorAcceptance.run?.includes("pnpm mobile:android:test:emulator") &&
     emulatorAcceptance.run?.includes('ANDROID_AVD_HOME="$avd_home"') &&
     emulatorAcceptance.run?.includes('ANDROID_USER_HOME="$android_user_home"') &&
-    emulatorAcceptance.run?.includes('--device "medium_phone"') &&
+    emulatorAcceptance.run?.includes('--device "small_phone"') &&
     emulatorAcceptance.run?.includes("</dev/null") &&
     emulatorAcceptance.run?.includes("for attempt in {1..900}") &&
+    emulatorAcceptance.run?.includes("adb get-state") &&
     emulatorAcceptance.run?.includes("kill -0"),
   "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
 );
@@ -411,7 +414,7 @@ const emulatorOptions = emulatorAcceptance.run ?? "";
 for (const option of [
   "-accel off",
   "-cores 1",
-  "-memory 1024",
+  "-memory 512",
   "-no-window",
   "-gpu off",
   "-no-skin",
