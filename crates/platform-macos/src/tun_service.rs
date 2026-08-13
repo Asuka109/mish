@@ -973,6 +973,7 @@ enum DevelopmentInstallationReason {
     MissingClientKey,
     MissingEnrollment,
     MissingSocket,
+    PendingClientKey,
     PartialArtifacts,
     ProtocolMismatch,
     VersionMismatch,
@@ -1071,7 +1072,8 @@ impl DevelopmentInstallerStatus {
                 DevelopmentInstallationState::RepairRequired,
                 DevelopmentInstallationReason::InstallationIdentityMismatch
                 | DevelopmentInstallationReason::MissingClientKey
-                | DevelopmentInstallationReason::MissingEnrollment,
+                | DevelopmentInstallationReason::MissingEnrollment
+                | DevelopmentInstallationReason::PendingClientKey,
             ) if self.service == "installed"
                 && self.installation_id.is_none()
                 && self.installed_version.is_none() =>
@@ -7485,6 +7487,11 @@ mod tests {
         for (result, availability, failure) in [
             (
                 r#"{"installation":"repair-required","ok":true,"reason":"missing-enrollment","service":"installed","stage":"status"}"#,
+                TunHelperAvailability::RepairRequired,
+                TunHelperFailureKind::IdentityRejected,
+            ),
+            (
+                r#"{"installation":"repair-required","ok":true,"reason":"pending-client-key","service":"installed","stage":"status"}"#,
                 TunHelperAvailability::RepairRequired,
                 TunHelperFailureKind::IdentityRejected,
             ),

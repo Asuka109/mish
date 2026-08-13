@@ -123,6 +123,10 @@ perform the real Capture handoff before the package machine accepts work.
 The installation-identity matrix also seeds one complete Mish-owned partial
 installation and one foreign/ambiguous installation. The first projects
 `repair-required` and proves one serialized repair can converge to healthy. The
+matrix also replays an interrupted rotation where Helper discovery names the
+valid pending client key; observation is effect-free and only the serialized
+repair path may promote it. A different discovery key remains an identity
+mismatch. The
 second projects `recovery-required`, exposes no removal authority, rejects
 repair before any lifecycle effect, and leaves both the modeled host and
 bounded transcript unchanged. This deterministic evidence cannot prove a real

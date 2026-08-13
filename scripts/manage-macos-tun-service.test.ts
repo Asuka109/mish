@@ -22,6 +22,7 @@ import {
   ensureInstallationClientKey,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
+  selectObservedClientIdentity,
 } from "./manage-macos-tun-service.ts";
 
 test("classifies a running Mish service with installed artifacts and a missing enrollment as safe partial", () => {
@@ -61,6 +62,49 @@ test("keeps a complete development TUN identity distinct from version and protoc
   assert.deepEqual(
     classifyDevelopmentTunInstallation({ ...complete, discovery: "protocol-mismatch" }),
     { installation: "repair-required", reason: "protocol-mismatch" },
+  );
+});
+
+test("replays an interrupted committed key rotation as serialized repair, not foreign recovery", () => {
+  const active = { keyId: "a".repeat(64), publicKeySpki: "active" };
+  const pending = { keyId: "b".repeat(64), publicKeySpki: "pending" };
+  assert.deepEqual(selectObservedClientIdentity(active, pending, pending.keyId), {
+    clientIdentity: "pending-commit",
+    ...pending,
+  });
+  assert.deepEqual(selectObservedClientIdentity(active, pending, "c".repeat(64)), {
+    clientIdentity: "present",
+    ...active,
+  });
+  assert.deepEqual(selectObservedClientIdentity(undefined, pending, "c".repeat(64)), {
+    clientIdentity: "present",
+    ...pending,
+  });
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "pending-commit",
+      discovery: "matching",
+      enrollmentIdentity: "matches-client",
+      service: "running",
+    }),
+    {
+      installation: "repair-required",
+      reason: "pending-client-key",
+    },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "matching",
+      enrollmentIdentity: "mismatches-client",
+      service: "running",
+    }),
+    {
+      installation: "recovery-required",
+      reason: "client-enrollment-mismatch",
+    },
   );
 });
 

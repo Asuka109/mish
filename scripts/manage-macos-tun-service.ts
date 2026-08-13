@@ -134,7 +134,7 @@ type InstallationDiscovery = {
 
 export type DevelopmentTunInstallationObservation = {
   artifacts: "absent" | "ambiguous" | "foreign" | "mish-owned" | "partial";
-  clientIdentity: "invalid" | "missing" | "present";
+  clientIdentity: "invalid" | "missing" | "pending-commit" | "present";
   discovery: "matching" | "mismatched" | "missing" | "protocol-mismatch" | "version-mismatch";
   enrollmentIdentity:
     | "invalid"
@@ -159,6 +159,7 @@ export type DevelopmentTunInstallationClassification = {
     | "missing-client-key"
     | "missing-enrollment"
     | "missing-socket"
+    | "pending-client-key"
     | "partial-artifacts"
     | "protocol-mismatch"
     | "version-mismatch";
@@ -190,6 +191,21 @@ export function classifyDevelopmentTunInstallation(
   }
   if (observation.artifacts === "mish-owned" && observation.clientIdentity === "missing") {
     return { installation: "repair-required", reason: "missing-client-key" };
+  }
+  if (
+    observation.artifacts === "mish-owned" &&
+    observation.clientIdentity === "pending-commit" &&
+    observation.enrollmentIdentity === "matches-client"
+  ) {
+    if (observation.discovery === "matching") {
+      return { installation: "repair-required", reason: "pending-client-key" };
+    }
+    if (observation.discovery === "version-mismatch") {
+      return { installation: "repair-required", reason: "version-mismatch" };
+    }
+    if (observation.discovery === "protocol-mismatch") {
+      return { installation: "repair-required", reason: "protocol-mismatch" };
+    }
   }
   if (
     observation.artifacts === "mish-owned" &&
@@ -334,18 +350,29 @@ async function observeInstalledArtifacts(uid: number) {
   }
 }
 
-async function observeClientIdentity(uid: number) {
+type ObservedClientKey = Pick<InstallationClientKeyRecord, "keyId" | "publicKeySpki">;
+
+export function selectObservedClientIdentity(
+  active: ObservedClientKey | undefined,
+  pending: ObservedClientKey | undefined,
+  discoveredKeyId?: string,
+) {
+  if (pending && discoveredKeyId === pending.keyId) {
+    return { clientIdentity: "pending-commit" as const, ...pending };
+  }
+  if (active) return { clientIdentity: "present" as const, ...active };
+  if (pending) return { clientIdentity: "present" as const, ...pending };
+  return { clientIdentity: "missing" as const };
+}
+
+async function observeClientIdentities(uid: number) {
   try {
-    const client = await readClientKeyRecord(clientKeyPath, uid);
-    return {
-      clientIdentity: "present" as const,
-      keyId: client.keyId,
-      publicKeySpki: client.publicKeySpki,
-    };
-  } catch (error) {
-    if (error instanceof InstallerFailure && error.code === "installation-key-missing") {
-      return { clientIdentity: "missing" as const };
-    }
+    const [active, pending] = await Promise.all([
+      readObservedOptionalClientKeyRecord(clientKeyPath, uid),
+      readObservedOptionalClientKeyRecord(pendingClientKeyPath, uid),
+    ]);
+    return { active, pending };
+  } catch {
     return { clientIdentity: "invalid" as const };
   }
 }
@@ -378,8 +405,8 @@ function validatePublicCandidate(value: unknown): InstallationPublicKeyCandidate
   return candidate as InstallationPublicKeyCandidate;
 }
 
-async function readEnrollmentCandidate(uid: number) {
-  const metadata = await lstat(enrollmentCandidatePath);
+async function readEnrollmentCandidate(file: string, uid: number) {
+  const metadata = await lstat(file);
   if (
     !metadata.isFile() ||
     metadata.isSymbolicLink() ||
@@ -391,7 +418,27 @@ async function readEnrollmentCandidate(uid: number) {
   ) {
     throw new Error("invalid enrollment candidate metadata");
   }
-  return validatePublicCandidate(JSON.parse(await readFile(enrollmentCandidatePath, "utf8")));
+  return validatePublicCandidate(JSON.parse(await readFile(file, "utf8")));
+}
+
+async function classifyObservedEnrollment(
+  file: string,
+  uid: number,
+  client: ObservedClientKey,
+  installationId: string,
+) {
+  try {
+    const candidate = await readEnrollmentCandidate(file, uid);
+    return candidate.installingUid === uid &&
+      candidate.keyId === client.keyId &&
+      candidate.publicKeySpki === client.publicKeySpki
+      ? candidate.helperInstallationId === installationId
+        ? ("matches-client" as const)
+        : ("stale-installation" as const)
+      : ("mismatches-client" as const);
+  } catch {
+    return "invalid" as const;
+  }
 }
 
 async function observeDevelopmentTunInstallation(
@@ -400,7 +447,7 @@ async function observeDevelopmentTunInstallation(
 ): Promise<DevelopmentTunStatusObservation> {
   const [artifacts, client] = await Promise.all([
     observeInstalledArtifacts(uid),
-    observeClientIdentity(uid),
+    observeClientIdentities(uid),
   ]);
   let enrollment: "invalid" | "missing" | "present" = "missing";
   try {
@@ -420,28 +467,24 @@ async function observeDevelopmentTunInstallation(
   }
   const observation: DevelopmentTunInstallationObservation = {
     artifacts: artifacts.artifacts,
-    clientIdentity: client.clientIdentity,
+    clientIdentity:
+      "clientIdentity" in client
+        ? client.clientIdentity
+        : selectObservedClientIdentity(client.active, client.pending).clientIdentity,
     discovery: "missing",
     enrollmentIdentity: enrollment === "invalid" ? "invalid" : "missing",
     service: serviceRunning ? "running" : "not-running",
   };
-  if (artifacts.artifacts !== "mish-owned" || client.clientIdentity !== "present") {
+  if (artifacts.artifacts !== "mish-owned" || "clientIdentity" in client) {
     return { observation };
   }
-  if (enrollment === "present") {
-    try {
-      const candidate = await readEnrollmentCandidate(uid);
-      observation.enrollmentIdentity =
-        candidate.installingUid === uid &&
-        candidate.keyId === client.keyId &&
-        candidate.publicKeySpki === client.publicKeySpki
-          ? candidate.helperInstallationId === artifacts.installationId
-            ? "matches-client"
-            : "stale-installation"
-          : "mismatches-client";
-    } catch {
-      observation.enrollmentIdentity = "invalid";
-    }
+  if (enrollment === "present" && client.active) {
+    observation.enrollmentIdentity = await classifyObservedEnrollment(
+      enrollmentCandidatePath,
+      uid,
+      client.active,
+      artifacts.installationId,
+    );
   }
   const socketPath = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
   try {
@@ -476,6 +519,22 @@ async function observeDevelopmentTunInstallation(
       }
     }
     if (!discovery) throw new Error("installation discovery unavailable");
+    const selectedClient = selectObservedClientIdentity(
+      client.active,
+      client.pending,
+      discovery.keyId,
+    );
+    observation.clientIdentity = selectedClient.clientIdentity;
+    if (enrollment === "present" && selectedClient.clientIdentity !== "missing") {
+      observation.enrollmentIdentity = await classifyObservedEnrollment(
+        selectedClient.clientIdentity === "pending-commit"
+          ? pendingEnrollmentCandidatePath
+          : enrollmentCandidatePath,
+        uid,
+        selectedClient,
+        artifacts.installationId,
+      );
+    }
     observation.discovery =
       discovery.protocolVersion !== tunHelperProtocolVersion
         ? "protocol-mismatch"
@@ -484,16 +543,13 @@ async function observeDevelopmentTunInstallation(
           : discovery.installationId !== artifacts.installationId
             ? "mismatched"
             : "matching";
-    observation.enrollmentIdentity =
-      enrollment === "missing"
-        ? "missing"
-        : enrollment === "invalid"
-          ? "invalid"
-          : discovery.keyId !== client.keyId
-            ? "mismatches-client"
-            : discovery.installationId !== artifacts.installationId
-              ? "stale-installation"
-              : "matches-client";
+    if (
+      enrollment === "present" &&
+      selectedClient.clientIdentity !== "missing" &&
+      discovery.keyId !== selectedClient.keyId
+    ) {
+      observation.enrollmentIdentity = "mismatches-client";
+    }
     return {
       installationId: discovery.installationId,
       installedVersion: discovery.helperVersion,
@@ -963,7 +1019,14 @@ async function readClientKeyRecord(
   let metadata;
   try {
     metadata = await lstat(file);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new InstallerFailure(
+        "preparation-failed",
+        "installation-key",
+        "installation-key-metadata-invalid",
+      );
+    }
     throw new InstallerFailure(
       "preparation-failed",
       "installation-key",
@@ -1004,6 +1067,17 @@ async function readOptionalClientKeyRecord(file: string, uid: number) {
     return undefined;
   }
   return readClientKeyRecord(file, uid);
+}
+
+async function readObservedOptionalClientKeyRecord(file: string, uid: number) {
+  try {
+    return await readClientKeyRecord(file, uid);
+  } catch (error) {
+    if (error instanceof InstallerFailure && error.code === "installation-key-missing") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 function generateClientKeyRecord(): InstallationClientKeyRecord {

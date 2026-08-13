@@ -94,6 +94,10 @@ mismatch, missing socket, safe partial Mish-owned identity, and foreign or
 ambiguous ownership remain distinct. A complete verified Mish-owned artifact
 set with missing or stale enrollment, client key, or socket is
 `repair-required` and can enter only the existing serialized repair flow. An
+interrupted key rotation whose root-owned Helper already reports the valid
+pending client key is also `repair-required`; status remains read-only, and the
+explicit serialized repair promotes that key before preparing any privileged
+work. A pending key that does not exactly match discovery stays fail-closed. An
 incomplete artifact set cannot prove Mish ownership and is therefore
 `recovery-required`, alongside foreign artifacts, ambiguous ownership, invalid
 records, or client/enrollment key disagreement:
