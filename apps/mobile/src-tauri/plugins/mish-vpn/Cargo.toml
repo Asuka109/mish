@@ -18,6 +18,7 @@ simulated-host = []
 tauri-runtime = ["dep:tauri"]
 
 [dependencies]
+mish-profile = { path = "../../../../../crates/profile" }
 mish-runtime = { path = "../../../../../crates/runtime" }
 mish-state-machine = { path = "../../../../../crates/state-machine" }
 serde = { version = "1.0.228", features = ["derive"] }

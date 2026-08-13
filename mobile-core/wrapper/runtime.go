@@ -155,17 +155,20 @@ type coreEvent struct {
 }
 
 type coreRuntime struct {
-	mutex        sync.Mutex
-	initialized  bool
-	protect      func(int) error
-	loaded       *config.Config
-	configDigest string
-	listener     *sing_tun.Listener
-	phase        lifecyclePhase
-	session      string
-	lifecycle    *lifecycleAuthority
-	sequence     uint64
-	events       []coreEvent
+	mutex         sync.Mutex
+	initialized   bool
+	protect       func(int) error
+	loaded        *config.Config
+	configDigest  string
+	routeGroups   []string
+	listener      *sing_tun.Listener
+	phase         lifecyclePhase
+	session       string
+	lifecycle     *lifecycleAuthority
+	sequence      uint64
+	events        []coreEvent
+	routeCommands map[string]routeCommandRecord
+	routeOrder    []string
 }
 
 var mobileCore = &coreRuntime{phase: phaseInactive}
@@ -203,11 +206,31 @@ type snapshotRequest struct {
 }
 
 type commandRequest struct {
-	Operation    string `json:"operation"`
-	Mode         string `json:"mode,omitempty"`
-	Group        string `json:"group,omitempty"`
-	Selection    string `json:"selection,omitempty"`
-	ConnectionID string `json:"connectionId,omitempty"`
+	Operation        string `json:"operation"`
+	OperationID      string `json:"operationId,omitempty"`
+	RuntimeAuthority string `json:"runtimeAuthority,omitempty"`
+	ProfileID        string `json:"profileId,omitempty"`
+	ProfileRevision  string `json:"profileRevision,omitempty"`
+	GroupID          string `json:"groupId,omitempty"`
+	CurrentChildID   string `json:"currentChildId,omitempty"`
+	ChildID          string `json:"childId,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	Group            string `json:"group,omitempty"`
+	CurrentChild     string `json:"currentChild,omitempty"`
+	Selection        string `json:"selection,omitempty"`
+	ConnectionID     string `json:"connectionId,omitempty"`
+}
+
+type routeCommandRecord struct {
+	RuntimeAuthority string
+	ProfileID        string
+	ProfileRevision  string
+	GroupID          string
+	CurrentChildID   string
+	ChildID          string
+	Group            string
+	CurrentChild     string
+	Selection        string
 }
 
 type closeConnectionRequest struct {
@@ -297,23 +320,31 @@ func validateRawConfig(raw *config.RawConfig) error {
 	return nil
 }
 
-func parseConfig(input []byte) (*config.Config, string, error) {
+func parseConfig(input []byte) (*config.Config, string, []string, error) {
 	raw, err := config.UnmarshalRawConfig(input)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	if err := validateRawConfig(raw); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	// The start DTO is the only TUN authority. Remove inactive upstream defaults
 	// before exact Mihomo parsing so they cannot become active during apply.
 	raw.Tun = config.RawTun{}
 	parsed, err := config.ParseRawConfig(raw)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
+	}
+	routeGroups := make([]string, 0, len(raw.ProxyGroup))
+	for _, group := range raw.ProxyGroup {
+		name, ok := group["name"].(string)
+		if !ok || name == "" {
+			return nil, "", nil, errors.New("proxy group name is invalid")
+		}
+		routeGroups = append(routeGroups, name)
 	}
 	digest := sha256.Sum256(input)
-	return parsed, hex.EncodeToString(digest[:]), nil
+	return parsed, hex.EncodeToString(digest[:]), routeGroups, nil
 }
 
 func (core *coreRuntime) validateConfig(input []byte) coreResult {
@@ -322,7 +353,7 @@ func (core *coreRuntime) validateConfig(input []byte) coreResult {
 	if !core.initialized {
 		return failureResult(statusNotInitialized, "core must be initialized before validation")
 	}
-	_, digest, err := parseConfig(input)
+	_, digest, _, err := parseConfig(input)
 	if err != nil {
 		return failureResult(statusConfigRejected, "configuration is invalid or violates the mobile boundary")
 	}
@@ -338,12 +369,15 @@ func (core *coreRuntime) loadConfig(input []byte) coreResult {
 	if core.phase == phaseRunning {
 		return failureResult(statusConflict, "configuration cannot change while running")
 	}
-	parsed, digest, err := parseConfig(input)
+	parsed, digest, routeGroups, err := parseConfig(input)
 	if err != nil {
 		return failureResult(statusConfigRejected, "configuration is invalid or violates the mobile boundary")
 	}
 	core.loaded = parsed
 	core.configDigest = digest
+	core.routeGroups = routeGroups
+	core.routeCommands = nil
+	core.routeOrder = nil
 	core.publishLocked("configuration-loaded", map[string]any{"configSha256": digest})
 	return successResult(core.statusLocked())
 }
@@ -559,11 +593,15 @@ func (core *coreRuntime) stop(input []byte) coreResult {
 }
 
 func (core *coreRuntime) statusLocked() map[string]any {
+	mode := tunnel.Mode()
+	if core.phase == phaseInactive && core.loaded != nil {
+		mode = core.loaded.General.Mode
+	}
 	return map[string]any{
 		"configSha256":  optionalString(core.configDigest),
 		"eventSequence": strconv.FormatUint(core.sequence, 10),
 		"loaded":        core.loaded != nil,
-		"mode":          tunnel.Mode().String(),
+		"mode":          mode.String(),
 		"phase":         core.phase,
 		"sessionId":     optionalString(core.session),
 	}
@@ -604,7 +642,16 @@ func (core *coreRuntime) snapshot(input []byte) coreResult {
 	case "status":
 		return successResult(core.statusLocked())
 	case "routes":
-		return successResult(routesSnapshot(limit))
+		if core.loaded == nil {
+			return failureResult(statusNotLoaded, "no configuration is loaded")
+		}
+		proxies := tunnel.Proxies()
+		mode := tunnel.Mode()
+		if core.phase == phaseInactive {
+			proxies = core.loaded.Proxies
+			mode = core.loaded.General.Mode
+		}
+		return successResult(routesSnapshot(limit, proxies, mode.String(), core.routeGroups))
 	case "traffic":
 		return successResult(trafficSnapshot())
 	case "connections":
@@ -620,17 +667,19 @@ type routeGroupSnapshot struct {
 	Candidates []string `json:"candidates"`
 }
 
-func routesSnapshot(limit int) map[string]any {
-	names := make([]string, 0, len(tunnel.Proxies()))
-	for name := range tunnel.Proxies() {
-		names = append(names, name)
-	}
+func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string, configuredGroups []string) map[string]any {
+	names := append([]string(nil), configuredGroups...)
 	sort.Strings(names)
 	groups := make([]routeGroupSnapshot, 0, min(limit, len(names)))
+	truncated := false
 	for _, name := range names {
-		group, ok := tunnel.Proxies()[name].Adapter().(outboundgroup.ProxyGroup)
+		group, ok := proxies[name].Adapter().(outboundgroup.ProxyGroup)
 		if !ok {
 			continue
+		}
+		if len(groups) == limit {
+			truncated = true
+			break
 		}
 		candidates := make([]string, 0, len(group.Proxies()))
 		for _, candidate := range group.Proxies() {
@@ -638,13 +687,11 @@ func routesSnapshot(limit int) map[string]any {
 		}
 		if len(candidates) > limit {
 			candidates = candidates[:limit]
+			truncated = true
 		}
 		groups = append(groups, routeGroupSnapshot{Name: name, Selected: group.Now(), Candidates: candidates})
-		if len(groups) == limit {
-			break
-		}
 	}
-	return map[string]any{"groups": groups, "mode": tunnel.Mode().String(), "truncated": len(groups) == limit && len(names) > limit}
+	return map[string]any{"groups": groups, "mode": mode, "truncated": truncated}
 }
 
 func trafficSnapshot() map[string]any {
@@ -814,19 +861,56 @@ func (core *coreRuntime) command(input []byte) coreResult {
 		tunnel.SetMode(mode)
 		core.publishLocked("routing-mode-changed", map[string]any{"mode": mode.String()})
 	case "select-policy":
-		if len(request.Group) == 0 || len(request.Group) > 256 || len(request.Selection) == 0 || len(request.Selection) > 256 {
+		if len(request.OperationID) == 0 || len(request.OperationID) > 128 ||
+			len(request.RuntimeAuthority) == 0 || len(request.RuntimeAuthority) > 128 ||
+			len(request.ProfileID) == 0 || len(request.ProfileID) > 128 ||
+			len(request.ProfileRevision) == 0 || len(request.ProfileRevision) > 128 ||
+			len(request.GroupID) == 0 || len(request.GroupID) > 128 ||
+			len(request.CurrentChildID) == 0 || len(request.CurrentChildID) > 128 ||
+			len(request.ChildID) == 0 || len(request.ChildID) > 128 ||
+			len(request.Group) == 0 || len(request.Group) > 256 ||
+			len(request.CurrentChild) == 0 || len(request.CurrentChild) > 256 ||
+			len(request.Selection) == 0 || len(request.Selection) > 256 {
 			return failureResult(statusInvalidArgument, "policy selection is invalid")
+		}
+		if core.lifecycle == nil || request.RuntimeAuthority != core.lifecycle.MachineAuthority {
+			return failureResult(statusConflict, "runtime authority is stale")
+		}
+		record := routeCommandRecord{
+			RuntimeAuthority: request.RuntimeAuthority,
+			ProfileID:        request.ProfileID, ProfileRevision: request.ProfileRevision,
+			GroupID: request.GroupID, CurrentChildID: request.CurrentChildID, ChildID: request.ChildID,
+			Group: request.Group, CurrentChild: request.CurrentChild, Selection: request.Selection,
+		}
+		if previous, exists := core.routeCommands[request.OperationID]; exists {
+			if previous == record {
+				return successResult(core.statusLocked())
+			}
+			return failureResult(statusConflict, "operation identity conflicts with a prior command")
 		}
 		proxy, exists := tunnel.Proxies()[request.Group]
 		if !exists {
 			return failureResult(statusInvalidArgument, "policy group was not found")
 		}
+		group, grouped := proxy.Adapter().(outboundgroup.ProxyGroup)
 		selector, selectable := proxy.Adapter().(outboundgroup.SelectAble)
-		if !selectable {
+		if !grouped || !selectable {
 			return failureResult(statusInvalidArgument, "policy group is not selectable")
+		}
+		if group.Now() != request.CurrentChild {
+			return failureResult(statusConflict, "current policy child is stale")
 		}
 		if err := selector.Set(request.Selection); err != nil {
 			return failureResult(statusInvalidArgument, "policy child is not a current member")
+		}
+		if core.routeCommands == nil {
+			core.routeCommands = make(map[string]routeCommandRecord)
+		}
+		core.routeCommands[request.OperationID] = record
+		core.routeOrder = append(core.routeOrder, request.OperationID)
+		if len(core.routeOrder) > 32 {
+			delete(core.routeCommands, core.routeOrder[0])
+			core.routeOrder = core.routeOrder[1:]
 		}
 		core.publishLocked("policy-selected", map[string]any{"group": request.Group, "selection": request.Selection})
 	case "close-connection":

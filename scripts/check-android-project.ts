@@ -453,6 +453,7 @@ for (const requirement of [
   "mish_core_start_v1",
   "mish_core_stop_v1",
   "mish_core_snapshot_v1",
+  "mish_core_command_v1",
   "mish_core_close_connection_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
@@ -470,9 +471,22 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
+for (const requirement of [
+  "nativeRouteOperation",
+  'static const char status_request[] = "{\\"kind\\":\\"status\\"}"',
+  'static const char routes_request[] = "{\\"kind\\":\\"routes\\",\\"limit\\":512}"',
+  "MishVpnCoreCommandFn",
+  "core_api.command",
+]) {
+  invariant(
+    pluginNativeBridge.includes(requirement),
+    `Android JNI Route command boundary is missing: ${requirement}`,
+  );
+}
 invariant(
-  !pluginNativeBridge.includes("mish_core_command_v1"),
-  "Android JNI must not resolve the unbounded Mobile Core command symbol.",
+  pluginNativeBridge.includes("mish_core_close_connection_v1") &&
+    !pluginNativeBridge.includes('\"operation\":\"close-all-connections\"'),
+  "Android Traffic JNI must use only the dedicated single-close Mobile Core symbol.",
 );
 const trafficCleanup = pluginNativeBridge.slice(
   pluginNativeBridge.indexOf("static jstring invoke_json_envelope"),
@@ -584,6 +598,16 @@ invariant(
     pluginRustModels.includes("MobileCoreProvenanceSnapshot") &&
     pluginRustAndroid.includes('run_mobile_plugin_async("getCoreProvenance"'),
   "The D2.3 product DTO must cross only the strict mobile Kotlin/Rust/TypeScript boundary.",
+);
+invariant(
+  pluginRustAndroid.includes("static MOBILE_ROUTE_CONFIG_GATE") &&
+    pluginRustAndroid.includes("route_config_gate: Arc<Mutex<()>>") &&
+    (pluginRustAndroid.match(/self\.route_config_gate\.lock\(\)\.await/g)?.length ?? 0) === 5,
+  "Config load/publication and Route/Traffic reads/effects must share one process-wide Rust gate.",
+);
+invariant(
+  (pluginRustAndroid.match(/authority\.profile_id\(\)\.to_owned\(\)/g)?.length ?? 0) >= 2,
+  "Traffic snapshots and close effects must project the current committed Route Profile identity.",
 );
 for (const forbidden of [
   "recentBoundaryInvocations",

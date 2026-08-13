@@ -78,6 +78,47 @@ export const MobileFixtureBootstrapSchema = z
   .strict();
 export interface MobileFixtureBootstrapDto extends z.infer<typeof MobileFixtureBootstrapSchema> {}
 
+export const MobileRouteSnapshotSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    profileId: IdentifierSchema.max(128),
+    profileRevision: IdentifierSchema.max(128),
+    runtimeAuthority: IdentifierSchema.max(128),
+    status: z.lazy(() => StatusSnapshotSchema),
+  })
+  .strict();
+
+export const MobileRouteFailureSchema = z.enum([
+  "cancelled",
+  "duplicate-conflict",
+  "invalid-input",
+  "invalid-relation",
+  "malformed-native-response",
+  "native-rejected",
+  "native-response-too-large",
+  "runtime-replaced",
+  "stale-authority",
+]);
+
+export const MobileRouteCommandResultSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    failure: MobileRouteFailureSchema.nullable(),
+    operationId: IdentifierSchema.max(128),
+    snapshot: MobileRouteSnapshotSchema,
+    status: z.enum(["success", "failure", "cancelled"]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const consistent =
+      (value.status === "success" && value.failure === null) ||
+      (value.status === "cancelled" && value.failure === "cancelled") ||
+      (value.status === "failure" && value.failure !== null && value.failure !== "cancelled");
+    if (!consistent) {
+      context.addIssue({ code: "custom", message: "Mobile Route result status is inconsistent" });
+    }
+  });
+
 export const MobileVpnPhaseSchema = z.enum([
   "stopped",
   "permission-required",

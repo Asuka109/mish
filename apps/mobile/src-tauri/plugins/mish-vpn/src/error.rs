@@ -14,6 +14,8 @@ pub enum Error {
     #[cfg(target_os = "android")]
     #[error("Android Traffic observation failed the checked wire schema")]
     TrafficObservationRejected,
+    #[error("Android Routes authority is unavailable until a committed Profile is loaded")]
+    RoutesUnavailable,
 }
 
 impl Serialize for Error {

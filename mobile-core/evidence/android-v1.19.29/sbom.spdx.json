@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "mish-mobile-core-v1.19.29-android",
-  "documentNamespace": "https://github.com/Asuka109/mish/spdx/mobile-core/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/5035b9f2481201a440da4472485aa09b15912e7dc12395519016cefc58b0c4ad",
+  "documentNamespace": "https://github.com/Asuka109/mish/spdx/mobile-core/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/68a1063f6d08ff3ddd4c660d89ad7b0434c582ca4a9b5d2af967329908325072",
   "creationInfo": {
     "created": "2026-07-18T11:18:54Z",
     "creators": [
@@ -3049,7 +3049,7 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "db9746bc0eeda8ef875720237b2e65335b86304381ee8c291c3426c34636fc5e"
+          "checksumValue": "d6025158bd87539af53f2af6ba16f80d6bad6b6dde3840a7c96b8f576706a66c"
         }
       ],
       "licenseConcluded": "GPL-3.0-only",
@@ -3061,7 +3061,7 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "96b725bf260d60cd3b4a99df244e95837e961dee72e24924d42e2c5833e5424f"
+          "checksumValue": "d850b390bd9ef0f922592694f735b2bfbba306b6162430e155d50cba5d7b5f2f"
         }
       ],
       "licenseConcluded": "GPL-3.0-only",

@@ -293,15 +293,24 @@ jobs:
           }
           trap cleanup EXIT
           adb start-server
+          ready_samples=0
           for attempt in {1..900}; do
             if ! kill -0 "$emulator_pid" 2>/dev/null; then
               tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
               exit 1
             fi
             if [[ "$(adb get-state 2>/dev/null)" == "device" ]] && \
-              [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
-              pnpm mobile:android:test:emulator
-              exit 0
+              [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
+              [[ "$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')" == "28" ]] && \
+              [[ "$(adb shell service check package 2>/dev/null | tr -d '\r')" == "Service package: found" ]] && \
+              adb shell cmd package list packages >/dev/null 2>&1; then
+              ready_samples=$((ready_samples + 1))
+              if [[ "$ready_samples" -ge 5 ]]; then
+                pnpm mobile:android:test:emulator
+                exit 0
+              fi
+            else
+              ready_samples=0
             fi
             sleep 1
           done

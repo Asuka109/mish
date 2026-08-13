@@ -109,6 +109,31 @@ internal interface MobileCoreRuntime {
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
 
+internal data class NativeRouteOperationResult(
+    val commandStatus: Int,
+    val commandEnvelope: String?,
+    val statusStatus: Int,
+    val statusEnvelope: String?,
+    val routesStatus: Int,
+    val routesEnvelope: String?,
+)
+
+internal interface MobileCoreRoutes {
+    fun snapshot(): NativeRouteOperationResult
+    fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult
+}
+
 internal data class NativeTrafficCloseResult(
     val failure: String?,
     val snapshot: JSONObject,
@@ -129,6 +154,7 @@ internal class MishMobileCoreProbe internal constructor(
     MobileCoreConfigLoader,
     MobileCoreConfigInspector,
     MobileCoreRuntime,
+    MobileCoreRoutes,
     MobileCoreTrafficAdapter {
     private val admissionLock = Any()
     private val admissionGate = MobileCoreAdmissionGate(::ensureAdmitted)
@@ -329,6 +355,86 @@ internal class MishMobileCoreProbe internal constructor(
     ): IntArray?
 
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
+
+    private external fun nativeRouteOperation(commandJson: String?): Array<ByteArray>?
+
+    override fun snapshot(): NativeRouteOperationResult =
+        routeOperation(null, null, null, null, null, null, null, null, null, null)
+
+    override fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult = routeOperation(
+        operationId,
+        runtimeAuthority,
+        profileId,
+        profileRevision,
+        groupId,
+        currentChildId,
+        childId,
+        nativeGroup,
+        nativeCurrentChild,
+        nativeChild,
+    )
+
+    private fun routeOperation(
+        operationId: String?,
+        runtimeAuthority: String?,
+        profileId: String?,
+        profileRevision: String?,
+        groupId: String?,
+        currentChildId: String?,
+        childId: String?,
+        nativeGroup: String?,
+        nativeCurrentChild: String?,
+        nativeChild: String?,
+    ): NativeRouteOperationResult =
+        admissionGate.invoke(
+            operation = MobileCoreEffectOperation.INSPECT_RUNTIME,
+            rejected = { NativeRouteOperationResult(8, null, 8, null, 8, null) },
+            effect = {
+                val command = if (operationId == null) null else JSONObject()
+                    .put("operation", "select-policy")
+                    .put("operationId", operationId)
+                    .put("runtimeAuthority", runtimeAuthority)
+                    .put("profileId", profileId)
+                    .put("profileRevision", profileRevision)
+                    .put("groupId", groupId)
+                    .put("currentChildId", currentChildId)
+                    .put("childId", childId)
+                    .put("group", nativeGroup)
+                    .put("currentChild", nativeCurrentChild)
+                    .put("selection", nativeChild)
+                    .toString()
+                val encoded = runCatching { nativeRouteOperation(command) }.getOrNull()
+                    ?: return@invoke NativeRouteOperationResult(8, null, 8, null, 8, null)
+                if (encoded.size != 6) {
+                    return@invoke NativeRouteOperationResult(8, null, 8, null, 8, null)
+                }
+                NativeRouteOperationResult(
+                    commandStatus = strictUtf8(encoded[0])?.toIntOrNull() ?: 8,
+                    commandEnvelope = strictUtf8(encoded[1])?.ifEmpty { null },
+                    statusStatus = strictUtf8(encoded[2])?.toIntOrNull() ?: 8,
+                    statusEnvelope = strictUtf8(encoded[3]),
+                    routesStatus = strictUtf8(encoded[4])?.toIntOrNull() ?: 8,
+                    routesEnvelope = strictUtf8(encoded[5]),
+                )
+            },
+        )
+
+    private fun strictUtf8(bytes: ByteArray): String? = runCatching {
+        bytes.toString(Charsets.UTF_8).also {
+            require(it.toByteArray(Charsets.UTF_8).contentEquals(bytes))
+        }
+    }.getOrNull()
 
     override fun snapshotTraffic(): JSONObject? = trafficCall(MobileCoreEffectOperation.TRAFFIC_SNAPSHOT) {
         val encoded = nativeTrafficSnapshot() ?: return@trafficCall null

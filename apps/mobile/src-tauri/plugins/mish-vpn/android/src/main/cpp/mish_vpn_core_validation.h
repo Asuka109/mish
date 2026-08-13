@@ -28,6 +28,9 @@ typedef int32_t (*MishVpnCoreSnapshotFn)(uint8_t *request,
 typedef int32_t (*MishVpnCoreCloseConnectionFn)(uint8_t *request,
                                                 uint64_t request_length,
                                                 MishCoreBufferV1 *response);
+typedef int32_t (*MishVpnCoreCommandFn)(uint8_t *request,
+                                        uint64_t request_length,
+                                        MishCoreBufferV1 *response);
 typedef void (*MishVpnCoreFreeBufferFn)(MishCoreBufferV1 *buffer);
 
 typedef struct MishVpnCoreValidationApi {
@@ -39,6 +42,7 @@ typedef struct MishVpnCoreValidationApi {
   MishVpnCoreStopFn stop;
   MishVpnCoreSnapshotFn snapshot;
   MishVpnCoreCloseConnectionFn close_connection;
+  MishVpnCoreCommandFn command;
   MishVpnCoreFreeBufferFn free_buffer;
 } MishVpnCoreValidationApi;
 

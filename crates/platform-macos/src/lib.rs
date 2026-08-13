@@ -2190,6 +2190,44 @@ fn invalid_recovery_error() -> CaptureTransitionError {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn unpackaged_signed_direct_boundary_rejects_helper_and_tun_effects() {
+        let platform = MacOsTunHelperPlatform::new(MacOsTunHelperBoundary::Unpackaged);
+        let initial = platform.initial_snapshot();
+        assert_eq!(initial.availability, TunHelperAvailability::Unpackaged);
+        assert_eq!(initial.health, TunHelperHealth::NotInstalled);
+        assert_eq!(initial.last_failure, Some(TunHelperFailureKind::Unpackaged));
+
+        let observed = platform.observe_helper().await.unwrap();
+        assert_eq!(observed.availability, TunHelperAvailability::Unpackaged);
+        assert_eq!(observed.health, TunHelperHealth::NotInstalled);
+        assert_eq!(
+            observed.last_failure,
+            Some(TunHelperFailureKind::Unpackaged)
+        );
+
+        for operation in [
+            TunHelperLifecycleOperation::Install,
+            TunHelperLifecycleOperation::Repair,
+            TunHelperLifecycleOperation::Remove,
+        ] {
+            assert_eq!(
+                platform.run_lifecycle(operation).await.unwrap_err().kind,
+                TunHelperFailureKind::Unpackaged,
+            );
+        }
+        assert_eq!(
+            platform.observe_tun().await.unwrap_err().kind,
+            TunHelperFailureKind::Unpackaged,
+        );
+        for enabled in [false, true] {
+            assert_eq!(
+                platform.set_tun_enabled(enabled).await.unwrap_err().kind,
+                TunHelperFailureKind::Unpackaged,
+            );
+        }
+    }
+
     #[test]
     fn manual_proxy_fixtures_preserve_exact_disabled_and_enabled_fields() {
         let blank =
