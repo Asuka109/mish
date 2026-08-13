@@ -49,7 +49,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
@@ -213,6 +213,11 @@ export function TrafficPage() {
   const [closeVisibleTarget, setCloseVisibleTarget] = useState<CloseVisibleTarget | null>(null);
   const [closeAllConfirmationOpen, setCloseAllConfirmationOpen] = useState(false);
   const [searchHelpOpen, setSearchHelpOpen] = useState(false);
+  const viewIdentity =
+    snapshot?.phase === "ready" && snapshot.sessionId
+      ? `${snapshot.profileId}\u0000${snapshot.sessionId}`
+      : null;
+  const previousViewIdentity = useRef<string | null>(null);
   const deferredQuery = useDeferredValue(query);
   const activeConnections = isCurrent ? (snapshot?.activeConnections ?? []) : [];
   const networks = useMemo(() => {
@@ -254,6 +259,10 @@ export function TrafficPage() {
   useEffect(() => setTab(trafficTab(searchParams.get("tab"))), [searchParams]);
 
   useEffect(() => {
+    if (!viewIdentity) return;
+    const previous = previousViewIdentity.current;
+    previousViewIdentity.current = viewIdentity;
+    if (!previous || previous === viewIdentity) return;
     setTab("active");
     setQuery("");
     setNetwork("all");
@@ -265,7 +274,7 @@ export function TrafficPage() {
     setCloseVisibleTarget(null);
     setCloseAllConfirmationOpen(false);
     setSearchHelpOpen(false);
-  }, [snapshot?.profileId, snapshot?.sessionId]);
+  }, [viewIdentity]);
 
   async function confirmCloseConnection() {
     if (!closeTarget) return;

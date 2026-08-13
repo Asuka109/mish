@@ -20,11 +20,15 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderTraffic(client: FixtureTrafficClient, locale: Locales = "en") {
+function renderTraffic(
+  client: FixtureTrafficClient,
+  locale: Locales = "en",
+  initialEntry = "/traffic",
+) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale={locale}>
-        <MemoryRouter initialEntries={["/traffic"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <ProductProvider>
             <TrafficProvider client={client}>
               <TooltipProvider>
@@ -168,6 +172,16 @@ afterEach(() => {
 });
 
 describe("Traffic page", () => {
+  it("preserves the requested Traffic tab when the initial baseline arrives", async () => {
+    renderTraffic(new FixtureTrafficClient(), "en", "/traffic?tab=rules");
+
+    expect(await screen.findByRole("button", { name: /Rules/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("DomainSuffix")).toBeVisible();
+  });
+
   it("keeps the search placeholder concise and explains structured filters on demand", async () => {
     const user = userEvent.setup();
     renderTraffic(new FixtureTrafficClient());
