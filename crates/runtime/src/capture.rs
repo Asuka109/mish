@@ -1819,6 +1819,7 @@ impl TunReconciler {
                 CapabilityAvailability::Supported
             }
             TunHelperAvailability::PermissionRequired => CapabilityAvailability::PermissionRequired,
+            TunHelperAvailability::RecoveryRequired => CapabilityAvailability::RecoveryRequired,
             TunHelperAvailability::RepairRequired => CapabilityAvailability::RepairRequired,
             TunHelperAvailability::Available
             | TunHelperAvailability::Unpackaged

@@ -965,6 +965,10 @@ type RootTranslation = {
 		 */
 		tunHelperRepairRequired: string
 		/**
+		 * M​a​n​u​a​l​ ​r​e​c​o​v​e​r​y​ ​r​e​q​u​i​r​e​d
+		 */
+		tunHelperRecoveryRequired: string
+		/**
 		 * N​o​t​ ​p​a​c​k​a​g​e​d​ ​i​n​ ​t​h​i​s​ ​b​u​i​l​d
 		 */
 		tunHelperUnpackaged: string
@@ -2309,6 +2313,10 @@ type RootTranslation = {
 		 * I​n​s​t​a​l​l​,​ ​a​p​p​r​o​v​e​,​ ​o​r​ ​r​e​p​a​i​r​ ​t​h​e​ ​I​n​t​e​r​n​a​l​ ​T​U​N​ ​s​e​r​v​i​c​e​ ​i​n​ ​S​e​t​t​i​n​g​s​ ​b​e​f​o​r​e​ ​u​s​i​n​g​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​.
 		 */
 		tunPermission: string
+		/**
+		 * M​i​s​h​ ​f​o​u​n​d​ ​s​y​s​t​e​m​ ​c​o​m​p​o​n​e​n​t​s​ ​w​h​o​s​e​ ​i​n​s​t​a​l​l​a​t​i​o​n​ ​i​d​e​n​t​i​t​y​ ​c​a​n​n​o​t​ ​b​e​ ​v​e​r​i​f​i​e​d​.​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​s​t​a​y​s​ ​o​f​f​.​ ​C​o​n​f​i​r​m​ ​o​w​n​e​r​s​h​i​p​,​ ​t​h​e​n​ ​r​e​m​o​v​e​ ​o​r​ ​r​e​i​n​s​t​a​l​l​ ​t​h​e​ ​d​e​v​e​l​o​p​m​e​n​t​ ​T​U​N​ ​s​e​r​v​i​c​e​ ​m​a​n​u​a​l​l​y​.
+		 */
+		tunRecoveryRequired: string
 		/**
 		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​n​o​t​ ​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​v​e​r​s​i​o​n​ ​o​f​ ​M​i​s​h​.
 		 */
@@ -6094,6 +6102,10 @@ export type TranslationFunctions = {
 		 */
 		tunHelperRepairRequired: () => LocalizedString
 		/**
+		 * Manual recovery required
+		 */
+		tunHelperRecoveryRequired: () => LocalizedString
+		/**
 		 * Not packaged in this build
 		 */
 		tunHelperUnpackaged: () => LocalizedString
@@ -7423,6 +7435,10 @@ export type TranslationFunctions = {
 		 * Install, approve, or repair the Internal TUN service in Settings before using Virtual Interface.
 		 */
 		tunPermission: () => LocalizedString
+		/**
+		 * Mish found system components whose installation identity cannot be verified. Virtual Interface stays off. Confirm ownership, then remove or reinstall the development TUN service manually.
+		 */
+		tunRecoveryRequired: () => LocalizedString
 		/**
 		 * Virtual Interface is not available in this version of Mish.
 		 */

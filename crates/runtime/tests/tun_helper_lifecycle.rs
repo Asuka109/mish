@@ -33,6 +33,7 @@ fn unsupported_and_unsigned_builds_never_report_helper_availability() {
 
 struct FakeHelperPlatform {
     initially_healthy: bool,
+    lifecycle_calls: Mutex<Vec<TunHelperLifecycleOperation>>,
     lifecycle_failure: Mutex<Option<TunHelperFailureKind>>,
     observation: Mutex<TunHelperObservation>,
     tun_enabled: Mutex<bool>,
@@ -44,6 +45,7 @@ impl FakeHelperPlatform {
     fn not_installed() -> Self {
         Self {
             initially_healthy: false,
+            lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::not_installed()),
             tun_enabled: Mutex::new(false),
@@ -55,8 +57,27 @@ impl FakeHelperPlatform {
     fn version_mismatch() -> Self {
         Self {
             initially_healthy: false,
+            lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy("0")),
+            tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
+        }
+    }
+
+    fn recovery_required() -> Self {
+        Self {
+            initially_healthy: false,
+            lifecycle_calls: Mutex::new(Vec::new()),
+            lifecycle_failure: Mutex::new(None),
+            observation: Mutex::new(TunHelperObservation {
+                availability: TunHelperAvailability::RecoveryRequired,
+                health: TunHelperHealth::Unknown,
+                installation_id: None,
+                installed_version: None,
+                last_failure: Some(TunHelperFailureKind::IdentityRejected),
+            }),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -66,6 +87,7 @@ impl FakeHelperPlatform {
     fn legacy_tun_policy_generation() -> Self {
         Self {
             initially_healthy: false,
+            lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             // Helper v3 was the generation that could persist a fail-closed
             // MISH_TUN_SERVICE_ALLOW_TUN=0 policy. A policy-semantic migration must
@@ -80,6 +102,7 @@ impl FakeHelperPlatform {
     fn immediate_tun_observation_generation() -> Self {
         Self {
             initially_healthy: false,
+            lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             // Helper v4 rejected Enable before a newly started Core had a bounded
             // opportunity to publish its owned utun and route observations.
@@ -93,6 +116,7 @@ impl FakeHelperPlatform {
     fn healthy() -> Self {
         Self {
             initially_healthy: true,
+            lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)),
             tun_enabled: Mutex::new(false),
@@ -111,6 +135,10 @@ impl FakeHelperPlatform {
 
     fn fail_next_tun_observation(&self, failure: TunHelperFailureKind) {
         *self.tun_observation_failure.lock().unwrap() = Some(failure);
+    }
+
+    fn lifecycle_calls(&self) -> Vec<TunHelperLifecycleOperation> {
+        self.lifecycle_calls.lock().unwrap().clone()
     }
 }
 
@@ -144,6 +172,7 @@ impl TunHelperPlatform for FakeHelperPlatform {
         &self,
         operation: TunHelperLifecycleOperation,
     ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        self.lifecycle_calls.lock().unwrap().push(operation);
         let failure = self.lifecycle_failure.lock().unwrap().take();
         if let Some(failure) = failure {
             return Box::pin(async move {
@@ -322,6 +351,27 @@ async fn failed_repair_preserves_authoritative_repair_required_for_retry() {
 
     let repaired = helper.repair().await.unwrap();
     assert!(repaired.is_healthy());
+}
+
+#[tokio::test]
+async fn recovery_required_identity_refuses_blind_repair() {
+    let platform = Arc::new(FakeHelperPlatform::recovery_required());
+    let helper = TunHelperController::new(platform.clone());
+    let snapshot = helper.refresh().await;
+
+    assert_eq!(
+        snapshot.availability,
+        TunHelperAvailability::RecoveryRequired
+    );
+    assert_eq!(
+        helper.repair().await.unwrap_err().kind,
+        TunHelperFailureKind::IdentityRejected
+    );
+    assert_eq!(
+        helper.snapshot().availability,
+        TunHelperAvailability::RecoveryRequired
+    );
+    assert!(platform.lifecycle_calls().is_empty());
 }
 
 #[tokio::test]

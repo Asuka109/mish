@@ -84,6 +84,29 @@ authorization commits one root-owned mode-`0600` record at
 The service refuses to start when that record is missing, malformed, owned
 incorrectly, or bound to another helper installation identity.
 
+Maintenance status classifies the complete development installation identity
+through one closed matrix shared by the CLI, macOS adapter, Runtime, bridge,
+and Web projection. A healthy service requires Mish-owned Helper/Core/plist
+artifacts, a valid client key, a matching enrollment candidate, the expected
+Helper/protocol versions, the matching installation identity, and a root-owned
+socket. Clean absence, unsupported platform/build, version mismatch, protocol
+mismatch, missing socket, safe partial Mish-owned identity, and foreign or
+ambiguous ownership remain distinct. A complete verified Mish-owned artifact
+set with missing or stale enrollment, client key, or socket is
+`repair-required` and can enter only the existing serialized repair flow. An
+incomplete artifact set cannot prove Mish ownership and is therefore
+`recovery-required`, alongside foreign artifacts, ambiguous ownership, invalid
+records, or client/enrollment key disagreement:
+Runtime refuses install/repair and Web gives manual ownership/reinstallation
+guidance without offering blind overwrite. Generic unavailable copy is
+reserved for genuine platform or build absence.
+
+This status path is observation-only. It may inspect fixed path metadata and
+bounded contents, issue `launchctl print`, and perform authenticated discovery;
+it does not install, disable, stop, or replace Helper/Core, TUN, routes, DNS, or
+other network state. Desktop startup likewise never repairs or disables the
+development service implicitly.
+
 This plaintext private key is an explicitly weak internal-testing boundary.
 It prevents an unrelated same-user process that cannot read the file from
 controlling the helper, but it does not defend against malware or any process

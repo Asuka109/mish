@@ -128,6 +128,45 @@ describe("TrafficCaptureControl Virtual Interface boundary", () => {
     expect(onTunChange).not.toHaveBeenCalled();
   });
 
+  it("keeps unverified installation identity fail-closed without offering blind repair", async () => {
+    const user = userEvent.setup();
+    const onTunChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <TypesafeI18n locale="en">
+          <TooltipProvider>
+            <TrafficCaptureControl
+              adapterKind="rpc"
+              capabilities={{ systemProxy: "supported", tun: "recovery-required" }}
+              commandSupported
+              onSystemProxyChange={vi.fn()}
+              onTunHelperSetup={vi.fn()}
+              onTunChange={onTunChange}
+              systemProxyEnabled={false}
+              systemProxySelected={false}
+              systemProxyStatus={systemProxyStatus}
+              tunEnabled={false}
+              tunSelected={false}
+              tunStatus={tunStatus}
+            />
+          </TooltipProvider>
+        </TypesafeI18n>
+      </MemoryRouter>,
+    );
+
+    const trigger = document.querySelector<HTMLElement>("[data-capture-unavailable-trigger]");
+    if (!trigger) throw new Error("Missing recovery-required Virtual Interface trigger");
+    expect(trigger).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("tun-recovery-description"),
+    );
+    trigger.focus();
+    await screen.findByText(/installation identity cannot be verified/);
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onTunChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       action: "Install System Component",

@@ -8,6 +8,7 @@ export const statusDescriptionIds = {
   systemProxyPermission: "system-proxy-permission-description",
   systemProxyUnavailable: "system-proxy-unavailable-description",
   tunPermission: "tun-permission-description",
+  tunRecovery: "tun-recovery-description",
   tunUnavailable: "tun-unavailable-description",
 } as const;
 
@@ -32,6 +33,9 @@ export function getCaptureModeDescriptionId(
   mode: "systemProxy" | "tun",
 ) {
   if (adapterKind === "fixture") return statusDescriptionIds.fixtureAction;
+  if (mode === "tun" && availability === "recovery-required") {
+    return statusDescriptionIds.tunRecovery;
+  }
   if (availability === "permission-required" || availability === "repair-required") {
     return mode === "systemProxy"
       ? statusDescriptionIds.systemProxyPermission
@@ -53,6 +57,9 @@ export function getAggregateCaptureDescriptionId(
   if (snapshot.adapterKind === "fixture") return statusDescriptionIds.fixtureAction;
 
   const availabilities = [snapshot.capabilities.systemProxy, snapshot.capabilities.tun];
+  if (snapshot.capabilities.tun === "recovery-required") {
+    return statusDescriptionIds.tunRecovery;
+  }
   if (
     availabilities.includes("permission-required") ||
     availabilities.includes("repair-required")

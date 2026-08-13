@@ -17,8 +17,9 @@ use mish_platform_macos::internal_tun_maintenance::{
     EnrollmentTransition, MaintenanceCommitPoint, MaintenanceKind, MaintenanceTerminalOutcome,
 };
 use mish_runtime::{
-    CaptureRequest, CaptureSelection, CoreLifecycleMutation, CoreLifecycleOperation, RuntimePhase,
-    StatusAdapterKind, TunHelperFailureKind, TunHelperRemovalCapability,
+    CapabilityAvailability, CaptureRequest, CaptureSelection, CoreLifecycleMutation,
+    CoreLifecycleOperation, RuntimePhase, StatusAdapterKind, TunHelperAvailability,
+    TunHelperFailureKind, TunHelperRemovalCapability,
 };
 use mish_settings::{SettingsAdapterKind, SettingsServiceError};
 use mish_simulated_host::{
@@ -376,6 +377,67 @@ async fn helper_removal_capability_is_authoritative_across_runtime_health_and_ca
         listener_conflict.host.observation().endpoint_owner,
         ManagedEndpointOwner::Foreign
     );
+}
+
+#[tokio::test]
+async fn installation_identity_matrix_repairs_only_complete_mish_owned_partial_state() {
+    let safe_partial = build(
+        SyntheticMaintenanceInitial::RepairRequired,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    let safe_snapshot = safe_partial.helper.refresh().await;
+    assert_eq!(
+        safe_snapshot.availability,
+        TunHelperAvailability::RepairRequired
+    );
+    assert_eq!(safe_snapshot.removal, TunHelperRemovalCapability::Available);
+    safe_partial
+        .settings_service
+        .repair_tun_helper()
+        .await
+        .unwrap();
+    assert_eq!(
+        safe_partial.helper.refresh().await.availability,
+        TunHelperAvailability::Available
+    );
+
+    let unsafe_identity = build(
+        SyntheticMaintenanceInitial::RecoveryRequired,
+        SyntheticPackageVersion::V2,
+        Vec::new(),
+    )
+    .await;
+    let unsafe_snapshot = unsafe_identity.helper.refresh().await;
+    assert_eq!(
+        unsafe_snapshot.availability,
+        TunHelperAvailability::RecoveryRequired
+    );
+    assert_eq!(
+        unsafe_identity
+            .runtime_host
+            .current()
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await
+            .capabilities
+            .tun,
+        CapabilityAvailability::RecoveryRequired
+    );
+    assert_eq!(
+        unsafe_snapshot.removal,
+        TunHelperRemovalCapability::Unavailable
+    );
+    let before = unsafe_identity.host.observation();
+    let error = unsafe_identity
+        .settings_service
+        .repair_tun_helper()
+        .await
+        .unwrap_err();
+    assert!(matches!(error, SettingsServiceError::TunHelper(_)));
+    let after = unsafe_identity.host.observation();
+    assert_eq!(after.maintenance, before.maintenance);
+    assert_eq!(after.transcript, before.transcript);
 }
 
 #[tokio::test]

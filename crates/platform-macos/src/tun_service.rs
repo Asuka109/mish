@@ -950,6 +950,281 @@ struct DevelopmentInstallerResult {
     ok: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum DevelopmentInstallationState {
+    Installed,
+    NotInstalled,
+    RecoveryRequired,
+    RepairRequired,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum DevelopmentInstallationReason {
+    AmbiguousArtifacts,
+    CleanAbsence,
+    ClientEnrollmentMismatch,
+    ForeignArtifacts,
+    Healthy,
+    InstallationIdentityMismatch,
+    InvalidClientKey,
+    InvalidEnrollment,
+    MissingClientKey,
+    MissingEnrollment,
+    MissingSocket,
+    PartialArtifacts,
+    ProtocolMismatch,
+    VersionMismatch,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DevelopmentInstallerStatus {
+    installation: DevelopmentInstallationState,
+    installation_id: Option<String>,
+    installed_version: Option<String>,
+    ok: bool,
+    reason: DevelopmentInstallationReason,
+    service: String,
+    stage: String,
+}
+
+impl DevelopmentInstallerStatus {
+    fn into_observation(self) -> Result<TunHelperObservation, TunHelperError> {
+        let invalid = || {
+            TunHelperError::new(
+                TunHelperFailureKind::ProtocolMismatch,
+                "The development TUN installer returned an incoherent status classification",
+            )
+        };
+        if !self.ok || self.stage != "status" {
+            return Err(invalid());
+        }
+        match (self.installation, self.reason) {
+            (DevelopmentInstallationState::Installed, DevelopmentInstallationReason::Healthy)
+                if self.service == "installed"
+                    && self
+                        .installation_id
+                        .as_deref()
+                        .is_some_and(valid_development_identity)
+                    && self
+                        .installed_version
+                        .as_deref()
+                        .is_some_and(|version| !version.is_empty() && version.len() <= 64) =>
+            {
+                Ok(TunHelperObservation::healthy_installation(
+                    self.installed_version.expect("validated installed version"),
+                    self.installation_id
+                        .expect("validated installation identity"),
+                ))
+            }
+            (
+                DevelopmentInstallationState::NotInstalled,
+                DevelopmentInstallationReason::CleanAbsence,
+            ) if self.service == "not-installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(TunHelperObservation::not_installed())
+            }
+            (
+                DevelopmentInstallationState::RepairRequired,
+                DevelopmentInstallationReason::VersionMismatch,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::VersionMismatch,
+                    TunHelperFailureKind::VersionMismatch,
+                ))
+            }
+            (
+                DevelopmentInstallationState::RepairRequired,
+                DevelopmentInstallationReason::ProtocolMismatch,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::Unknown,
+                    TunHelperFailureKind::ProtocolMismatch,
+                ))
+            }
+            (
+                DevelopmentInstallationState::RepairRequired,
+                DevelopmentInstallationReason::MissingSocket,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::Unreachable,
+                    TunHelperFailureKind::ConnectionFailed,
+                ))
+            }
+            (
+                DevelopmentInstallationState::RepairRequired,
+                DevelopmentInstallationReason::InstallationIdentityMismatch
+                | DevelopmentInstallationReason::MissingClientKey
+                | DevelopmentInstallationReason::MissingEnrollment,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RepairRequired,
+                    TunHelperHealth::Unknown,
+                    TunHelperFailureKind::IdentityRejected,
+                ))
+            }
+            (
+                DevelopmentInstallationState::RecoveryRequired,
+                DevelopmentInstallationReason::ForeignArtifacts,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RecoveryRequired,
+                    TunHelperHealth::Unknown,
+                    TunHelperFailureKind::ObservationForeign,
+                ))
+            }
+            (
+                DevelopmentInstallationState::RecoveryRequired,
+                DevelopmentInstallationReason::AmbiguousArtifacts
+                | DevelopmentInstallationReason::ClientEnrollmentMismatch
+                | DevelopmentInstallationReason::InvalidClientKey
+                | DevelopmentInstallationReason::InvalidEnrollment
+                | DevelopmentInstallationReason::PartialArtifacts,
+            ) if self.service == "installed"
+                && self.installation_id.is_none()
+                && self.installed_version.is_none() =>
+            {
+                Ok(development_identity_observation(
+                    TunHelperAvailability::RecoveryRequired,
+                    TunHelperHealth::Unknown,
+                    TunHelperFailureKind::IdentityRejected,
+                ))
+            }
+            _ => Err(invalid()),
+        }
+    }
+}
+
+fn development_identity_observation(
+    availability: TunHelperAvailability,
+    health: TunHelperHealth,
+    failure: TunHelperFailureKind,
+) -> TunHelperObservation {
+    TunHelperObservation {
+        availability,
+        health,
+        installation_id: None,
+        installed_version: None,
+        last_failure: Some(failure),
+    }
+}
+
+fn valid_development_identity(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+impl DevelopmentTunLifecycle {
+    async fn invoke(&self, action: &str) -> Result<std::process::Output, TunHelperError> {
+        let repository_root = self.repository_root.canonicalize().map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::OperationFailed,
+                "The development helper repository root is unavailable",
+            )
+        })?;
+        let script_metadata = fs::symlink_metadata(&self.script_path).map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::OperationFailed,
+                "The development helper installer is unavailable",
+            )
+        })?;
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let current_uid = unsafe { libc::getuid() };
+        if script_metadata.file_type().is_symlink()
+            || !script_metadata.is_file()
+            || script_metadata.uid() != current_uid
+            || script_metadata.permissions().mode() & 0o022 != 0
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The development helper installer metadata was rejected",
+            ));
+        }
+        let script_path = self.script_path.canonicalize().map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::OperationFailed,
+                "The development helper installer is unavailable",
+            )
+        })?;
+        if !script_path.starts_with(&repository_root)
+            || script_path.file_name().and_then(|name| name.to_str())
+                != Some("manage-macos-tun-service.ts")
+        {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::IdentityRejected,
+                "The development helper installer identity was rejected",
+            ));
+        }
+        let node = development_node_executable(current_uid).ok_or_else(|| {
+            TunHelperError::new(
+                TunHelperFailureKind::InstallerUnavailable,
+                "The development helper installer could not locate a trusted Node executable",
+            )
+        })?;
+        let mut command = Command::new(node);
+        command.kill_on_drop(true);
+        command.arg(script_path).arg(action);
+        if let Some(tun_argument) = self.tun_argument {
+            command.arg(tun_argument);
+        }
+        let operation = command
+            .current_dir(repository_root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+        let output = if action == "status" {
+            timeout(BOUNDED_STEP_TIMEOUT, operation)
+                .await
+                .map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The development helper status observation timed out",
+                    )
+                })?
+        } else {
+            operation.await
+        }
+        .map_err(|_| {
+            TunHelperError::new(
+                TunHelperFailureKind::InstallerUnavailable,
+                "The development helper installer could not start",
+            )
+        })?;
+        if output.stdout.len() > TUN_HELPER_MAX_MESSAGE_BYTES {
+            return Err(TunHelperError::new(
+                TunHelperFailureKind::MessageTooLarge,
+                "The development helper installer result exceeded the bounded status envelope",
+            ));
+        }
+        Ok(output)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct InternalTunPackageStatus {
@@ -1418,19 +1693,10 @@ impl MacOsTunServiceClient {
         if status.core.is_none() && status.observation.confirms_disabled_at(now) {
             return DevelopmentTunStartup::Ready;
         }
-        match self.request(ServiceCommand::Disable).await {
-            Ok(cleaned)
-                if cleaned
-                    .observation
-                    .confirms_disabled_at(tun_observation_now()) =>
-            {
-                DevelopmentTunStartup::Ready
-            }
-            Ok(cleaned) => DevelopmentTunStartup::ReadOnly(
-                cleaned.observation.failure_kind_at(tun_observation_now()),
-            ),
-            Err(_) => DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::OperationFailed),
-        }
+        // Startup admission is observation-only. Any owned or ambiguous residual must be
+        // handled through the explicit serialized maintenance flow, never by an implicit
+        // Helper/Core/TUN/network mutation during status assembly.
+        DevelopmentTunStartup::ReadOnly(status.observation.failure_kind_at(now))
     }
 }
 
@@ -1846,12 +2112,19 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                 let status = lifecycle.status().await?;
                 return match status.service.as_str() {
                     "not-installed" => Ok(TunHelperObservation::not_installed()),
-                    "repair-required" | "recovery-required" => Ok(TunHelperObservation {
+                    "repair-required" => Ok(TunHelperObservation {
                         availability: TunHelperAvailability::RepairRequired,
                         health: TunHelperHealth::Unknown,
                         installation_id: None,
                         installed_version: None,
                         last_failure: Some(TunHelperFailureKind::ConfirmationFailed),
+                    }),
+                    "recovery-required" => Ok(TunHelperObservation {
+                        availability: TunHelperAvailability::RecoveryRequired,
+                        health: TunHelperHealth::Unknown,
+                        installation_id: None,
+                        installed_version: None,
+                        last_failure: Some(TunHelperFailureKind::IdentityRejected),
                     }),
                     "installed" => {
                         let health = lifecycle.health().await?;
@@ -1862,6 +2135,23 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     }
                     _ => unreachable!("validated Internal TUN Alpha service state"),
                 };
+            }
+            if let Some(TunServiceLifecycle::Development(lifecycle)) = self.lifecycle.as_ref() {
+                let output = lifecycle.invoke("status").await?;
+                if !output.status.success() {
+                    return Err(TunHelperError::new(
+                        TunHelperFailureKind::InstallerUnavailable,
+                        "The development helper installer could not observe installation status",
+                    ));
+                }
+                return serde_json::from_slice::<DevelopmentInstallerStatus>(&output.stdout)
+                    .map_err(|_| {
+                        TunHelperError::new(
+                            TunHelperFailureKind::ProtocolMismatch,
+                            "The development helper installer returned an invalid status envelope",
+                        )
+                    })?
+                    .into_observation();
             }
             match self.health().await {
                 Ok(status) => Ok(TunHelperObservation::healthy_installation(
@@ -1900,74 +2190,12 @@ impl TunHelperPlatform for MacOsTunServiceClient {
             let TunServiceLifecycle::Development(lifecycle) = lifecycle else {
                 unreachable!("Internal TUN Alpha lifecycle returned above");
             };
-            let repository_root = lifecycle.repository_root.canonicalize().map_err(|_| {
-                TunHelperError::new(
-                    TunHelperFailureKind::OperationFailed,
-                    "The development helper repository root is unavailable",
-                )
-            })?;
-            let script_metadata = fs::symlink_metadata(&lifecycle.script_path).map_err(|_| {
-                TunHelperError::new(
-                    TunHelperFailureKind::OperationFailed,
-                    "The development helper installer is unavailable",
-                )
-            })?;
-            // SAFETY: getuid has no preconditions and only returns the real user ID.
-            let current_uid = unsafe { libc::getuid() };
-            if script_metadata.file_type().is_symlink()
-                || !script_metadata.is_file()
-                || script_metadata.uid() != current_uid
-                || script_metadata.permissions().mode() & 0o022 != 0
-            {
-                return Err(TunHelperError::new(
-                    TunHelperFailureKind::IdentityRejected,
-                    "The development helper installer metadata was rejected",
-                ));
-            }
-            let script_path = lifecycle.script_path.canonicalize().map_err(|_| {
-                TunHelperError::new(
-                    TunHelperFailureKind::OperationFailed,
-                    "The development helper installer is unavailable",
-                )
-            })?;
-            if !script_path.starts_with(&repository_root)
-                || script_path.file_name().and_then(|name| name.to_str())
-                    != Some("manage-macos-tun-service.ts")
-            {
-                return Err(TunHelperError::new(
-                    TunHelperFailureKind::IdentityRejected,
-                    "The development helper installer identity was rejected",
-                ));
-            }
             let action = match operation {
                 TunHelperLifecycleOperation::Install => "install",
                 TunHelperLifecycleOperation::Repair => "repair",
                 TunHelperLifecycleOperation::Remove => "uninstall",
             };
-            let node = development_node_executable(current_uid).ok_or_else(|| {
-                TunHelperError::new(
-                    TunHelperFailureKind::InstallerUnavailable,
-                    "The development helper installer could not locate a trusted Node executable",
-                )
-            })?;
-            let mut command = Command::new(node);
-            command.arg(script_path).arg(action);
-            if let Some(tun_argument) = lifecycle.tun_argument {
-                command.arg(tun_argument);
-            }
-            let output = command
-                .current_dir(repository_root)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .output()
-                .await
-                .map_err(|_| {
-                    TunHelperError::new(
-                        TunHelperFailureKind::InstallerUnavailable,
-                        "The development helper installer could not start",
-                    )
-                })?;
+            let output = lifecycle.invoke(action).await?;
             let result = serde_json::from_slice::<DevelopmentInstallerResult>(&output.stdout)
                 .map_err(|_| {
                     TunHelperError::new(
@@ -7248,6 +7476,55 @@ mod tests {
             assert_eq!(
                 fs::read_to_string(repository.path().join("observed-action.txt")).unwrap(),
                 expected
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn development_observation_uses_only_status_and_preserves_identity_classification() {
+        for (result, availability, failure) in [
+            (
+                r#"{"installation":"repair-required","ok":true,"reason":"missing-enrollment","service":"installed","stage":"status"}"#,
+                TunHelperAvailability::RepairRequired,
+                TunHelperFailureKind::IdentityRejected,
+            ),
+            (
+                r#"{"installation":"recovery-required","ok":true,"reason":"foreign-artifacts","service":"installed","stage":"status"}"#,
+                TunHelperAvailability::RecoveryRequired,
+                TunHelperFailureKind::ObservationForeign,
+            ),
+        ] {
+            let repository = tempfile::tempdir().unwrap();
+            let scripts = repository.path().join("scripts");
+            fs::create_dir(&scripts).unwrap();
+            let installer = scripts.join("manage-macos-tun-service.ts");
+            fs::write(
+                &installer,
+                format!(
+                    "import {{ writeFileSync }} from 'node:fs';\nwriteFileSync('observed-action.txt', process.argv.slice(2).join(','));\nprocess.stdout.write('{}');\n",
+                    result
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
+            let client = MacOsTunServiceClient {
+                authenticated_request: Arc::new(Mutex::new(())),
+                client_keys: None,
+                lifecycle: Some(TunServiceLifecycle::Development(DevelopmentTunLifecycle {
+                    repository_root: repository.path().to_path_buf(),
+                    script_path: installer,
+                    tun_argument: Some("--development-tun"),
+                })),
+                socket_path: repository.path().join("unused.sock"),
+            };
+
+            let observed = client.observe_helper().await.unwrap();
+
+            assert_eq!(observed.availability, availability);
+            assert_eq!(observed.last_failure, Some(failure));
+            assert_eq!(
+                fs::read_to_string(repository.path().join("observed-action.txt")).unwrap(),
+                "status,--development-tun"
             );
         }
     }

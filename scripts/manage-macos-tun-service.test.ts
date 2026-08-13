@@ -18,10 +18,119 @@ import {
   buildInstallationDiscoveryRequest,
   buildRotationRequest,
   canonicalRotationTranscript,
+  classifyDevelopmentTunInstallation,
   ensureInstallationClientKey,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
 } from "./manage-macos-tun-service.ts";
+
+test("classifies a running Mish service with installed artifacts and a missing enrollment as safe partial", () => {
+  for (const discovery of ["matching", "missing"] as const) {
+    assert.deepEqual(
+      classifyDevelopmentTunInstallation({
+        artifacts: "mish-owned",
+        clientIdentity: "present",
+        discovery,
+        enrollmentIdentity: "missing",
+        service: "running",
+      }),
+      {
+        installation: "repair-required",
+        reason: "missing-enrollment",
+      },
+    );
+  }
+});
+
+test("keeps a complete development TUN identity distinct from version and protocol mismatch", () => {
+  const complete = {
+    artifacts: "mish-owned" as const,
+    clientIdentity: "present" as const,
+    enrollmentIdentity: "matches-client" as const,
+    service: "running" as const,
+  };
+
+  assert.deepEqual(classifyDevelopmentTunInstallation({ ...complete, discovery: "matching" }), {
+    installation: "installed",
+    reason: "healthy",
+  });
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({ ...complete, discovery: "version-mismatch" }),
+    { installation: "repair-required", reason: "version-mismatch" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({ ...complete, discovery: "protocol-mismatch" }),
+    { installation: "repair-required", reason: "protocol-mismatch" },
+  );
+});
+
+test("keeps clean absence, verified Mish-owned partial identity, and unsafe artifacts distinct", () => {
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "absent",
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "not-installed", reason: "clean-absence" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "partial",
+      clientIdentity: "present",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "running",
+    }),
+    { installation: "recovery-required", reason: "partial-artifacts" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "repair-required", reason: "missing-client-key" },
+  );
+  for (const artifacts of ["ambiguous", "foreign"] as const) {
+    assert.deepEqual(
+      classifyDevelopmentTunInstallation({
+        artifacts,
+        clientIdentity: "present",
+        discovery: "mismatched",
+        enrollmentIdentity: "mismatches-client",
+        service: "running",
+      }),
+      {
+        installation: "recovery-required",
+        reason: artifacts === "foreign" ? "foreign-artifacts" : "ambiguous-artifacts",
+      },
+    );
+  }
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "mismatched",
+      enrollmentIdentity: "stale-installation",
+      service: "running",
+    }),
+    { installation: "repair-required", reason: "installation-identity-mismatch" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "mismatched",
+      enrollmentIdentity: "mismatches-client",
+      service: "running",
+    }),
+    { installation: "recovery-required", reason: "client-enrollment-mismatch" },
+  );
+});
 
 test("discovery request uses the Rust enum field names at the framed boundary", () => {
   const requestId = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +140,7 @@ test("discovery request uses the Rust enum field names at the framed boundary", 
     protocol_version: 3,
     request_id: requestId,
   });
+  assert.equal(buildInstallationDiscoveryRequest(requestId, 2).protocol_version, 2);
 });
 
 function writePinnedCoreFixture(workspace: string) {

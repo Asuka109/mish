@@ -789,6 +789,7 @@ export function SettingsPage() {
                   helperAvailable
                     ? "success"
                     : helper.availability === "permission-required" ||
+                        helper.availability === "recovery-required" ||
                         helper.availability === "repair-required"
                       ? "warning"
                       : "outline"
@@ -798,13 +799,15 @@ export function SettingsPage() {
                   ? LL.settingsPage.tunHelperHealthy({ version: helper.installedVersion ?? "-" })
                   : helper.availability === "repair-required"
                     ? LL.settingsPage.tunHelperRepairRequired()
-                    : helper.availability === "permission-required"
-                      ? LL.settingsPage.tunHelperNotInstalled()
-                      : helper.availability === "unsigned-app"
-                        ? LL.settingsPage.tunHelperUnsigned()
-                        : helper.availability === "unpackaged"
-                          ? LL.settingsPage.tunHelperUnpackaged()
-                          : LL.common.unavailable()}
+                    : helper.availability === "recovery-required"
+                      ? LL.settingsPage.tunHelperRecoveryRequired()
+                      : helper.availability === "permission-required"
+                        ? LL.settingsPage.tunHelperNotInstalled()
+                        : helper.availability === "unsigned-app"
+                          ? LL.settingsPage.tunHelperUnsigned()
+                          : helper.availability === "unpackaged"
+                            ? LL.settingsPage.tunHelperUnpackaged()
+                            : LL.common.unavailable()}
               </Badge>
               {snapshot.capabilities.tun === "supported" &&
               helper.availability === "permission-required" ? (

@@ -41,6 +41,7 @@ pub enum RuntimePhase {
 #[serde(rename_all = "kebab-case")]
 pub enum CapabilityAvailability {
     FixtureOnly,
+    RecoveryRequired,
     RepairRequired,
     Supported,
     Unavailable,

@@ -316,6 +316,7 @@ const en = {
     tunHelperHealthy: "Healthy · version {version:string}",
     tunHelperNotInstalled: "Not installed",
     tunHelperRepairRequired: "Repair required",
+    tunHelperRecoveryRequired: "Manual recovery required",
     tunHelperUnpackaged: "Not packaged in this build",
     tunHelperUnsigned: "Unsigned development build",
     updateFailed: "The setting could not be confirmed. The last confirmed state is still shown.",
@@ -739,6 +740,8 @@ const en = {
     systemProxyUnavailable: "System Proxy is unavailable on this platform.",
     tunPermission:
       "Install, approve, or repair the Internal TUN service in Settings before using Virtual Interface.",
+    tunRecoveryRequired:
+      "Mish found system components whose installation identity cannot be verified. Virtual Interface stays off. Confirm ownership, then remove or reinstall the development TUN service manually.",
     tunUnavailable: "Virtual Interface is not available in this version of Mish.",
   },
   proxyPicker: {

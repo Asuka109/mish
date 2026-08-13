@@ -41,10 +41,13 @@ type InstallerFailureKind =
 type InstallerResult =
   | {
       generation?: number;
+      installation?: DevelopmentTunInstallationClassification["installation"];
       installationId?: string;
+      installedVersion?: string;
       keyId?: string;
       ok: true;
       operation?: string;
+      reason?: DevelopmentTunInstallationClassification["reason"];
       service?: "installed" | "not-installed";
       stage: "completed" | "prepared" | "status";
     }
@@ -86,6 +89,7 @@ const rotationRequestPath = path.join(installerRoot, "rotation.json");
 const installationKeyAlgorithm = "p256-sha256";
 const installationKeyRecordVersion = 1;
 const installationKeyTranscriptVersion = 1;
+const tunHelperExpectedVersion = "6";
 const tunHelperProtocolVersion = 3;
 
 type InstallationClientKeyRecord = {
@@ -122,10 +126,384 @@ type InstallationKeyRotationRequest = {
 type InstallationDiscovery = {
   algorithm: string;
   generation: number;
+  helperVersion: string;
   installationId: string;
   keyId: string;
   protocolVersion: number;
 };
+
+export type DevelopmentTunInstallationObservation = {
+  artifacts: "absent" | "ambiguous" | "foreign" | "mish-owned" | "partial";
+  clientIdentity: "invalid" | "missing" | "present";
+  discovery: "matching" | "mismatched" | "missing" | "protocol-mismatch" | "version-mismatch";
+  enrollmentIdentity:
+    | "invalid"
+    | "matches-client"
+    | "mismatches-client"
+    | "missing"
+    | "stale-installation";
+  service: "not-running" | "running";
+};
+
+export type DevelopmentTunInstallationClassification = {
+  installation: "installed" | "not-installed" | "recovery-required" | "repair-required";
+  reason:
+    | "ambiguous-artifacts"
+    | "clean-absence"
+    | "client-enrollment-mismatch"
+    | "foreign-artifacts"
+    | "healthy"
+    | "installation-identity-mismatch"
+    | "invalid-client-key"
+    | "invalid-enrollment"
+    | "missing-client-key"
+    | "missing-enrollment"
+    | "missing-socket"
+    | "partial-artifacts"
+    | "protocol-mismatch"
+    | "version-mismatch";
+};
+
+export function classifyDevelopmentTunInstallation(
+  observation: DevelopmentTunInstallationObservation,
+): DevelopmentTunInstallationClassification {
+  if (
+    observation.service === "not-running" &&
+    observation.artifacts === "absent" &&
+    observation.enrollmentIdentity === "missing" &&
+    (observation.clientIdentity === "missing" || observation.clientIdentity === "present") &&
+    observation.discovery === "missing"
+  ) {
+    return { installation: "not-installed", reason: "clean-absence" };
+  }
+  if (observation.artifacts === "foreign" || observation.artifacts === "ambiguous") {
+    return {
+      installation: "recovery-required",
+      reason: observation.artifacts === "foreign" ? "foreign-artifacts" : "ambiguous-artifacts",
+    };
+  }
+  if (observation.clientIdentity === "invalid") {
+    return { installation: "recovery-required", reason: "invalid-client-key" };
+  }
+  if (observation.enrollmentIdentity === "invalid") {
+    return { installation: "recovery-required", reason: "invalid-enrollment" };
+  }
+  if (observation.artifacts === "mish-owned" && observation.clientIdentity === "missing") {
+    return { installation: "repair-required", reason: "missing-client-key" };
+  }
+  if (
+    observation.artifacts === "mish-owned" &&
+    observation.enrollmentIdentity === "mismatches-client"
+  ) {
+    return {
+      installation: "recovery-required",
+      reason: "client-enrollment-mismatch",
+    };
+  }
+  if (
+    observation.artifacts === "mish-owned" &&
+    (observation.enrollmentIdentity === "stale-installation" ||
+      (observation.enrollmentIdentity === "matches-client" &&
+        observation.discovery === "mismatched"))
+  ) {
+    return {
+      installation: "repair-required",
+      reason: "installation-identity-mismatch",
+    };
+  }
+  if (observation.artifacts === "partial") {
+    return { installation: "recovery-required", reason: "partial-artifacts" };
+  }
+  if (
+    observation.artifacts === "mish-owned" &&
+    observation.clientIdentity === "present" &&
+    observation.enrollmentIdentity === "matches-client" &&
+    observation.discovery === "missing"
+  ) {
+    return { installation: "repair-required", reason: "missing-socket" };
+  }
+  if (
+    observation.service === "running" &&
+    observation.artifacts === "mish-owned" &&
+    observation.enrollmentIdentity === "matches-client" &&
+    observation.clientIdentity === "present"
+  ) {
+    if (observation.discovery === "matching") {
+      return { installation: "installed", reason: "healthy" };
+    }
+    if (observation.discovery === "version-mismatch") {
+      return { installation: "repair-required", reason: "version-mismatch" };
+    }
+    if (observation.discovery === "protocol-mismatch") {
+      return { installation: "repair-required", reason: "protocol-mismatch" };
+    }
+  }
+  if (
+    observation.artifacts === "mish-owned" &&
+    observation.enrollmentIdentity === "missing" &&
+    observation.clientIdentity === "present"
+  ) {
+    return { installation: "repair-required", reason: "missing-enrollment" };
+  }
+  return { installation: "recovery-required", reason: "ambiguous-artifacts" };
+}
+
+type DevelopmentTunStatusObservation = {
+  installationId?: string;
+  installedVersion?: string;
+  observation: DevelopmentTunInstallationObservation;
+};
+
+async function observeInstalledArtifacts(uid: number) {
+  const targets = [
+    { file: helperTarget, mode: 0o555 },
+    { file: coreTarget, mode: 0o555 },
+    { file: plistTarget, mode: 0o644 },
+  ] as const;
+  const observations = await Promise.all(
+    targets.map(async ({ file, mode }) => {
+      try {
+        const metadata = await lstat(file);
+        return {
+          file,
+          valid:
+            metadata.isFile() &&
+            !metadata.isSymbolicLink() &&
+            metadata.uid === 0 &&
+            (metadata.mode & 0o777) === mode &&
+            metadata.nlink === 1 &&
+            metadata.size > 0 &&
+            metadata.size <= 128 * 1024 * 1024,
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return { file, valid: null };
+        return { file, valid: false };
+      }
+    }),
+  );
+  if (observations.every(({ valid }) => valid === null)) {
+    return { artifacts: "absent" as const };
+  }
+  if (observations.some(({ valid }) => valid === false)) {
+    return { artifacts: "foreign" as const };
+  }
+  if (observations.some(({ valid }) => valid === null)) {
+    return { artifacts: "partial" as const };
+  }
+  try {
+    const [helper, core, installedPlist] = await Promise.all([
+      readFile(helperTarget),
+      readFile(coreTarget),
+      readFile(plistTarget, "utf8"),
+    ]);
+    if (Buffer.byteLength(installedPlist) > 64 * 1024) {
+      return { artifacts: "ambiguous" as const };
+    }
+    const installationMatch = installedPlist.match(
+      /<key>MISH_TUN_SERVICE_INSTALLATION_ID<\/key><string>([a-f0-9]{64})<\/string>/u,
+    );
+    const expectedFragments = [
+      `<key>Label</key>\n  <string>${label}</string>`,
+      `<array><string>${helperTarget}</string></array>`,
+      `<key>MISH_TUN_SERVICE_ALLOWED_UID</key><string>${uid}</string>`,
+      `<key>MISH_TUN_SERVICE_CORE_BINARY</key><string>${coreTarget}</string>`,
+      `<key>MISH_TUN_SERVICE_ENROLLMENT_RECORD</key><string>${enrollmentTarget}</string>`,
+      `<key>MISH_TUN_SERVICE_SOCKET</key><string>/var/run/com.asuka109.mish.tun-helper.${uid}.sock</string>`,
+    ];
+    if (
+      !installationMatch ||
+      expectedFragments.some((fragment) => !installedPlist.includes(fragment))
+    ) {
+      return { artifacts: "foreign" as const };
+    }
+    const installationId = installationMatch[1];
+    const template = installedPlist.replace(
+      installationId,
+      "MISH_TUN_SERVICE_INSTALLATION_ID_PLACEHOLDER",
+    );
+    const calculated = createHash("sha256")
+      .update(helper)
+      .update(core)
+      .update(template)
+      .digest("hex");
+    return calculated === installationId
+      ? { artifacts: "mish-owned" as const, installationId }
+      : { artifacts: "ambiguous" as const };
+  } catch {
+    return { artifacts: "ambiguous" as const };
+  }
+}
+
+async function observeClientIdentity(uid: number) {
+  try {
+    const client = await readClientKeyRecord(clientKeyPath, uid);
+    return {
+      clientIdentity: "present" as const,
+      keyId: client.keyId,
+      publicKeySpki: client.publicKeySpki,
+    };
+  } catch (error) {
+    if (error instanceof InstallerFailure && error.code === "installation-key-missing") {
+      return { clientIdentity: "missing" as const };
+    }
+    return { clientIdentity: "invalid" as const };
+  }
+}
+
+function validatePublicCandidate(value: unknown): InstallationPublicKeyCandidate {
+  const candidate = value as Partial<InstallationPublicKeyCandidate>;
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify(
+        [
+          "algorithm",
+          "helperInstallationId",
+          "installingUid",
+          "keyId",
+          "publicKeySpki",
+          "schemaVersion",
+        ].sort(),
+      ) ||
+    candidate.schemaVersion !== installationKeyRecordVersion ||
+    candidate.algorithm !== installationKeyAlgorithm ||
+    !validKeyId(candidate.helperInstallationId) ||
+    !Number.isSafeInteger(candidate.installingUid) ||
+    !validKeyId(candidate.keyId) ||
+    typeof candidate.publicKeySpki !== "string"
+  ) {
+    throw new Error("invalid public enrollment candidate");
+  }
+  return candidate as InstallationPublicKeyCandidate;
+}
+
+async function readEnrollmentCandidate(uid: number) {
+  const metadata = await lstat(enrollmentCandidatePath);
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    metadata.uid !== uid ||
+    (metadata.mode & 0o777) !== 0o600 ||
+    metadata.nlink !== 1 ||
+    metadata.size < 1 ||
+    metadata.size > 16 * 1024
+  ) {
+    throw new Error("invalid enrollment candidate metadata");
+  }
+  return validatePublicCandidate(JSON.parse(await readFile(enrollmentCandidatePath, "utf8")));
+}
+
+async function observeDevelopmentTunInstallation(
+  uid: number,
+  serviceRunning: boolean,
+): Promise<DevelopmentTunStatusObservation> {
+  const [artifacts, client] = await Promise.all([
+    observeInstalledArtifacts(uid),
+    observeClientIdentity(uid),
+  ]);
+  let enrollment: "invalid" | "missing" | "present" = "missing";
+  try {
+    const metadata = await lstat(enrollmentTarget);
+    enrollment =
+      metadata.isFile() &&
+      !metadata.isSymbolicLink() &&
+      metadata.uid === 0 &&
+      (metadata.mode & 0o777) === 0o600 &&
+      metadata.nlink === 1 &&
+      metadata.size > 0 &&
+      metadata.size <= 16 * 1024
+        ? "present"
+        : "invalid";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") enrollment = "invalid";
+  }
+  const observation: DevelopmentTunInstallationObservation = {
+    artifacts: artifacts.artifacts,
+    clientIdentity: client.clientIdentity,
+    discovery: "missing",
+    enrollmentIdentity: enrollment === "invalid" ? "invalid" : "missing",
+    service: serviceRunning ? "running" : "not-running",
+  };
+  if (artifacts.artifacts !== "mish-owned" || client.clientIdentity !== "present") {
+    return { observation };
+  }
+  if (enrollment === "present") {
+    try {
+      const candidate = await readEnrollmentCandidate(uid);
+      observation.enrollmentIdentity =
+        candidate.installingUid === uid &&
+        candidate.keyId === client.keyId &&
+        candidate.publicKeySpki === client.publicKeySpki
+          ? candidate.helperInstallationId === artifacts.installationId
+            ? "matches-client"
+            : "stale-installation"
+          : "mismatches-client";
+    } catch {
+      observation.enrollmentIdentity = "invalid";
+    }
+  }
+  const socketPath = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
+  try {
+    const socket = await lstat(socketPath);
+    if (
+      !socket.isSocket() ||
+      socket.isSymbolicLink() ||
+      socket.uid !== 0 ||
+      (socket.mode & 0o777) !== 0o600 ||
+      socket.nlink !== 1
+    ) {
+      observation.artifacts = "ambiguous";
+      return { observation };
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") observation.artifacts = "ambiguous";
+    return { observation };
+  }
+  try {
+    let discovery: InstallationDiscovery | undefined;
+    for (const protocolVersion of [tunHelperProtocolVersion, 2, 1]) {
+      try {
+        discovery = await discoverInstallation(
+          socketPath,
+          protocolVersion === tunHelperProtocolVersion ? 1_500 : 500,
+          protocolVersion,
+        );
+        break;
+      } catch {
+        // Older development helpers reject a current-version discovery envelope.
+        // Retry only the two known predecessors so status retains that distinction.
+      }
+    }
+    if (!discovery) throw new Error("installation discovery unavailable");
+    observation.discovery =
+      discovery.protocolVersion !== tunHelperProtocolVersion
+        ? "protocol-mismatch"
+        : discovery.helperVersion !== tunHelperExpectedVersion
+          ? "version-mismatch"
+          : discovery.installationId !== artifacts.installationId
+            ? "mismatched"
+            : "matching";
+    observation.enrollmentIdentity =
+      enrollment === "missing"
+        ? "missing"
+        : enrollment === "invalid"
+          ? "invalid"
+          : discovery.keyId !== client.keyId
+            ? "mismatches-client"
+            : discovery.installationId !== artifacts.installationId
+              ? "stale-installation"
+              : "matches-client";
+    return {
+      installationId: discovery.installationId,
+      installedVersion: discovery.helperVersion,
+      observation,
+    };
+  } catch {
+    observation.discovery = "missing";
+    return { observation };
+  }
+}
 
 type ToolchainEnvironment = Record<string, string | undefined>;
 const developmentTunArgument = "--development-tun";
@@ -317,12 +695,18 @@ function buildHelper(cargo: string, environment: ToolchainEnvironment = process.
   }
 }
 
-const run = (executable: string, args: string[], options: { allowFailure?: boolean } = {}) => {
+const run = (
+  executable: string,
+  args: string[],
+  options: { allowFailure?: boolean; timeoutMilliseconds?: number } = {},
+) => {
   try {
     return execFileSync(executable, args, {
       encoding: "utf8",
       env: process.env,
+      maxBuffer: 16 * 1024,
       stdio: options.allowFailure ? "pipe" : "inherit",
+      timeout: options.timeoutMilliseconds,
     });
   } catch (error) {
     if (options.allowFailure) return "";
@@ -753,11 +1137,14 @@ export function buildRotationRequest(
   return request;
 }
 
-export function buildInstallationDiscoveryRequest(requestId: string) {
+export function buildInstallationDiscoveryRequest(
+  requestId: string,
+  protocolVersion = tunHelperProtocolVersion,
+) {
   return {
     command: { kind: "health" },
     kind: "discovery",
-    protocol_version: tunHelperProtocolVersion,
+    protocol_version: protocolVersion,
     request_id: requestId,
   };
 }
@@ -765,9 +1152,12 @@ export function buildInstallationDiscoveryRequest(requestId: string) {
 async function discoverInstallation(
   socketPath: string,
   timeoutMilliseconds = 6_000,
+  protocolVersion = tunHelperProtocolVersion,
 ): Promise<InstallationDiscovery> {
   const requestId = randomUUID();
-  const request = Buffer.from(JSON.stringify(buildInstallationDiscoveryRequest(requestId)));
+  const request = Buffer.from(
+    JSON.stringify(buildInstallationDiscoveryRequest(requestId, protocolVersion)),
+  );
   const frame = Buffer.alloc(request.length + 4);
   frame.writeUInt32BE(request.length);
   request.copy(frame, 4);
@@ -779,11 +1169,20 @@ async function discoverInstallation(
       socket.destroy();
       reject(new Error("discovery timed out"));
     }, timeoutMilliseconds);
+    const fail = (error: Error) => {
+      clearTimeout(timer);
+      socket.destroy();
+      reject(error);
+    };
     socket.on("connect", () => socket.write(frame));
     socket.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
       const combined = Buffer.concat(chunks);
       expected ??= combined.length >= 4 ? combined.readUInt32BE(0) : undefined;
+      if (combined.length > 16 * 1024 + 4 || (expected !== undefined && expected > 16 * 1024)) {
+        fail(new Error("discovery response too large"));
+        return;
+      }
       if (expected === undefined || combined.length < expected + 4) return;
       clearTimeout(timer);
       socket.end();
@@ -795,6 +1194,15 @@ async function discoverInstallation(
         if (
           message.kind !== "discovery" ||
           message.discovery?.requestId !== requestId ||
+          message.discovery.algorithm !== installationKeyAlgorithm ||
+          !Number.isSafeInteger(message.discovery.generation) ||
+          message.discovery.generation < 1 ||
+          !Number.isSafeInteger(message.discovery.protocolVersion) ||
+          message.discovery.protocolVersion < 1 ||
+          message.discovery.protocolVersion > 65_535 ||
+          typeof message.discovery.helperVersion !== "string" ||
+          message.discovery.helperVersion.length < 1 ||
+          message.discovery.helperVersion.length > 64 ||
           !validKeyId(message.discovery.installationId) ||
           !validKeyId(message.discovery.keyId)
         ) {
@@ -802,12 +1210,17 @@ async function discoverInstallation(
         }
         resolve(message.discovery);
       } catch (error) {
-        reject(error);
+        fail(error instanceof Error ? error : new Error("discovery response invalid"));
       }
     });
     socket.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
+    });
+    socket.on("end", () => {
+      if (expected === undefined || Buffer.concat(chunks).length < expected + 4) {
+        fail(new Error("discovery response incomplete"));
+      }
     });
   });
 }
@@ -1071,10 +1484,20 @@ async function main() {
   }
 
   if (action === "status") {
-    const status = run("/bin/launchctl", ["print", `system/${label}`], { allowFailure: true });
+    const status = run("/bin/launchctl", ["print", `system/${label}`], {
+      allowFailure: true,
+      timeoutMilliseconds: 1_500,
+    });
+    const observed = await observeDevelopmentTunInstallation(uid, status.length > 0);
+    const classified = classifyDevelopmentTunInstallation(observed.observation);
     printResult({
+      installation: classified.installation,
+      installationId: classified.installation === "installed" ? observed.installationId : undefined,
+      installedVersion:
+        classified.installation === "installed" ? observed.installedVersion : undefined,
       ok: true,
-      service: status ? "installed" : "not-installed",
+      reason: classified.reason,
+      service: classified.installation === "not-installed" ? "not-installed" : "installed",
       stage: "status",
     });
     return;

@@ -2012,6 +2012,14 @@ fn development_tun_startup_admission(
         {
             (false, None)
         }
+        DevelopmentTunStartup::ReadOnly(_)
+            if matches!(
+                snapshot.availability,
+                TunHelperAvailability::RepairRequired | TunHelperAvailability::RecoveryRequired
+            ) =>
+        {
+            (false, None)
+        }
         DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign)
             if snapshot.is_healthy() =>
         {
@@ -2931,6 +2939,33 @@ mod tests {
             development_tun_startup_admission(&snapshot, DevelopmentTunStartup::Ready),
             (false, None)
         );
+    }
+
+    #[test]
+    fn development_tun_preserves_repair_and_recovery_classifications_when_socket_is_unavailable() {
+        for availability in [
+            TunHelperAvailability::RepairRequired,
+            TunHelperAvailability::RecoveryRequired,
+        ] {
+            let snapshot = TunHelperSnapshot {
+                availability,
+                expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+                health: TunHelperHealth::Unknown,
+                installation_id: None,
+                installed_version: None,
+                last_failure: Some(TunHelperFailureKind::IdentityRejected),
+                phase: TunHelperLifecyclePhase::Idle,
+                removal: TunHelperRemovalCapability::Unavailable,
+            };
+
+            assert_eq!(
+                development_tun_startup_admission(
+                    &snapshot,
+                    DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ConnectionFailed),
+                ),
+                (false, None)
+            );
+        }
     }
 
     #[test]

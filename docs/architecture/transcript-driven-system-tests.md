@@ -120,6 +120,15 @@ key, credential, or host network value. A healthy initial package is seeded as
 an active Mish-owned TUN in the real Capture machine; lifecycle commands must
 perform the real Capture handoff before the package machine accepts work.
 
+The installation-identity matrix also seeds one complete Mish-owned partial
+installation and one foreign/ambiguous installation. The first projects
+`repair-required` and proves one serialized repair can converge to healthy. The
+second projects `recovery-required`, exposes no removal authority, rejects
+repair before any lifecycle effect, and leaves both the modeled host and
+bounded transcript unchanged. This deterministic evidence cannot prove a real
+administrator prompt, launchd behavior, privileged file replacement, TUN/Core
+mutation, packet flow, signing, or release policy.
+
 Failure injection occurs at every maintenance journal boundary and is expressed
 as semantic failure kinds such as cancellation, disk exhaustion, interrupted
 copy, process exit, artifact replacement, stale completion, cleanup failure,

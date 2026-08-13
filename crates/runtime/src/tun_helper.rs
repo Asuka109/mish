@@ -25,6 +25,7 @@ pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "com.asuka109.mish.tun-helper";
 pub enum TunHelperAvailability {
     Available,
     PermissionRequired,
+    RecoveryRequired,
     RepairRequired,
     Unpackaged,
     UnsignedApp,
@@ -589,11 +590,20 @@ impl TunHelperController {
         correlation: Option<TunHelperLifecycleCorrelation>,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
-        let admitted = if operation == TunHelperLifecycleOperation::Remove {
-            self.refresh_locked(None).await
-        } else {
-            self.snapshot()
-        };
+        let prior = self.snapshot();
+        let admitted = self.refresh_locked(None).await;
+        if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && admitted.availability == TunHelperAvailability::RecoveryRequired
+        {
+            return Err(TunHelperError::new(
+                admitted
+                    .last_failure
+                    .unwrap_or(TunHelperFailureKind::IdentityRejected),
+                "The TUN helper installation identity requires manual recovery",
+            ));
+        }
         // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
         // It needs the same confirmed handoff as repair before lifecycle work starts. Removal is
         // admitted only after the shared Capture authority has already stopped TUN; this boundary
@@ -601,7 +611,7 @@ impl TunHelperController {
         if matches!(
             operation,
             TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
-        ) && admitted.has_healthy_identity()
+        ) && (prior.has_healthy_identity() || admitted.has_healthy_identity())
         {
             if let Err(error) = self.platform.set_tun_enabled(false).await {
                 self.record_failure(error.kind);
@@ -838,6 +848,7 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
             }
             TunHelperAvailability::Available
             | TunHelperAvailability::PermissionRequired
+            | TunHelperAvailability::RecoveryRequired
             | TunHelperAvailability::RepairRequired
             | TunHelperAvailability::Unavailable => None,
         };

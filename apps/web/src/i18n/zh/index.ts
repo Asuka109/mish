@@ -278,6 +278,7 @@ const zh: Translation = {
     tunHelperHealthy: "可用 · 版本 {version}",
     tunHelperNotInstalled: "尚未安装",
     tunHelperRepairRequired: "需要修复",
+    tunHelperRecoveryRequired: "需要手动恢复",
     tunHelperUnpackaged: "当前版本未包含系统组件",
     tunHelperUnsigned: "未签名的开发构建",
     updateFailed: "设置未生效，当前仍显示之前的状态。",
@@ -661,6 +662,8 @@ const zh: Translation = {
     systemProxyPermission: "需要授权后才能更改系统代理。",
     systemProxyUnavailable: "当前平台不支持系统代理。",
     tunPermission: "请先到“设置”安装、批准或修复 Internal TUN 服务，再使用虚拟网卡。",
+    tunRecoveryRequired:
+      "Mish 发现无法验证安装身份的系统组件，虚拟网卡会保持关闭。请先确认组件归属，再手动移除或重新安装开发版 TUN 服务。",
     tunUnavailable: "此版本的 Mish 暂不支持虚拟网卡。",
   },
   proxyPicker: {
