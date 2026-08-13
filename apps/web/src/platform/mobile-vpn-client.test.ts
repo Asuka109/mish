@@ -738,6 +738,37 @@ describe("MobileVpnFixtureClient", () => {
     expect(committed).not.toHaveBeenCalled();
   });
 
+  it("publishes a config commit when a timed-out operation reconciles a late Core commit", async () => {
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command) => {
+        if (command === "get_snapshot") return snapshot(4);
+        return loadResult(loadedConfigSnapshot(5), {
+          failure: "timeout",
+          message:
+            "Configuration loaded after the operation deadline; authoritative state was reconciled.",
+          timing: "timed-out",
+        });
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
+    await client.initialize();
+
+    const result = await client.loadConfig(
+      new TextEncoder().encode(configA),
+      { digest: configADigest, profileId: "profile-a", revision: "fixture-a" },
+      { operationId: "load-a" },
+    );
+
+    expect(result).toMatchObject({
+      failure: "timeout",
+      outcome: "first-load",
+      timing: "timed-out",
+    });
+    expect(committed).toHaveBeenCalledOnce();
+  });
+
   it("orders cancellation through the native barrier without inventing unloaded state", async () => {
     let resolveLoad: ((value: unknown) => void) | undefined;
     const invoke = vi.fn(async (command: string) => {

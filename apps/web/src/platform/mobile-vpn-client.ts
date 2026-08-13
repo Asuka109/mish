@@ -514,7 +514,13 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
           );
         }
       }
-      if (result.failure === null) this.publishConfigCommit();
+      if (
+        result.outcome === "first-load" ||
+        result.outcome === "replacement" ||
+        result.outcome === "no-op"
+      ) {
+        this.publishConfigCommit();
+      }
       return result;
     } catch {
       if (operation.retired || !this.isCurrentGeneration(operation.generation)) {

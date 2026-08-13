@@ -527,6 +527,12 @@ pub enum MobileConfigLoadOutcome {
     Cancelled,
 }
 
+impl MobileConfigLoadOutcome {
+    pub(crate) fn committed(self) -> bool {
+        matches!(self, Self::FirstLoad | Self::Replacement | Self::NoOp)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MobileConfigLoadFailure {
@@ -845,5 +851,14 @@ mod validation_tests {
                 .failure,
             Some(MobileConfigLoadFailure::InvalidInput)
         );
+    }
+
+    #[test]
+    fn committed_load_outcomes_are_independent_from_terminal_operation_failure() {
+        assert!(MobileConfigLoadOutcome::FirstLoad.committed());
+        assert!(MobileConfigLoadOutcome::Replacement.committed());
+        assert!(MobileConfigLoadOutcome::NoOp.committed());
+        assert!(!MobileConfigLoadOutcome::Failed.committed());
+        assert!(!MobileConfigLoadOutcome::Cancelled.committed());
     }
 }

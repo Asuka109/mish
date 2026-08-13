@@ -41,7 +41,9 @@ calls through one process-wide gate. This prevents a command admitted for the
 old committed Profile from reaching a replacement Core. After a successful
 configuration commit, the Web mobile bootstrap requests and publishes a fresh
 full Routes baseline; an earlier unloaded baseline failure therefore does not
-require a WebView reload.
+require a WebView reload. A load that commits after its operation deadline also
+publishes the reconciled Route authority and refresh signal even though its
+terminal command result retains the typed timeout failure.
 
 ## Commands
 

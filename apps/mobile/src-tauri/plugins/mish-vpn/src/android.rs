@@ -844,14 +844,10 @@ impl<R: Runtime> MishVpn<R> {
                 Some(MobileVpnSnapshot::from_lifecycle(&current)),
             );
         }
-        if result.failure.is_none()
-            && matches!(
-                result.outcome,
-                MobileConfigLoadOutcome::FirstLoad
-                    | MobileConfigLoadOutcome::Replacement
-                    | MobileConfigLoadOutcome::NoOp
-            )
-        {
+        // Outcome records the reconciled Core commit point independently from
+        // the command's terminal timing. A late committed load reports a
+        // timeout failure but must still replace Route authority.
+        if result.outcome.committed() {
             *self.routes.lock().await =
                 crate::mobile_routes::MobileRouteAuthority::from_committed_profile(
                     &request.profile_id,
