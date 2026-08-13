@@ -163,7 +163,7 @@ export class MobileTrafficClient implements TrafficClient {
     this.connection = { attempt: 0, phase: "connected", stale: false };
     this.publishConnection();
     const publishedDelivery: ApplicationSnapshotDelivery | "command" =
-      delivery === "request" ? "update" : delivery;
+      !previous || !sameAuthority ? "baseline" : delivery === "request" ? "update" : delivery;
     for (const listener of this.snapshotListeners) {
       listener(structuredClone(snapshot), publishedDelivery);
     }

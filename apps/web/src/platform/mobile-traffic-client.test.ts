@@ -115,6 +115,34 @@ describe("MobileTrafficClient", () => {
     expect(connectionStates).toEqual([true, false, true]);
   });
 
+  it("publishes a baseline when native polling observes runtime replacement", async () => {
+    let current = snapshot();
+    const delivered: Array<[string, number, string | undefined]> = [];
+    const client = new MobileTrafficClient({
+      clearInterval: vi.fn(),
+      invoke: vi.fn(async () => current),
+      setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
+    });
+    client.subscribeSnapshots((value, delivery) =>
+      delivered.push([
+        value.applicationOrder.authorityId,
+        value.applicationOrder.epoch,
+        delivery,
+      ]),
+    );
+    await vi.waitFor(() => expect(delivered).toContainEqual(["runtime-a", 1, "baseline"]));
+
+    current = snapshot({
+      applicationOrder: { authorityId: "runtime-b", epoch: 2, order: 1 },
+      profileId: "profile-b",
+      sequence: 1,
+      sessionId: "traffic-b",
+    });
+    await client.getSnapshot();
+
+    expect(delivered).toContainEqual(["runtime-b", 2, "baseline"]);
+  });
+
   it("cancels before dispatch without crossing the native mutation boundary", async () => {
     const invoke = vi.fn(async () => snapshot());
     const client = new MobileTrafficClient({
