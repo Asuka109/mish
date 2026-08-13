@@ -69,9 +69,12 @@ fn config() -> LoopbackServerConfig {
     }
 }
 
-async fn start_trigger(
-    action: Arc<dyn DevelopmentWindowTrigger>,
-    lifetime: Duration,
+async fn start_trigger(action: Arc<dyn DevelopmentWindowTrigger>) -> LoopbackServerHandle {
+    start_trigger_with_config(DevelopmentWindowTriggerConfig::new(action)).await
+}
+
+async fn start_trigger_with_config(
+    trigger_config: DevelopmentWindowTriggerConfig,
 ) -> LoopbackServerHandle {
     let runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
         DesktopMihomoProcessConfig {
@@ -84,7 +87,7 @@ async fn start_trigger(
         config(),
         DesktopRuntimeHost::new(runtime),
         None,
-        DevelopmentWindowTriggerConfig::with_lifetime(action, lifetime),
+        trigger_config,
     )
     .await
     .expect("development trigger server should start")
@@ -137,11 +140,7 @@ async fn shutdown(bridge: LoopbackServerHandle) {
 
 #[tokio::test]
 async fn trigger_assets_keep_the_capability_in_the_fragment_and_apply_strict_headers() {
-    let bridge = start_trigger(
-        Arc::new(SingleWindowAuthority::default()),
-        Duration::from_secs(60),
-    )
-    .await;
+    let bridge = start_trigger(Arc::new(SingleWindowAuthority::default())).await;
     let handle = bridge.development_window_trigger().unwrap();
     let url = handle.issue_url();
     let capability = trigger_capability(&bridge);
@@ -195,7 +194,7 @@ async fn trigger_assets_keep_the_capability_in_the_fragment_and_apply_strict_hea
 #[tokio::test]
 async fn repeated_and_concurrent_fresh_requests_create_only_one_window() {
     let action = Arc::new(SingleWindowAuthority::default());
-    let bridge = start_trigger(action.clone(), Duration::from_secs(60)).await;
+    let bridge = start_trigger(action.clone()).await;
     let capability = trigger_capability(&bridge);
     let client = Client::new();
     let requests = (0..16).map(|index| {
@@ -220,7 +219,7 @@ async fn repeated_and_concurrent_fresh_requests_create_only_one_window() {
 #[tokio::test]
 async fn exact_replay_malformed_cross_origin_and_localhost_alias_requests_fail_closed() {
     let action = Arc::new(SingleWindowAuthority::default());
-    let bridge = start_trigger(action.clone(), Duration::from_secs(60)).await;
+    let bridge = start_trigger(action.clone()).await;
     let capability = trigger_capability(&bridge);
     let request_id = "r".repeat(43);
     let client = Client::new();
@@ -239,6 +238,12 @@ async fn exact_replay_malformed_cross_origin_and_localhost_alias_requests_fail_c
     );
     assert_eq!(
         post_trigger(&client, bridge.address, &capability, "short")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        post_trigger(&client, bridge.address, "short", &"m".repeat(43))
             .await
             .status(),
         StatusCode::BAD_REQUEST
@@ -269,36 +274,71 @@ async fn exact_replay_malformed_cross_origin_and_localhost_alias_requests_fail_c
 }
 
 #[tokio::test]
-async fn expired_and_replaced_process_capabilities_fail_closed() {
-    let expired = start_trigger(
-        Arc::new(SingleWindowAuthority::default()),
-        Duration::from_millis(1),
-    )
-    .await;
-    let expired_capability = trigger_capability(&expired);
-    tokio::time::sleep(Duration::from_millis(5)).await;
-    assert_eq!(
-        post_trigger(
-            &Client::new(),
-            expired.address,
-            &expired_capability,
-            &"e".repeat(43),
-        )
-        .await
-        .status(),
-        StatusCode::GONE
-    );
-    shutdown(expired).await;
+async fn request_history_stays_bounded_and_fails_closed_at_capacity() {
+    let action = Arc::new(SingleWindowAuthority::default());
+    let bridge = start_trigger(action.clone()).await;
+    let capability = trigger_capability(&bridge);
+    let client = Client::new();
 
-    let prior = start_trigger(
-        Arc::new(SingleWindowAuthority::default()),
-        Duration::from_secs(60),
-    )
-    .await;
+    for index in 0..64 {
+        let request_id = format!("{index:02}{}", "h".repeat(41));
+        assert_eq!(
+            post_trigger(&client, bridge.address, &capability, &request_id)
+                .await
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        post_trigger(&client, bridge.address, &capability, &"z".repeat(43))
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(action.requests.load(Ordering::SeqCst), 64);
+    assert_eq!(action.creations.load(Ordering::SeqCst), 1);
+    shutdown(bridge).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn current_capability_remains_valid_beyond_an_hour_and_replay_stays_request_scoped() {
+    let action = Arc::new(SingleWindowAuthority::default());
+    let bridge = start_trigger(action.clone()).await;
+    let capability = trigger_capability(&bridge);
+    let client = Client::new();
+
+    tokio::time::advance(Duration::from_secs(15 * 60 + 1)).await;
+    assert_eq!(
+        post_trigger(&client, bridge.address, &capability, &"q".repeat(43),)
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    tokio::time::advance(Duration::from_secs(60 * 60 + 1)).await;
+    assert_eq!(
+        post_trigger(&client, bridge.address, &capability, &"w".repeat(43))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        post_trigger(&client, bridge.address, &capability, &"w".repeat(43))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(action.requests.load(Ordering::SeqCst), 2);
+    assert_eq!(action.creations.load(Ordering::SeqCst), 1);
+    shutdown(bridge).await;
+}
+
+#[tokio::test]
+async fn replacement_process_rejects_the_prior_capability() {
+    let prior = start_trigger(Arc::new(SingleWindowAuthority::default())).await;
     let prior_capability = trigger_capability(&prior);
     shutdown(prior).await;
     let replacement_action = Arc::new(SingleWindowAuthority::default());
-    let replacement = start_trigger(replacement_action.clone(), Duration::from_secs(60)).await;
+    let replacement = start_trigger(replacement_action.clone()).await;
     assert_eq!(
         post_trigger(
             &Client::new(),
@@ -316,7 +356,7 @@ async fn expired_and_replaced_process_capabilities_fail_closed() {
 
 #[tokio::test]
 async fn window_failure_is_bounded_and_does_not_stop_the_backend() {
-    let bridge = start_trigger(Arc::new(FailingWindowAuthority), Duration::from_secs(60)).await;
+    let bridge = start_trigger(Arc::new(FailingWindowAuthority)).await;
     let capability = trigger_capability(&bridge);
     let client = Client::new();
     assert_eq!(

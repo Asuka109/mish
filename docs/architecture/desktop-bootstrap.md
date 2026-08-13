@@ -205,10 +205,11 @@ no storage, no cookies, no RPC bootstrap, and no external resource. Its module
 removes the fragment before sending a bounded same-origin JSON request with the
 capability and a fresh 256-bit request ID. Rust requires an IPv4-loopback peer,
 the exact numeric Host, the exact same Origin, fixed field shapes, a constant-
-time capability match, a 15-minute process-local expiry, and an unused request
-ID. It retains at most 64 request IDs and rejects exact replay, malformed input,
-expired capability, wrong process capability, non-loopback authority, origin
-drift, and saturation without invoking Tauri. The RPC token, Browser Client
+time capability match, and an unused request ID. The current capability remains
+valid for its owning process until replacement or shutdown. It retains at most
+64 request IDs and rejects exact replay, malformed input, wrong process
+capability, non-loopback authority, origin drift, and saturation without
+invoking Tauri. The RPC token, Browser Client
 launch token, PIN, browser session, and origin proof are separate authorities.
 
 Accepted requests call one Rust window controller. Its serialized creation
@@ -221,9 +222,10 @@ returns the process to Accessory activation, and leaves the backend and current
 trigger available. Status-bar navigation, application-menu navigation and Find,
 and Dock reopen requests queue their intent through the same controller when the
 window does not exist; the ready handshake delivers the queued action. Process
-replacement discards
-the capability, replay set, pending creation claim, and window together, so a
-hot restart remains hidden and earlier URLs fail closed.
+replacement discards the capability, replay set, pending creation claim, and
+window together, so a hot restart remains hidden and earlier URLs fail closed.
+Browser Client pairing, PIN, and one-time launch-token expiry remain separate
+and unchanged.
 
 ## Browser-client launch flow
 
