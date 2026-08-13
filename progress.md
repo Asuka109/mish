@@ -51,8 +51,9 @@ fully integrated: D2.2 through PR #503 / `0e0bc567` and D1.4 through PR #504 /
 `2b1a0dcf`. Wave 2K is fully integrated: D2.3 merged through PR #505 /
 `f0c6cd78` after explicit acceptance, all local/remote gates passed, and Issue
 #454 closed completed. Wave 2L #283 is integrated through PR #508 /
-`961d697c`; #172/#281/#284 remain under their existing Worker ownership. Seven
-repository concurrency slots remain unreserved.
+`961d697c`, and #281 is integrated through PR #509 / `25ead8be`; #172/#284
+remain under their existing Worker ownership. Eight repository concurrency
+slots remain unreserved.
 
 ## Wave 1 worker ledger
 
@@ -286,8 +287,8 @@ deployment, or other hands-on work.
 | --- | --- | --- | --- | --- | --- | --- |
 | #172 credential-free signed-direct slice | `019ff6d0-3d29-7250-938b-7028bb58c4b1` | `d380` | active | #168 closed; #171 required only for live signing | Add the explicit System Proxy-only `signed-direct` profile, hardened-runtime/entitlement policy, privileged-TUN exclusions, and synthetic-identity fixture coverage | Keep Issue #172 open for live Developer ID verification; no credentials, Apple trust, notarization, updater, publication, Intel, or production TUN claim |
 | #283 Android Route selection authority | `019ff6d0-3d29-7250-938b-706eb67afd05` | `3267` | integrated | #263/#451/#454 completed | Project one live policy-group child selection through Shared Rust and the closed Android Mobile Core adapter | PR #508 ordinary-merged as `961d697c` after explicit acceptance; final Fast PR, Android platform Rust, and Android lifecycle emulator gates passed; Issue #283 closed completed with all eight repository-automated criteria checked. Coordinator post-merge boundary/exclusion 28 tests and `check:android` passed; no physical-device or real VPN/TUN/Core/network claim |
-| #281 Android Traffic authority | `019ff6d0-3d2b-7fa2-949e-b8740df9b28a` | `ae6c` | active | #263/#451/#454 completed; #283 integrated | Project bounded active connections and one close-current-connection command with stable identity and redaction | Preserve Rust authority, native buffer ownership, and desktop Traffic; ordinary-merge latest `main` including #283 at the delivery boundary, then rerun affected checks; repository-owned automated demo only |
-| #284 Android Events/diagnostic authority | `019ff6d0-3d29-7250-938b-70493b690d9d` | `6afd` | active | #263/#451/#454 completed | Publish ordered redacted Android lifecycle Events and one fixed cancellable diagnostic | Fixed target/timeout only; no arbitrary endpoint, raw JNI text, persistent history, or physical/real-network claim; integrate after #281 |
+| #281 Android Traffic authority | `019ff6d0-3d2b-7fa2-949e-b8740df9b28a` | `ae6c` | integrated | #263/#451/#454 completed; #283 integrated | Project bounded active connections and one close-current-connection command with stable identity and redaction | PR #509 ordinary-merged as `25ead8be` after explicit acceptance; local `check:pr` (Web 642 / scripts 242), final Fast PR, Android platform Rust, and Android lifecycle emulator gates passed. Issue #281 closed completed with all eight repository-automated criteria checked. Coordinator post-merge boundary/exclusion 28 tests and `check:android` passed; no physical-device or real VPN/TUN/network claim |
+| #284 Android Events/diagnostic authority | `019ff6d0-3d29-7250-938b-70493b690d9d` | `6afd` | active | #263/#451/#454 completed; #283/#281 integrated | Publish ordered redacted Android lifecycle Events and one fixed cancellable diagnostic | Ordinary-merge latest `main` including #283/#281 on the published branch, resolve only scoped overlap, rerun affected checks, and use the maintainer's existing explicit acceptance for ordinary merge after required gates pass; no repeat acceptance request |
 
 ## Existing issue coordination
 
