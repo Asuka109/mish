@@ -73,7 +73,9 @@ const androidEmulatorTestRoot = path.join(
 );
 const androidEmulatorControlMarkers = [
   "EmulatorLifecycleTranscript",
+  "EmulatorRoutes",
   "recreation-cleanup-retry",
+  "route-emulator-1",
   "admission-rejected",
 ];
 
@@ -326,6 +328,27 @@ test("Internal TUN maintenance simulation remains confined to the non-publishabl
   }
 });
 
+test("Android Route transcripts are feature-gated and absent from the mobile product graph", () => {
+  const manifest = read("apps/mobile/src-tauri/plugins/mish-vpn/Cargo.toml");
+  assert.ok(
+    manifest.includes("simulated-host = []"),
+    "The Android Route transcript feature gate is missing.",
+  );
+  const mobileTree = execFileSync("cargo", ["tree", "-p", "mish-mobile", "-e", "features"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  assert.equal(
+    mobileTree.includes('tauri-plugin-mish-vpn feature "simulated-host"'),
+    false,
+    "The mobile product enables the Android Route transcript feature.",
+  );
+  assert.ok(
+    read("crates/simulated-host/src/android_routes.rs").includes("simulated_routes"),
+    "The dedicated SimulatedHost Android Route projection is missing.",
+  );
+});
+
 test("release, signed, updater, Internal TUN, desktop, and mobile inputs exclude SimulatedHost", () => {
   const releaseInputs = [
     ...filesUnder(".github").filter((file) => file !== ".github/platform-target-policy.json"),
@@ -371,6 +394,18 @@ test("Android emulator lifecycle controls stay out of product source and APK inp
   assert.ok(
     testSources.some((file) => read(file).includes("EmulatorLifecycleTranscript")),
     "The Android emulator lifecycle acceptance is missing.",
+  );
+  assert.ok(
+    testSources.some((file) => read(file).includes("EmulatorRoutes")),
+    "The Android emulator Route-selection acceptance is missing.",
+  );
+  assert.ok(
+    testSources.some(
+      (file) =>
+        read(file).includes("EmulatorTraffic") &&
+        read(file).includes("MobileCoreTrafficCommandAdapter.close"),
+    ),
+    "The Android emulator Traffic acceptance must drive the production command adapter with only the native effect seam controlled.",
   );
 
   for (const root of [

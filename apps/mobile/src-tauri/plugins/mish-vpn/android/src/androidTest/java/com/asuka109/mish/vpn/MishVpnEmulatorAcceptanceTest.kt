@@ -22,6 +22,37 @@ import kotlin.concurrent.thread
  */
 class MishVpnEmulatorAcceptanceTest {
     @Test
+    fun routeSelectionUsesOnlyTypedFakeNativeEffectsAndRecreationGetsFullBaseline() {
+        val core = EmulatorRoutes()
+        val command = routeArgs("route-emulator-1", "proxy:beta", "Beta")
+
+        val selected = MobileCoreRouteAdapter.execute(core, command)
+        val duplicate = MobileCoreRouteAdapter.execute(core, command)
+        val invalid = MobileCoreRouteAdapter.execute(
+            core,
+            routeArgs("route-invalid", "proxy:unknown", "Unknown"),
+        )
+        core.runtimeAuthority = "runtime-replacement"
+        val delayed = MobileCoreRouteAdapter.execute(
+            core,
+            routeArgs("route-delayed", "proxy:alpha", "Alpha"),
+        )
+        val recreatedComponentBaseline = MobileCoreRouteAdapter.execute(core, RouteOperationArgs())
+
+        assertEquals("Beta", selected.getJSONObject("routes").getJSONArray("groups")
+            .getJSONObject(0).getString("selected"))
+        assertEquals(1, core.mutationCount)
+        assertNull(duplicate.opt("failure"))
+        assertEquals("invalid-request", invalid.getString("failure"))
+        assertEquals("conflict", delayed.getString("failure"))
+        assertEquals(1, core.mutationCount)
+        assertEquals("Beta", recreatedComponentBaseline.getJSONObject("routes")
+            .getJSONArray("groups").getJSONObject(0).getString("selected"))
+        assertEquals("session-emulator", recreatedComponentBaseline.getJSONObject("status")
+            .getString("sessionId"))
+    }
+
+    @Test
     fun lifecycleAuthoritySurvivesRecreationAndCleanupRetryWithoutPlatformEffects() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val authority = authority(effectIdentity = "2")
@@ -147,6 +178,55 @@ class MishVpnEmulatorAcceptanceTest {
         assertEquals(transcript, EmulatorLifecycleTranscript.parse(transcript.toJson().toString()))
     }
 
+    @Test
+    fun trafficTranscriptObservesClosesExactIdAndRejectsReplacedId() {
+        val transcript = EmulatorLifecycleTranscript(EmulatorScenario.TRAFFIC_EXACT_CLOSE)
+        val authority = authority("1")
+        val nativeEffects = EmulatorTraffic()
+        val baseline = MobileCoreTrafficCommandAdapter.snapshot(nativeEffects)
+        transcript.record(authority, "traffic-observe", "observed")
+        assertEquals(listOf("connection-current"), trafficIds(baseline))
+
+        transcript.record(authority.copy(effectIdentity = "2"), "traffic-view-pause", "applied")
+        assertEquals(listOf("connection-current"), trafficIds(MobileCoreTrafficCommandAdapter.snapshot(nativeEffects)))
+        transcript.record(authority.copy(effectIdentity = "3"), "traffic-view-resume", "applied")
+
+        val close = MobileCoreTrafficCommandAdapter.close(
+            nativeEffects,
+            trafficArgs("connection-current", "1", "traffic-session-current"),
+        )
+        assertTrue(close.isNull("failure"))
+        assertTrue(trafficIds(close.getJSONObject("snapshot")).isEmpty())
+        assertEquals(1, nativeEffects.mutationCount)
+        transcript.record(authority.copy(effectIdentity = "4"), "traffic-close-one", "completed")
+
+        nativeEffects.replaceSession()
+        transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "1"), "traffic-replacement", "replaced")
+        val stale = MobileCoreTrafficCommandAdapter.close(
+            nativeEffects,
+            trafficArgs("connection-current", "2", "traffic-session-current"),
+        )
+        assertEquals("stale-connection", stale.getString("failure"))
+        assertEquals(listOf("connection-replacement"), trafficIds(stale.getJSONObject("snapshot")))
+        assertEquals(1, nativeEffects.mutationCount)
+        transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "2"), "traffic-close-one", "retired")
+        assertEquals(transcript, EmulatorLifecycleTranscript.parse(transcript.toJson().toString()))
+    }
+
+    private fun trafficArgs(connectionId: String, eventSequence: String, sessionId: String) =
+        CloseTrafficConnectionArgs().apply {
+            this.connectionId = connectionId
+            this.eventSequence = eventSequence
+            this.sessionId = sessionId
+        }
+
+    private fun trafficIds(snapshot: JSONObject): List<String> {
+        val connections = snapshot.getJSONArray("connections")
+        return buildList(connections.length()) {
+            repeat(connections.length()) { add(connections.getJSONObject(it).getString("id")) }
+        }
+    }
+
     private fun authority(effectIdentity: String): CoreLifecycleAuthority = CoreLifecycleAuthority(
         machineAuthority = "vpn-authority-acceptance",
         scopeEpoch = 1,
@@ -154,6 +234,132 @@ class MishVpnEmulatorAcceptanceTest {
         admittedRevision = 1,
         effectIdentity = effectIdentity,
     )
+
+    private fun routeArgs(operationId: String, childId: String, nativeChild: String) =
+        RouteOperationArgs().apply {
+            this.childId = childId
+            currentChildId = "proxy:alpha"
+            groupId = "group:proxy"
+            this.nativeChild = nativeChild
+            nativeCurrentChild = "Alpha"
+            nativeGroup = "Proxy"
+            this.operationId = operationId
+            profileId = "profile-emulator"
+            profileRevision = "revision-emulator"
+            runtimeAuthority = "runtime-emulator"
+        }
+}
+
+private class EmulatorTraffic : MobileCoreTrafficAdapter {
+    var mutationCount = 0
+        private set
+    private var sequence = 1
+    private var sessionId = "traffic-session-current"
+    private val connections = linkedSetOf("connection-current")
+
+    override fun snapshotTraffic(): JSONObject = snapshot()
+
+    override fun closeTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): NativeTrafficCloseResult {
+        if (eventSequence != sequence.toString() || sessionId != this.sessionId) {
+            return NativeTrafficCloseResult("stale-connection", snapshot())
+        }
+        if (!connections.remove(connectionId)) {
+            return NativeTrafficCloseResult("stale-connection", snapshot())
+        }
+        mutationCount += 1
+        sequence += 1
+        return NativeTrafficCloseResult(null, snapshot())
+    }
+
+    fun replaceSession() {
+        sessionId = "traffic-session-replacement"
+        sequence = 1
+        connections.clear()
+        connections += "connection-replacement"
+    }
+
+    private fun snapshot(): JSONObject = JSONObject()
+        .put(
+            "connections",
+            JSONArray(
+                connections.map { connectionId ->
+                    JSONObject()
+                        .put("id", connectionId)
+                        .put("processName", "Fixture App")
+                        .put("routeChain", JSONArray(listOf("Fixture Group", "Fixture Exit")))
+                },
+            ),
+        )
+        .put("eventSequence", sequence.toString())
+        .put("running", true)
+        .put("sessionId", sessionId)
+        .put("truncated", false)
+}
+
+private class EmulatorRoutes : MobileCoreRoutes {
+    var mutationCount = 0
+    var runtimeAuthority = "runtime-emulator"
+    private var selected = "Alpha"
+    private val completed = mutableMapOf<String, String>()
+
+    override fun snapshot(): NativeRouteOperationResult = response(null, 0)
+
+    override fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult {
+        if (runtimeAuthority != this.runtimeAuthority) return response(operationId, 5)
+        val fingerprint = listOf(
+            profileId, profileRevision, groupId, currentChildId, childId,
+            nativeGroup, nativeCurrentChild, nativeChild,
+        ).joinToString("|")
+        completed[operationId]?.let { return response(operationId, if (it == fingerprint) 0 else 5) }
+        if (nativeGroup != "Proxy" || nativeCurrentChild != selected || nativeChild !in setOf("Alpha", "Beta")) {
+            return response(operationId, 1)
+        }
+        completed[operationId] = fingerprint
+        selected = nativeChild
+        mutationCount += 1
+        return response(operationId, 0)
+    }
+
+    private fun response(operationId: String?, commandStatus: Int): NativeRouteOperationResult {
+        fun envelope(data: JSONObject) = JSONObject().put("abiVersion", 1).put("data", data).toString()
+        val status = envelope(JSONObject()
+            .put("configSha256", "a".repeat(64))
+            .put("eventSequence", mutationCount.toString())
+            .put("loaded", true)
+            .put("mode", "rule")
+            .put("phase", "running")
+            .put("sessionId", "session-emulator"))
+        val routes = envelope(JSONObject()
+            .put("groups", JSONArray().put(JSONObject()
+                .put("candidates", JSONArray().put("Alpha").put("Beta"))
+                .put("name", "Proxy")
+                .put("selected", selected)))
+            .put("mode", "rule")
+            .put("truncated", false))
+        return NativeRouteOperationResult(
+            commandStatus,
+            if (operationId == null) null else envelope(JSONObject().put("eventSequence", mutationCount.toString())),
+            0,
+            status,
+            0,
+            routes,
+        )
+    }
 }
 
 private data class EmulatorLifecycleEvent(
@@ -205,6 +411,11 @@ private data class EmulatorLifecycleTranscript(
             "mobile-core-admission",
             "process-recreated",
             "stale-delivery",
+            "traffic-close-one",
+            "traffic-observe",
+            "traffic-replacement",
+            "traffic-view-pause",
+            "traffic-view-resume",
         )
         private val RESULTS = setOf(
             "applied",
@@ -267,7 +478,8 @@ private data class EmulatorLifecycleTranscript(
 private enum class EmulatorScenario(val wireName: String) {
     ADMISSION_REJECTED("admission-rejected"),
     FIXED_DIAGNOSTIC_DEMO("fixed-diagnostic-demo"),
-    RECREATION_CLEANUP_RETRY("recreation-cleanup-retry");
+    RECREATION_CLEANUP_RETRY("recreation-cleanup-retry"),
+    TRAFFIC_EXACT_CLOSE("traffic-exact-close");
 
     companion object {
         fun fromWireName(value: String): EmulatorScenario? = entries.singleOrNull { it.wireName == value }

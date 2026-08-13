@@ -510,6 +510,7 @@ pub struct MobileConfigLoadRequest {
     pub digest: String,
     pub inject_failure: bool,
     pub operation_id: String,
+    pub profile_id: String,
     pub revision: String,
     pub sequence: u64,
     pub session_id: String,
@@ -524,6 +525,12 @@ pub enum MobileConfigLoadOutcome {
     NoOp,
     Failed,
     Cancelled,
+}
+
+impl MobileConfigLoadOutcome {
+    pub(crate) fn committed(self) -> bool {
+        matches!(self, Self::FirstLoad | Self::Replacement | Self::NoOp)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -611,8 +618,8 @@ impl MobileConfigLoadResult {
             ))
         } else if request.operation_id.is_empty()
             || request.operation_id.len() > 128
-            || request.revision.is_empty()
-            || request.revision.len() > 128
+            || !valid_identifier(&request.profile_id)
+            || !valid_identifier(&request.revision)
             || !valid_digest(&request.digest)
             || request.timeout_millis == 0
             || request.timeout_millis > MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS
@@ -696,6 +703,14 @@ fn valid_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 impl MobileConfigValidationResult {
@@ -804,6 +819,7 @@ mod validation_tests {
             digest: format!("{:x}", Sha256::digest(config)),
             inject_failure: false,
             operation_id: "load-operation".into(),
+            profile_id: "profile-a".into(),
             revision: "fixture-revision".into(),
             sequence: 7,
             session_id: "fixture-session".into(),
@@ -834,5 +850,23 @@ mod validation_tests {
                 .failure,
             Some(MobileConfigLoadFailure::InvalidInput)
         );
+
+        let mut unsupported_revision = load_request(config);
+        unsupported_revision.revision = "rev/1".into();
+        assert_eq!(
+            MobileConfigLoadResult::preflight(&unsupported_revision)
+                .expect("unsupported revision must fail before the Android bridge")
+                .failure,
+            Some(MobileConfigLoadFailure::InvalidInput)
+        );
+    }
+
+    #[test]
+    fn committed_load_outcomes_are_independent_from_terminal_operation_failure() {
+        assert!(MobileConfigLoadOutcome::FirstLoad.committed());
+        assert!(MobileConfigLoadOutcome::Replacement.committed());
+        assert!(MobileConfigLoadOutcome::NoOp.committed());
+        assert!(!MobileConfigLoadOutcome::Failed.committed());
+        assert!(!MobileConfigLoadOutcome::Cancelled.committed());
     }
 }

@@ -6,8 +6,10 @@ use crate::{
     MobileConfigLoadRequest, MobileConfigLoadResult, MobileConfigValidationFailure,
     MobileConfigValidationRequest, MobileConfigValidationResult, MobileCoreProvenanceSnapshot,
     MobileDiagnosticCommandRequest, MobileDiagnosticCommandResult, MobileDiagnosticSnapshot,
-    MobileEventsSnapshot, MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot,
-    Result,
+    MobileEventsSnapshot, MobileRouteCancelRequest, MobileRouteCancelResult,
+    MobileRouteCommandRequest, MobileRouteCommandResult, MobileRouteSnapshot,
+    MobileTrafficCloseRequest, MobileTrafficCommandResult, MobileVpnCommandRequest,
+    MobileVpnCommandResult, MobileVpnSnapshot, Result,
 };
 
 #[derive(Clone)]
@@ -18,6 +20,28 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, _api: PluginApi<R, ()>) -> Result<Mi
 }
 
 impl<R: Runtime> MishVpn<R> {
+    pub async fn get_route_snapshot(&self) -> Result<MobileRouteSnapshot> {
+        unreachable!("mobile Routes are not registered on non-Android targets")
+    }
+
+    pub async fn select_route_child(
+        &self,
+        _request: MobileRouteCommandRequest,
+    ) -> Result<MobileRouteCommandResult> {
+        unreachable!("mobile Routes are not registered on non-Android targets")
+    }
+
+    pub async fn cancel_route_selection(
+        &self,
+        request: MobileRouteCancelRequest,
+    ) -> MobileRouteCancelResult {
+        MobileRouteCancelResult {
+            accepted: false,
+            contract_version: 1,
+            operation_id: request.operation_id,
+        }
+    }
+
     pub async fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
         Ok(MobileVpnSnapshot::unsupported())
     }
@@ -55,6 +79,29 @@ impl<R: Runtime> MishVpn<R> {
             operation_id: request.operation_id,
             run_id: request.run_id,
             snapshot: MobileDiagnosticSnapshot::unsupported(),
+        })
+    }
+
+    pub async fn get_traffic_snapshot(&self) -> Result<mish_runtime::TrafficDataSnapshot> {
+        Ok(mish_runtime::TrafficDataSnapshot::unavailable(
+            mish_runtime::StatusAdapterKind::Native,
+        ))
+    }
+
+    pub async fn close_traffic_connection(
+        &self,
+        request: MobileTrafficCloseRequest,
+    ) -> Result<MobileTrafficCommandResult> {
+        Ok(MobileTrafficCommandResult {
+            failure: Some(mish_runtime::TrafficCommandFailureKind::Unsupported),
+            operation: mish_runtime::TrafficCommandOperation::CloseConnection,
+            operation_id: request.operation_id,
+            remaining_connection_ids: Vec::new(),
+            snapshot: mish_runtime::TrafficDataSnapshot::unavailable(
+                mish_runtime::StatusAdapterKind::Native,
+            ),
+            status: mish_runtime::TrafficCommandStatus::Failure,
+            target_count: 1,
         })
     }
 

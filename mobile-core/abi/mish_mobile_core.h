@@ -71,6 +71,11 @@ int32_t mish_core_command_v1(uint8_t *request,
                              uint64_t request_length,
                              MishCoreBufferV1 *response);
 
+/* Android binds this closed operation rather than the generic command entry. */
+int32_t mish_core_close_connection_v1(uint8_t *request,
+                                      uint64_t request_length,
+                                      MishCoreBufferV1 *response);
+
 int32_t mish_core_poll_events_v1(uint8_t *request,
                                  uint64_t request_length,
                                  MishCoreBufferV1 *response);

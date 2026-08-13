@@ -121,6 +121,10 @@ of treating an implementation accident as intent.
   — deterministic cross-layer Android VPN lifecycle authority, root-free
   emulator instrumentation, privacy/schema bounds, production exclusion, and
   explicit physical-device/VPN/TUN/network evidence limits.
+- [`quality/android-route-selection-transcripts.md`](quality/android-route-selection-transcripts.md)
+  — deterministic Shared Rust Android Route-selection authority, closed Mobile
+  Core/fake-native/Kotlin/JNI/Tauri/TypeScript scenarios, recreation baseline,
+  privacy/exclusion bounds, and explicit device/VPN/TUN/network evidence limits.
 - [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
   — fail-closed PR/fork isolation, frozen workflow/tooling identity, candidate
   manifest and immutable artifact binding, CODEOWNERS, Environment/OIDC/runner

@@ -1,7 +1,7 @@
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, OnceLock},
     time::Duration,
 };
 
@@ -34,6 +34,10 @@ use crate::{
     mobile_events::{
         FIXED_DIAGNOSTIC_TIMEOUT_MILLIS, MobileDiagnosticAuthority, MobileEventsAuthority,
     },
+    mobile_traffic::{
+        MobileTrafficAuthority, MobileTrafficCloseRequest, MobileTrafficCommandResult,
+        NativeTrafficCloseResult, NativeTrafficSnapshot, runtime_allows_close_dispatch,
+    },
     models::{MobileConfigValidationOutcome, MobileVpnEvent},
     observation::{ObservationAdmission, PlatformObservationIngress},
 };
@@ -41,10 +45,17 @@ use crate::{
 const PLUGIN_IDENTIFIER: &str = "com.asuka109.mish.vpn";
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
+static MOBILE_ROUTES: OnceLock<Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>> =
+    OnceLock::new();
+static MOBILE_ROUTE_CONFIG_GATE: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime> {
     handle: PluginHandle<R>,
     lifecycle: Arc<Mutex<Option<Arc<LifecycleRuntime>>>>,
+    traffic: Arc<Mutex<MobileTrafficAuthority>>,
+    route_config_gate: Arc<Mutex<()>>,
+    routes: Arc<Mutex<Option<crate::mobile_routes::MobileRouteAuthority>>>,
 }
 
 struct LifecycleRuntime {
@@ -102,6 +113,14 @@ struct NativeListenerPayload {
 
 #[derive(Serialize)]
 struct EmptyPayload {}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformTrafficCloseRequest {
+    connection_id: String,
+    event_sequence: String,
+    session_id: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +202,7 @@ struct PlatformConfigLoadRequest {
     digest: String,
     inject_failure: bool,
     operation_id: String,
+    profile_id: String,
     revision: String,
     sequence: u64,
     session_id: String,
@@ -227,15 +247,184 @@ struct PlatformDiagnosticCheck {
     outcome: MobileDiagnosticCheckOutcome,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformRouteRequest {
+    child_id: Option<String>,
+    current_child_id: Option<String>,
+    group_id: Option<String>,
+    native_child: Option<String>,
+    native_current_child: Option<String>,
+    native_group: Option<String>,
+    operation_id: Option<String>,
+    profile_id: Option<String>,
+    profile_revision: Option<String>,
+    runtime_authority: Option<String>,
+}
+
 pub fn init<R: Runtime>(_: &AppHandle<R>, api: PluginApi<R, ()>) -> Result<MishVpn<R>> {
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "MishVpnPlugin")?;
     Ok(MishVpn {
         handle,
         lifecycle: Arc::new(Mutex::new(None)),
+        traffic: Arc::new(Mutex::new(MobileTrafficAuthority::default())),
+        route_config_gate: MOBILE_ROUTE_CONFIG_GATE
+            .get_or_init(|| Arc::new(Mutex::new(())))
+            .clone(),
+        routes: MOBILE_ROUTES
+            .get_or_init(|| Arc::new(Mutex::new(None)))
+            .clone(),
     })
 }
 
 impl<R: Runtime> MishVpn<R> {
+    async fn native_route_result(
+        &self,
+        request: Option<&crate::MobileRouteCommandRequest>,
+        native_labels: Option<(&str, &str, &str)>,
+    ) -> Result<crate::mobile_routes::NativeRouteResult> {
+        Ok(self
+            .handle
+            .run_mobile_plugin_async(
+                if request.is_some() {
+                    "selectRouteChild"
+                } else {
+                    "getRouteSnapshot"
+                },
+                PlatformRouteRequest {
+                    child_id: request.map(|request| request.child_id.clone()),
+                    current_child_id: request.map(|request| request.current_child_id.clone()),
+                    group_id: request.map(|request| request.group_id.clone()),
+                    native_child: native_labels.map(|(_, _, child)| child.to_owned()),
+                    native_current_child: native_labels
+                        .map(|(_, current_child, _)| current_child.to_owned()),
+                    native_group: native_labels.map(|(group, _, _)| group.to_owned()),
+                    operation_id: request.map(|request| request.operation_id.clone()),
+                    profile_id: request.map(|request| request.profile_id.clone()),
+                    profile_revision: request.map(|request| request.profile_revision.clone()),
+                    runtime_authority: request.map(|request| request.runtime_authority.clone()),
+                },
+            )
+            .await?)
+    }
+
+    pub async fn get_route_snapshot(&self) -> Result<crate::MobileRouteSnapshot> {
+        let _route_config_guard = self.route_config_gate.lock().await;
+        let current = self.runtime().await?.runner.snapshot();
+        let mut routes = self.routes.lock().await;
+        let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
+        if authority.runtime_authority() != current.authority_id {
+            if current.phase == crate::lifecycle::LifecyclePhase::Stopped
+                && current.platform_clean()
+            {
+                authority
+                    .rebind_inactive_runtime(current.authority_id.clone(), current.scope_epoch);
+            } else {
+                return Err(crate::Error::RoutesUnavailable);
+            }
+        }
+        let native = self.native_route_result(None, None).await?;
+        authority
+            .project(native, None)
+            .map_err(|_| crate::Error::RoutesUnavailable)
+    }
+
+    pub async fn select_route_child(
+        &self,
+        request: crate::MobileRouteCommandRequest,
+    ) -> Result<crate::MobileRouteCommandResult> {
+        let _route_config_guard = self.route_config_gate.lock().await;
+        let initial = self.runtime().await?.runner.snapshot();
+        let mut routes = self.routes.lock().await;
+        let authority = routes.as_mut().ok_or(crate::Error::RoutesUnavailable)?;
+        if authority.runtime_authority() != initial.authority_id {
+            if initial.phase == crate::lifecycle::LifecyclePhase::Stopped
+                && initial.platform_clean()
+            {
+                authority
+                    .rebind_inactive_runtime(initial.authority_id.clone(), initial.scope_epoch);
+            } else {
+                return Err(crate::Error::RoutesUnavailable);
+            }
+        }
+        // This mutex is the Route effect/snapshot linearization gate. It keeps
+        // stale native reads from being projected after a newer selection and
+        // gives cancellation an exact before-effect or too-late ordering.
+        let baseline_native = self.native_route_result(None, None).await?;
+        let baseline = authority
+            .project(baseline_native, None)
+            .map_err(|_| crate::Error::RoutesUnavailable)?;
+        match authority.duplicate(&request) {
+            Ok(Some(mut result)) => {
+                result.snapshot = baseline;
+                return Ok(result);
+            }
+            Err(failure) => {
+                return Ok(authority.failure_result(
+                    request.operation_id.clone(),
+                    failure,
+                    baseline,
+                ));
+            }
+            Ok(None) => {}
+        }
+        let (group, current_child, child) = match authority.preflight(&request) {
+            Ok(labels) => labels,
+            Err(failure) => {
+                let result =
+                    authority.failure_result(request.operation_id.clone(), failure, baseline);
+                authority.remember(request, result.clone());
+                return Ok(result);
+            }
+        };
+        let native = self
+            .native_route_result(Some(&request), Some((&group, &current_child, &child)))
+            .await?;
+        let current = self.runtime().await?.runner.snapshot();
+        let result = if current.authority_id != initial.authority_id
+            || current.session_id != initial.session_id
+            || authority.runtime_authority() != current.authority_id
+        {
+            authority.failure_result(
+                request.operation_id.clone(),
+                crate::mobile_routes::MobileRouteFailure::RuntimeReplaced,
+                baseline,
+            )
+        } else {
+            match authority.project(native, Some(&request.operation_id)) {
+                Ok(snapshot) => crate::MobileRouteCommandResult {
+                    contract_version: 1,
+                    failure: None,
+                    operation_id: request.operation_id.clone(),
+                    snapshot,
+                    status: crate::mobile_routes::MobileRouteCommandStatus::Success,
+                },
+                Err(failure) => {
+                    authority.failure_result(request.operation_id.clone(), failure, baseline)
+                }
+            }
+        };
+        authority.remember(request, result.clone());
+        Ok(result)
+    }
+
+    pub async fn cancel_route_selection(
+        &self,
+        request: crate::MobileRouteCancelRequest,
+    ) -> crate::MobileRouteCancelResult {
+        let accepted = self
+            .routes
+            .lock()
+            .await
+            .as_mut()
+            .is_some_and(|authority| authority.cancel(&request.operation_id));
+        crate::MobileRouteCancelResult {
+            accepted,
+            contract_version: 1,
+            operation_id: request.operation_id,
+        }
+    }
+
     async fn cleanup_before_replacement(&self, runtime: &LifecycleRuntime) -> Result<bool> {
         if retire_diagnostic(&self.handle, runtime).await {
             emit_diagnostic(&self.handle, runtime).await;
@@ -577,6 +766,211 @@ impl<R: Runtime> MishVpn<R> {
         })
     }
 
+    pub async fn get_traffic_snapshot(&self) -> Result<mish_runtime::TrafficDataSnapshot> {
+        let _route_config_guard = self.route_config_gate.lock().await;
+        let runtime = self.runtime().await?;
+        let state = runtime.runner.snapshot();
+        let profile_id = self
+            .routes
+            .lock()
+            .await
+            .as_ref()
+            .map(|authority| authority.profile_id().to_owned())
+            .unwrap_or_else(|| "mobile-profile-unavailable".into());
+        let mut traffic = self.traffic.lock().await;
+        if state.phase != crate::lifecycle::LifecyclePhase::Running
+            || profile_id == "mobile-profile-unavailable"
+        {
+            return Ok(traffic.unavailable(&state.authority_id, state.scope_epoch, &profile_id));
+        }
+        let native: NativeTrafficSnapshot = self
+            .handle
+            .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+            .await?;
+        traffic
+            .project(&state.authority_id, state.scope_epoch, &profile_id, native)
+            .map_err(|_| crate::Error::TrafficObservationRejected)
+    }
+
+    pub async fn close_traffic_connection(
+        &self,
+        request: MobileTrafficCloseRequest,
+    ) -> Result<MobileTrafficCommandResult> {
+        let _route_config_guard = self.route_config_gate.lock().await;
+        let runtime = self.runtime().await?;
+        let state = runtime.runner.snapshot();
+        let profile_id = self
+            .routes
+            .lock()
+            .await
+            .as_ref()
+            .map(|authority| authority.profile_id().to_owned())
+            .unwrap_or_else(|| "mobile-profile-unavailable".into());
+        let mut traffic = self.traffic.lock().await;
+        if let Some(result) = traffic.duplicate(&request) {
+            return Ok(result);
+        }
+        if let Err(failure) = traffic.validate_request(&request) {
+            return Ok(traffic.failure(request, failure, false));
+        }
+        if state.phase != crate::lifecycle::LifecyclePhase::Running
+            || state.authority_id != request.runtime_authority_id
+            || state.scope_epoch != traffic.current().application_order.epoch
+            || profile_id != request.profile_id
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+
+        // This is the required TOCTOU barrier. The native adapter performs a closed,
+        // bounded snapshot call immediately before it is allowed to mutate one ID.
+        let fresh: NativeTrafficSnapshot = self
+            .handle
+            .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+            .await?;
+        let native_event_sequence = fresh.event_sequence.clone();
+        let native_session_id = fresh.session_id.clone();
+        if traffic
+            .project(&state.authority_id, state.scope_epoch, &profile_id, fresh)
+            .is_err()
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::InconsistentObservation,
+                false,
+            ));
+        }
+        if !traffic.same_scope(&request) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+        if !traffic.has_connection(&request.connection_id) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::StaleConnection,
+                false,
+            ));
+        }
+
+        // The preflight above is asynchronous, so lifecycle retirement or replacement
+        // may have won while it was in flight. Revalidate immediately before the
+        // mutating native dispatch; a replaced/stopping runtime has zero mutation.
+        let dispatch_state = runtime.runner.snapshot();
+        if !runtime_allows_close_dispatch(
+            &dispatch_state.authority_id,
+            dispatch_state.scope_epoch,
+            dispatch_state.phase == crate::lifecycle::LifecyclePhase::Running,
+            &state.authority_id,
+            state.scope_epoch,
+        ) {
+            traffic.unavailable(
+                &dispatch_state.authority_id,
+                dispatch_state.scope_epoch,
+                &profile_id,
+            );
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+
+        let native: NativeTrafficCloseResult = self
+            .handle
+            .run_mobile_plugin_async(
+                "closeTrafficConnection",
+                PlatformTrafficCloseRequest {
+                    connection_id: request.connection_id.clone(),
+                    event_sequence: native_event_sequence,
+                    session_id: native_session_id,
+                },
+            )
+            .await?;
+        if traffic
+            .project(
+                &state.authority_id,
+                state.scope_epoch,
+                &profile_id,
+                native.snapshot,
+            )
+            .is_err()
+        {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::InconsistentObservation,
+                true,
+            ));
+        }
+        let current_state = runtime.runner.snapshot();
+        if !runtime_allows_close_dispatch(
+            &current_state.authority_id,
+            current_state.scope_epoch,
+            current_state.phase == crate::lifecycle::LifecyclePhase::Running,
+            &state.authority_id,
+            state.scope_epoch,
+        ) {
+            let current_profile_id = self
+                .routes
+                .lock()
+                .await
+                .as_ref()
+                .map(|authority| authority.profile_id().to_owned())
+                .unwrap_or_else(|| "mobile-profile-unavailable".into());
+            if current_state.phase == crate::lifecycle::LifecyclePhase::Running {
+                let current_native: NativeTrafficSnapshot = self
+                    .handle
+                    .run_mobile_plugin_async("getTrafficSnapshot", EmptyPayload {})
+                    .await?;
+                if traffic
+                    .project(
+                        &current_state.authority_id,
+                        current_state.scope_epoch,
+                        &current_profile_id,
+                        current_native,
+                    )
+                    .is_err()
+                {
+                    traffic.unavailable(
+                        &current_state.authority_id,
+                        current_state.scope_epoch,
+                        &current_profile_id,
+                    );
+                }
+            } else {
+                traffic.unavailable(
+                    &current_state.authority_id,
+                    current_state.scope_epoch,
+                    &current_profile_id,
+                );
+            }
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
+                false,
+            ));
+        }
+        if let Some(failure) = native.failure {
+            let remains = traffic.has_connection(&request.connection_id);
+            return Ok(traffic.failure(request, failure.command_failure(), remains));
+        }
+        if traffic.has_connection(&request.connection_id) {
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::PartialRemaining,
+                true,
+            ));
+        }
+        let result =
+            MobileTrafficCommandResult::success(request.operation_id.clone(), traffic.current());
+        Ok(traffic.remember(request, result))
+    }
+
     pub async fn request_notification_permission(
         &self,
         request: MobileVpnCommandRequest,
@@ -802,6 +1196,11 @@ impl<R: Runtime> MishVpn<R> {
         if let Some(result) = MobileConfigLoadResult::preflight(&request) {
             return result;
         }
+        // Configuration replacement and Route native effects share this
+        // process-wide gate. A command admitted for one committed profile can
+        // therefore never reach a replacement Core before its new Route
+        // authority is published, including across Activity recreation.
+        let _route_config_guard = self.route_config_gate.lock().await;
         let Ok(runtime) = self.runtime().await else {
             return MobileConfigLoadResult::plugin_failure(&request, None);
         };
@@ -819,6 +1218,7 @@ impl<R: Runtime> MishVpn<R> {
             digest: request.digest.clone(),
             inject_failure: request.inject_failure,
             operation_id: request.operation_id.clone(),
+            profile_id: request.profile_id.clone(),
             revision: request.revision.clone(),
             sequence: initial.facts.fact_sequence,
             session_id: initial.facts.platform_session_id.clone(),
@@ -891,6 +1291,24 @@ impl<R: Runtime> MishVpn<R> {
                 MobileConfigLoadFailure::RuntimeReplaced,
                 "The mobile runtime was replaced during configuration loading.",
                 Some(MobileVpnSnapshot::from_lifecycle(&current)),
+            );
+        }
+        // Outcome records the reconciled Core commit point independently from
+        // the command's terminal timing. A late committed load reports a
+        // timeout failure but must still replace Route authority.
+        if result.outcome.committed() {
+            let mut routes = self.routes.lock().await;
+            *routes = crate::mobile_routes::MobileRouteAuthority::reconcile_committed_profile(
+                routes.take(),
+                result.outcome == MobileConfigLoadOutcome::NoOp,
+                crate::mobile_routes::CommittedRouteProfile {
+                    config_bytes: &request.config_bytes,
+                    config_digest: &request.digest,
+                    profile_id: &request.profile_id,
+                    profile_revision: &request.revision,
+                    runtime_authority: current.authority_id.clone(),
+                    runtime_epoch: current.scope_epoch,
+                },
             );
         }
         MobileConfigLoadResult {

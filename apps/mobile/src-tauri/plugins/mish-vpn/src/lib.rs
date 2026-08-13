@@ -15,8 +15,12 @@ mod generated {
 }
 mod lifecycle;
 mod mobile_events;
+mod mobile_routes;
+mod mobile_traffic;
 #[cfg(feature = "simulated-host")]
 pub use lifecycle::simulated_host;
+#[cfg(feature = "simulated-host")]
+pub use mobile_routes::simulated_host as simulated_routes;
 #[cfg(feature = "tauri-runtime")]
 mod models;
 #[cfg(feature = "tauri-runtime")]
@@ -41,6 +45,12 @@ pub use mobile_events::{
     MobileEventsSnapshot,
 };
 #[cfg(feature = "tauri-runtime")]
+pub use mobile_routes::{
+    MobileRouteCancelRequest, MobileRouteCancelResult, MobileRouteCommandRequest,
+    MobileRouteCommandResult, MobileRouteSnapshot,
+};
+pub use mobile_traffic::{MobileTrafficCloseRequest, MobileTrafficCommandResult};
+#[cfg(feature = "tauri-runtime")]
 pub use models::{
     MobileConfigCancelRequest, MobileConfigCancelResult, MobileConfigLoadCancellation,
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
@@ -60,11 +70,30 @@ async fn get_events_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileEven
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
+async fn get_route_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileRouteSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_route_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 async fn get_diagnostic_snapshot<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<MobileDiagnosticSnapshot> {
     app.state::<platform::MishVpn<R>>()
         .get_diagnostic_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn select_route_child<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileRouteCommandRequest,
+) -> Result<MobileRouteCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .select_route_child(request)
         .await
 }
 
@@ -92,6 +121,17 @@ async fn cancel_diagnostic<R: Runtime>(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
+async fn cancel_route_selection<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileRouteCancelRequest,
+) -> MobileRouteCancelResult {
+    app.state::<platform::MishVpn<R>>()
+        .cancel_route_selection(request)
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 async fn get_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileVpnSnapshot> {
     app.state::<platform::MishVpn<R>>().get_snapshot().await
 }
@@ -103,6 +143,27 @@ async fn get_core_provenance<R: Runtime>(
 ) -> Result<MobileCoreProvenanceSnapshot> {
     app.state::<platform::MishVpn<R>>()
         .get_core_provenance()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn get_traffic_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<mish_runtime::TrafficDataSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_traffic_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn close_traffic_connection<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileTrafficCloseRequest,
+) -> Result<MobileTrafficCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .close_traffic_connection(request)
         .await
 }
 
@@ -199,6 +260,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             start_diagnostic,
             cancel_diagnostic,
             get_core_provenance,
+            get_traffic_snapshot,
+            close_traffic_connection,
+            get_route_snapshot,
+            select_route_child,
+            cancel_route_selection,
             request_notification_permission,
             request_vpn_consent,
             start,

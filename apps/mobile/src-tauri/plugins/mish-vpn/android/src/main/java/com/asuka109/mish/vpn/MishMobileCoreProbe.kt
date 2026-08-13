@@ -109,6 +109,41 @@ internal interface MobileCoreRuntime {
     fun inspectRuntime(productSessionId: String?): NativeRuntimeResult
 }
 
+internal data class NativeRouteOperationResult(
+    val commandStatus: Int,
+    val commandEnvelope: String?,
+    val statusStatus: Int,
+    val statusEnvelope: String?,
+    val routesStatus: Int,
+    val routesEnvelope: String?,
+)
+
+internal interface MobileCoreRoutes {
+    fun snapshot(): NativeRouteOperationResult
+    fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult
+}
+
+internal data class NativeTrafficCloseResult(
+    val failure: String?,
+    val snapshot: JSONObject,
+)
+
+internal interface MobileCoreTrafficAdapter {
+    fun snapshotTraffic(): JSONObject?
+    fun closeTrafficConnection(connectionId: String, eventSequence: String, sessionId: String): NativeTrafficCloseResult
+}
+
 internal class MishMobileCoreProbe internal constructor(
     private val applicationContext: Context? = null,
     private val admissionReader: (() -> MobileCoreAdmissionResult)? = null,
@@ -118,7 +153,9 @@ internal class MishMobileCoreProbe internal constructor(
     MobileCoreConfigValidator,
     MobileCoreConfigLoader,
     MobileCoreConfigInspector,
-    MobileCoreRuntime {
+    MobileCoreRuntime,
+    MobileCoreRoutes,
+    MobileCoreTrafficAdapter {
     private val admissionLock = Any()
     private val admissionGate = MobileCoreAdmissionGate(::ensureAdmitted)
     private val provenanceProjection = MobileCoreProvenanceProjection()
@@ -319,6 +356,121 @@ internal class MishMobileCoreProbe internal constructor(
 
     private external fun nativeInspectRuntime(productSessionId: String?): IntArray?
 
+    private external fun nativeRouteOperation(commandJson: String?): Array<ByteArray>?
+
+    override fun snapshot(): NativeRouteOperationResult =
+        routeOperation(null, null, null, null, null, null, null, null, null, null)
+
+    override fun select(
+        operationId: String,
+        runtimeAuthority: String,
+        profileId: String,
+        profileRevision: String,
+        groupId: String,
+        currentChildId: String,
+        childId: String,
+        nativeGroup: String,
+        nativeCurrentChild: String,
+        nativeChild: String,
+    ): NativeRouteOperationResult = routeOperation(
+        operationId,
+        runtimeAuthority,
+        profileId,
+        profileRevision,
+        groupId,
+        currentChildId,
+        childId,
+        nativeGroup,
+        nativeCurrentChild,
+        nativeChild,
+    )
+
+    private fun routeOperation(
+        operationId: String?,
+        runtimeAuthority: String?,
+        profileId: String?,
+        profileRevision: String?,
+        groupId: String?,
+        currentChildId: String?,
+        childId: String?,
+        nativeGroup: String?,
+        nativeCurrentChild: String?,
+        nativeChild: String?,
+    ): NativeRouteOperationResult =
+        admissionGate.invoke(
+            operation = MobileCoreEffectOperation.INSPECT_RUNTIME,
+            rejected = { NativeRouteOperationResult(8, null, 8, null, 8, null) },
+            effect = {
+                val command = if (operationId == null) null else JSONObject()
+                    .put("operation", "select-policy")
+                    .put("operationId", operationId)
+                    .put("runtimeAuthority", runtimeAuthority)
+                    .put("profileId", profileId)
+                    .put("profileRevision", profileRevision)
+                    .put("groupId", groupId)
+                    .put("currentChildId", currentChildId)
+                    .put("childId", childId)
+                    .put("group", nativeGroup)
+                    .put("currentChild", nativeCurrentChild)
+                    .put("selection", nativeChild)
+                    .toString()
+                val encoded = runCatching { nativeRouteOperation(command) }.getOrNull()
+                    ?: return@invoke NativeRouteOperationResult(8, null, 8, null, 8, null)
+                if (encoded.size != 6) {
+                    return@invoke NativeRouteOperationResult(8, null, 8, null, 8, null)
+                }
+                NativeRouteOperationResult(
+                    commandStatus = strictUtf8(encoded[0])?.toIntOrNull() ?: 8,
+                    commandEnvelope = strictUtf8(encoded[1])?.ifEmpty { null },
+                    statusStatus = strictUtf8(encoded[2])?.toIntOrNull() ?: 8,
+                    statusEnvelope = strictUtf8(encoded[3]),
+                    routesStatus = strictUtf8(encoded[4])?.toIntOrNull() ?: 8,
+                    routesEnvelope = strictUtf8(encoded[5]),
+                )
+            },
+        )
+
+    override fun snapshotTraffic(): JSONObject? = trafficCall(MobileCoreEffectOperation.TRAFFIC_SNAPSHOT) {
+        val encoded = nativeTrafficSnapshot() ?: return@trafficCall null
+        parseTrafficSnapshotEnvelope(strictUtf8(encoded) ?: return@trafficCall null)
+    }
+
+    override fun closeTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): NativeTrafficCloseResult = trafficCall(MobileCoreEffectOperation.TRAFFIC_CLOSE) {
+        if (!connectionId.matches(Regex("^[A-Za-z0-9._-]{1,128}$"))) {
+            return@trafficCall NativeTrafficCloseResult("invalid-request", emptyTrafficSnapshot())
+        }
+        if (!eventSequence.matches(Regex("^[0-9]{1,20}$")) ||
+            !sessionId.matches(Regex("^[A-Za-z0-9._-]{1,128}$"))
+        ) {
+            return@trafficCall NativeTrafficCloseResult("invalid-request", emptyTrafficSnapshot())
+        }
+        val encoded = nativeCloseTrafficConnection(connectionId, eventSequence, sessionId)
+            ?: return@trafficCall NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+        parseNativeCloseResult(strictUtf8(encoded) ?: return@trafficCall NativeTrafficCloseResult(
+            "core-failure",
+            emptyTrafficSnapshot(),
+        ))
+            ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+    } ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
+
+    private fun <T> trafficCall(operation: MobileCoreEffectOperation, call: () -> T?): T? = admissionGate.invoke(
+        operation = operation,
+        rejected = { null },
+        effect = { runCatching(call).getOrNull() },
+    )
+
+    private external fun nativeTrafficSnapshot(): ByteArray?
+
+    private external fun nativeCloseTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): ByteArray?
+
     companion object {
         @Volatile
         private var shimLoaded = false
@@ -399,5 +551,36 @@ internal class MishMobileCoreProbe internal constructor(
                 ?: NativeRuntimeCode.NATIVE_FAILED
             return NativeRuntimeResult(code, encoded[1])
         }
+
+        internal fun parseTrafficSnapshotEnvelope(encoded: String): JSONObject? = runCatching {
+            val root = JSONObject(encoded)
+            requireJsonKeys(root, setOf("abiVersion", "data"))
+            check(root.getInt("abiVersion") == CONTRACT_VERSION)
+            root.getJSONObject("data")
+        }.getOrNull()
+
+        internal fun parseNativeCloseResult(encoded: String): NativeTrafficCloseResult? = runCatching {
+            val root = JSONObject(encoded)
+            requireJsonKeys(root, setOf("abiVersion", "data"))
+            check(root.getInt("abiVersion") == CONTRACT_VERSION)
+            val data = root.getJSONObject("data")
+            requireJsonKeys(data, setOf("failure", "snapshot"))
+            val failure = data.takeUnless { it.isNull("failure") }?.getString("failure")
+            check(failure == null || failure in setOf("invalid-request", "stale-connection", "core-failure"))
+            NativeTrafficCloseResult(failure, data.getJSONObject("snapshot"))
+        }.getOrNull()
+
+        internal fun strictUtf8(bytes: ByteArray): String? = runCatching {
+            bytes.toString(Charsets.UTF_8).also {
+                require(it.toByteArray(Charsets.UTF_8).contentEquals(bytes))
+            }
+        }.getOrNull()
+
+        internal fun emptyTrafficSnapshot(): JSONObject = JSONObject()
+            .put("connections", org.json.JSONArray())
+            .put("eventSequence", "0")
+            .put("running", false)
+            .put("sessionId", "unavailable")
+            .put("truncated", false)
     }
 }

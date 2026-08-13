@@ -53,6 +53,7 @@ const pluginRustLifecycle = source(`${pluginRoot}/src/lifecycle.rs`);
 const pluginRustAndroid = source(`${pluginRoot}/src/android.rs`);
 const mobileVpnClient = source("apps/web/src/platform/mobile-vpn-client.ts");
 const mobileVpnClientTest = source("apps/web/src/platform/mobile-vpn-client.test.ts");
+const mobileTrafficClient = source("apps/web/src/platform/mobile-traffic-client.ts");
 const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileCoreSourceManifest = JSON.parse(source("mobile-core/source-manifest.json")) as {
   schemaVersion: number;
@@ -452,6 +453,8 @@ for (const requirement of [
   "mish_core_start_v1",
   "mish_core_stop_v1",
   "mish_core_snapshot_v1",
+  "mish_core_command_v1",
+  "mish_core_close_connection_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
@@ -468,9 +471,50 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
+for (const requirement of [
+  "nativeRouteOperation",
+  'static const char status_request[] = "{\\"kind\\":\\"status\\"}"',
+  'static const char routes_request[] = "{\\"kind\\":\\"routes\\",\\"limit\\":512}"',
+  "MishVpnCoreCommandFn",
+  "core_api.command",
+]) {
+  invariant(
+    pluginNativeBridge.includes(requirement),
+    `Android JNI Route command boundary is missing: ${requirement}`,
+  );
+}
 invariant(
-  !pluginNativeBridge.includes("mish_core_command_v1"),
-  "Android JNI must not resolve the unbounded Mobile Core command symbol.",
+  pluginNativeBridge.includes("mish_core_close_connection_v1") &&
+    !pluginNativeBridge.includes('\"operation\":\"close-all-connections\"'),
+  "Android Traffic JNI must use only the dedicated single-close Mobile Core symbol.",
+);
+const trafficCleanup = pluginNativeBridge.slice(
+  pluginNativeBridge.indexOf("static jbyteArray invoke_json_envelope"),
+  pluginNativeBridge.indexOf(
+    "JNIEXPORT jbyteArray JNICALL",
+    pluginNativeBridge.indexOf("static jbyteArray invoke_json_envelope"),
+  ),
+);
+invariant(
+  trafficCleanup.match(/core_api\.free_buffer\(&response\);/gu)?.length === 1 &&
+    trafficCleanup.includes("goto cleanup;") &&
+    trafficCleanup.includes("cleanup:") &&
+    trafficCleanup.includes("NewByteArray") &&
+    trafficCleanup.includes("SetByteArrayRegion") &&
+    !trafficCleanup.includes("NewStringUTF"),
+  "Android Traffic JNI responses must cross one exactly-once native buffer cleanup point as strict UTF-8 bytes.",
+);
+invariant(
+  !/https?:\/\/|wss?:\/\/|Controller|controller/u.test(mobileTrafficClient) &&
+    !kotlin.includes("TrafficStore"),
+  "Android Traffic must not use a loopback/Controller client or retain a Kotlin product store.",
+);
+invariant(
+  kotlin.includes("MobileCoreTrafficCommandAdapter.snapshot(coreProbe)") &&
+    kotlin.includes("MobileCoreTrafficCommandAdapter.close(coreProbe, args)") &&
+    kotlin.includes("internal object MobileCoreTrafficCommandAdapter") &&
+    kotlin.includes("core.closeTrafficConnection"),
+  "The Android plugin and emulator acceptance must share one production Traffic command adapter.",
 );
 for (const requirement of [
   "SHA256SUMS",
@@ -564,6 +608,16 @@ invariant(
     pluginRustModels.includes("MobileCoreProvenanceSnapshot") &&
     pluginRustAndroid.includes('run_mobile_plugin_async("getCoreProvenance"'),
   "The D2.3 product DTO must cross only the strict mobile Kotlin/Rust/TypeScript boundary.",
+);
+invariant(
+  pluginRustAndroid.includes("static MOBILE_ROUTE_CONFIG_GATE") &&
+    pluginRustAndroid.includes("route_config_gate: Arc<Mutex<()>>") &&
+    (pluginRustAndroid.match(/self\.route_config_gate\.lock\(\)\.await/g)?.length ?? 0) === 5,
+  "Config load/publication and Route/Traffic reads/effects must share one process-wide Rust gate.",
+);
+invariant(
+  (pluginRustAndroid.match(/authority\.profile_id\(\)\.to_owned\(\)/g)?.length ?? 0) >= 2,
+  "Traffic snapshots and close effects must project the current committed Route Profile identity.",
 );
 for (const forbidden of [
   "recentBoundaryInvocations",

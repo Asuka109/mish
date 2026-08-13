@@ -5115,6 +5115,8 @@ dependencies = [
 name = "tauri-plugin-mish-vpn"
 version = "0.1.0"
 dependencies = [
+ "mish-profile",
+ "mish-runtime",
  "mish-state-machine",
  "serde",
  "serde_json",

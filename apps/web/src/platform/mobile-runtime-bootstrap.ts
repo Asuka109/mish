@@ -2,6 +2,7 @@ import {
   MobileFixtureBootstrapSchema,
   type MobileFixtureBootstrapDto,
   type SettingsClient,
+  type StatusClient,
   type StatusCommand,
 } from "@mish/contracts";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,18 +18,22 @@ import { UnavailableSupportBundleClient } from "./support-bundle";
 import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
 import { MobileSettingsClient } from "./mobile-settings-client";
 import { MobileEventsClient } from "./mobile-events-client";
+import { MobileTrafficClient } from "./mobile-traffic-client";
+import { MobileStatusClient } from "./mobile-status-client";
 
 interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
   mobileSettingsClient: SettingsClient;
   mobileVpnClient: MobileVpnClient;
   mobileEventsClient?: MobileEventsClient;
+  mobileStatusClient?: StatusClient;
 }
 
 const defaultDependencies: MobileBootstrapDependencies = {
   invokeBootstrap: () => invoke("mobile_fixture_bootstrap"),
   mobileSettingsClient: new MobileSettingsClient(),
   mobileVpnClient: new MobileVpnFixtureClient(),
+  mobileStatusClient: new MobileStatusClient(),
 };
 
 class MobileFixtureStatusClient extends FixtureStatusClient {
@@ -119,10 +124,24 @@ export async function resolveMobileStartup(
     fixture.vpn.kind === "native"
       ? dependencies.mobileSettingsClient
       : new FixtureSettingsClient();
+  const statusClient =
+    fixture.platform === "android" && fixture.core.kind === "native"
+      ? (dependencies.mobileStatusClient ?? new MobileFixtureStatusClient(fixture))
+      : new MobileFixtureStatusClient(fixture);
+  const unsubscribeConfigCommits = dependencies.mobileVpnClient.subscribeConfigCommits?.(() => {
+    void statusClient.getSnapshot().catch(() => undefined);
+  });
+  const trafficClient =
+    fixture.platform === "android" && fixture.core.kind === "native"
+      ? new MobileTrafficClient()
+      : new MobileFixtureTrafficClient();
   return {
-    client: new MobileFixtureStatusClient(fixture),
+    client: statusClient,
     dispose: () => {
       mobileEventsClient?.dispose();
+      unsubscribeConfigCommits?.();
+      statusClient.dispose();
+      trafficClient.dispose();
       dependencies.mobileVpnClient.dispose();
     },
     eventsClient: nativeMobileRuntime ? mobileEventsClient : new MobileFixtureEventsClient(),
@@ -137,6 +156,6 @@ export async function resolveMobileStartup(
     settingsClient,
     settingsSnapshot: await settingsClient.getSnapshot(),
     supportBundleClient: new UnavailableSupportBundleClient(),
-    trafficClient: new MobileFixtureTrafficClient(),
+    trafficClient,
   };
 }

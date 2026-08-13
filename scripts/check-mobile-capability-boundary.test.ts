@@ -57,6 +57,13 @@ const forbiddenCases: Array<{
     },
   },
   {
+    expectedRule: "web-facing-native-ui-command",
+    source: {
+      path: "apps/web/src/platform/mobile-ui.ts",
+      text: 'await invoke("open_native_route", { route: "settings" });',
+    },
+  },
+  {
     expectedRule: "web-emitted-native-ui-event",
     source: {
       path: "apps/web/src/platform/mobile-ui.ts",

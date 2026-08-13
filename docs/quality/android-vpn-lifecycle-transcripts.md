@@ -31,6 +31,16 @@ request; it must not be cited as real diagnostic reachability.
 | Android emulator  | Real Android instrumentation process, application context, `SharedPreferences`, plugin classes, and Gradle test APK             | Store/component re-instantiation and the same closed cleanup lambdas   | Authority recovery in a new store instance, clean-record removal, strict transcript parsing, and effect counters                                  |
 | CI/build policy   | Reviewed workflow, pinned SDK/NDK/emulator/action inputs, and production package graph                                          | Credential-free PR test runner                                         | Root-free x86_64 emulator gate plus source/dependency production-exclusion checks                                                                 |
 
+The Android Traffic packet adds this bounded effect matrix without changing
+the lifecycle ownership above:
+
+| Boundary        | Production authority                                                                                 | Controlled seam               | Recorded evidence                                                                                             |
+| --------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Mobile Core/JNI | Closed `connections` snapshot and `close_connection` ABI calls; exactly-once response-buffer release | C fixture or fake adapter     | Bounded/redacted rows, exact stable ID, post-close snapshot, stale ID, malformed envelope                     |
+| Kotlin/Tauri    | Admission gate plus stateless snapshot/close adapter; Shared Rust Traffic authority                  | Fake native JSON envelope     | Reconnect baseline, replacement, operation identity, fresh preflight, success/failure ordering                |
+| React           | Existing provider pause/filter/sort/selection/confirmation/recently-closed state                     | Typed mobile invoke transport | Pause/resume, replacement reset, cancellation before and after dispatch, close-one capability only            |
+| Emulator        | Real instrumentation process and strict closed transcript parser                                     | Synthetic active-ID set only  | Observe one ID, pause/resume marker, close that exact ID, replace authority, reject old ID with zero mutation |
+
 The JavaScript mock and emulator fixture cannot return a canned lifecycle
 success. JavaScript only delivers typed snapshots produced by its transport;
 the Rust fixture drives the real reducer; and the emulator calls the real
@@ -58,6 +68,16 @@ The bounded matrix covers:
   retire conflicting delivery; and
 - `admission-rejected`: a relevant Mobile Core admission failure returns before
   the effect closure is invoked.
+- `traffic-exact-close`: one synthetic current ID is observed, the view is
+  paused/resumed, that exact ID is removed, authority is replaced, and the old
+  ID cannot remove the replacement ID;
+- `traffic-duplicate-stale-cancel`: Rust/Kotlin/TypeScript tests prove exact
+  operation replay, conflicting reuse, stale session/sequence, cancellation
+  before dispatch, and reconciliation of an authoritative result when
+  cancellation races after dispatch; and
+- `traffic-bounds-redaction`: oversized/truncated snapshots, duplicate IDs,
+  invalid counters/identifiers, and private source/path fields fail closed or
+  are redacted at the shared boundary.
 
 Tests use event order as logical time. They use no wall-clock sleep, timeout,
 host networking, root access, credential, or external service to determine a
@@ -91,6 +111,9 @@ Run the focused contracts with:
 pnpm --filter @mish/web exec vitest run src/platform/mobile-vpn-client.test.ts
 cargo test -p mish-simulated-host --all-features android_vpn -- --test-threads=1
 pnpm mobile:android:test
+pnpm mobile-core:contract
+pnpm --filter @mish/web exec vitest run src/platform/mobile-traffic-client.test.ts src/data/traffic-provider.test.tsx src/pages/traffic/traffic-page.test.tsx
+pnpm check:android
 node --test scripts/simulated-host-exclusion.test.ts
 ```
 
@@ -128,6 +151,8 @@ does not prove:
 - VPN permission or notification UI;
 - a real foreground `VpnService` lifetime;
 - real TUN creation, descriptor ownership, socket protection, or Mobile Core;
+- real active connections, native close behavior, or pause interaction on a
+  physical screen (the emulator Traffic scenario uses closed synthetic IDs);
 - packet flow, routing, DNS, underlying-network observation, or propagation;
 - release signing, store packaging, deployment, or device power behavior.
 

@@ -23,6 +23,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -84,6 +85,47 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun getCoreProvenance(invoke: Invoke) {
         invoke.resolveObject(coreProbe.provenanceSnapshot().toJson())
+    }
+
+    @Command
+    fun getRouteSnapshot(invoke: Invoke) {
+        invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, RouteOperationArgs()))
+    }
+
+    @Command
+    fun selectRouteChild(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(RouteOperationArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, RouteOperationArgs()))
+                return
+            }
+        invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, args))
+    }
+
+    @Command
+    fun getTrafficSnapshot(invoke: Invoke) {
+        invoke.resolveObject(
+            JSObject(MobileCoreTrafficCommandAdapter.snapshot(coreProbe).toString()),
+        )
+    }
+
+    @Command
+    fun closeTrafficConnection(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(CloseTrafficConnectionArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(
+                    JSObject(
+                        MobileCoreTrafficCommandAdapter.close(
+                            coreProbe,
+                            CloseTrafficConnectionArgs(),
+                        ).toString(),
+                    ),
+                )
+                return
+            }
+        invoke.resolveObject(
+            JSObject(MobileCoreTrafficCommandAdapter.close(coreProbe, args).toString()),
+        )
     }
 
     @Command

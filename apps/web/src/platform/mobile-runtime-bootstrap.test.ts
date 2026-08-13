@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureSettingsSnapshot } from "../data/fixture-settings-client";
+import { FixtureStatusClient } from "../data/fixture-status-client";
 import { resolveMobileStartup } from "./mobile-runtime-bootstrap";
 import { MobileSettingsClient } from "./mobile-settings-client";
 import type { MobileVpnClient } from "./mobile-vpn-client";
@@ -55,7 +56,8 @@ const vpnSnapshot = {
   tunEstablished: false,
 };
 
-function createVpnClient(): MobileVpnClient {
+function createVpnClient(): MobileVpnClient & { publishConfigCommit(): void } {
+  const configCommitSubscribers = new Set<() => void>();
   return {
     dispose: vi.fn(),
     getSnapshot: () => vpnSnapshot,
@@ -78,6 +80,13 @@ function createVpnClient(): MobileVpnClient {
     start: vi.fn(async () => vpnSnapshot),
     stop: vi.fn(async () => vpnSnapshot),
     subscribe: vi.fn(() => () => undefined),
+    subscribeConfigCommits: vi.fn((handler) => {
+      configCommitSubscribers.add(handler);
+      return () => configCommitSubscribers.delete(handler);
+    }),
+    publishConfigCommit: () => {
+      for (const subscriber of configCommitSubscribers) subscriber();
+    },
     validateConfig: vi.fn(async () => ({
       contractVersion: 1 as const,
       failure: "core-unavailable" as const,
@@ -131,6 +140,47 @@ function createMobileEventsClient() {
 }
 
 describe("mobile native fixture bootstrap", () => {
+  it("uses and disposes the injected native Status adapter", async () => {
+    const mobileStatusClient = new FixtureStatusClient();
+    const disposeStatus = vi.spyOn(mobileStatusClient, "dispose");
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => fixture,
+      mobileEventsClient: createMobileEventsClient(),
+      mobileSettingsClient: createSettingsClient(),
+      mobileStatusClient,
+      mobileVpnClient: createVpnClient(),
+    });
+
+    expect(startup.client).toBe(mobileStatusClient);
+    if (!startup.trafficClient) throw new Error("Missing mobile Traffic client");
+    const disposeTraffic = vi.spyOn(startup.trafficClient, "dispose");
+    startup.dispose();
+    expect(disposeStatus).toHaveBeenCalledOnce();
+    expect(disposeTraffic).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the authoritative Routes baseline after a native config commit", async () => {
+    const mobileStatusClient = new FixtureStatusClient();
+    const refresh = vi
+      .spyOn(mobileStatusClient, "getSnapshot")
+      .mockRejectedValueOnce(new Error("Routes are unavailable before the first config commit."));
+    const mobileVpnClient = createVpnClient();
+    const startup = await resolveMobileStartup({
+      invokeBootstrap: async () => fixture,
+      mobileEventsClient: createMobileEventsClient(),
+      mobileSettingsClient: createSettingsClient(),
+      mobileStatusClient,
+      mobileVpnClient,
+    });
+
+    await expect(startup.client?.getSnapshot()).rejects.toThrow("Routes are unavailable");
+    mobileVpnClient.publishConfigCommit();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    startup.dispose();
+    mobileVpnClient.publishConfigCommit();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
     const invokeBootstrap = vi.fn(async () => fixture);
     const mobileVpnClient = createVpnClient();

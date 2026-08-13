@@ -78,6 +78,47 @@ export const MobileFixtureBootstrapSchema = z
   .strict();
 export interface MobileFixtureBootstrapDto extends z.infer<typeof MobileFixtureBootstrapSchema> {}
 
+export const MobileRouteSnapshotSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    profileId: IdentifierSchema.max(128),
+    profileRevision: IdentifierSchema.max(128),
+    runtimeAuthority: IdentifierSchema.max(128),
+    status: z.lazy(() => StatusSnapshotSchema),
+  })
+  .strict();
+
+export const MobileRouteFailureSchema = z.enum([
+  "cancelled",
+  "duplicate-conflict",
+  "invalid-input",
+  "invalid-relation",
+  "malformed-native-response",
+  "native-rejected",
+  "native-response-too-large",
+  "runtime-replaced",
+  "stale-authority",
+]);
+
+export const MobileRouteCommandResultSchema = z
+  .object({
+    contractVersion: z.literal(1),
+    failure: MobileRouteFailureSchema.nullable(),
+    operationId: IdentifierSchema.max(128),
+    snapshot: MobileRouteSnapshotSchema,
+    status: z.enum(["success", "failure", "cancelled"]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const consistent =
+      (value.status === "success" && value.failure === null) ||
+      (value.status === "cancelled" && value.failure === "cancelled") ||
+      (value.status === "failure" && value.failure !== null && value.failure !== "cancelled");
+    if (!consistent) {
+      context.addIssue({ code: "custom", message: "Mobile Route result status is inconsistent" });
+    }
+  });
+
 export const MobileVpnPhaseSchema = z.enum([
   "stopped",
   "permission-required",
@@ -1120,6 +1161,28 @@ export const TrafficCommandResultSchema = z
     }
   });
 export interface TrafficCommandResultDto extends z.infer<typeof TrafficCommandResultSchema> {}
+
+export const MobileTrafficCommandResultSchema = TrafficCommandResultSchema.safeExtend({
+  operationId: IdentifierSchema.max(128),
+}).superRefine((result, context) => {
+  if (result.operation !== "close-connection") {
+    context.addIssue({
+      code: "custom",
+      message: "Mobile Traffic only supports closing one current connection",
+      path: ["operation"],
+    });
+  }
+  if (result.snapshot.adapterKind !== "native") {
+    context.addIssue({
+      code: "custom",
+      message: "Mobile Traffic results require a native snapshot",
+      path: ["snapshot", "adapterKind"],
+    });
+  }
+});
+export interface MobileTrafficCommandResultDto extends z.infer<
+  typeof MobileTrafficCommandResultSchema
+> {}
 
 export const RpcTrafficCommandResultSchema = TrafficCommandResultSchema.superRefine(
   (result, context) => {
@@ -4307,7 +4370,7 @@ export interface TrafficClient {
   closeConnection(
     authority: TrafficCommandAuthorityDto,
     connectionId: string,
-    options?: { signal?: AbortSignal },
+    options?: { operationId?: string; signal?: AbortSignal },
   ): Promise<TrafficCommandResultDto>;
   closeFilteredVisible(
     authority: TrafficCommandAuthorityDto,
@@ -4324,7 +4387,10 @@ export interface TrafficClient {
   supportsCommand(command: TrafficCommandOperation): boolean;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
   subscribeSnapshots(
-    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+    listener: (
+      snapshot: TrafficDataSnapshotDto,
+      delivery?: ApplicationSnapshotDelivery | "command",
+    ) => void,
   ): () => void;
 }
 

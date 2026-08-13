@@ -55,6 +55,7 @@ interface MobileConfigValidationOptions {
 
 export interface MobileConfigRevisionIdentity {
   digest: string;
+  profileId: string;
   revision: string;
 }
 
@@ -112,6 +113,7 @@ export interface MobileVpnClient {
   start(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   stop(options?: { signal?: AbortSignal }): Promise<MobileVpnSnapshotDto>;
   subscribe(handler: (snapshot: MobileVpnSnapshotDto) => void): () => void;
+  subscribeConfigCommits?(handler: () => void): () => void;
   validateConfig(
     configBytes: Uint8Array,
     options?: MobileConfigValidationOptions,
@@ -139,6 +141,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
   private readonly retiredAuthorityIds = new Set<string>();
   private readonly retiredSessionIds = new Set<string>();
   private readonly subscribers = new Set<(snapshot: MobileVpnSnapshotDto) => void>();
+  private readonly configCommitSubscribers = new Set<() => void>();
   private validationOperation?: MobileValidationOperation;
   private activeLoadOperationId?: string;
   private readonly loadOperations = new Map<string, MobileLoadOperation>();
@@ -373,8 +376,8 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     }
     if (
       !/^[0-9a-f]{64}$/u.test(identity.digest) ||
-      identity.revision.length === 0 ||
-      identity.revision.length > 128 ||
+      !/^[A-Za-z0-9._:-]{1,128}$/u.test(identity.profileId) ||
+      !/^[A-Za-z0-9._-]{1,128}$/u.test(identity.revision) ||
       operationId.length === 0 ||
       operationId.length > 128
     ) {
@@ -448,6 +451,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
             digest: identity.digest,
             injectFailure: options.injectFailure ?? false,
             operationId,
+            profileId: identity.profileId,
             revision: identity.revision,
             sequence: authority.sequence,
             sessionId: authority.sessionId,
@@ -473,6 +477,13 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
           options.signal?.aborted &&
           this.isCurrentGeneration(operation.generation)
         ) {
+          if (
+            result.outcome === "first-load" ||
+            result.outcome === "replacement" ||
+            result.outcome === "no-op"
+          ) {
+            this.publishConfigCommit();
+          }
           const cancellation =
             result.cancellation === "not-requested" ? "too-late" : result.cancellation;
           return loadFailure(
@@ -508,6 +519,13 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
             result.cancellation,
           );
         }
+      }
+      if (
+        result.outcome === "first-load" ||
+        result.outcome === "replacement" ||
+        result.outcome === "no-op"
+      ) {
+        this.publishConfigCommit();
       }
       return result;
     } catch {
@@ -557,6 +575,11 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     return () => this.subscribers.delete(handler);
   }
 
+  subscribeConfigCommits(handler: () => void): () => void {
+    this.configCommitSubscribers.add(handler);
+    return () => this.configCommitSubscribers.delete(handler);
+  }
+
   dispose(): void {
     this.retireOperations();
     this.disposed = true;
@@ -567,7 +590,19 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     this.baselineAccepted = false;
     this.pendingEvents.clear();
     this.subscribers.clear();
+    this.configCommitSubscribers.clear();
     this.emitTrace({ generation: this.clientGeneration, kind: "generation", phase: "disposed" });
+  }
+
+  private publishConfigCommit(): void {
+    if (this.disposed) return;
+    for (const subscriber of this.configCommitSubscribers) {
+      try {
+        subscriber();
+      } catch {
+        // A product refresh observer cannot change the accepted native result.
+      }
+    }
   }
 
   private async runLifecycleCommand(
@@ -630,6 +665,16 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         result.operation.failure === "stale-platform-authority",
         "command",
       );
+      if (
+        result.operation.outcome === "completed" &&
+        ((kind === "start" && result.snapshot.phase === "running") ||
+          (kind === "stop" && result.snapshot.phase === "stopped"))
+      ) {
+        // Start applies the committed config to the tunnel and Stop retires
+        // that live view, so Routes reacquires a full native baseline after
+        // either terminal effect.
+        this.publishConfigCommit();
+      }
       return this.snapshot ?? result.snapshot;
     } finally {
       options.signal?.removeEventListener("abort", onAbort);

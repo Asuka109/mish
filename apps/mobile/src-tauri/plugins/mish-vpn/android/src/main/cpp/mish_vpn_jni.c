@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -94,6 +95,36 @@ static jintArray runtime_array(JNIEnv *environment,
   return array;
 }
 
+static int closed_identifier(const char *value, size_t maximum) {
+  size_t length;
+  size_t index;
+  if (value == NULL) return 0;
+  length = strlen(value);
+  if (length == 0 || length > maximum) return 0;
+  for (index = 0; index < length; index++) {
+    char character = value[index];
+    if (!((character >= 'a' && character <= 'z') ||
+          (character >= 'A' && character <= 'Z') ||
+          (character >= '0' && character <= '9') || character == '-' ||
+          character == '_' || character == '.')) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int decimal_identifier(const char *value, size_t maximum) {
+  size_t length;
+  size_t index;
+  if (value == NULL) return 0;
+  length = strlen(value);
+  if (length == 0 || length > maximum) return 0;
+  for (index = 0; index < length; index++) {
+    if (value[index] < '0' || value[index] > '9') return 0;
+  }
+  return 1;
+}
+
 static void load_core(void) {
   core_handle = dlopen("libmish_mobile_core.so", RTLD_NOW | RTLD_LOCAL);
   if (core_handle == NULL) {
@@ -112,17 +143,228 @@ static void load_core(void) {
   core_api.stop = (MishVpnCoreStopFn)dlsym(core_handle, "mish_core_stop_v1");
   core_api.snapshot =
       (MishVpnCoreSnapshotFn)dlsym(core_handle, "mish_core_snapshot_v1");
+  core_api.command =
+      (MishVpnCoreCommandFn)dlsym(core_handle, "mish_core_command_v1");
+  core_api.close_connection = (MishVpnCoreCloseConnectionFn)dlsym(
+      core_handle, "mish_core_close_connection_v1");
   core_api.free_buffer =
       (MishVpnCoreFreeBufferFn)dlsym(core_handle, "mish_core_free_buffer_v1");
   core_version = (MishCoreVersionFn)dlsym(core_handle, "mish_core_version_v1");
   if (core_api.abi_version == NULL || core_api.initialize == NULL ||
       core_api.validate_config == NULL || core_api.free_buffer == NULL ||
       core_api.load_config == NULL || core_api.snapshot == NULL ||
+      core_api.command == NULL ||
+      core_api.close_connection == NULL ||
       core_api.start == NULL || core_api.stop == NULL ||
       core_version == NULL) {
     memset(&core_api, 0, sizeof(core_api));
     core_version = NULL;
   }
+}
+
+static jbyteArray bytes(JNIEnv *environment, const uint8_t *data,
+                        uint64_t length) {
+  jbyteArray result;
+  if (data == NULL || length > MISH_CORE_MAX_RESPONSE_BYTES_V1) {
+    return NULL;
+  }
+  result = (*environment)->NewByteArray(environment, (jsize)length);
+  if (result != NULL && length != 0) {
+    (*environment)->SetByteArrayRegion(environment, result, 0, (jsize)length,
+                                       (const jbyte *)data);
+  }
+  return result;
+}
+
+static jbyteArray buffer_bytes(JNIEnv *environment, MishCoreBufferV1 *buffer) {
+  if (buffer->data == NULL || buffer->length == 0 ||
+      buffer->length > MISH_CORE_MAX_RESPONSE_BYTES_V1) {
+    return NULL;
+  }
+  return bytes(environment, buffer->data, buffer->length);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeRouteOperation(
+    JNIEnv *environment, jobject instance, jstring command_json) {
+  static const char status_request[] = "{\"kind\":\"status\"}";
+  static const char routes_request[] = "{\"kind\":\"routes\",\"limit\":512}";
+  MishCoreBufferV1 command_response = {0};
+  MishCoreBufferV1 status_response = {0};
+  MishCoreBufferV1 routes_response = {0};
+  int32_t command_status = MISH_CORE_OK_V1;
+  int32_t status_status = MISH_CORE_FAILURE_V1;
+  int32_t routes_status = MISH_CORE_FAILURE_V1;
+  const char *command_request = NULL;
+  jobjectArray output = NULL;
+  jclass byte_array_class = NULL;
+  char status_number[16];
+  char routes_number[16];
+  char command_number[16];
+  jbyteArray values[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
+  (void)instance;
+  pthread_once(&core_once, load_core);
+  if (core_api.snapshot == NULL || core_api.command == NULL ||
+      core_api.free_buffer == NULL) {
+    return NULL;
+  }
+  if (command_json != NULL) {
+    command_request =
+        (*environment)->GetStringUTFChars(environment, command_json, NULL);
+    if (command_request == NULL || strlen(command_request) == 0 ||
+        strlen(command_request) > MISH_CORE_MAX_REQUEST_BYTES_V1) {
+      goto cleanup;
+    }
+  }
+  pthread_mutex_lock(&core_mutex);
+  if (command_request != NULL) {
+    command_status = core_api.command((uint8_t *)command_request,
+                                      (uint64_t)strlen(command_request),
+                                      &command_response);
+  }
+  status_status = core_api.snapshot((uint8_t *)status_request,
+                                    sizeof(status_request) - 1, &status_response);
+  routes_status = core_api.snapshot((uint8_t *)routes_request,
+                                    sizeof(routes_request) - 1, &routes_response);
+  pthread_mutex_unlock(&core_mutex);
+
+  byte_array_class = (*environment)->FindClass(environment, "[B");
+  if (byte_array_class == NULL) {
+    goto cleanup;
+  }
+  output = (*environment)->NewObjectArray(environment, 6, byte_array_class, NULL);
+  if (output == NULL) {
+    goto cleanup;
+  }
+  snprintf(command_number, sizeof(command_number), "%d", command_status);
+  snprintf(status_number, sizeof(status_number), "%d", status_status);
+  snprintf(routes_number, sizeof(routes_number), "%d", routes_status);
+  values[0] = bytes(environment, (const uint8_t *)command_number,
+                    strlen(command_number));
+  values[1] = command_request == NULL
+                  ? bytes(environment, (const uint8_t *)"", 0)
+                  : buffer_bytes(environment, &command_response);
+  values[2] = bytes(environment, (const uint8_t *)status_number,
+                    strlen(status_number));
+  values[3] = buffer_bytes(environment, &status_response);
+  values[4] = bytes(environment, (const uint8_t *)routes_number,
+                    strlen(routes_number));
+  values[5] = buffer_bytes(environment, &routes_response);
+  for (int index = 0; index < 6; index++) {
+    if (values[index] == NULL) {
+      output = NULL;
+      goto cleanup;
+    }
+    (*environment)->SetObjectArrayElement(environment, output, index, values[index]);
+  }
+
+cleanup:
+  core_api.free_buffer(&command_response);
+  core_api.free_buffer(&status_response);
+  core_api.free_buffer(&routes_response);
+  if (command_request != NULL) {
+    (*environment)->ReleaseStringUTFChars(environment, command_json,
+                                          command_request);
+  }
+  for (int index = 0; index < 6; index++) {
+    if (values[index] != NULL) {
+      (*environment)->DeleteLocalRef(environment, values[index]);
+    }
+  }
+  if (byte_array_class != NULL) {
+    (*environment)->DeleteLocalRef(environment, byte_array_class);
+  }
+  return output;
+}
+
+static jbyteArray invoke_json_envelope(JNIEnv *environment,
+                                       int32_t (*operation)(uint8_t *, uint64_t,
+                                                            MishCoreBufferV1 *),
+                                       const char *request) {
+  MishCoreBufferV1 response = {0};
+  jbyteArray result = NULL;
+  if (operation == NULL || request == NULL || core_api.free_buffer == NULL) {
+    return NULL;
+  }
+  int32_t status = operation((uint8_t *)request, strlen(request), &response);
+  if (response.data == NULL || response.length == 0 ||
+      response.length > MISH_CORE_MAX_RESPONSE_BYTES_V1) {
+    goto cleanup;
+  }
+  if (status >= MISH_CORE_OK_V1 && status <= MISH_CORE_FAILURE_V1) {
+    result = (*environment)->NewByteArray(environment, (jsize)response.length);
+    if (result != NULL) {
+      (*environment)->SetByteArrayRegion(environment, result, 0,
+                                         (jsize)response.length,
+                                         (const jbyte *)response.data);
+      if ((*environment)->ExceptionCheck(environment)) {
+        (*environment)->DeleteLocalRef(environment, result);
+        result = NULL;
+      }
+    }
+  }
+cleanup:
+  /* Every native response buffer crosses this cleanup point exactly once. */
+  core_api.free_buffer(&response);
+  return result;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeTrafficSnapshot(
+    JNIEnv *environment, jobject instance) {
+  jbyteArray result;
+  (void)instance;
+  pthread_once(&core_once, load_core);
+  pthread_mutex_lock(&core_mutex);
+  result = invoke_json_envelope(environment, core_api.snapshot,
+                                "{\"kind\":\"connections\",\"limit\":512}");
+  pthread_mutex_unlock(&core_mutex);
+  return result;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeCloseTrafficConnection(
+    JNIEnv *environment, jobject instance, jstring connection_id,
+    jstring event_sequence, jstring session_id) {
+  const char *connection = NULL;
+  const char *sequence = NULL;
+  const char *session = NULL;
+  char request[512];
+  jbyteArray result;
+  (void)instance;
+  if (connection_id == NULL || event_sequence == NULL || session_id == NULL)
+    return NULL;
+  connection = (*environment)->GetStringUTFChars(environment, connection_id, NULL);
+  sequence = (*environment)->GetStringUTFChars(environment, event_sequence, NULL);
+  session = (*environment)->GetStringUTFChars(environment, session_id, NULL);
+  if (!closed_identifier(connection, 128) || !decimal_identifier(sequence, 20) ||
+      !closed_identifier(session, 128)) {
+    if (connection != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+    if (sequence != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+    if (session != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+    return NULL;
+  }
+  int written = snprintf(
+      request, sizeof(request),
+      "{\"connectionId\":\"%s\",\"eventSequence\":\"%s\",\"sessionId\":\"%s\"}",
+      connection, sequence, session);
+  if (written < 0 || (size_t)written >= sizeof(request)) {
+    (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+    (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+    (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+    return NULL;
+  }
+  pthread_once(&core_once, load_core);
+  pthread_mutex_lock(&core_mutex);
+  result = invoke_json_envelope(environment, core_api.close_connection, request);
+  pthread_mutex_unlock(&core_mutex);
+  (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+  (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+  (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+  return result;
 }
 
 JNIEXPORT jint JNICALL
