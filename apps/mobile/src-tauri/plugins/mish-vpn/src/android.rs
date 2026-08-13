@@ -30,7 +30,7 @@ use crate::{
     },
     mobile_traffic::{
         MobileTrafficAuthority, MobileTrafficCloseRequest, MobileTrafficCommandResult,
-        NativeTrafficCloseResult, NativeTrafficSnapshot,
+        NativeTrafficCloseResult, NativeTrafficSnapshot, runtime_allows_close_dispatch,
     },
     models::{MobileConfigValidationOutcome, MobileVpnEvent},
     observation::{ObservationAdmission, PlatformObservationIngress},
@@ -624,6 +624,29 @@ impl<R: Runtime> MishVpn<R> {
             return Ok(traffic.failure(
                 request,
                 mish_runtime::TrafficCommandFailureKind::StaleConnection,
+                false,
+            ));
+        }
+
+        // The preflight above is asynchronous, so lifecycle retirement or replacement
+        // may have won while it was in flight. Revalidate immediately before the
+        // mutating native dispatch; a replaced/stopping runtime has zero mutation.
+        let dispatch_state = runtime.runner.snapshot();
+        if !runtime_allows_close_dispatch(
+            &dispatch_state.authority_id,
+            dispatch_state.scope_epoch,
+            dispatch_state.phase == crate::lifecycle::LifecyclePhase::Running,
+            &state.authority_id,
+            state.scope_epoch,
+        ) {
+            traffic.unavailable(
+                &dispatch_state.authority_id,
+                dispatch_state.scope_epoch,
+                &profile_id,
+            );
+            return Ok(traffic.failure(
+                request,
+                mish_runtime::TrafficCommandFailureKind::RuntimeReplaced,
                 false,
             ));
         }

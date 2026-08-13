@@ -323,6 +323,18 @@ impl MobileTrafficAuthority {
     }
 }
 
+pub(crate) fn runtime_allows_close_dispatch(
+    current_authority_id: &str,
+    current_epoch: u64,
+    current_running: bool,
+    expected_authority_id: &str,
+    expected_epoch: u64,
+) -> bool {
+    current_running
+        && current_authority_id == expected_authority_id
+        && current_epoch == expected_epoch
+}
+
 fn validate_native_snapshot(
     snapshot: &NativeTrafficSnapshot,
 ) -> Result<(), TrafficCommandFailureKind> {
@@ -421,6 +433,9 @@ mod tests {
     enum TrafficTranscriptEvent {
         Baseline,
         FreshPreflight,
+        RuntimeRevalidated,
+        RuntimeReplacedBeforeDispatch,
+        CloseNotDispatched,
         CloseSucceeded,
         DuplicateReplayed,
         ReplacementRejected,
@@ -577,6 +592,43 @@ mod tests {
                 TrafficTranscriptEvent::CloseSucceeded,
                 TrafficTranscriptEvent::DuplicateReplayed,
                 TrafficTranscriptEvent::ReplacementRejected,
+            ]
+        );
+    }
+
+    #[test]
+    fn replacement_after_preflight_is_rejected_before_the_close_effect() {
+        let mut transcript = vec![
+            TrafficTranscriptEvent::Baseline,
+            TrafficTranscriptEvent::FreshPreflight,
+        ];
+        assert!(runtime_allows_close_dispatch(
+            "runtime-a",
+            1,
+            true,
+            "runtime-a",
+            1,
+        ));
+        transcript.push(TrafficTranscriptEvent::RuntimeRevalidated);
+
+        assert!(!runtime_allows_close_dispatch(
+            "runtime-b",
+            2,
+            true,
+            "runtime-a",
+            1,
+        ));
+        transcript.push(TrafficTranscriptEvent::RuntimeReplacedBeforeDispatch);
+        transcript.push(TrafficTranscriptEvent::CloseNotDispatched);
+
+        assert_eq!(
+            transcript,
+            vec![
+                TrafficTranscriptEvent::Baseline,
+                TrafficTranscriptEvent::FreshPreflight,
+                TrafficTranscriptEvent::RuntimeRevalidated,
+                TrafficTranscriptEvent::RuntimeReplacedBeforeDispatch,
+                TrafficTranscriptEvent::CloseNotDispatched,
             ]
         );
     }
