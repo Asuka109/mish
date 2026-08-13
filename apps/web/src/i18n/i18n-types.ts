@@ -4535,6 +4535,76 @@ type RootTranslation = {
 		unavailableNotice: string
 	}
 	diagnostics: {
+		mobile: {
+			/**
+			 * C​a​n​c​e​l​ ​P​r​o​b​e
+			 */
+			cancel: string
+			/**
+			 * R​u​n​ ​t​h​e​ ​s​i​n​g​l​e​ ​f​i​x​e​d​ ​A​n​d​r​o​i​d​ ​c​o​n​n​e​c​t​i​v​i​t​y​ ​p​o​l​i​c​y​.​ ​T​h​e​ ​t​a​r​g​e​t​ ​a​n​d​ ​t​i​m​e​o​u​t​ ​c​a​n​n​o​t​ ​b​e​ ​c​h​a​n​g​e​d​.
+			 */
+			description: string
+			phase: {
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​i​s​ ​r​u​n​n​i​n​g​.
+				 */
+				pending: string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​c​o​m​p​l​e​t​e​d​.
+				 */
+				completed: string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​f​a​i​l​e​d​ ​w​i​t​h​ ​r​e​d​a​c​t​e​d​ ​e​v​i​d​e​n​c​e​.
+				 */
+				failed: string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+				 */
+				cancelled: string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​t​i​m​e​d​ ​o​u​t​.
+				 */
+				'timed-out': string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​r​o​b​e​ ​w​a​s​ ​r​e​t​i​r​e​d​ ​b​y​ ​r​u​n​t​i​m​e​ ​r​e​p​l​a​c​e​m​e​n​t​.
+				 */
+				replaced: string
+			}
+			failure: {
+				/**
+				 * T​h​e​ ​m​a​t​c​h​i​n​g​ ​p​r​o​b​e​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+				 */
+				cancelled: string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​p​u​b​l​i​c​ ​t​a​r​g​e​t​ ​d​i​d​ ​n​o​t​ ​r​e​t​u​r​n​ ​t​h​e​ ​e​x​p​e​c​t​e​d​ ​r​e​s​u​l​t​.
+				 */
+				'fixed-target-unavailable': string
+				/**
+				 * A​n​d​r​o​i​d​ ​r​e​p​o​r​t​e​d​ ​n​o​ ​u​s​a​b​l​e​ ​n​e​t​w​o​r​k​ ​p​a​t​h​.
+				 */
+				'network-unavailable': string
+				/**
+				 * T​h​e​ ​A​n​d​r​o​i​d​ ​p​r​o​b​e​ ​f​a​i​l​e​d​ ​w​i​t​h​o​u​t​ ​r​e​t​a​i​n​i​n​g​ ​n​a​t​i​v​e​ ​e​r​r​o​r​ ​t​e​x​t​.
+				 */
+				'platform-failure': string
+				/**
+				 * T​h​e​ ​A​n​d​r​o​i​d​ ​r​u​n​t​i​m​e​ ​w​a​s​ ​r​e​p​l​a​c​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​p​r​o​b​e​ ​c​o​m​p​l​e​t​e​d​.
+				 */
+				'runtime-replaced': string
+				/**
+				 * T​h​e​ ​f​i​x​e​d​ ​5​-​s​e​c​o​n​d​ ​p​r​o​b​e​ ​d​e​a​d​l​i​n​e​ ​e​x​p​i​r​e​d​.
+				 */
+				timeout: string
+			}
+			/**
+			 * R​u​n​ ​F​i​x​e​d​ ​P​r​o​b​e
+			 */
+			start: string
+			/**
+			 * A​n​d​r​o​i​d​ ​c​o​n​n​e​c​t​i​v​i​t​y​ ​p​r​o​b​e
+			 */
+			title: string
+		}
 		'export': {
 			/**
 			 * I​n​c​l​u​d​e​d​ ​c​a​t​e​g​o​r​i​e​s
@@ -9485,6 +9555,76 @@ export type TranslationFunctions = {
 		unavailableNotice: () => LocalizedString
 	}
 	diagnostics: {
+		mobile: {
+			/**
+			 * Cancel Probe
+			 */
+			cancel: () => LocalizedString
+			/**
+			 * Run the single fixed Android connectivity policy. The target and timeout cannot be changed.
+			 */
+			description: () => LocalizedString
+			phase: {
+				/**
+				 * The fixed probe is running.
+				 */
+				pending: () => LocalizedString
+				/**
+				 * The fixed probe completed.
+				 */
+				completed: () => LocalizedString
+				/**
+				 * The fixed probe failed with redacted evidence.
+				 */
+				failed: () => LocalizedString
+				/**
+				 * The fixed probe was cancelled.
+				 */
+				cancelled: () => LocalizedString
+				/**
+				 * The fixed probe timed out.
+				 */
+				'timed-out': () => LocalizedString
+				/**
+				 * The fixed probe was retired by runtime replacement.
+				 */
+				replaced: () => LocalizedString
+			}
+			failure: {
+				/**
+				 * The matching probe was cancelled.
+				 */
+				cancelled: () => LocalizedString
+				/**
+				 * The fixed public target did not return the expected result.
+				 */
+				'fixed-target-unavailable': () => LocalizedString
+				/**
+				 * Android reported no usable network path.
+				 */
+				'network-unavailable': () => LocalizedString
+				/**
+				 * The Android probe failed without retaining native error text.
+				 */
+				'platform-failure': () => LocalizedString
+				/**
+				 * The Android runtime was replaced before the probe completed.
+				 */
+				'runtime-replaced': () => LocalizedString
+				/**
+				 * The fixed 5-second probe deadline expired.
+				 */
+				timeout: () => LocalizedString
+			}
+			/**
+			 * Run Fixed Probe
+			 */
+			start: () => LocalizedString
+			/**
+			 * Android connectivity probe
+			 */
+			title: () => LocalizedString
+		}
 		'export': {
 			/**
 			 * Included categories

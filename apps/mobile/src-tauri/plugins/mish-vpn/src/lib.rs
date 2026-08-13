@@ -14,6 +14,7 @@ mod generated {
     pub(crate) mod platform_facts;
 }
 mod lifecycle;
+mod mobile_events;
 mod mobile_routes;
 mod mobile_traffic;
 #[cfg(feature = "simulated-host")]
@@ -37,6 +38,12 @@ use android as platform;
 pub use error::{Error, Result};
 #[cfg(all(feature = "tauri-runtime", not(target_os = "android")))]
 use fallback as platform;
+pub use mobile_events::{
+    MobileDiagnosticCheck, MobileDiagnosticCheckKind, MobileDiagnosticCheckOutcome,
+    MobileDiagnosticCommandRequest, MobileDiagnosticCommandResult, MobileDiagnosticFailure,
+    MobileDiagnosticPhase, MobileDiagnosticPolicy, MobileDiagnosticRun, MobileDiagnosticSnapshot,
+    MobileEventsSnapshot,
+};
 #[cfg(feature = "tauri-runtime")]
 pub use mobile_routes::{
     MobileRouteCancelRequest, MobileRouteCancelResult, MobileRouteCommandRequest,
@@ -55,9 +62,27 @@ pub use models::{
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
+async fn get_events_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileEventsSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_events_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 async fn get_route_snapshot<R: Runtime>(app: AppHandle<R>) -> Result<MobileRouteSnapshot> {
     app.state::<platform::MishVpn<R>>()
         .get_route_snapshot()
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn get_diagnostic_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<MobileDiagnosticSnapshot> {
+    app.state::<platform::MishVpn<R>>()
+        .get_diagnostic_snapshot()
         .await
 }
 
@@ -69,6 +94,28 @@ async fn select_route_child<R: Runtime>(
 ) -> Result<MobileRouteCommandResult> {
     app.state::<platform::MishVpn<R>>()
         .select_route_child(request)
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn start_diagnostic<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileDiagnosticCommandRequest,
+) -> Result<MobileDiagnosticCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .start_diagnostic(request)
+        .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+async fn cancel_diagnostic<R: Runtime>(
+    app: AppHandle<R>,
+    request: MobileDiagnosticCommandRequest,
+) -> Result<MobileDiagnosticCommandResult> {
+    app.state::<platform::MishVpn<R>>()
+        .cancel_diagnostic(request)
         .await
 }
 
@@ -208,6 +255,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mish-vpn")
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            get_events_snapshot,
+            get_diagnostic_snapshot,
+            start_diagnostic,
+            cancel_diagnostic,
             get_core_provenance,
             get_traffic_snapshot,
             close_traffic_connection,

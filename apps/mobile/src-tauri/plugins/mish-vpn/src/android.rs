@@ -1,7 +1,7 @@
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex as StdMutex, OnceLock},
     time::Duration,
 };
 
@@ -23,10 +23,16 @@ use crate::{
     MobileConfigLoadFailure, MobileConfigLoadOutcome, MobileConfigLoadRequest,
     MobileConfigLoadResult, MobileConfigLoadTiming, MobileConfigRollback,
     MobileConfigValidationFailure, MobileConfigValidationRequest, MobileConfigValidationResult,
-    MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
+    MobileDiagnosticCheck, MobileDiagnosticCheckKind, MobileDiagnosticCheckOutcome,
+    MobileDiagnosticCommandRequest, MobileDiagnosticCommandResult, MobileDiagnosticFailure,
+    MobileDiagnosticPhase, MobileDiagnosticSnapshot, MobileEventsSnapshot, MobileVpnCommandRequest,
+    MobileVpnCommandResult, MobileVpnSnapshot, Result,
     lifecycle::{
         ActivationAuthority, LifecycleCommandKind, LifecycleEffect, LifecycleInput,
         LifecycleMachine, LifecycleState, PlatformAction, PlatformFacts,
+    },
+    mobile_events::{
+        FIXED_DIAGNOSTIC_TIMEOUT_MILLIS, MobileDiagnosticAuthority, MobileEventsAuthority,
     },
     mobile_traffic::{
         MobileTrafficAuthority, MobileTrafficCloseRequest, MobileTrafficCommandResult,
@@ -53,9 +59,17 @@ pub struct MishVpn<R: Runtime> {
 }
 
 struct LifecycleRuntime {
+    diagnostic: Arc<Mutex<DiagnosticRuntime>>,
+    events: Arc<StdMutex<MobileEventsAuthority>>,
     ingress: PlatformObservationIngress,
     runner: RunnerHandle<LifecycleMachine>,
     updates: watch::Receiver<LifecycleState>,
+}
+
+struct DiagnosticRuntime {
+    authority: MobileDiagnosticAuthority,
+    cancellation: Option<CancellationToken>,
+    task: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 impl LifecycleRuntime {
@@ -209,6 +223,28 @@ struct PlatformConfigLoadResult {
     revision: String,
     rollback: MobileConfigRollback,
     timing: MobileConfigLoadTiming,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformDiagnosticRequest {
+    run_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlatformDiagnosticResult {
+    checks: Vec<PlatformDiagnosticCheck>,
+    failure: Option<MobileDiagnosticFailure>,
+    outcome: MobileDiagnosticPhase,
+    run_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlatformDiagnosticCheck {
+    kind: MobileDiagnosticCheckKind,
+    outcome: MobileDiagnosticCheckOutcome,
 }
 
 #[derive(Serialize)]
@@ -390,6 +426,9 @@ impl<R: Runtime> MishVpn<R> {
     }
 
     async fn cleanup_before_replacement(&self, runtime: &LifecycleRuntime) -> Result<bool> {
+        if retire_diagnostic(&self.handle, runtime).await {
+            emit_diagnostic(&self.handle, runtime).await;
+        }
         let retirement = runtime.runner.shutdown().await;
         if retirement.state.phase == crate::lifecycle::LifecyclePhase::Stopped
             && retirement.state.platform_clean()
@@ -468,9 +507,18 @@ impl<R: Runtime> MishVpn<R> {
             Uuid::new_v4().to_string(),
             facts,
         );
+        let events = Arc::new(StdMutex::new(MobileEventsAuthority::from_baseline(
+            &initial,
+        )));
+        let diagnostic = Arc::new(Mutex::new(DiagnosticRuntime {
+            authority: MobileDiagnosticAuthority::new(&initial),
+            cancellation: None,
+            task: None,
+        }));
         let (updates, receiver) = watch::channel(initial.clone());
         let observer = Arc::new(LifecycleObserver {
             app: self.handle.app().clone(),
+            events: events.clone(),
             updates,
         });
         let executor = Arc::new(AndroidLifecycleExecutor {
@@ -499,6 +547,8 @@ impl<R: Runtime> MishVpn<R> {
             }
         });
         Ok(LifecycleRuntime {
+            diagnostic,
+            events,
             ingress,
             runner,
             updates: receiver,
@@ -534,6 +584,186 @@ impl<R: Runtime> MishVpn<R> {
             return Err(crate::Error::PlatformFactsSchemaRejected);
         }
         Ok(snapshot)
+    }
+
+    pub async fn get_events_snapshot(&self) -> Result<MobileEventsSnapshot> {
+        let _ = self.get_snapshot().await?;
+        let runtime = self.runtime().await?;
+        let state = runtime.runner.snapshot();
+        Ok(runtime
+            .events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .snapshot(&state))
+    }
+
+    pub async fn get_diagnostic_snapshot(&self) -> Result<MobileDiagnosticSnapshot> {
+        let runtime = self.runtime().await?;
+        Ok(runtime.diagnostic.lock().await.authority.snapshot())
+    }
+
+    pub async fn start_diagnostic(
+        &self,
+        request: MobileDiagnosticCommandRequest,
+    ) -> Result<MobileDiagnosticCommandResult> {
+        let runtime = self.runtime().await?;
+        if !valid_operation_id(&request.operation_id) || request.run_id.is_some() {
+            return Ok(diagnostic_result(false, request.operation_id, None, &runtime).await);
+        }
+        let run_id = Uuid::new_v4().to_string();
+        let cancellation = CancellationToken::new();
+        {
+            let mut diagnostic = runtime.diagnostic.lock().await;
+            if !diagnostic
+                .authority
+                .start(request.operation_id.clone(), run_id.clone())
+            {
+                return Ok(MobileDiagnosticCommandResult {
+                    accepted: false,
+                    operation_id: request.operation_id,
+                    run_id: diagnostic.authority.active_run_id().map(str::to_owned),
+                    snapshot: diagnostic.authority.snapshot(),
+                });
+            }
+            diagnostic.cancellation = Some(cancellation.clone());
+        }
+        emit_diagnostic(&self.handle, &runtime).await;
+
+        let handle = self.handle.clone();
+        let task_runtime = runtime.clone();
+        let task_run_id = run_id.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            let platform = handle.run_mobile_plugin_async::<PlatformDiagnosticResult>(
+                "runFixedDiagnostic",
+                PlatformDiagnosticRequest {
+                    run_id: task_run_id.clone(),
+                },
+            );
+            let result = tokio::select! {
+                _ = cancellation.cancelled() => None,
+                result = tokio::time::timeout(
+                    Duration::from_millis(FIXED_DIAGNOSTIC_TIMEOUT_MILLIS),
+                    platform,
+                ) => result.ok().and_then(|result| result.ok()),
+            };
+            if result.is_none() {
+                let _ = handle.run_mobile_plugin::<serde_json::Value>(
+                    "cancelFixedDiagnostic",
+                    &PlatformDiagnosticRequest {
+                        run_id: task_run_id.clone(),
+                    },
+                );
+            }
+            let mut diagnostic = task_runtime.diagnostic.lock().await;
+            if diagnostic.authority.active_run_id() != Some(task_run_id.as_str()) {
+                return;
+            }
+            let (phase, failure, checks) = match result {
+                Some(result)
+                    if result.run_id == task_run_id
+                        && result.checks.len()
+                            <= crate::mobile_events::MOBILE_DIAGNOSTIC_CHECK_LIMIT =>
+                {
+                    (
+                        result.outcome,
+                        result.failure,
+                        result
+                            .checks
+                            .into_iter()
+                            .map(|check| MobileDiagnosticCheck {
+                                kind: check.kind,
+                                outcome: check.outcome,
+                            })
+                            .collect(),
+                    )
+                }
+                Some(_) => (
+                    MobileDiagnosticPhase::Failed,
+                    Some(MobileDiagnosticFailure::PlatformFailure),
+                    Vec::new(),
+                ),
+                None if cancellation.is_cancelled() => (
+                    MobileDiagnosticPhase::Cancelled,
+                    Some(MobileDiagnosticFailure::Cancelled),
+                    Vec::new(),
+                ),
+                None => (
+                    MobileDiagnosticPhase::TimedOut,
+                    Some(MobileDiagnosticFailure::Timeout),
+                    Vec::new(),
+                ),
+            };
+            if !diagnostic
+                .authority
+                .finish(&task_run_id, phase, failure, checks)
+            {
+                diagnostic.authority.finish(
+                    &task_run_id,
+                    MobileDiagnosticPhase::Failed,
+                    Some(MobileDiagnosticFailure::PlatformFailure),
+                    Vec::new(),
+                );
+            }
+            diagnostic.cancellation = None;
+            let snapshot = diagnostic.authority.snapshot();
+            drop(diagnostic);
+            let _ = handle.app().emit("mish-vpn://diagnostic", snapshot);
+        });
+        runtime.diagnostic.lock().await.task = Some(task);
+        Ok(diagnostic_result(true, request.operation_id, Some(run_id), &runtime).await)
+    }
+
+    pub async fn cancel_diagnostic(
+        &self,
+        request: MobileDiagnosticCommandRequest,
+    ) -> Result<MobileDiagnosticCommandResult> {
+        let runtime = self.runtime().await?;
+        let (accepted, task) = {
+            let mut diagnostic = runtime.diagnostic.lock().await;
+            let accepted = valid_operation_id(&request.operation_id)
+                && request.run_id.as_deref().is_some_and(|run_id| {
+                    diagnostic
+                        .authority
+                        .matches_active(&request.operation_id, run_id)
+                });
+            if accepted {
+                let run_id = request.run_id.as_deref().expect("accepted run identity");
+                let _ = self.handle.run_mobile_plugin::<serde_json::Value>(
+                    "cancelFixedDiagnostic",
+                    &PlatformDiagnosticRequest {
+                        run_id: run_id.to_owned(),
+                    },
+                );
+                diagnostic.authority.finish(
+                    run_id,
+                    MobileDiagnosticPhase::Cancelled,
+                    Some(MobileDiagnosticFailure::Cancelled),
+                    Vec::new(),
+                );
+                if let Some(cancellation) = diagnostic.cancellation.take() {
+                    cancellation.cancel();
+                }
+            }
+            let task = if accepted {
+                diagnostic.task.take()
+            } else {
+                None
+            };
+            (accepted, task)
+        };
+        if accepted {
+            if let Some(task) = task {
+                let _ = task.await;
+            }
+            emit_diagnostic(&self.handle, &runtime).await;
+        }
+        let snapshot = runtime.diagnostic.lock().await.authority.snapshot();
+        Ok(MobileDiagnosticCommandResult {
+            accepted,
+            operation_id: request.operation_id,
+            run_id: request.run_id,
+            snapshot,
+        })
     }
 
     pub async fn get_traffic_snapshot(&self) -> Result<mish_runtime::TrafficDataSnapshot> {
@@ -1177,6 +1407,7 @@ impl<R: Runtime> EffectExecutor<LifecycleMachine> for AndroidLifecycleExecutor<R
 
 struct LifecycleObserver<R: Runtime> {
     app: AppHandle<R>,
+    events: Arc<StdMutex<MobileEventsAuthority>>,
     updates: watch::Sender<LifecycleState>,
 }
 
@@ -1192,9 +1423,62 @@ impl<R: Runtime> TransitionObserver<LifecycleMachine> for LifecycleObserver<R> {
             return;
         }
         self.updates.send_replace(current.clone());
+        let event_snapshot = {
+            let mut events = self
+                .events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            events.observe(current);
+            events.snapshot(current)
+        };
         let _ = self
             .app
             .emit("mish-vpn://snapshot", MobileVpnEvent::from_state(current));
+        let _ = self.app.emit("mish-vpn://events", event_snapshot);
+    }
+}
+
+async fn retire_diagnostic<R: Runtime>(
+    handle: &PluginHandle<R>,
+    runtime: &LifecycleRuntime,
+) -> bool {
+    let (retired, run_id, task) = {
+        let mut diagnostic = runtime.diagnostic.lock().await;
+        let run_id = diagnostic.authority.active_run_id().map(str::to_owned);
+        let retired = diagnostic.authority.retire();
+        if let Some(cancellation) = diagnostic.cancellation.take() {
+            cancellation.cancel();
+        }
+        (retired, run_id, diagnostic.task.take())
+    };
+    if let Some(run_id) = run_id {
+        let _ = handle.run_mobile_plugin::<serde_json::Value>(
+            "cancelFixedDiagnostic",
+            &PlatformDiagnosticRequest { run_id },
+        );
+    }
+    if let Some(task) = task {
+        let _ = task.await;
+    }
+    retired
+}
+
+async fn emit_diagnostic<R: Runtime>(handle: &PluginHandle<R>, runtime: &LifecycleRuntime) {
+    let snapshot = runtime.diagnostic.lock().await.authority.snapshot();
+    let _ = handle.app().emit("mish-vpn://diagnostic", snapshot);
+}
+
+async fn diagnostic_result(
+    accepted: bool,
+    operation_id: String,
+    run_id: Option<String>,
+    runtime: &LifecycleRuntime,
+) -> MobileDiagnosticCommandResult {
+    MobileDiagnosticCommandResult {
+        accepted,
+        operation_id,
+        run_id,
+        snapshot: runtime.diagnostic.lock().await.authority.snapshot(),
     }
 }
 

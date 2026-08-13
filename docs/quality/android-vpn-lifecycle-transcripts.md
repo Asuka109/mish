@@ -15,6 +15,12 @@ The emulator harness owns only Android process/component recreation,
 never starts `MishVpnService`, requests VPN consent, creates a TUN, loads Core,
 opens a socket, changes a route or DNS setting, or sends network traffic.
 
+The same instrumentation APK also contains the Android Events/fixed diagnostic
+scenario specified in
+[`android-events-diagnostic-transcripts.md`](android-events-diagnostic-transcripts.md).
+That scenario injects a closed Kotlin effect result and performs no network
+request; it must not be cited as real diagnostic reachability.
+
 ## Boundary matrix
 
 | Layer             | Production authority retained                                                                                                   | Replaced or controlled seam                                            | Bounded evidence                                                                                                                                  |

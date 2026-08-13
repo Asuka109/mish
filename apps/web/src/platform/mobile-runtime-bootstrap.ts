@@ -17,6 +17,7 @@ import type { StartupStatusClient } from "./runtime-bootstrap";
 import { UnavailableSupportBundleClient } from "./support-bundle";
 import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
 import { MobileSettingsClient } from "./mobile-settings-client";
+import { MobileEventsClient } from "./mobile-events-client";
 import { MobileTrafficClient } from "./mobile-traffic-client";
 import { MobileStatusClient } from "./mobile-status-client";
 
@@ -24,6 +25,7 @@ interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
   mobileSettingsClient: SettingsClient;
   mobileVpnClient: MobileVpnClient;
+  mobileEventsClient?: MobileEventsClient;
   mobileStatusClient?: StatusClient;
 }
 
@@ -111,6 +113,11 @@ export async function resolveMobileStartup(
 ): Promise<StartupStatusClient> {
   const fixture = MobileFixtureBootstrapSchema.parse(await dependencies.invokeBootstrap());
   const mobileVpnSnapshot = await dependencies.mobileVpnClient.initialize();
+  const nativeMobileRuntime = fixture.platform === "android" && fixture.core.kind === "native";
+  const mobileEventsClient = nativeMobileRuntime
+    ? (dependencies.mobileEventsClient ?? new MobileEventsClient())
+    : undefined;
+  await mobileEventsClient?.initialize();
   const settingsClient =
     fixture.platform === "android" &&
     fixture.core.kind === "native" &&
@@ -131,12 +138,14 @@ export async function resolveMobileStartup(
   return {
     client: statusClient,
     dispose: () => {
+      mobileEventsClient?.dispose();
       unsubscribeConfigCommits?.();
       statusClient.dispose();
       trafficClient.dispose();
       dependencies.mobileVpnClient.dispose();
     },
-    eventsClient: new MobileFixtureEventsClient(),
+    eventsClient: nativeMobileRuntime ? mobileEventsClient : new MobileFixtureEventsClient(),
+    mobileDiagnosticClient: nativeMobileRuntime ? mobileEventsClient : undefined,
     localBackupClient: new UnavailableLocalBackupClient(),
     mobileFixture: fixture,
     mobileVpnClient: dependencies.mobileVpnClient,

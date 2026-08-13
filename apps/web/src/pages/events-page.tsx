@@ -170,6 +170,8 @@ export function EventsPage() {
   const {
     clearLocal,
     connection,
+    diagnosticPending,
+    diagnosticSnapshot,
     error,
     events,
     isLoading,
@@ -177,6 +179,8 @@ export function EventsPage() {
     clearSupportBundlePreview,
     previewSupportBundle,
     saveSupportBundle,
+    startDiagnostic,
+    cancelDiagnostic,
     supportBundleAvailability,
     supportBundlePending,
     supportBundlePreview,
@@ -230,6 +234,22 @@ export function EventsPage() {
     setPausedEvents([]);
     setPausedSessionId(null);
   }, [paused, pausedSessionId, snapshot?.sessionId]);
+
+  const previousSession = useRef(snapshot?.sessionId);
+  useEffect(() => {
+    if (previousSession.current === snapshot?.sessionId) return;
+    previousSession.current = snapshot?.sessionId;
+    setQuery("");
+    setLevel("all");
+    setSource("all");
+    setOrder("oldest");
+    setPaused(false);
+    setPausedEvents([]);
+    setPausedSessionId(null);
+    setFollowLatest(true);
+    setCopiedId(null);
+    setCopyFailed(false);
+  }, [snapshot?.sessionId]);
 
   function togglePause() {
     if (viewPaused) {
@@ -326,6 +346,42 @@ export function EventsPage() {
                 </div>
               ))}
             </div>
+          </section>
+        ) : null}
+
+        {diagnosticSnapshot ? (
+          <section
+            aria-labelledby="mobile-diagnostic-title"
+            className={eventStyles().supportBundle()}
+          >
+            <div>
+              <h2 id="mobile-diagnostic-title">{LL.diagnostics.mobile.title()}</h2>
+              <p>{LL.diagnostics.mobile.description()}</p>
+              <small>
+                {diagnosticSnapshot.policy.target} · {diagnosticSnapshot.policy.timeoutMillis} ms
+              </small>
+              {diagnosticSnapshot.activeRun ? (
+                <p role="status">
+                  {LL.diagnostics.mobile.phase[diagnosticSnapshot.activeRun.phase]()}
+                </p>
+              ) : diagnosticSnapshot.history.at(-1) ? (
+                <p role="status">
+                  {LL.diagnostics.mobile.phase[diagnosticSnapshot.history.at(-1)!.phase]()}
+                  {diagnosticSnapshot.history.at(-1)!.failure
+                    ? ` ${LL.diagnostics.mobile.failure[diagnosticSnapshot.history.at(-1)!.failure!]()}`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+            {diagnosticPending ? (
+              <Button onClick={() => void cancelDiagnostic()} variant="outline">
+                {LL.diagnostics.mobile.cancel()}
+              </Button>
+            ) : (
+              <Button onClick={() => void startDiagnostic()} variant="outline">
+                {LL.diagnostics.mobile.start()}
+              </Button>
+            )}
           </section>
         ) : null}
 

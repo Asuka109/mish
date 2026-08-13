@@ -48,6 +48,17 @@ platform sources remain explicitly unavailable. Browser values are marked
 `fixture` and every source is marked `fixture-only`; they are never presented as
 desktop observations.
 
+The Android native adapter projects complete VPN service and Mobile Core
+lifecycle facts through the same closed source/severity/evidence taxonomy.
+Kotlin supplies only closed native observations. Shared Rust owns the Events
+authority, session ID, monotonic sequence, 1,024-row history, redacted message
+mapping, gap recovery, and runtime replacement. Initial bind, rebind, and a new
+Activity/WebView client all subscribe before fetching a complete baseline. A
+native fact-sequence gap rotates the Events session, clears incomplete retained
+rows, increments reconnect count, and records one closed reconciliation row.
+Raw exception, JNI, URL, path, token, configuration, or native response text
+has no field in the Android projection.
+
 ## Sequence, reconnect, and runtime replacement
 
 Events observation has four phases:
@@ -83,6 +94,13 @@ boundary. The socket installs the replacement runtime's receiver and publishes
 its Events snapshot. The Web provider replaces its local buffer whenever
 profile ID or session ID changes, so two runtimes cannot form a false continuous
 log.
+
+Android replacement is also baseline-only. A Web notification from a different
+authority can trigger a fresh full baseline but cannot itself establish the
+successor. Once that baseline is accepted, the previous authority is retired;
+its delayed notifications have zero mutation even when epochs or sequences
+overlap. Search, level/source filters, pause, ordering, Follow Latest, and Clear
+Local remain view-local and reset when the Events session is replaced.
 
 ## Retention and local clear
 
@@ -129,3 +147,22 @@ details never enter the file.
 Repository fixtures use only reserved `.invalid` names, documentation address
 ranges, synthetic labels, and `/synthetic/` paths. Fixture clients perform no
 network, file, Controller, or system operation.
+
+## Android fixed diagnostic
+
+Android adds exactly one diagnostic operation beside Events. Its policy is
+compiled into Shared Rust and Kotlin: `android-connectivity-v1`, target
+`https://www.gstatic.com/generate_204`, timeout 5,000 ms, at most four typed
+checks, and at most eight terminal runs in volatile memory. The command accepts
+only a bounded operation ID; Shared Rust mints the run ID. There is no caller
+endpoint, timeout, suite selection, export, upload, persistence, notification,
+or desktop loopback command.
+
+Shared Rust owns run admission, ordering, terminal classification,
+cancellation, timeout, history bounds, replacement, and task join. Kotlin owns
+only the fixed Android HTTP effect and returns closed check/outcome/failure
+enums; it retains no product history or notification policy and discards raw
+throwable text. Cancellation terminates the matching Rust run exactly once.
+Replacement records `replaced/runtime-replaced`, cancels and joins the retired
+task before installing a successor authority. Delayed old-runtime effects and
+completions cannot mutate the new authority.

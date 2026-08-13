@@ -1381,6 +1381,29 @@ const en = {
       "The current runtime has no supported Events source. No desktop observation is claimed.",
   },
   diagnostics: {
+    mobile: {
+      cancel: "Cancel Probe",
+      description:
+        "Run the single fixed Android connectivity policy. The target and timeout cannot be changed.",
+      phase: {
+        pending: "The fixed probe is running.",
+        completed: "The fixed probe completed.",
+        failed: "The fixed probe failed with redacted evidence.",
+        cancelled: "The fixed probe was cancelled.",
+        "timed-out": "The fixed probe timed out.",
+        replaced: "The fixed probe was retired by runtime replacement.",
+      },
+      failure: {
+        cancelled: "The matching probe was cancelled.",
+        "fixed-target-unavailable": "The fixed public target did not return the expected result.",
+        "network-unavailable": "Android reported no usable network path.",
+        "platform-failure": "The Android probe failed without retaining native error text.",
+        "runtime-replaced": "The Android runtime was replaced before the probe completed.",
+        timeout: "The fixed 5-second probe deadline expired.",
+      },
+      start: "Run Fixed Probe",
+      title: "Android connectivity probe",
+    },
     export: {
       categories: "Included categories",
       category: {

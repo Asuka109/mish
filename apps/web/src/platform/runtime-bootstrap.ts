@@ -11,6 +11,7 @@ import {
   type LocalRestoreConflictResolution,
   type MobileFixtureBootstrapDto,
   type MobileVpnSnapshotDto,
+  type MobileDiagnosticClient,
   type EventsClient,
   type ProfileClient,
   type SettingsClient,
@@ -83,6 +84,7 @@ export interface StartupStatusClient {
   mobileFixture?: MobileFixtureBootstrapDto;
   mobileVpnClient?: MobileVpnClient;
   mobileVpnSnapshot?: MobileVpnSnapshotDto;
+  mobileDiagnosticClient?: MobileDiagnosticClient;
   notificationClient?: NotificationClient;
   runtime: "browser" | "desktop" | "mobile";
   supportBundleClient: SupportBundleClient;
