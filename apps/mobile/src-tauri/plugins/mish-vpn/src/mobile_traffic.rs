@@ -436,6 +436,8 @@ mod tests {
         RuntimeRevalidated,
         RuntimeReplacedBeforeDispatch,
         CloseNotDispatched,
+        RuntimeStoppedAfterClose,
+        UnavailableReconciled,
         CloseSucceeded,
         DuplicateReplayed,
         ReplacementRejected,
@@ -629,6 +631,28 @@ mod tests {
                 TrafficTranscriptEvent::RuntimeRevalidated,
                 TrafficTranscriptEvent::RuntimeReplacedBeforeDispatch,
                 TrafficTranscriptEvent::CloseNotDispatched,
+            ]
+        );
+    }
+
+    #[test]
+    fn same_authority_stop_after_close_reconciles_unavailable() {
+        let mut transcript = vec![TrafficTranscriptEvent::CloseSucceeded];
+        assert!(!runtime_allows_close_dispatch(
+            "runtime-a",
+            1,
+            false,
+            "runtime-a",
+            1,
+        ));
+        transcript.push(TrafficTranscriptEvent::RuntimeStoppedAfterClose);
+        transcript.push(TrafficTranscriptEvent::UnavailableReconciled);
+        assert_eq!(
+            transcript,
+            vec![
+                TrafficTranscriptEvent::CloseSucceeded,
+                TrafficTranscriptEvent::RuntimeStoppedAfterClose,
+                TrafficTranscriptEvent::UnavailableReconciled,
             ]
         );
     }

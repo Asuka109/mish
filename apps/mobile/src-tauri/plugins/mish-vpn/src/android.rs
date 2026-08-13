@@ -678,9 +678,13 @@ impl<R: Runtime> MishVpn<R> {
             ));
         }
         let current_state = runtime.runner.snapshot();
-        if current_state.authority_id != state.authority_id
-            || current_state.scope_epoch != state.scope_epoch
-        {
+        if !runtime_allows_close_dispatch(
+            &current_state.authority_id,
+            current_state.scope_epoch,
+            current_state.phase == crate::lifecycle::LifecyclePhase::Running,
+            &state.authority_id,
+            state.scope_epoch,
+        ) {
             let current_profile_id = self
                 .routes
                 .lock()

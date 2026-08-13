@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { TooltipProvider } from "@mish/ui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -20,6 +20,11 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location-probe">{`${location.pathname}${location.search}`}</output>;
+}
+
 function renderTraffic(
   client: FixtureTrafficClient,
   locale: Locales = "en",
@@ -33,6 +38,7 @@ function renderTraffic(
             <TrafficProvider client={client}>
               <TooltipProvider>
                 <AppRoutes />
+                <LocationProbe />
               </TooltipProvider>
             </TrafficProvider>
           </ProductProvider>
@@ -384,6 +390,34 @@ describe("Traffic page", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(search).toHaveValue("");
     expect(screen.queryByRole("dialog", { name: "Connection details" })).not.toBeInTheDocument();
+  });
+
+  it("synchronizes the tab query when replacement resets the view", async () => {
+    const client = await commandClient();
+    renderTraffic(client, "en", "/traffic?tab=rules");
+    expect(await screen.findByRole("button", { name: /Rules/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const current = await client.getSnapshot();
+    client.publishSnapshot({
+      ...current,
+      profileId: "replacement-profile",
+      sequence: 1,
+      sessionId: "replacement-session",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Active / })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("location-probe")).toHaveTextContent("/traffic");
+      expect(screen.getByTestId("location-probe")).not.toHaveTextContent("tab=");
+    });
   });
 
   it("closes all current active connections regardless of filters and supports keyboard cancel", async () => {

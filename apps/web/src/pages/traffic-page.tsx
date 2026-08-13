@@ -264,6 +264,7 @@ export function TrafficPage() {
     previousViewIdentity.current = viewIdentity;
     if (!previous || previous === viewIdentity) return;
     setTab("active");
+    setSearchParams({}, { replace: true });
     setQuery("");
     setNetwork("all");
     setConnectionSort("started-desc");
@@ -274,7 +275,7 @@ export function TrafficPage() {
     setCloseVisibleTarget(null);
     setCloseAllConfirmationOpen(false);
     setSearchHelpOpen(false);
-  }, [viewIdentity]);
+  }, [setSearchParams, viewIdentity]);
 
   async function confirmCloseConnection() {
     if (!closeTarget) return;
