@@ -89,8 +89,6 @@ const MISH_BROWSER_DISCOVERY_SCHEMA_VERSION: u8 = 1;
 const MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION: u8 = 1;
 const MISH_BROWSER_FIRST_PORT: u16 = 6474;
 #[cfg(feature = "development-window-trigger")]
-const DEVELOPMENT_WINDOW_TRIGGER_LIFETIME: Duration = Duration::from_secs(15 * 60);
-#[cfg(feature = "development-window-trigger")]
 const DEVELOPMENT_WINDOW_TRIGGER_REQUEST_LIMIT: usize = 64;
 #[cfg(feature = "development-window-trigger")]
 const DEVELOPMENT_WINDOW_TRIGGER_PATH: &str = "/__openWindow";
@@ -135,20 +133,12 @@ pub trait DevelopmentWindowTrigger: Send + Sync {
 #[cfg(feature = "development-window-trigger")]
 pub struct DevelopmentWindowTriggerConfig {
     action: Arc<dyn DevelopmentWindowTrigger>,
-    lifetime: Duration,
 }
 
 #[cfg(feature = "development-window-trigger")]
 impl DevelopmentWindowTriggerConfig {
     pub fn new(action: Arc<dyn DevelopmentWindowTrigger>) -> Self {
-        Self {
-            action,
-            lifetime: DEVELOPMENT_WINDOW_TRIGGER_LIFETIME,
-        }
-    }
-
-    pub fn with_lifetime(action: Arc<dyn DevelopmentWindowTrigger>, lifetime: Duration) -> Self {
-        Self { action, lifetime }
+        Self { action }
     }
 }
 
@@ -156,7 +146,6 @@ impl DevelopmentWindowTriggerConfig {
 struct DevelopmentWindowTriggerState {
     action: Arc<dyn DevelopmentWindowTrigger>,
     capability: String,
-    expires_at: Instant,
     used_request_ids: Mutex<VecDeque<String>>,
 }
 
@@ -618,19 +607,12 @@ async fn start_loopback_server_internal(
     let (development_window_trigger_state, development_window_trigger_handle) =
         match development_window_trigger {
             Some(config) => {
-                if config.lifetime.is_zero() || config.lifetime > Duration::from_secs(60 * 60) {
-                    return Err(
-                        "development window trigger lifetime must be between one nanosecond and one hour"
-                            .into(),
-                    );
-                }
                 let capability = generate_browser_launch_token()
                     .map_err(|_| "the operating system did not provide entropy")?;
                 (
                     Some(DevelopmentWindowTriggerState {
                         action: config.action,
                         capability: capability.clone(),
-                        expires_at: Instant::now() + config.lifetime,
                         used_request_ids: Mutex::new(VecDeque::new()),
                     }),
                     Some(DevelopmentWindowTriggerHandle {
@@ -845,9 +827,6 @@ async fn development_window_trigger_request(
         || !valid_browser_launch_token(&request.request_id)
     {
         return StatusCode::BAD_REQUEST.into_response();
-    }
-    if trigger.expires_at <= Instant::now() {
-        return StatusCode::GONE.into_response();
     }
     if !bool::from(
         trigger

@@ -3316,6 +3316,21 @@ mod tests {
         assert!(main.create);
     }
 
+    #[cfg(feature = "development-window-trigger")]
+    #[test]
+    fn packaged_login_launch_cannot_enable_the_development_window_trigger() {
+        let mut main = tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            visible: false,
+            ..Default::default()
+        };
+        let configured = configure_main_window(&mut main, false, true, false);
+
+        assert!(!configured.development_window_on_demand);
+        assert!(configured.development_template.is_none());
+        assert!(main.create);
+    }
+
     #[test]
     fn development_accepts_only_the_explicit_vite_origin() {
         assert_eq!(allowed_origins(true, None).unwrap(), [DEV_ORIGIN]);
