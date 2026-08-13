@@ -399,6 +399,14 @@ test("Android emulator lifecycle controls stay out of product source and APK inp
     testSources.some((file) => read(file).includes("EmulatorRoutes")),
     "The Android emulator Route-selection acceptance is missing.",
   );
+  assert.ok(
+    testSources.some(
+      (file) =>
+        read(file).includes("EmulatorTraffic") &&
+        read(file).includes("MobileCoreTrafficCommandAdapter.close"),
+    ),
+    "The Android emulator Traffic acceptance must drive the production command adapter with only the native effect seam controlled.",
+  );
 
   for (const root of [
     "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main",

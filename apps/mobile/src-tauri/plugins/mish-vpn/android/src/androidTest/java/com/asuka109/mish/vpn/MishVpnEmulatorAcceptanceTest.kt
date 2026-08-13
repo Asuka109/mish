@@ -150,21 +150,49 @@ class MishVpnEmulatorAcceptanceTest {
     fun trafficTranscriptObservesClosesExactIdAndRejectsReplacedId() {
         val transcript = EmulatorLifecycleTranscript(EmulatorScenario.TRAFFIC_EXACT_CLOSE)
         val authority = authority("1")
-        var active = linkedSetOf("connection-current")
+        val nativeEffects = EmulatorTraffic()
+        val baseline = MobileCoreTrafficCommandAdapter.snapshot(nativeEffects)
         transcript.record(authority, "traffic-observe", "observed")
-        transcript.record(authority.copy(effectIdentity = "2"), "traffic-view-pause", "applied")
-        assertEquals(setOf("connection-current"), active)
-        transcript.record(authority.copy(effectIdentity = "3"), "traffic-view-resume", "applied")
-        assertTrue(active.remove("connection-current"))
-        transcript.record(authority.copy(effectIdentity = "4"), "traffic-close-one", "completed")
-        assertTrue(active.isEmpty())
+        assertEquals(listOf("connection-current"), trafficIds(baseline))
 
-        active = linkedSetOf("connection-replacement")
+        transcript.record(authority.copy(effectIdentity = "2"), "traffic-view-pause", "applied")
+        assertEquals(listOf("connection-current"), trafficIds(MobileCoreTrafficCommandAdapter.snapshot(nativeEffects)))
+        transcript.record(authority.copy(effectIdentity = "3"), "traffic-view-resume", "applied")
+
+        val close = MobileCoreTrafficCommandAdapter.close(
+            nativeEffects,
+            trafficArgs("connection-current", "1", "traffic-session-current"),
+        )
+        assertTrue(close.isNull("failure"))
+        assertTrue(trafficIds(close.getJSONObject("snapshot")).isEmpty())
+        assertEquals(1, nativeEffects.mutationCount)
+        transcript.record(authority.copy(effectIdentity = "4"), "traffic-close-one", "completed")
+
+        nativeEffects.replaceSession()
         transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "1"), "traffic-replacement", "replaced")
-        assertFalse(active.remove("connection-current"))
+        val stale = MobileCoreTrafficCommandAdapter.close(
+            nativeEffects,
+            trafficArgs("connection-current", "2", "traffic-session-current"),
+        )
+        assertEquals("stale-connection", stale.getString("failure"))
+        assertEquals(listOf("connection-replacement"), trafficIds(stale.getJSONObject("snapshot")))
+        assertEquals(1, nativeEffects.mutationCount)
         transcript.record(authority.copy(scopeEpoch = 2, effectIdentity = "2"), "traffic-close-one", "retired")
-        assertEquals(setOf("connection-replacement"), active)
         assertEquals(transcript, EmulatorLifecycleTranscript.parse(transcript.toJson().toString()))
+    }
+
+    private fun trafficArgs(connectionId: String, eventSequence: String, sessionId: String) =
+        CloseTrafficConnectionArgs().apply {
+            this.connectionId = connectionId
+            this.eventSequence = eventSequence
+            this.sessionId = sessionId
+        }
+
+    private fun trafficIds(snapshot: JSONObject): List<String> {
+        val connections = snapshot.getJSONArray("connections")
+        return buildList(connections.length()) {
+            repeat(connections.length()) { add(connections.getJSONObject(it).getString("id")) }
+        }
     }
 
     private fun authority(effectIdentity: String): CoreLifecycleAuthority = CoreLifecycleAuthority(
@@ -188,6 +216,56 @@ class MishVpnEmulatorAcceptanceTest {
             profileRevision = "revision-emulator"
             runtimeAuthority = "runtime-emulator"
         }
+}
+
+private class EmulatorTraffic : MobileCoreTrafficAdapter {
+    var mutationCount = 0
+        private set
+    private var sequence = 1
+    private var sessionId = "traffic-session-current"
+    private val connections = linkedSetOf("connection-current")
+
+    override fun snapshotTraffic(): JSONObject = snapshot()
+
+    override fun closeTrafficConnection(
+        connectionId: String,
+        eventSequence: String,
+        sessionId: String,
+    ): NativeTrafficCloseResult {
+        if (eventSequence != sequence.toString() || sessionId != this.sessionId) {
+            return NativeTrafficCloseResult("stale-connection", snapshot())
+        }
+        if (!connections.remove(connectionId)) {
+            return NativeTrafficCloseResult("stale-connection", snapshot())
+        }
+        mutationCount += 1
+        sequence += 1
+        return NativeTrafficCloseResult(null, snapshot())
+    }
+
+    fun replaceSession() {
+        sessionId = "traffic-session-replacement"
+        sequence = 1
+        connections.clear()
+        connections += "connection-replacement"
+    }
+
+    private fun snapshot(): JSONObject = JSONObject()
+        .put(
+            "connections",
+            JSONArray(
+                connections.map { connectionId ->
+                    JSONObject()
+                        .put("id", connectionId)
+                        .put("processName", "Fixture App")
+                        .put("routeChain", JSONArray(listOf("Fixture Group", "Fixture Exit")))
+                },
+            ),
+        )
+        .put("eventSequence", sequence.toString())
+        .put("running", true)
+        .put("sessionId", sessionId)
+        .put("truncated", false)
 }
 
 private class EmulatorRoutes : MobileCoreRoutes {

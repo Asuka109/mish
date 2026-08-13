@@ -509,6 +509,13 @@ invariant(
     !kotlin.includes("TrafficStore"),
   "Android Traffic must not use a loopback/Controller client or retain a Kotlin product store.",
 );
+invariant(
+  kotlin.includes("MobileCoreTrafficCommandAdapter.snapshot(coreProbe)") &&
+    kotlin.includes("MobileCoreTrafficCommandAdapter.close(coreProbe, args)") &&
+    kotlin.includes("internal object MobileCoreTrafficCommandAdapter") &&
+    kotlin.includes("core.closeTrafficConnection"),
+  "The Android plugin and emulator acceptance must share one production Traffic command adapter.",
+);
 for (const requirement of [
   "SHA256SUMS",
   "--evidence-dir",

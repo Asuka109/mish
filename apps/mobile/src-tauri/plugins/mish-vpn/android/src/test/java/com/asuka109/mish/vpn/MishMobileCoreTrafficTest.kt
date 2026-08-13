@@ -4,26 +4,40 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MishMobileCoreTrafficTest {
     @Test
     fun fakeNativeObservesAndClosesOnlyTheExactStableId() {
         val adapter = FakeMobileCoreTrafficAdapter()
-        assertEquals(listOf("connection-a", "connection-b"), ids(adapter.snapshotTraffic()))
+        assertEquals(
+            listOf("connection-a", "connection-b"),
+            ids(MobileCoreTrafficCommandAdapter.snapshot(adapter)),
+        )
 
-        val closed = adapter.closeTrafficConnection("connection-a", "1", "traffic-session-a")
-        assertNull(closed.failure)
-        assertEquals(listOf("connection-b"), ids(closed.snapshot))
+        val closed = MobileCoreTrafficCommandAdapter.close(
+            adapter,
+            closeArgs("connection-a", "1", "traffic-session-a"),
+        )
+        assertTrue(closed.isNull("failure"))
+        assertEquals(listOf("connection-b"), ids(closed.getJSONObject("snapshot")))
 
-        val duplicate = adapter.closeTrafficConnection("connection-a", "2", "traffic-session-a")
-        assertEquals("stale-connection", duplicate.failure)
-        assertEquals(listOf("connection-b"), ids(duplicate.snapshot))
+        val duplicate = MobileCoreTrafficCommandAdapter.close(
+            adapter,
+            closeArgs("connection-a", "2", "traffic-session-a"),
+        )
+        assertEquals("stale-connection", duplicate.getString("failure"))
+        assertEquals(listOf("connection-b"), ids(duplicate.getJSONObject("snapshot")))
 
         adapter.replaceSession("connection-a")
-        val replaced = adapter.closeTrafficConnection("connection-b", "2", "traffic-session-a")
-        assertEquals("stale-connection", replaced.failure)
-        assertEquals(listOf("connection-a"), ids(replaced.snapshot))
+        val replaced = MobileCoreTrafficCommandAdapter.close(
+            adapter,
+            closeArgs("connection-b", "2", "traffic-session-a"),
+        )
+        assertEquals("stale-connection", replaced.getString("failure"))
+        assertEquals(listOf("connection-a"), ids(replaced.getJSONObject("snapshot")))
+        assertEquals(1, adapter.mutationCount)
     }
 
     @Test
@@ -69,9 +83,18 @@ class MishMobileCoreTrafficTest {
             repeat(connections.length()) { add(connections.getJSONObject(it).getString("id")) }
         }
     }
+
+    private fun closeArgs(connectionId: String, eventSequence: String, sessionId: String) =
+        CloseTrafficConnectionArgs().apply {
+            this.connectionId = connectionId
+            this.eventSequence = eventSequence
+            this.sessionId = sessionId
+        }
 }
 
 private class FakeMobileCoreTrafficAdapter : MobileCoreTrafficAdapter {
+    var mutationCount = 0
+        private set
     private var sessionId = "traffic-session-a"
     private var sequence = 1
     private val connections = linkedSetOf("connection-a", "connection-b")
@@ -89,6 +112,7 @@ private class FakeMobileCoreTrafficAdapter : MobileCoreTrafficAdapter {
         if (!connections.remove(connectionId)) {
             return NativeTrafficCloseResult("stale-connection", snapshot())
         }
+        mutationCount += 1
         sequence += 1
         return NativeTrafficCloseResult(null, snapshot())
     }

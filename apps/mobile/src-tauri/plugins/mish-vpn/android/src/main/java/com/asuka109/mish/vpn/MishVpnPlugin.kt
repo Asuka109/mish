@@ -99,22 +99,28 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun getTrafficSnapshot(invoke: Invoke) {
-        invoke.resolveObject(coreProbe.snapshotTraffic() ?: emptyTrafficSnapshot())
+        invoke.resolveObject(
+            JSObject(MobileCoreTrafficCommandAdapter.snapshot(coreProbe).toString()),
+        )
     }
 
     @Command
     fun closeTrafficConnection(invoke: Invoke) {
         val args = runCatching { invoke.parseArgs(CloseTrafficConnectionArgs::class.java) }
             .getOrElse {
-                invoke.resolveObject(trafficCloseResult("invalid-request", emptyTrafficSnapshot()))
+                invoke.resolveObject(
+                    JSObject(
+                        MobileCoreTrafficCommandAdapter.close(
+                            coreProbe,
+                            CloseTrafficConnectionArgs(),
+                        ).toString(),
+                    ),
+                )
                 return
             }
-        val result = coreProbe.closeTrafficConnection(
-            args.connectionId,
-            args.eventSequence,
-            args.sessionId,
+        invoke.resolveObject(
+            JSObject(MobileCoreTrafficCommandAdapter.close(coreProbe, args).toString()),
         )
-        invoke.resolveObject(trafficCloseResult(result.failure, result.snapshot))
     }
 
     @Command
@@ -358,15 +364,6 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         if (latest.coreRunning) return latest
         return store.reconcileLoadedConfig(coreProbe.inspectLoaded(latest.loadedConfigDigest))
     }
-
-    private fun emptyTrafficSnapshot(): JSObject = JSObject(MishMobileCoreProbe.emptyTrafficSnapshot().toString())
-
-    private fun trafficCloseResult(failure: String?, snapshot: JSONObject): JSObject = JSObject(
-        JSONObject()
-            .put("failure", failure ?: JSONObject.NULL)
-            .put("snapshot", snapshot)
-            .toString(),
-    )
 
     private fun resolveAfterPlatformEffect(
         invoke: Invoke,
