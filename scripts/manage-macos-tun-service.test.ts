@@ -22,6 +22,7 @@ import {
   ensureInstallationClientKey,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
+  safeDevelopmentTunSocketMetadata,
   selectObservedClientIdentity,
 } from "./manage-macos-tun-service.ts";
 
@@ -105,6 +106,27 @@ test("replays an interrupted committed key rotation as serialized repair, not fo
       installation: "recovery-required",
       reason: "client-enrollment-mismatch",
     },
+  );
+});
+
+test("accepts only the production user-owned development socket metadata contract", () => {
+  const uid = 501;
+  const productionSocket = {
+    isSocket: () => true,
+    isSymbolicLink: () => false,
+    mode: 0o140600,
+    nlink: 1,
+    uid,
+  };
+  assert.equal(safeDevelopmentTunSocketMetadata(productionSocket, uid), true);
+  assert.equal(safeDevelopmentTunSocketMetadata({ ...productionSocket, uid: 0 }, uid), false);
+  assert.equal(
+    safeDevelopmentTunSocketMetadata({ ...productionSocket, mode: 0o140666 }, uid),
+    false,
+  );
+  assert.equal(
+    safeDevelopmentTunSocketMetadata({ ...productionSocket, isSymbolicLink: () => true }, uid),
+    false,
   );
 });
 

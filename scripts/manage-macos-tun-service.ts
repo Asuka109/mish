@@ -270,6 +270,27 @@ type DevelopmentTunStatusObservation = {
   observation: DevelopmentTunInstallationObservation;
 };
 
+type DevelopmentTunSocketMetadata = {
+  isSocket(): boolean;
+  isSymbolicLink(): boolean;
+  mode: number;
+  nlink: number;
+  uid: number;
+};
+
+export function safeDevelopmentTunSocketMetadata(
+  socket: DevelopmentTunSocketMetadata,
+  uid: number,
+) {
+  return (
+    socket.isSocket() &&
+    !socket.isSymbolicLink() &&
+    socket.uid === uid &&
+    (socket.mode & 0o777) === 0o600 &&
+    socket.nlink === 1
+  );
+}
+
 async function observeInstalledArtifacts(uid: number) {
   const targets = [
     { file: helperTarget, mode: 0o555 },
@@ -489,13 +510,7 @@ async function observeDevelopmentTunInstallation(
   const socketPath = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
   try {
     const socket = await lstat(socketPath);
-    if (
-      !socket.isSocket() ||
-      socket.isSymbolicLink() ||
-      socket.uid !== 0 ||
-      (socket.mode & 0o777) !== 0o600 ||
-      socket.nlink !== 1
-    ) {
+    if (!safeDevelopmentTunSocketMetadata(socket, uid)) {
       observation.artifacts = "ambiguous";
       return { observation };
     }

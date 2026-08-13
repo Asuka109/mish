@@ -111,6 +111,11 @@ it does not install, disable, stop, or replace Helper/Core, TUN, routes, DNS, or
 other network state. Desktop startup likewise never repairs or disables the
 development service implicitly.
 
+Socket admission follows the production Helper contract: after binding as
+root, the Helper sets mode 0600 and transfers the socket to the enrolled user.
+Status requires that exact user owner, socket type, mode, and single-link
+metadata before discovery.
+
 This plaintext private key is an explicitly weak internal-testing boundary.
 It prevents an unrelated same-user process that cannot read the file from
 controlling the helper, but it does not defend against malware or any process
