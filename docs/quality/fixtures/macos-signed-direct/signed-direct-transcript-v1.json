@@ -1,0 +1,54 @@
+{
+  "events": [
+    {
+      "effect": "profile-selection",
+      "result": "accepted",
+      "sequence": 1,
+      "subject": "release-profile"
+    },
+    {
+      "effect": "capability-probe",
+      "result": "tun-unavailable",
+      "sequence": 2,
+      "subject": "application"
+    },
+    {
+      "effect": "signing-order",
+      "result": "accepted",
+      "sequence": 3,
+      "subject": "nested-mihomo"
+    },
+    {
+      "effect": "signing-order",
+      "result": "accepted",
+      "sequence": 4,
+      "subject": "application"
+    },
+    {
+      "effect": "layout-inspection",
+      "result": "accepted",
+      "sequence": 5,
+      "subject": "bundle-layout"
+    },
+    {
+      "effect": "signature-inspection",
+      "result": "accepted",
+      "sequence": 6,
+      "subject": "nested-mihomo"
+    },
+    {
+      "effect": "signature-inspection",
+      "result": "accepted",
+      "sequence": 7,
+      "subject": "application"
+    },
+    {
+      "effect": "strict-verification",
+      "result": "strict-verified",
+      "sequence": 8,
+      "subject": "application"
+    }
+  ],
+  "maxEvents": 16,
+  "schemaVersion": 1
+}

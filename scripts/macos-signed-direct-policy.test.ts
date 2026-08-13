@@ -14,18 +14,24 @@ import test from "node:test";
 
 import {
   type SignedDirectEvidence,
+  SignedDirectTranscriptRecorder,
   alphaAdHocProfile,
   collectSignedDirectBundleEntries,
   collectSignedDirectSignature,
   parseDeveloperIdApplicationIdentity,
   protectedReleaseBoundary,
+  recordSignedDirectStrictVerification,
   resolveMacOsReleaseProfile,
   signedDirectApplicationIdentifier,
   signedDirectMainExecutable,
   signedDirectMihomoExecutable,
   signedDirectMihomoIdentifier,
   signedDirectSigningOrder,
+  signedDirectTranscriptMaxEvents,
+  validateSignedDirectTranscript,
+  verifyCompleteSignedDirectTranscript,
   verifySignedDirectEvidence,
+  verifySignedDirectStrict,
 } from "./macos-signed-direct-policy.ts";
 
 const identity = "Developer ID Application: Mish Fixture (ABCDE12345)";
@@ -189,7 +195,157 @@ test("signed-direct accepts only a protected synthetic Developer ID boundary", (
 });
 
 test("accepts the complete credential-free signed-direct contract fixture", () => {
-  assert.doesNotThrow(() => verifySignedDirectEvidence(fixture()));
+  const recorder = new SignedDirectTranscriptRecorder();
+  assert.doesNotThrow(() => verifySignedDirectEvidence(fixture(), recorder));
+  recordSignedDirectStrictVerification(recorder, () => {});
+  assert.deepEqual(verifyCompleteSignedDirectTranscript(recorder.snapshot()).events, [
+    {
+      effect: "profile-selection",
+      result: "accepted",
+      sequence: 1,
+      subject: "release-profile",
+    },
+    {
+      effect: "capability-probe",
+      result: "tun-unavailable",
+      sequence: 2,
+      subject: "application",
+    },
+    {
+      effect: "signing-order",
+      result: "accepted",
+      sequence: 3,
+      subject: "nested-mihomo",
+    },
+    {
+      effect: "signing-order",
+      result: "accepted",
+      sequence: 4,
+      subject: "application",
+    },
+    {
+      effect: "layout-inspection",
+      result: "accepted",
+      sequence: 5,
+      subject: "bundle-layout",
+    },
+    {
+      effect: "signature-inspection",
+      result: "accepted",
+      sequence: 6,
+      subject: "nested-mihomo",
+    },
+    {
+      effect: "signature-inspection",
+      result: "accepted",
+      sequence: 7,
+      subject: "application",
+    },
+    {
+      effect: "strict-verification",
+      result: "strict-verified",
+      sequence: 8,
+      subject: "application",
+    },
+  ]);
+  const checkedIn = JSON.parse(
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../docs/quality/fixtures/macos-signed-direct/signed-direct-transcript-v1.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(verifyCompleteSignedDirectTranscript(checkedIn), recorder.snapshot());
+});
+
+test("signed-direct transcript is closed, bounded, and contains no identity or path data", () => {
+  const recorder = new SignedDirectTranscriptRecorder();
+  verifySignedDirectEvidence(fixture(), recorder);
+  recordSignedDirectStrictVerification(recorder, () => {});
+  const serialized = JSON.stringify(recorder.snapshot());
+  assert.ok(Buffer.byteLength(serialized, "utf8") < 4 * 1024);
+  assert.doesNotMatch(serialized, /Developer ID|ABCDE12345|Contents\/|Mish\.app/u);
+  assert.throws(
+    () =>
+      validateSignedDirectTranscript({
+        ...recorder.snapshot(),
+        identity,
+      }),
+    /unknown or missing fields/u,
+  );
+  assert.throws(
+    () =>
+      validateSignedDirectTranscript({
+        ...recorder.snapshot(),
+        events: [
+          { effect: "arbitrary-command", result: "accepted", sequence: 1, subject: "application" },
+        ],
+      }),
+    /open vocabulary/u,
+  );
+  const overflow = new SignedDirectTranscriptRecorder();
+  for (let index = 0; index < signedDirectTranscriptMaxEvents; index += 1) {
+    overflow.record("profile-selection", "release-profile", "accepted");
+  }
+  assert.throws(
+    () => overflow.record("profile-selection", "release-profile", "accepted"),
+    /event bound/u,
+  );
+});
+
+test("signed-direct transcript terminates at the exact rejected boundary", () => {
+  const tunEvidence = fixture();
+  tunEvidence.advertisedTun = true;
+  const tunRecorder = new SignedDirectTranscriptRecorder();
+  assert.throws(() => verifySignedDirectEvidence(tunEvidence, tunRecorder), /TUN unavailable/u);
+  assert.deepEqual(tunRecorder.snapshot().events.at(-1), {
+    effect: "capability-probe",
+    result: "rejected",
+    sequence: 2,
+    subject: "application",
+  });
+
+  const privilegedEvidence = fixture();
+  privilegedEvidence.entries.push({
+    executable: false,
+    kind: "file",
+    mode: 0o100444,
+    nlink: 1,
+    path: "Contents/Library/LaunchDaemons/com.asuka109.mish.plist",
+  });
+  const privilegedRecorder = new SignedDirectTranscriptRecorder();
+  assert.throws(
+    () => verifySignedDirectEvidence(privilegedEvidence, privilegedRecorder),
+    /privileged content/u,
+  );
+  assert.deepEqual(privilegedRecorder.snapshot().events.at(-1), {
+    effect: "layout-inspection",
+    result: "rejected",
+    sequence: 5,
+    subject: "bundle-layout",
+  });
+
+  const strictRecorder = new SignedDirectTranscriptRecorder();
+  verifySignedDirectEvidence(fixture(), strictRecorder);
+  assert.throws(
+    () =>
+      recordSignedDirectStrictVerification(strictRecorder, () => {
+        throw new Error("synthetic strict verification failed");
+      }),
+    /strict verification failed/u,
+  );
+  assert.deepEqual(strictRecorder.snapshot().events.at(-1), {
+    effect: "strict-verification",
+    result: "rejected",
+    sequence: 8,
+    subject: "application",
+  });
+  assert.throws(
+    () => verifyCompleteSignedDirectTranscript(strictRecorder.snapshot()),
+    /incomplete or out of order/u,
+  );
 });
 
 test("scans a real credential-free Mach-O package fixture", macOsOnly, async () => {
@@ -248,7 +404,7 @@ test("scans a real credential-free Mach-O package fixture", macOsOnly, async () 
     "-",
     application,
   ]);
-  execFileSync("codesign", ["--verify", "--deep", "--strict", application]);
+  verifySignedDirectStrict(application);
 
   const evidence = fixture();
   evidence.entries = await collectSignedDirectBundleEntries(application);
@@ -338,6 +494,25 @@ test("signed-direct Tauri configuration pins hardened runtime and empty entitlem
     assert.match(desktopPackage.scripts[script] ?? "", /tauri\.bundle\.signed-core\.conf\.json/u);
   }
   assert.doesNotMatch(builder, /const production\s*=\s*identity/u);
+
+  const verifier = readFileSync(
+    path.resolve(import.meta.dirname, "verify-macos-bundle.ts"),
+    "utf8",
+  );
+  assert.match(verifier, /new SignedDirectTranscriptRecorder\(\)/u);
+  assert.match(verifier, /recordSignedDirectStrictVerification/u);
+  assert.match(verifier, /verifyCompleteSignedDirectTranscript/u);
+  assert.match(verifier, /verifySignedDirectStrict\(application\)/u);
+
+  const policy = readFileSync(
+    path.resolve(import.meta.dirname, "macos-signed-direct-policy.ts"),
+    "utf8",
+  );
+  assert.match(policy, /signedDirectCommandTimeoutMs = 120_000/u);
+  assert.match(policy, /signedDirectCommandMaxOutputBytes = 64 \* 1024/u);
+  assert.match(policy, /\["--verify", "--deep", "--strict", application\]/u);
+  assert.match(policy, /maxBuffer: signedDirectCommandMaxOutputBytes/u);
+  assert.match(policy, /timeout: signedDirectCommandTimeoutMs/u);
 });
 
 test("rejects identity, signing order, unsigned code, and entitlement drift", () => {

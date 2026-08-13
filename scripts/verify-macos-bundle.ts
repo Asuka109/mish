@@ -13,11 +13,15 @@ import {
 import {
   collectSignedDirectBundleEntries,
   collectSignedDirectSignature,
+  recordSignedDirectStrictVerification,
+  SignedDirectTranscriptRecorder,
   signedDirectApplicationIdentifier,
   signedDirectMainExecutable,
   signedDirectMihomoExecutable,
   signedDirectMihomoIdentifier,
   signedDirectSigningOrder,
+  verifySignedDirectStrict,
+  verifyCompleteSignedDirectTranscript,
   verifySignedDirectEvidence,
 } from "./macos-signed-direct-policy.ts";
 import {
@@ -62,6 +66,8 @@ const internalTunAlpha = process.env.MISH_MACOS_PACKAGE_MODE === "internal-tun-a
 const signedDirect = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct";
 const signedDirectFixture = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct-fixture";
 const productionLayout = production || productionFixture;
+const signedDirectTranscript =
+  signedDirect || signedDirectFixture ? new SignedDirectTranscriptRecorder() : undefined;
 
 if (
   [
@@ -395,27 +401,37 @@ if (signedDirect || signedDirectFixture) {
       signature.teamIdentifier = "ABCDE12345";
     }
   }
-  verifySignedDirectEvidence({
-    advertisedTun: runtimeEvidence.tun !== "unavailable",
-    entries: await collectSignedDirectBundleEntries(application),
-    expectedIdentity: {
-      identity: signedDirectFixture
-        ? "Developer ID Application: Mish Fixture (ABCDE12345)"
-        : identity,
-      teamIdentifier,
+  verifySignedDirectEvidence(
+    {
+      advertisedTun: runtimeEvidence.tun !== "unavailable",
+      entries: await collectSignedDirectBundleEntries(application),
+      expectedIdentity: {
+        identity: signedDirectFixture
+          ? "Developer ID Application: Mish Fixture (ABCDE12345)"
+          : identity,
+        teamIdentifier,
+      },
+      signatures,
+      signingOrder: [...signedDirectSigningOrder],
     },
-    signatures,
-    signingOrder: [...signedDirectSigningOrder],
-  });
+    signedDirectTranscript,
+  );
   if (executableGuard.relative !== signedDirectMainExecutable) {
     throw new Error("signed-direct main executable path changed unexpectedly");
   }
 }
 for (const binary of executableGuards) binary.assertCurrent();
 applicationRoot.assertCurrent();
-execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
-  stdio: "inherit",
-});
+if (signedDirectTranscript) {
+  recordSignedDirectStrictVerification(signedDirectTranscript, () => {
+    verifySignedDirectStrict(application);
+  });
+  verifyCompleteSignedDirectTranscript(signedDirectTranscript.snapshot());
+} else {
+  execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
+    stdio: "inherit",
+  });
+}
 
 console.log(
   `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : internalTunAlpha ? "embedded Internal TUN Alpha payload" : signedDirectFixture ? "credential-free signed-direct identity/layout fixture" : "signed-direct Developer ID System Proxy-only"}`,
