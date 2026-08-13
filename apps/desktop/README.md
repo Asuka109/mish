@@ -42,7 +42,7 @@ Open the Browser Client for the primary no-window development surface. Open the
 desktop-window trigger when the native WebView is needed. A current trigger
 creates, reveals, or focuses the single `main` window. Closing that development
 window hides it without stopping the backend, and a fresh request from the same
-unexpired trigger can reveal it again. Native status-bar, application-menu, and
+current trigger can reveal it again. Native status-bar, application-menu, and
 Dock reopen actions use the same single-window controller. A hot rebuild starts
 the replacement process without a window and prints new process-scoped links;
 old links fail.
@@ -56,9 +56,11 @@ The trigger endpoint is compiled only into the source-development feature set.
 It binds no additional listener and accepts only exact IPv4-loopback Host and
 same-origin requests. Its 256-bit fragment capability never enters the initial
 HTTP request, and each activation carries a fresh bounded request ID.
-Capabilities expire after 15 minutes, request IDs cannot be replayed, and a
-restarted process has unrelated authority. The trigger does not contain or
-authenticate the RPC token.
+The current capability remains valid until its development process is replaced
+or shuts down. Request IDs cannot be replayed, and a restarted process has
+unrelated authority. Browser Client pairing, PIN, and one-time launch-token
+expiry are separate and unchanged. The trigger does not contain or authenticate
+the RPC token.
 
 ## Process-local WebView Inspector
 
