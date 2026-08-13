@@ -323,7 +323,7 @@ mutation, deployment, or merge before explicit human acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #510 macOS System Proxy authorization loop | `pending` | `pending` | dispatching | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | No TUN Helper lifecycle changes, no compatibility migration, no real-host mutation; prove Helper/authorization effects are zero and leave final macOS behavior for maintainer confirmation |
+| #510 macOS System Proxy authorization loop | `019ffaf2-f533-76d1-bd0a-b0770070c1cd` | `2777` | active | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | Visible Worker is active from `origin/main@b0b1cd81`; no TUN Helper lifecycle changes, compatibility migration, or real-host mutation; prove Helper/authorization effects are zero and leave final macOS behavior for maintainer confirmation |
 
 ## Wave 1 — approved for dispatch
 
