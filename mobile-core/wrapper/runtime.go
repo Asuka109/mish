@@ -159,6 +159,7 @@ type coreRuntime struct {
 	protect       func(int) error
 	loaded        *config.Config
 	configDigest  string
+	routeGroups   []string
 	listener      *sing_tun.Listener
 	phase         lifecyclePhase
 	session       string
@@ -312,23 +313,31 @@ func validateRawConfig(raw *config.RawConfig) error {
 	return nil
 }
 
-func parseConfig(input []byte) (*config.Config, string, error) {
+func parseConfig(input []byte) (*config.Config, string, []string, error) {
 	raw, err := config.UnmarshalRawConfig(input)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	if err := validateRawConfig(raw); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	// The start DTO is the only TUN authority. Remove inactive upstream defaults
 	// before exact Mihomo parsing so they cannot become active during apply.
 	raw.Tun = config.RawTun{}
 	parsed, err := config.ParseRawConfig(raw)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
+	}
+	routeGroups := make([]string, 0, len(raw.ProxyGroup))
+	for _, group := range raw.ProxyGroup {
+		name, ok := group["name"].(string)
+		if !ok || name == "" {
+			return nil, "", nil, errors.New("proxy group name is invalid")
+		}
+		routeGroups = append(routeGroups, name)
 	}
 	digest := sha256.Sum256(input)
-	return parsed, hex.EncodeToString(digest[:]), nil
+	return parsed, hex.EncodeToString(digest[:]), routeGroups, nil
 }
 
 func (core *coreRuntime) validateConfig(input []byte) coreResult {
@@ -337,7 +346,7 @@ func (core *coreRuntime) validateConfig(input []byte) coreResult {
 	if !core.initialized {
 		return failureResult(statusNotInitialized, "core must be initialized before validation")
 	}
-	_, digest, err := parseConfig(input)
+	_, digest, _, err := parseConfig(input)
 	if err != nil {
 		return failureResult(statusConfigRejected, "configuration is invalid or violates the mobile boundary")
 	}
@@ -353,12 +362,13 @@ func (core *coreRuntime) loadConfig(input []byte) coreResult {
 	if core.phase == phaseRunning {
 		return failureResult(statusConflict, "configuration cannot change while running")
 	}
-	parsed, digest, err := parseConfig(input)
+	parsed, digest, routeGroups, err := parseConfig(input)
 	if err != nil {
 		return failureResult(statusConfigRejected, "configuration is invalid or violates the mobile boundary")
 	}
 	core.loaded = parsed
 	core.configDigest = digest
+	core.routeGroups = routeGroups
 	core.routeCommands = nil
 	core.routeOrder = nil
 	core.publishLocked("configuration-loaded", map[string]any{"configSha256": digest})
@@ -634,7 +644,7 @@ func (core *coreRuntime) snapshot(input []byte) coreResult {
 			proxies = core.loaded.Proxies
 			mode = core.loaded.General.Mode
 		}
-		return successResult(routesSnapshot(limit, proxies, mode.String()))
+		return successResult(routesSnapshot(limit, proxies, mode.String(), core.routeGroups))
 	case "traffic":
 		return successResult(trafficSnapshot())
 	case "connections":
@@ -650,11 +660,8 @@ type routeGroupSnapshot struct {
 	Candidates []string `json:"candidates"`
 }
 
-func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string) map[string]any {
-	names := make([]string, 0, len(proxies))
-	for name := range proxies {
-		names = append(names, name)
-	}
+func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string, configuredGroups []string) map[string]any {
+	names := append([]string(nil), configuredGroups...)
 	sort.Strings(names)
 	groups := make([]routeGroupSnapshot, 0, min(limit, len(names)))
 	truncated := false

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/metacubex/mihomo/config"
-	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 )
 
@@ -76,7 +75,7 @@ func TestCoreLoadsBytesAndPublishesBoundedEvents(t *testing.T) {
 	if initialized.status != statusOK {
 		t.Fatalf("initialize: %s", initialized.payload)
 	}
-	if _, _, err := parseConfig([]byte(fixtureConfig)); err != nil {
+	if _, _, _, err := parseConfig([]byte(fixtureConfig)); err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
 	loaded := core.loadConfig([]byte(fixtureConfig))
@@ -93,8 +92,8 @@ func TestCoreLoadsBytesAndPublishesBoundedEvents(t *testing.T) {
 	}
 	routes := core.snapshot([]byte(`{"kind":"routes","limit":512}`))
 	if routes.status != statusOK ||
-		!strings.Contains(string(routes.payload), `"name":"GLOBAL"`) ||
-		!strings.Contains(string(routes.payload), `"selected":"DIRECT"`) {
+		!strings.Contains(string(routes.payload), `"groups":[]`) ||
+		strings.Contains(string(routes.payload), `"name":"GLOBAL"`) {
 		t.Fatalf("inactive committed routes snapshot: %s", routes.payload)
 	}
 	command := core.command([]byte(`{"operation":"close-all-connections"}`))
@@ -132,7 +131,7 @@ proxy-groups:
 rules:
   - MATCH,REJECT
 `
-	polluted, _, err := parseConfig([]byte(pollutedConfig))
+	polluted, _, _, err := parseConfig([]byte(pollutedConfig))
 	if err != nil {
 		t.Fatalf("parse polluted global tunnel fixture: %v", err)
 	}
@@ -161,26 +160,33 @@ rules:
 }
 
 func TestRoutesSnapshotTruncatesOnlyOmittedPolicyGroups(t *testing.T) {
-	parsed, _, err := parseConfig([]byte(routeConfig))
+	configWithGroups := func(groupCount int) []byte {
+		var raw strings.Builder
+		raw.WriteString("mode: rule\nproxies:\n  - name: Ordinary\n    type: socks5\n    server: 127.0.0.1\n    port: 1080\nproxy-groups:\n")
+		for index := range groupCount {
+			fmt.Fprintf(&raw, "  - name: Group-%03d\n    type: select\n    proxies: [DIRECT, REJECT]\n", index)
+		}
+		raw.WriteString("rules:\n  - MATCH,DIRECT\n")
+		return []byte(raw.String())
+	}
+
+	parsed, _, configured, err := parseConfig(configWithGroups(512))
 	if err != nil {
 		t.Fatalf("parse boundary fixture: %v", err)
 	}
-	proxies := make(map[string]C.Proxy, 514)
-	for index := range 512 {
-		proxies[fmt.Sprintf("Group-%03d", index)] = parsed.Proxies["Proxy"]
-	}
-	proxies["Ordinary"] = parsed.Proxies["DIRECT"]
-
-	completeSnapshot := routesSnapshot(512, proxies, parsed.General.Mode.String())
+	completeSnapshot := routesSnapshot(512, parsed.Proxies, parsed.General.Mode.String(), configured)
 	if completeSnapshot["truncated"] != false {
-		t.Fatal("ordinary proxies made a complete policy-group snapshot appear truncated")
+		t.Fatal("built-ins made a complete configured policy-group snapshot appear truncated")
 	}
 	if groups := completeSnapshot["groups"].([]routeGroupSnapshot); len(groups) != 512 {
 		t.Fatalf("complete policy-group count = %d", len(groups))
 	}
 
-	proxies["Group-overflow"] = parsed.Proxies["Proxy"]
-	overflowSnapshot := routesSnapshot(512, proxies, parsed.General.Mode.String())
+	overflow, _, overflowGroups, err := parseConfig(configWithGroups(513))
+	if err != nil {
+		t.Fatalf("parse overflow fixture: %v", err)
+	}
+	overflowSnapshot := routesSnapshot(512, overflow.Proxies, overflow.General.Mode.String(), overflowGroups)
 	if overflowSnapshot["truncated"] != true {
 		t.Fatal("omitted policy group was not reported as truncated")
 	}
