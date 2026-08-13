@@ -249,3 +249,21 @@ func TestRouteSelectionIsAuthoritativeIdempotentAndStaleSafe(t *testing.T) {
 		t.Fatalf("rejected commands mutated sequence: %d != %d", core.sequence, selectedSequence)
 	}
 }
+
+func TestClosedConnectionIdentifierAndInactiveMutationFailClosed(t *testing.T) {
+	for _, identifier := range []string{"connection-a", "A_1.stable"} {
+		if !validConnectionID(identifier) {
+			t.Fatalf("expected %q to be a valid stable ID", identifier)
+		}
+	}
+	for _, identifier := range []string{"", "connection/a", strings.Repeat("a", 129)} {
+		if validConnectionID(identifier) {
+			t.Fatalf("expected %q to be rejected", identifier)
+		}
+	}
+	core := &coreRuntime{phase: phaseInactive, initialized: true}
+	request := []byte(`{"connectionId":"connection-a","eventSequence":"1","sessionId":"session-a"}`)
+	if result := core.closeConnection(request); result.status != statusConflict {
+		t.Fatalf("inactive close status = %d", result.status)
+	}
+}

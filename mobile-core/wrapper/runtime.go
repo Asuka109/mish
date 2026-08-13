@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/component/dialer"
@@ -230,6 +231,12 @@ type routeCommandRecord struct {
 	Group            string
 	CurrentChild     string
 	Selection        string
+}
+
+type closeConnectionRequest struct {
+	ConnectionID  string `json:"connectionId"`
+	EventSequence string `json:"eventSequence"`
+	SessionID     string `json:"sessionId"`
 }
 
 type pollEventsRequest struct {
@@ -648,7 +655,7 @@ func (core *coreRuntime) snapshot(input []byte) coreResult {
 	case "traffic":
 		return successResult(trafficSnapshot())
 	case "connections":
-		return successResult(connectionsSnapshot(limit))
+		return successResult(connectionsSnapshot(limit, core.sequence, core.session))
 	default:
 		return failureResult(statusUnsupported, "snapshot kind is unsupported")
 	}
@@ -700,15 +707,34 @@ func trafficSnapshot() map[string]any {
 }
 
 type connectionSnapshot struct {
-	ID       string `json:"id"`
-	Network  string `json:"network"`
-	Host     string `json:"host"`
-	Rule     string `json:"rule"`
-	Upload   string `json:"uploadBytes"`
-	Download string `json:"downloadBytes"`
+	DestinationHost    *string  `json:"destinationHost"`
+	DestinationIP      *string  `json:"destinationIp"`
+	DestinationPort    uint16   `json:"destinationPort"`
+	Download           string   `json:"downloadBytes"`
+	ID                 string   `json:"id"`
+	MatchedRulePayload string   `json:"matchedRulePayload"`
+	MatchedRuleType    string   `json:"matchedRuleType"`
+	Network            string   `json:"network"`
+	ProcessName        *string  `json:"processName"`
+	Protocol           string   `json:"protocol"`
+	ProviderChain      []string `json:"providerChain"`
+	RemoteDestination  *string  `json:"remoteDestination"`
+	RouteChain         []string `json:"routeChain"`
+	SniffHost          *string  `json:"sniffHost"`
+	SourcePort         uint16   `json:"sourcePort"`
+	StartedAt          string   `json:"startedAt"`
+	Upload             string   `json:"uploadBytes"`
 }
 
-func connectionsSnapshot(limit int) map[string]any {
+func optionalBoundedString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	copy := value
+	return &copy
+}
+
+func connectionsSnapshot(limit int, eventSequence uint64, sessionID string) map[string]any {
 	connections := make([]connectionSnapshot, 0, limit)
 	total := 0
 	statistic.DefaultManager.Range(func(tracker statistic.Tracker) bool {
@@ -717,19 +743,100 @@ func connectionsSnapshot(limit int) map[string]any {
 			return true
 		}
 		info := tracker.Info()
-		host := info.Metadata.Host
-		if host == "" {
-			host = info.Metadata.DstIP.String()
+		destinationIP := ""
+		if info.Metadata.DstIP.IsValid() {
+			destinationIP = info.Metadata.DstIP.String()
+		}
+		routeChain := append([]string(nil), info.Chain...)
+		// Mihomo records the final exit first. The shared Mish Traffic contract
+		// is front selection to final exit and every consumer receives it once.
+		for left, right := 0, len(routeChain)-1; left < right; left, right = left+1, right-1 {
+			routeChain[left], routeChain[right] = routeChain[right], routeChain[left]
 		}
 		connections = append(connections, connectionSnapshot{
-			ID: tracker.ID(), Network: info.Metadata.NetWork.String(), Host: host, Rule: info.Rule,
-			Upload:   strconv.FormatInt(info.UploadTotal.Load(), 10),
-			Download: strconv.FormatInt(info.DownloadTotal.Load(), 10),
+			DestinationHost:    optionalBoundedString(info.Metadata.Host),
+			DestinationIP:      optionalBoundedString(destinationIP),
+			DestinationPort:    info.Metadata.DstPort,
+			Download:           strconv.FormatInt(max(0, info.DownloadTotal.Load()), 10),
+			ID:                 tracker.ID(),
+			MatchedRulePayload: info.RulePayload,
+			MatchedRuleType:    info.Rule,
+			Network:            info.Metadata.NetWork.String(),
+			ProcessName:        optionalBoundedString(info.Metadata.Process),
+			Protocol:           info.Metadata.Type.String(),
+			ProviderChain:      append([]string(nil), info.ProviderChain...),
+			RemoteDestination:  optionalBoundedString(info.Metadata.RemoteDst),
+			RouteChain:         routeChain,
+			SniffHost:          optionalBoundedString(info.Metadata.SniffHost),
+			SourcePort:         info.Metadata.SrcPort,
+			StartedAt:          info.Start.UTC().Format(time.RFC3339Nano),
+			Upload:             strconv.FormatInt(max(0, info.UploadTotal.Load()), 10),
 		})
 		return true
 	})
 	sort.Slice(connections, func(left, right int) bool { return connections[left].ID < connections[right].ID })
-	return map[string]any{"connections": connections, "truncated": total > len(connections)}
+	return map[string]any{
+		"connections":   connections,
+		"eventSequence": strconv.FormatUint(eventSequence, 10),
+		"running":       sessionID != "",
+		"sessionId":     sessionID,
+		"truncated":     total > len(connections),
+	}
+}
+
+func validConnectionID(connectionID string) bool {
+	if len(connectionID) == 0 || len(connectionID) > 128 {
+		return false
+	}
+	for _, character := range connectionID {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' || character == '_' || character == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func (core *coreRuntime) closeConnection(input []byte) coreResult {
+	var request closeConnectionRequest
+	if err := decodeStrict(input, &request); err != nil ||
+		!validConnectionID(request.ConnectionID) ||
+		!validConnectionID(request.SessionID) {
+		return failureResult(statusInvalidArgument, "connection identifier is invalid")
+	}
+	expectedSequence, err := strconv.ParseUint(request.EventSequence, 10, 64)
+	if err != nil {
+		return failureResult(statusInvalidArgument, "event sequence is invalid")
+	}
+	core.mutex.Lock()
+	defer core.mutex.Unlock()
+	if !core.initialized {
+		return failureResult(statusNotInitialized, "core must be initialized before commands")
+	}
+	if core.phase != phaseRunning {
+		return failureResult(statusConflict, "commands require a running Core")
+	}
+	if request.SessionID != core.session || expectedSequence != core.sequence {
+		return successResult(map[string]any{
+			"failure":  "stale-connection",
+			"snapshot": connectionsSnapshot(maximumItems, core.sequence, core.session),
+		})
+	}
+	failure := any(nil)
+	connection := statistic.DefaultManager.Get(request.ConnectionID)
+	if connection == nil {
+		failure = "stale-connection"
+	} else if err := connection.Close(); err != nil {
+		failure = "core-failure"
+	} else {
+		core.publishLocked("connection-closed", map[string]any{"connectionId": request.ConnectionID})
+	}
+	return successResult(map[string]any{
+		"failure":  failure,
+		"snapshot": connectionsSnapshot(maximumItems, core.sequence, core.session),
+	})
 }
 
 func (core *coreRuntime) command(input []byte) coreResult {

@@ -15,6 +15,7 @@ export interface ClosedTrafficConnection extends TrafficConnectionDto {
 
 interface ActiveBaseline {
   connections: Map<string, TrafficConnectionDto>;
+  profileId: string;
   sequence: number;
   sessionId: string;
 }
@@ -57,8 +58,12 @@ export function reconcileTrafficSnapshot(
   }
 
   const nextBaseline = createBaseline(snapshot);
-  if (!state.baseline || state.baseline.sessionId !== snapshot.sessionId) {
-    return { baseline: nextBaseline, closed };
+  if (
+    !state.baseline ||
+    state.baseline.profileId !== snapshot.profileId ||
+    state.baseline.sessionId !== snapshot.sessionId
+  ) {
+    return { baseline: nextBaseline, closed: [] };
   }
   if (snapshot.sequence <= state.baseline.sequence) {
     return { baseline: state.baseline, closed };
@@ -155,6 +160,7 @@ function createBaseline(snapshot: TrafficDataSnapshotDto): ActiveBaseline {
     connections: new Map(
       snapshot.activeConnections.map((connection) => [connection.id, structuredClone(connection)]),
     ),
+    profileId: snapshot.profileId,
     sequence: snapshot.sequence,
     sessionId: snapshot.sessionId ?? "",
   };

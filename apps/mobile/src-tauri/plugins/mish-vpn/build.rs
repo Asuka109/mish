@@ -1,6 +1,8 @@
 const COMMANDS: &[&str] = &[
     "get_snapshot",
     "get_core_provenance",
+    "get_traffic_snapshot",
+    "close_traffic_connection",
     "get_route_snapshot",
     "select_route_child",
     "cancel_route_selection",

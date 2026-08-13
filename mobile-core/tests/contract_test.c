@@ -60,6 +60,9 @@ int main(void) {
       "\"addresses\":[\"172.19.0.1/30\"],\"dnsHijack\":[],\"mtu\":1500}";
   const char *status_snapshot = "{\"kind\":\"status\"}";
   const char *routes_snapshot = "{\"kind\":\"routes\",\"limit\":512}";
+  const char *connections_snapshot = "{\"kind\":\"connections\",\"limit\":512}";
+  const char *connection_close =
+      "{\"connectionId\":\"fixture-connection-current\",\"eventSequence\":\"2\",\"sessionId\":\"session-1\"}";
   const char *set_mode =
       "{\"operation\":\"set-routing-mode\",\"mode\":\"global\"}";
   const char *select_beta =
@@ -132,6 +135,26 @@ int main(void) {
 
   assert(mish_core_start_v1((uint8_t *)other_start, strlen(other_start),
                             &response) == MISH_CORE_CONFLICT_V1);
+  release(&response);
+
+  assert(mish_core_snapshot_v1((uint8_t *)connections_snapshot,
+                               strlen(connections_snapshot), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "fixture-connection-current"));
+  assert(!contains(&response, "sourceIp"));
+  assert(!contains(&response, "processPath"));
+  release(&response);
+  assert(mish_core_close_connection_v1((uint8_t *)connection_close,
+                                       strlen(connection_close), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "\"failure\":null"));
+  assert(contains(&response, "\"connections\":[]"));
+  release(&response);
+  assert(mish_core_close_connection_v1((uint8_t *)connection_close,
+                                       strlen(connection_close), &response) ==
+         MISH_CORE_OK_V1);
+  assert(contains(&response, "stale-connection"));
+  assert(contains(&response, "\"connections\":[]"));
   release(&response);
 
   assert(mish_core_command_v1((uint8_t *)set_mode, strlen(set_mode),

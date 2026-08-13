@@ -135,6 +135,15 @@ Commands form a closed set:
 - `close-connection` with one current connection identifier; and
 - `close-all-connections`.
 
+Android Traffic does not bind the generic command symbol. It binds the additive
+`mish_core_close_connection_v1` entry point, whose input is one bounded stable
+connection ID plus the immediately preceding native session/event sequence.
+Mobile Core revalidates that pair under its runtime mutex before mutation. Its
+response contains only a closed failure value plus the post-operation
+authoritative connections snapshot. This keeps Kotlin/JNI a
+snapshot/close adapter and prevents a generic Mobile Core command surface from
+entering the mobile product.
+
 There is no generic Mihomo action, URL, filesystem path, shell command, or
 Controller endpoint. Commands require a running Core and return an authoritative
 status after mutation.

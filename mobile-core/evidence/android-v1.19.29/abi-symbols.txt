@@ -1,4 +1,5 @@
 mish_core_abi_version_v1
+mish_core_close_connection_v1
 mish_core_command_v1
 mish_core_free_buffer_v1
 mish_core_initialize_v1

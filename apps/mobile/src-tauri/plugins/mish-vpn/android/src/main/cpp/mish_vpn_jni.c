@@ -95,6 +95,36 @@ static jintArray runtime_array(JNIEnv *environment,
   return array;
 }
 
+static int closed_identifier(const char *value, size_t maximum) {
+  size_t length;
+  size_t index;
+  if (value == NULL) return 0;
+  length = strlen(value);
+  if (length == 0 || length > maximum) return 0;
+  for (index = 0; index < length; index++) {
+    char character = value[index];
+    if (!((character >= 'a' && character <= 'z') ||
+          (character >= 'A' && character <= 'Z') ||
+          (character >= '0' && character <= '9') || character == '-' ||
+          character == '_' || character == '.')) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int decimal_identifier(const char *value, size_t maximum) {
+  size_t length;
+  size_t index;
+  if (value == NULL) return 0;
+  length = strlen(value);
+  if (length == 0 || length > maximum) return 0;
+  for (index = 0; index < length; index++) {
+    if (value[index] < '0' || value[index] > '9') return 0;
+  }
+  return 1;
+}
+
 static void load_core(void) {
   core_handle = dlopen("libmish_mobile_core.so", RTLD_NOW | RTLD_LOCAL);
   if (core_handle == NULL) {
@@ -115,6 +145,8 @@ static void load_core(void) {
       (MishVpnCoreSnapshotFn)dlsym(core_handle, "mish_core_snapshot_v1");
   core_api.command =
       (MishVpnCoreCommandFn)dlsym(core_handle, "mish_core_command_v1");
+  core_api.close_connection = (MishVpnCoreCloseConnectionFn)dlsym(
+      core_handle, "mish_core_close_connection_v1");
   core_api.free_buffer =
       (MishVpnCoreFreeBufferFn)dlsym(core_handle, "mish_core_free_buffer_v1");
   core_version = (MishCoreVersionFn)dlsym(core_handle, "mish_core_version_v1");
@@ -122,6 +154,7 @@ static void load_core(void) {
       core_api.validate_config == NULL || core_api.free_buffer == NULL ||
       core_api.load_config == NULL || core_api.snapshot == NULL ||
       core_api.command == NULL ||
+      core_api.close_connection == NULL ||
       core_api.start == NULL || core_api.stop == NULL ||
       core_version == NULL) {
     memset(&core_api, 0, sizeof(core_api));
@@ -242,6 +275,96 @@ cleanup:
     (*environment)->DeleteLocalRef(environment, byte_array_class);
   }
   return output;
+}
+
+static jbyteArray invoke_json_envelope(JNIEnv *environment,
+                                       int32_t (*operation)(uint8_t *, uint64_t,
+                                                            MishCoreBufferV1 *),
+                                       const char *request) {
+  MishCoreBufferV1 response = {0};
+  jbyteArray result = NULL;
+  if (operation == NULL || request == NULL || core_api.free_buffer == NULL) {
+    return NULL;
+  }
+  int32_t status = operation((uint8_t *)request, strlen(request), &response);
+  if (response.data == NULL || response.length == 0 ||
+      response.length > MISH_CORE_MAX_RESPONSE_BYTES_V1) {
+    goto cleanup;
+  }
+  if (status >= MISH_CORE_OK_V1 && status <= MISH_CORE_FAILURE_V1) {
+    result = (*environment)->NewByteArray(environment, (jsize)response.length);
+    if (result != NULL) {
+      (*environment)->SetByteArrayRegion(environment, result, 0,
+                                         (jsize)response.length,
+                                         (const jbyte *)response.data);
+      if ((*environment)->ExceptionCheck(environment)) {
+        (*environment)->DeleteLocalRef(environment, result);
+        result = NULL;
+      }
+    }
+  }
+cleanup:
+  /* Every native response buffer crosses this cleanup point exactly once. */
+  core_api.free_buffer(&response);
+  return result;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeTrafficSnapshot(
+    JNIEnv *environment, jobject instance) {
+  jbyteArray result;
+  (void)instance;
+  pthread_once(&core_once, load_core);
+  pthread_mutex_lock(&core_mutex);
+  result = invoke_json_envelope(environment, core_api.snapshot,
+                                "{\"kind\":\"connections\",\"limit\":512}");
+  pthread_mutex_unlock(&core_mutex);
+  return result;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeCloseTrafficConnection(
+    JNIEnv *environment, jobject instance, jstring connection_id,
+    jstring event_sequence, jstring session_id) {
+  const char *connection = NULL;
+  const char *sequence = NULL;
+  const char *session = NULL;
+  char request[512];
+  jbyteArray result;
+  (void)instance;
+  if (connection_id == NULL || event_sequence == NULL || session_id == NULL)
+    return NULL;
+  connection = (*environment)->GetStringUTFChars(environment, connection_id, NULL);
+  sequence = (*environment)->GetStringUTFChars(environment, event_sequence, NULL);
+  session = (*environment)->GetStringUTFChars(environment, session_id, NULL);
+  if (!closed_identifier(connection, 128) || !decimal_identifier(sequence, 20) ||
+      !closed_identifier(session, 128)) {
+    if (connection != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+    if (sequence != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+    if (session != NULL)
+      (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+    return NULL;
+  }
+  int written = snprintf(
+      request, sizeof(request),
+      "{\"connectionId\":\"%s\",\"eventSequence\":\"%s\",\"sessionId\":\"%s\"}",
+      connection, sequence, session);
+  if (written < 0 || (size_t)written >= sizeof(request)) {
+    (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+    (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+    (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+    return NULL;
+  }
+  pthread_once(&core_once, load_core);
+  pthread_mutex_lock(&core_mutex);
+  result = invoke_json_envelope(environment, core_api.close_connection, request);
+  pthread_mutex_unlock(&core_mutex);
+  (*environment)->ReleaseStringUTFChars(environment, connection_id, connection);
+  (*environment)->ReleaseStringUTFChars(environment, event_sequence, sequence);
+  (*environment)->ReleaseStringUTFChars(environment, session_id, session);
+  return result;
 }
 
 JNIEXPORT jint JNICALL

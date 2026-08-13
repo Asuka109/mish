@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { TooltipProvider } from "@mish/ui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -20,15 +20,25 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderTraffic(client: FixtureTrafficClient, locale: Locales = "en") {
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location-probe">{`${location.pathname}${location.search}`}</output>;
+}
+
+function renderTraffic(
+  client: FixtureTrafficClient,
+  locale: Locales = "en",
+  initialEntry = "/traffic",
+) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale={locale}>
-        <MemoryRouter initialEntries={["/traffic"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <ProductProvider>
             <TrafficProvider client={client}>
               <TooltipProvider>
                 <AppRoutes />
+                <LocationProbe />
               </TooltipProvider>
             </TrafficProvider>
           </ProductProvider>
@@ -168,6 +178,16 @@ afterEach(() => {
 });
 
 describe("Traffic page", () => {
+  it("preserves the requested Traffic tab when the initial baseline arrives", async () => {
+    renderTraffic(new FixtureTrafficClient(), "en", "/traffic?tab=rules");
+
+    expect(await screen.findByRole("button", { name: /Rules/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("DomainSuffix")).toBeVisible();
+  });
+
   it("keeps the search placeholder concise and explains structured filters on demand", async () => {
     const user = userEvent.setup();
     renderTraffic(new FixtureTrafficClient());
@@ -340,6 +360,64 @@ describe("Traffic page", () => {
     expect(screen.queryByText("docs.fixture.invalid")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Closed/ }));
     expect(await screen.findByText("docs.fixture.invalid")).toBeVisible();
+  });
+
+  it("resets Traffic view-local filters, selection, and confirmation on replacement", async () => {
+    const user = userEvent.setup();
+    const client = await commandClient();
+    renderTraffic(client);
+    const search = await screen.findByRole("textbox", { name: "Search Traffic" });
+    await user.type(search, "process:browser");
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    await user.click(
+      within(row).getByRole("button", { name: /Connection details.*docs\.fixture\.invalid/ }),
+    );
+    expect(screen.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    await user.click(within(row).getByRole("button", { name: "Close" }));
+    expect(
+      screen.getByRole("alertdialog", { name: "Close this active connection?" }),
+    ).toBeVisible();
+
+    const current = await client.getSnapshot();
+    client.publishSnapshot({
+      ...current,
+      profileId: "replacement-profile",
+      sequence: 1,
+      sessionId: "replacement-session",
+    });
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(search).toHaveValue("");
+    expect(screen.queryByRole("dialog", { name: "Connection details" })).not.toBeInTheDocument();
+  });
+
+  it("synchronizes the tab query when replacement resets the view", async () => {
+    const client = await commandClient();
+    renderTraffic(client, "en", "/traffic?tab=rules");
+    expect(await screen.findByRole("button", { name: /Rules/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const current = await client.getSnapshot();
+    client.publishSnapshot({
+      ...current,
+      profileId: "replacement-profile",
+      sequence: 1,
+      sessionId: "replacement-session",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Active / })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("location-probe")).toHaveTextContent("/traffic");
+      expect(screen.getByTestId("location-probe")).not.toHaveTextContent("tab=");
+    });
   });
 
   it("closes all current active connections regardless of filters and supports keyboard cancel", async () => {

@@ -113,8 +113,11 @@ describe("mobile native fixture bootstrap", () => {
     });
 
     expect(startup.client).toBe(mobileStatusClient);
+    if (!startup.trafficClient) throw new Error("Missing mobile Traffic client");
+    const disposeTraffic = vi.spyOn(startup.trafficClient, "dispose");
     startup.dispose();
     expect(disposeStatus).toHaveBeenCalledOnce();
+    expect(disposeTraffic).toHaveBeenCalledOnce();
   });
 
   it("refreshes the authoritative Routes baseline after a native config commit", async () => {

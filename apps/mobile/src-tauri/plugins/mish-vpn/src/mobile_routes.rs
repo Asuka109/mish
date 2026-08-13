@@ -249,6 +249,10 @@ impl MobileRouteAuthority {
         &self.runtime_authority
     }
 
+    pub(crate) fn profile_id(&self) -> &str {
+        &self.catalog.profile_id
+    }
+
     pub(crate) fn rebind_inactive_runtime(
         &mut self,
         runtime_authority: String,

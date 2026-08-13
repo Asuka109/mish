@@ -14,6 +14,14 @@ bounded stable-ID set matching the current filter, and close all connections
 active in the current authoritative snapshot. All three commands are unavailable
 in the browser fixture, which never reports desktop mutation success.
 
+Android supports only the single-current-connection command in this contract.
+Shared Rust owns its native Traffic session, Profile/runtime authority,
+monotonic sequence, stable-ID revalidation, bounded idempotency ledger, and
+ordered authoritative result. Kotlin/JNI and Mobile Core expose no Traffic
+store, loopback bridge, Controller endpoint, close-all, or filtered-close path.
+Native projection additionally redacts source IP and process path before the
+snapshot reaches React; route chains are normalized once in Mobile Core.
+
 The detailed Traffic workspace authority remains independent from Status
 `recentTraffic`. Its `profileId + sessionId + sequence` identifies one
 Controller observation session and command target. `recentTraffic` instead

@@ -1162,6 +1162,28 @@ export const TrafficCommandResultSchema = z
   });
 export interface TrafficCommandResultDto extends z.infer<typeof TrafficCommandResultSchema> {}
 
+export const MobileTrafficCommandResultSchema = TrafficCommandResultSchema.safeExtend({
+  operationId: IdentifierSchema.max(128),
+}).superRefine((result, context) => {
+  if (result.operation !== "close-connection") {
+    context.addIssue({
+      code: "custom",
+      message: "Mobile Traffic only supports closing one current connection",
+      path: ["operation"],
+    });
+  }
+  if (result.snapshot.adapterKind !== "native") {
+    context.addIssue({
+      code: "custom",
+      message: "Mobile Traffic results require a native snapshot",
+      path: ["snapshot", "adapterKind"],
+    });
+  }
+});
+export interface MobileTrafficCommandResultDto extends z.infer<
+  typeof MobileTrafficCommandResultSchema
+> {}
+
 export const RpcTrafficCommandResultSchema = TrafficCommandResultSchema.superRefine(
   (result, context) => {
     if (result.snapshot.adapterKind === "rpc") return;
@@ -4224,7 +4246,7 @@ export interface TrafficClient {
   closeConnection(
     authority: TrafficCommandAuthorityDto,
     connectionId: string,
-    options?: { signal?: AbortSignal },
+    options?: { operationId?: string; signal?: AbortSignal },
   ): Promise<TrafficCommandResultDto>;
   closeFilteredVisible(
     authority: TrafficCommandAuthorityDto,
@@ -4241,7 +4263,10 @@ export interface TrafficClient {
   supportsCommand(command: TrafficCommandOperation): boolean;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
   subscribeSnapshots(
-    listener: (snapshot: TrafficDataSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+    listener: (
+      snapshot: TrafficDataSnapshotDto,
+      delivery?: ApplicationSnapshotDelivery | "command",
+    ) => void,
   ): () => void;
 }
 

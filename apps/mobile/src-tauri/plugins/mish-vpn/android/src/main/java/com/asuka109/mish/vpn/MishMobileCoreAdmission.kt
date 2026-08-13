@@ -192,6 +192,8 @@ internal enum class MobileCoreEffectOperation {
     START,
     STOP,
     INSPECT_RUNTIME,
+    TRAFFIC_SNAPSHOT,
+    TRAFFIC_CLOSE,
 }
 
 internal data class MobileCoreAdmissionInvocation(
