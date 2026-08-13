@@ -9,9 +9,7 @@ use futures_util::{
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsCommand, MacOsCommandError, MacOsCommandOutput,
-    MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform, MacOsSystemProxyRestoreAdapter,
-    MacOsSystemProxyRestoreFailureKind, MacOsSystemProxyRestoreField,
-    MacOsSystemProxyRestoreOutcome, MacOsSystemProxyRestoreStep,
+    MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform,
 };
 use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -19,7 +17,6 @@ use mish_runtime::{
 };
 use serde::Deserialize;
 use tokio::sync::Barrier;
-use tokio_util::sync::CancellationToken;
 
 const REAL_PLATFORM_TRANSCRIPT: &str = include_str!(
     "../../../docs/quality/fixtures/macos-platform-transcripts/system-proxy-macos26-arm64.json"
@@ -258,44 +255,6 @@ impl MacOsCommandRunner for FixtureRunner {
         Box::pin(ready(Ok(MacOsCommandOutput {
             stdout: stdout.into(),
         })))
-    }
-}
-
-struct RestoreAdapterFixture {
-    calls: Mutex<Vec<(String, Vec<MacOsSystemProxyRestoreField>, CancellationToken)>>,
-    outcome: MacOsSystemProxyRestoreOutcome,
-}
-
-impl RestoreAdapterFixture {
-    fn new(outcome: MacOsSystemProxyRestoreOutcome) -> Self {
-        Self {
-            calls: Mutex::new(Vec::new()),
-            outcome,
-        }
-    }
-
-    fn calls(&self) -> Vec<(String, Vec<MacOsSystemProxyRestoreField>)> {
-        self.calls
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|(service, fields, _)| (service.clone(), fields.clone()))
-            .collect()
-    }
-}
-
-impl MacOsSystemProxyRestoreAdapter for RestoreAdapterFixture {
-    fn restore_exact_fields(
-        &self,
-        service: String,
-        fields: Vec<MacOsSystemProxyRestoreField>,
-        cancellation: CancellationToken,
-    ) -> BoxFuture<'_, MacOsSystemProxyRestoreOutcome> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push((service, fields, cancellation));
-        Box::pin(ready(self.outcome.clone()))
     }
 }
 
@@ -645,68 +604,16 @@ fn blank_disabled_restore_target() -> NetworkServiceProxyState {
 }
 
 #[tokio::test]
-async fn exact_restore_is_routed_through_the_injected_adapter_without_host_processes() {
+async fn blank_disabled_proxy_state_never_enters_privileged_exact_restore() {
     let runner = Arc::new(FixtureRunner::new());
-    let restore = Arc::new(RestoreAdapterFixture::new(
-        MacOsSystemProxyRestoreOutcome::Restored {
-            completed_steps: vec![
-                MacOsSystemProxyRestoreStep::Preferences,
-                MacOsSystemProxyRestoreStep::DynamicStore,
-            ],
-        },
-    ));
-    let platform =
-        MacOsSystemProxyPlatform::with_runner_and_restore_adapter(runner.clone(), restore.clone());
+    let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
 
     platform
         .apply_service(blank_disabled_restore_target())
         .await
         .unwrap();
 
-    assert_eq!(
-        restore.calls(),
-        vec![(
-            "Fixture Service".into(),
-            vec![
-                MacOsSystemProxyRestoreField::AutoDiscoveryEnable,
-                MacOsSystemProxyRestoreField::HttpEnable,
-                MacOsSystemProxyRestoreField::HttpPort,
-                MacOsSystemProxyRestoreField::HttpProxy,
-                MacOsSystemProxyRestoreField::HttpsEnable,
-                MacOsSystemProxyRestoreField::HttpsPort,
-                MacOsSystemProxyRestoreField::HttpsProxy,
-                MacOsSystemProxyRestoreField::PacEnable,
-                MacOsSystemProxyRestoreField::PacUrl,
-                MacOsSystemProxyRestoreField::SocksEnable,
-                MacOsSystemProxyRestoreField::SocksPort,
-                MacOsSystemProxyRestoreField::SocksProxy,
-            ],
-        )]
-    );
-    assert_eq!(runner.commands.lock().unwrap().len(), 9);
-}
-
-#[tokio::test]
-async fn partial_restore_outcome_stops_apply_without_exposing_host_details() {
-    let runner = Arc::new(FixtureRunner::new());
-    let restore = Arc::new(RestoreAdapterFixture::new(
-        MacOsSystemProxyRestoreOutcome::PartiallyRestored {
-            completed_steps: vec![MacOsSystemProxyRestoreStep::Preferences],
-            failed_step: Some(MacOsSystemProxyRestoreStep::DynamicStore),
-            failure: MacOsSystemProxyRestoreFailureKind::TimedOut,
-        },
-    ));
-    let platform =
-        MacOsSystemProxyPlatform::with_runner_and_restore_adapter(runner, restore.clone());
-
-    let error = platform
-        .apply_service(blank_disabled_restore_target())
-        .await
-        .unwrap_err();
-
-    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
-    assert!(!error.to_string().contains("Fixture Service"));
-    assert_eq!(restore.calls().len(), 1);
+    assert_eq!(runner.commands.lock().unwrap().len(), 6);
 }
 
 #[tokio::test]
@@ -830,7 +737,17 @@ async fn assert_restart_recovers_after_write(
         .unwrap();
 
     assert_eq!(status.system_proxy.phase, SystemProxyPhase::Off);
-    assert_eq!(runner.state(), prior);
+    let restored = runner.state();
+    assert_eq!(
+        restored.auto_discovery_enabled,
+        prior.auto_discovery_enabled
+    );
+    assert_eq!(restored.bypass_domains, prior.bypass_domains);
+    assert_eq!(restored.http.enabled, prior.http.enabled);
+    assert_eq!(restored.https, prior.https);
+    assert_eq!(restored.pac_enabled, prior.pac_enabled);
+    assert_eq!(restored.service_id, prior.service_id);
+    assert_eq!(restored.socks.enabled, prior.socks.enabled);
     assert!(journal.load().unwrap().is_none());
 }
 
@@ -871,12 +788,6 @@ async fn applies_structured_manual_automatic_and_bypass_proxy_commands() {
             MacOsCommand::SetProxyState {
                 enabled: true,
                 kind: mish_platform_macos::MacOsProxyKind::Http,
-                service: "Fixture Service".into(),
-            },
-            MacOsCommand::SetProxy {
-                host: String::new(),
-                kind: mish_platform_macos::MacOsProxyKind::Https,
-                port: 0,
                 service: "Fixture Service".into(),
             },
             MacOsCommand::SetProxyState {
@@ -973,7 +884,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
     let prior = crash_fixture_prior();
     let target = crash_fixture_target(&prior);
 
-    for crash_after_write in 1..=9 {
+    for crash_after_write in 1..=8 {
         assert_restart_recovers_after_write(
             prior.clone(),
             target.clone(),
@@ -983,7 +894,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
         .await;
     }
 
-    for crash_after_write in 1..=9 {
+    for crash_after_write in 1..=6 {
         assert_restart_recovers_after_write(
             target.clone(),
             prior.clone(),
@@ -995,7 +906,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
 }
 
 #[tokio::test]
-async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
+async fn disabled_semantic_restore_leaves_irrelevant_host_port_and_pac_url_residue() {
     let runner = Arc::new(FixtureRunner::new());
     let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
     let populated_disabled = ManualProxyState {
@@ -1020,27 +931,22 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
         .unwrap();
 
     let commands = runner.commands.lock().unwrap();
-    assert_eq!(commands.len(), 9);
-    for pair in commands[..6].chunks_exact(2) {
-        assert!(matches!(
-            &pair[0],
-            MacOsCommand::SetProxy { host, port: 3128, .. } if host == "prior.proxy.example"
-        ));
-        assert!(matches!(
-            pair[1],
-            MacOsCommand::SetProxyState { enabled: false, .. }
-        ));
-    }
+    assert_eq!(commands.len(), 6);
+    assert!(
+        commands[..3]
+            .iter()
+            .all(|command| matches!(command, MacOsCommand::SetProxyState { enabled: false, .. }))
+    );
     assert!(matches!(
-        commands[6],
+        commands[3],
         MacOsCommand::SetAutoProxyState { enabled: false, .. }
     ));
     assert!(matches!(
-        commands[7],
+        commands[4],
         MacOsCommand::SetProxyAutoDiscovery { enabled: false, .. }
     ));
     assert!(matches!(
-        commands[8],
+        commands[5],
         MacOsCommand::SetProxyBypassDomains { .. }
     ));
 }
@@ -1067,6 +973,27 @@ fn command_specs_use_fixed_programs_and_separate_arguments() {
         ]
     );
     assert!(!spec.arguments.iter().any(|argument| argument == "-c"));
+}
+
+#[test]
+fn ordinary_system_proxy_sources_have_no_privileged_or_helper_effect_path() {
+    let source = include_str!("../src/lib.rs");
+    let start = source.find("impl MacOsSystemProxyPlatform").unwrap();
+    let end = source[start..]
+        .find("impl Default for MacOsSystemProxyPlatform")
+        .map_or(source.len(), |offset| start + offset);
+    let source = &source[start..end];
+    for forbidden in [
+        "/usr/bin/osascript",
+        "administrator privileges",
+        "MacOsSystemProxyRestoreAdapter",
+        "TunHelperLifecycleOperation",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "{forbidden} entered the System Proxy adapter"
+        );
+    }
 }
 
 #[test]

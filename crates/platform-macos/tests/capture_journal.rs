@@ -56,7 +56,7 @@ fn journal_is_private_bounded_and_contains_only_reversible_prior_state() {
 }
 
 #[test]
-fn journal_rejects_stale_or_foreign_envelopes_and_non_private_files() {
+fn journal_discards_obsolete_owned_envelopes_but_rejects_foreign_or_non_private_files() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("system-proxy-journal.json");
     let store = FileCaptureJournalStore::new(path.clone());
@@ -78,9 +78,8 @@ fn journal_rejects_stale_or_foreign_envelopes_and_non_private_files() {
     stored["version"] = 0.into();
     fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(store.load().is_err());
-    assert!(store.save(&journal).is_err());
-    fs::remove_file(&path).unwrap();
+    assert_eq!(store.load().unwrap(), None);
+    assert!(!path.exists());
 
     store.save(&journal).unwrap();
     let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();

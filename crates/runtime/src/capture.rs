@@ -227,11 +227,18 @@ impl ManualProxyState {
         self.takeover_rejection().is_none()
     }
 
+    fn semantically_matches(&self, expected: &Self) -> bool {
+        self.authenticated == expected.authenticated
+            && self.enabled == expected.enabled
+            && (!self.enabled || (self.host == expected.host && self.port == expected.port))
+    }
+
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
         (self.authenticated == prior.authenticated || self.authenticated == target.authenticated)
             && (self.enabled == prior.enabled || self.enabled == target.enabled)
-            && (self.host == prior.host || self.host == target.host)
-            && (self.port == prior.port || self.port == target.port)
+            && (!self.enabled
+                || ((self.host == prior.host || self.host == target.host)
+                    && (self.port == prior.port || self.port == target.port)))
     }
 }
 
@@ -310,6 +317,17 @@ impl NetworkServiceProxyState {
             .is_none()
     }
 
+    fn semantically_matches(&self, expected: &Self) -> bool {
+        self.auto_discovery_enabled == expected.auto_discovery_enabled
+            && self.bypass_domains == expected.bypass_domains
+            && self.http.semantically_matches(&expected.http)
+            && self.https.semantically_matches(&expected.https)
+            && self.pac_enabled == expected.pac_enabled
+            && (!self.pac_enabled || self.pac_url == expected.pac_url)
+            && self.service_id == expected.service_id
+            && self.socks.semantically_matches(&expected.socks)
+    }
+
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
         (self.auto_discovery_enabled == prior.auto_discovery_enabled
             || self.auto_discovery_enabled == target.auto_discovery_enabled)
@@ -322,7 +340,9 @@ impl NetworkServiceProxyState {
                 .https
                 .is_transaction_owned_between(&prior.https, &target.https)
             && (self.pac_enabled == prior.pac_enabled || self.pac_enabled == target.pac_enabled)
-            && (self.pac_url == prior.pac_url || self.pac_url == target.pac_url)
+            && (!self.pac_enabled
+                || self.pac_url == prior.pac_url
+                || self.pac_url == target.pac_url)
             && (self.service_id == prior.service_id || self.service_id == target.service_id)
             && self
                 .socks
@@ -835,7 +855,7 @@ impl SystemProxyReconciler {
         let observed = self.platform.preflight_observe_active().await?;
         if let Some(journal) = &journal {
             if journal.prior.service_id == observed.service_id
-                && observed != journal.prior.with_endpoint(&self.endpoint)
+                && !observed.semantically_matches(&journal.prior.with_endpoint(&self.endpoint))
             {
                 return Err(CaptureTransitionError::new(
                     CaptureFailureKind::ExternalDrift,
@@ -987,7 +1007,7 @@ impl SystemProxyReconciler {
         }
         if let Some(journal) = existing_journal {
             if journal.prior.service_id == prior.service_id {
-                if prior == journal.prior.with_endpoint(&self.endpoint) {
+                if prior.semantically_matches(&journal.prior.with_endpoint(&self.endpoint)) {
                     let status = CaptureRuntimeStatus {
                         capture_operation: CaptureOperationStatus::detached(),
                         capture_selection: request.selection,
@@ -1154,7 +1174,7 @@ impl SystemProxyReconciler {
             } else {
                 observation.await?
             };
-            if observed == *expected {
+            if observed.semantically_matches(expected) {
                 return Ok(observed);
             }
             if observed.service_id != expected.service_id {
@@ -1291,9 +1311,9 @@ impl SystemProxyReconciler {
             return Ok((failed, false));
         }
         if current.system_proxy.desired
-            && journal
-                .as_ref()
-                .is_some_and(|journal| observed == journal.prior.with_endpoint(&self.endpoint))
+            && journal.as_ref().is_some_and(|journal| {
+                observed.semantically_matches(&journal.prior.with_endpoint(&self.endpoint))
+            })
         {
             let mut confirmed = current;
             confirmed.system_proxy.failure = None;
@@ -2679,7 +2699,7 @@ impl CaptureReconciler {
     }
 
     /// Settings owns the durable choice; capture only reads the latest bounded policy when a
-    /// new System Proxy transaction begins.  Existing journals always restore exactly.
+    /// new System Proxy transaction begins. Existing journals restore the recorded semantics.
     pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
         self.system_proxy.set_takeover_policy(policy);
     }

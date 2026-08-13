@@ -315,25 +315,23 @@ state. Neither DTO exposes service names, prior proxy hosts, credentials, or the
 private journal.
 
 The transport-neutral Rust capture reconciler serializes mutations and records
-the exact prior enabled, host, port, and authentication fields for HTTP, HTTPS,
-and SOCKS, plus the PAC enabled state and URL, automatic-discovery state, and
-network-service identity required to decide whether a write is safe and
-reversible. Disabled manual proxies retain blank or populated fields instead of
-being normalized to one equivalent value. It will not overwrite enabled PAC,
-automatic discovery, or authenticated proxy configuration. Applying, restoring,
-and moving between active network services are transactions: persist the complete
-prior state, write manual values before their final enabled states, observe every
-recorded field, and only then publish success. Ordinary release, safe stop,
-shutdown, Core or activation failure, rollback, and restart recovery share this
-exact restoration contract. A restart may restore an interrupted apply or
-restoration only when every observed field is exactly either its persisted prior
-value or the field's Mish transaction target. This admits only crash-created
-partial matrices; any third value remains typed external drift and is not
-written. Mish never rewrites the PAC URL: manual capture preserves that observed
-content byte-for-byte. The default takeover policy also requires PAC and
-automatic discovery to remain disabled. The explicit reversible-replacement
-policy may disable and later restore their enabled states, but confirmation
-still requires the PAC URL and every other field to match exactly. An
+the prior semantic proxy contract: enabled state for HTTP, HTTPS, and SOCKS;
+host and port when enabled; PAC enabled state and URL when enabled;
+automatic-discovery state; ordered bypass domains; and network-service identity.
+Disabled host, port, and PAC URL residue is intentionally not restoration truth.
+It will not overwrite enabled PAC, automatic discovery, authenticated proxy
+configuration, bypass drift, or an unrelated enabled proxy. Applying, restoring,
+and moving between active network services are transactions: persist the prior
+semantic state, write enabled values before their enabled flags, observe the
+complete state, and only then publish success. Ordinary release, safe stop,
+shutdown, failure rollback, and restart recovery use the same unprivileged
+`networksetup` effects; they never invoke administrator authorization or the TUN
+Helper lifecycle. A restart may restore an interrupted transaction only when the
+observation is composed entirely of its semantic prior or Mish target. Any third
+enabled value remains typed external drift and is not written. The default
+takeover policy requires PAC and automatic discovery to remain disabled. The
+explicit reversible-replacement policy may disable and later restore their
+enabled states and enabled PAC URL. An
 unconfirmed outcome remains explicit drift with
 `repair` and `leave-as-is`; repair adopts the currently observed safe state as
 the new prior, while leave-as-is clears Mish ownership without changing the OS.

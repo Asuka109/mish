@@ -39,15 +39,15 @@ then appends only missing case-insensitive members of its local-name contract. I
 does not reorder, deduplicate, or replace user entries. The exact original list
 is stored in the private recovery journal alongside the existing proxy fields.
 
-The active target must be confirmed byte-for-byte, including bypass ordering.
+The active target must be confirmed semantically; bypass ordering remains exact.
 The bypass list is part of transaction ownership, drift detection, rollback,
 restart recovery, service-switch restoration, stop, and quit. A missing or
 changed managed entry is drift, never `Applied`; Mish leaves third-party changes
 alone under the existing conservative recovery policy.
 
-The journal version intentionally changed with this field. An older journal
-cannot prove the previous bypass list and is rejected rather than risk clearing
-unknown user-owned state.
+The journal contract is intentionally versioned. Obsolete Mish-owned journals are
+discarded without mutating proxy state; foreign, unsafe, or malformed records
+remain fail-closed.
 
 ## TUN boundary
 
