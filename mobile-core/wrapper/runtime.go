@@ -657,10 +657,15 @@ func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string) map[stri
 	}
 	sort.Strings(names)
 	groups := make([]routeGroupSnapshot, 0, min(limit, len(names)))
+	truncated := false
 	for _, name := range names {
 		group, ok := proxies[name].Adapter().(outboundgroup.ProxyGroup)
 		if !ok {
 			continue
+		}
+		if len(groups) == limit {
+			truncated = true
+			break
 		}
 		candidates := make([]string, 0, len(group.Proxies()))
 		for _, candidate := range group.Proxies() {
@@ -668,13 +673,11 @@ func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string) map[stri
 		}
 		if len(candidates) > limit {
 			candidates = candidates[:limit]
+			truncated = true
 		}
 		groups = append(groups, routeGroupSnapshot{Name: name, Selected: group.Now(), Candidates: candidates})
-		if len(groups) == limit {
-			break
-		}
 	}
-	return map[string]any{"groups": groups, "mode": mode, "truncated": len(groups) == limit && len(names) > limit}
+	return map[string]any{"groups": groups, "mode": mode, "truncated": truncated}
 }
 
 func trafficSnapshot() map[string]any {

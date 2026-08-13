@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/metacubex/mihomo/config"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 )
 
@@ -155,6 +157,32 @@ rules:
 	}
 	if core.phase != phaseInactive {
 		t.Fatalf("route observation started Core: %s", core.phase)
+	}
+}
+
+func TestRoutesSnapshotTruncatesOnlyOmittedPolicyGroups(t *testing.T) {
+	parsed, _, err := parseConfig([]byte(routeConfig))
+	if err != nil {
+		t.Fatalf("parse boundary fixture: %v", err)
+	}
+	proxies := make(map[string]C.Proxy, 514)
+	for index := range 512 {
+		proxies[fmt.Sprintf("Group-%03d", index)] = parsed.Proxies["Proxy"]
+	}
+	proxies["Ordinary"] = parsed.Proxies["DIRECT"]
+
+	completeSnapshot := routesSnapshot(512, proxies, parsed.General.Mode.String())
+	if completeSnapshot["truncated"] != false {
+		t.Fatal("ordinary proxies made a complete policy-group snapshot appear truncated")
+	}
+	if groups := completeSnapshot["groups"].([]routeGroupSnapshot); len(groups) != 512 {
+		t.Fatalf("complete policy-group count = %d", len(groups))
+	}
+
+	proxies["Group-overflow"] = parsed.Proxies["Proxy"]
+	overflowSnapshot := routesSnapshot(512, proxies, parsed.General.Mode.String())
+	if overflowSnapshot["truncated"] != true {
+		t.Fatal("omitted policy group was not reported as truncated")
 	}
 }
 

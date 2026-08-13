@@ -177,14 +177,24 @@ impl MobileRouteAuthority {
         {
             return current;
         }
-        Self::from_committed_profile(
+        let previous_order = current.as_ref().and_then(|authority| {
+            (authority.runtime_authority == committed.runtime_authority
+                && authority.runtime_epoch == committed.runtime_epoch)
+                .then_some(authority.order)
+        });
+        let mut replacement = Self::from_committed_profile(
             committed.profile_id,
             committed.profile_revision,
             committed.config_digest,
             committed.config_bytes,
             committed.runtime_authority,
             committed.runtime_epoch,
-        )
+        )?;
+        // Profile replacement is not a runtime generation change. Preserve
+        // the runtime-owned monotonic order so clients cannot reject the new
+        // catalog baseline as stale when a revision identity is reused.
+        replacement.order = previous_order.unwrap_or(0);
+        Some(replacement)
     }
 
     pub(crate) fn from_committed_profile(
@@ -1175,6 +1185,50 @@ proxy-groups:
             authority
                 .project(native("Alpha", None), None)
                 .expect("post-no-op projection")
+                .status
+                .application_order
+                .order,
+            2
+        );
+    }
+
+    #[test]
+    fn replacement_with_reused_profile_revision_preserves_runtime_order() {
+        let mut authority = authority("runtime-a", 4);
+        assert_eq!(
+            authority
+                .project(native("Alpha", None), None)
+                .expect("first projection")
+                .status
+                .application_order
+                .order,
+            1
+        );
+
+        let replacement_config = String::from_utf8(CONFIG.to_vec())
+            .expect("utf-8 fixture")
+            .replace("port: 1080", "port: 1081");
+        let replacement_digest = format!("{:x}", Sha256::digest(replacement_config.as_bytes()));
+        let mut authority = MobileRouteAuthority::reconcile_committed_profile(
+            Some(authority),
+            false,
+            CommittedRouteProfile {
+                config_bytes: replacement_config.as_bytes(),
+                config_digest: &replacement_digest,
+                profile_id: "profile-a",
+                profile_revision: "revision-a",
+                runtime_authority: "runtime-a".into(),
+                runtime_epoch: 4,
+            },
+        )
+        .expect("replacement authority");
+        let mut replacement_native = native("Alpha", None);
+        replacement_native.status.config_sha256 = Some(replacement_digest);
+
+        assert_eq!(
+            authority
+                .project(replacement_native, None)
+                .expect("replacement projection")
                 .status
                 .application_order
                 .order,
