@@ -124,11 +124,7 @@ describe("MobileTrafficClient", () => {
       setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
     });
     client.subscribeSnapshots((value, delivery) =>
-      delivered.push([
-        value.applicationOrder.authorityId,
-        value.applicationOrder.epoch,
-        delivery,
-      ]),
+      delivered.push([value.applicationOrder.authorityId, value.applicationOrder.epoch, delivery]),
     );
     await vi.waitFor(() => expect(delivered).toContainEqual(["runtime-a", 1, "baseline"]));
 
