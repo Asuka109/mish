@@ -27,6 +27,10 @@ Owner: thread-master coordinator
   `gpt-5.6-sol/medium`, Chinese reporting, and confirmation-only acceptance.
   It is a repository-only AFK System Proxy repair with no administrator prompt
   or real-host network mutation.
+- The maintainer approved exact Wave 2N on 2026-08-13: #512 uses
+  `gpt-5.6-sol/medium` and #513 uses `gpt-5.6-sol/high`, both with Chinese
+  reporting and confirmation-only acceptance. Both are repository-only AFK
+  development-path repairs with no real authorization or network mutation.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -62,6 +66,12 @@ ordinary System Proxy privileged exact-field restoration path through PR #511 /
 `f350d026` after explicit acceptance, repository/Tart evidence, and scoped
 Issue synchronization. The startup Profile-store repair `827d4a09` was its
 implementation baseline. Ten repository concurrency slots are unreserved.
+
+Wave 2N reserves #512 and #513 for isolated parallel Workers. #512 owns the
+development Window Trigger capability lifetime and replacement boundary. #513
+owns development TUN installation-identity classification and truthful
+CLI/Runtime/UI recovery projection. They share only desktop startup and
+production-exclusion verification; merge order is #512 then #513.
 
 ## Wave 1 worker ledger
 
@@ -323,6 +333,25 @@ mutation, deployment, or merge before explicit human acceptance.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #510 macOS System Proxy authorization loop | `019ffaf2-f533-76d1-bd0a-b0770070c1cd` | `2777` | integrated | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | PR #511 ordinary-merged as `f350d026` after explicit acceptance; local/full/CI, mock system-call fixture, disposable Tart `networksetup` semantic enable/read-back/disable, and coordinator post-merge platform 15/journal 5/Runtime 52/SimulatedHost 11/exclusion 12 checks passed. Issue #510 closed COMPLETED; no host prompt, TUN/Core/public-traffic, signing, or publication claim |
+
+## Wave 2N dispatch manifest
+
+The maintainer approved this exact two-task AFK wave. #512 uses model
+`gpt-5.6-sol`, reasoning effort `medium`; #513 uses model `gpt-5.6-sol`,
+reasoning effort `high`. Both use Chinese reporting, confirmation-only
+acceptance, final-only parent escalation, and isolated worktrees. Both must
+follow the transcript-driven system-test contract. They may implement in
+parallel, with integration order #512 then #513; #513 must ordinary-merge the
+integrated #512 target before final verification if their desktop/exclusion
+surfaces overlap. This wave authorizes repository implementation, deterministic
+fixtures/transcripts, commit/push/PR, and CI. It authorizes no administrator
+prompt, real Helper repair, System Proxy/TUN/Core/network mutation, signing,
+deployment, or merge before explicit acceptance.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #512 Window Trigger replacement lifetime | `pending` | `pending` | dispatching | #355 integrated; current development trigger authority | Keep the current printed development Window Trigger capability valid until process/capability replacement while preserving request-ID replay rejection, loopback/Host/Origin checks, bounded history, one-window idempotency, and production exclusion | Do not change Browser Client pairing/token expiry or add a production endpoint; deterministic time/process replacement evidence only |
+| #513 development TUN partial-install truthfulness | `pending` | `pending` | dispatching | #435 H1.1 and development TUN authority integrated; preserve packaged Internal TUN policy | Make maintenance CLI and desktop Runtime classify the same complete installation identity; project safe partial state as repair-required and unsafe/foreign state as specific fail-closed recovery instead of version-unsupported | No real repair/authorization/TUN/Core/network effect; do not change System Proxy or packaged signing/release policy; merge latest #512 before final verification if needed |
 
 ## Wave 1 — approved for dispatch
 
