@@ -44,6 +44,9 @@ full Routes baseline; an earlier unloaded baseline failure therefore does not
 require a WebView reload. A load that commits after its operation deadline also
 publishes the reconciled Route authority and refresh signal even though its
 terminal command result retains the typed timeout failure.
+An exact no-op commit preserves the existing Route authority and monotonic
+application order. Profile revisions outside the shared bounded identifier
+grammar fail before native configuration loading.
 
 ## Commands
 

@@ -377,8 +377,7 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
     if (
       !/^[0-9a-f]{64}$/u.test(identity.digest) ||
       !/^[A-Za-z0-9._:-]{1,128}$/u.test(identity.profileId) ||
-      identity.revision.length === 0 ||
-      identity.revision.length > 128 ||
+      !/^[A-Za-z0-9._-]{1,128}$/u.test(identity.revision) ||
       operationId.length === 0 ||
       operationId.length > 128
     ) {

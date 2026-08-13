@@ -161,6 +161,32 @@ struct CompletedRouteCommand {
 }
 
 impl MobileRouteAuthority {
+    pub(crate) fn reconcile_committed_profile(
+        current: Option<Self>,
+        preserve_matching_authority: bool,
+        committed: CommittedRouteProfile<'_>,
+    ) -> Option<Self> {
+        if preserve_matching_authority
+            && current.as_ref().is_some_and(|authority| {
+                authority.catalog.profile_id == committed.profile_id
+                    && authority.profile_revision == committed.profile_revision
+                    && authority.config_digest == committed.config_digest
+                    && authority.runtime_authority == committed.runtime_authority
+                    && authority.runtime_epoch == committed.runtime_epoch
+            })
+        {
+            return current;
+        }
+        Self::from_committed_profile(
+            committed.profile_id,
+            committed.profile_revision,
+            committed.config_digest,
+            committed.config_bytes,
+            committed.runtime_authority,
+            committed.runtime_epoch,
+        )
+    }
+
     pub(crate) fn from_committed_profile(
         profile_id: &str,
         profile_revision: &str,
@@ -515,6 +541,15 @@ impl MobileRouteAuthority {
     }
 }
 
+pub(crate) struct CommittedRouteProfile<'a> {
+    pub config_bytes: &'a [u8],
+    pub config_digest: &'a str,
+    pub profile_id: &'a str,
+    pub profile_revision: &'a str,
+    pub runtime_authority: String,
+    pub runtime_epoch: u64,
+}
+
 fn map_group_kind(kind: ProfileRouteGroupKind) -> PolicyGroupKind {
     match kind {
         ProfileRouteGroupKind::Selector => PolicyGroupKind::Selector,
@@ -796,6 +831,43 @@ proxy-groups:
                 .status
                 .group_selection_operation
                 .selection_confirmed
+        );
+    }
+
+    #[test]
+    fn matching_no_op_commit_preserves_application_order() {
+        let mut authority = authority("runtime-a", 4);
+        assert_eq!(
+            authority
+                .project(native("Alpha", None), None)
+                .expect("first projection")
+                .status
+                .application_order
+                .order,
+            1
+        );
+        let mut authority = MobileRouteAuthority::reconcile_committed_profile(
+            Some(authority),
+            true,
+            CommittedRouteProfile {
+                config_bytes: CONFIG,
+                config_digest: &digest(),
+                profile_id: "profile-a",
+                profile_revision: "revision-a",
+                runtime_authority: "runtime-a".into(),
+                runtime_epoch: 4,
+            },
+        )
+        .expect("matching no-op authority");
+
+        assert_eq!(
+            authority
+                .project(native("Alpha", None), None)
+                .expect("post-no-op projection")
+                .status
+                .application_order
+                .order,
+            2
         );
     }
 

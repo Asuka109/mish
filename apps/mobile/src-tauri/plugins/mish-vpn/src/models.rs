@@ -619,8 +619,7 @@ impl MobileConfigLoadResult {
         } else if request.operation_id.is_empty()
             || request.operation_id.len() > 128
             || !valid_identifier(&request.profile_id)
-            || request.revision.is_empty()
-            || request.revision.len() > 128
+            || !valid_identifier(&request.revision)
             || !valid_digest(&request.digest)
             || request.timeout_millis == 0
             || request.timeout_millis > MOBILE_CORE_MAX_LOAD_TIMEOUT_MILLIS
@@ -848,6 +847,15 @@ mod validation_tests {
         assert_eq!(
             MobileConfigLoadResult::preflight(&invalid)
                 .expect("operation identity must stay bounded")
+                .failure,
+            Some(MobileConfigLoadFailure::InvalidInput)
+        );
+
+        let mut unsupported_revision = load_request(config);
+        unsupported_revision.revision = "rev/1".into();
+        assert_eq!(
+            MobileConfigLoadResult::preflight(&unsupported_revision)
+                .expect("unsupported revision must fail before the Android bridge")
                 .failure,
             Some(MobileConfigLoadFailure::InvalidInput)
         );

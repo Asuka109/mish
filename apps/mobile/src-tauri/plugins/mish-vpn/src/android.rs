@@ -848,15 +848,19 @@ impl<R: Runtime> MishVpn<R> {
         // the command's terminal timing. A late committed load reports a
         // timeout failure but must still replace Route authority.
         if result.outcome.committed() {
-            *self.routes.lock().await =
-                crate::mobile_routes::MobileRouteAuthority::from_committed_profile(
-                    &request.profile_id,
-                    &request.revision,
-                    &request.digest,
-                    &request.config_bytes,
-                    current.authority_id.clone(),
-                    current.scope_epoch,
-                );
+            let mut routes = self.routes.lock().await;
+            *routes = crate::mobile_routes::MobileRouteAuthority::reconcile_committed_profile(
+                routes.take(),
+                result.outcome == MobileConfigLoadOutcome::NoOp,
+                crate::mobile_routes::CommittedRouteProfile {
+                    config_bytes: &request.config_bytes,
+                    config_digest: &request.digest,
+                    profile_id: &request.profile_id,
+                    profile_revision: &request.revision,
+                    runtime_authority: current.authority_id.clone(),
+                    runtime_epoch: current.scope_epoch,
+                },
+            );
         }
         MobileConfigLoadResult {
             cancellation: result.cancellation,

@@ -923,7 +923,7 @@ describe("MobileVpnFixtureClient", () => {
   });
 
   it("rejects oversized input before invoking the native validation command", async () => {
-    const invoke = vi.fn(async () => snapshot(3));
+    const invoke = vi.fn(async (_command: string) => snapshot(3));
     const client = new MobileVpnFixtureClient({
       invoke,
       listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
@@ -935,6 +935,24 @@ describe("MobileVpnFixtureClient", () => {
     expect(result.failure).toBe("configuration-too-large");
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(client.getSnapshot()?.sequence).toBe(3);
+  });
+
+  it("rejects a revision unsupported by Shared Rust before native config loading", async () => {
+    const invoke = vi.fn(async (_command: string) => snapshot(3));
+    const client = new MobileVpnFixtureClient({
+      invoke,
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    await client.initialize();
+
+    const result = await client.loadConfig(new TextEncoder().encode(configA), {
+      digest: configADigest,
+      profileId: "profile-a",
+      revision: "rev/1",
+    });
+
+    expect(result).toMatchObject({ failure: "invalid-input", outcome: "failed" });
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["get_snapshot"]);
   });
 
   it("returns cancelled and duplicate results without replaying validation", async () => {
