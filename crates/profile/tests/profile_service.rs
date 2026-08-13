@@ -439,6 +439,22 @@ async fn missing_selection_migrates_the_prior_successful_profile_before_reposito
 }
 
 #[tokio::test]
+async fn legacy_profile_store_is_ignored_when_selection_initializes() {
+    let temp = TestDir::new();
+    fs::create_dir_all(temp.path().join("profile-store/profiles/legacy-profile"))
+        .expect("create legacy profile layout");
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new(std::iter::empty::<Vec<u8>>()),
+    );
+
+    let initialized = service.initialize_selection(None).await.unwrap();
+
+    assert!(initialized.profiles.is_empty());
+    assert_eq!(initialized.selection.profile_id, None);
+}
+
+#[tokio::test]
 async fn conditional_profile_selection_does_not_replace_a_newer_confirmation() {
     let temp = TestDir::new();
     let profile_service = service(

@@ -333,6 +333,11 @@ where
         }
         reject_symlinks_between(&self.root, &self.root)?;
         reject_symlinks_between(&self.root, &self.generations_root())?;
+        if !path_exists_no_follow(&self.current_generation_path())?
+            && !path_exists_no_follow(&self.generations_root())?
+        {
+            return Ok(None);
+        }
         let pointer = self.read_generation_pointer()?;
         after_pointer_read();
         let generation = self.read_generation(&pointer.generation_id)?;
@@ -1262,5 +1267,21 @@ mod tests {
             .expect("replacement pointer remains complete");
         assert_eq!(current.id, second_id);
         assert_ne!(current.id, first_id);
+    }
+
+    #[test]
+    fn legacy_store_without_generations_starts_empty() {
+        let root = TestRoot::new();
+        let store = root.0.join("profile-store");
+        fs::create_dir_all(store.join("profiles/legacy-profile"))
+            .expect("create legacy profile layout");
+        let repository = FileProfileRepository::new(store);
+
+        assert!(
+            repository
+                .read_current_generation()
+                .expect("legacy store is ignored")
+                .is_none()
+        );
     }
 }
