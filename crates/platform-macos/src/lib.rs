@@ -5,7 +5,6 @@ pub mod internal_tun_maintenance;
 pub mod internal_tun_package_machine;
 mod process_icon;
 mod production_tun;
-mod system_proxy_restore;
 mod tun_service;
 
 pub use installation_key::{
@@ -19,13 +18,6 @@ pub use installation_key::{
 };
 pub use process_icon::*;
 pub use production_tun::*;
-pub use system_proxy_restore::{
-    EXACT_PROXY_RESTORE_MAX_OUTPUT_BYTES, EXACT_PROXY_RESTORE_MAX_SCRIPT_BYTES,
-    EXACT_PROXY_RESTORE_TIMEOUT, MacOsSystemProxyRestoreAdapter,
-    MacOsSystemProxyRestoreFailureKind, MacOsSystemProxyRestoreField,
-    MacOsSystemProxyRestoreOutcome, MacOsSystemProxyRestoreStep,
-};
-
 pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
     DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
@@ -68,9 +60,6 @@ use mish_settings::{
     NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
 };
 use serde::{Deserialize, Serialize};
-use system_proxy_restore::{
-    NoopMacOsSystemProxyRestoreAdapter, exact_restore_fields, native_adapter,
-};
 use tokio::sync::broadcast;
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
@@ -78,11 +67,10 @@ use tokio::{
     process::Command,
     time::{sleep, timeout},
 };
-use tokio_util::sync::CancellationToken;
 
 const JOURNAL_MAX_BYTES: u64 = 65_536;
 const JOURNAL_OWNER: &str = "com.asuka109.mish";
-const JOURNAL_VERSION: u32 = 3;
+const JOURNAL_VERSION: u32 = 4;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
@@ -985,11 +973,12 @@ impl CaptureJournalStore for FileCaptureJournalStore {
         let bytes = fs::read(&self.path).map_err(|_| persistence_error())?;
         let stored: StoredCaptureJournal =
             serde_json::from_slice(&bytes).map_err(|_| invalid_recovery_error())?;
-        if stored.version != JOURNAL_VERSION
-            || stored.owner != JOURNAL_OWNER
-            || !stored.journal.is_valid_recovery_state()
-        {
+        if stored.owner != JOURNAL_OWNER || !stored.journal.is_valid_recovery_state() {
             return Err(invalid_recovery_error());
+        }
+        if stored.version != JOURNAL_VERSION {
+            self.clear()?;
+            return Ok(None);
         }
         Ok(Some(stored.journal))
     }
@@ -1350,7 +1339,6 @@ async fn read_bounded(
 pub struct MacOsSystemProxyPlatform {
     availability: CapabilityAvailability,
     runner: Arc<dyn MacOsCommandRunner>,
-    restore_adapter: Arc<dyn MacOsSystemProxyRestoreAdapter>,
 }
 
 pub struct MacOsNetworkDnsPlatform {
@@ -1426,22 +1414,13 @@ impl MacOsSystemProxyPlatform {
                 CapabilityAvailability::Unavailable
             },
             runner: Arc::new(MacOsSystemCommandRunner),
-            restore_adapter: Arc::new(native_adapter()),
         }
     }
 
     pub fn with_runner(runner: Arc<dyn MacOsCommandRunner>) -> Self {
-        Self::with_runner_and_restore_adapter(runner, Arc::new(NoopMacOsSystemProxyRestoreAdapter))
-    }
-
-    pub fn with_runner_and_restore_adapter(
-        runner: Arc<dyn MacOsCommandRunner>,
-        restore_adapter: Arc<dyn MacOsSystemProxyRestoreAdapter>,
-    ) -> Self {
         Self {
             availability: CapabilityAvailability::Supported,
             runner,
-            restore_adapter,
         }
     }
 
@@ -1607,15 +1586,17 @@ impl MacOsSystemProxyPlatform {
                 "The proxy settings cannot be restored safely",
             ));
         }
-        self.runner
-            .run(MacOsCommand::SetProxy {
-                host: proxy.host.clone(),
-                kind,
-                port: proxy.port,
-                service: service.to_owned(),
-            })
-            .await
-            .map_err(apply_error)?;
+        if proxy.enabled {
+            self.runner
+                .run(MacOsCommand::SetProxy {
+                    host: proxy.host.clone(),
+                    kind,
+                    port: proxy.port,
+                    service: service.to_owned(),
+                })
+                .await
+                .map_err(apply_error)?;
+        }
         self.runner
             .run(MacOsCommand::SetProxyState {
                 enabled: proxy.enabled,
@@ -1648,43 +1629,6 @@ impl MacOsSystemProxyPlatform {
             .await
             .map_err(apply_error)?;
         Ok(())
-    }
-
-    async fn restore_exact_disabled_proxy_fields(
-        &self,
-        target: &NetworkServiceProxyState,
-    ) -> Result<(), CaptureTransitionError> {
-        let fields = exact_restore_fields(target);
-        if fields.is_empty() {
-            return Ok(());
-        }
-        let outcome = self
-            .restore_adapter
-            .restore_exact_fields(target.service_id.clone(), fields, CancellationToken::new())
-            .await;
-        if outcome.is_restored() {
-            return Ok(());
-        }
-        let kind = match outcome.failure_kind() {
-            Some(MacOsSystemProxyRestoreFailureKind::PermissionDenied) => {
-                CaptureFailureKind::PermissionDenied
-            }
-            Some(MacOsSystemProxyRestoreFailureKind::Unavailable) => {
-                CaptureFailureKind::CapabilityUnavailable
-            }
-            Some(
-                MacOsSystemProxyRestoreFailureKind::InvalidRequest
-                | MacOsSystemProxyRestoreFailureKind::Failed
-                | MacOsSystemProxyRestoreFailureKind::OutputTooLarge
-                | MacOsSystemProxyRestoreFailureKind::TimedOut
-                | MacOsSystemProxyRestoreFailureKind::Cancelled,
-            )
-            | None => CaptureFailureKind::ApplyFailed,
-        };
-        Err(CaptureTransitionError::new(
-            kind,
-            "The macOS System Proxy exact restoration was not confirmed",
-        ))
     }
 }
 
@@ -1752,7 +1696,6 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 })
                 .await
                 .map_err(apply_error)?;
-            self.restore_exact_disabled_proxy_fields(&target).await?;
             Ok(())
         })
     }

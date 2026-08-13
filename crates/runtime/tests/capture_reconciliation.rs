@@ -1985,7 +1985,7 @@ async fn release_restores_blank_populated_and_enabled_manual_states_exactly() {
 }
 
 #[tokio::test]
-async fn release_does_not_confirm_a_disabled_proxy_with_different_hidden_fields() {
+async fn release_confirms_disabled_proxy_despite_irrelevant_hidden_field_residue() {
     let prior = NetworkServiceProxyState {
         http: ManualProxyState {
             authenticated: false,
@@ -2018,7 +2018,7 @@ async fn release_does_not_confirm_a_disabled_proxy_with_different_hidden_fields(
         .unwrap();
     platform.drift_disabled_host_after_next_apply();
 
-    let error = reconciler
+    let status = reconciler
         .reconcile(
             CaptureRequest {
                 active: false,
@@ -2027,14 +2027,11 @@ async fn release_does_not_confirm_a_disabled_proxy_with_different_hidden_fields(
             true,
         )
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::RollbackFailed);
-    assert_eq!(
-        reconciler.status().system_proxy.phase,
-        SystemProxyPhase::Drift
-    );
-    assert!(journal.load().unwrap().is_some());
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Off);
+    assert!(!status.system_proxy_enabled);
+    assert!(journal.load().unwrap().is_none());
 }
 
 #[tokio::test]
