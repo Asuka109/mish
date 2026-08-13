@@ -31,6 +31,10 @@ Owner: thread-master coordinator
   `gpt-5.6-sol/medium` and #513 uses `gpt-5.6-sol/high`, both with Chinese
   reporting and confirmation-only acceptance. Both are repository-only AFK
   development-path repairs with no real authorization or network mutation.
+- The maintainer approved exact Wave 2O on 2026-08-13: #515 uses
+  `gpt-5.6-sol/medium`, Chinese reporting, and confirmation-only acceptance.
+  It is an independent repository-tooling task that formalizes the existing
+  Oxlint dependency into a high-signal project ruleset.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -72,6 +76,11 @@ development Window Trigger capability lifetime and replacement boundary. #513
 owns development TUN installation-identity classification and truthful
 CLI/Runtime/UI recovery projection. They share only desktop startup and
 production-exclusion verification; merge order is #512 then #513.
+
+Wave 2O reserves #515 for one isolated Worker. It may implement in parallel
+with Wave 2N, but must ordinary-merge the latest target before final
+verification because `package.json`, `check:pr`, and any mechanically corrected
+TypeScript files may overlap. Integration order is Wave 2N, then #515.
 
 ## Wave 1 worker ledger
 
@@ -352,6 +361,21 @@ deployment, or merge before explicit acceptance.
 | --- | --- | --- | --- | --- | --- | --- |
 | #512 Window Trigger replacement lifetime | `019ffb8b-155f-7311-b305-51ff10fd31f8` | `2d60` | active | #355 integrated; current development trigger authority | Keep the current printed development Window Trigger capability valid until process/capability replacement while preserving request-ID replay rejection, loopback/Host/Origin checks, bounded history, one-window idempotency, and production exclusion | Active from `origin/main@2a0eb564`; do not change Browser Client pairing/token expiry or add a production endpoint; deterministic time/process replacement evidence only |
 | #513 development TUN partial-install truthfulness | `019ffb8b-155f-7311-b305-5210f1b886bc` | `b5c2` | active | #435 H1.1 and development TUN authority integrated; preserve packaged Internal TUN policy | Make maintenance CLI and desktop Runtime classify the same complete installation identity; project safe partial state as repair-required and unsafe/foreign state as specific fail-closed recovery instead of version-unsupported | Active from `origin/main@2a0eb564`; no real repair/authorization/TUN/Core/network effect; do not change System Proxy or packaged signing/release policy; merge latest #512 before final verification if needed |
+
+## Wave 2O dispatch manifest
+
+The maintainer approved this exact one-task AFK wave. #515 uses model
+`gpt-5.6-sol`, reasoning effort `medium`, Chinese reporting,
+confirmation-only acceptance, final-only parent escalation, and an isolated
+worktree. The Worker may commit/push/open a PR and satisfy CI, but must not
+merge before explicit acceptance. It must ordinary-merge the integrated Wave
+2N target before final verification if main moved. This wave authorizes only
+repository tooling/configuration and minimal behavior-preserving lint fixes; it
+authorizes no product/native/system mutation.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #515 high-signal Oxlint ruleset | `pending` | `pending` | dispatching | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | Do not add ESLint/Prettier or broad suppressions; avoid style duplication with Oxfmt; fix only small behavior-preserving findings; merge latest Wave 2N before final verification |
 
 ## Wave 1 — approved for dispatch
 
