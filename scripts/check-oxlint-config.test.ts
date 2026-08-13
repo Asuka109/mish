@@ -19,6 +19,7 @@ test("plugin and check:pr drift fail closed", () => {
   };
   const driftedPackage = {
     ...packageJson,
+    devDependencies: { ...packageJson.devDependencies, eslint: "latest" },
     scripts: {
       ...packageJson.scripts,
       "check:pr": packageJson.scripts["check:pr"].replace("pnpm check:lint && ", ""),
@@ -26,6 +27,7 @@ test("plugin and check:pr drift fail closed", () => {
   };
   assert.deepEqual(validateOxlintPolicy(driftedConfig, driftedPackage), [
     "missing native plugin: jsx-a11y",
+    "second lint authority is not allowed: eslint",
     "check:pr must retain check:lint",
   ]);
 });

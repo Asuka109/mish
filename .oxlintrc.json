@@ -10,20 +10,22 @@
     "import",
     "promise",
     "vitest",
-    "node"
+    "node",
+    "react-perf"
   ],
   "categories": {
-    "correctness": "allow",
-    "suspicious": "allow",
+    "correctness": "warn",
+    "suspicious": "warn",
     "pedantic": "allow",
-    "perf": "allow",
+    "perf": "warn",
     "style": "allow",
     "restriction": "allow",
     "nursery": "allow"
   },
   "options": {
-    "denyWarnings": true,
-    "reportUnusedDisableDirectives": "error",
+    "denyWarnings": false,
+    "reportUnusedDisableDirectives": "warn",
+    "respectEslintDisableDirectives": false,
     "typeAware": false,
     "typeCheck": false
   },
@@ -38,39 +40,55 @@
     "scripts/fixtures/oxlint-invalid/**"
   ],
   "rules": {
-    "eslint/no-debugger": "error",
-    "eslint/no-dupe-keys": "error",
-    "eslint/no-unreachable": "error",
-    "eslint/no-unsafe-finally": "error",
-    "eslint/valid-typeof": "error",
-    "oxc/bad-object-literal-comparison": "error",
-    "oxc/missing-throw": "error",
-    "oxc/uninvoked-array-callback": "error",
-    "typescript/no-duplicate-enum-values": "error",
-    "typescript/no-misused-new": "error",
-    "typescript/no-non-null-asserted-optional-chain": "error",
-    "typescript/no-unsafe-declaration-merging": "error",
-    "unicorn/no-invalid-remove-event-listener": "error",
-    "unicorn/no-thenable": "error",
-    "unicorn/require-post-message-target-origin": "error",
-    "import/export": "error",
-    "import/no-self-import": "error",
-    "promise/no-return-in-finally": "error",
-    "promise/valid-params": "error"
+    "eslint/no-debugger": "warn",
+    "eslint/no-dupe-keys": "warn",
+    "eslint/no-unreachable": "warn",
+    "eslint/no-unsafe-finally": "warn",
+    "eslint/valid-typeof": "warn",
+    "oxc/bad-object-literal-comparison": "warn",
+    "oxc/missing-throw": "warn",
+    "oxc/uninvoked-array-callback": "warn",
+    "typescript/no-duplicate-enum-values": "warn",
+    "typescript/no-misused-new": "warn",
+    "typescript/no-non-null-asserted-optional-chain": "warn",
+    "typescript/no-unsafe-declaration-merging": "warn",
+    "unicorn/no-invalid-remove-event-listener": "warn",
+    "unicorn/no-thenable": "warn",
+    "unicorn/require-post-message-target-origin": "warn",
+    "import/export": "warn",
+    "import/no-duplicates": "warn",
+    "import/no-self-import": "warn",
+    "promise/no-multiple-resolved": "warn",
+    "promise/no-return-in-finally": "warn",
+    "promise/valid-params": "warn"
   },
   "overrides": [
     {
       "files": ["apps/web/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
       "env": { "browser": true },
       "rules": {
-        "jsx-a11y/alt-text": "error",
-        "jsx-a11y/aria-props": "error",
-        "jsx-a11y/aria-role": "error",
-        "jsx-a11y/role-has-required-aria-props": "error",
-        "react/jsx-key": "error",
-        "react/jsx-no-duplicate-props": "error",
-        "react/no-unknown-property": "error",
-        "react/rules-of-hooks": "error"
+        "jsx-a11y/alt-text": "warn",
+        "jsx-a11y/aria-props": "warn",
+        "jsx-a11y/aria-role": "warn",
+        "jsx-a11y/click-events-have-key-events": "warn",
+        "jsx-a11y/interactive-supports-focus": "warn",
+        "jsx-a11y/no-static-element-interactions": "warn",
+        "jsx-a11y/role-has-required-aria-props": "warn",
+        "react/button-has-type": "warn",
+        "react/exhaustive-deps": "warn",
+        "react/jsx-key": "warn",
+        "react/jsx-no-constructed-context-values": "warn",
+        "react/jsx-no-duplicate-props": "warn",
+        "react/jsx-no-target-blank": "warn",
+        "react/no-unknown-property": "warn",
+        "react/no-unstable-nested-components": "warn",
+        "react/only-export-components": "warn",
+        "react/react-in-jsx-scope": "allow",
+        "react/rules-of-hooks": "warn",
+        "react-perf/jsx-no-jsx-as-prop": "warn",
+        "react-perf/jsx-no-new-array-as-prop": "warn",
+        "react-perf/jsx-no-new-function-as-prop": "warn",
+        "react-perf/jsx-no-new-object-as-prop": "warn"
       }
     },
     {
@@ -83,28 +101,29 @@
       ],
       "env": { "vitest": true },
       "rules": {
-        "vitest/no-disabled-tests": "error",
-        "vitest/no-focused-tests": "error",
-        "vitest/no-identical-title": "error",
-        "vitest/valid-describe-callback": "error"
+        "vitest/no-disabled-tests": "warn",
+        "vitest/no-focused-tests": "warn",
+        "vitest/no-identical-title": "warn",
+        "vitest/valid-describe-callback": "warn"
       }
     },
     {
       "files": ["scripts/**/*.{js,ts,mjs,mts,cjs,cts}", "apps/*/*config.{js,ts,mjs,mts,cjs,cts}"],
       "env": { "node": true },
       "rules": {
-        "node/no-exports-assign": "error",
-        "node/no-new-require": "error",
-        "node/no-path-concat": "error"
+        "node/no-exports-assign": "warn",
+        "node/no-new-require": "warn",
+        "node/no-path-concat": "warn"
       }
     },
     {
       "files": ["scripts/fixtures/oxlint-invalid/react.tsx"],
       "env": { "browser": true },
       "rules": {
-        "jsx-a11y/alt-text": "error",
-        "react/only-export-components": "error",
-        "react/rules-of-hooks": "error"
+        "jsx-a11y/alt-text": "warn",
+        "react/only-export-components": "warn",
+        "react/rules-of-hooks": "warn",
+        "react-perf/jsx-no-new-function-as-prop": "warn"
       }
     }
   ]

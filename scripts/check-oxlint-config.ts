@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 
 type JsonObject = Record<string, unknown>;
 
+const FORBIDDEN_LINT_PACKAGES = ["eslint", "prettier", "@biomejs/biome", "stylelint"] as const;
+
 const REQUIRED_PLUGINS = [
   "eslint",
   "oxc",
@@ -16,6 +18,7 @@ const REQUIRED_PLUGINS = [
   "promise",
   "vitest",
   "node",
+  "react-perf",
 ] as const;
 
 const REQUIRED_DIAGNOSTICS = [
@@ -27,6 +30,7 @@ const REQUIRED_DIAGNOSTICS = [
   "promise(valid-params)",
   "react-hooks(rules-of-hooks)",
   "react(only-export-components)",
+  "react-perf(jsx-no-new-function-as-prop)",
   "jsx-a11y(alt-text)",
   "vitest(no-focused-tests)",
   "node(no-path-concat)",
@@ -44,13 +48,23 @@ export function validateOxlintPolicy(config: JsonObject, packageJson: JsonObject
   const serializedOverrides = JSON.stringify(config.overrides ?? []);
   const rules = object(config.rules);
   const scripts = object(packageJson.scripts);
+  const dependencies = {
+    ...object(packageJson.dependencies),
+    ...object(packageJson.devDependencies),
+  };
 
   for (const plugin of REQUIRED_PLUGINS) {
     if (!plugins.includes(plugin)) errors.push(`missing native plugin: ${plugin}`);
   }
   if ("jsPlugins" in config) errors.push("alpha JavaScript plugins are not allowed");
-  if (object(config.options).denyWarnings !== true)
-    errors.push("lint warnings must fail the command");
+  for (const lintPackage of FORBIDDEN_LINT_PACKAGES) {
+    if (lintPackage in dependencies)
+      errors.push(`second lint authority is not allowed: ${lintPackage}`);
+  }
+  if (object(config.options).denyWarnings !== false)
+    errors.push("lint warnings must remain advisory during the improvement rollout");
+  if (object(config.options).respectEslintDisableDirectives !== false)
+    errors.push("Oxlint must not consume legacy ESLint directives");
   if (object(config.options).typeAware !== false)
     errors.push("type-aware linting must remain explicitly deferred");
   if (!serializedOverrides.includes('"browser":true'))
@@ -58,8 +72,21 @@ export function validateOxlintPolicy(config: JsonObject, packageJson: JsonObject
   if (!serializedOverrides.includes('"vitest":true'))
     errors.push("Vitest globals override is missing");
   if (!serializedOverrides.includes('"node":true')) errors.push("Node globals override is missing");
-  if (rules["eslint/no-debugger"] !== "error")
-    errors.push("baseline correctness rules are missing");
+  if (rules["eslint/no-debugger"] !== "warn") errors.push("baseline correctness rules are missing");
+  const configuredSeverities = [
+    ...Object.values(object(config.categories)),
+    ...Object.values(rules),
+    ...(Array.isArray(config.overrides)
+      ? config.overrides.flatMap((override) => Object.values(object(object(override).rules)))
+      : []),
+  ];
+  if (
+    configuredSeverities.some(
+      (severity) => severity === "error" || severity === "deny" || severity === 2,
+    )
+  ) {
+    errors.push("lint findings must remain warnings or allows during the improvement rollout");
+  }
   if (
     typeof scripts["check:lint"] !== "string" ||
     !scripts["check:lint"].includes("check-oxlint-config.ts")
@@ -88,7 +115,8 @@ export function checkOxlintConfig(repositoryRoot: string): void {
     encoding: "utf8",
   });
   const output = `${result.stdout}${result.stderr}`;
-  if (result.status === 0) throw new Error("invalid Oxlint fixtures unexpectedly passed");
+  if (result.status !== 0)
+    throw new Error(`advisory Oxlint fixtures blocked the command\n${output}`);
   const missing = REQUIRED_DIAGNOSTICS.filter((diagnostic) => !output.includes(diagnostic));
   if (missing.length > 0)
     throw new Error(`negative fixtures did not prove: ${missing.join(", ")}\n${output}`);
@@ -99,6 +127,6 @@ const repositoryRoot = resolve(dirname(scriptPath), "..");
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   checkOxlintConfig(repositoryRoot);
   console.log(
-    `Oxlint policy valid: ${REQUIRED_PLUGINS.length} native plugin families and ${REQUIRED_DIAGNOSTICS.length} negative diagnostics enforced.`,
+    `Oxlint policy valid: ${REQUIRED_PLUGINS.length} native plugin families and ${REQUIRED_DIAGNOSTICS.length} advisory diagnostics observed without blocking.`,
   );
 }

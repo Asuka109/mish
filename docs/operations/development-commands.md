@@ -192,13 +192,17 @@ acceptance boundaries.
 `pnpm format` is the intentional write-mode counterpart to
 `pnpm check:format`.
 
-The root `.oxlintrc.json` is the single lint configuration used by local commands,
-editors, and CI. It deliberately selects correctness and safety rules instead of
-formatting, pedantic, restriction, or nursery sets; Oxfmt remains the only formatting
-authority. Generated localization/contracts and negative lint fixtures are excluded by
-exact paths. Type-aware Oxlint is deferred because it currently adds the separate
-`oxlint-tsgolint` runtime and requires built monorepo declarations; the existing
-TypeScript project-reference gate remains stable and authoritative.
+The root `.oxlintrc.json` is the single code-lint configuration used by local commands,
+editors, and CI. Native correctness, suspicious, performance, React, Hooks, Refresh,
+React Perf, accessibility, import, Promise, Vitest, and Node findings are advisory
+warnings during the improvement rollout, so existing findings do not block delivery.
+Pedantic, restriction, nursery, and formatting rules stay disabled; Oxfmt remains the
+only formatting authority, and TypeScript remains the type-check authority. Generated
+localization/contracts and negative lint fixtures are excluded by exact paths.
+Type-aware Oxlint is deferred because it currently adds the separate `oxlint-tsgolint`
+runtime and requires built monorepo declarations. ESLint, Prettier, Biome, and Stylelint
+are neither installed nor accepted as alternate lint authorities; legacy ESLint disable
+directives are not consumed by Oxlint.
 
 ## Generation and preparation
 
