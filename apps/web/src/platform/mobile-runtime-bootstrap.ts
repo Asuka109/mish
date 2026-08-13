@@ -124,11 +124,16 @@ export async function resolveMobileStartup(
   const unsubscribeConfigCommits = dependencies.mobileVpnClient.subscribeConfigCommits?.(() => {
     void statusClient.getSnapshot().catch(() => undefined);
   });
+  const trafficClient =
+    fixture.platform === "android" && fixture.core.kind === "native"
+      ? new MobileTrafficClient()
+      : new MobileFixtureTrafficClient();
   return {
     client: statusClient,
     dispose: () => {
       unsubscribeConfigCommits?.();
       statusClient.dispose();
+      trafficClient.dispose();
       dependencies.mobileVpnClient.dispose();
     },
     eventsClient: new MobileFixtureEventsClient(),
@@ -142,9 +147,6 @@ export async function resolveMobileStartup(
     settingsClient,
     settingsSnapshot: await settingsClient.getSnapshot(),
     supportBundleClient: new UnavailableSupportBundleClient(),
-    trafficClient:
-      fixture.platform === "android" && fixture.core.kind === "native"
-        ? new MobileTrafficClient()
-        : new MobileFixtureTrafficClient(),
+    trafficClient,
   };
 }
