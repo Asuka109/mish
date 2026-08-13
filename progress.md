@@ -1,6 +1,6 @@
 # Mish Delivery Progress
 
-Last updated: 2026-08-13 (Asia/Shanghai)
+Last updated: 2026-08-14 (Asia/Shanghai)
 Owner: thread-master coordinator
 
 ## Current checkpoint
@@ -69,13 +69,16 @@ through PR #506 / `2e53602b`. Wave 2M is fully integrated: #510 removed the
 ordinary System Proxy privileged exact-field restoration path through PR #511 /
 `f350d026` after explicit acceptance, repository/Tart evidence, and scoped
 Issue synchronization. The startup Profile-store repair `827d4a09` was its
-implementation baseline. Ten repository concurrency slots are unreserved.
+implementation baseline. Wave 2N #512 is now integrated through PR #514 /
+`7d8ffd65` after explicit acceptance; its focused 7 bridge, 5 desktop, and 17
+launcher-script checks passed again post-merge, and Issue #512 is closed
+completed. Eight repository concurrency slots are unreserved.
 
-Wave 2N reserves #512 and #513 for isolated parallel Workers. #512 owns the
-development Window Trigger capability lifetime and replacement boundary. #513
-owns development TUN installation-identity classification and truthful
-CLI/Runtime/UI recovery projection. They share only desktop startup and
-production-exclusion verification; merge order is #512 then #513.
+Wave 2N #512 is integrated. #513 remains active and owns development TUN
+installation-identity classification and truthful CLI/Runtime/UI recovery
+projection. It must ordinary-merge the integrated #512 target before final
+verification across their shared desktop startup and production-exclusion
+surfaces.
 
 Wave 2O reserves #515 for one isolated Worker. It may implement in parallel
 with Wave 2N, but must ordinary-merge the latest target before final
@@ -359,7 +362,7 @@ deployment, or merge before explicit acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #512 Window Trigger replacement lifetime | `019ffb8b-155f-7311-b305-51ff10fd31f8` | `2d60` | active | #355 integrated; current development trigger authority | Keep the current printed development Window Trigger capability valid until process/capability replacement while preserving request-ID replay rejection, loopback/Host/Origin checks, bounded history, one-window idempotency, and production exclusion | Active from `origin/main@2a0eb564`; do not change Browser Client pairing/token expiry or add a production endpoint; deterministic time/process replacement evidence only |
+| #512 Window Trigger replacement lifetime | `019ffb8b-155f-7311-b305-51ff10fd31f8` | `2d60` | integrated | #355 integrated; current development trigger authority | Keep the current printed development Window Trigger capability valid until process/capability replacement while preserving request-ID replay rejection, loopback/Host/Origin checks, bounded history, one-window idempotency, and production exclusion | PR #514 merged as `7d8ffd65` after explicit acceptance; focused 7 bridge, 5 desktop, 17 launcher-script, full local, and required remote gates passed; Issue #512 CLOSED/COMPLETED; no real-host walkthrough claim |
 | #513 development TUN partial-install truthfulness | `019ffb8b-155f-7311-b305-5210f1b886bc` | `b5c2` | active | #435 H1.1 and development TUN authority integrated; preserve packaged Internal TUN policy | Make maintenance CLI and desktop Runtime classify the same complete installation identity; project safe partial state as repair-required and unsafe/foreign state as specific fail-closed recovery instead of version-unsupported | Active from `origin/main@2a0eb564`; no real repair/authorization/TUN/Core/network effect; do not change System Proxy or packaged signing/release policy; merge latest #512 before final verification if needed |
 
 ## Wave 2O dispatch manifest
