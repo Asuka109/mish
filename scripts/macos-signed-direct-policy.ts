@@ -18,6 +18,8 @@ export const signedDirectMainExecutable = "Contents/MacOS/mish-desktop";
 export const signedDirectMihomoExecutable = "Contents/Resources/mihomo-aarch64-apple-darwin";
 export const signedDirectSigningOrder = [signedDirectMihomoExecutable, "Mish.app"] as const;
 export const protectedReleaseBoundary = "macos-developer-id" as const;
+export const signedDirectCommandTimeoutMs = 120_000;
+export const signedDirectCommandMaxOutputBytes = 64 * 1024;
 
 export const appleCredentialVariables = [
   "APPLE_CERTIFICATE",
@@ -64,6 +66,42 @@ export type SignedDirectEvidence = {
   signingOrder: string[];
 };
 
+export const signedDirectTranscriptSchemaVersion = 1 as const;
+export const signedDirectTranscriptMaxEvents = 16;
+
+export type SignedDirectTranscriptEffect =
+  | "capability-probe"
+  | "layout-inspection"
+  | "profile-selection"
+  | "signature-inspection"
+  | "signing-order"
+  | "strict-verification";
+
+export type SignedDirectTranscriptSubject =
+  | "application"
+  | "bundle-layout"
+  | "nested-mihomo"
+  | "release-profile";
+
+export type SignedDirectTranscriptResult =
+  | "accepted"
+  | "rejected"
+  | "strict-verified"
+  | "tun-unavailable";
+
+export type SignedDirectTranscriptEvent = {
+  effect: SignedDirectTranscriptEffect;
+  result: SignedDirectTranscriptResult;
+  sequence: number;
+  subject: SignedDirectTranscriptSubject;
+};
+
+export type SignedDirectTranscript = {
+  events: SignedDirectTranscriptEvent[];
+  maxEvents: typeof signedDirectTranscriptMaxEvents;
+  schemaVersion: typeof signedDirectTranscriptSchemaVersion;
+};
+
 export type ReleaseProfileResolution =
   | {
       identity: "-";
@@ -78,6 +116,130 @@ export type ReleaseProfileResolution =
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+const transcriptEffects = new Set<SignedDirectTranscriptEffect>([
+  "capability-probe",
+  "layout-inspection",
+  "profile-selection",
+  "signature-inspection",
+  "signing-order",
+  "strict-verification",
+]);
+const transcriptSubjects = new Set<SignedDirectTranscriptSubject>([
+  "application",
+  "bundle-layout",
+  "nested-mihomo",
+  "release-profile",
+]);
+const transcriptResults = new Set<SignedDirectTranscriptResult>([
+  "accepted",
+  "rejected",
+  "strict-verified",
+  "tun-unavailable",
+]);
+
+export class SignedDirectTranscriptRecorder {
+  readonly #events: SignedDirectTranscriptEvent[] = [];
+
+  record(
+    effect: SignedDirectTranscriptEffect,
+    subject: SignedDirectTranscriptSubject,
+    result: SignedDirectTranscriptResult,
+  ): void {
+    invariant(
+      this.#events.length < signedDirectTranscriptMaxEvents,
+      "signed-direct transcript exceeded its event bound",
+    );
+    this.#events.push({ effect, result, sequence: this.#events.length + 1, subject });
+  }
+
+  snapshot(): SignedDirectTranscript {
+    return {
+      events: this.#events.map((event) => ({ ...event })),
+      maxEvents: signedDirectTranscriptMaxEvents,
+      schemaVersion: signedDirectTranscriptSchemaVersion,
+    };
+  }
+}
+
+function assertExactKeys(value: Record<string, unknown>, expected: string[], label: string): void {
+  invariant(
+    JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort()),
+    `signed-direct transcript ${label} contains unknown or missing fields`,
+  );
+}
+
+export function validateSignedDirectTranscript(value: unknown): SignedDirectTranscript {
+  invariant(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "invalid transcript",
+  );
+  const transcript = value as Record<string, unknown>;
+  assertExactKeys(transcript, ["events", "maxEvents", "schemaVersion"], "root");
+  invariant(
+    transcript.schemaVersion === signedDirectTranscriptSchemaVersion &&
+      transcript.maxEvents === signedDirectTranscriptMaxEvents &&
+      Array.isArray(transcript.events) &&
+      transcript.events.length > 0 &&
+      transcript.events.length <= signedDirectTranscriptMaxEvents,
+    "signed-direct transcript schema or bounds are invalid",
+  );
+  const events = transcript.events.map((value, index): SignedDirectTranscriptEvent => {
+    invariant(
+      value !== null && typeof value === "object" && !Array.isArray(value),
+      "invalid event",
+    );
+    const event = value as Record<string, unknown>;
+    assertExactKeys(event, ["effect", "result", "sequence", "subject"], "event");
+    invariant(event.sequence === index + 1, "signed-direct transcript sequence is invalid");
+    invariant(
+      transcriptEffects.has(event.effect as SignedDirectTranscriptEffect) &&
+        transcriptSubjects.has(event.subject as SignedDirectTranscriptSubject) &&
+        transcriptResults.has(event.result as SignedDirectTranscriptResult),
+      "signed-direct transcript contains an open vocabulary value",
+    );
+    return event as SignedDirectTranscriptEvent;
+  });
+  return {
+    events,
+    maxEvents: signedDirectTranscriptMaxEvents,
+    schemaVersion: signedDirectTranscriptSchemaVersion,
+  };
+}
+
+export function verifyCompleteSignedDirectTranscript(value: unknown): SignedDirectTranscript {
+  const transcript = validateSignedDirectTranscript(value);
+  const expected = [
+    ["profile-selection", "release-profile", "accepted"],
+    ["capability-probe", "application", "tun-unavailable"],
+    ["signing-order", "nested-mihomo", "accepted"],
+    ["signing-order", "application", "accepted"],
+    ["layout-inspection", "bundle-layout", "accepted"],
+    ["signature-inspection", "nested-mihomo", "accepted"],
+    ["signature-inspection", "application", "accepted"],
+    ["strict-verification", "application", "strict-verified"],
+  ];
+  invariant(
+    JSON.stringify(
+      transcript.events.map(({ effect, result, subject }) => [effect, subject, result]),
+    ) === JSON.stringify(expected),
+    "signed-direct transcript is incomplete or out of order",
+  );
+  return transcript;
+}
+
+export function recordSignedDirectStrictVerification(
+  recorder: SignedDirectTranscriptRecorder,
+  operation: () => void,
+): void {
+  verifyTranscriptStage(
+    recorder,
+    "strict-verification",
+    "application",
+    operation,
+    "strict-verified",
+  );
 }
 
 function normalizeRelativePath(value: string): string {
@@ -163,11 +325,20 @@ export function collectSignedDirectSignature(
 ): SignedDirectSignature {
   const description = spawnSync("codesign", ["-d", "--verbose=4", artifact], {
     encoding: "utf8",
+    maxBuffer: signedDirectCommandMaxOutputBytes,
+    timeout: signedDirectCommandTimeoutMs,
   });
+  invariant(
+    !description.error && description.status === 0,
+    "signed-direct signature inspection failed",
+  );
   const output = `${description.stdout ?? ""}\n${description.stderr ?? ""}`;
   const entitlementDescription = spawnSync("codesign", ["-d", "--entitlements", ":-", artifact], {
     encoding: "utf8",
+    maxBuffer: signedDirectCommandMaxOutputBytes,
+    timeout: signedDirectCommandTimeoutMs,
   });
+  invariant(!entitlementDescription.error, "signed-direct entitlement inspection failed");
   const entitlements = `${entitlementDescription.stdout ?? ""}\n${entitlementDescription.stderr ?? ""}`;
   return {
     entitlements: [...entitlements.matchAll(/<key>([^<]+)<\/key>/gu)].map((match) => match[1]),
@@ -178,6 +349,18 @@ export function collectSignedDirectSignature(
     signed: description.status === 0,
     teamIdentifier: /^TeamIdentifier=([A-Z0-9]{10})$/mu.exec(output)?.[1] ?? "",
   };
+}
+
+export function verifySignedDirectStrict(application: string): void {
+  const verification = spawnSync("codesign", ["--verify", "--deep", "--strict", application], {
+    encoding: "utf8",
+    maxBuffer: signedDirectCommandMaxOutputBytes,
+    timeout: signedDirectCommandTimeoutMs,
+  });
+  invariant(
+    !verification.error && verification.status === 0,
+    "signed-direct strict verification failed",
+  );
 }
 
 export function parseDeveloperIdApplicationIdentity(identity: string): DeveloperIdIdentity {
@@ -250,62 +433,100 @@ export function resolveMacOsReleaseProfile(
   return { identity, profile, teamIdentifier: parsed.teamIdentifier };
 }
 
-export function verifySignedDirectEvidence(evidence: SignedDirectEvidence): void {
-  const expectedIdentity = parseDeveloperIdApplicationIdentity(evidence.expectedIdentity.identity);
-  invariant(
-    expectedIdentity.teamIdentifier === evidence.expectedIdentity.teamIdentifier,
-    "Expected Developer ID identity and team identifier disagree",
+function verifyTranscriptStage(
+  recorder: SignedDirectTranscriptRecorder | undefined,
+  effect: SignedDirectTranscriptEffect,
+  subject: SignedDirectTranscriptSubject,
+  operation: () => void,
+  accepted: SignedDirectTranscriptResult = "accepted",
+): void {
+  try {
+    operation();
+    recorder?.record(effect, subject, accepted);
+  } catch (error) {
+    recorder?.record(effect, subject, "rejected");
+    throw error;
+  }
+}
+
+export function verifySignedDirectEvidence(
+  evidence: SignedDirectEvidence,
+  recorder?: SignedDirectTranscriptRecorder,
+): void {
+  let expectedIdentity = evidence.expectedIdentity;
+  verifyTranscriptStage(recorder, "profile-selection", "release-profile", () => {
+    expectedIdentity = parseDeveloperIdApplicationIdentity(evidence.expectedIdentity.identity);
+    invariant(
+      expectedIdentity.teamIdentifier === evidence.expectedIdentity.teamIdentifier,
+      "Expected Developer ID identity and team identifier disagree",
+    );
+  });
+  verifyTranscriptStage(
+    recorder,
+    "capability-probe",
+    "application",
+    () => invariant(!evidence.advertisedTun, "signed-direct bundle must advertise TUN unavailable"),
+    "tun-unavailable",
   );
-  invariant(!evidence.advertisedTun, "signed-direct bundle must advertise TUN unavailable");
-  invariant(
-    JSON.stringify(evidence.signingOrder) === JSON.stringify(signedDirectSigningOrder),
-    "signed-direct nested code must be signed before the application bundle",
-  );
+  verifyTranscriptStage(recorder, "signing-order", "nested-mihomo", () => {
+    invariant(
+      evidence.signingOrder[0] === signedDirectMihomoExecutable,
+      "signed-direct nested code must be signed before the application bundle",
+    );
+  });
+  verifyTranscriptStage(recorder, "signing-order", "application", () => {
+    invariant(
+      JSON.stringify(evidence.signingOrder) === JSON.stringify(signedDirectSigningOrder),
+      "signed-direct nested code must be signed before the application bundle",
+    );
+  });
 
   const normalizedPaths = new Set<string>();
   const canonicalPaths = new Set<string>();
   const executablePaths = new Set<string>();
-  for (const entry of evidence.entries) {
-    const relative = normalizeRelativePath(entry.path);
-    invariant(!normalizedPaths.has(relative), `Duplicate bundle payload path: ${relative}`);
-    normalizedPaths.add(relative);
-    const canonical = relative.normalize("NFC").toLocaleLowerCase("en-US");
-    invariant(
-      !canonicalPaths.has(canonical),
-      `Case- or normalization-duplicate bundle payload path: ${relative}`,
-    );
-    canonicalPaths.add(canonical);
-    invariant(entry.kind !== "symlink", `signed-direct bundle contains a symlink: ${relative}`);
-    invariant(
-      (entry.mode & 0o022) === 0,
-      `signed-direct bundle contains a mutable payload: ${relative}`,
-    );
-    if (entry.kind === "file") {
+  verifyTranscriptStage(recorder, "layout-inspection", "bundle-layout", () => {
+    for (const entry of evidence.entries) {
+      const relative = normalizeRelativePath(entry.path);
+      invariant(!normalizedPaths.has(relative), `Duplicate bundle payload path: ${relative}`);
+      normalizedPaths.add(relative);
+      const canonical = relative.normalize("NFC").toLocaleLowerCase("en-US");
       invariant(
-        entry.nlink === 1,
-        `signed-direct bundle contains duplicate hard links: ${relative}`,
+        !canonicalPaths.has(canonical),
+        `Case- or normalization-duplicate bundle payload path: ${relative}`,
+      );
+      canonicalPaths.add(canonical);
+      invariant(entry.kind !== "symlink", `signed-direct bundle contains a symlink: ${relative}`);
+      invariant(
+        (entry.mode & 0o022) === 0,
+        `signed-direct bundle contains a mutable payload: ${relative}`,
+      );
+      if (entry.kind === "file") {
+        invariant(
+          entry.nlink === 1,
+          `signed-direct bundle contains duplicate hard links: ${relative}`,
+        );
+      }
+      invariant(
+        !isPrivilegedPath(relative),
+        `signed-direct bundle contains privileged content: ${relative}`,
+      );
+      if (entry.executable) executablePaths.add(relative);
+    }
+
+    const allowedExecutables = new Set([signedDirectMainExecutable, signedDirectMihomoExecutable]);
+    for (const executable of executablePaths) {
+      invariant(
+        allowedExecutables.has(executable),
+        `signed-direct bundle contains unexpected nested code: ${executable}`,
       );
     }
-    invariant(
-      !isPrivilegedPath(relative),
-      `signed-direct bundle contains privileged content: ${relative}`,
-    );
-    if (entry.executable) executablePaths.add(relative);
-  }
-
-  const allowedExecutables = new Set([signedDirectMainExecutable, signedDirectMihomoExecutable]);
-  for (const executable of executablePaths) {
-    invariant(
-      allowedExecutables.has(executable),
-      `signed-direct bundle contains unexpected nested code: ${executable}`,
-    );
-  }
-  for (const expected of allowedExecutables) {
-    invariant(
-      executablePaths.has(expected),
-      `signed-direct bundle is missing nested code: ${expected}`,
-    );
-  }
+    for (const expected of allowedExecutables) {
+      invariant(
+        executablePaths.has(expected),
+        `signed-direct bundle is missing nested code: ${expected}`,
+      );
+    }
+  });
 
   const expectedSignatures = new Map([
     [
@@ -323,36 +544,47 @@ export function verifySignedDirectEvidence(evidence: SignedDirectEvidence): void
       },
     ],
   ]);
-  invariant(
-    evidence.signatures.length === expectedSignatures.size,
-    "signed-direct bundle contains unsigned or unexpected signed code",
-  );
-  const observedSignaturePaths = new Set<string>();
-  for (const signature of evidence.signatures) {
-    invariant(
-      !observedSignaturePaths.has(signature.path),
-      `Duplicate signature evidence: ${signature.path}`,
-    );
-    observedSignaturePaths.add(signature.path);
-    const expected = expectedSignatures.get(signature.path);
-    invariant(expected, `signed-direct bundle contains unexpected signed code: ${signature.path}`);
-    invariant(signature.signed, `signed-direct bundle contains unsigned code: ${signature.path}`);
-    invariant(
-      signature.identifier === expected.identifier,
-      `signed-direct signature identifier mismatch: ${signature.path}`,
-    );
-    invariant(
-      signature.identity === expectedIdentity.identity &&
-        signature.teamIdentifier === expectedIdentity.teamIdentifier,
-      `signed-direct signature identity mismatch: ${signature.path}`,
-    );
-    invariant(
-      signature.hardenedRuntime,
-      `signed-direct signature is missing hardened runtime: ${signature.path}`,
-    );
-    invariant(
-      signature.entitlements.length === 0,
-      `signed-direct signature has unexpected entitlements: ${signature.path}`,
+  for (const signaturePath of [signedDirectMihomoExecutable, "Mish.app"] as const) {
+    verifyTranscriptStage(
+      recorder,
+      "signature-inspection",
+      signaturePath === "Mish.app" ? "application" : "nested-mihomo",
+      () => {
+        invariant(
+          evidence.signatures.length === expectedSignatures.size &&
+            new Set(evidence.signatures.map(({ path }) => path)).size ===
+              evidence.signatures.length &&
+            evidence.signatures.every(({ path }) => expectedSignatures.has(path)),
+          "signed-direct bundle contains unsigned or unexpected signed code",
+        );
+        const signature = evidence.signatures.find(({ path }) => path === signaturePath);
+        const expected = expectedSignatures.get(signaturePath);
+        invariant(
+          signature && expected,
+          `signed-direct bundle contains unsigned or unexpected signed code: ${signaturePath}`,
+        );
+        invariant(
+          signature.signed,
+          `signed-direct bundle contains unsigned code: ${signaturePath}`,
+        );
+        invariant(
+          signature.identifier === expected.identifier,
+          `signed-direct signature identifier mismatch: ${signaturePath}`,
+        );
+        invariant(
+          signature.identity === expectedIdentity.identity &&
+            signature.teamIdentifier === expectedIdentity.teamIdentifier,
+          `signed-direct signature identity mismatch: ${signaturePath}`,
+        );
+        invariant(
+          signature.hardenedRuntime,
+          `signed-direct signature is missing hardened runtime: ${signaturePath}`,
+        );
+        invariant(
+          signature.entitlements.length === 0,
+          `signed-direct signature has unexpected entitlements: ${signaturePath}`,
+        );
+      },
     );
   }
 }
