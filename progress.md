@@ -57,12 +57,11 @@ fully integrated: D2.2 through PR #503 / `0e0bc567` and D1.4 through PR #504 /
 #454 closed completed. Wave 2L is fully integrated. Android authority work:
 #283 through PR #508 / `961d697c`, #281 through PR #509 / `25ead8be`, and #284
 through PR #507 / `c3b150e5`; desktop #172 credential-free signed-direct policy
-through PR #506 / `2e53602b`. Ten repository concurrency slots remain
-unreserved before Wave 2M. #510 is reserved for one isolated Worker after the
-real-host diagnosis established that the repeated `osascript` prompt comes
-from privileged exact-field System Proxy restoration and its rollback, not a
-proven TUN Helper install path. The startup Profile-store repair is committed
-on main as `827d4a09` and is the Wave 2M implementation baseline.
+through PR #506 / `2e53602b`. Wave 2M is fully integrated: #510 removed the
+ordinary System Proxy privileged exact-field restoration path through PR #511 /
+`f350d026` after explicit acceptance, repository/Tart evidence, and scoped
+Issue synchronization. The startup Profile-store repair `827d4a09` was its
+implementation baseline. Ten repository concurrency slots are unreserved.
 
 ## Wave 1 worker ledger
 
@@ -323,7 +322,7 @@ mutation, deployment, or merge before explicit human acceptance.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #510 macOS System Proxy authorization loop | `019ffaf2-f533-76d1-bd0a-b0770070c1cd` | `2777` | active | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | Visible Worker is active from `origin/main@b0b1cd81`; no TUN Helper lifecycle changes, compatibility migration, or real-host mutation; prove Helper/authorization effects are zero and leave final macOS behavior for maintainer confirmation |
+| #510 macOS System Proxy authorization loop | `019ffaf2-f533-76d1-bd0a-b0770070c1cd` | `2777` | integrated | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | PR #511 ordinary-merged as `f350d026` after explicit acceptance; local/full/CI, mock system-call fixture, disposable Tart `networksetup` semantic enable/read-back/disable, and coordinator post-merge platform 15/journal 5/Runtime 52/SimulatedHost 11/exclusion 12 checks passed. Issue #510 closed COMPLETED; no host prompt, TUN/Core/public-traffic, signing, or publication claim |
 
 ## Wave 1 — approved for dispatch
 
