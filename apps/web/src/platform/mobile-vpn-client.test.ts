@@ -876,7 +876,7 @@ describe("MobileVpnFixtureClient", () => {
     expect(client.getSnapshot()?.coreConfigState).toBe("unloaded");
   });
 
-  it("retires a late successful load after abort without projecting its snapshot", async () => {
+  it("publishes a late committed load after abort without projecting its VPN snapshot", async () => {
     let resolveLoad: ((value: unknown) => void) | undefined;
     const invoke = vi.fn(async (command: string) => {
       if (command === "get_snapshot") return snapshot(4);
@@ -890,6 +890,8 @@ describe("MobileVpnFixtureClient", () => {
       invoke,
       listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
     });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
     await client.initialize();
     const controller = new AbortController();
     const pending = client.loadConfig(
@@ -909,6 +911,7 @@ describe("MobileVpnFixtureClient", () => {
       outcome: "cancelled",
     });
     expect(client.getSnapshot()).toMatchObject({ coreConfigState: "unloaded", sequence: 4 });
+    expect(committed).toHaveBeenCalledOnce();
   });
 
   it("rejects repeated loads and malformed native completion without exposing response text", async () => {

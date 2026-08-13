@@ -477,6 +477,13 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
           options.signal?.aborted &&
           this.isCurrentGeneration(operation.generation)
         ) {
+          if (
+            result.outcome === "first-load" ||
+            result.outcome === "replacement" ||
+            result.outcome === "no-op"
+          ) {
+            this.publishConfigCommit();
+          }
           const cancellation =
             result.cancellation === "not-requested" ? "too-late" : result.cancellation;
           return loadFailure(
