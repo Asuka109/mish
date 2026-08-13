@@ -576,11 +576,15 @@ func (core *coreRuntime) stop(input []byte) coreResult {
 }
 
 func (core *coreRuntime) statusLocked() map[string]any {
+	mode := tunnel.Mode()
+	if core.phase == phaseInactive && core.loaded != nil {
+		mode = core.loaded.General.Mode
+	}
 	return map[string]any{
 		"configSha256":  optionalString(core.configDigest),
 		"eventSequence": strconv.FormatUint(core.sequence, 10),
 		"loaded":        core.loaded != nil,
-		"mode":          tunnel.Mode().String(),
+		"mode":          mode.String(),
 		"phase":         core.phase,
 		"sessionId":     optionalString(core.session),
 	}
@@ -621,7 +625,16 @@ func (core *coreRuntime) snapshot(input []byte) coreResult {
 	case "status":
 		return successResult(core.statusLocked())
 	case "routes":
-		return successResult(routesSnapshot(limit))
+		if core.loaded == nil {
+			return failureResult(statusNotLoaded, "no configuration is loaded")
+		}
+		proxies := tunnel.Proxies()
+		mode := tunnel.Mode()
+		if core.phase == phaseInactive {
+			proxies = core.loaded.Proxies
+			mode = core.loaded.General.Mode
+		}
+		return successResult(routesSnapshot(limit, proxies, mode.String()))
 	case "traffic":
 		return successResult(trafficSnapshot())
 	case "connections":
@@ -637,15 +650,15 @@ type routeGroupSnapshot struct {
 	Candidates []string `json:"candidates"`
 }
 
-func routesSnapshot(limit int) map[string]any {
-	names := make([]string, 0, len(tunnel.Proxies()))
-	for name := range tunnel.Proxies() {
+func routesSnapshot(limit int, proxies map[string]C.Proxy, mode string) map[string]any {
+	names := make([]string, 0, len(proxies))
+	for name := range proxies {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	groups := make([]routeGroupSnapshot, 0, min(limit, len(names)))
 	for _, name := range names {
-		group, ok := tunnel.Proxies()[name].Adapter().(outboundgroup.ProxyGroup)
+		group, ok := proxies[name].Adapter().(outboundgroup.ProxyGroup)
 		if !ok {
 			continue
 		}
@@ -661,7 +674,7 @@ func routesSnapshot(limit int) map[string]any {
 			break
 		}
 	}
-	return map[string]any{"groups": groups, "mode": tunnel.Mode().String(), "truncated": len(groups) == limit && len(names) > limit}
+	return map[string]any{"groups": groups, "mode": mode, "truncated": len(groups) == limit && len(names) > limit}
 }
 
 func trafficSnapshot() map[string]any {

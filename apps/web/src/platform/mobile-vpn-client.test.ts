@@ -395,6 +395,65 @@ describe("MobileVpnFixtureClient", () => {
     expect(terminal.phase).toBe("stopped");
   });
 
+  it("publishes a Routes refresh after Start applies the committed config", async () => {
+    const running = {
+      ...loadedConfigSnapshot(6),
+      activationSessionId: "session-1",
+      activeNetwork: true,
+      backendKind: "native" as const,
+      coreRunning: true,
+      dnsApplied: true,
+      foreground: true,
+      message: "Mobile VPN is running.",
+      notificationPermission: "granted" as const,
+      permission: "granted" as const,
+      phase: "running" as const,
+      protectedSocketCount: 1,
+      publicRequestObserved: true,
+      routesApplied: true,
+      tunEstablished: true,
+      vpnActive: true,
+      vpnAvailability: "available" as const,
+      tunAvailability: "available" as const,
+    };
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command, args) => {
+        if (command === "get_snapshot") return loadedConfigSnapshot(5);
+        const request = args?.request as { operationId: string } | undefined;
+        if (!request) throw new Error(`Missing request for command: ${command}`);
+        return lifecycleResult("start", request.operationId, running);
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
+    await client.initialize();
+
+    await expect(client.start()).resolves.toMatchObject({ phase: "running" });
+
+    expect(committed).toHaveBeenCalledOnce();
+  });
+
+  it("publishes a Routes refresh after Stop retires the live Core view", async () => {
+    const stopped = loadedConfigSnapshot(7);
+    const client = new MobileVpnFixtureClient({
+      invoke: async (command, args) => {
+        if (command === "get_snapshot") return loadedConfigSnapshot(6);
+        const request = args?.request as { operationId: string } | undefined;
+        if (!request) throw new Error(`Missing request for command: ${command}`);
+        return lifecycleResult("stop", request.operationId, stopped);
+      },
+      listen: async () => ({ unregister: vi.fn() }) as unknown as PluginListener,
+    });
+    const committed = vi.fn();
+    client.subscribeConfigCommits(committed);
+    await client.initialize();
+
+    await expect(client.stop()).resolves.toMatchObject({ phase: "stopped" });
+
+    expect(committed).toHaveBeenCalledOnce();
+  });
+
   it("accepts a valid replacement command once and retires the old session", async () => {
     const replacement = snapshot(6, "stopped", "session-2", "authority-2");
     const operation = {

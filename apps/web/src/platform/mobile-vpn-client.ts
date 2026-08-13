@@ -658,6 +658,16 @@ export class MobileVpnFixtureClient implements MobileVpnClient {
         result.operation.failure === "stale-platform-authority",
         "command",
       );
+      if (
+        result.operation.outcome === "completed" &&
+        ((kind === "start" && result.snapshot.phase === "running") ||
+          (kind === "stop" && result.snapshot.phase === "stopped"))
+      ) {
+        // Start applies the committed config to the tunnel and Stop retires
+        // that live view, so Routes reacquires a full native baseline after
+        // either terminal effect.
+        this.publishConfigCommit();
+      }
       return this.snapshot ?? result.snapshot;
     } finally {
       options.signal?.removeEventListener("abort", onAbort);

@@ -47,6 +47,11 @@ terminal command result retains the typed timeout failure.
 An exact no-op commit preserves the existing Route authority and monotonic
 application order. Profile revisions outside the shared bounded identifier
 grammar fail before native configuration loading.
+Before Start applies the committed config to the live tunnel, the Go wrapper
+returns the parsed committed Route catalog as an inactive native snapshot;
+successful Start and Stop effects trigger another full Routes acquisition. The
+feature-gated transcript runner drives the production Shared Rust authority
+through a stateful closed fake-native seam rather than selecting canned events.
 
 ## Commands
 

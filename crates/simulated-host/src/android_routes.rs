@@ -52,12 +52,47 @@ mod tests {
                 .count(),
             1,
         );
+        assert_eq!(
+            run(Scenario::Success)
+                .events
+                .iter()
+                .map(|event| (event.result, event.mutation_count, event.snapshot_order))
+                .collect::<Vec<_>>(),
+            vec![
+                (ResultKind::Snapshot, 0, 1),
+                (ResultKind::Admitted, 0, 1),
+                (ResultKind::Applied, 1, 2),
+            ]
+        );
+        let replacement = run(Scenario::DelayedStaleCommand);
+        assert_eq!(replacement.events[1].runtime_authority, 2);
+        assert_eq!(replacement.events[1].profile_revision, 2);
+        assert_eq!(replacement.events[2].result, ResultKind::Retired);
+        let recreation = run(Scenario::Recreation);
+        assert_eq!(
+            recreation.events[0].runtime_authority,
+            recreation.events[1].runtime_authority
+        );
+        assert_eq!(recreation.events[1].snapshot_order, 2);
     }
 
     #[test]
     fn transcript_rejects_unknown_fields_overflow_and_non_monotonic_time() {
         let transcript = run(Scenario::Success);
         let encoded = serde_json::to_string(&transcript).unwrap();
+        for forbidden in [
+            "Alpha",
+            "Beta",
+            ".invalid",
+            "profile-a",
+            "runtime-a",
+            "operation-2",
+        ] {
+            assert!(
+                !encoded.contains(forbidden),
+                "{forbidden} entered transcript"
+            );
+        }
         assert!(Transcript::parse(&encoded.replacen("{", r#"{"secret":"redacted","#, 1)).is_err());
 
         let mut value = serde_json::to_value(&transcript).unwrap();
@@ -68,5 +103,9 @@ mod tests {
         let mut invalid_time = serde_json::to_value(&transcript).unwrap();
         invalid_time["events"][0]["logicalTime"] = serde_json::json!(2);
         assert!(Transcript::parse(&invalid_time.to_string()).is_err());
+
+        let mut mutation_regression = serde_json::to_value(run(Scenario::Duplicate)).unwrap();
+        mutation_regression["events"][2]["mutationCount"] = serde_json::json!(0);
+        assert!(Transcript::parse(&mutation_regression.to_string()).is_err());
     }
 }

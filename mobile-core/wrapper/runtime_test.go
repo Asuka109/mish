@@ -18,6 +18,18 @@ rules:
   - MATCH,DIRECT
 `
 
+const routeConfig = `
+mode: rule
+log-level: warning
+proxies: []
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [DIRECT, REJECT]
+rules:
+  - MATCH,DIRECT
+`
+
 func decodeEnvelope(t *testing.T, result coreResult) responseEnvelope {
 	t.Helper()
 	var envelope responseEnvelope
@@ -77,6 +89,12 @@ func TestCoreLoadsBytesAndPublishesBoundedEvents(t *testing.T) {
 	if snapshot.status != statusOK || !strings.Contains(string(snapshot.payload), `"loaded":true`) {
 		t.Fatalf("status snapshot: %s", snapshot.payload)
 	}
+	routes := core.snapshot([]byte(`{"kind":"routes","limit":512}`))
+	if routes.status != statusOK ||
+		!strings.Contains(string(routes.payload), `"name":"GLOBAL"`) ||
+		!strings.Contains(string(routes.payload), `"selected":"DIRECT"`) {
+		t.Fatalf("inactive committed routes snapshot: %s", routes.payload)
+	}
 	command := core.command([]byte(`{"operation":"close-all-connections"}`))
 	if command.status != statusConflict {
 		t.Fatalf("inactive command status = %d", command.status)
@@ -101,6 +119,45 @@ func TestCoreLoadsBytesAndPublishesBoundedEvents(t *testing.T) {
 	}
 }
 
+func TestInactiveCommittedRoutesSnapshotDoesNotRequireStartApplyConfig(t *testing.T) {
+	const pollutedConfig = `
+mode: global
+proxies: []
+proxy-groups:
+  - name: Old
+    type: select
+    proxies: [REJECT, DIRECT]
+rules:
+  - MATCH,REJECT
+`
+	polluted, _, err := parseConfig([]byte(pollutedConfig))
+	if err != nil {
+		t.Fatalf("parse polluted global tunnel fixture: %v", err)
+	}
+	executor.ApplyConfig(polluted, true)
+	t.Cleanup(executor.Shutdown)
+
+	core := &coreRuntime{phase: phaseInactive}
+	if result := core.initialize([]byte(`{"abiVersion":1}`), func(int) error { return nil }); result.status != statusOK {
+		t.Fatalf("initialize: %s", result.payload)
+	}
+	if result := core.loadConfig([]byte(routeConfig)); result.status != statusOK {
+		t.Fatalf("load: %s", result.payload)
+	}
+
+	snapshot := core.snapshot([]byte(`{"kind":"routes","limit":512}`))
+	if snapshot.status != statusOK ||
+		!strings.Contains(string(snapshot.payload), `"name":"Proxy"`) ||
+		!strings.Contains(string(snapshot.payload), `"selected":"DIRECT"`) ||
+		strings.Contains(string(snapshot.payload), `"name":"Old"`) ||
+		!strings.Contains(string(snapshot.payload), `"mode":"rule"`) {
+		t.Fatalf("inactive committed routes snapshot: %s", snapshot.payload)
+	}
+	if core.phase != phaseInactive {
+		t.Fatalf("route observation started Core: %s", core.phase)
+	}
+}
+
 func TestInvalidLimitsReturnTypedErrors(t *testing.T) {
 	core := &coreRuntime{phase: phaseInactive, initialized: true}
 	result := core.snapshot([]byte(`{"kind":"connections","limit":513}`))
@@ -114,17 +171,6 @@ func TestInvalidLimitsReturnTypedErrors(t *testing.T) {
 }
 
 func TestRouteSelectionIsAuthoritativeIdempotentAndStaleSafe(t *testing.T) {
-	const routeConfig = `
-mode: rule
-log-level: warning
-proxies: []
-proxy-groups:
-  - name: Proxy
-    type: select
-    proxies: [DIRECT, REJECT]
-rules:
-  - MATCH,DIRECT
-`
 	core := &coreRuntime{phase: phaseInactive}
 	if result := core.initialize([]byte(`{"abiVersion":1}`), func(int) error { return nil }); result.status != statusOK {
 		t.Fatalf("initialize: %s", result.payload)

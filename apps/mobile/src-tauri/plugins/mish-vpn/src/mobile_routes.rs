@@ -585,6 +585,9 @@ fn digest(value: &str) -> bool {
 #[cfg(feature = "simulated-host")]
 pub mod simulated_host {
     use serde::{Deserialize, Serialize};
+    use sha2::{Digest, Sha256};
+
+    use super::*;
 
     const SCHEMA_VERSION: u8 = 1;
     pub const TRANSCRIPT_LIMIT: usize = 16;
@@ -646,11 +649,25 @@ pub mod simulated_host {
             if transcript.schema_version != SCHEMA_VERSION
                 || transcript.events.is_empty()
                 || transcript.events.len() > TRANSCRIPT_LIMIT
+                || !transcript.full_baseline
+                || !(1..=2).contains(&transcript.final_child)
+                || transcript.mutation_count > 1
                 || transcript.events.iter().enumerate().any(|(index, event)| {
                     event.logical_time as usize != index + 1
                         || event.operation_id == 0
-                        || event.runtime_authority == 0
-                        || event.profile_revision == 0
+                        || !(1..=2).contains(&event.runtime_authority)
+                        || !(1..=2).contains(&event.profile_revision)
+                        || event.mutation_count > transcript.mutation_count
+                        || event.snapshot_order == 0
+                })
+                || transcript.events.windows(2).any(|pair| {
+                    pair[1].mutation_count < pair[0].mutation_count
+                        || (pair[1].runtime_authority == pair[0].runtime_authority
+                            && pair[1].snapshot_order < pair[0].snapshot_order)
+                })
+                || transcript.events.last().is_none_or(|event| {
+                    event.mutation_count != transcript.mutation_count
+                        || event.runtime_authority != event.profile_revision
                 })
             {
                 return Err("mobile Route transcript bounds rejected");
@@ -659,63 +676,357 @@ pub mod simulated_host {
         }
     }
 
+    const CONFIG: &[u8] = br#"
+mode: rule
+proxies:
+  - name: Alpha
+    type: socks5
+    server: alpha.invalid
+    port: 1080
+  - name: Beta
+    type: socks5
+    server: beta.invalid
+    port: 1080
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [Alpha, Beta]
+"#;
+
+    fn digest() -> String {
+        format!("{:x}", Sha256::digest(CONFIG))
+    }
+
+    fn new_authority(runtime: &str, revision: &str, epoch: u64) -> MobileRouteAuthority {
+        MobileRouteAuthority::from_committed_profile(
+            "profile-a",
+            revision,
+            &digest(),
+            CONFIG,
+            runtime.into(),
+            epoch,
+        )
+        .expect("the closed simulated Profile must construct Route authority")
+    }
+
+    fn request(authority: &MobileRouteAuthority, operation_id: &str) -> MobileRouteCommandRequest {
+        let group = &authority.catalog.groups[0];
+        MobileRouteCommandRequest {
+            child_id: group.child_ids[1].clone(),
+            current_child_id: group.child_ids[0].clone(),
+            group_id: group.id.clone(),
+            operation_id: operation_id.into(),
+            profile_id: authority.catalog.profile_id.clone(),
+            profile_revision: authority.profile_revision.clone(),
+            runtime_authority: authority.runtime_authority.clone(),
+        }
+    }
+
+    struct ClosedNativeRoutes {
+        event_sequence: u64,
+        mutation_count: u8,
+        selected: &'static str,
+    }
+
+    impl ClosedNativeRoutes {
+        fn new() -> Self {
+            Self {
+                event_sequence: 0,
+                mutation_count: 0,
+                selected: "Alpha",
+            }
+        }
+
+        fn snapshot(&self, operation_id: Option<&str>, running: bool) -> NativeRouteResult {
+            NativeRouteResult {
+                contract_version: CONTRACT_VERSION,
+                failure: None,
+                operation_id: operation_id.map(str::to_owned),
+                routes: NativeRoutes {
+                    groups: vec![NativeRouteGroup {
+                        candidates: vec!["Alpha".into(), "Beta".into()],
+                        name: "Proxy".into(),
+                        selected: self.selected.into(),
+                    }],
+                    mode: RoutingMode::Rule,
+                    truncated: false,
+                },
+                status: NativeStatus {
+                    config_sha256: Some(digest()),
+                    event_sequence: self.event_sequence.to_string(),
+                    loaded: true,
+                    mode: RoutingMode::Rule,
+                    phase: if running {
+                        NativeCorePhase::Running
+                    } else {
+                        NativeCorePhase::Inactive
+                    },
+                    session_id: running.then(|| "session-a".into()),
+                },
+            }
+        }
+
+        fn select(
+            &mut self,
+            labels: &(String, String, String),
+            operation_id: &str,
+            malformed: bool,
+        ) -> NativeRouteResult {
+            assert_eq!(labels, &("Proxy".into(), "Alpha".into(), "Beta".into()));
+            if malformed {
+                let mut result = self.snapshot(Some(operation_id), true);
+                result.routes.groups[0].candidates.reverse();
+                return result;
+            }
+            self.selected = "Beta";
+            self.mutation_count += 1;
+            self.event_sequence += 1;
+            self.snapshot(Some(operation_id), true)
+        }
+    }
+
+    fn selected_child(authority: &MobileRouteAuthority) -> u8 {
+        let group = &authority.catalog.groups[0];
+        if group.selected_child_id.as_ref() == group.child_ids.get(1) {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn full_baseline(snapshot: &MobileRouteSnapshot) -> bool {
+        snapshot.profile_id == "profile-a"
+            && snapshot.status.active_profile_id == "profile-a"
+            && snapshot.status.groups.len() == 1
+            && snapshot.status.groups[0].child_ids.len() == 2
+            && snapshot.status.groups[0].selected_child_id.is_some()
+            && snapshot
+                .status
+                .nodes
+                .iter()
+                .any(|node| node.label == "Alpha")
+            && snapshot
+                .status
+                .nodes
+                .iter()
+                .any(|node| node.label == "Beta")
+    }
+
+    fn execute(
+        authority: &mut MobileRouteAuthority,
+        native: &mut ClosedNativeRoutes,
+        request: MobileRouteCommandRequest,
+        malformed: bool,
+    ) -> ResultKind {
+        if authority
+            .duplicate(&request)
+            .expect("closed duplicate identity")
+            .is_some()
+        {
+            return ResultKind::Duplicate;
+        }
+        let labels = match authority.preflight(&request) {
+            Ok(labels) => labels,
+            Err(MobileRouteFailure::Cancelled) => return ResultKind::Cancelled,
+            Err(MobileRouteFailure::StaleAuthority | MobileRouteFailure::RuntimeReplaced) => {
+                return ResultKind::Retired;
+            }
+            Err(_) => return ResultKind::Rejected,
+        };
+        let projected = authority.project(
+            native.select(&labels, &request.operation_id, malformed),
+            Some(&request.operation_id),
+        );
+        let Ok(snapshot) = projected else {
+            return ResultKind::Rejected;
+        };
+        authority.remember(
+            request.clone(),
+            MobileRouteCommandResult {
+                contract_version: CONTRACT_VERSION,
+                failure: None,
+                operation_id: request.operation_id,
+                snapshot,
+                status: MobileRouteCommandStatus::Success,
+            },
+        );
+        ResultKind::Applied
+    }
+
     pub fn run(scenario: Scenario) -> Transcript {
+        let mut authority = new_authority("runtime-a", "revision-a", 1);
+        let mut native = ClosedNativeRoutes::new();
         let mut events = Vec::new();
-        let mut child = 1;
-        let mut mutations = 0;
-        let mut order = 1;
         let mut runtime = 1;
-        let mut record =
-            |operation_id, result, mutation_count, snapshot_order, runtime_authority| {
-                events.push(Event {
-                    logical_time: events.len() as u8 + 1,
-                    operation_id,
-                    runtime_authority,
-                    profile_revision: 1,
-                    result,
-                    mutation_count,
-                    snapshot_order,
-                });
-            };
-        record(1, ResultKind::Snapshot, mutations, order, runtime);
+        let mut revision = 1;
+        let baseline = authority
+            .project(native.snapshot(None, false), None)
+            .expect("committed inactive fake-native baseline");
+        let mut has_full_baseline = full_baseline(&baseline);
+        let mut record = |operation_id,
+                          result,
+                          mutation_count,
+                          snapshot_order,
+                          runtime_authority,
+                          profile_revision| {
+            events.push(Event {
+                logical_time: events.len() as u8 + 1,
+                operation_id,
+                runtime_authority,
+                profile_revision,
+                result,
+                mutation_count,
+                snapshot_order,
+            });
+        };
+        record(
+            1,
+            ResultKind::Snapshot,
+            native.mutation_count,
+            baseline.status.application_order.order as u8,
+            runtime,
+            revision,
+        );
+        let original = request(&authority, "operation-2");
         match scenario {
             Scenario::Success | Scenario::Ordering => {
-                record(2, ResultKind::Admitted, mutations, order, runtime);
-                child = 2;
-                mutations = 1;
-                order = 2;
-                record(2, ResultKind::Applied, mutations, order, runtime);
+                authority.preflight(&original).expect("command admitted");
+                record(
+                    2,
+                    ResultKind::Admitted,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
+                let result = execute(&mut authority, &mut native, original, false);
+                record(
+                    2,
+                    result,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
             Scenario::Duplicate => {
-                child = 2;
-                mutations = 1;
-                order = 2;
-                record(2, ResultKind::Applied, mutations, order, runtime);
-                record(2, ResultKind::Duplicate, mutations, order, runtime);
+                let applied = execute(&mut authority, &mut native, original.clone(), false);
+                record(
+                    2,
+                    applied,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
+                let duplicate = execute(&mut authority, &mut native, original, false);
+                record(
+                    2,
+                    duplicate,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
-            Scenario::InvalidRelation | Scenario::MalformedResponse => {
-                record(2, ResultKind::Rejected, mutations, order, runtime);
+            Scenario::InvalidRelation => {
+                let mut invalid = original;
+                invalid.group_id = "missing-group".into();
+                let result = execute(&mut authority, &mut native, invalid, false);
+                record(
+                    2,
+                    result,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
             Scenario::Cancellation => {
-                record(2, ResultKind::Cancelled, mutations, order, runtime);
+                assert!(authority.cancel(&original.operation_id));
+                let result = execute(&mut authority, &mut native, original, false);
+                record(
+                    2,
+                    result,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
             Scenario::Replacement | Scenario::DelayedStaleCommand => {
                 runtime = 2;
-                order = 1;
-                record(3, ResultKind::Replaced, mutations, order, runtime);
-                record(2, ResultKind::Retired, mutations, order, runtime);
+                revision = 2;
+                authority = MobileRouteAuthority::reconcile_committed_profile(
+                    Some(authority),
+                    false,
+                    CommittedRouteProfile {
+                        config_bytes: CONFIG,
+                        config_digest: &digest(),
+                        profile_id: "profile-a",
+                        profile_revision: "revision-b",
+                        runtime_authority: "runtime-b".into(),
+                        runtime_epoch: 2,
+                    },
+                )
+                .expect("replacement authority");
+                native = ClosedNativeRoutes::new();
+                let replacement = authority
+                    .project(native.snapshot(None, false), None)
+                    .expect("replacement fake-native baseline");
+                has_full_baseline &= full_baseline(&replacement);
+                record(
+                    3,
+                    ResultKind::Replaced,
+                    native.mutation_count,
+                    replacement.status.application_order.order as u8,
+                    runtime,
+                    revision,
+                );
+                let result = execute(&mut authority, &mut native, original, false);
+                record(
+                    2,
+                    result,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
             Scenario::Recreation => {
-                record(2, ResultKind::Snapshot, mutations, order, runtime);
+                let recreation = authority
+                    .project(native.snapshot(None, false), None)
+                    .expect("recreation fake-native full baseline");
+                has_full_baseline &= full_baseline(&recreation);
+                record(
+                    2,
+                    ResultKind::Snapshot,
+                    native.mutation_count,
+                    recreation.status.application_order.order as u8,
+                    runtime,
+                    revision,
+                );
+            }
+            Scenario::MalformedResponse => {
+                let result = execute(&mut authority, &mut native, original, true);
+                record(
+                    2,
+                    result,
+                    native.mutation_count,
+                    authority.order as u8,
+                    runtime,
+                    revision,
+                );
             }
         }
+        let child = selected_child(&authority);
         Transcript {
             schema_version: SCHEMA_VERSION,
             scenario,
             events,
             final_child: child,
-            mutation_count: mutations,
-            full_baseline: true,
+            mutation_count: native.mutation_count,
+            full_baseline: has_full_baseline,
         }
     }
 }
