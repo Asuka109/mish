@@ -6,6 +6,7 @@ async function routeEnvelope(
   order: number,
   selectedChildId = "hkg-02",
   authority = "mobile-runtime-a",
+  profileRevision = "revision-a",
 ) {
   const status = await new FixtureStatusClient().getSnapshot();
   status.adapterKind = "native";
@@ -17,7 +18,7 @@ async function routeEnvelope(
   return {
     contractVersion: 1 as const,
     profileId: "profile-a",
-    profileRevision: "revision-a",
+    profileRevision,
     runtimeAuthority: authority,
     status,
   };
@@ -131,6 +132,24 @@ describe("MobileStatusClient", () => {
 
     expect(refreshed.applicationOrder.order).toBe(2);
     expect(refreshed.groups.find((group) => group.id === "proxy")?.selectedChildId).toBe("hkg-01");
+  });
+
+  it("rejects a delayed older catalog across profile revisions in the same runtime", async () => {
+    const current = await routeEnvelope(2, "hkg-01", "mobile-runtime-a", "revision-b");
+    const delayed = await routeEnvelope(1, "hkg-02", "mobile-runtime-a", "revision-a");
+    let calls = 0;
+    const listener = vi.fn();
+    const client = new MobileStatusClient({
+      invoke: vi.fn(async () => (calls++ === 0 ? current : delayed)),
+    });
+    client.subscribeSnapshots(listener);
+
+    await client.getSnapshot();
+    const refreshed = await client.getSnapshot();
+
+    expect(refreshed.applicationOrder.order).toBe(2);
+    expect(refreshed.groups.find((group) => group.id === "proxy")?.selectedChildId).toBe("hkg-01");
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("rejects malformed or inconsistent native envelopes without publishing them", async () => {

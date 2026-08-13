@@ -161,9 +161,7 @@ export class MobileStatusClient implements StatusClient {
     }
     if (
       this.snapshot &&
-      this.authority?.profileId === envelope.profileId &&
-      this.authority.profileRevision === envelope.profileRevision &&
-      this.authority.runtimeAuthority === envelope.runtimeAuthority &&
+      this.authority?.runtimeAuthority === envelope.runtimeAuthority &&
       snapshot.applicationOrder.authorityId === this.snapshot.applicationOrder.authorityId &&
       snapshot.applicationOrder.epoch === this.snapshot.applicationOrder.epoch &&
       snapshot.applicationOrder.order <= this.snapshot.applicationOrder.order
