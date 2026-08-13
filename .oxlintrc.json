@@ -1,0 +1,111 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "oxc",
+    "typescript",
+    "unicorn",
+    "react",
+    "jsx-a11y",
+    "import",
+    "promise",
+    "vitest",
+    "node"
+  ],
+  "categories": {
+    "correctness": "allow",
+    "suspicious": "allow",
+    "pedantic": "allow",
+    "perf": "allow",
+    "style": "allow",
+    "restriction": "allow",
+    "nursery": "allow"
+  },
+  "options": {
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": false,
+    "typeCheck": false
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "apps/mobile/src-tauri/gen/**",
+    "apps/web/src/i18n/i18n-*.{ts,tsx}",
+    "packages/contracts/src/generated/**",
+    "scripts/fixtures/oxlint-invalid/**"
+  ],
+  "rules": {
+    "eslint/no-debugger": "error",
+    "eslint/no-dupe-keys": "error",
+    "eslint/no-unreachable": "error",
+    "eslint/no-unsafe-finally": "error",
+    "eslint/valid-typeof": "error",
+    "oxc/bad-object-literal-comparison": "error",
+    "oxc/missing-throw": "error",
+    "oxc/uninvoked-array-callback": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-misused-new": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "unicorn/no-invalid-remove-event-listener": "error",
+    "unicorn/no-thenable": "error",
+    "unicorn/require-post-message-target-origin": "error",
+    "import/export": "error",
+    "import/no-self-import": "error",
+    "promise/no-return-in-finally": "error",
+    "promise/valid-params": "error"
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
+      "env": { "browser": true },
+      "rules": {
+        "jsx-a11y/alt-text": "error",
+        "jsx-a11y/aria-props": "error",
+        "jsx-a11y/aria-role": "error",
+        "jsx-a11y/role-has-required-aria-props": "error",
+        "react/jsx-key": "error",
+        "react/jsx-no-duplicate-props": "error",
+        "react/no-unknown-property": "error",
+        "react/rules-of-hooks": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{ts,tsx}",
+        "**/*.spec.{ts,tsx}",
+        "**/*.browser.test.{ts,tsx}",
+        "**/test/**",
+        "**/system-tests/**"
+      ],
+      "env": { "vitest": true },
+      "rules": {
+        "vitest/no-disabled-tests": "error",
+        "vitest/no-focused-tests": "error",
+        "vitest/no-identical-title": "error",
+        "vitest/valid-describe-callback": "error"
+      }
+    },
+    {
+      "files": ["scripts/**/*.{js,ts,mjs,mts,cjs,cts}", "apps/*/*config.{js,ts,mjs,mts,cjs,cts}"],
+      "env": { "node": true },
+      "rules": {
+        "node/no-exports-assign": "error",
+        "node/no-new-require": "error",
+        "node/no-path-concat": "error"
+      }
+    },
+    {
+      "files": ["scripts/fixtures/oxlint-invalid/react.tsx"],
+      "env": { "browser": true },
+      "rules": {
+        "jsx-a11y/alt-text": "error",
+        "react/only-export-components": "error",
+        "react/rules-of-hooks": "error"
+      }
+    }
+  ]
+}

@@ -167,30 +167,38 @@ acceptance boundaries.
 
 ## Checks
 
-| Command                        | Coverage                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `check`                        | Alias for `check:pr`.                                                          |
-| `check:pr`                     | Bounded pull-request gate used by CI.                                          |
-| `check:all`                    | Complete non-browser validation used by main inspection.                       |
-| `check:types`                  | TypeScript type checks followed by Cargo workspace check.                      |
-| `check:types:ts`               | TypeScript packages only.                                                      |
-| `check:rust`                   | Cargo workspace check.                                                         |
-| `check:rust:format`            | Rust formatting.                                                               |
-| `check:rust:clippy`            | Full workspace/all-target Clippy used by main inspection, warnings denied.     |
-| `check:rust:pr`                | Portable PR Clippy contract; host Tauri application crates stay in inspection. |
-| `check:format`                 | Repository formatting without writing changes.                                 |
-| `check:lint`                   | TypeScript and JavaScript lint.                                                |
-| `check:i18n`                   | Generated localization contract.                                               |
-| `check:android`                | Generated Android project contract.                                            |
-| `check:tokens`                 | Generated design-token contract.                                               |
-| `check:design`                 | `DESIGN.md` contract lint.                                                     |
-| `check:docs`                   | Local Markdown links and public-release contracts.                             |
-| `check:public-release`         | Public files, packaged notices, metadata, attribution, and claim boundaries.   |
-| `check:ci`                     | CI workflow contract.                                                          |
-| `check:macos:release-workflow` | Manual Alpha Draft staging permissions and ordering contract.                  |
+| Command                        | Coverage                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `check`                        | Alias for `check:pr`.                                                                                      |
+| `check:pr`                     | Bounded pull-request gate used by CI.                                                                      |
+| `check:all`                    | Complete non-browser validation used by main inspection.                                                   |
+| `check:types`                  | TypeScript type checks followed by Cargo workspace check.                                                  |
+| `check:types:ts`               | TypeScript packages only.                                                                                  |
+| `check:rust`                   | Cargo workspace check.                                                                                     |
+| `check:rust:format`            | Rust formatting.                                                                                           |
+| `check:rust:clippy`            | Full workspace/all-target Clippy used by main inspection, warnings denied.                                 |
+| `check:rust:pr`                | Portable PR Clippy contract; host Tauri application crates stay in inspection.                             |
+| `check:format`                 | Repository formatting without writing changes.                                                             |
+| `check:lint`                   | High-signal TypeScript/JavaScript correctness, React, accessibility, import, Promise, test, and Node lint. |
+| `check:i18n`                   | Generated localization contract.                                                                           |
+| `check:android`                | Generated Android project contract.                                                                        |
+| `check:tokens`                 | Generated design-token contract.                                                                           |
+| `check:design`                 | `DESIGN.md` contract lint.                                                                                 |
+| `check:docs`                   | Local Markdown links and public-release contracts.                                                         |
+| `check:public-release`         | Public files, packaged notices, metadata, attribution, and claim boundaries.                               |
+| `check:ci`                     | CI workflow contract.                                                                                      |
+| `check:macos:release-workflow` | Manual Alpha Draft staging permissions and ordering contract.                                              |
 
 `pnpm format` is the intentional write-mode counterpart to
 `pnpm check:format`.
+
+The root `.oxlintrc.json` is the single lint configuration used by local commands,
+editors, and CI. It deliberately selects correctness and safety rules instead of
+formatting, pedantic, restriction, or nursery sets; Oxfmt remains the only formatting
+authority. Generated localization/contracts and negative lint fixtures are excluded by
+exact paths. Type-aware Oxlint is deferred because it currently adds the separate
+`oxlint-tsgolint` runtime and requires built monorepo declarations; the existing
+TypeScript project-reference gate remains stable and authoritative.
 
 ## Generation and preparation
 
