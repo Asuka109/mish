@@ -430,15 +430,9 @@ internal class MishMobileCoreProbe internal constructor(
             },
         )
 
-    private fun strictUtf8(bytes: ByteArray): String? = runCatching {
-        bytes.toString(Charsets.UTF_8).also {
-            require(it.toByteArray(Charsets.UTF_8).contentEquals(bytes))
-        }
-    }.getOrNull()
-
     override fun snapshotTraffic(): JSONObject? = trafficCall(MobileCoreEffectOperation.TRAFFIC_SNAPSHOT) {
         val encoded = nativeTrafficSnapshot() ?: return@trafficCall null
-        parseTrafficSnapshotEnvelope(encoded)
+        parseTrafficSnapshotEnvelope(strictUtf8(encoded) ?: return@trafficCall null)
     }
 
     override fun closeTrafficConnection(
@@ -456,7 +450,10 @@ internal class MishMobileCoreProbe internal constructor(
         }
         val encoded = nativeCloseTrafficConnection(connectionId, eventSequence, sessionId)
             ?: return@trafficCall NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
-        parseNativeCloseResult(encoded)
+        parseNativeCloseResult(strictUtf8(encoded) ?: return@trafficCall NativeTrafficCloseResult(
+            "core-failure",
+            emptyTrafficSnapshot(),
+        ))
             ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
     } ?: NativeTrafficCloseResult("core-failure", emptyTrafficSnapshot())
 
@@ -466,13 +463,13 @@ internal class MishMobileCoreProbe internal constructor(
         effect = { runCatching(call).getOrNull() },
     )
 
-    private external fun nativeTrafficSnapshot(): String?
+    private external fun nativeTrafficSnapshot(): ByteArray?
 
     private external fun nativeCloseTrafficConnection(
         connectionId: String,
         eventSequence: String,
         sessionId: String,
-    ): String?
+    ): ByteArray?
 
     companion object {
         @Volatile
@@ -571,6 +568,12 @@ internal class MishMobileCoreProbe internal constructor(
             val failure = data.takeUnless { it.isNull("failure") }?.getString("failure")
             check(failure == null || failure in setOf("invalid-request", "stale-connection", "core-failure"))
             NativeTrafficCloseResult(failure, data.getJSONObject("snapshot"))
+        }.getOrNull()
+
+        internal fun strictUtf8(bytes: ByteArray): String? = runCatching {
+            bytes.toString(Charsets.UTF_8).also {
+                require(it.toByteArray(Charsets.UTF_8).contentEquals(bytes))
+            }
         }.getOrNull()
 
         internal fun emptyTrafficSnapshot(): JSONObject = JSONObject()

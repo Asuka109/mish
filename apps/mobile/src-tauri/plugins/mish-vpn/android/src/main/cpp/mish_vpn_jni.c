@@ -277,13 +277,12 @@ cleanup:
   return output;
 }
 
-static jstring invoke_json_envelope(JNIEnv *environment,
-                                    int32_t (*operation)(uint8_t *, uint64_t,
-                                                         MishCoreBufferV1 *),
-                                    const char *request) {
+static jbyteArray invoke_json_envelope(JNIEnv *environment,
+                                       int32_t (*operation)(uint8_t *, uint64_t,
+                                                            MishCoreBufferV1 *),
+                                       const char *request) {
   MishCoreBufferV1 response = {0};
-  jstring result = NULL;
-  char *text = NULL;
+  jbyteArray result = NULL;
   if (operation == NULL || request == NULL || core_api.free_buffer == NULL) {
     return NULL;
   }
@@ -292,28 +291,28 @@ static jstring invoke_json_envelope(JNIEnv *environment,
       response.length > MISH_CORE_MAX_RESPONSE_BYTES_V1) {
     goto cleanup;
   }
-  text = malloc((size_t)response.length + 1);
-  if (text != NULL) {
-    memcpy(text, response.data, (size_t)response.length);
-    text[response.length] = '\0';
+  if (status >= MISH_CORE_OK_V1 && status <= MISH_CORE_FAILURE_V1) {
+    result = (*environment)->NewByteArray(environment, (jsize)response.length);
+    if (result != NULL) {
+      (*environment)->SetByteArrayRegion(environment, result, 0,
+                                         (jsize)response.length,
+                                         (const jbyte *)response.data);
+      if ((*environment)->ExceptionCheck(environment)) {
+        (*environment)->DeleteLocalRef(environment, result);
+        result = NULL;
+      }
+    }
   }
 cleanup:
   /* Every native response buffer crosses this cleanup point exactly once. */
   core_api.free_buffer(&response);
-  if (text == NULL) {
-    return NULL;
-  }
-  if (status >= MISH_CORE_OK_V1 && status <= MISH_CORE_FAILURE_V1) {
-    result = (*environment)->NewStringUTF(environment, text);
-  }
-  free(text);
   return result;
 }
 
-JNIEXPORT jstring JNICALL
+JNIEXPORT jbyteArray JNICALL
 Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeTrafficSnapshot(
     JNIEnv *environment, jobject instance) {
-  jstring result;
+  jbyteArray result;
   (void)instance;
   pthread_once(&core_once, load_core);
   pthread_mutex_lock(&core_mutex);
@@ -323,7 +322,7 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeTrafficSnapshot(
   return result;
 }
 
-JNIEXPORT jstring JNICALL
+JNIEXPORT jbyteArray JNICALL
 Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeCloseTrafficConnection(
     JNIEnv *environment, jobject instance, jstring connection_id,
     jstring event_sequence, jstring session_id) {
@@ -331,7 +330,7 @@ Java_com_asuka109_mish_vpn_MishMobileCoreProbe_nativeCloseTrafficConnection(
   const char *sequence = NULL;
   const char *session = NULL;
   char request[512];
-  jstring result;
+  jbyteArray result;
   (void)instance;
   if (connection_id == NULL || event_sequence == NULL || session_id == NULL)
     return NULL;

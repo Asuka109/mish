@@ -56,6 +56,13 @@ class MishMobileCoreTrafficTest {
         assertNull(MishMobileCoreProbe.parseNativeCloseResult(closed.toString()))
     }
 
+    @Test
+    fun trafficEnvelopeUsesStrictUtf8BytesWithoutModifiedUtf8Loss() {
+        val encoded = "{\"processName\":\"测试应用\"}".toByteArray(Charsets.UTF_8)
+        assertEquals("{\"processName\":\"测试应用\"}", MishMobileCoreProbe.strictUtf8(encoded))
+        assertNull(MishMobileCoreProbe.strictUtf8(byteArrayOf(0xC3.toByte(), 0x28)))
+    }
+
     private fun ids(snapshot: JSONObject?): List<String> {
         val connections = snapshot?.getJSONArray("connections") ?: return emptyList()
         return buildList(connections.length()) {

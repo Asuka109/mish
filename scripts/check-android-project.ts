@@ -489,17 +489,20 @@ invariant(
   "Android Traffic JNI must use only the dedicated single-close Mobile Core symbol.",
 );
 const trafficCleanup = pluginNativeBridge.slice(
-  pluginNativeBridge.indexOf("static jstring invoke_json_envelope"),
+  pluginNativeBridge.indexOf("static jbyteArray invoke_json_envelope"),
   pluginNativeBridge.indexOf(
-    "JNIEXPORT jstring JNICALL",
-    pluginNativeBridge.indexOf("static jstring invoke_json_envelope"),
+    "JNIEXPORT jbyteArray JNICALL",
+    pluginNativeBridge.indexOf("static jbyteArray invoke_json_envelope"),
   ),
 );
 invariant(
   trafficCleanup.match(/core_api\.free_buffer\(&response\);/gu)?.length === 1 &&
     trafficCleanup.includes("goto cleanup;") &&
-    trafficCleanup.includes("cleanup:"),
-  "Android Traffic JNI responses must cross one exactly-once native buffer cleanup point.",
+    trafficCleanup.includes("cleanup:") &&
+    trafficCleanup.includes("NewByteArray") &&
+    trafficCleanup.includes("SetByteArrayRegion") &&
+    !trafficCleanup.includes("NewStringUTF"),
+  "Android Traffic JNI responses must cross one exactly-once native buffer cleanup point as strict UTF-8 bytes.",
 );
 invariant(
   !/https?:\/\/|wss?:\/\/|Controller|controller/u.test(mobileTrafficClient) &&
