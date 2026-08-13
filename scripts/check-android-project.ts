@@ -452,6 +452,7 @@ for (const requirement of [
   "mish_core_start_v1",
   "mish_core_stop_v1",
   "mish_core_snapshot_v1",
+  "mish_core_command_v1",
   "mish_core_version_v1",
   "mish_core_free_buffer_v1",
   "mish_vpn_validate_config",
@@ -468,10 +469,18 @@ for (const requirement of [
     `Android Mobile Core probe is missing: ${requirement}`,
   );
 }
-invariant(
-  !pluginNativeBridge.includes("mish_core_command_v1"),
-  "Android JNI must not resolve the unbounded Mobile Core command symbol.",
-);
+for (const requirement of [
+  "nativeRouteOperation",
+  'static const char status_request[] = "{\\"kind\\":\\"status\\"}"',
+  'static const char routes_request[] = "{\\"kind\\":\\"routes\\",\\"limit\\":512}"',
+  "MishVpnCoreCommandFn",
+  "core_api.command",
+]) {
+  invariant(
+    pluginNativeBridge.includes(requirement),
+    `Android JNI Route command boundary is missing: ${requirement}`,
+  );
+}
 for (const requirement of [
   "SHA256SUMS",
   "--evidence-dir",
@@ -564,6 +573,12 @@ invariant(
     pluginRustModels.includes("MobileCoreProvenanceSnapshot") &&
     pluginRustAndroid.includes('run_mobile_plugin_async("getCoreProvenance"'),
   "The D2.3 product DTO must cross only the strict mobile Kotlin/Rust/TypeScript boundary.",
+);
+invariant(
+  pluginRustAndroid.includes("static MOBILE_ROUTE_CONFIG_GATE") &&
+    pluginRustAndroid.includes("route_config_gate: Arc<Mutex<()>>") &&
+    (pluginRustAndroid.match(/self\.route_config_gate\.lock\(\)\.await/g)?.length ?? 0) === 3,
+  "Config load/publication and Route reads/effects must share one process-wide Rust gate.",
 );
 for (const forbidden of [
   "recentBoundaryInvocations",

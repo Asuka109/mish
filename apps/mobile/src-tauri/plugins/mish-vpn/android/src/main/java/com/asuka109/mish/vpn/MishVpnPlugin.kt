@@ -82,6 +82,21 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun getRouteSnapshot(invoke: Invoke) {
+        invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, RouteOperationArgs()))
+    }
+
+    @Command
+    fun selectRouteChild(invoke: Invoke) {
+        val args = runCatching { invoke.parseArgs(RouteOperationArgs::class.java) }
+            .getOrElse {
+                invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, RouteOperationArgs()))
+                return
+            }
+        invoke.resolveObject(MobileCoreRouteAdapter.execute(coreProbe, args))
+    }
+
+    @Command
     fun requestVpnConsent(invoke: Invoke) {
         val consentIntent = VpnService.prepare(activity)
         if (consentIntent == null) {

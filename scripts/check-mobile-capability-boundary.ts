@@ -76,7 +76,7 @@ const appleSource = (path: string) => /\.(?:m|mm|swift)$/u.test(path);
 const webSource = (path: string) => /apps\/web\/src\/.*\.(?:js|ts|tsx)$/u.test(path);
 const mobileRust = (path: string) => /apps\/mobile\/src-tauri\/.*\.rs$/u.test(path);
 
-const bareNativeUiAction = String.raw`(?:(?:select|switch|change|open|close|show|hide|trigger|perform|navigate|go|set)[_:-]?(?:tab|drawer|sheet|back|focus|haptic|route)|(?:navigate|open)[_:-]?route)`;
+const bareNativeUiAction = String.raw`(?:(?:select|switch|change|open|close|show|hide|trigger|perform|navigate|go|set)[_:-]?(?:tab|drawer|sheet|back|focus|haptic)|(?:navigate|open)[_:-]?route)`;
 const nativeUiToken = String.raw`(?:shell|native[_:-]?(?:tab|drawer|sheet|back|focus|haptic|route)|${bareNativeUiAction})`;
 const boundedCommandName = String.raw`[^"'\x60\r\n]{0,80}${nativeUiToken}`;
 
@@ -257,6 +257,7 @@ export function checkRepositoryMobileCapabilityBoundary() {
   invariant(
     isExactStringSet(vpnDefaultPermissions, [
       "allow-get-core-provenance",
+      "allow-get-route-snapshot",
       "allow-get-snapshot",
       "allow-register-listener",
       "allow-registerListener",
@@ -269,6 +270,8 @@ export function checkRepositoryMobileCapabilityBoundary() {
       "allow-cancel-lifecycle-operation",
       "allow-validate-config",
       "allow-load-config",
+      "allow-select-route-child",
+      "allow-cancel-route-selection",
       "allow-cancel-config-load",
     ]),
     "The Mish VPN default permission bundle changed; review every command as a typed least-privilege capability",

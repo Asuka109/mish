@@ -7,6 +7,10 @@ use crate::{
     MobileConfigValidationRequest, MobileConfigValidationResult, MobileCoreProvenanceSnapshot,
     MobileVpnCommandRequest, MobileVpnCommandResult, MobileVpnSnapshot, Result,
 };
+use crate::{
+    MobileRouteCancelRequest, MobileRouteCancelResult, MobileRouteCommandRequest,
+    MobileRouteCommandResult, MobileRouteSnapshot,
+};
 
 #[derive(Clone)]
 pub struct MishVpn<R: Runtime>(AppHandle<R>);
@@ -16,6 +20,28 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, _api: PluginApi<R, ()>) -> Result<Mi
 }
 
 impl<R: Runtime> MishVpn<R> {
+    pub async fn get_route_snapshot(&self) -> Result<MobileRouteSnapshot> {
+        unreachable!("mobile Routes are not registered on non-Android targets")
+    }
+
+    pub async fn select_route_child(
+        &self,
+        _request: MobileRouteCommandRequest,
+    ) -> Result<MobileRouteCommandResult> {
+        unreachable!("mobile Routes are not registered on non-Android targets")
+    }
+
+    pub async fn cancel_route_selection(
+        &self,
+        request: MobileRouteCancelRequest,
+    ) -> MobileRouteCancelResult {
+        MobileRouteCancelResult {
+            accepted: false,
+            contract_version: 1,
+            operation_id: request.operation_id,
+        }
+    }
+
     pub async fn get_snapshot(&self) -> Result<MobileVpnSnapshot> {
         Ok(MobileVpnSnapshot::unsupported())
     }

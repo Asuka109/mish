@@ -15,6 +15,9 @@ static char fixture_operation_id[129] = {0};
 static char fixture_effect_identity[129] = {0};
 static uint64_t fixture_scope_epoch = 0;
 static uint64_t fixture_admitted_revision = 0;
+static char fixture_route_selected[257] = "Alpha";
+static char fixture_route_operation[129] = {0};
+static char fixture_route_command[MISH_CORE_MAX_REQUEST_BYTES_V1 + 1] = {0};
 static MishCorePlatformV1 fixture_platform = {0};
 
 static int32_t set_response(MishCoreBufferV1 *response, int32_t status,
@@ -144,7 +147,7 @@ static int32_t status_response(MishCoreBufferV1 *response) {
   snprintf(
       json, sizeof(json),
       "{\"abiVersion\":1,\"data\":{\"configSha256\":%s,\"eventSequence\":\"%llu\",\"loaded\":%s,\"mode\":\"rule\",\"phase\":\"%s\",\"sessionId\":%s%s%s}}",
-      fixture_loaded ? "\"fixture-config-sha256\"" : "null",
+      fixture_loaded ? "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"" : "null",
       (unsigned long long)fixture_sequence, fixture_loaded ? "true" : "false",
       fixture_running ? "running" : "inactive",
       fixture_running ? "\"" : "null", fixture_running ? fixture_session : "",
@@ -206,7 +209,7 @@ int32_t mish_core_validate_config_v1(uint8_t *config,
   }
   free(yaml);
   return set_response(response, MISH_CORE_OK_V1,
-                      "{\"abiVersion\":1,\"data\":{\"configSha256\":\"fixture-config-sha256\",\"valid\":true}}");
+                      "{\"abiVersion\":1,\"data\":{\"configSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"valid\":true}}");
 }
 
 int32_t mish_core_load_config_v1(uint8_t *config,
@@ -346,9 +349,12 @@ int32_t mish_core_snapshot_v1(uint8_t *request,
     return status_response(response);
   }
   if (strstr(json, "\"kind\":\"routes\"") != NULL) {
+    char payload[1024];
     free(json);
-    return set_response(response, MISH_CORE_OK_V1,
-                        "{\"abiVersion\":1,\"data\":{\"groups\":[],\"mode\":\"rule\",\"truncated\":false}}");
+    snprintf(payload, sizeof(payload),
+             "{\"abiVersion\":1,\"data\":{\"groups\":[{\"candidates\":[\"Alpha\",\"Beta\"],\"name\":\"Proxy\",\"selected\":\"%s\"}],\"mode\":\"rule\",\"truncated\":false}}",
+             fixture_route_selected);
+    return set_response(response, MISH_CORE_OK_V1, payload);
   }
   if (strstr(json, "\"kind\":\"traffic\"") != NULL) {
     free(json);
@@ -369,6 +375,16 @@ int32_t mish_core_command_v1(uint8_t *request,
                              uint64_t request_length,
                              MishCoreBufferV1 *response) {
   char *json;
+  char operation[129] = {0};
+  char runtime_authority[129] = {0};
+  char profile_id[129] = {0};
+  char profile_revision[129] = {0};
+  char group_id[129] = {0};
+  char current_child_id[129] = {0};
+  char child_id[129] = {0};
+  char group[257] = {0};
+  char current_child[257] = {0};
+  char selection[257] = {0};
   int32_t initialized = require_initialized(response);
   if (initialized != MISH_CORE_OK_V1) {
     return initialized;
@@ -389,6 +405,50 @@ int32_t mish_core_command_v1(uint8_t *request,
     free(json);
     return set_error(response, MISH_CORE_UNSUPPORTED_V1, "unsupported",
                      "command operation is unsupported");
+  }
+  if (strstr(json, "\"operation\":\"select-policy\"") != NULL) {
+    if (!extract_string(json, "operationId", operation, sizeof(operation)) ||
+        !extract_string(json, "runtimeAuthority", runtime_authority,
+                        sizeof(runtime_authority)) ||
+        !extract_string(json, "profileId", profile_id, sizeof(profile_id)) ||
+        !extract_string(json, "profileRevision", profile_revision,
+                        sizeof(profile_revision)) ||
+        !extract_string(json, "groupId", group_id, sizeof(group_id)) ||
+        !extract_string(json, "currentChildId", current_child_id,
+                        sizeof(current_child_id)) ||
+        !extract_string(json, "childId", child_id, sizeof(child_id)) ||
+        !extract_string(json, "group", group, sizeof(group)) ||
+        !extract_string(json, "currentChild", current_child,
+                        sizeof(current_child)) ||
+        !extract_string(json, "selection", selection, sizeof(selection))) {
+      free(json);
+      return set_error(response, MISH_CORE_INVALID_ARGUMENT_V1,
+                       "invalid-argument", "policy selection is invalid");
+    }
+    if (strcmp(runtime_authority, fixture_machine_authority) != 0) {
+      free(json);
+      return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                       "runtime authority is stale");
+    }
+    if (strcmp(operation, fixture_route_operation) == 0) {
+      int duplicate = strcmp(json, fixture_route_command) == 0;
+      free(json);
+      if (!duplicate) {
+        return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                         "operation identity conflicts with a prior command");
+      }
+      return status_response(response);
+    }
+    if (strcmp(group, "Proxy") != 0 ||
+        strcmp(current_child, fixture_route_selected) != 0 ||
+        (strcmp(selection, "Alpha") != 0 && strcmp(selection, "Beta") != 0)) {
+      free(json);
+      return set_error(response, MISH_CORE_CONFLICT_V1, "conflict",
+                       "policy relation is stale");
+    }
+    strcpy(fixture_route_operation, operation);
+    strcpy(fixture_route_command, json);
+    strcpy(fixture_route_selected, selection);
   }
   free(json);
   fixture_sequence++;

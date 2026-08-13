@@ -407,6 +407,10 @@ invariant(
     emulatorAcceptance.run?.includes("</dev/null") &&
     emulatorAcceptance.run?.includes("for attempt in {1..900}") &&
     emulatorAcceptance.run?.includes("adb get-state") &&
+    emulatorAcceptance.run?.includes("ro.build.version.sdk") &&
+    emulatorAcceptance.run?.includes("service check package") &&
+    emulatorAcceptance.run?.includes("cmd package list packages") &&
+    emulatorAcceptance.run?.includes('ready_samples" -ge 5') &&
     emulatorAcceptance.run?.includes("kill -0"),
   "Android emulator acceptance must retain the digest-pinned, bounded, repository-owned runner.",
 );
