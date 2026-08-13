@@ -64,6 +64,10 @@ test("keeps a complete development TUN identity distinct from version and protoc
     classifyDevelopmentTunInstallation({ ...complete, discovery: "protocol-mismatch" }),
     { installation: "repair-required", reason: "protocol-mismatch" },
   );
+  assert.deepEqual(classifyDevelopmentTunInstallation({ ...complete, discovery: "missing" }), {
+    installation: "repair-required",
+    reason: "missing-socket",
+  });
 });
 
 test("replays an interrupted committed key rotation as serialized repair, not foreign recovery", () => {
@@ -127,6 +131,19 @@ test("accepts only the production user-owned development socket metadata contrac
   assert.equal(
     safeDevelopmentTunSocketMetadata({ ...productionSocket, isSymbolicLink: () => true }, uid),
     false,
+  );
+});
+
+test("status never traverses the root-only enrollment directory", () => {
+  const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
+  const observation = source.slice(
+    source.indexOf("async function observeDevelopmentTunInstallation"),
+    source.indexOf("type ToolchainEnvironment"),
+  );
+  assert.doesNotMatch(observation, /lstat\(enrollmentTarget\)/u);
+  assert.ok(
+    observation.indexOf("classifyObservedEnrollment(") < observation.indexOf("lstat(socketPath)"),
+    "the user-owned enrollment candidate must preserve missing-socket classification",
   );
 });
 

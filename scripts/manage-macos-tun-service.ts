@@ -457,7 +457,8 @@ async function classifyObservedEnrollment(
         ? ("matches-client" as const)
         : ("stale-installation" as const)
       : ("mismatches-client" as const);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing" as const;
     return "invalid" as const;
   }
 }
@@ -470,22 +471,6 @@ async function observeDevelopmentTunInstallation(
     observeInstalledArtifacts(uid),
     observeClientIdentities(uid),
   ]);
-  let enrollment: "invalid" | "missing" | "present" = "missing";
-  try {
-    const metadata = await lstat(enrollmentTarget);
-    enrollment =
-      metadata.isFile() &&
-      !metadata.isSymbolicLink() &&
-      metadata.uid === 0 &&
-      (metadata.mode & 0o777) === 0o600 &&
-      metadata.nlink === 1 &&
-      metadata.size > 0 &&
-      metadata.size <= 16 * 1024
-        ? "present"
-        : "invalid";
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") enrollment = "invalid";
-  }
   const observation: DevelopmentTunInstallationObservation = {
     artifacts: artifacts.artifacts,
     clientIdentity:
@@ -493,13 +478,13 @@ async function observeDevelopmentTunInstallation(
         ? client.clientIdentity
         : selectObservedClientIdentity(client.active, client.pending).clientIdentity,
     discovery: "missing",
-    enrollmentIdentity: enrollment === "invalid" ? "invalid" : "missing",
+    enrollmentIdentity: "missing",
     service: serviceRunning ? "running" : "not-running",
   };
   if (artifacts.artifacts !== "mish-owned" || "clientIdentity" in client) {
     return { observation };
   }
-  if (enrollment === "present" && client.active) {
+  if (client.active) {
     observation.enrollmentIdentity = await classifyObservedEnrollment(
       enrollmentCandidatePath,
       uid,
@@ -540,7 +525,7 @@ async function observeDevelopmentTunInstallation(
       discovery.keyId,
     );
     observation.clientIdentity = selectedClient.clientIdentity;
-    if (enrollment === "present" && selectedClient.clientIdentity !== "missing") {
+    if (selectedClient.clientIdentity !== "missing") {
       observation.enrollmentIdentity = await classifyObservedEnrollment(
         selectedClient.clientIdentity === "pending-commit"
           ? pendingEnrollmentCandidatePath
@@ -558,11 +543,7 @@ async function observeDevelopmentTunInstallation(
           : discovery.installationId !== artifacts.installationId
             ? "mismatched"
             : "matching";
-    if (
-      enrollment === "present" &&
-      selectedClient.clientIdentity !== "missing" &&
-      discovery.keyId !== selectedClient.keyId
-    ) {
+    if (selectedClient.clientIdentity !== "missing" && discovery.keyId !== selectedClient.keyId) {
       observation.enrollmentIdentity = "mismatches-client";
     }
     return {

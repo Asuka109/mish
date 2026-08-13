@@ -111,6 +111,13 @@ it does not install, disable, stop, or replace Helper/Core, TUN, routes, DNS, or
 other network state. Desktop startup likewise never repairs or disables the
 development service implicitly.
 
+The unprivileged status action never traverses the root-owned mode-0700
+enrollment directory. Successful Helper discovery proves the privileged
+enrollment was loaded; status then binds its key and installation identity to
+the bounded user-owned public enrollment candidate. When the socket is absent,
+that candidate still preserves the distinct safe missing-socket diagnosis
+without claiming that privileged discovery succeeded.
+
 Socket admission follows the production Helper contract: after binding as
 root, the Helper sets mode 0600 and transfers the socket to the enrolled user.
 Status requires that exact user owner, socket type, mode, and single-link
