@@ -23,6 +23,10 @@ Owner: thread-master coordinator
 - The maintainer approved exact Wave 2L on 2026-08-13: desktop #172 and Android
   #281/#283/#284 each use `gpt-5.6-sol/high`, Chinese reporting, and
   confirmation-only acceptance. All four are repository-only AFK slices.
+- The maintainer approved exact Wave 2M on 2026-08-13: #510 uses
+  `gpt-5.6-sol/medium`, Chinese reporting, and confirmation-only acceptance.
+  It is a repository-only AFK System Proxy repair with no administrator prompt
+  or real-host network mutation.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -54,7 +58,11 @@ fully integrated: D2.2 through PR #503 / `0e0bc567` and D1.4 through PR #504 /
 #283 through PR #508 / `961d697c`, #281 through PR #509 / `25ead8be`, and #284
 through PR #507 / `c3b150e5`; desktop #172 credential-free signed-direct policy
 through PR #506 / `2e53602b`. Ten repository concurrency slots remain
-unreserved.
+unreserved before Wave 2M. #510 is reserved for one isolated Worker after the
+real-host diagnosis established that the repeated `osascript` prompt comes
+from privileged exact-field System Proxy restoration and its rollback, not a
+proven TUN Helper install path. The startup Profile-store repair is committed
+on main as `827d4a09` and is the Wave 2M implementation baseline.
 
 ## Wave 1 worker ledger
 
@@ -301,6 +309,21 @@ deployment, or other hands-on work.
 | #265/#266/#281/#283/#284 | dependency-unblocked; needs exact wave review | Their original blockers and architecture dependencies are closed/completed. Preserve hands-on/demo acceptance boundaries and review integration overlap before dispatch. |
 | #268 | blocked by downstream implementation and hands-on acceptance | #265/#266 remain open; physical emulator/ARM64-device acceptance requires explicit target and authorization. |
 | #173/#174/#274 | planned dependencies | #442 supplies security prerequisites without replacing their release/signing acceptance. |
+
+## Wave 2M dispatch manifest
+
+The maintainer approved this exact one-task AFK wave. #510 uses model
+`gpt-5.6-sol`, reasoning effort `medium`, Chinese reporting,
+confirmation-only acceptance, final-only parent escalation, and an isolated
+worktree. The Worker must follow the transcript-driven system-test contract.
+This wave authorizes repository implementation, deterministic transcript and
+simulated evidence, commit/push/PR, and CI. It authorizes no administrator
+prompt, password entry, Helper installation, real System Proxy/network
+mutation, deployment, or merge before explicit human acceptance.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #510 macOS System Proxy authorization loop | `pending` | `pending` | dispatching | `827d4a09` startup Profile-store repair on main; preserve integrated #436/#448 owned-operation and transcript contracts | Remove privileged exact-field restoration from ordinary System Proxy enable/disable/rollback; use semantic unprivileged restoration, break/clear obsolete journals safely, and settle each user/startup operation once without automatic authorization retry | No TUN Helper lifecycle changes, no compatibility migration, no real-host mutation; prove Helper/authorization effects are zero and leave final macOS behavior for maintainer confirmation |
 
 ## Wave 1 — approved for dispatch
 
