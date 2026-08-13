@@ -375,7 +375,7 @@ authorizes no product/native/system mutation.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #515 high-signal Oxlint ruleset | `pending` | `pending` | dispatching | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | Do not add ESLint/Prettier or broad suppressions; avoid style duplication with Oxfmt; fix only small behavior-preserving findings; merge latest Wave 2N before final verification |
+| #515 high-signal Oxlint ruleset | `019ffba6-cce0-7430-8b82-0c81f635470c` | `3930` | active | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | Active from `origin/main@1e66874c`; do not add ESLint/Prettier or broad suppressions; avoid style duplication with Oxfmt; fix only small behavior-preserving findings; merge latest Wave 2N before final verification |
 
 ## Wave 1 — approved for dispatch
 
