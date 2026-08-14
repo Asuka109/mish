@@ -256,6 +256,23 @@ test("status never traverses the root-only enrollment directory", () => {
   );
 });
 
+test("repair reobserves complete identity before promoting pending records", () => {
+  const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
+  const main = source.slice(
+    source.indexOf("async function main()"),
+    source.indexOf("if (import.meta.main)"),
+  );
+  const repair = main.slice(
+    main.indexOf('if (action === "repair")'),
+    main.indexOf("const prepared"),
+  );
+  assert.ok(
+    repair.indexOf("observeDevelopmentTunInstallation(") <
+      repair.indexOf("finalizePendingKeyIfEnrolled("),
+    "unsafe Repair drift must reject before pending identity promotion",
+  );
+});
+
 test("keeps clean absence, verified Mish-owned partial identity, and unsafe artifacts distinct", () => {
   assert.deepEqual(
     classifyDevelopmentTunInstallation({

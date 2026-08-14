@@ -1683,7 +1683,7 @@ async function main() {
     return;
   }
 
-  await finalizePendingKeyIfEnrolled(`/var/run/com.asuka109.mish.tun-helper.${uid}.sock`, uid);
+  const developmentSocket = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
   let lifecycleAction = action;
   if (action === "repair") {
     const serviceStatus = run("/bin/launchctl", ["print", `system/${label}`], {
@@ -1696,6 +1696,7 @@ async function main() {
       classifyDevelopmentTunInstallation(observed.observation),
     );
   }
+  await finalizePendingKeyIfEnrolled(developmentSocket, uid);
   const prepared = await prepare(
     uid,
     invocation.developmentTun || invocation.tartTunAcceptance,
