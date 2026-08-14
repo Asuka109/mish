@@ -125,6 +125,7 @@ pub enum SyntheticMaintenanceInitial {
     Absent,
     HealthyV1,
     HealthyV2,
+    RecoveryRequired,
     RepairRequired,
 }
 
@@ -623,6 +624,12 @@ impl MaintenanceEngine {
             }
             SyntheticMaintenanceInitial::RepairRequired => {
                 maintenance.filesystem = SyntheticOwnership::Mish;
+                maintenance.package = SyntheticPackageProjection::RecoveryRequired;
+                maintenance.recovery_required = true;
+            }
+            SyntheticMaintenanceInitial::RecoveryRequired => {
+                maintenance.filesystem = SyntheticOwnership::Unrelated;
+                maintenance.service = SyntheticOwnership::Unrelated;
                 maintenance.package = SyntheticPackageProjection::RecoveryRequired;
                 maintenance.recovery_required = true;
             }
@@ -2466,7 +2473,7 @@ impl SimulatedHost {
                     None,
                     None,
                 )
-            } else {
+            } else if maintenance.filesystem == SyntheticOwnership::Mish {
                 (
                     TunHelperAvailability::RepairRequired,
                     TunHelperHealth::Unknown,
@@ -2476,6 +2483,14 @@ impl SimulatedHost {
                         .as_ref()
                         .map(|installation| installation.installation_id.clone()),
                     Some(TunHelperFailureKind::OperationFailed),
+                )
+            } else {
+                (
+                    TunHelperAvailability::RecoveryRequired,
+                    TunHelperHealth::Unknown,
+                    None,
+                    None,
+                    Some(TunHelperFailureKind::ObservationForeign),
                 )
             };
         Ok(TunHelperSnapshot {

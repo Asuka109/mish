@@ -25,6 +25,7 @@ pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "com.asuka109.mish.tun-helper";
 pub enum TunHelperAvailability {
     Available,
     PermissionRequired,
+    RecoveryRequired,
     RepairRequired,
     Unpackaged,
     UnsignedApp,
@@ -589,15 +590,47 @@ impl TunHelperController {
         correlation: Option<TunHelperLifecycleCorrelation>,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
-        let admitted = if operation == TunHelperLifecycleOperation::Remove {
-            self.refresh_locked(None).await
+        let admitted = if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) {
+            self.refresh_admission_locked().await?
         } else {
-            self.snapshot()
+            self.refresh_locked(None).await
         };
-        // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
-        // It needs the same confirmed handoff as repair before lifecycle work starts. Removal is
-        // admitted only after the shared Capture authority has already stopped TUN; this boundary
-        // performs a second read-only observation and never creates a competing mutation path.
+        if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && matches!(
+            admitted.last_failure,
+            Some(
+                TunHelperFailureKind::ObservationForeign | TunHelperFailureKind::ObservationPartial
+            )
+        ) {
+            return Err(TunHelperError::new(
+                admitted
+                    .last_failure
+                    .expect("matched observed network failure"),
+                "The TUN network ownership observation requires manual recovery",
+            ));
+        }
+        if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && admitted.availability == TunHelperAvailability::RecoveryRequired
+        {
+            return Err(TunHelperError::new(
+                admitted
+                    .last_failure
+                    .unwrap_or(TunHelperFailureKind::IdentityRejected),
+                "The TUN helper installation identity requires manual recovery",
+            ));
+        }
+        // A freshly healthy Helper can still own TUN during an idempotent install or repair, so it
+        // needs a confirmed handoff before lifecycle work starts. A stale healthy snapshot must not
+        // contact a Helper that the admission observation can no longer reach. Removal is admitted
+        // only after the shared Capture authority has already stopped TUN; this boundary performs a
+        // second read-only observation and never creates a competing mutation path.
         if matches!(
             operation,
             TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
@@ -745,35 +778,51 @@ impl TunHelperController {
         operation_failure: Option<TunHelperFailureKind>,
     ) -> TunHelperSnapshot {
         match self.platform.observe_helper().await {
-            Ok(observation) => {
-                let mut snapshot = snapshot_from_observation(observation);
-                let runtime_failure = self
-                    .runtime_failure
-                    .lock()
-                    .expect("TUN helper runtime failure lock poisoned");
-                if let Some(failure) = *runtime_failure {
-                    snapshot.availability = TunHelperAvailability::Unavailable;
-                    snapshot.phase = TunHelperLifecyclePhase::Failed;
-                    snapshot.last_failure = Some(failure);
-                } else if let Some(failure) = operation_failure {
-                    // The fresh Helper observation remains authoritative after a bounded
-                    // lifecycle attempt fails. Preserve PermissionRequired or RepairRequired
-                    // so the user can retry, while the failed phase keeps the result fail-closed.
-                    snapshot.phase = TunHelperLifecyclePhase::Failed;
-                    snapshot.last_failure = Some(failure);
-                }
-                snapshot.refresh_removal_capability();
-                *self
-                    .snapshot
-                    .lock()
-                    .expect("TUN helper snapshot lock poisoned") = snapshot.clone();
-                snapshot
-            }
+            Ok(observation) => self.apply_observation(observation, operation_failure),
             Err(error) => {
                 self.record_failure(operation_failure.unwrap_or(error.kind));
                 self.snapshot()
             }
         }
+    }
+
+    async fn refresh_admission_locked(&self) -> Result<TunHelperSnapshot, TunHelperError> {
+        match self.platform.observe_helper().await {
+            Ok(observation) => Ok(self.apply_observation(observation, None)),
+            Err(error) => {
+                self.record_failure(error.kind);
+                Err(error)
+            }
+        }
+    }
+
+    fn apply_observation(
+        &self,
+        observation: TunHelperObservation,
+        operation_failure: Option<TunHelperFailureKind>,
+    ) -> TunHelperSnapshot {
+        let mut snapshot = snapshot_from_observation(observation);
+        let runtime_failure = self
+            .runtime_failure
+            .lock()
+            .expect("TUN helper runtime failure lock poisoned");
+        if let Some(failure) = *runtime_failure {
+            snapshot.availability = TunHelperAvailability::Unavailable;
+            snapshot.phase = TunHelperLifecyclePhase::Failed;
+            snapshot.last_failure = Some(failure);
+        } else if let Some(failure) = operation_failure {
+            // The fresh Helper observation remains authoritative after a bounded lifecycle
+            // attempt fails. Preserve PermissionRequired or RepairRequired so the user can
+            // retry, while the failed phase keeps the result fail-closed.
+            snapshot.phase = TunHelperLifecyclePhase::Failed;
+            snapshot.last_failure = Some(failure);
+        }
+        snapshot.refresh_removal_capability();
+        *self
+            .snapshot
+            .lock()
+            .expect("TUN helper snapshot lock poisoned") = snapshot.clone();
+        snapshot
     }
 
     fn set_phase(&self, phase: TunHelperLifecyclePhase) {
@@ -838,6 +887,7 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
             }
             TunHelperAvailability::Available
             | TunHelperAvailability::PermissionRequired
+            | TunHelperAvailability::RecoveryRequired
             | TunHelperAvailability::RepairRequired
             | TunHelperAvailability::Unavailable => None,
         };

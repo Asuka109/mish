@@ -387,11 +387,20 @@ pub fn apply_installation_enrollment_operation(
                 installing_uid,
                 helper_installation_id,
             )?;
-            if existing
-                .as_ref()
-                .is_some_and(|record| record.key_id == candidate.key_id)
+            if let Some(existing) = existing.as_ref()
+                && existing.key_id == candidate.key_id
             {
-                return Err("reset requires a new installation key");
+                if existing.helper_installation_id == helper_installation_id
+                    && existing.algorithm == candidate.algorithm
+                    && existing.public_key_spki == candidate.public_key_spki
+                {
+                    return Ok(InstallationEnrollmentReceipt {
+                        generation: existing.generation,
+                        key_id: existing.key_id.clone(),
+                        operation: "reset",
+                    });
+                }
+                return Err("the committed reset identity was rejected");
             }
             (
                 InstallationEnrollmentRecord {
@@ -1194,7 +1203,7 @@ mod tests {
         .unwrap();
         let receipt = apply_installation_enrollment_operation(
             InstallationEnrollmentOperation::Reset,
-            &[replacement_path],
+            std::slice::from_ref(&replacement_path),
             &enrollment_path,
             &candidate.helper_installation_id,
             uid,
@@ -1203,6 +1212,19 @@ mod tests {
         .unwrap();
         assert_eq!(receipt.generation, 2);
         assert_eq!(receipt.key_id, replacement.key_id);
+        let replay = apply_installation_enrollment_operation(
+            InstallationEnrollmentOperation::Reset,
+            std::slice::from_ref(&replacement_path),
+            &enrollment_path,
+            &candidate.helper_installation_id,
+            uid,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            replay, receipt,
+            "a committed reset retry must be idempotent"
+        );
         let enrolled = load_installation_enrollment(
             &enrollment_path,
             uid,

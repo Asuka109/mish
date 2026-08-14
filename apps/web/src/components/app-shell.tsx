@@ -969,6 +969,7 @@ function StatusActionDescriptions() {
         {LL.capabilities.systemProxyPermission()}
       </span>
       <span id={statusDescriptionIds.tunUnavailable}>{LL.capabilities.tunUnavailable()}</span>
+      <span id={statusDescriptionIds.tunRecovery}>{LL.capabilities.tunRecoveryRequired()}</span>
       <span id={statusDescriptionIds.tunPermission}>{LL.capabilities.tunPermission()}</span>
     </div>
   );

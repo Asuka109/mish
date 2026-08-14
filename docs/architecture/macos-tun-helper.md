@@ -84,6 +84,57 @@ authorization commits one root-owned mode-`0600` record at
 The service refuses to start when that record is missing, malformed, owned
 incorrectly, or bound to another helper installation identity.
 
+Maintenance status classifies the complete development installation identity
+through one closed matrix shared by the CLI, macOS adapter, Runtime, bridge,
+and Web projection. A healthy service requires Mish-owned Helper/Core/plist
+artifacts, a valid client key, a matching enrollment candidate, the expected
+Helper/protocol versions, the matching installation identity, and a socket
+owned by the installing user. Clean absence, unsupported platform/build,
+version mismatch, protocol mismatch, missing socket, safe partial Mish-owned
+identity, and foreign or ambiguous ownership remain distinct. A complete
+verified Mish-owned artifact set with missing or stale enrollment, client key, or socket is
+`repair-required` and can enter only the existing serialized repair flow. An
+interrupted key rotation whose root-owned Helper already reports the valid
+pending client key is also `repair-required`; status remains read-only, and the
+explicit serialized repair promotes both the exact pending private key and its
+matching bounded public candidate before preparing any privileged work. If the
+complete Mish-owned installation has lost its active client key,
+that same repair operation first reobserves the exact identity and then uses
+the existing administrator-authorized lost-key reset transaction internally;
+it never attempts enrollment with a newly generated key or blindly overwrites
+the root record. A pending key that does not exactly match discovery stays fail-closed. An
+incomplete artifact set cannot prove Mish ownership and is therefore
+`recovery-required`, alongside foreign artifacts, ambiguous ownership, invalid
+records, or client/enrollment key disagreement:
+Runtime refuses install/repair and Web gives manual ownership/reinstallation
+guidance without offering blind overwrite. Generic unavailable copy is
+reserved for genuine platform or build absence.
+
+Immediately before preparing Repair, the CLI reobserves the complete identity
+without effects. If that fresh observation has drifted to clean absence,
+foreign ownership, ambiguous artifacts, or any other `recovery-required`
+classification, Repair fails before preparation or administrator authorization.
+
+This status path is observation-only. It may inspect fixed path metadata and
+bounded contents, issue `launchctl print`, and perform authenticated discovery;
+it does not install, disable, stop, or replace Helper/Core, TUN, routes, DNS, or
+other network state. Desktop startup likewise never repairs or disables the
+development service implicitly.
+
+The unprivileged status action never traverses the root-owned mode-0700
+enrollment directory. Successful Helper discovery proves the privileged
+enrollment was loaded; status then binds its key and installation identity to
+the bounded user-owned public enrollment candidate. When the socket is absent,
+that candidate still preserves the distinct safe missing-socket diagnosis
+without claiming that privileged discovery succeeded.
+
+Socket admission follows the production Helper contract: after binding as
+root, the Helper sets mode 0600 and transfers the socket to the enrolled user.
+Status requires that exact user owner, socket type, mode, and single-link
+metadata before discovery. It checks the fixed reserved socket path even when
+all installed files are absent; a surviving socket is ambiguous ownership and
+remains `recovery-required`, so a later installation cannot silently unlink it.
+
 This plaintext private key is an explicitly weak internal-testing boundary.
 It prevents an unrelated same-user process that cannot read the file from
 controlling the helper, but it does not defend against malware or any process

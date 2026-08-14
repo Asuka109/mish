@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempDisposableSync,
   readFileSync,
@@ -18,10 +19,404 @@ import {
   buildInstallationDiscoveryRequest,
   buildRotationRequest,
   canonicalRotationTranscript,
+  classifyDevelopmentTunInstallation,
+  classifyDevelopmentTunSocketArtifacts,
   ensureInstallationClientKey,
+  finalizePendingKeyIfEnrolled,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
+  safeDevelopmentTunSocketMetadata,
+  selectDevelopmentTunLifecycleAction,
+  selectObservedClientIdentity,
 } from "./manage-macos-tun-service.ts";
+
+test("classifies a running Mish service with installed artifacts and a missing enrollment as safe partial", () => {
+  for (const discovery of ["matching", "missing"] as const) {
+    assert.deepEqual(
+      classifyDevelopmentTunInstallation({
+        artifacts: "mish-owned",
+        clientIdentity: "present",
+        discovery,
+        enrollmentIdentity: "missing",
+        service: "running",
+      }),
+      {
+        installation: "repair-required",
+        reason: "missing-enrollment",
+      },
+    );
+  }
+});
+
+test("keeps a complete development TUN identity distinct from version and protocol mismatch", () => {
+  const complete = {
+    artifacts: "mish-owned" as const,
+    clientIdentity: "present" as const,
+    enrollmentIdentity: "matches-client" as const,
+    service: "running" as const,
+  };
+
+  assert.deepEqual(classifyDevelopmentTunInstallation({ ...complete, discovery: "matching" }), {
+    installation: "installed",
+    reason: "healthy",
+  });
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({ ...complete, discovery: "version-mismatch" }),
+    { installation: "repair-required", reason: "version-mismatch" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({ ...complete, discovery: "protocol-mismatch" }),
+    { installation: "repair-required", reason: "protocol-mismatch" },
+  );
+  assert.deepEqual(classifyDevelopmentTunInstallation({ ...complete, discovery: "missing" }), {
+    installation: "repair-required",
+    reason: "missing-socket",
+  });
+});
+
+test("replays an interrupted committed key rotation as serialized repair, not foreign recovery", () => {
+  const active = { keyId: "a".repeat(64), publicKeySpki: "active" };
+  const pending = { keyId: "b".repeat(64), publicKeySpki: "pending" };
+  assert.deepEqual(selectObservedClientIdentity(active, pending, pending.keyId), {
+    clientIdentity: "pending-commit",
+    ...pending,
+  });
+  assert.deepEqual(selectObservedClientIdentity(active, pending, "c".repeat(64)), {
+    clientIdentity: "present",
+    ...active,
+  });
+  assert.deepEqual(selectObservedClientIdentity(undefined, pending, "c".repeat(64)), {
+    clientIdentity: "missing",
+  });
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "pending-commit",
+      discovery: "matching",
+      enrollmentIdentity: "matches-client",
+      service: "running",
+    }),
+    {
+      installation: "repair-required",
+      reason: "pending-client-key",
+    },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "matching",
+      enrollmentIdentity: "mismatches-client",
+      service: "running",
+    }),
+    {
+      installation: "recovery-required",
+      reason: "client-enrollment-mismatch",
+    },
+  );
+});
+
+test("promotes successful reset and rotation private and public records together", async () => {
+  using fixture = mkdtempDisposableSync(path.join(tmpdir(), "mish-tun-key-promotion-"));
+  const uid = process.getuid!();
+  const records = {
+    activeClientKey: path.join(fixture.path, "client.json"),
+    activeEnrollment: path.join(fixture.path, "enrollment.json"),
+    pendingClientKey: path.join(fixture.path, "client.pending.json"),
+    pendingEnrollment: path.join(fixture.path, "enrollment.pending.json"),
+  };
+  const pending = await ensureInstallationClientKey(records.pendingClientKey, uid);
+  const installationId = "c".repeat(64);
+  const candidate = {
+    algorithm: "p256-sha256",
+    helperInstallationId: installationId,
+    installingUid: uid,
+    keyId: pending.keyId,
+    publicKeySpki: pending.publicKeySpki,
+    schemaVersion: 1,
+  };
+  writeFileSync(records.pendingEnrollment, `${JSON.stringify(candidate)}\n`, { mode: 0o600 });
+  chmodSync(records.pendingEnrollment, 0o600);
+
+  await finalizePendingKeyIfEnrolled(
+    "/unused-by-known-discovery.sock",
+    uid,
+    {
+      algorithm: "p256-sha256",
+      generation: 2,
+      helperVersion: "6",
+      installationId,
+      keyId: pending.keyId,
+      protocolVersion: 3,
+    },
+    records,
+  );
+
+  assert.deepEqual(JSON.parse(readFileSync(records.activeClientKey, "utf8")), pending);
+  assert.deepEqual(JSON.parse(readFileSync(records.activeEnrollment, "utf8")), candidate);
+  assert.equal(existsSync(records.pendingClientKey), false);
+  assert.equal(existsSync(records.pendingEnrollment), false);
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "matching",
+      enrollmentIdentity: "matches-client",
+      service: "running",
+    }),
+    { installation: "installed", reason: "healthy" },
+  );
+});
+
+test("keeps a pending key repairable when its service socket disappears", async () => {
+  using fixture = mkdtempDisposableSync(path.join(tmpdir(), "mish-tun-missing-socket-"));
+  const uid = process.getuid!();
+  const records = {
+    activeClientKey: path.join(fixture.path, "client.json"),
+    activeEnrollment: path.join(fixture.path, "enrollment.json"),
+    pendingClientKey: path.join(fixture.path, "client.pending.json"),
+    pendingEnrollment: path.join(fixture.path, "enrollment.pending.json"),
+  };
+  const pending = await ensureInstallationClientKey(records.pendingClientKey, uid);
+  writeFileSync(
+    records.pendingEnrollment,
+    `${JSON.stringify({
+      algorithm: "p256-sha256",
+      helperInstallationId: "c".repeat(64),
+      installingUid: uid,
+      keyId: pending.keyId,
+      publicKeySpki: pending.publicKeySpki,
+      schemaVersion: 1,
+    })}\n`,
+    { mode: 0o600 },
+  );
+  chmodSync(records.pendingEnrollment, 0o600);
+
+  const discovery = await finalizePendingKeyIfEnrolled(
+    path.join(fixture.path, "missing.sock"),
+    uid,
+    undefined,
+    records,
+  );
+
+  assert.equal(discovery, undefined);
+  assert.equal(existsSync(records.pendingClientKey), true);
+  assert.equal(existsSync(records.pendingEnrollment), true);
+  assert.equal(existsSync(records.activeClientKey), false);
+  assert.equal(existsSync(records.activeEnrollment), false);
+  const selected = selectObservedClientIdentity(undefined, pending);
+  assert.deepEqual(selected, { clientIdentity: "missing" });
+  const classification = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: selected.clientIdentity,
+    discovery: "missing",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.deepEqual(classification, {
+    installation: "repair-required",
+    reason: "missing-client-key",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", classification), "reset-key");
+});
+
+test("accepts only the production user-owned development socket metadata contract", () => {
+  const uid = 501;
+  const productionSocket = {
+    isSocket: () => true,
+    isSymbolicLink: () => false,
+    mode: 0o140600,
+    nlink: 1,
+    uid,
+  };
+  assert.equal(safeDevelopmentTunSocketMetadata(productionSocket, uid), true);
+  assert.equal(safeDevelopmentTunSocketMetadata({ ...productionSocket, uid: 0 }, uid), false);
+  assert.equal(
+    safeDevelopmentTunSocketMetadata({ ...productionSocket, mode: 0o140666 }, uid),
+    false,
+  );
+  assert.equal(
+    safeDevelopmentTunSocketMetadata({ ...productionSocket, isSymbolicLink: () => true }, uid),
+    false,
+  );
+});
+
+test("fails closed when the reserved socket survives clean artifact removal", () => {
+  assert.equal(classifyDevelopmentTunSocketArtifacts("absent", "absent"), "absent");
+  const orphanedSocketArtifacts = classifyDevelopmentTunSocketArtifacts("absent", "safe");
+  assert.equal(orphanedSocketArtifacts, "ambiguous");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("absent", "unsafe"), "ambiguous");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("mish-owned", "safe"), "mish-owned");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("mish-owned", "unsafe"), "ambiguous");
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: orphanedSocketArtifacts,
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "recovery-required", reason: "ambiguous-artifacts" },
+  );
+});
+
+test("routes a lost client key through the existing serialized reset-key repair", () => {
+  const missingClientKey = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: "missing",
+    discovery: "missing",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", missingClientKey), "reset-key");
+  assert.equal(
+    selectDevelopmentTunLifecycleAction("repair", {
+      installation: "repair-required",
+      reason: "missing-enrollment",
+    }),
+    "repair",
+  );
+  assert.equal(
+    selectDevelopmentTunLifecycleAction("install", {
+      installation: "repair-required",
+      reason: "missing-client-key",
+    }),
+    "install",
+  );
+  assert.throws(
+    () =>
+      selectDevelopmentTunLifecycleAction("repair", {
+        installation: "recovery-required",
+        reason: "ambiguous-artifacts",
+      }),
+    /repair-identity-not-admitted/u,
+  );
+  assert.throws(
+    () =>
+      selectDevelopmentTunLifecycleAction("install", {
+        installation: "recovery-required",
+        reason: "foreign-artifacts",
+      }),
+    /install-identity-not-admitted/u,
+  );
+});
+
+test("replays a cancelled lost-key reset as a retryable missing active identity", () => {
+  const pending = { keyId: "b".repeat(64), publicKeySpki: "pending" };
+  const selected = selectObservedClientIdentity(undefined, pending, "a".repeat(64));
+  assert.deepEqual(selected, { clientIdentity: "missing" });
+  const classification = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: selected.clientIdentity,
+    discovery: "matching",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.deepEqual(classification, {
+    installation: "repair-required",
+    reason: "missing-client-key",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", classification), "reset-key");
+});
+
+test("status never traverses the root-only enrollment directory", () => {
+  const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
+  const observation = source.slice(
+    source.indexOf("async function observeDevelopmentTunInstallation"),
+    source.indexOf("type ToolchainEnvironment"),
+  );
+  assert.doesNotMatch(observation, /lstat\(enrollmentTarget\)/u);
+  assert.ok(
+    observation.indexOf("classifyObservedEnrollment(") <
+      observation.lastIndexOf("observeDevelopmentTunSocket(socketPath"),
+    "the user-owned enrollment candidate must preserve missing-socket classification",
+  );
+});
+
+test("install and repair reobserve complete identity before promoting pending records", () => {
+  const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
+  const main = source.slice(
+    source.indexOf("async function main()"),
+    source.indexOf("if (import.meta.main)"),
+  );
+  const admittedLifecycle = main.slice(
+    main.indexOf('if (action === "repair" || action === "install")'),
+    main.indexOf("const prepared"),
+  );
+  assert.ok(
+    admittedLifecycle.indexOf("observeDevelopmentTunInstallation(") <
+      admittedLifecycle.indexOf("finalizePendingKeyIfEnrolled("),
+    "unsafe Install or Repair drift must reject before pending identity promotion",
+  );
+});
+
+test("keeps clean absence, verified Mish-owned partial identity, and unsafe artifacts distinct", () => {
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "absent",
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "not-installed", reason: "clean-absence" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "partial",
+      clientIdentity: "present",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "running",
+    }),
+    { installation: "recovery-required", reason: "partial-artifacts" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "repair-required", reason: "missing-client-key" },
+  );
+  for (const artifacts of ["ambiguous", "foreign"] as const) {
+    assert.deepEqual(
+      classifyDevelopmentTunInstallation({
+        artifacts,
+        clientIdentity: "present",
+        discovery: "mismatched",
+        enrollmentIdentity: "mismatches-client",
+        service: "running",
+      }),
+      {
+        installation: "recovery-required",
+        reason: artifacts === "foreign" ? "foreign-artifacts" : "ambiguous-artifacts",
+      },
+    );
+  }
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "mismatched",
+      enrollmentIdentity: "stale-installation",
+      service: "running",
+    }),
+    { installation: "repair-required", reason: "installation-identity-mismatch" },
+  );
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "mismatched",
+      enrollmentIdentity: "mismatches-client",
+      service: "running",
+    }),
+    { installation: "recovery-required", reason: "client-enrollment-mismatch" },
+  );
+});
 
 test("discovery request uses the Rust enum field names at the framed boundary", () => {
   const requestId = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +426,7 @@ test("discovery request uses the Rust enum field names at the framed boundary", 
     protocol_version: 3,
     request_id: requestId,
   });
+  assert.equal(buildInstallationDiscoveryRequest(requestId, 2).protocol_version, 2);
 });
 
 function writePinnedCoreFixture(workspace: string) {

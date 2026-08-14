@@ -81,3 +81,9 @@ identity with its Rust-admitted revision and pending/finalizing/terminal state,
 so reconnecting or remounted clients accept only the matching terminal result.
 The UUID is correlation metadata, never authorization material or a Web-owned
 Helper lifecycle.
+
+Protocol 40 adds `recovery-required` to both the TUN Helper and Capture
+capability availability enums. Unsafe, foreign, or ambiguous development
+installation identity now survives Runtime and Web projection without being
+collapsed into generic build/platform unavailability or admitting blind
+repair.

@@ -122,10 +122,14 @@ export function TrafficCaptureControl({
   const tunSetupRequired = tunSetupOperation !== null;
   const guideTunSetupOperation = tunGuideOperation ?? tunSetupOperation;
   const guideTunSetupRequired = guideTunSetupOperation !== null;
-  const tunActionable = canRequestAuthoritativeCaptureCheck || tunAvailable || tunSetupRequired;
+  const tunActionable =
+    capabilities.tun !== "recovery-required" &&
+    (canRequestAuthoritativeCaptureCheck || tunAvailable || tunSetupRequired);
   const tunDescriptionId = tunSetupRequired
     ? statusDescriptionIds.tunPermission
-    : statusDescriptionIds.tunUnavailable;
+    : capabilities.tun === "recovery-required"
+      ? statusDescriptionIds.tunRecovery
+      : statusDescriptionIds.tunUnavailable;
   const systemProxyPending = feedback.busy && systemProxyStatus.phase === "pending";
   const tunPending = feedback.busy && tunStatus.phase === "pending";
   const captureDisabled = disabled || feedback.busy;
@@ -160,6 +164,9 @@ export function TrafficCaptureControl({
       return mode === "systemProxy"
         ? LL.capture.systemProxyFixtureDescription()
         : LL.capture.tunFixtureDescription();
+    }
+    if (mode === "tun" && availability === "recovery-required") {
+      return LL.capabilities.tunRecoveryRequired();
     }
     if (availability === "permission-required" || availability === "repair-required") {
       return mode === "systemProxy"
@@ -305,7 +312,9 @@ export function TrafficCaptureControl({
               <TooltipContent>
                 {tunSetupRequired
                   ? getHelpDescription("tun", capabilities.tun)
-                  : LL.capabilities.tunUnavailable()}
+                  : capabilities.tun === "recovery-required"
+                    ? LL.capabilities.tunRecoveryRequired()
+                    : LL.capabilities.tunUnavailable()}
               </TooltipContent>
             </Tooltip>
           )}

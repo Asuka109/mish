@@ -1037,6 +1037,7 @@ impl SettingsService {
                 SettingsAvailability::Supported
             }
             TunHelperAvailability::Available
+            | TunHelperAvailability::RecoveryRequired
             | TunHelperAvailability::Unpackaged
             | TunHelperAvailability::UnsignedApp
             | TunHelperAvailability::UnsupportedSystem

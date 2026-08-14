@@ -1997,6 +1997,7 @@ export const CapabilityAvailabilitySchema = z.enum([
   "supported",
   "unavailable",
   "permission-required",
+  "recovery-required",
   "repair-required",
 ]);
 export type CapabilityAvailability = z.infer<typeof CapabilityAvailabilitySchema>;
@@ -2245,6 +2246,7 @@ export interface StartupRegistrationSnapshotDto extends z.infer<
 export const TunHelperAvailabilitySchema = z.enum([
   "available",
   "permission-required",
+  "recovery-required",
   "repair-required",
   "unpackaged",
   "unsigned-app",
