@@ -349,16 +349,22 @@ explicitly deferred until the verified Core/ABI backend replaces the fixture.
 
 ## CI policy
 
-Pull requests run the bounded fast gate and upload no Android package. Only a
-push to `main` runs the independent Android packaging job. That job installs the
-pinned JDK, Android command-line tools, SDK, NDK, and Rust targets; restores
+Pull requests run the bounded fast gate and upload no Android package. A push to
+`main`, or a bounded manual package dispatch whose ref is exactly `main`, runs
+the independent Android packaging job. Before checkout, the job freezes the
+event's full commit SHA, checks out that SHA rather than the branch name, and
+verifies HEAD. A branch/tag dispatch fails before checkout, and later movement
+of `main` cannot change the selected source. The job then installs the pinned
+JDK, Android command-line tools, SDK, NDK, and Rust targets; restores
 pnpm, Gradle, and Rust build caches; builds the pinned Mobile Core twice and
 requires byte-identical output on that host; verifies and stages the first pass
 against the generated evidence anchored to repository-owned source and
 toolchain inputs; builds separate ARM64 and x86_64 debug APKs; verifies
 signatures, ABI entries, JNI probes, and the exact packaged Core hashes against
-that same evidence; publishes hashes and provenance in the job summary; and
-uploads a 14-day, explicitly non-production test artifact. Local default
+that same evidence; reasserts HEAD and recomputes both APK checksums immediately
+before upload; publishes the verified full/short revision, hashes, artifact ID,
+and non-production provenance in the job summary; and uploads a 14-day,
+explicitly non-production test artifact. Local default
 staging continues to use the committed canonical evidence rather than silently
 trusting arbitrary generated checksums.
 Complete repository and real-browser validation run as a daily or manually
@@ -366,5 +372,7 @@ dispatched inspection of the latest `main`.
 
 If an automated merge credential does not emit a follow-up push workflow, run
 the CI workflow manually on `main` with task `packages`. This recovery path
-checks out the latest `main` and runs only the two package jobs; task
-`inspection` remains the default for manual dispatch.
+freezes the `main` commit received by the dispatch and runs only the two package
+jobs. It never follows a later branch tip or silently substitutes `main` for a
+different selected ref; task `inspection` remains the default for manual
+dispatch.
