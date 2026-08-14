@@ -125,6 +125,24 @@ impl FakeHelperPlatform {
         }
     }
 
+    fn healthy_then_missing_socket() -> Self {
+        Self {
+            initially_healthy: true,
+            lifecycle_calls: Mutex::new(Vec::new()),
+            lifecycle_failure: Mutex::new(None),
+            observation: Mutex::new(TunHelperObservation {
+                availability: TunHelperAvailability::RepairRequired,
+                health: TunHelperHealth::Unreachable,
+                installation_id: None,
+                installed_version: None,
+                last_failure: Some(TunHelperFailureKind::ConnectionFailed),
+            }),
+            tun_enabled: Mutex::new(false),
+            tun_failure: Mutex::new(None),
+            tun_observation_failure: Mutex::new(None),
+        }
+    }
+
     fn fail_next_lifecycle(&self, failure: TunHelperFailureKind) {
         *self.lifecycle_failure.lock().unwrap() = Some(failure);
     }
@@ -262,6 +280,26 @@ async fn healthy_reinstall_hands_off_active_tun_before_confirming_completion() {
 
     assert!(snapshot.is_healthy());
     assert!(!*platform.tun_enabled.lock().unwrap());
+}
+
+#[tokio::test]
+async fn healthy_to_missing_socket_drift_repairs_without_a_stale_tun_handoff() {
+    let platform = Arc::new(FakeHelperPlatform::healthy_then_missing_socket());
+    platform.fail_next_tun_mutation(TunHelperFailureKind::ConnectionFailed);
+    let helper = TunHelperController::new(platform.clone());
+
+    let snapshot = helper.repair().await.unwrap();
+
+    assert!(snapshot.is_healthy());
+    assert_eq!(
+        platform.lifecycle_calls(),
+        vec![TunHelperLifecycleOperation::Repair]
+    );
+    assert_eq!(
+        *platform.tun_failure.lock().unwrap(),
+        Some(TunHelperFailureKind::ConnectionFailed),
+        "fresh missing-socket admission must not call the stale Helper socket",
+    );
 }
 
 #[tokio::test]

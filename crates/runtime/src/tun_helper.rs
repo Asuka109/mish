@@ -590,8 +590,23 @@ impl TunHelperController {
         correlation: Option<TunHelperLifecycleCorrelation>,
     ) -> Result<TunHelperSnapshot, TunHelperError> {
         let _operation = self.operation.lock().await;
-        let prior = self.snapshot();
         let admitted = self.refresh_locked(None).await;
+        if matches!(
+            operation,
+            TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
+        ) && matches!(
+            admitted.last_failure,
+            Some(
+                TunHelperFailureKind::ObservationForeign | TunHelperFailureKind::ObservationPartial
+            )
+        ) {
+            return Err(TunHelperError::new(
+                admitted
+                    .last_failure
+                    .expect("matched observed network failure"),
+                "The TUN network ownership observation requires manual recovery",
+            ));
+        }
         if matches!(
             operation,
             TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
@@ -604,14 +619,15 @@ impl TunHelperController {
                 "The TUN helper installation identity requires manual recovery",
             ));
         }
-        // An install can be an idempotent reinstall of a healthy Helper that already owns TUN.
-        // It needs the same confirmed handoff as repair before lifecycle work starts. Removal is
-        // admitted only after the shared Capture authority has already stopped TUN; this boundary
-        // performs a second read-only observation and never creates a competing mutation path.
+        // A freshly healthy Helper can still own TUN during an idempotent install or repair, so it
+        // needs a confirmed handoff before lifecycle work starts. A stale healthy snapshot must not
+        // contact a Helper that the admission observation can no longer reach. Removal is admitted
+        // only after the shared Capture authority has already stopped TUN; this boundary performs a
+        // second read-only observation and never creates a competing mutation path.
         if matches!(
             operation,
             TunHelperLifecycleOperation::Install | TunHelperLifecycleOperation::Repair
-        ) && (prior.has_healthy_identity() || admitted.has_healthy_identity())
+        ) && admitted.has_healthy_identity()
         {
             if let Err(error) = self.platform.set_tun_enabled(false).await {
                 self.record_failure(error.kind);
