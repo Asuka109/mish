@@ -88,17 +88,18 @@ resolved only scoped overlap, and passed final local and required remote gates.
 Wave 2O is fully integrated. Its advisory-warning follow-up remains tracked in
 #518 and root npm-script command-surface governance remains tracked in #519.
 
-Wave 2P is partially integrated on `origin/main@ba232aeb`. #525 O1-O3 landed
+Wave 2P is partially integrated on `origin/main@7d427113`. #525 O1-O3 landed
 through PR #528 / `aa552a77`, #521 B1 through PR #531 / `b6664060`, #520
 G1-G3 through PR #529 / `507814fb`, and #523 M1+M2 through PR #532 /
-`ba232aeb`, all after explicit acceptance and successful required CI. Issues
-#520 and #525 are closed completed; #521 remains open for B2/B3 and #523 for
-M3. Coordinator post-merge checks passed: documentation/checksum/provenance
-fixtures 17/17 and local-backup restore/recovery 19/19. #522 and #524 remain
-active; #524 must integrate before later #527 work begins. Eight implementation
-slots are unreserved. No Wave 2P evidence claims physical sleep/wake, real
-restore interruption, production signing, release publication, external
-network behavior, or device acceptance.
+`ba232aeb`; #524 C1-C3 then landed through PR #530 / `7d427113`. All five had
+explicit acceptance and successful required CI. Issues #520, #524, and #525
+are closed completed; #521 remains open for B2/B3 and #523 for M3. Coordinator
+post-merge checks passed: documentation/checksum/provenance fixtures 17/17,
+local-backup restore/recovery 19/19, package-revision policy 7/7, and the full
+CI policy gate. Only #522 remains active; #527 is dependency-unblocked but not
+dispatched. Nine implementation slots are unreserved. No Wave 2P evidence
+claims physical sleep/wake, real restore interruption, production signing,
+release publication, external network behavior, or device acceptance.
 
 ## Wave 1 worker ledger
 
@@ -410,7 +411,7 @@ worktrees are backfilled below; each started from the published
 | --- | --- | --- | --- | --- | --- | --- |
 | #521 B1 restore publication protocol | `01a00099-020d-7183-9faf-cfdf65a99cd7` | `53eb` | integrated | Existing atomic Profile generations and local-backup authority | Include the visible Profile projection in one durable recoverable restore publication protocol with startup completion/rollback | PR #531 merged as `b6664060` after explicit acceptance; required CI and coordinator 19/19 restore/recovery checks passed; Issue #521 remains open for B2/B3; no real user-data mutation claim |
 | #522 L1+L2 authoritative sleep recovery | `01a00099-79a1-78e2-af80-c37e36c8d007` | `092a` | active | Existing lifecycle coordinator and platform event boundary | Replace stale process-local sleep state with typed authority and migrate gap recovery, Runtime, Traffic, Capture, and Network/DNS admission | `gpt-5.6-sol/high`; L3 final hardening and physical sleep/wake acceptance remain out of scope |
-| #524 C1-C3 exact package revision | `01a00099-79bd-7ee1-8966-0ec4a7fef8ea` | `372e` | active | Current non-production macOS/Android package jobs | Freeze one accepted SHA and bind checkout, validation, build, artifact metadata, upload, summary, and adversarial policy tests to verified HEAD | `gpt-5.6-sol/high`; must integrate before #527; no production signing or release publication |
+| #524 C1-C3 exact package revision | `01a00099-79bd-7ee1-8966-0ec4a7fef8ea` | `372e` | integrated | Current non-production macOS/Android package jobs | Freeze one accepted SHA and bind checkout, validation, build, artifact metadata, upload, summary, and adversarial policy tests to verified HEAD | PR #530 merged as `7d427113` after explicit acceptance; required CI, coordinator package-revision 7/7, and full CI policy gate passed; Issue #524 CLOSED/COMPLETED; #527 is unblocked but undispatched |
 | #520 G1-G3 Gradle wrapper checksum | `01a00099-7ac8-7ca1-b057-b7a0b7870211` | `7db1` | integrated | Current pinned Gradle version and generated Android wrapper | Add the official reviewed checksum as canonical data and enforce deterministic generation plus tamper/version drift rejection | PR #529 merged as `507814fb` after explicit acceptance; required CI and coordinator checksum fixtures passed; Issue #520 CLOSED/COMPLETED; no Gradle upgrade or broad dependency change |
 | #523 M1+M2 Go toolchain provenance | `01a00099-7a9d-7c82-928d-c70ed4f150f5` | `a8a1` | integrated | Existing Mobile Core reproducible-build/admission evidence | Model the executed toolchain source and reject caller overrides falsely claiming verified official archive identity | PR #532 merged as `ba232aeb` after explicit acceptance; required CI and coordinator provenance fixtures passed; Issue #523 remains open for M3 and the full replaced-cache/missing-host matrix |
 | #525 O1-O3 documentation boundaries | `01a00099-7ac5-7c61-8ee4-a11acce80750` | `1532` | integrated | Current public RPC catalog, mock bridge, CSP, and icon policy | Correct mock behavioral coverage and HTTPS image privacy claims with the smallest useful configuration/catalog drift checks | PR #528 merged as `aa552a77` after explicit acceptance; required CI and coordinator documentation drift fixtures passed; Issue #525 CLOSED/COMPLETED; no product behavior change |
