@@ -167,30 +167,42 @@ acceptance boundaries.
 
 ## Checks
 
-| Command                        | Coverage                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `check`                        | Alias for `check:pr`.                                                          |
-| `check:pr`                     | Bounded pull-request gate used by CI.                                          |
-| `check:all`                    | Complete non-browser validation used by main inspection.                       |
-| `check:types`                  | TypeScript type checks followed by Cargo workspace check.                      |
-| `check:types:ts`               | TypeScript packages only.                                                      |
-| `check:rust`                   | Cargo workspace check.                                                         |
-| `check:rust:format`            | Rust formatting.                                                               |
-| `check:rust:clippy`            | Full workspace/all-target Clippy used by main inspection, warnings denied.     |
-| `check:rust:pr`                | Portable PR Clippy contract; host Tauri application crates stay in inspection. |
-| `check:format`                 | Repository formatting without writing changes.                                 |
-| `check:lint`                   | TypeScript and JavaScript lint.                                                |
-| `check:i18n`                   | Generated localization contract.                                               |
-| `check:android`                | Generated Android project contract.                                            |
-| `check:tokens`                 | Generated design-token contract.                                               |
-| `check:design`                 | `DESIGN.md` contract lint.                                                     |
-| `check:docs`                   | Local Markdown links and public-release contracts.                             |
-| `check:public-release`         | Public files, packaged notices, metadata, attribution, and claim boundaries.   |
-| `check:ci`                     | CI workflow contract.                                                          |
-| `check:macos:release-workflow` | Manual Alpha Draft staging permissions and ordering contract.                  |
+| Command                        | Coverage                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `check`                        | Alias for `check:pr`.                                                                                      |
+| `check:pr`                     | Bounded pull-request gate used by CI.                                                                      |
+| `check:all`                    | Complete non-browser validation used by main inspection.                                                   |
+| `check:types`                  | TypeScript type checks followed by Cargo workspace check.                                                  |
+| `check:types:ts`               | TypeScript packages only.                                                                                  |
+| `check:rust`                   | Cargo workspace check.                                                                                     |
+| `check:rust:format`            | Rust formatting.                                                                                           |
+| `check:rust:clippy`            | Full workspace/all-target Clippy used by main inspection, warnings denied.                                 |
+| `check:rust:pr`                | Portable PR Clippy contract; host Tauri application crates stay in inspection.                             |
+| `check:format`                 | Repository formatting without writing changes.                                                             |
+| `check:lint`                   | High-signal TypeScript/JavaScript correctness, React, accessibility, import, Promise, test, and Node lint. |
+| `check:i18n`                   | Generated localization contract.                                                                           |
+| `check:android`                | Generated Android project contract.                                                                        |
+| `check:tokens`                 | Generated design-token contract.                                                                           |
+| `check:design`                 | `DESIGN.md` contract lint.                                                                                 |
+| `check:docs`                   | Local Markdown links and public-release contracts.                                                         |
+| `check:public-release`         | Public files, packaged notices, metadata, attribution, and claim boundaries.                               |
+| `check:ci`                     | CI workflow contract.                                                                                      |
+| `check:macos:release-workflow` | Manual Alpha Draft staging permissions and ordering contract.                                              |
 
 `pnpm format` is the intentional write-mode counterpart to
 `pnpm check:format`.
+
+The root `.oxlintrc.json` is the single code-lint configuration used by local commands,
+editors, and CI. Native correctness, suspicious, performance, React, Hooks, Refresh,
+React Perf, accessibility, import, Promise, Vitest, and Node findings are advisory
+warnings during the improvement rollout, so existing findings do not block delivery.
+Pedantic, restriction, nursery, and formatting rules stay disabled; Oxfmt remains the
+only formatting authority, and TypeScript remains the type-check authority. Generated
+localization/contracts and negative lint fixtures are excluded by exact paths.
+Type-aware Oxlint is deferred because it currently adds the separate `oxlint-tsgolint`
+runtime and requires built monorepo declarations. ESLint, Prettier, Biome, and Stylelint
+are neither installed nor accepted as alternate lint authorities; legacy ESLint disable
+directives are not consumed by Oxlint.
 
 ## Generation and preparation
 

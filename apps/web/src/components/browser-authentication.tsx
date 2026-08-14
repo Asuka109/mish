@@ -68,7 +68,6 @@ export function BrowserAuthentication({
   useEffect(() => {
     void start();
     // Pairing is intentionally requested once when this authentication view mounts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async (event: FormEvent) => {
