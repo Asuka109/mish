@@ -405,7 +405,6 @@ export function selectObservedClientIdentity(
     return { clientIdentity: "pending-commit" as const, ...pending };
   }
   if (active) return { clientIdentity: "present" as const, ...active };
-  if (pending) return { clientIdentity: "present" as const, ...pending };
   return { clientIdentity: "missing" as const };
 }
 
@@ -662,6 +661,13 @@ export function selectDevelopmentTunLifecycleAction(
   requestedAction: typeof action,
   classification: DevelopmentTunInstallationClassification,
 ) {
+  if (requestedAction === "install" && classification.installation === "recovery-required") {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "install-admission",
+      "install-identity-not-admitted",
+    );
+  }
   if (requestedAction !== "repair") return requestedAction;
   if (
     classification.installation === "recovery-required" ||
@@ -1685,7 +1691,7 @@ async function main() {
 
   const developmentSocket = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
   let lifecycleAction = action;
-  if (action === "repair") {
+  if (action === "repair" || action === "install") {
     const serviceStatus = run("/bin/launchctl", ["print", `system/${label}`], {
       allowFailure: true,
       timeoutMilliseconds: 1_500,

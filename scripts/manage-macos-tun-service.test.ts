@@ -86,8 +86,7 @@ test("replays an interrupted committed key rotation as serialized repair, not fo
     ...active,
   });
   assert.deepEqual(selectObservedClientIdentity(undefined, pending, "c".repeat(64)), {
-    clientIdentity: "present",
-    ...pending,
+    clientIdentity: "missing",
   });
   assert.deepEqual(
     classifyDevelopmentTunInstallation({
@@ -240,6 +239,32 @@ test("routes a lost client key through the existing serialized reset-key repair"
       }),
     /repair-identity-not-admitted/u,
   );
+  assert.throws(
+    () =>
+      selectDevelopmentTunLifecycleAction("install", {
+        installation: "recovery-required",
+        reason: "foreign-artifacts",
+      }),
+    /install-identity-not-admitted/u,
+  );
+});
+
+test("replays a cancelled lost-key reset as a retryable missing active identity", () => {
+  const pending = { keyId: "b".repeat(64), publicKeySpki: "pending" };
+  const selected = selectObservedClientIdentity(undefined, pending, "a".repeat(64));
+  assert.deepEqual(selected, { clientIdentity: "missing" });
+  const classification = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: selected.clientIdentity,
+    discovery: "matching",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.deepEqual(classification, {
+    installation: "repair-required",
+    reason: "missing-client-key",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", classification), "reset-key");
 });
 
 test("status never traverses the root-only enrollment directory", () => {
@@ -256,20 +281,20 @@ test("status never traverses the root-only enrollment directory", () => {
   );
 });
 
-test("repair reobserves complete identity before promoting pending records", () => {
+test("install and repair reobserve complete identity before promoting pending records", () => {
   const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
   const main = source.slice(
     source.indexOf("async function main()"),
     source.indexOf("if (import.meta.main)"),
   );
-  const repair = main.slice(
-    main.indexOf('if (action === "repair")'),
+  const admittedLifecycle = main.slice(
+    main.indexOf('if (action === "repair" || action === "install")'),
     main.indexOf("const prepared"),
   );
   assert.ok(
-    repair.indexOf("observeDevelopmentTunInstallation(") <
-      repair.indexOf("finalizePendingKeyIfEnrolled("),
-    "unsafe Repair drift must reject before pending identity promotion",
+    admittedLifecycle.indexOf("observeDevelopmentTunInstallation(") <
+      admittedLifecycle.indexOf("finalizePendingKeyIfEnrolled("),
+    "unsafe Install or Repair drift must reject before pending identity promotion",
   );
 });
 
