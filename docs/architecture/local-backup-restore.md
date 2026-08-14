@@ -146,31 +146,51 @@ Restore first builds a complete staged profile repository and staged settings
 file using the ordinary domain repositories. This validates every reconstructed
 `ProfileRecord`, including schema versions, revision hashes, artifact
 fingerprints, patch authority, structured patch application, and source rules.
-Only after staging succeeds does the transaction create private mode-0700 stage
-and rollback directories and persist a strict mode-0600 restore journal. The
-journal has schema version 1, one UUID, a closed component enum (`profiles` or
-`settings`), each component's original-existence bit, and one of three phases:
-`committing`, `rolling-back`, or `committed`. It contains no user-controlled or
-absolute path. Journal bytes and the parent-directory entry are fsynced before
-the first authoritative component rename.
+The transaction also builds a complete user-visible Profile projection in the
+private mode-0700 stage root. Managed direct regular `.yaml` and `.yml` entries
+come only from the staged Profile records. Existing unrelated regular files and
+nested directories are preserved without reading their contents by recreating
+the directory tree and hard-linking regular files on the same filesystem.
+Symbolic links and special filesystem entries fail closed before any
+authoritative rename; restore never follows, replaces, or silently deletes
+them.
 
-Each original-to-rollback and staged-to-authority rename is followed by fsync of
-both affected parent directories. Ordinary rename or flush failure switches the
-journal durably to `rolling-back` and reverses completed swaps. If rollback or
-cleanup also fails, restore returns `recovery-required` and retains the journal,
-stage, and rollback evidence. It never deletes the only recovery basis or
-reports success. The live mutation authority then fails closed until restart,
-preventing a later writer from obscuring the retained recovery state. A
-successful data swap fsyncs the application-data directory,
-then persists `committed`; only then may cleanup remove rollback data and finally
-the journal.
+After the private Profile repository and Settings candidate validate, the
+transaction creates its rollback directory and persists a strict mode-0600
+restore journal before writing the visible projection candidate. Journal schema
+version 2 has one UUID, a closed component enum (`profiles`, `settings`, or
+`profile-projection`), each component's original-existence bit, and one of four
+phases: `staging-projection`, `committing`, `rolling-back`, or `committed`. It
+contains no user-controlled name, Profile contents, credential, configuration
+bytes, arbitrary output, or absolute path and remains below 32 KiB. Version 1
+journals remain accepted for bounded startup recovery but cannot name the new
+projection component or staging phase. Journal bytes and the parent-directory
+entry are fsynced before projection candidate writes and before the first
+authoritative component rename.
+
+The private Profile generation, visible `profiles/` projection, and Settings
+intent are three components of the same publication. Each
+original-to-rollback and staged-to-authority rename is followed by fsync of both
+affected parent directories. Ordinary candidate-write, rename, or flush failure
+switches the journal durably to `rolling-back` and reverses completed swaps. If
+rollback or cleanup also fails, restore returns `recovery-required` and retains
+the journal, stage, and rollback evidence. It never deletes the only recovery
+basis or reports success. The live mutation authority then fails closed until
+restart, preventing a later writer from obscuring the retained recovery state.
+A successful three-component swap fsyncs the application-data directory, then
+persists `committed`; only then may cleanup remove rollback data and finally the
+journal. If journal removal is interrupted, either the committed journal remains
+for idempotent cleanup or the complete committed generation remains without a
+journal; neither outcome exposes a partial publication.
 
 Startup checks the journal before loading Settings, constructing Profile
 services, starting the scheduler, exposing RPC/Tauri commands, or creating a
-managed runtime. `committing` and `rolling-back` transactions are idempotently
-rolled back to the prior generation. `committed` transactions retain the new
-generation and finish cleanup. Any recovery failure aborts startup and preserves
-diagnostic state for a later retry.
+managed runtime. `staging-projection` discards only the unpublished candidate;
+`committing` and `rolling-back` transactions idempotently roll all three
+components back to the prior generation. `committed` transactions retain the
+new private generation, Settings intent, and visible projection and finish
+cleanup. Any recovery failure aborts startup and preserves diagnostic state for
+a later retry.
 
 Startup accepts only a regular, bounded, mode-0600 restore journal owned by the
 same account as the application-data root. Its transaction stage and rollback
@@ -202,8 +222,10 @@ activate a profile, enable System Proxy, enable TUN, install a helper, or modify
 capture state. Publishing a profile snapshot after commit only informs the UI of
 repository changes; it does not activate or reload runtime configuration.
 When Profile contents are restored, the compatibility `profiles/` directory is
-validated and reused when it already exists; materializing restored YAML must
-not fail merely because a prior generation created that private directory.
+published as one prepared directory rename rather than deleted and rewritten in
+place. A prior private directory is therefore an expected original component,
+not a materialization error. Its non-managed regular files and nested
+directories follow the preservation policy above.
 
 ## Verification
 
@@ -212,9 +234,13 @@ rejection, bounded serialization, settings restore without platform adapters,
 profile reconstruction, conflict planning, active-transition digest expiry,
 active replacement protection, typed busy results for every Profile writer,
 and authority retention during activation. An injectable restore filesystem
-exercises every component-swap crash checkpoint, ordinary rollback, rollback
-failure with retained evidence, committed cleanup, and idempotent startup
-recovery. Web tests cover the strict DTO schemas, the complete private invoke
+records at most 128 closed semantic checkpoints and exercises interrupted
+projection candidate writes, projection swap, projection-directory
+synchronization, every component-swap crash checkpoint, ordinary rollback,
+rollback failure with retained evidence, committed journal cleanup, and
+idempotent startup recovery. The checkpoint and journal schemas contain no
+paths, Profile contents, credentials, raw output, or configuration bytes. Web
+tests cover the strict DTO schemas, the complete private invoke
 client, browser unavailability, default-sensitive scope behavior, preview-before-
 save interaction, explicit restore-sensitive scope confirmation, and Settings
 integration. Workspace formatting, lint,
