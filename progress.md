@@ -399,17 +399,18 @@ reporting, confirmation-only acceptance, final-only parent escalation, and an
 isolated worktree. Delivery permission includes scoped implementation,
 commit/push/PR, deterministic fixtures, and required CI; ordinary merge remains
 locked until explicit human acceptance. #521 and #522 must follow the
-transcript-driven system-test contract. Task IDs and worktrees are pending the
-second phase of dispatch.
+transcript-driven system-test contract. All six visible Worker identities and
+worktrees are backfilled below; each started from the published
+`origin/main@4163e4e2` reservation baseline.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #521 B1 restore publication protocol | `pending` | `pending` | dispatching | Existing atomic Profile generations and local-backup authority | Include the visible Profile projection in one durable recoverable restore publication protocol with startup completion/rollback | `gpt-5.6-sol/high`; B2 identity rebinding and B3 exhaustive adversarial closure remain out of scope; no real user-data mutation claim |
-| #522 L1+L2 authoritative sleep recovery | `pending` | `pending` | dispatching | Existing lifecycle coordinator and platform event boundary | Replace stale process-local sleep state with typed authority and migrate gap recovery, Runtime, Traffic, Capture, and Network/DNS admission | `gpt-5.6-sol/high`; L3 final hardening and physical sleep/wake acceptance remain out of scope |
-| #524 C1-C3 exact package revision | `pending` | `pending` | dispatching | Current non-production macOS/Android package jobs | Freeze one accepted SHA and bind checkout, validation, build, artifact metadata, upload, summary, and adversarial policy tests to verified HEAD | `gpt-5.6-sol/high`; must integrate before #527; no production signing or release publication |
-| #520 G1-G3 Gradle wrapper checksum | `pending` | `pending` | dispatching | Current pinned Gradle version and generated Android wrapper | Add the official reviewed checksum as canonical data and enforce deterministic generation plus tamper/version drift rejection | `gpt-5.6-sol/medium`; no Gradle upgrade or broad dependency change |
-| #523 M1+M2 Go toolchain provenance | `pending` | `pending` | dispatching | Existing Mobile Core reproducible-build/admission evidence | Model the executed toolchain source and reject caller overrides falsely claiming verified official archive identity | `gpt-5.6-sol/high`; M3 exhaustive cache/override fixtures and final documentation remain out of scope |
-| #525 O1-O3 documentation boundaries | `pending` | `pending` | dispatching | Current public RPC catalog, mock bridge, CSP, and icon policy | Correct mock behavioral coverage and HTTPS image privacy claims with the smallest useful configuration/catalog drift checks | `gpt-5.6-terra/high`; no CSP widening, remote code, generic URL loading, or IPC behavior change |
+| #521 B1 restore publication protocol | `01a00099-020d-7183-9faf-cfdf65a99cd7` | `53eb` | active | Existing atomic Profile generations and local-backup authority | Include the visible Profile projection in one durable recoverable restore publication protocol with startup completion/rollback | `gpt-5.6-sol/high`; B2 identity rebinding and B3 exhaustive adversarial closure remain out of scope; no real user-data mutation claim |
+| #522 L1+L2 authoritative sleep recovery | `01a00099-79a1-78e2-af80-c37e36c8d007` | `092a` | active | Existing lifecycle coordinator and platform event boundary | Replace stale process-local sleep state with typed authority and migrate gap recovery, Runtime, Traffic, Capture, and Network/DNS admission | `gpt-5.6-sol/high`; L3 final hardening and physical sleep/wake acceptance remain out of scope |
+| #524 C1-C3 exact package revision | `01a00099-79bd-7ee1-8966-0ec4a7fef8ea` | `372e` | active | Current non-production macOS/Android package jobs | Freeze one accepted SHA and bind checkout, validation, build, artifact metadata, upload, summary, and adversarial policy tests to verified HEAD | `gpt-5.6-sol/high`; must integrate before #527; no production signing or release publication |
+| #520 G1-G3 Gradle wrapper checksum | `01a00099-7ac8-7ca1-b057-b7a0b7870211` | `7db1` | active | Current pinned Gradle version and generated Android wrapper | Add the official reviewed checksum as canonical data and enforce deterministic generation plus tamper/version drift rejection | `gpt-5.6-sol/medium`; no Gradle upgrade or broad dependency change |
+| #523 M1+M2 Go toolchain provenance | `01a00099-7a9d-7c82-928d-c70ed4f150f5` | `a8a1` | active | Existing Mobile Core reproducible-build/admission evidence | Model the executed toolchain source and reject caller overrides falsely claiming verified official archive identity | `gpt-5.6-sol/high`; M3 exhaustive cache/override fixtures and final documentation remain out of scope |
+| #525 O1-O3 documentation boundaries | `01a00099-7ac5-7c61-8ee4-a11acce80750` | `1532` | active | Current public RPC catalog, mock bridge, CSP, and icon policy | Correct mock behavioral coverage and HTTPS image privacy claims with the smallest useful configuration/catalog drift checks | `gpt-5.6-terra/high`; no CSP widening, remote code, generic URL loading, or IPC behavior change |
 
 ## Wave 1 — approved for dispatch
 
