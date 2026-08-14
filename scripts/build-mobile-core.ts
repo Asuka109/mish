@@ -11,10 +11,18 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  callerSuppliedGoToolchainProvenance,
+  goVersionHostKey,
+  officialGoToolchainProvenance,
+  verifyGoToolchainProvenance,
+  type GoToolchainProvenance,
+} from "./mobile-core-toolchain-provenance.ts";
 
 interface GoArchive {
   filename: string;
   sha256: string;
+  executableSha256: string;
 }
 
 interface ArtifactTarget {
@@ -62,6 +70,11 @@ interface ArtifactEvidence extends ArtifactTarget {
   size: number;
 }
 
+interface SelectedGoToolchain {
+  binary: string;
+  provenance: GoToolchainProvenance;
+}
+
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const manifestPath = path.join(repositoryRoot, "mobile-core/source-manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SourceManifest;
@@ -105,6 +118,15 @@ function sha256File(file: string): string {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+function archiveGoExecutableSha256(file: string): string {
+  const executable = execFileSync("tar", ["-xOf", file, "go/bin/go"], {
+    encoding: "buffer",
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return createHash("sha256").update(executable).digest("hex");
+}
+
 function listFiles(directory: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -140,21 +162,20 @@ function hostKey(): string {
   return `${platform}-${architecture}`;
 }
 
-async function ensureGo(scratchRoot: string): Promise<string> {
+async function ensureGo(scratchRoot: string): Promise<SelectedGoToolchain> {
   const explicitRoot = process.env.MISH_GO_ROOT;
   if (explicitRoot) {
     const binary = path.join(explicitRoot, "bin/go");
-    verifyGo(binary);
-    return binary;
+    const version = verifyGo(binary);
+    const provenance = callerSuppliedGoToolchainProvenance(version, sha256File(binary));
+    verifyGoToolchainProvenance(provenance, manifest.go, { expectedHost: hostKey() });
+    return { binary, provenance };
   }
   const archive = manifest.go.archives[hostKey()];
   if (!archive) throw new Error(`no pinned Go archive for ${hostKey()}`);
   const toolchainRoot = path.join(scratchRoot, "toolchains", manifest.go.version);
   const binary = path.join(toolchainRoot, "go/bin/go");
-  if (existsSync(binary)) {
-    verifyGo(binary);
-    return binary;
-  }
+  const cached = existsSync(binary);
   mkdirSync(toolchainRoot, { recursive: true });
   const archivePath = path.join(toolchainRoot, archive.filename);
   if (!existsSync(archivePath)) {
@@ -164,16 +185,32 @@ async function ensureGo(scratchRoot: string): Promise<string> {
   }
   const digest = sha256File(archivePath);
   if (digest !== archive.sha256) throw new Error(`Go archive checksum mismatch: ${digest}`);
-  run("tar", ["-xzf", archivePath, "-C", toolchainRoot]);
-  verifyGo(binary);
-  return binary;
+  const archivedExecutableSha256 = archiveGoExecutableSha256(archivePath);
+  if (archivedExecutableSha256 !== archive.executableSha256) {
+    throw new Error(
+      `Go executable identity differs from the pinned archive: ${archivedExecutableSha256}`,
+    );
+  }
+  if (!cached) run("tar", ["-xzf", archivePath, "-C", toolchainRoot]);
+  const version = verifyGo(binary);
+  const executableSha256 = sha256File(binary);
+  if (executableSha256 !== archive.executableSha256) {
+    throw new Error(`cached Go executable does not match the verified official archive`);
+  }
+  const provenance = officialGoToolchainProvenance(
+    cached ? "verified-cache" : "pinned-archive",
+    version,
+    hostKey(),
+    archive,
+  );
+  verifyGoToolchainProvenance(provenance, manifest.go, { expectedHost: hostKey() });
+  return { binary, provenance };
 }
 
-function verifyGo(binary: string): void {
+function verifyGo(binary: string): string {
   const version = run(binary, ["version"], { quiet: true }).trim();
-  if (!version.includes(`go version ${manifest.go.version} `)) {
-    throw new Error(`expected ${manifest.go.version}, received ${version}`);
-  }
+  goVersionHostKey(version, manifest.go.version);
+  return version;
 }
 
 function resolveNdk(): string {
@@ -493,17 +530,23 @@ function writeEvidence(
   artifacts: ArtifactEvidence[],
   modules: GoModule[],
   wrapperSha256: string,
-  goBinary: string,
+  goToolchain: SelectedGoToolchain,
 ): void {
   mkdirSync(evidenceDirectory, { recursive: true });
-  const goVersion = run(goBinary, ["version"], { quiet: true }).trim();
+  const goVersion = verifyGo(goToolchain.binary);
+  if (
+    goVersion !== goToolchain.provenance.version ||
+    sha256File(goToolchain.binary) !== goToolchain.provenance.executableSha256
+  ) {
+    throw new Error("Go executable identity changed during the Mobile Core build");
+  }
   const provenance = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     abiVersion: manifest.abiVersion,
     source: manifest.mihomo,
     wrapper: { revision: manifest.wrapperRevision, sha256: wrapperSha256 },
     toolchains: {
-      go: { version: goVersion, archiveSha256: manifest.go.archives[hostKey()].sha256 },
+      go: goToolchain.provenance,
       androidNdk: { revision: manifest.android.ndkVersion, pathRecorded: false },
     },
     build: {
@@ -550,20 +593,32 @@ async function main(): Promise<void> {
     argument("--evidence-dir") ?? path.join(scratchRoot, "evidence"),
   );
   mkdirSync(scratchRoot, { recursive: true });
-  const goBinary = await ensureGo(scratchRoot);
+  const goToolchain = await ensureGo(scratchRoot);
   const ndk = resolveNdk();
   const ndkToolchain = ndkHostDirectory(ndk);
   ensureSource(sourceDirectory);
   const buildTree = prepareBuildTree(sourceDirectory, scratchRoot);
-  const first = buildPass("pass-1", goBinary, buildTree.wrapperRoot, ndkToolchain, scratchRoot);
-  const second = buildPass("pass-2", goBinary, buildTree.wrapperRoot, ndkToolchain, scratchRoot);
+  const first = buildPass(
+    "pass-1",
+    goToolchain.binary,
+    buildTree.wrapperRoot,
+    ndkToolchain,
+    scratchRoot,
+  );
+  const second = buildPass(
+    "pass-2",
+    goToolchain.binary,
+    buildTree.wrapperRoot,
+    ndkToolchain,
+    scratchRoot,
+  );
   for (let index = 0; index < first.length; index++) {
     if (first[index].sha256 !== second[index].sha256) {
       throw new Error(`${first[index].abi} is not reproducible across clean output paths`);
     }
   }
-  const modules = collectModules(goBinary, buildTree.moduleRoot, scratchRoot);
-  writeEvidence(evidenceDirectory, first, modules, wrapperDigest(), goBinary);
+  const modules = collectModules(goToolchain.binary, buildTree.moduleRoot, scratchRoot);
+  writeEvidence(evidenceDirectory, first, modules, wrapperDigest(), goToolchain);
   console.log(
     `Built and reproduced ${first.map((artifact) => artifact.abi).join(", ")} from ${manifest.mihomo.commit}.`,
   );

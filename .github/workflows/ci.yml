@@ -535,7 +535,7 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="$NDK_HOME"
           pnpm mobile-core:build
-          pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android
+          pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android --require-release-eligible
           pnpm mobile-core:stage:android -- --evidence-dir .scratch/mobile-core/evidence
       - name: Build Android debug APKs
         run: pnpm mobile:android:build
