@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "abiVersion": 1,
   "source": {
     "repository": "https://github.com/MetaCubeX/mihomo.git",
@@ -18,7 +18,13 @@
   "toolchains": {
     "go": {
       "version": "go version go1.26.0 darwin/arm64",
-      "archiveSha256": "b1640525dfe68f066d56f200bef7bf4dce955a1a893bd061de6754c211431023"
+      "executableSha256": "ae2238c208f2f1f5a8faa3287acf5ced5d6b3c396dbf75e8f446e47905b0a75d",
+      "source": {
+        "kind": "pinned-archive",
+        "host": "darwin-arm64",
+        "archiveSha256": "b1640525dfe68f066d56f200bef7bf4dce955a1a893bd061de6754c211431023",
+        "releaseEligible": true
+      }
     },
     "androidNdk": {
       "revision": "29.0.14206865",
@@ -27,10 +33,7 @@
   },
   "build": {
     "minimumApi": 28,
-    "tags": [
-      "cmfa",
-      "with_gvisor"
-    ],
+    "tags": ["cmfa", "with_gvisor"],
     "flags": [
       "-buildmode=c-shared",
       "-buildvcs=false",

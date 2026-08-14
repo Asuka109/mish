@@ -648,7 +648,7 @@ const androidBuild = step(packageAndroid, "Build Android debug APKs");
 const mobileCoreBuild = step(packageAndroid, "Build and stage verified Mobile Core");
 for (const command of [
   "pnpm mobile-core:build",
-  "pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android",
+  "pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android --require-release-eligible",
   "pnpm mobile-core:stage:android -- --evidence-dir .scratch/mobile-core/evidence",
 ]) {
   invariant(
