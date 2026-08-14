@@ -165,6 +165,7 @@ function main(): void {
       evidenceRoot,
       "--artifact-dir",
       sourceRoot,
+      "--require-release-eligible",
     ],
     { stdio: "inherit" },
   );

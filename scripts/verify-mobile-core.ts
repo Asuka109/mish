@@ -3,10 +3,15 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  verifyGoToolchainProvenance,
+  type GoToolchainProvenance,
+} from "./mobile-core-toolchain-provenance.ts";
 
 interface GoArchive {
   filename: string;
   sha256: string;
+  executableSha256: string;
 }
 
 interface ArtifactTarget {
@@ -52,7 +57,7 @@ interface Provenance {
   source: SourceManifest["mihomo"];
   wrapper: { revision: string; sha256: string };
   toolchains: {
-    go: { version: string; archiveSha256: string };
+    go: GoToolchainProvenance;
     androidNdk: { revision: string; pathRecorded: boolean };
   };
   build: {
@@ -113,6 +118,93 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
+  assert(isRecord(value), `${label} must be an object`);
+}
+
+function assertKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  label: string,
+  optional: readonly string[] = [],
+): void {
+  const allowed = new Set([...required, ...optional]);
+  assert(
+    Object.keys(value).every((key) => allowed.has(key)),
+    `${label} contains an unknown field`,
+  );
+  assert(
+    required.every((key) => key in value),
+    `${label} is missing a required field`,
+  );
+}
+
+function parseProvenance(value: unknown): Provenance {
+  assertObject(value, "Mobile Core provenance");
+  assertKeys(
+    value,
+    [
+      "schemaVersion",
+      "abiVersion",
+      "source",
+      "wrapper",
+      "toolchains",
+      "build",
+      "correspondingSource",
+      "license",
+      "artifacts",
+    ],
+    "Mobile Core provenance",
+  );
+  assertObject(value.source, "Mihomo source provenance");
+  assertKeys(
+    value.source,
+    [
+      "repository",
+      "version",
+      "commit",
+      "tree",
+      "commitDate",
+      "sourceDateEpoch",
+      "license",
+      "correspondingSource",
+    ],
+    "Mihomo source provenance",
+  );
+  assertObject(value.wrapper, "Mobile Core wrapper provenance");
+  assertKeys(value.wrapper, ["revision", "sha256"], "Mobile Core wrapper provenance");
+  assertObject(value.toolchains, "Mobile Core toolchain provenance");
+  assertKeys(value.toolchains, ["go", "androidNdk"], "Mobile Core toolchain provenance");
+  assertObject(value.toolchains.androidNdk, "Android NDK provenance");
+  assertKeys(value.toolchains.androidNdk, ["revision", "pathRecorded"], "Android NDK provenance");
+  assertObject(value.build, "Mobile Core build provenance");
+  assertKeys(
+    value.build,
+    ["minimumApi", "tags", "flags", "sourceDateEpoch", "cCompiler", "moduleMode"],
+    "Mobile Core build provenance",
+  );
+  assert(Array.isArray(value.artifacts), "Mobile Core artifacts provenance must be an array");
+  for (const artifact of value.artifacts) {
+    assertObject(artifact, "Mobile Core artifact provenance");
+    assertKeys(
+      artifact,
+      ["abi", "goArch", "targetTriple", "path", "exportedSymbols", "machine", "sha256", "size"],
+      "Mobile Core artifact provenance",
+      ["goAmd64"],
+    );
+    assert(
+      Array.isArray(artifact.exportedSymbols) &&
+        artifact.exportedSymbols.every((symbol) => typeof symbol === "string"),
+      "Mobile Core artifact symbols must be a string array",
+    );
+  }
+  return value as unknown as Provenance;
+}
+
 function sha256(file: string): string {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
@@ -149,15 +241,6 @@ function currentHostKey(): string {
   const architecture = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "amd64" : "";
   assert(platform && architecture, `unsupported Go host ${process.platform}-${process.arch}`);
   return `${platform}-${architecture}`;
-}
-
-function provenanceHostKey(goVersion: string): string {
-  const escapedVersion = manifest.go.version.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const match = goVersion.match(
-    new RegExp(`^go version ${escapedVersion} (darwin|linux)/(arm64|amd64)$`, "u"),
-  );
-  assert(match, `Go provenance must use exact ${manifest.go.version} host syntax`);
-  return `${match[1]}-${match[2]}`;
 }
 
 function resolveNdk(): string {
@@ -229,10 +312,14 @@ function inspectArtifact(
   );
 }
 
-function verifyEvidence(evidenceDirectory: string, artifactDirectory?: string): void {
-  const provenance = JSON.parse(
-    readFileSync(path.join(evidenceDirectory, "build-provenance.json"), "utf8"),
-  ) as Provenance;
+function verifyEvidence(
+  evidenceDirectory: string,
+  artifactDirectory?: string,
+  requireReleaseEligible = false,
+): void {
+  const provenance = parseProvenance(
+    JSON.parse(readFileSync(path.join(evidenceDirectory, "build-provenance.json"), "utf8")),
+  );
   const checksums = parseChecksums(
     readFileSync(path.join(evidenceDirectory, "SHA256SUMS"), "utf8"),
   );
@@ -253,7 +340,7 @@ function verifyEvidence(evidenceDirectory: string, artifactDirectory?: string): 
   const isCanonical = path.resolve(evidenceDirectory) === path.resolve(canonicalEvidenceDirectory);
 
   assert(isCanonical || artifactDirectory, "runtime evidence verification requires --artifact-dir");
-  assert(provenance.schemaVersion === 1, "unsupported provenance schema");
+  assert(provenance.schemaVersion === 2, "unsupported provenance schema");
   assert(provenance.abiVersion === manifest.abiVersion, "ABI provenance mismatch");
   assert(
     JSON.stringify(provenance.source) === JSON.stringify(manifest.mihomo),
@@ -262,16 +349,10 @@ function verifyEvidence(evidenceDirectory: string, artifactDirectory?: string): 
   assert(provenance.wrapper.revision === manifest.wrapperRevision, "wrapper revision mismatch");
   assert(provenance.wrapper.sha256 === wrapperDigest(), "wrapper source digest mismatch");
 
-  const provenanceHost = provenanceHostKey(provenance.toolchains.go.version);
-  const archive = manifest.go.archives[provenanceHost];
-  assert(archive, `Go host ${provenanceHost} is not pinned`);
-  assert(
-    provenance.toolchains.go.archiveSha256 === archive.sha256,
-    `Go archive checksum mismatch for ${provenanceHost}`,
-  );
-  if (!isCanonical) {
-    assert(provenanceHost === currentHostKey(), "runtime evidence was not built on this host");
-  }
+  verifyGoToolchainProvenance(provenance.toolchains.go, manifest.go, {
+    expectedHost: isCanonical ? undefined : currentHostKey(),
+    requireReleaseEligible: isCanonical || requireReleaseEligible,
+  });
   assert(
     provenance.toolchains.androidNdk.revision === manifest.android.ndkVersion &&
       provenance.toolchains.androidNdk.pathRecorded === false,
@@ -297,6 +378,11 @@ function verifyEvidence(evidenceDirectory: string, artifactDirectory?: string): 
   assert(
     provenance.build.moduleMode === "wrapper copied into the pinned Mihomo module tree",
     "Go module mode mismatch",
+  );
+  assert(
+    provenance.correspondingSource === manifest.mihomo.correspondingSource &&
+      provenance.license === "GPL-3.0-only",
+    "Mobile Core corresponding source or license provenance mismatch",
   );
   assert(
     evidenceSymbols.join("\n") === expectedSymbols.join("\n"),
@@ -359,7 +445,11 @@ function verifyEvidence(evidenceDirectory: string, artifactDirectory?: string): 
 const evidenceDirectory = path.resolve(argument("--evidence-dir") ?? canonicalEvidenceDirectory);
 const artifactArgument = argument("--artifact-dir");
 const artifactDirectory = artifactArgument ? path.resolve(artifactArgument) : undefined;
-verifyEvidence(evidenceDirectory, artifactDirectory);
+verifyEvidence(
+  evidenceDirectory,
+  artifactDirectory,
+  process.argv.includes("--require-release-eligible"),
+);
 
 const tracked = execFileSync("git", ["ls-files", "mobile-core"], {
   cwd: repositoryRoot,
