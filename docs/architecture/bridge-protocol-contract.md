@@ -67,6 +67,28 @@ after an incompatible result. Its fixture snapshots and explicit
 capability-unavailable command results are contract evidence only; they do not
 claim Core, Capture, native, or updater authority.
 
+### Mock behavior inventory
+
+Catalog parity is a method-presence check, not behavioral parity. The checked
+`publicMethods` list ensures that the production server and the mock recognize
+the same public names; it does not mean that the mock simulates every domain.
+The mock validates declared parameter shapes for every catalog entry before it
+selects one of the following bounded outcomes:
+
+| Classification                              | Exact scope                                                                                                                                                                                                      | What the result proves                                                                                                                                                                                                                                     |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport implementation                    | `bridge.getInfo`, `core.getStatus`, `status.getSnapshot`, `status.subscribe`, `status.unsubscribe`, and `traffic.getProcessIcon`                                                                                 | JSON-RPC framing, authentication, protocol negotiation, schema validation, static snapshot/subscription framing, cancellation metadata, and the typed process-icon-null result.                                                                            |
+| Fixture-only values                         | The stopped Core status, Status snapshot, service/traffic values, and the `status.subscribe` snapshot are cloned deterministic fixtures. `pnpm demo` uses separate in-process UI fixtures for demo interactions. | A consumer can be tested against the DTO and transport shape; no Core, Capture, operating-system, controller, probe, or updater observation or transition occurred.                                                                                        |
+| Explicitly unsupported application behavior | Every other generated public method: all Events, Notifications, Profiles, Settings, and Updater methods; Status mutations/tests; and Traffic snapshot, subscription, and connection commands.                    | After normal parameter validation, the mock returns its typed capability-unavailable error (`-32020`), never JSON-RPC method-not-found and never invented success. Domain semantics belong in focused fixtures, native tests, or production-adapter tests. |
+
+This is intentionally not a universal mock or a realistic domain simulation.
+The catalog source is the authoritative complete method inventory; the
+generated `BRIDGE_MOCK_IMPLEMENTED_RPC_METHODS` and
+`BRIDGE_MOCK_UNAVAILABLE_RPC_METHODS` bindings classify it without a second
+hand-maintained list. `scripts/check-mock-bridge-documentation.ts` checks that
+this documented implemented set remains aligned with that catalog and that the
+security claims below remain aligned with the desktop CSP and icon policy.
+
 Protocol 37 adds the bounded updater maintenance and restart-reconciliation
 projection. It carries only semantic phase, operation presence, revision,
 capture intent, version classification, and the automatic-activation barrier.

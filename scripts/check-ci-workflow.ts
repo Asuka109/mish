@@ -604,6 +604,10 @@ invariant(
   String(javaSetup.with?.["cache-dependency-path"]).includes("gradle-wrapper.properties"),
   "The Gradle cache key must include the wrapper and build scripts.",
 );
+invariant(
+  step(packageAndroid, "Build Android debug APKs").run === "pnpm mobile:android:build",
+  "Android CI packaging must use the checksum-enforcing package command.",
+);
 
 const androidTools = step(packageAndroid, "Set up Android SDK tools");
 invariant(

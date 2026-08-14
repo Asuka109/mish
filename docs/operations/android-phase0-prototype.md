@@ -147,13 +147,21 @@ export PATH="$(dirname "$(rustup which cargo)"):$ANDROID_HOME/platform-tools:$PA
 ```
 
 Initialize the committed Tauri Android project inputs and reapply the pinned
-Gradle settings:
+Gradle settings and distribution checksum:
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
 pnpm mobile:android:init
 pnpm check:android
 ```
+
+The reviewed Gradle 8.14.3 binary URL and SHA-256 live together in
+`scripts/android-gradle-wrapper.ts`, sourced from Gradle's
+[official release checksum table](https://gradle.org/release-checksums/#8.14.3).
+Configuration rewrites the generated wrapper properties from that pin before
+every local test or package command. Static Android and CI checks reject a
+missing, malformed, duplicated, altered, or URL/version-mismatched pin before
+the wrapper can be accepted as a repository build input.
 
 Build one debug APK per ABI:
 

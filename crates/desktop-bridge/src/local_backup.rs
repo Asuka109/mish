@@ -29,7 +29,7 @@ pub const LOCAL_BACKUP_FORMAT_VERSION: u32 = 1;
 pub const LOCAL_BACKUP_MAX_BYTES: usize = 8 * 1_024 * 1_024;
 const LOCAL_BACKUP_MAX_PROFILES: usize = 128;
 const RESTORE_JOURNAL_FILE: &str = ".restore-journal.json";
-const RESTORE_JOURNAL_VERSION: u32 = 1;
+const RESTORE_JOURNAL_VERSION: u32 = 2;
 const RESTORE_JOURNAL_MAX_BYTES: u64 = 32_768;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -410,9 +410,6 @@ impl LocalBackupService {
             }
             return Err(error);
         }
-        if prepared.manifest.scope.touches_profiles() {
-            self.materialize_profile_directory()?;
-        }
         if let Some(preferences) = prepared.manifest.settings {
             self.settings
                 .accept_restored_preferences_authorized(permit, preferences)
@@ -425,42 +422,6 @@ impl LocalBackupService {
             applied,
             settings_snapshot: self.settings.snapshot(SettingsAdapterKind::Rpc),
         })
-    }
-
-    fn materialize_profile_directory(&self) -> Result<(), LocalBackupError> {
-        let directory = self.root.join("profiles");
-        if directory.exists() {
-            prepare_existing_profile_directory(&self.root, &directory)?;
-        } else {
-            create_private_restore_dir(&directory)?;
-        }
-        for entry in fs::read_dir(&directory).map_err(|_| LocalBackupError::Storage)? {
-            let entry = entry.map_err(|_| LocalBackupError::Storage)?;
-            let path = entry.path();
-            if entry
-                .file_type()
-                .map_err(|_| LocalBackupError::Storage)?
-                .is_file()
-                && matches!(
-                    path.extension().and_then(|extension| extension.to_str()),
-                    Some("yaml" | "yml")
-                )
-            {
-                fs::remove_file(path).map_err(|_| LocalBackupError::Storage)?;
-            }
-        }
-        let repository = FileProfileRepository::new(self.root.join("profile-store"));
-        let writer = StdRestoreFilesystem;
-        for metadata in repository.list_metadata().map_err(map_repository_error)? {
-            let record = repository
-                .load(&metadata.id)
-                .map_err(map_repository_error)?;
-            let file_name = materialized_profile_file_name(&record)?;
-            writer
-                .write_private_atomic(&directory.join(file_name), &record.source_bytes)
-                .map_err(map_restore_failure)?;
-        }
-        Ok(())
     }
 
     fn restore_plan(
@@ -1026,11 +987,13 @@ enum RestoreJournalPhase {
     Committed,
     Committing,
     RollingBack,
+    StagingProjection,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum RestoreComponentKind {
+    ProfileProjection,
     Profiles,
     Settings,
 }
@@ -1053,12 +1016,19 @@ struct RestoreJournal {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RestoreCheckpoint {
+    CleanupStarted,
+    CleanupSynced,
     ComponentOriginalMoved(RestoreComponentKind),
     ComponentStagedMoved(RestoreComponentKind),
     DataSynced,
+    JournalRemoved,
     JournalCommitted,
     JournalCommitting,
     JournalRollingBack,
+    ProjectionCandidateSynced,
+    ProjectionCandidateWritten,
+    ProjectionDirectorySynced,
+    ProjectionUnmanagedEntriesPreserved,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1072,7 +1042,14 @@ trait RestoreFilesystem: Send + Sync {
         Ok(())
     }
 
+    fn entry_exists(&self, path: &Path) -> Result<bool, RestoreFilesystemFailure>;
     fn rename(&self, source: &Path, destination: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn create_private_dir(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn preserve_unmanaged_projection_entries(
+        &self,
+        source: &Path,
+        destination: &Path,
+    ) -> Result<(), RestoreFilesystemFailure>;
     fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
     fn remove_file(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
     fn sync_directory(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
@@ -1087,8 +1064,25 @@ trait RestoreFilesystem: Send + Sync {
 struct StdRestoreFilesystem;
 
 impl RestoreFilesystem for StdRestoreFilesystem {
+    fn entry_exists(&self, path: &Path) -> Result<bool, RestoreFilesystemFailure> {
+        restore_entry_exists(path)
+    }
+
     fn rename(&self, source: &Path, destination: &Path) -> Result<(), RestoreFilesystemFailure> {
         fs::rename(source, destination).map_err(|_| RestoreFilesystemFailure::Io)
+    }
+
+    fn create_private_dir(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+        create_private_restore_dir(path).map_err(|_| RestoreFilesystemFailure::Io)
+    }
+
+    fn preserve_unmanaged_projection_entries(
+        &self,
+        source: &Path,
+        destination: &Path,
+    ) -> Result<(), RestoreFilesystemFailure> {
+        preserve_unmanaged_projection_entries(source, destination)
+            .map_err(|_| RestoreFilesystemFailure::Io)
     }
 
     fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
@@ -1164,11 +1158,26 @@ where
         filesystem: Arc<F>,
     ) -> Result<Self, LocalBackupError> {
         ensure_safe_component(root, &root.join("profile-store"))?;
+        ensure_safe_component(root, &root.join("profiles"))?;
         ensure_safe_component(root, &root.join("settings.json"))?;
         ensure_safe_component(root, &root.join(RESTORE_JOURNAL_FILE))?;
         if root.join(RESTORE_JOURNAL_FILE).exists() {
             return Err(LocalBackupError::RecoveryRequired);
         }
+        let projection_entries = profiles
+            .as_ref()
+            .map(|profiles| {
+                profiles
+                    .values()
+                    .map(|record| {
+                        Ok((
+                            materialized_profile_file_name(record)?,
+                            record.source_bytes.clone(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, LocalBackupError>>()
+            })
+            .transpose()?;
         let transaction_id = Uuid::new_v4();
         let stage_root = root.join(format!(".restore-stage-{transaction_id}"));
         let rollback_root = root.join(format!(".restore-rollback-{transaction_id}"));
@@ -1184,6 +1193,10 @@ where
             components.push(RestoreJournalComponent {
                 had_original: root.join("profile-store").exists(),
                 kind: RestoreComponentKind::Profiles,
+            });
+            components.push(RestoreJournalComponent {
+                had_original: root.join("profiles").exists(),
+                kind: RestoreComponentKind::ProfileProjection,
             });
         }
         if let Some(settings) = settings {
@@ -1206,22 +1219,43 @@ where
             let _ = fs::remove_dir_all(&rollback_root);
             return Err(LocalBackupError::Storage);
         }
-        let transaction = Self {
+        let mut transaction = Self {
             filesystem,
             journal: RestoreJournal {
                 components,
-                phase: RestoreJournalPhase::Committing,
+                phase: if projection_entries.is_some() {
+                    RestoreJournalPhase::StagingProjection
+                } else {
+                    RestoreJournalPhase::Committing
+                },
                 transaction_id: transaction_id.to_string(),
                 version: RESTORE_JOURNAL_VERSION,
             },
             root: root.to_path_buf(),
         };
+        if let Err(error) = transaction.write_journal() {
+            let _ = fs::remove_dir_all(&rollback_root);
+            return Err(error);
+        }
         stage_guard.commit();
+        if let Some(entries) = projection_entries {
+            if let Err(failure) = transaction.stage_profile_projection(&entries) {
+                if failure == RestoreFilesystemFailure::Crash {
+                    return Err(LocalBackupError::RecoveryRequired);
+                }
+                return Err(transaction.rollback_after_failure().unwrap_err());
+            }
+            let mut committing = transaction.journal.clone();
+            committing.phase = RestoreJournalPhase::Committing;
+            if transaction.write_specific_journal(&committing).is_err() {
+                return Err(LocalBackupError::RecoveryRequired);
+            }
+            transaction.journal = committing;
+        }
         Ok(transaction)
     }
 
     fn commit(self) -> Result<(), LocalBackupError> {
-        self.write_journal()?;
         if let Err(failure) = self
             .filesystem
             .checkpoint(RestoreCheckpoint::JournalCommitting)
@@ -1234,12 +1268,42 @@ where
         }
         let mut committed = self.journal.clone();
         committed.phase = RestoreJournalPhase::Committed;
-        self.write_specific_journal(&committed)?;
+        if self.write_specific_journal(&committed).is_err() {
+            return self.rollback_after_failure();
+        }
         self.filesystem
             .checkpoint(RestoreCheckpoint::JournalCommitted)
             .map_err(map_restore_failure)?;
         self.cleanup(&committed)?;
         Ok(())
+    }
+
+    fn stage_profile_projection(
+        &self,
+        entries: &[(String, Vec<u8>)],
+    ) -> Result<(), RestoreFilesystemFailure> {
+        let stage_root = restore_roots(&self.root, &self.journal.transaction_id).0;
+        let candidate = stage_root.join("profiles");
+        self.filesystem.create_private_dir(&candidate)?;
+        let current = self.root.join("profiles");
+        if current.exists() {
+            validate_existing_profile_directory(&self.root, &current)
+                .map_err(|_| RestoreFilesystemFailure::Io)?;
+            self.filesystem
+                .preserve_unmanaged_projection_entries(&current, &candidate)?;
+            self.filesystem
+                .checkpoint(RestoreCheckpoint::ProjectionUnmanagedEntriesPreserved)?;
+        }
+        for (file_name, bytes) in entries {
+            self.filesystem
+                .write_private_atomic(&candidate.join(file_name), bytes)?;
+            self.filesystem
+                .checkpoint(RestoreCheckpoint::ProjectionCandidateWritten)?;
+        }
+        self.filesystem.sync_directory(&candidate)?;
+        self.filesystem.sync_directory(&stage_root)?;
+        self.filesystem
+            .checkpoint(RestoreCheckpoint::ProjectionCandidateSynced)
     }
 
     fn commit_components(&self) -> Result<(), RestoreFilesystemFailure> {
@@ -1262,6 +1326,10 @@ where
             self.filesystem.sync_directory(&self.root)?;
             self.filesystem
                 .sync_directory(paths.staged.parent().ok_or(RestoreFilesystemFailure::Io)?)?;
+            if component.kind == RestoreComponentKind::ProfileProjection {
+                self.filesystem
+                    .checkpoint(RestoreCheckpoint::ProjectionDirectorySynced)?;
+            }
             self.filesystem
                 .checkpoint(RestoreCheckpoint::ComponentStagedMoved(component.kind))?;
         }
@@ -1291,18 +1359,31 @@ where
     ) -> Result<(), RestoreFilesystemFailure> {
         for component in journal.components.iter().rev() {
             let paths = self.component_paths(component.kind);
+            let original_exists = self.filesystem.entry_exists(&paths.original)?;
+            let destination_exists = self.filesystem.entry_exists(&paths.destination)?;
+            let staged_exists = self.filesystem.entry_exists(&paths.staged)?;
             if component.had_original {
-                if paths.original.exists() {
-                    if !paths.staged.exists() && paths.destination.exists() {
-                        self.filesystem.rename(&paths.destination, &paths.staged)?;
-                    }
-                    if !paths.destination.exists() {
+                match (original_exists, destination_exists, staged_exists) {
+                    (false, true, true) => {}
+                    (true, false, true) => {
                         self.filesystem
                             .rename(&paths.original, &paths.destination)?;
                     }
+                    (true, true, false) => {
+                        self.filesystem.rename(&paths.destination, &paths.staged)?;
+                        self.filesystem
+                            .rename(&paths.original, &paths.destination)?;
+                    }
+                    _ => return Err(RestoreFilesystemFailure::Io),
                 }
-            } else if !paths.staged.exists() && paths.destination.exists() {
-                self.filesystem.rename(&paths.destination, &paths.staged)?;
+            } else {
+                match (original_exists, destination_exists, staged_exists) {
+                    (false, false, true) => {}
+                    (false, true, false) => {
+                        self.filesystem.rename(&paths.destination, &paths.staged)?;
+                    }
+                    _ => return Err(RestoreFilesystemFailure::Io),
+                }
             }
         }
         self.filesystem.sync_directory(&self.root)
@@ -1325,6 +1406,7 @@ where
             serde_json::from_slice(&bytes).map_err(|_| LocalBackupError::RecoveryRequired)?;
         validate_restore_journal(&journal)?;
         ensure_safe_component(root, &root.join("profile-store"))?;
+        ensure_safe_component(root, &root.join("profiles"))?;
         ensure_safe_component(root, &root.join("settings.json"))?;
         let (stage_root, rollback_root) = restore_roots(root, &journal.transaction_id);
         validate_restore_workspace(root, &stage_root)?;
@@ -1345,6 +1427,24 @@ where
                     .map_err(|_| LocalBackupError::RecoveryRequired)?;
                 transaction.cleanup(&rolling_back)
             }
+            RestoreJournalPhase::StagingProjection => {
+                for component in &journal.components {
+                    let paths = transaction.component_paths(component.kind);
+                    if transaction
+                        .filesystem
+                        .entry_exists(&paths.original)
+                        .map_err(|_| LocalBackupError::RecoveryRequired)?
+                        || transaction
+                            .filesystem
+                            .entry_exists(&paths.destination)
+                            .map_err(|_| LocalBackupError::RecoveryRequired)?
+                            != component.had_original
+                    {
+                        return Err(LocalBackupError::RecoveryRequired);
+                    }
+                }
+                transaction.cleanup(&journal)
+            }
         }
     }
 
@@ -1362,24 +1462,37 @@ where
     fn cleanup(&self, journal: &RestoreJournal) -> Result<(), LocalBackupError> {
         let (stage_root, rollback_root) = restore_roots(&self.root, &journal.transaction_id);
         self.filesystem
-            .remove_dir_all(&rollback_root)
+            .checkpoint(RestoreCheckpoint::CleanupStarted)
+            .and_then(|()| self.filesystem.remove_dir_all(&rollback_root))
             .and_then(|()| self.filesystem.remove_dir_all(&stage_root))
             .and_then(|()| self.filesystem.sync_directory(&self.root))
             .and_then(|()| {
                 self.filesystem
                     .remove_file(&self.root.join(RESTORE_JOURNAL_FILE))
             })
+            .and_then(|()| {
+                self.filesystem
+                    .checkpoint(RestoreCheckpoint::JournalRemoved)
+            })
             .map_err(|_| LocalBackupError::RecoveryRequired)?;
         if self.filesystem.sync_directory(&self.root).is_err() {
             let _ = self.write_specific_journal(journal);
             return Err(LocalBackupError::RecoveryRequired);
         }
+        self.filesystem
+            .checkpoint(RestoreCheckpoint::CleanupSynced)
+            .map_err(|_| LocalBackupError::RecoveryRequired)?;
         Ok(())
     }
 
     fn component_paths(&self, kind: RestoreComponentKind) -> RestoreComponentPaths {
         let (stage_root, rollback_root) = restore_roots(&self.root, &self.journal.transaction_id);
         match kind {
+            RestoreComponentKind::ProfileProjection => RestoreComponentPaths {
+                destination: self.root.join("profiles"),
+                original: rollback_root.join("profiles"),
+                staged: stage_root.join("profiles"),
+            },
             RestoreComponentKind::Profiles => RestoreComponentPaths {
                 destination: self.root.join("profile-store"),
                 original: rollback_root.join("profile-store"),
@@ -1408,14 +1521,15 @@ fn restore_roots(root: &Path, transaction_id: &str) -> (PathBuf, PathBuf) {
 }
 
 fn validate_restore_journal(journal: &RestoreJournal) -> Result<(), LocalBackupError> {
-    if journal.version != RESTORE_JOURNAL_VERSION
+    if !matches!(journal.version, 1 | RESTORE_JOURNAL_VERSION)
         || journal.components.is_empty()
         || Uuid::parse_str(&journal.transaction_id).is_err()
     {
         return Err(LocalBackupError::RecoveryRequired);
     }
     let mut kinds = HashSet::new();
-    if journal.components.len() > 2
+    let max_components = if journal.version == 1 { 2 } else { 3 };
+    if journal.components.len() > max_components
         || journal
             .components
             .iter()
@@ -1423,7 +1537,30 @@ fn validate_restore_journal(journal: &RestoreJournal) -> Result<(), LocalBackupE
     {
         return Err(LocalBackupError::RecoveryRequired);
     }
+    let has_profiles = journal
+        .components
+        .iter()
+        .any(|component| component.kind == RestoreComponentKind::Profiles);
+    let has_projection = journal
+        .components
+        .iter()
+        .any(|component| component.kind == RestoreComponentKind::ProfileProjection);
+    if (journal.version == 1 && has_projection)
+        || (journal.version == RESTORE_JOURNAL_VERSION && has_profiles != has_projection)
+        || (journal.phase == RestoreJournalPhase::StagingProjection
+            && (journal.version != RESTORE_JOURNAL_VERSION || !has_projection))
+    {
+        return Err(LocalBackupError::RecoveryRequired);
+    }
     Ok(())
+}
+
+fn restore_entry_exists(path: &Path) -> Result<bool, RestoreFilesystemFailure> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(RestoreFilesystemFailure::Io),
+    }
 }
 
 fn create_private_restore_dir(path: &Path) -> Result<(), LocalBackupError> {
@@ -1434,7 +1571,79 @@ fn create_private_restore_dir(path: &Path) -> Result<(), LocalBackupError> {
     Ok(())
 }
 
-fn prepare_existing_profile_directory(root: &Path, path: &Path) -> Result<(), LocalBackupError> {
+fn preserve_unmanaged_projection_entries(source: &Path, destination: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let metadata = fs::symlink_metadata(&source_path)?;
+        if metadata.is_file()
+            && matches!(
+                source_path
+                    .extension()
+                    .and_then(|extension| extension.to_str()),
+                Some("yaml" | "yml")
+            )
+        {
+            continue;
+        }
+        preserve_projection_entry(
+            &source_path,
+            &destination.join(entry.file_name()),
+            &metadata,
+        )?;
+    }
+    fs::File::open(destination)?.sync_all()
+}
+
+fn preserve_projection_entry(
+    source: &Path,
+    destination: &Path,
+    metadata: &fs::Metadata,
+) -> std::io::Result<()> {
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::other(
+            "profile projection contains an unsupported symbolic link",
+        ));
+    }
+    if metadata.is_file() {
+        fs::hard_link(source, destination)?;
+        let linked = fs::symlink_metadata(destination)?;
+        if !linked.is_file() {
+            let _ = fs::remove_file(destination);
+            return Err(std::io::Error::other(
+                "profile projection entry changed while it was staged",
+            ));
+        }
+        #[cfg(unix)]
+        if linked.dev() != metadata.dev() || linked.ino() != metadata.ino() {
+            let _ = fs::remove_file(destination);
+            return Err(std::io::Error::other(
+                "profile projection entry changed while it was staged",
+            ));
+        }
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        fs::create_dir(destination)?;
+        fs::set_permissions(destination, metadata.permissions())?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let child_source = entry.path();
+            let child_metadata = fs::symlink_metadata(&child_source)?;
+            preserve_projection_entry(
+                &child_source,
+                &destination.join(entry.file_name()),
+                &child_metadata,
+            )?;
+        }
+        return fs::File::open(destination)?.sync_all();
+    }
+    Err(std::io::Error::other(
+        "profile projection contains an unsupported special entry",
+    ))
+}
+
+fn validate_existing_profile_directory(root: &Path, path: &Path) -> Result<(), LocalBackupError> {
     ensure_safe_component(root, path)?;
     let metadata = fs::symlink_metadata(path).map_err(|_| LocalBackupError::Storage)?;
     if !metadata.is_dir() {
@@ -1446,8 +1655,6 @@ fn prepare_existing_profile_directory(root: &Path, path: &Path) -> Result<(), Lo
         if metadata.uid() != root_metadata.uid() {
             return Err(LocalBackupError::Storage);
         }
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|_| LocalBackupError::Storage)?;
     }
     Ok(())
 }
@@ -1849,6 +2056,8 @@ rules:
         create_private_restore_dir(&materialized).unwrap();
         fs::write(materialized.join("stale.yaml"), VALID_PROFILE).unwrap();
         fs::create_dir(materialized.join("archive.yaml")).unwrap();
+        fs::write(materialized.join("archive.yaml/notes.txt"), b"nested-notes").unwrap();
+        fs::write(materialized.join("README.txt"), b"unrelated-readme").unwrap();
         #[cfg(unix)]
         fs::set_permissions(&materialized, fs::Permissions::from_mode(0o755)).unwrap();
         let destination = service(destination_root.path());
@@ -1867,6 +2076,14 @@ rules:
 
         assert!(!materialized.join("stale.yaml").exists());
         assert!(materialized.join("archive.yaml").is_dir());
+        assert_eq!(
+            fs::read(materialized.join("archive.yaml/notes.txt")).unwrap(),
+            b"nested-notes"
+        );
+        assert_eq!(
+            fs::read(materialized.join("README.txt")).unwrap(),
+            b"unrelated-readme"
+        );
         #[cfg(unix)]
         assert_eq!(
             fs::symlink_metadata(&materialized)
@@ -2044,6 +2261,7 @@ rules:
     }
 
     struct InjectedFilesystem {
+        checkpoints: std::sync::Mutex<Vec<RestoreCheckpoint>>,
         crash_at: Option<RestoreCheckpoint>,
         crashed: std::sync::atomic::AtomicBool,
         fail_rename_calls: Vec<usize>,
@@ -2054,6 +2272,7 @@ rules:
     impl InjectedFilesystem {
         fn crashing_at(checkpoint: RestoreCheckpoint) -> Self {
             Self {
+                checkpoints: std::sync::Mutex::new(Vec::new()),
                 crash_at: Some(checkpoint),
                 crashed: std::sync::atomic::AtomicBool::new(false),
                 fail_rename_calls: Vec::new(),
@@ -2064,12 +2283,17 @@ rules:
 
         fn failing_renames(calls: Vec<usize>) -> Self {
             Self {
+                checkpoints: std::sync::Mutex::new(Vec::new()),
                 crash_at: None,
                 crashed: std::sync::atomic::AtomicBool::new(false),
                 fail_rename_calls: calls,
                 rename_calls: std::sync::atomic::AtomicUsize::new(0),
                 standard: StdRestoreFilesystem,
             }
+        }
+
+        fn checkpoints(&self) -> Vec<RestoreCheckpoint> {
+            self.checkpoints.lock().unwrap().clone()
         }
     }
 
@@ -2078,12 +2302,25 @@ rules:
             &self,
             checkpoint: RestoreCheckpoint,
         ) -> Result<(), RestoreFilesystemFailure> {
+            let mut checkpoints = self
+                .checkpoints
+                .lock()
+                .map_err(|_| RestoreFilesystemFailure::Io)?;
+            if checkpoints.len() >= 128 {
+                return Err(RestoreFilesystemFailure::Io);
+            }
+            checkpoints.push(checkpoint);
+            drop(checkpoints);
             if self.crash_at == Some(checkpoint)
                 && !self.crashed.swap(true, std::sync::atomic::Ordering::SeqCst)
             {
                 return Err(RestoreFilesystemFailure::Crash);
             }
             Ok(())
+        }
+
+        fn entry_exists(&self, path: &Path) -> Result<bool, RestoreFilesystemFailure> {
+            self.standard.entry_exists(path)
         }
 
         fn rename(
@@ -2099,6 +2336,19 @@ rules:
                 return Err(RestoreFilesystemFailure::Io);
             }
             self.standard.rename(source, destination)
+        }
+
+        fn create_private_dir(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+            self.standard.create_private_dir(path)
+        }
+
+        fn preserve_unmanaged_projection_entries(
+            &self,
+            source: &Path,
+            destination: &Path,
+        ) -> Result<(), RestoreFilesystemFailure> {
+            self.standard
+                .preserve_unmanaged_projection_entries(source, destination)
         }
 
         fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
@@ -2132,6 +2382,13 @@ rules:
         let root = tempdir().unwrap();
         fs::create_dir(root.path().join("profile-store")).unwrap();
         fs::write(root.path().join("profile-store/original"), b"profile-state").unwrap();
+        create_private_restore_dir(&root.path().join("profiles")).unwrap();
+        fs::write(
+            root.path().join("profiles/original.yaml"),
+            b"visible-profile",
+        )
+        .unwrap();
+        fs::write(root.path().join("profiles/notes.txt"), b"unrelated-notes").unwrap();
         let original_settings = SettingsPreferences::default();
         FileSettingsRepository::new(root.path().join("settings.json"))
             .save(&original_settings)
@@ -2152,6 +2409,14 @@ rules:
         assert_eq!(
             fs::read(root.join("profile-store/original")).unwrap(),
             b"profile-state"
+        );
+        assert_eq!(
+            fs::read(root.join("profiles/original.yaml")).unwrap(),
+            b"visible-profile"
+        );
+        assert_eq!(
+            fs::read(root.join("profiles/notes.txt")).unwrap(),
+            b"unrelated-notes"
         );
         assert_eq!(
             FileSettingsRepository::new(root.join("settings.json"))
@@ -2181,6 +2446,111 @@ rules:
         assert!(journal.exists());
     }
 
+    #[tokio::test]
+    async fn interrupted_projection_candidate_write_is_journaled_and_restart_safe() {
+        let root = tempdir().unwrap();
+        create_private_restore_dir(&root.path().join("profiles")).unwrap();
+        fs::write(
+            root.path().join("profiles/original.yaml"),
+            b"visible-profile",
+        )
+        .unwrap();
+        fs::write(root.path().join("profiles/notes.txt"), b"unrelated-notes").unwrap();
+        let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
+        let mut profiles = BTreeMap::new();
+        profiles.insert(record.metadata.id.as_str().to_owned(), record);
+        let filesystem = Arc::new(InjectedFilesystem::crashing_at(
+            RestoreCheckpoint::ProjectionCandidateWritten,
+        ));
+
+        let error = RestoreTransaction::stage_with_filesystem(
+            root.path(),
+            Some(profiles),
+            None,
+            Arc::clone(&filesystem),
+        )
+        .err()
+        .unwrap();
+
+        assert_eq!(error, LocalBackupError::RecoveryRequired);
+        assert_eq!(
+            filesystem.checkpoints(),
+            vec![
+                RestoreCheckpoint::ProjectionUnmanagedEntriesPreserved,
+                RestoreCheckpoint::ProjectionCandidateWritten,
+            ]
+        );
+        let journal_path = root.path().join(RESTORE_JOURNAL_FILE);
+        let journal_bytes = fs::read(&journal_path).unwrap();
+        assert!(journal_bytes.len() <= RESTORE_JOURNAL_MAX_BYTES as usize);
+        let journal: RestoreJournal = serde_json::from_slice(&journal_bytes).unwrap();
+        assert_eq!(journal.version, RESTORE_JOURNAL_VERSION);
+        assert_eq!(journal.phase, RestoreJournalPhase::StagingProjection);
+        assert_eq!(journal.components.len(), 2);
+        let serialized = String::from_utf8(journal_bytes).unwrap();
+        assert!(!serialized.contains("original.yaml"));
+        assert!(!serialized.contains("notes.txt"));
+        assert!(!serialized.contains("visible-profile"));
+        assert!(!serialized.contains(&root.path().display().to_string()));
+        assert_original_projection(root.path());
+
+        RestoreTransaction::recover(root.path()).unwrap();
+        RestoreTransaction::recover(root.path()).unwrap();
+        assert_original_projection(root.path());
+        assert!(!journal_path.exists());
+    }
+
+    fn assert_original_projection(root: &Path) {
+        assert_eq!(
+            fs::read(root.join("profiles/original.yaml")).unwrap(),
+            b"visible-profile"
+        );
+        assert_eq!(
+            fs::read(root.join("profiles/notes.txt")).unwrap(),
+            b"unrelated-notes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn projection_staging_rejects_unrelated_symlinks_without_mutating_visible_state() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        create_private_restore_dir(&root.path().join("profiles")).unwrap();
+        fs::write(
+            root.path().join("profiles/original.yaml"),
+            b"visible-profile",
+        )
+        .unwrap();
+        fs::write(root.path().join("unrelated-target"), b"unrelated").unwrap();
+        symlink(
+            root.path().join("unrelated-target"),
+            root.path().join("profiles/unrelated-link"),
+        )
+        .unwrap();
+        let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
+        let mut profiles = BTreeMap::new();
+        profiles.insert(record.metadata.id.as_str().to_owned(), record);
+
+        let error = RestoreTransaction::stage_with_filesystem(
+            root.path(),
+            Some(profiles),
+            None,
+            Arc::new(InjectedFilesystem::failing_renames(Vec::new())),
+        )
+        .err()
+        .unwrap();
+
+        assert_eq!(error, LocalBackupError::Storage);
+        assert_eq!(
+            fs::read(root.path().join("profiles/original.yaml")).unwrap(),
+            b"visible-profile"
+        );
+        assert!(root.path().join("profiles/unrelated-link").is_symlink());
+        assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
+    }
+
     #[test]
     fn ordinary_multi_component_failure_rolls_back_every_completed_rename() {
         let (root, transaction, original_settings) =
@@ -2207,40 +2577,87 @@ rules:
     }
 
     #[test]
+    fn startup_recovery_fails_closed_when_component_ownership_is_ambiguous() {
+        let (root, transaction, _) =
+            transaction_fixture(Arc::new(InjectedFilesystem::crashing_at(
+                RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::Profiles),
+            )));
+        let (_, rollback_root) = restore_roots(root.path(), &transaction.journal.transaction_id);
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        fs::remove_dir_all(rollback_root.join("profile-store")).unwrap();
+
+        assert_eq!(
+            RestoreTransaction::recover(root.path()).unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        assert!(root.path().join(RESTORE_JOURNAL_FILE).exists());
+    }
+
+    #[test]
     fn every_commit_crash_point_recovers_idempotently_without_mixed_generations() {
         let checkpoints = [
             RestoreCheckpoint::JournalCommitting,
             RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::Profiles),
             RestoreCheckpoint::ComponentStagedMoved(RestoreComponentKind::Profiles),
+            RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::ProfileProjection),
+            RestoreCheckpoint::ProjectionDirectorySynced,
+            RestoreCheckpoint::ComponentStagedMoved(RestoreComponentKind::ProfileProjection),
             RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::Settings),
             RestoreCheckpoint::ComponentStagedMoved(RestoreComponentKind::Settings),
             RestoreCheckpoint::DataSynced,
             RestoreCheckpoint::JournalCommitted,
+            RestoreCheckpoint::CleanupStarted,
+            RestoreCheckpoint::JournalRemoved,
+            RestoreCheckpoint::CleanupSynced,
         ];
         for checkpoint in checkpoints {
+            let filesystem = Arc::new(InjectedFilesystem::crashing_at(checkpoint));
             let (root, transaction, original_settings) =
-                transaction_fixture(Arc::new(InjectedFilesystem::crashing_at(checkpoint)));
+                transaction_fixture(Arc::clone(&filesystem));
             assert_eq!(
                 transaction.commit().unwrap_err(),
                 LocalBackupError::RecoveryRequired,
                 "checkpoint {checkpoint:?}"
             );
-            assert!(root.path().join(RESTORE_JOURNAL_FILE).exists());
-            #[cfg(unix)]
-            assert_eq!(
-                fs::metadata(root.path().join(RESTORE_JOURNAL_FILE))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
+            assert!(filesystem.checkpoints().len() <= 128);
+            let journal_exists = root.path().join(RESTORE_JOURNAL_FILE).exists();
+            if matches!(
+                checkpoint,
+                RestoreCheckpoint::JournalRemoved | RestoreCheckpoint::CleanupSynced
+            ) {
+                assert!(!journal_exists);
+            } else {
+                assert!(journal_exists);
+                #[cfg(unix)]
+                assert_eq!(
+                    fs::metadata(root.path().join(RESTORE_JOURNAL_FILE))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600
+                );
+            }
 
             RestoreTransaction::recover(root.path()).unwrap();
             RestoreTransaction::recover(root.path()).unwrap();
             assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
-            if checkpoint == RestoreCheckpoint::JournalCommitted {
+            if matches!(
+                checkpoint,
+                RestoreCheckpoint::JournalCommitted
+                    | RestoreCheckpoint::CleanupStarted
+                    | RestoreCheckpoint::JournalRemoved
+                    | RestoreCheckpoint::CleanupSynced
+            ) {
                 assert!(!root.path().join("profile-store/original").exists());
+                assert!(!root.path().join("profiles/original.yaml").exists());
+                assert_eq!(
+                    fs::read(root.path().join("profiles/notes.txt")).unwrap(),
+                    b"unrelated-notes"
+                );
                 assert_eq!(
                     FileSettingsRepository::new(root.path().join("settings.json"))
                         .load()
@@ -2273,6 +2690,48 @@ rules:
         );
         assert_original_generation(root.path(), original_settings);
         assert!(journal.exists());
+    }
+
+    #[test]
+    fn startup_recovery_remains_compatible_with_the_version_one_journal() {
+        let root = tempdir().unwrap();
+        let original_settings = SettingsPreferences::default();
+        FileSettingsRepository::new(root.path().join("settings.json"))
+            .save(&original_settings)
+            .unwrap();
+        let mut replacement_settings = original_settings;
+        replacement_settings.language = mish_settings::LanguagePreference::Zh;
+        let transaction = RestoreTransaction::stage_with_filesystem(
+            root.path(),
+            None,
+            Some(replacement_settings),
+            Arc::new(InjectedFilesystem::crashing_at(
+                RestoreCheckpoint::JournalCommitting,
+            )),
+        )
+        .unwrap();
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        let journal_path = root.path().join(RESTORE_JOURNAL_FILE);
+        let mut journal: serde_json::Value =
+            serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+        journal["version"] = 1.into();
+        fs::write(&journal_path, serde_json::to_vec_pretty(&journal).unwrap()).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&journal_path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        RestoreTransaction::recover(root.path()).unwrap();
+
+        assert_eq!(
+            FileSettingsRepository::new(root.path().join("settings.json"))
+                .load()
+                .unwrap()
+                .preferences,
+            original_settings
+        );
+        assert!(!journal_path.exists());
     }
 
     #[test]
