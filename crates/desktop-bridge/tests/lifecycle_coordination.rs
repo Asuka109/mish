@@ -4,19 +4,23 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
-use futures_util::future::{BoxFuture, ready};
-use mish_bridge::{DesktopLifecycleCoordinator, DesktopRuntimeHost, LifecycleEventDisposition};
+use futures_util::future::{BoxFuture, pending, ready};
+use mish_bridge::{
+    DesktopLifecycleCoordinator, DesktopRuntimeHost, LifecycleAuthorityState,
+    LifecycleEventDisposition, LifecycleRecoveryState,
+};
 use mish_runtime::{
     CaptureFailureKind, CaptureJournal, CaptureJournalStore, CaptureOperationPhase,
     CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError,
     CoreError, CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
     LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
     NotificationSeverity, PlatformLifecycleEvent, PlatformLifecycleEventKind,
-    PlatformLifecycleEventSource, RuntimeObservationPauseReason, StatusAdapterKind,
-    StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource,
+    PlatformLifecycleEventSource, PlatformSleepObservation, PlatformSleepObservationError,
+    PlatformSleepState, RuntimeObservationPauseReason, StatusAdapterKind, StatusDataSource,
+    StatusSnapshot, SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
 };
 use mish_settings::{
     DnsObservation, FileSettingsRepository, NetworkDnsObservation, NetworkDnsObservationError,
@@ -27,24 +31,75 @@ use tokio::sync::{Notify, broadcast};
 
 struct FakePlatformEventSource {
     events: broadcast::Sender<PlatformLifecycleEvent>,
+    observation: Mutex<FakeSleepObservation>,
+}
+
+#[derive(Clone, Copy)]
+enum FakeSleepObservation {
+    Pending,
+    Ready(Result<PlatformSleepObservation, PlatformSleepObservationError>),
 }
 
 impl FakePlatformEventSource {
     fn new() -> Self {
         let (events, _) = broadcast::channel(16);
-        Self { events }
+        Self {
+            events,
+            observation: Mutex::new(FakeSleepObservation::Ready(Ok(PlatformSleepObservation {
+                sequence: 0,
+                state: PlatformSleepState::Awake,
+            }))),
+        }
     }
 
     fn emit(&self, sequence: u64, kind: PlatformLifecycleEventKind) {
+        let state = match kind {
+            PlatformLifecycleEventKind::Sleep => PlatformSleepState::Sleeping,
+            PlatformLifecycleEventKind::Wake => PlatformSleepState::Awake,
+            PlatformLifecycleEventKind::NetworkChanged => self
+                .ready_observation()
+                .map_or(PlatformSleepState::Awake, |observation| observation.state),
+        };
+        self.set_observation(sequence, state);
         self.events
             .send(PlatformLifecycleEvent { kind, sequence })
             .unwrap();
+    }
+
+    fn set_observation(&self, sequence: u64, state: PlatformSleepState) {
+        *self.observation.lock().unwrap() =
+            FakeSleepObservation::Ready(Ok(PlatformSleepObservation { sequence, state }));
+    }
+
+    fn fail_observation(&self) {
+        *self.observation.lock().unwrap() =
+            FakeSleepObservation::Ready(Err(PlatformSleepObservationError::Unavailable));
+    }
+
+    fn block_observation(&self) {
+        *self.observation.lock().unwrap() = FakeSleepObservation::Pending;
+    }
+
+    fn ready_observation(&self) -> Option<PlatformSleepObservation> {
+        match *self.observation.lock().unwrap() {
+            FakeSleepObservation::Ready(Ok(observation)) => Some(observation),
+            FakeSleepObservation::Pending | FakeSleepObservation::Ready(Err(_)) => None,
+        }
     }
 }
 
 impl PlatformLifecycleEventSource for FakePlatformEventSource {
     fn subscribe(&self) -> broadcast::Receiver<PlatformLifecycleEvent> {
         self.events.subscribe()
+    }
+
+    fn observe_sleep_state(
+        &self,
+    ) -> BoxFuture<'_, Result<PlatformSleepObservation, PlatformSleepObservationError>> {
+        match *self.observation.lock().unwrap() {
+            FakeSleepObservation::Pending => Box::pin(pending()),
+            FakeSleepObservation::Ready(observation) => Box::pin(ready(observation)),
+        }
     }
 }
 
@@ -215,6 +270,7 @@ impl CaptureJournalStore for MemoryJournal {
 struct FakeCapturePlatform {
     active_service: Mutex<String>,
     listener_ready: Mutex<bool>,
+    observations: AtomicUsize,
     services: Mutex<HashMap<String, NetworkServiceProxyState>>,
 }
 
@@ -223,6 +279,7 @@ impl FakeCapturePlatform {
         Self {
             active_service: Mutex::new(service.service_id.clone()),
             listener_ready: Mutex::new(true),
+            observations: AtomicUsize::new(0),
             services: Mutex::new(HashMap::from([(service.service_id.clone(), service)])),
         }
     }
@@ -249,12 +306,17 @@ impl FakeCapturePlatform {
     fn set_listener_ready(&self, ready: bool) {
         *self.listener_ready.lock().unwrap() = ready;
     }
+
+    fn observation_count(&self) -> usize {
+        self.observations.load(Ordering::Acquire)
+    }
 }
 
 impl CapturePlatform for FakeCapturePlatform {
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        self.observations.fetch_add(1, Ordering::AcqRel);
         let service = self.active_service.lock().unwrap().clone();
         Box::pin(ready(Ok(self.services.lock().unwrap()[&service].clone())))
     }
@@ -263,6 +325,7 @@ impl CapturePlatform for FakeCapturePlatform {
         &self,
         service_id: &str,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        self.observations.fetch_add(1, Ordering::AcqRel);
         Box::pin(ready(Ok(self.services.lock().unwrap()[service_id].clone())))
     }
 
@@ -295,6 +358,7 @@ struct Fixture {
     capture: Arc<CaptureReconciler>,
     coordinator: DesktopLifecycleCoordinator,
     core: Arc<TestCore>,
+    host: DesktopRuntimeHost,
     platform: Arc<FakeCapturePlatform>,
     runtime: MishRuntime,
     source: Arc<RecordingSource>,
@@ -317,8 +381,9 @@ fn fixture(source: Arc<RecordingSource>) -> Fixture {
     let host = DesktopRuntimeHost::new(runtime.clone());
     Fixture {
         capture,
-        coordinator: DesktopLifecycleCoordinator::new(host),
+        coordinator: DesktopLifecycleCoordinator::new(host.clone()),
         core,
+        host,
         platform,
         runtime,
         source,
@@ -466,12 +531,30 @@ async fn fake_sleep_and_wake_events_pause_then_rebuild_observation_authority() {
 
     assert_eq!(
         fixture.source.pauses(),
-        [
-            RuntimeObservationPauseReason::Sleep,
-            RuntimeObservationPauseReason::NetworkChanged,
-        ]
+        [RuntimeObservationPauseReason::Sleep]
     );
     assert_eq!(fixture.source.resume_count(), 1);
+}
+
+#[tokio::test]
+async fn startup_observation_closes_the_pre_subscription_sleep_window() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    events.set_observation(4, PlatformSleepState::Sleeping);
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source(fixture.host, None, events);
+
+    coordinator.initialize_platform_authority().await;
+
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.generation, 1);
+    assert_eq!(authority.sequence, 4);
+    assert_eq!(authority.state, LifecycleAuthorityState::Sleeping);
+    assert_eq!(authority.recovery, LifecycleRecoveryState::Current);
+    assert_eq!(
+        fixture.source.pauses(),
+        [RuntimeObservationPauseReason::Sleep]
+    );
+    assert_eq!(fixture.source.resume_count(), 0);
 }
 
 #[tokio::test]
@@ -900,6 +983,371 @@ async fn concurrent_older_platform_event_is_ignored_after_a_newer_transition_sta
         fixture.source.pauses(),
         [RuntimeObservationPauseReason::Sleep]
     );
+}
+
+#[tokio::test]
+async fn lost_wake_gap_recovers_from_one_authoritative_awake_observation() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    enable_capture(&fixture.runtime).await;
+    let initial_recent = fixture.runtime.recent_traffic().snapshot();
+    let events = Arc::new(FakePlatformEventSource::new());
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source(
+        fixture.host.clone(),
+        None,
+        events.clone(),
+    );
+
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::Sleep,
+                sequence: 1,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::Applied
+    );
+    events.set_observation(3, PlatformSleepState::Awake);
+    let capture_observations = fixture.platform.observation_count();
+
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::NetworkChanged,
+                sequence: 3,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::RecoveredAfterGap
+    );
+
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.generation, 2);
+    assert_eq!(authority.sequence, 3);
+    assert_eq!(authority.state, LifecycleAuthorityState::Awake);
+    assert_eq!(authority.recovery, LifecycleRecoveryState::Current);
+    assert_eq!(fixture.source.resume_count(), 1);
+    assert!(fixture.platform.observation_count() > capture_observations);
+    let recovered_recent = fixture.runtime.recent_traffic().snapshot();
+    assert_eq!(
+        recovered_recent.phase,
+        mish_runtime::RecentTrafficPhase::Active
+    );
+    assert_ne!(recovered_recent.session_id, initial_recent.session_id);
+}
+
+#[tokio::test]
+async fn gap_observation_can_confirm_sleeping_without_resuming_consumers() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    let coordinator =
+        DesktopLifecycleCoordinator::with_platform_source(fixture.host, None, events.clone());
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::Sleep,
+            sequence: 1,
+        })
+        .await
+        .unwrap();
+    events.set_observation(3, PlatformSleepState::Sleeping);
+
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::NetworkChanged,
+                sequence: 3,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::RecoveredAfterGap
+    );
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.generation, 2);
+    assert_eq!(authority.sequence, 3);
+    assert_eq!(authority.state, LifecycleAuthorityState::Sleeping);
+    assert_eq!(authority.recovery, LifecycleRecoveryState::Current);
+    assert_eq!(fixture.source.resume_count(), 0);
+}
+
+#[tokio::test]
+async fn lagged_broadcast_receiver_recovers_the_latest_platform_sequence() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    let mut receiver = events.subscribe();
+    let coordinator =
+        DesktopLifecycleCoordinator::with_platform_source(fixture.host, None, events.clone());
+    events.emit(1, PlatformLifecycleEventKind::Sleep);
+    coordinator
+        .handle_platform_event(receiver.recv().await.unwrap())
+        .await
+        .unwrap();
+    events.emit(2, PlatformLifecycleEventKind::Wake);
+    for sequence in 3..=20 {
+        events.emit(sequence, PlatformLifecycleEventKind::NetworkChanged);
+    }
+    assert!(matches!(
+        receiver.recv().await,
+        Err(broadcast::error::RecvError::Lagged(_))
+    ));
+
+    coordinator.reconcile_after_event_gap().await.unwrap();
+
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.generation, 2);
+    assert_eq!(authority.sequence, 20);
+    assert_eq!(authority.state, LifecycleAuthorityState::Awake);
+    assert_eq!(authority.recovery, LifecycleRecoveryState::Current);
+    assert_eq!(fixture.source.resume_count(), 1);
+}
+
+#[tokio::test]
+async fn sleeping_and_unknown_authority_admit_no_resume_audit_or_network_dns_refresh() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    enable_capture(&fixture.runtime).await;
+    let root = tempfile::tempdir().unwrap();
+    let network_dns = Arc::new(RecordingNetworkDnsPlatform::default());
+    let settings = Arc::new(
+        SettingsService::load_with_platforms(
+            Arc::new(FileSettingsRepository::new(
+                root.path().join("settings.json"),
+            )),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+            None,
+            Some(network_dns.clone()),
+        )
+        .unwrap(),
+    );
+    settings.refresh_network_dns().await;
+    let events = Arc::new(FakePlatformEventSource::new());
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source(
+        fixture.host.clone(),
+        Some(settings),
+        events.clone(),
+    );
+
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::Sleep,
+            sequence: 1,
+        })
+        .await
+        .unwrap();
+    let capture_observations = fixture.platform.observation_count();
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::NetworkChanged,
+            sequence: 2,
+        })
+        .await
+        .unwrap();
+    coordinator.periodic_audit().await.unwrap();
+    coordinator.handle_core_availability(true).await.unwrap();
+    coordinator.handle_runtime_replacement(true).await.unwrap();
+    assert_eq!(fixture.source.resume_count(), 0);
+    assert_eq!(fixture.platform.observation_count(), capture_observations);
+    assert_eq!(network_dns.0.load(Ordering::Acquire), 1);
+
+    events.fail_observation();
+    coordinator.reconcile_after_event_gap().await.unwrap();
+    assert_eq!(
+        coordinator.authority_snapshot().state,
+        LifecycleAuthorityState::UnknownAfterGap
+    );
+    assert_eq!(
+        coordinator.authority_snapshot().recovery,
+        LifecycleRecoveryState::ObservationUnavailable
+    );
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::NetworkChanged,
+                sequence: 3,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::AwaitingRecovery
+    );
+    assert_eq!(
+        coordinator.authority_snapshot().recovery,
+        LifecycleRecoveryState::ObservationUnavailable
+    );
+    coordinator.periodic_audit().await.unwrap();
+    coordinator.handle_core_availability(true).await.unwrap();
+    coordinator.handle_runtime_replacement(true).await.unwrap();
+    assert_eq!(fixture.source.resume_count(), 0);
+    assert_eq!(fixture.platform.observation_count(), capture_observations);
+    assert_eq!(network_dns.0.load(Ordering::Acquire), 1);
+    assert_eq!(
+        fixture.runtime.recent_traffic().snapshot().phase,
+        mish_runtime::RecentTrafficPhase::Idle
+    );
+
+    events.set_observation(4, PlatformSleepState::Awake);
+    coordinator.reconcile_after_event_gap().await.unwrap();
+    assert_eq!(
+        coordinator.authority_snapshot().state,
+        LifecycleAuthorityState::Awake
+    );
+    assert_eq!(fixture.source.resume_count(), 1);
+    assert_eq!(network_dns.0.load(Ordering::Acquire), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn bounded_platform_observation_timeout_remains_typed_unknown() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    events.block_observation();
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source_and_timeout(
+        fixture.host,
+        None,
+        Some(events),
+        Duration::from_secs(5),
+    );
+    let recovery = {
+        let coordinator = coordinator.clone();
+        tokio::spawn(async move { coordinator.reconcile_after_event_gap().await })
+    };
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(5)).await;
+    recovery.await.unwrap().unwrap();
+
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.state, LifecycleAuthorityState::UnknownAfterGap);
+    assert_eq!(
+        authority.recovery,
+        LifecycleRecoveryState::ObservationTimedOut
+    );
+    assert_eq!(fixture.source.resume_count(), 0);
+}
+
+#[tokio::test]
+async fn equal_sequence_observation_cannot_rewrite_the_last_confirmed_state() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    let coordinator =
+        DesktopLifecycleCoordinator::with_platform_source(fixture.host, None, events.clone());
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::Sleep,
+            sequence: 1,
+        })
+        .await
+        .unwrap();
+    events.set_observation(1, PlatformSleepState::Awake);
+
+    coordinator.reconcile_after_event_gap().await.unwrap();
+
+    let authority = coordinator.authority_snapshot();
+    assert_eq!(authority.sequence, 1);
+    assert_eq!(authority.state, LifecycleAuthorityState::UnknownAfterGap);
+    assert_eq!(authority.recovery, LifecycleRecoveryState::StaleObservation);
+    assert_eq!(fixture.source.resume_count(), 0);
+}
+
+#[tokio::test]
+async fn replacement_runtime_stays_paused_until_awake_authority_is_accepted() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    events.fail_observation();
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source(
+        fixture.host.clone(),
+        None,
+        events.clone(),
+    );
+    coordinator.reconcile_after_event_gap().await.unwrap();
+
+    let replacement_source = Arc::new(RecordingSource::new());
+    let replacement = MishRuntime::with_data_sources_and_capture(
+        fixture.core.clone(),
+        replacement_source.clone(),
+        replacement_source.clone(),
+        Some(fixture.capture.clone()),
+    );
+    fixture.host.replace(replacement);
+    coordinator.handle_runtime_replacement(true).await.unwrap();
+    assert_eq!(
+        replacement_source.pauses(),
+        [RuntimeObservationPauseReason::LifecycleGap]
+    );
+    assert_eq!(replacement_source.resume_count(), 0);
+
+    events.set_observation(1, PlatformSleepState::Awake);
+    coordinator.reconcile_after_event_gap().await.unwrap();
+    assert_eq!(
+        coordinator.authority_snapshot().state,
+        LifecycleAuthorityState::Awake
+    );
+    assert_eq!(replacement_source.resume_count(), 1);
+}
+
+#[tokio::test]
+async fn stale_duplicate_reordered_and_closed_streams_converge_without_reopening_authority() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let events = Arc::new(FakePlatformEventSource::new());
+    let coordinator = DesktopLifecycleCoordinator::with_platform_source(fixture.host, None, events);
+
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::Sleep,
+                sequence: 1,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::Applied
+    );
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::Sleep,
+                sequence: 1,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::StaleIgnored
+    );
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::Wake,
+                sequence: 2,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::Applied
+    );
+    assert_eq!(
+        coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::Sleep,
+                sequence: 1,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::StaleIgnored
+    );
+    assert_eq!(
+        coordinator.authority_snapshot().state,
+        LifecycleAuthorityState::Awake
+    );
+
+    let (closed_sender, mut closed_receiver) = broadcast::channel::<PlatformLifecycleEvent>(1);
+    drop(closed_sender);
+    assert_eq!(
+        closed_receiver.recv().await,
+        Err(broadcast::error::RecvError::Closed)
+    );
+    coordinator.handle_event_stream_closed().await;
+    let closed = coordinator.authority_snapshot();
+    assert_eq!(closed.generation, 2);
+    assert_eq!(closed.sequence, 2);
+    assert_eq!(closed.state, LifecycleAuthorityState::UnknownAfterGap);
+    assert_eq!(closed.recovery, LifecycleRecoveryState::StreamClosed);
+    let resumes = fixture.source.resume_count();
+    coordinator.periodic_audit().await.unwrap();
+    assert_eq!(fixture.source.resume_count(), resumes);
 }
 
 fn disabled_service(service_id: &str) -> NetworkServiceProxyState {

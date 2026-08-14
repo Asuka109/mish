@@ -51,9 +51,10 @@ use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureFailureKind, CaptureJournal,
     CaptureJournalStore, CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint,
     ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent,
-    PlatformLifecycleEventSource, SystemProxyObservationStage, TunHelperAvailability,
-    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
+    PlatformLifecycleEventSource, PlatformSleepObservation, PlatformSleepObservationError,
+    PlatformSleepState, SystemProxyObservationStage, TunHelperAvailability, TunHelperError,
+    TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot,
 };
 use mish_settings::{
     DnsObservation, NetworkDnsFailureKind, NetworkDnsObservation, NetworkDnsObservationError,
@@ -733,6 +734,7 @@ pub struct MacOsLifecycleEventSource {
     events: broadcast::Sender<PlatformLifecycleEvent>,
     network_shutdown: Arc<AtomicBool>,
     network_thread: Mutex<Option<JoinHandle<()>>>,
+    observation: Arc<Mutex<PlatformSleepObservation>>,
 }
 
 impl MacOsLifecycleEventSource {
@@ -745,18 +747,25 @@ impl MacOsLifecycleEventSource {
         #[cfg(target_os = "macos")]
         {
             let (events, _) = broadcast::channel(32);
-            let sequence = Arc::new(AtomicU64::new(0));
-            install_workspace_notifications(events.clone(), sequence.clone())?;
+            // Registration executes in an awake process epoch. Native callbacks update this
+            // retained fact and sequence before broadcasting, so a lagged subscriber can recover
+            // without consulting its stale local projection.
+            let observation = Arc::new(Mutex::new(PlatformSleepObservation {
+                sequence: 0,
+                state: PlatformSleepState::Awake,
+            }));
+            install_workspace_notifications(events.clone(), observation.clone())?;
             let network_shutdown = Arc::new(AtomicBool::new(false));
             let network_thread = start_network_change_monitor(
                 events.clone(),
-                sequence.clone(),
+                observation.clone(),
                 network_shutdown.clone(),
             )?;
             Ok(Self {
                 events,
                 network_shutdown,
                 network_thread: Mutex::new(Some(network_thread)),
+                observation,
             })
         }
     }
@@ -765,6 +774,16 @@ impl MacOsLifecycleEventSource {
 impl PlatformLifecycleEventSource for MacOsLifecycleEventSource {
     fn subscribe(&self) -> broadcast::Receiver<PlatformLifecycleEvent> {
         self.events.subscribe()
+    }
+
+    fn observe_sleep_state(
+        &self,
+    ) -> BoxFuture<'_, Result<PlatformSleepObservation, PlatformSleepObservationError>> {
+        let observation = *self
+            .observation
+            .lock()
+            .expect("macOS lifecycle observation lock poisoned");
+        Box::pin(std::future::ready(Ok(observation)))
     }
 }
 
@@ -785,17 +804,32 @@ impl Drop for MacOsLifecycleEventSource {
 #[cfg(target_os = "macos")]
 fn publish_lifecycle_event(
     events: &broadcast::Sender<PlatformLifecycleEvent>,
-    sequence: &AtomicU64,
+    observation: &Mutex<PlatformSleepObservation>,
     kind: PlatformLifecycleEventKind,
 ) {
-    let sequence = sequence.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+    let sequence = {
+        let mut observation = observation
+            .lock()
+            .expect("macOS lifecycle observation lock poisoned");
+        observation.sequence = observation.sequence.saturating_add(1);
+        match kind {
+            PlatformLifecycleEventKind::Sleep => {
+                observation.state = PlatformSleepState::Sleeping;
+            }
+            PlatformLifecycleEventKind::Wake => {
+                observation.state = PlatformSleepState::Awake;
+            }
+            PlatformLifecycleEventKind::NetworkChanged => {}
+        }
+        observation.sequence
+    };
     let _ = events.send(PlatformLifecycleEvent { kind, sequence });
 }
 
 #[cfg(target_os = "macos")]
 fn install_workspace_notifications(
     events: broadcast::Sender<PlatformLifecycleEvent>,
-    sequence: Arc<AtomicU64>,
+    observation: Arc<Mutex<PlatformSleepObservation>>,
 ) -> Result<(), MacOsLifecycleSourceError> {
     use std::ptr::NonNull;
 
@@ -822,9 +856,9 @@ fn install_workspace_notifications(
     };
     for (name, kind) in notifications {
         let events = events.clone();
-        let sequence = sequence.clone();
+        let observation = observation.clone();
         let block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
-            publish_lifecycle_event(&events, &sequence, kind);
+            publish_lifecycle_event(&events, &observation, kind);
         });
         unsafe {
             center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block);
@@ -836,7 +870,7 @@ fn install_workspace_notifications(
 #[cfg(target_os = "macos")]
 fn start_network_change_monitor(
     events: broadcast::Sender<PlatformLifecycleEvent>,
-    sequence: Arc<AtomicU64>,
+    observation: Arc<Mutex<PlatformSleepObservation>>,
     shutdown: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, MacOsLifecycleSourceError> {
     use std::sync::mpsc;
@@ -852,7 +886,7 @@ fn start_network_change_monitor(
 
     struct NetworkChangeContext {
         events: broadcast::Sender<PlatformLifecycleEvent>,
-        sequence: Arc<AtomicU64>,
+        observation: Arc<Mutex<PlatformSleepObservation>>,
     }
 
     fn network_changed(
@@ -862,7 +896,7 @@ fn start_network_change_monitor(
     ) {
         publish_lifecycle_event(
             &context.events,
-            &context.sequence,
+            &context.observation,
             PlatformLifecycleEventKind::NetworkChanged,
         );
     }
@@ -873,7 +907,10 @@ fn start_network_change_monitor(
         .spawn(move || {
             let context = SCDynamicStoreCallBackContext {
                 callout: network_changed,
-                info: NetworkChangeContext { events, sequence },
+                info: NetworkChangeContext {
+                    events,
+                    observation,
+                },
             };
             let Some(store) = SCDynamicStoreBuilder::new("io.mish.lifecycle")
                 .callback_context(context)
@@ -918,6 +955,40 @@ fn start_network_change_monitor(
             let _ = thread.join();
             Err(MacOsLifecycleSourceError::NotificationRegistrationFailed)
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod lifecycle_observation_tests {
+    use super::*;
+
+    #[test]
+    fn native_notifications_and_observation_share_one_sequence_authority() {
+        let (events, _) = broadcast::channel(4);
+        let mut receiver = events.subscribe();
+        let observation = Mutex::new(PlatformSleepObservation {
+            sequence: 0,
+            state: PlatformSleepState::Awake,
+        });
+
+        publish_lifecycle_event(&events, &observation, PlatformLifecycleEventKind::Sleep);
+        publish_lifecycle_event(
+            &events,
+            &observation,
+            PlatformLifecycleEventKind::NetworkChanged,
+        );
+        publish_lifecycle_event(&events, &observation, PlatformLifecycleEventKind::Wake);
+
+        assert_eq!(receiver.try_recv().unwrap().sequence, 1);
+        assert_eq!(receiver.try_recv().unwrap().sequence, 2);
+        assert_eq!(receiver.try_recv().unwrap().sequence, 3);
+        assert_eq!(
+            *observation.lock().unwrap(),
+            PlatformSleepObservation {
+                sequence: 3,
+                state: PlatformSleepState::Awake,
+            }
+        );
     }
 }
 

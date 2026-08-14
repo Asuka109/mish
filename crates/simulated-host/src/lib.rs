@@ -22,12 +22,14 @@ use mish_runtime::{
     CaptureLifecycleResult, CapturePlatform, CaptureReconciler, CaptureTransitionError, CoreError,
     CoreLifecycleCommand, CoreLifecycleMutation, CorePhase, CoreRuntime, CoreStatus,
     LocalProxyOwnership, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
-    NetworkServiceProxyState,
+    NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    PlatformLifecycleEventSource, PlatformSleepObservation, PlatformSleepObservationError,
+    PlatformSleepState,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 use thiserror::Error;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 
 mod internal_tun;
@@ -56,6 +58,7 @@ pub enum SyntheticAuthorityId {
     CaptureOne,
     CaptureTwo,
     InternalTunMaintenance,
+    PlatformLifecycle,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -92,6 +95,14 @@ pub enum SimulatedCorePhase {
     Running,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyntheticLifecycleState {
+    #[default]
+    Awake,
+    Sleeping,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EffectKind {
@@ -122,6 +133,7 @@ pub enum EffectKind {
     JournalClear,
     JournalLoad,
     JournalSave,
+    LifecycleObserve,
     MaintenanceAuthorize,
     MaintenanceBackupArtifacts,
     MaintenanceCaptureReconcile,
@@ -150,6 +162,7 @@ pub enum EffectResultKind {
     Aborted,
     AlreadyExited,
     Applied,
+    Awake,
     Authorized,
     Cancelled,
     Completed,
@@ -166,6 +179,7 @@ pub enum EffectResultKind {
     Replaced,
     Retired,
     ShutdownRejected,
+    Sleeping,
     Restored,
     RolledBack,
     ShutdownDeadlineExceeded,
@@ -215,6 +229,10 @@ pub enum ScheduledChange {
         at: u64,
         phase: SimulatedCorePhase,
     },
+    LifecycleState {
+        at: u64,
+        state: SyntheticLifecycleState,
+    },
     ProxyState {
         at: u64,
         state: SyntheticProxyState,
@@ -227,6 +245,7 @@ impl ScheduledChange {
             Self::ActiveService { at, .. }
             | Self::ManagedEndpointOwner { at, .. }
             | Self::CorePhase { at, .. }
+            | Self::LifecycleState { at, .. }
             | Self::ProxyState { at, .. } => at,
         }
     }
@@ -346,6 +365,8 @@ pub struct SimulatedHostScenario {
     pub initial_core_phase: SimulatedCorePhase,
     pub initial_endpoint_owner: ManagedEndpointOwner,
     #[serde(default)]
+    pub initial_lifecycle_state: SyntheticLifecycleState,
+    #[serde(default)]
     pub initial_proxy_state: SyntheticProxyState,
     #[serde(default)]
     pub propagation_delay: u64,
@@ -365,6 +386,7 @@ impl SimulatedHostScenario {
             failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Foreign,
+            initial_lifecycle_state: SyntheticLifecycleState::Awake,
             initial_proxy_state: SyntheticProxyState::Disabled,
             propagation_delay: 0,
             scheduled_changes: Vec::new(),
@@ -380,6 +402,7 @@ impl SimulatedHostScenario {
             failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Stopped,
             initial_endpoint_owner: ManagedEndpointOwner::Free,
+            initial_lifecycle_state: SyntheticLifecycleState::Awake,
             initial_proxy_state: SyntheticProxyState::Disabled,
             propagation_delay: 0,
             scheduled_changes: vec![ScheduledChange::ManagedEndpointOwner {
@@ -398,6 +421,7 @@ impl SimulatedHostScenario {
             failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Running,
             initial_endpoint_owner: ManagedEndpointOwner::Mish,
+            initial_lifecycle_state: SyntheticLifecycleState::Awake,
             initial_proxy_state,
             propagation_delay: 0,
             scheduled_changes: Vec::new(),
@@ -423,6 +447,7 @@ impl SimulatedHostScenario {
             failures: Vec::new(),
             initial_core_phase: SimulatedCorePhase::Running,
             initial_endpoint_owner: ManagedEndpointOwner::Mish,
+            initial_lifecycle_state: SyntheticLifecycleState::Awake,
             initial_proxy_state: SyntheticProxyState::Disabled,
             propagation_delay: 0,
             scheduled_changes: Vec::new(),
@@ -455,6 +480,12 @@ impl SimulatedHostScenario {
                 state: SyntheticProxyState::Manual,
             },
         ];
+        scenario
+    }
+
+    pub fn lifecycle_recovery() -> Self {
+        let mut scenario = Self::system_proxy_transaction(SyntheticProxyState::Disabled);
+        scenario.declared_effects.push(EffectKind::LifecycleObserve);
         scenario
     }
 
@@ -630,6 +661,8 @@ pub struct ScenarioObservation {
     pub core_phase: SimulatedCorePhase,
     pub endpoint_owner: ManagedEndpointOwner,
     pub journal_present: bool,
+    pub lifecycle_sequence: u64,
+    pub lifecycle_state: SyntheticLifecycleState,
     pub logical_time: u64,
     pub maintenance: Option<MaintenanceObservation>,
     pub pending_proxy_propagation: bool,
@@ -674,6 +707,8 @@ struct Model {
     endpoint_owner: ManagedEndpointOwner,
     effect_occurrences: HashMap<EffectKind, u8>,
     journal: Option<CaptureJournal>,
+    lifecycle_sequence: u64,
+    lifecycle_state: SyntheticLifecycleState,
     logical_time: u64,
     maintenance: Option<internal_tun::MaintenanceModel>,
     pending_proxy_observation: Option<PendingProxyObservation>,
@@ -693,6 +728,7 @@ pub struct SimulatedHost {
     clock_changed: Arc<Notify>,
     declared_effects: HashSet<EffectKind>,
     failures: Vec<InjectedFailure>,
+    lifecycle_events: broadcast::Sender<PlatformLifecycleEvent>,
     maintenance_engine: Mutex<Option<Weak<internal_tun::MaintenanceEngine>>>,
     model: Mutex<Model>,
     preparation_task: Mutex<Option<(CancellationToken, tokio::task::JoinHandle<()>)>>,
@@ -703,11 +739,13 @@ pub struct SimulatedHost {
 impl SimulatedHost {
     pub fn new(scenario: SimulatedHostScenario) -> Result<Self, SimulatedHostFailure> {
         scenario.validate()?;
+        let (lifecycle_events, _) = broadcast::channel(16);
         Ok(Self {
             capture: Mutex::new(None),
             clock_changed: Arc::new(Notify::new()),
             declared_effects: scenario.declared_effects.iter().copied().collect(),
             failures: scenario.failures.clone(),
+            lifecycle_events,
             maintenance_engine: Mutex::new(None),
             model: Mutex::new(Model {
                 active_runtime: None,
@@ -716,6 +754,8 @@ impl SimulatedHost {
                 endpoint_owner: scenario.initial_endpoint_owner,
                 effect_occurrences: HashMap::new(),
                 journal: None,
+                lifecycle_sequence: 0,
+                lifecycle_state: scenario.initial_lifecycle_state,
                 logical_time: 0,
                 maintenance: None,
                 pending_proxy_observation: None,
@@ -871,6 +911,10 @@ impl SimulatedHost {
                 ScheduledChange::CorePhase { phase, .. } => {
                     model.core_phase = phase;
                 }
+                ScheduledChange::LifecycleState { state, .. } => {
+                    model.lifecycle_sequence = model.lifecycle_sequence.saturating_add(1);
+                    model.lifecycle_state = state;
+                }
                 ScheduledChange::ProxyState { state, .. } => {
                     let state = state.materialize();
                     model.proxy_state = state.clone();
@@ -905,6 +949,8 @@ impl SimulatedHost {
             core_phase: model.core_phase,
             endpoint_owner: model.endpoint_owner,
             journal_present: model.journal.is_some(),
+            lifecycle_sequence: model.lifecycle_sequence,
+            lifecycle_state: model.lifecycle_state,
             logical_time: model.logical_time,
             maintenance: model
                 .maintenance
@@ -958,6 +1004,31 @@ impl SimulatedHost {
 
     pub fn exercise_effect(&self, effect: EffectKind) -> Result<(), SimulatedHostFailure> {
         self.emit(effect, EffectResultKind::Completed)
+    }
+
+    pub fn publish_lifecycle_event(
+        &self,
+        kind: PlatformLifecycleEventKind,
+    ) -> PlatformLifecycleEvent {
+        let event = {
+            let mut model = self.model.lock().expect("simulated host lock poisoned");
+            model.lifecycle_sequence = model.lifecycle_sequence.saturating_add(1);
+            match kind {
+                PlatformLifecycleEventKind::Sleep => {
+                    model.lifecycle_state = SyntheticLifecycleState::Sleeping;
+                }
+                PlatformLifecycleEventKind::Wake => {
+                    model.lifecycle_state = SyntheticLifecycleState::Awake;
+                }
+                PlatformLifecycleEventKind::NetworkChanged => {}
+            }
+            PlatformLifecycleEvent {
+                kind,
+                sequence: model.lifecycle_sequence,
+            }
+        };
+        let _ = self.lifecycle_events.send(event);
+        event
     }
 
     async fn wait_until(&self, logical_time: u64) {
@@ -1518,6 +1589,51 @@ impl ManagedListenerHost for SimulatedHost {
                 .await
                 .map_err(|_| MihomoActivationError::StateCommitFailed)
         })
+    }
+}
+
+impl PlatformLifecycleEventSource for SimulatedHost {
+    fn subscribe(&self) -> broadcast::Receiver<PlatformLifecycleEvent> {
+        self.lifecycle_events.subscribe()
+    }
+
+    fn observe_sleep_state(
+        &self,
+    ) -> BoxFuture<'_, Result<PlatformSleepObservation, PlatformSleepObservationError>> {
+        let (observation, result_kind, runtime_id) = {
+            let model = self.model.lock().expect("simulated host lock poisoned");
+            let (state, result_kind) = match model.lifecycle_state {
+                SyntheticLifecycleState::Awake => {
+                    (PlatformSleepState::Awake, EffectResultKind::Awake)
+                }
+                SyntheticLifecycleState::Sleeping => {
+                    (PlatformSleepState::Sleeping, EffectResultKind::Sleeping)
+                }
+            };
+            (
+                PlatformSleepObservation {
+                    sequence: model.lifecycle_sequence,
+                    state,
+                },
+                result_kind,
+                model.runtime_id,
+            )
+        };
+        let result = self
+            .emit_with_correlation(
+                EffectKind::LifecycleObserve,
+                result_kind,
+                Some((
+                    SyntheticAuthorityId::PlatformLifecycle,
+                    1,
+                    None,
+                    observation.sequence,
+                    runtime_id,
+                )),
+            )
+            .map(|()| observation)
+            .map_err(|_| PlatformSleepObservationError::Unavailable);
+        Box::pin(ready(result))
     }
 }
 
