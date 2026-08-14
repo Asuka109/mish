@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { validateAndroidGradleWrapper } from "./android-gradle-wrapper.ts";
+
 const root = resolve(import.meta.dirname, "..");
 
 function source(path: string) {
@@ -15,6 +17,9 @@ function invariant(condition: unknown, message: string): asserts condition {
 const gradle = source("apps/mobile/src-tauri/gen/android/app/build.gradle.kts");
 const androidSignerVerifier = source("scripts/verify-android-apk-signature.ts");
 const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
+const gradleWrapper = source(
+  "apps/mobile/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties",
+);
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
 const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xml`);
@@ -143,6 +148,11 @@ for (const setting of [
 ]) {
   invariant(gradle.includes(setting), `Android project is missing the pinned setting: ${setting}`);
 }
+const gradleWrapperErrors = validateAndroidGradleWrapper(gradleWrapper);
+invariant(
+  gradleWrapperErrors.length === 0,
+  `Generated Android Gradle wrapper pin is invalid:\n${gradleWrapperErrors.join("\n")}`,
+);
 invariant(
   rootGradle.includes('plugins.withId("com.android.library")') &&
     rootGradle.includes('buildToolsVersion = "36.1.0"'),
@@ -158,10 +168,21 @@ invariant(
 );
 
 invariant(
+  mobilePackage.scripts?.["android:configure"] ===
+    "node ../../scripts/configure-android-project.ts",
+  "Android commands must use the checksum-enforcing project configuration path.",
+);
+invariant(
   mobilePackage.scripts?.["android:build"] ===
     "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
   "Android debug builds must remain split and limited to ARM64 and x86_64.",
 );
+for (const command of ["android:test", "android:test:emulator"] as const) {
+  invariant(
+    mobilePackage.scripts?.[command]?.startsWith("pnpm android:configure && "),
+    `${command} must configure the checksum-enforcing Gradle wrapper before execution.`,
+  );
+}
 invariant(
   existsSync(debugKeystorePath) && existsSync(debugCertificatePath),
   "The credential-free debug signer must provide its checked-in test-only keystore and public certificate fixture.",
