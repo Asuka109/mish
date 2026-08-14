@@ -35,6 +35,11 @@ Owner: thread-master coordinator
   `gpt-5.6-sol/medium`, Chinese reporting, and confirmation-only acceptance.
   It is an independent repository-tooling task that formalizes the existing
   Oxlint dependency into a high-signal project ruleset.
+- The maintainer approved exact Wave 2P on 2026-08-14: #521 B1, #522 L1+L2,
+  #524 C1-C3, and #523 M1+M2 use `gpt-5.6-sol/high`; #520 G1-G3 uses
+  `gpt-5.6-sol/medium`; #525 O1-O3 uses `gpt-5.6-terra/high`. All six use
+  Chinese reporting and confirmation-only acceptance. This wave reserves six
+  isolated AFK Workers and leaves four implementation slots unreserved.
 - AFK, confirmation-only work is scheduled before hands-on acceptance work.
 - Maximum implementation concurrency is 10 workers, subject to dependency and
   integration-surface limits.
@@ -82,6 +87,15 @@ resolved only scoped overlap, and passed final local and required remote gates.
 
 Wave 2O is fully integrated. Its advisory-warning follow-up remains tracked in
 #518 and root npm-script command-surface governance remains tracked in #519.
+
+Wave 2P reserves six independent repository-only deliveries. #521 and #522
+share the desktop bridge crate but own disjoint restore and lifecycle domains;
+each must ordinary-merge latest main before final verification if shared crate
+surfaces overlap. #520, #523, and #524 all affect Android/build evidence and
+must likewise integrate latest main at delivery; #524 completes before later
+#527 work begins. #525 is documentation/static-policy only. No Wave 2P Worker
+may claim physical sleep/wake, real restore interruption, production signing,
+release publication, external network behavior, or device acceptance.
 
 ## Wave 1 worker ledger
 
@@ -377,6 +391,25 @@ authorizes no product/native/system mutation.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #515 high-signal Oxlint ruleset | `019ffba6-cce0-7430-8b82-0c81f635470c` | `3930` | integrated | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | PR #516 merged as `00cb19f4` after explicit acceptance and an explicit integration-order override; final full/local/required CI and coordinator policy/fixture checks passed; Issue #515 CLOSED/COMPLETED; advisory rollout continues in #518 |
+
+## Wave 2P dispatch manifest
+
+The maintainer approved this exact six-task AFK wave. Every entry uses Chinese
+reporting, confirmation-only acceptance, final-only parent escalation, and an
+isolated worktree. Delivery permission includes scoped implementation,
+commit/push/PR, deterministic fixtures, and required CI; ordinary merge remains
+locked until explicit human acceptance. #521 and #522 must follow the
+transcript-driven system-test contract. Task IDs and worktrees are pending the
+second phase of dispatch.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| #521 B1 restore publication protocol | `pending` | `pending` | dispatching | Existing atomic Profile generations and local-backup authority | Include the visible Profile projection in one durable recoverable restore publication protocol with startup completion/rollback | `gpt-5.6-sol/high`; B2 identity rebinding and B3 exhaustive adversarial closure remain out of scope; no real user-data mutation claim |
+| #522 L1+L2 authoritative sleep recovery | `pending` | `pending` | dispatching | Existing lifecycle coordinator and platform event boundary | Replace stale process-local sleep state with typed authority and migrate gap recovery, Runtime, Traffic, Capture, and Network/DNS admission | `gpt-5.6-sol/high`; L3 final hardening and physical sleep/wake acceptance remain out of scope |
+| #524 C1-C3 exact package revision | `pending` | `pending` | dispatching | Current non-production macOS/Android package jobs | Freeze one accepted SHA and bind checkout, validation, build, artifact metadata, upload, summary, and adversarial policy tests to verified HEAD | `gpt-5.6-sol/high`; must integrate before #527; no production signing or release publication |
+| #520 G1-G3 Gradle wrapper checksum | `pending` | `pending` | dispatching | Current pinned Gradle version and generated Android wrapper | Add the official reviewed checksum as canonical data and enforce deterministic generation plus tamper/version drift rejection | `gpt-5.6-sol/medium`; no Gradle upgrade or broad dependency change |
+| #523 M1+M2 Go toolchain provenance | `pending` | `pending` | dispatching | Existing Mobile Core reproducible-build/admission evidence | Model the executed toolchain source and reject caller overrides falsely claiming verified official archive identity | `gpt-5.6-sol/high`; M3 exhaustive cache/override fixtures and final documentation remain out of scope |
+| #525 O1-O3 documentation boundaries | `pending` | `pending` | dispatching | Current public RPC catalog, mock bridge, CSP, and icon policy | Correct mock behavioral coverage and HTTPS image privacy claims with the smallest useful configuration/catalog drift checks | `gpt-5.6-terra/high`; no CSP widening, remote code, generic URL loading, or IPC behavior change |
 
 ## Wave 1 — approved for dispatch
 
