@@ -40,7 +40,10 @@ still fails closed and never selects fixtures.
 1. `pnpm desktop:build` builds `apps/web/dist` before compiling the shell.
 2. Tauri recursively embeds that directory through `build.frontendDist`.
 3. The packaged WebView loads the application protocol; no CDN, remote font,
-   hosted frontend, or runtime asset download is configured.
+   hosted frontend, remote script, or runtime asset download is configured.
+   The sole remote-resource exception is a user-configured service-monitor
+   image accepted by the constrained policy in the threat model below; it is
+   not a frontend or executable asset.
 4. Tauri's embedded asset resolver serves exact assets and falls back to
    `index.html` for an unknown route so React Router can handle direct links.
 5. During development, the launcher selects the first available IPv4-loopback
@@ -434,10 +437,29 @@ Tauri's capability grants no general filesystem, shell, dialog, event, or
 window API to Web content. It grants only the generated bootstrap and
 first-frame reveal commands plus the narrow profile-picker, support-bundle, and local-backup
 commands described above; native dialogs, window reveal policy, and file writes
-remain internal to those commands. The production CSP permits only local
-bundled scripts and resources, Tauri IPC, and an IPv4-loopback WebSocket. It
-blocks inline or remote script execution, frames, objects, forms, remote fonts,
-and remote frontend connections.
+remain internal to those commands. The production CSP permits local bundled
+scripts and resources, Tauri IPC, and an IPv4-loopback WebSocket. Its narrowly
+scoped `img-src` exception also permits HTTPS images. It blocks inline or remote
+script execution, frames, objects, forms, remote fonts, remote frontend
+connections, and any additional IPC authority.
+
+That HTTPS image exception is only for a service-monitor icon rendered by the
+Web client's `img` element. The accepted value is either one of the recorded
+root-relative bundled Remix Icon paths, or an HTTPS URL no longer than 2,048
+characters with a host and with both username and password omitted. It rejects
+HTTP, `file:`, `javascript:`, unknown bundled paths, malformed values, and URL
+credentials. The image request uses `referrerPolicy="no-referrer"`; the bridge
+does not fetch or proxy it, and no Mish RPC token, bootstrap token, profile
+credential, or URL userinfo is put in the icon URL. This is not a generic URL
+loader and does not authorize remote code, a remote frontend, a frame, a form,
+font, WebSocket, or IPC operation.
+
+The privacy boundary is deliberately residual rather than absolute: a remote
+icon host can observe a direct image request, including network metadata such
+as the client address, timing, and ordinary WebView request characteristics.
+`no-referrer` prevents the document URL from being sent as a referrer, and the
+accepted URL omits embedded credentials; neither fact makes the remote host
+local or trusted. Built-in service icons stay bundled and root-relative.
 
 The WebView cannot execute operating-system commands. Authenticated RPC accepts
 only bounded capture DTOs and recovery actions. The macOS adapter maps those
