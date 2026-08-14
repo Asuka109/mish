@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { pinAndroidGradleWrapper, validateAndroidGradleWrapper } from "./android-gradle-wrapper.ts";
+
 const gradlePath = resolve(
   import.meta.dirname,
   "../apps/mobile/src-tauri/gen/android/app/build.gradle.kts",
@@ -9,8 +11,13 @@ const rootGradlePath = resolve(
   import.meta.dirname,
   "../apps/mobile/src-tauri/gen/android/build.gradle.kts",
 );
+const gradleWrapperPath = resolve(
+  import.meta.dirname,
+  "../apps/mobile/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties",
+);
 let gradle = readFileSync(gradlePath, "utf8");
 let rootGradle = readFileSync(rootGradlePath, "utf8");
+const gradleWrapper = pinAndroidGradleWrapper(readFileSync(gradleWrapperPath, "utf8"));
 
 function pinAndroidSetting(name: string, value: string) {
   const setting = new RegExp(`^(\\s*)${name}\\s*=.*$`, "mu");
@@ -60,4 +67,11 @@ rootGradle = rootGradle.replace(
   'buildToolsVersion = "36.1.0"',
 );
 writeFileSync(rootGradlePath, rootGradle);
-console.log("Pinned Android API 36, Build Tools 36.1.0, NDK 29, ARM64, and x86_64.");
+const gradleWrapperErrors = validateAndroidGradleWrapper(gradleWrapper);
+if (gradleWrapperErrors.length > 0) {
+  throw new Error(gradleWrapperErrors.join("\n"));
+}
+writeFileSync(gradleWrapperPath, gradleWrapper);
+console.log(
+  "Pinned Android API 36, Build Tools 36.1.0, NDK 29, Gradle distribution checksum, ARM64, and x86_64.",
+);
