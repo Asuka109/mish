@@ -28,6 +28,10 @@ pnpm mobile:android:configure
 pnpm mobile:android:test
 ```
 
+Configuration also restores the reviewed Gradle distribution URL and SHA-256
+pin before any checked-in wrapper execution. `pnpm check:android` rejects
+wrapper URL, version, checksum, or duplicate-property drift.
+
 Debug APKs use the repository-owned `mishFixtureDebug` JKS and its paired public
 certificate fixture. This credential-free signer is only for deterministic
 debug/test admission evidence; the release build type does not reference it,
