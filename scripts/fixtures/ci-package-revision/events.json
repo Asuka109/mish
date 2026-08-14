@@ -1,0 +1,37 @@
+[
+  {
+    "name": "main-push",
+    "eventName": "push",
+    "ref": "refs/heads/main",
+    "sha": "1111111111111111111111111111111111111111",
+    "accepted": true
+  },
+  {
+    "name": "main-manual-dispatch",
+    "eventName": "workflow_dispatch",
+    "ref": "refs/heads/main",
+    "sha": "2222222222222222222222222222222222222222",
+    "accepted": true
+  },
+  {
+    "name": "branch-manual-dispatch",
+    "eventName": "workflow_dispatch",
+    "ref": "refs/heads/feature-package",
+    "sha": "3333333333333333333333333333333333333333",
+    "accepted": false
+  },
+  {
+    "name": "tag-manual-dispatch",
+    "eventName": "workflow_dispatch",
+    "ref": "refs/tags/test-package",
+    "sha": "4444444444444444444444444444444444444444",
+    "accepted": false
+  },
+  {
+    "name": "malformed-event-sha",
+    "eventName": "push",
+    "ref": "refs/heads/main",
+    "sha": "not-a-full-commit",
+    "accepted": false
+  }
+]

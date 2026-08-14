@@ -387,11 +387,42 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Select accepted package revision
+        id: package-source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            push|workflow_dispatch) ;;
+            *)
+              echo "Unsupported package event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          test "$EVENT_REF" = "refs/heads/main"
+          [[ "$EVENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "accepted_sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 1
           persist-credentials: false
-          ref: main
+          ref: ${{ steps.package-source.outputs.accepted_sha }}
+      - name: Verify checked-out package revision
+        id: package-head
+        shell: bash
+        env:
+          FROZEN_SOURCE_SHA: ${{ steps.package-source.outputs.accepted_sha }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$FROZEN_SOURCE_SHA"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${source_sha:0:7}" >> "$GITHUB_OUTPUT"
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
@@ -410,14 +441,26 @@ jobs:
           cache-on-failure: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Validate package source policy
+        shell: bash
+        env:
+          VERIFIED_SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SOURCE_SHA"
+          pnpm check:ci
       - name: Build and verify application bundle
         run: pnpm desktop:build:macos
       - name: Create app archive
-        id: revision
+        id: package-metadata
         shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA:0:7}"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
           mountpoint="$(mktemp -d)"
           cleanup() {
             hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
@@ -430,31 +473,48 @@ jobs:
           mkdir -p .scratch/artifacts
           ditto -c -k --sequesterRsrc --keepParent \
             "$mountpoint/Mish.app" \
-            ".scratch/artifacts/Mish-${short_sha}.app.zip"
-          unzip -t ".scratch/artifacts/Mish-${short_sha}.app.zip"
-          archive_sha256="$(shasum -a 256 ".scratch/artifacts/Mish-${short_sha}.app.zip" | awk '{print $1}')"
-          artifact_name="mish-macos-arm64-${short_sha}"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
-          echo "archive=.scratch/artifacts/Mish-${short_sha}.app.zip" >> "$GITHUB_OUTPUT"
+            ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip"
+          unzip -t ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip"
+          archive_sha256="$(shasum -a 256 ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip" | awk '{print $1}')"
+          artifact_name="mish-macos-arm64-${SHORT_SHA}"
+          echo "archive=.scratch/artifacts/Mish-${SHORT_SHA}.app.zip" >> "$GITHUB_OUTPUT"
           echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+      - name: Verify package revision before upload
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.package-metadata.outputs.archive }}
+          ARCHIVE_SHA256: ${{ steps.package-metadata.outputs.archive_sha256 }}
+          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
+          test "$ARTIFACT_NAME" = "mish-macos-arm64-$SHORT_SHA"
+          test "$ARCHIVE" = ".scratch/artifacts/Mish-$SHORT_SHA.app.zip"
+          test -f "$ARCHIVE"
+          [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')" = "$ARCHIVE_SHA256"
       - name: Upload Apple Silicon test package
         id: package-upload
         if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ steps.revision.outputs.artifact_name }}
-          path: ${{ steps.revision.outputs.archive }}
+          name: ${{ steps.package-metadata.outputs.artifact_name }}
+          path: ${{ steps.package-metadata.outputs.archive }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
       - name: Write package summary
         shell: bash
         env:
-          ARCHIVE_SHA256: ${{ steps.revision.outputs.archive_sha256 }}
+          ARCHIVE_SHA256: ${{ steps.package-metadata.outputs.archive_sha256 }}
           ARTIFACT_ID: ${{ steps.package-upload.outputs.artifact-id }}
-          ARTIFACT_NAME: ${{ steps.revision.outputs.artifact_name }}
-          SHORT_SHA: ${{ steps.revision.outputs.short_sha }}
+          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
         run: |
           set -euo pipefail
           {
@@ -462,6 +522,7 @@ jobs:
             echo
             echo "| Property | Value |"
             echo "| --- | --- |"
+            echo "| Source revision | \`$SOURCE_SHA\` |"
             echo "| Short SHA | \`$SHORT_SHA\` |"
             echo "| Artifact name | \`$ARTIFACT_NAME\` |"
             echo "| Artifact ID | \`$ARTIFACT_ID\` |"
@@ -481,11 +542,42 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: Select accepted package revision
+        id: package-source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            push|workflow_dispatch) ;;
+            *)
+              echo "Unsupported package event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          test "$EVENT_REF" = "refs/heads/main"
+          [[ "$EVENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "accepted_sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 1
           persist-credentials: false
-          ref: main
+          ref: ${{ steps.package-source.outputs.accepted_sha }}
+      - name: Verify checked-out package revision
+        id: package-head
+        shell: bash
+        env:
+          FROZEN_SOURCE_SHA: ${{ steps.package-source.outputs.accepted_sha }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$FROZEN_SOURCE_SHA"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${source_sha:0:7}" >> "$GITHUB_OUTPUT"
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
@@ -515,6 +607,14 @@ jobs:
           packages: ""
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Validate package source policy
+        shell: bash
+        env:
+          VERIFIED_SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SOURCE_SHA"
+          pnpm check:ci
       - name: Install pinned Android components
         shell: bash
         run: |
@@ -540,11 +640,15 @@ jobs:
       - name: Build Android debug APKs
         run: pnpm mobile:android:build
       - name: Verify Android debug APKs
-        id: revision
+        id: package-metadata
         shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA:0:7}"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
           output_root="apps/mobile/src-tauri/gen/android/app/build/outputs/apk"
           artifact_root=".scratch/artifacts/android"
           core_checksums=".scratch/mobile-core/evidence/SHA256SUMS"
@@ -561,7 +665,7 @@ jobs:
               expected_core="$(awk '$2 == "android/arm64-v8a/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
               actual_core="$(unzip -p "$apk" lib/arm64-v8a/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
               test "$actual_core" = "$expected_core"
-              cp "$apk" "$artifact_root/Mish-${short_sha}-arm64-v8a-debug.apk"
+              cp "$apk" "$artifact_root/Mish-${SHORT_SHA}-arm64-v8a-debug.apk"
               arm64_count=$((arm64_count + 1))
             fi
             if grep -q '^lib/x86_64/' <<< "$entries"; then
@@ -570,7 +674,7 @@ jobs:
               expected_core="$(awk '$2 == "android/x86_64/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
               actual_core="$(unzip -p "$apk" lib/x86_64/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
               test "$actual_core" = "$expected_core"
-              cp "$apk" "$artifact_root/Mish-${short_sha}-x86_64-debug.apk"
+              cp "$apk" "$artifact_root/Mish-${SHORT_SHA}-x86_64-debug.apk"
               x86_64_count=$((x86_64_count + 1))
             fi
             if grep -Eqi 'mihomo|subscription|token' <<< "$entries"; then
@@ -580,20 +684,40 @@ jobs:
           done < <(find "$output_root" -type f -name '*-debug.apk' -print | sort)
           test "$arm64_count" -eq 1
           test "$x86_64_count" -eq 1
-          arm64_sha256="$(sha256sum "$artifact_root/Mish-${short_sha}-arm64-v8a-debug.apk" | awk '{print $1}')"
-          x86_64_sha256="$(sha256sum "$artifact_root/Mish-${short_sha}-x86_64-debug.apk" | awk '{print $1}')"
+          arm64_sha256="$(sha256sum "$artifact_root/Mish-${SHORT_SHA}-arm64-v8a-debug.apk" | awk '{print $1}')"
+          x86_64_sha256="$(sha256sum "$artifact_root/Mish-${SHORT_SHA}-x86_64-debug.apk" | awk '{print $1}')"
           {
-            echo "short_sha=$short_sha"
-            echo "artifact_name=mish-android-test-${short_sha}"
+            echo "artifact_name=mish-android-test-${SHORT_SHA}"
             echo "arm64_sha256=$arm64_sha256"
             echo "x86_64_sha256=$x86_64_sha256"
           } >> "$GITHUB_OUTPUT"
+      - name: Verify package revision before upload
+        shell: bash
+        env:
+          ARM64_SHA256: ${{ steps.package-metadata.outputs.arm64_sha256 }}
+          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
+          X86_64_SHA256: ${{ steps.package-metadata.outputs.x86_64_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
+          test "$ARTIFACT_NAME" = "mish-android-test-$SHORT_SHA"
+          arm64_apk=".scratch/artifacts/android/Mish-$SHORT_SHA-arm64-v8a-debug.apk"
+          x86_64_apk=".scratch/artifacts/android/Mish-$SHORT_SHA-x86_64-debug.apk"
+          test -f "$arm64_apk"
+          test -f "$x86_64_apk"
+          [[ "$ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$X86_64_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum "$arm64_apk" | awk '{print $1}')" = "$ARM64_SHA256"
+          test "$(sha256sum "$x86_64_apk" | awk '{print $1}')" = "$X86_64_SHA256"
       - name: Upload Android non-production test APKs
         id: android-package-upload
         if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ steps.revision.outputs.artifact_name }}
+          name: ${{ steps.package-metadata.outputs.artifact_name }}
           path: .scratch/artifacts/android/*.apk
           compression-level: 0
           if-no-files-found: error
@@ -601,18 +725,20 @@ jobs:
       - name: Write Android package summary
         shell: bash
         env:
-          ARM64_SHA256: ${{ steps.revision.outputs.arm64_sha256 }}
+          ARM64_SHA256: ${{ steps.package-metadata.outputs.arm64_sha256 }}
           ARTIFACT_ID: ${{ steps.android-package-upload.outputs.artifact-id }}
-          ARTIFACT_NAME: ${{ steps.revision.outputs.artifact_name }}
-          SHORT_SHA: ${{ steps.revision.outputs.short_sha }}
-          X86_64_SHA256: ${{ steps.revision.outputs.x86_64_sha256 }}
+          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
+          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
+          X86_64_SHA256: ${{ steps.package-metadata.outputs.x86_64_sha256 }}
         run: |
+          set -euo pipefail
           {
             echo "## Android non-production test APKs"
             echo
             echo "| Property | Value |"
             echo "| --- | --- |"
-            echo "| Source revision | \`$GITHUB_SHA\` |"
+            echo "| Source revision | \`$SOURCE_SHA\` |"
             echo "| Short SHA | \`$SHORT_SHA\` |"
             echo "| Artifact name | \`$ARTIFACT_NAME\` |"
             echo "| Artifact ID | \`$ARTIFACT_ID\` |"

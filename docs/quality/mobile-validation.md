@@ -256,8 +256,13 @@ another result:
    authorized.
 
 Pull requests upload no distributable mobile package by default. Any debug
-artifact policy must state its source revision, supported ABI, signing mode,
-Core version, checksum, retention, and non-production status.
+artifact policy must freeze one accepted full source revision, check out and
+validate that exact commit, assert HEAD before build and upload, and derive
+names, checksums, upload metadata, and summaries from verified HEAD. It must
+state that source revision, supported ABI, signing mode, Core version, checksum,
+retention, and non-production status. Deterministic policy fixtures reject
+branch dispatch, floating branch checkout, stale-event mislabeling, moving-main
+drift, removed or reordered assertions, metadata divergence, and bypasses.
 
 ## Manual review
 

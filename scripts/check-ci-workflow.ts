@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseDocument } from "yaml";
 
+import { validatePackageRevisionPolicy } from "./ci-package-revision-policy.ts";
+
 type Step = {
   id?: string;
   if?: string;
@@ -105,6 +107,8 @@ if (document.errors.length > 0) {
 }
 
 const workflow = document.toJS() as Workflow;
+const packageRevisionErrors = validatePackageRevisionPolicy(source);
+invariant(packageRevisionErrors.length === 0, packageRevisionErrors.join("; "));
 const jobInventoryErrors = validateCiWorkflowJobInventory(workflow.jobs);
 invariant(jobInventoryErrors.length === 0, jobInventoryErrors.join("; "));
 const jobNameErrors = validateCiWorkflowJobNames(workflow.jobs);
@@ -550,6 +554,7 @@ invariant(
 const summarySource = JSON.stringify(summary);
 for (const field of [
   "Short SHA",
+  "Source revision",
   "Artifact name",
   "Artifact ID",
   "App ID",
@@ -714,5 +719,5 @@ invariant(
 );
 
 console.log(
-  "CI workflow contract valid: PRs use the fast gate, main pushes package, and scheduled/manual main inspections run the heavy suite.",
+  "CI workflow contract valid: PRs use the fast gate, package jobs bind exact verified main revisions, and scheduled/manual main inspections run the heavy suite.",
 );

@@ -1,10 +1,21 @@
 # macOS Packaging and Signing
 
-Mish defines one Apple Silicon test-package job for pushes to `main`. Pull
-requests run the bounded `check:pr` gate on an isolated GitHub-hosted Ubuntu
-runner but never build or upload an app archive. Daily and manual inspection
-own complete validation. Packaging remains independent, so a failed application
-build cannot reach artifact upload.
+Mish defines one Apple Silicon test-package job for pushes to `main` and bounded
+manual package dispatches from `main`. Pull requests run the bounded `check:pr`
+gate on an isolated GitHub-hosted Ubuntu runner but never build or upload an app
+archive. Daily and manual inspection own complete validation. Packaging remains
+independent, so a failed application build cannot reach artifact upload.
+
+Each macOS and Android package job accepts only a `main` push or a manual
+`workflow_dispatch` whose selected ref is exactly `refs/heads/main`. Before any
+checkout, the job freezes the event's full 40-character commit SHA. It checks
+out that SHA rather than the branch name, verifies `git rev-parse HEAD`, and
+exports the full and short source revisions only from that verified HEAD. The
+job repeats the HEAD assertion before source-policy validation/build and again
+immediately before upload. Artifact names, paths, checksums, upload metadata,
+and summaries consume only those verified outputs. A dispatch from a branch or
+tag fails before checkout; movement of `main` after dispatch cannot change the
+selected build.
 
 The latest reviewed `main` push run for
 `d925f0abd09c1f153cc54f2e2bcea054b6477b1e`
@@ -460,10 +471,12 @@ helper ad hoc, proves the structure and closed version probes, and proves that
 both artifacts fail the required Developer ID team checks. It is not a release
 profile and never registers or launches the LaunchDaemon.
 
-GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
-uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
-test package: an ad-hoc signature is not an Apple identity, is not notarized,
-does not make the TUN helper available, and is not a stable public release.
+GitHub Actions wraps the app with `ditto` as `Mish-<verified-short-sha>.app.zip`
+and uploads an artifact named `mish-macos-arm64-<verified-short-sha>` for 14
+days. The archive checksum is recomputed against the same name immediately
+before upload. This is a credential-free test package: an ad-hoc signature is
+not an Apple identity, is not notarized, does not make the TUN helper available,
+and is not a stable public release.
 
 ## Public release split
 
@@ -497,9 +510,11 @@ that the planned explanatory interaction is implemented.
 Open the repository's **Actions** tab, select a successful **CI** run for a push
 to `main`, and confirm that the **Package macOS ARM64** job succeeded. Its job
 summary records the short commit SHA, artifact name and ID, signing state, and
-the SHA-256 of the inner app archive. Download the matching artifact from the
-run's **Artifacts** section. GitHub expands the outer artifact archive during a
-CLI download; a browser download may require opening that outer ZIP first.
+the SHA-256 of the inner app archive. It also records the full verified source
+revision; require it to equal the run's frozen `main` commit. Download the
+matching artifact from the run's **Artifacts** section. GitHub expands the outer
+artifact archive during a CLI download; a browser download may require opening
+that outer ZIP first.
 
 Verify and expand the resulting app archive before launch:
 
@@ -521,9 +536,11 @@ test app; remove the extracted app when testing is complete.
 
 If an automated merge credential does not emit a follow-up push workflow,
 manually dispatch the CI workflow on `main` with task `packages`. The bounded
-recovery path checks out the latest `main` and rebuilds the macOS and Android
-test packages without running the heavy inspection. Manual task `inspection`
-remains the default.
+recovery path freezes the exact `main` commit carried by that dispatch and
+rebuilds the macOS and Android test packages without running the heavy
+inspection. Dispatching from another branch or tag fails before checkout; the
+job never substitutes a later `main`. Manual task `inspection` remains the
+default.
 
 ## Clean-account install and first launch
 
