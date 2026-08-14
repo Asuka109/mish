@@ -194,6 +194,7 @@ fn invalidate_source_state(inner: &SourceInner, reason: RuntimeObservationPauseR
             };
         }
         RuntimeObservationPauseReason::CoreUnavailable
+        | RuntimeObservationPauseReason::LifecycleGap
         | RuntimeObservationPauseReason::NetworkChanged => {
             state.diagnostics.clear();
             state.diagnostics.insert(
@@ -204,6 +205,9 @@ fn invalidate_source_state(inner: &SourceInner, reason: RuntimeObservationPauseR
                     }
                     RuntimeObservationPauseReason::NetworkChanged => {
                         "Mihomo Controller authority was invalidated after the network changed"
+                    }
+                    RuntimeObservationPauseReason::LifecycleGap => {
+                        "Mihomo Controller authority was invalidated after a platform lifecycle gap"
                     }
                     RuntimeObservationPauseReason::Sleep => unreachable!(),
                 }
@@ -559,7 +563,8 @@ impl ControllerStatusSource {
             RuntimeObservationPauseReason::CoreUnavailable => {
                 TrafficSourceInput::End(TrafficSourceEndReason::CoreExited)
             }
-            RuntimeObservationPauseReason::NetworkChanged => {
+            RuntimeObservationPauseReason::LifecycleGap
+            | RuntimeObservationPauseReason::NetworkChanged => {
                 TrafficSourceInput::End(TrafficSourceEndReason::NetworkChanged)
             }
         };

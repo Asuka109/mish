@@ -46,7 +46,8 @@ pub use core_ownership::{
     ManagedRuntimeLease, RealManagedProcessPlatform,
 };
 pub use lifecycle::{
-    DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
+    DesktopLifecycleCoordinator, LifecycleAuthoritySnapshot, LifecycleAuthorityState,
+    LifecycleCoordinationError, LifecycleEventDisposition, LifecycleRecoveryState,
 };
 pub use local_backup::{
     LOCAL_BACKUP_FORMAT_VERSION, LOCAL_BACKUP_MAX_BYTES, LocalBackupError,
