@@ -36,6 +36,7 @@ struct FakeHelperPlatform {
     lifecycle_calls: Mutex<Vec<TunHelperLifecycleOperation>>,
     lifecycle_failure: Mutex<Option<TunHelperFailureKind>>,
     observation: Mutex<TunHelperObservation>,
+    helper_observation_failure: Mutex<Option<TunHelperFailureKind>>,
     tun_enabled: Mutex<bool>,
     tun_failure: Mutex<Option<TunHelperFailureKind>>,
     tun_observation_failure: Mutex<Option<TunHelperFailureKind>>,
@@ -48,6 +49,7 @@ impl FakeHelperPlatform {
             lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::not_installed()),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -60,6 +62,7 @@ impl FakeHelperPlatform {
             lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy("0")),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -78,6 +81,7 @@ impl FakeHelperPlatform {
                 installed_version: None,
                 last_failure: Some(TunHelperFailureKind::IdentityRejected),
             }),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -93,6 +97,7 @@ impl FakeHelperPlatform {
             // MISH_TUN_SERVICE_ALLOW_TUN=0 policy. A policy-semantic migration must
             // force repair before Capture can try to start a TUN Core.
             observation: Mutex::new(TunHelperObservation::healthy("3")),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -107,6 +112,7 @@ impl FakeHelperPlatform {
             // Helper v4 rejected Enable before a newly started Core had a bounded
             // opportunity to publish its owned utun and route observations.
             observation: Mutex::new(TunHelperObservation::healthy("4")),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -119,6 +125,7 @@ impl FakeHelperPlatform {
             lifecycle_calls: Mutex::new(Vec::new()),
             lifecycle_failure: Mutex::new(None),
             observation: Mutex::new(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -137,6 +144,7 @@ impl FakeHelperPlatform {
                 installed_version: None,
                 last_failure: Some(TunHelperFailureKind::ConnectionFailed),
             }),
+            helper_observation_failure: Mutex::new(None),
             tun_enabled: Mutex::new(false),
             tun_failure: Mutex::new(None),
             tun_observation_failure: Mutex::new(None),
@@ -145,6 +153,10 @@ impl FakeHelperPlatform {
 
     fn fail_next_lifecycle(&self, failure: TunHelperFailureKind) {
         *self.lifecycle_failure.lock().unwrap() = Some(failure);
+    }
+
+    fn fail_next_helper_observation(&self, failure: TunHelperFailureKind) {
+        *self.helper_observation_failure.lock().unwrap() = Some(failure);
     }
 
     fn fail_next_tun_mutation(&self, failure: TunHelperFailureKind) {
@@ -182,6 +194,14 @@ impl TunHelperPlatform for FakeHelperPlatform {
     }
 
     fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        if let Some(failure) = self.helper_observation_failure.lock().unwrap().take() {
+            return Box::pin(async move {
+                Err(TunHelperError::new(
+                    failure,
+                    "Synthetic Helper observation failure",
+                ))
+            });
+        }
         let observation = self.observation.lock().unwrap().clone();
         Box::pin(async move { Ok(observation) })
     }
@@ -280,6 +300,24 @@ async fn healthy_reinstall_hands_off_active_tun_before_confirming_completion() {
 
     assert!(snapshot.is_healthy());
     assert!(!*platform.tun_enabled.lock().unwrap());
+}
+
+#[tokio::test]
+async fn cached_healthy_observation_failure_aborts_before_boundary_effects() {
+    let platform = Arc::new(FakeHelperPlatform::healthy());
+    platform.fail_next_helper_observation(TunHelperFailureKind::ConnectionFailed);
+    platform.fail_next_tun_mutation(TunHelperFailureKind::OperationFailed);
+    let helper = TunHelperController::new(platform.clone());
+
+    let error = helper.repair().await.unwrap_err();
+
+    assert_eq!(error.kind, TunHelperFailureKind::ConnectionFailed);
+    assert!(platform.lifecycle_calls().is_empty());
+    assert_eq!(
+        *platform.tun_failure.lock().unwrap(),
+        Some(TunHelperFailureKind::OperationFailed),
+        "failed admission must not consume the TUN boundary"
+    );
 }
 
 #[tokio::test]

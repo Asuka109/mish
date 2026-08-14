@@ -168,6 +168,58 @@ test("promotes successful reset and rotation private and public records together
   );
 });
 
+test("keeps a pending key repairable when its service socket disappears", async () => {
+  using fixture = mkdtempDisposableSync(path.join(tmpdir(), "mish-tun-missing-socket-"));
+  const uid = process.getuid!();
+  const records = {
+    activeClientKey: path.join(fixture.path, "client.json"),
+    activeEnrollment: path.join(fixture.path, "enrollment.json"),
+    pendingClientKey: path.join(fixture.path, "client.pending.json"),
+    pendingEnrollment: path.join(fixture.path, "enrollment.pending.json"),
+  };
+  const pending = await ensureInstallationClientKey(records.pendingClientKey, uid);
+  writeFileSync(
+    records.pendingEnrollment,
+    `${JSON.stringify({
+      algorithm: "p256-sha256",
+      helperInstallationId: "c".repeat(64),
+      installingUid: uid,
+      keyId: pending.keyId,
+      publicKeySpki: pending.publicKeySpki,
+      schemaVersion: 1,
+    })}\n`,
+    { mode: 0o600 },
+  );
+  chmodSync(records.pendingEnrollment, 0o600);
+
+  const discovery = await finalizePendingKeyIfEnrolled(
+    path.join(fixture.path, "missing.sock"),
+    uid,
+    undefined,
+    records,
+  );
+
+  assert.equal(discovery, undefined);
+  assert.equal(existsSync(records.pendingClientKey), true);
+  assert.equal(existsSync(records.pendingEnrollment), true);
+  assert.equal(existsSync(records.activeClientKey), false);
+  assert.equal(existsSync(records.activeEnrollment), false);
+  const selected = selectObservedClientIdentity(undefined, pending);
+  assert.deepEqual(selected, { clientIdentity: "missing" });
+  const classification = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: selected.clientIdentity,
+    discovery: "missing",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.deepEqual(classification, {
+    installation: "repair-required",
+    reason: "missing-client-key",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", classification), "reset-key");
+});
+
 test("accepts only the production user-owned development socket metadata contract", () => {
   const uid = 501;
   const productionSocket = {
