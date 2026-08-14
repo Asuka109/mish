@@ -88,11 +88,11 @@ Maintenance status classifies the complete development installation identity
 through one closed matrix shared by the CLI, macOS adapter, Runtime, bridge,
 and Web projection. A healthy service requires Mish-owned Helper/Core/plist
 artifacts, a valid client key, a matching enrollment candidate, the expected
-Helper/protocol versions, the matching installation identity, and a root-owned
-socket. Clean absence, unsupported platform/build, version mismatch, protocol
-mismatch, missing socket, safe partial Mish-owned identity, and foreign or
-ambiguous ownership remain distinct. A complete verified Mish-owned artifact
-set with missing or stale enrollment, client key, or socket is
+Helper/protocol versions, the matching installation identity, and a socket
+owned by the installing user. Clean absence, unsupported platform/build,
+version mismatch, protocol mismatch, missing socket, safe partial Mish-owned
+identity, and foreign or ambiguous ownership remain distinct. A complete
+verified Mish-owned artifact set with missing or stale enrollment, client key, or socket is
 `repair-required` and can enter only the existing serialized repair flow. An
 interrupted key rotation whose root-owned Helper already reports the valid
 pending client key is also `repair-required`; status remains read-only, and the
@@ -109,6 +109,11 @@ records, or client/enrollment key disagreement:
 Runtime refuses install/repair and Web gives manual ownership/reinstallation
 guidance without offering blind overwrite. Generic unavailable copy is
 reserved for genuine platform or build absence.
+
+Immediately before preparing Repair, the CLI reobserves the complete identity
+without effects. If that fresh observation has drifted to clean absence,
+foreign ownership, ambiguous artifacts, or any other `recovery-required`
+classification, Repair fails before preparation or administrator authorization.
 
 This status path is observation-only. It may inspect fixed path metadata and
 bounded contents, issue `launchctl print`, and perform authenticated discovery;

@@ -662,8 +662,18 @@ export function selectDevelopmentTunLifecycleAction(
   requestedAction: typeof action,
   classification: DevelopmentTunInstallationClassification,
 ) {
-  return requestedAction === "repair" &&
-    classification.installation === "repair-required" &&
+  if (requestedAction !== "repair") return requestedAction;
+  if (
+    classification.installation === "recovery-required" ||
+    classification.installation === "not-installed"
+  ) {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "repair-admission",
+      "repair-identity-not-admitted",
+    );
+  }
+  return classification.installation === "repair-required" &&
     classification.reason === "missing-client-key"
     ? ("reset-key" as const)
     : requestedAction;

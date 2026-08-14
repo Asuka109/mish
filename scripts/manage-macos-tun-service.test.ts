@@ -232,6 +232,14 @@ test("routes a lost client key through the existing serialized reset-key repair"
     }),
     "install",
   );
+  assert.throws(
+    () =>
+      selectDevelopmentTunLifecycleAction("repair", {
+        installation: "recovery-required",
+        reason: "ambiguous-artifacts",
+      }),
+    /repair-identity-not-admitted/u,
+  );
 });
 
 test("status never traverses the root-only enrollment directory", () => {
