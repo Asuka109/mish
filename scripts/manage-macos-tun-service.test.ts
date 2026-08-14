@@ -19,10 +19,12 @@ import {
   buildRotationRequest,
   canonicalRotationTranscript,
   classifyDevelopmentTunInstallation,
+  classifyDevelopmentTunSocketArtifacts,
   ensureInstallationClientKey,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
   safeDevelopmentTunSocketMetadata,
+  selectDevelopmentTunLifecycleAction,
   selectObservedClientIdentity,
 } from "./manage-macos-tun-service.ts";
 
@@ -134,6 +136,50 @@ test("accepts only the production user-owned development socket metadata contrac
   );
 });
 
+test("fails closed when the reserved socket survives clean artifact removal", () => {
+  assert.equal(classifyDevelopmentTunSocketArtifacts("absent", "absent"), "absent");
+  const orphanedSocketArtifacts = classifyDevelopmentTunSocketArtifacts("absent", "safe");
+  assert.equal(orphanedSocketArtifacts, "ambiguous");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("absent", "unsafe"), "ambiguous");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("mish-owned", "safe"), "mish-owned");
+  assert.equal(classifyDevelopmentTunSocketArtifacts("mish-owned", "unsafe"), "ambiguous");
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: orphanedSocketArtifacts,
+      clientIdentity: "missing",
+      discovery: "missing",
+      enrollmentIdentity: "missing",
+      service: "not-running",
+    }),
+    { installation: "recovery-required", reason: "ambiguous-artifacts" },
+  );
+});
+
+test("routes a lost client key through the existing serialized reset-key repair", () => {
+  const missingClientKey = classifyDevelopmentTunInstallation({
+    artifacts: "mish-owned",
+    clientIdentity: "missing",
+    discovery: "missing",
+    enrollmentIdentity: "missing",
+    service: "running",
+  });
+  assert.equal(selectDevelopmentTunLifecycleAction("repair", missingClientKey), "reset-key");
+  assert.equal(
+    selectDevelopmentTunLifecycleAction("repair", {
+      installation: "repair-required",
+      reason: "missing-enrollment",
+    }),
+    "repair",
+  );
+  assert.equal(
+    selectDevelopmentTunLifecycleAction("install", {
+      installation: "repair-required",
+      reason: "missing-client-key",
+    }),
+    "install",
+  );
+});
+
 test("status never traverses the root-only enrollment directory", () => {
   const source = readFileSync(new URL("./manage-macos-tun-service.ts", import.meta.url), "utf8");
   const observation = source.slice(
@@ -142,7 +188,8 @@ test("status never traverses the root-only enrollment directory", () => {
   );
   assert.doesNotMatch(observation, /lstat\(enrollmentTarget\)/u);
   assert.ok(
-    observation.indexOf("classifyObservedEnrollment(") < observation.indexOf("lstat(socketPath)"),
+    observation.indexOf("classifyObservedEnrollment(") <
+      observation.lastIndexOf("observeDevelopmentTunSocket(socketPath"),
     "the user-owned enrollment candidate must preserve missing-socket classification",
   );
 });

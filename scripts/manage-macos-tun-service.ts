@@ -291,6 +291,29 @@ export function safeDevelopmentTunSocketMetadata(
   );
 }
 
+type DevelopmentTunSocketObservation = "absent" | "safe" | "unsafe";
+
+export function classifyDevelopmentTunSocketArtifacts(
+  artifacts: DevelopmentTunInstallationObservation["artifacts"],
+  socket: DevelopmentTunSocketObservation,
+) {
+  if (artifacts === "absent") return socket === "absent" ? "absent" : "ambiguous";
+  if (artifacts === "mish-owned" && socket === "unsafe") return "ambiguous";
+  return artifacts;
+}
+
+async function observeDevelopmentTunSocket(
+  socketPath: string,
+  uid: number,
+): Promise<DevelopmentTunSocketObservation> {
+  try {
+    const socket = await lstat(socketPath);
+    return safeDevelopmentTunSocketMetadata(socket, uid) ? "safe" : "unsafe";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unsafe";
+  }
+}
+
 async function observeInstalledArtifacts(uid: number) {
   const targets = [
     { file: helperTarget, mode: 0o555 },
@@ -481,6 +504,14 @@ async function observeDevelopmentTunInstallation(
     enrollmentIdentity: "missing",
     service: serviceRunning ? "running" : "not-running",
   };
+  const socketPath = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
+  if (artifacts.artifacts === "absent") {
+    observation.artifacts = classifyDevelopmentTunSocketArtifacts(
+      artifacts.artifacts,
+      await observeDevelopmentTunSocket(socketPath, uid),
+    );
+    return { observation };
+  }
   if (artifacts.artifacts !== "mish-owned" || "clientIdentity" in client) {
     return { observation };
   }
@@ -492,15 +523,9 @@ async function observeDevelopmentTunInstallation(
       artifacts.installationId,
     );
   }
-  const socketPath = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
-  try {
-    const socket = await lstat(socketPath);
-    if (!safeDevelopmentTunSocketMetadata(socket, uid)) {
-      observation.artifacts = "ambiguous";
-      return { observation };
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") observation.artifacts = "ambiguous";
+  const socket = await observeDevelopmentTunSocket(socketPath, uid);
+  observation.artifacts = classifyDevelopmentTunSocketArtifacts(artifacts.artifacts, socket);
+  if (socket !== "safe") {
     return { observation };
   }
   try {
@@ -632,6 +657,17 @@ const invocation = import.meta.main
       tartTunAcceptance: false,
     } as const);
 const action = invocation.action;
+
+export function selectDevelopmentTunLifecycleAction(
+  requestedAction: typeof action,
+  classification: DevelopmentTunInstallationClassification,
+) {
+  return requestedAction === "repair" &&
+    classification.installation === "repair-required" &&
+    classification.reason === "missing-client-key"
+    ? ("reset-key" as const)
+    : requestedAction;
+}
 
 function installerEnvironment(environment: ToolchainEnvironment): ToolchainEnvironment {
   const allowed = ["HOME", "PATH", "CARGO_HOME", "RUSTUP_HOME", "TMPDIR"] as const;
@@ -1599,10 +1635,22 @@ async function main() {
   }
 
   await finalizePendingKeyIfEnrolled(`/var/run/com.asuka109.mish.tun-helper.${uid}.sock`, uid);
+  let lifecycleAction = action;
+  if (action === "repair") {
+    const serviceStatus = run("/bin/launchctl", ["print", `system/${label}`], {
+      allowFailure: true,
+      timeoutMilliseconds: 1_500,
+    });
+    const observed = await observeDevelopmentTunInstallation(uid, serviceStatus.length > 0);
+    lifecycleAction = selectDevelopmentTunLifecycleAction(
+      action,
+      classifyDevelopmentTunInstallation(observed.observation),
+    );
+  }
   const prepared = await prepare(
     uid,
     invocation.developmentTun || invocation.tartTunAcceptance,
-    action,
+    lifecycleAction,
   );
   if (action === "prepare") {
     await report({ ok: true, stage: "prepared" });
@@ -1615,7 +1663,7 @@ async function main() {
     `MISH_TUN_SERVICE_ENROLLMENT_RECORD=${enrollmentTarget}`,
   ];
   const enrollmentCommands =
-    action === "reset-key"
+    lifecycleAction === "reset-key"
       ? [
           authorizedCommand("/usr/bin/env", [
             ...enrollmentEnvironment,
@@ -1632,7 +1680,7 @@ async function main() {
             prepared.activeEnrollment!,
             ...(prepared.pendingEnrollment ? [prepared.pendingEnrollment] : []),
           ]),
-          ...(action === "rotate-key"
+          ...(lifecycleAction === "rotate-key"
             ? [
                 authorizedCommand("/usr/bin/env", [
                   ...enrollmentEnvironment,

@@ -97,7 +97,11 @@ set with missing or stale enrollment, client key, or socket is
 interrupted key rotation whose root-owned Helper already reports the valid
 pending client key is also `repair-required`; status remains read-only, and the
 explicit serialized repair promotes that key before preparing any privileged
-work. A pending key that does not exactly match discovery stays fail-closed. An
+work. If the complete Mish-owned installation has lost its active client key,
+that same repair operation first reobserves the exact identity and then uses
+the existing administrator-authorized lost-key reset transaction internally;
+it never attempts enrollment with a newly generated key or blindly overwrites
+the root record. A pending key that does not exactly match discovery stays fail-closed. An
 incomplete artifact set cannot prove Mish ownership and is therefore
 `recovery-required`, alongside foreign artifacts, ambiguous ownership, invalid
 records, or client/enrollment key disagreement:
@@ -121,7 +125,9 @@ without claiming that privileged discovery succeeded.
 Socket admission follows the production Helper contract: after binding as
 root, the Helper sets mode 0600 and transfers the socket to the enrolled user.
 Status requires that exact user owner, socket type, mode, and single-link
-metadata before discovery.
+metadata before discovery. It checks the fixed reserved socket path even when
+all installed files are absent; a surviving socket is ambiguous ownership and
+remains `recovery-required`, so a later installation cannot silently unlink it.
 
 This plaintext private key is an explicitly weak internal-testing boundary.
 It prevents an unrelated same-user process that cannot read the file from
