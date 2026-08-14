@@ -45,17 +45,17 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-#[cfg(target_os = "macos")]
-use mish_runtime::PlatformLifecycleEventKind;
 use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureFailureKind, CaptureJournal,
     CaptureJournalStore, CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint,
     ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent,
     PlatformLifecycleEventSource, PlatformSleepObservation, PlatformSleepObservationError,
-    PlatformSleepState, SystemProxyObservationStage, TunHelperAvailability, TunHelperError,
-    TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation,
-    TunHelperPlatform, TunHelperSnapshot,
+    SystemProxyObservationStage, TunHelperAvailability, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot,
 };
+#[cfg(target_os = "macos")]
+use mish_runtime::{PlatformLifecycleEventKind, PlatformSleepState};
 use mish_settings::{
     DnsObservation, NetworkDnsFailureKind, NetworkDnsObservation, NetworkDnsObservationError,
     NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
