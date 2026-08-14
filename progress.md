@@ -69,21 +69,19 @@ through PR #506 / `2e53602b`. Wave 2M is fully integrated: #510 removed the
 ordinary System Proxy privileged exact-field restoration path through PR #511 /
 `f350d026` after explicit acceptance, repository/Tart evidence, and scoped
 Issue synchronization. The startup Profile-store repair `827d4a09` was its
-implementation baseline. Wave 2N #512 is now integrated through PR #514 /
-`7d8ffd65` after explicit acceptance; its focused 7 bridge, 5 desktop, and 17
-launcher-script checks passed again post-merge, and Issue #512 is closed
-completed. Eight repository concurrency slots are unreserved.
+implementation baseline. Waves 2N and 2O are now fully integrated. #512 landed
+through PR #514 / `7d8ffd65`; #515 landed through PR #516 / `00cb19f4` after
+the maintainer explicitly allowed it to integrate before #513; and #513 landed
+through PR #517 / `c4640796`. All three Issues are closed completed. Coordinator
+post-merge checks passed for Oxlint policy/fixtures, development TUN maintenance
+25, Runtime lifecycle 21, and macOS platform TUN 79. Ten repository concurrency
+slots are unreserved.
 
-Wave 2N #512 is integrated. #513 remains active and owns development TUN
-installation-identity classification and truthful CLI/Runtime/UI recovery
-projection. It must ordinary-merge the integrated #512 target before final
-verification across their shared desktop startup and production-exclusion
-surfaces.
+Wave 2N is fully integrated. #513 ordinary-merged the #512 and #515 targets,
+resolved only scoped overlap, and passed final local and required remote gates.
 
-Wave 2O reserves #515 for one isolated Worker. It may implement in parallel
-with Wave 2N, but must ordinary-merge the latest target before final
-verification because `package.json`, `check:pr`, and any mechanically corrected
-TypeScript files may overlap. Integration order is Wave 2N, then #515.
+Wave 2O is fully integrated. Its advisory-warning follow-up remains tracked in
+#518 and root npm-script command-surface governance remains tracked in #519.
 
 ## Wave 1 worker ledger
 
@@ -363,7 +361,7 @@ deployment, or merge before explicit acceptance.
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | #512 Window Trigger replacement lifetime | `019ffb8b-155f-7311-b305-51ff10fd31f8` | `2d60` | integrated | #355 integrated; current development trigger authority | Keep the current printed development Window Trigger capability valid until process/capability replacement while preserving request-ID replay rejection, loopback/Host/Origin checks, bounded history, one-window idempotency, and production exclusion | PR #514 merged as `7d8ffd65` after explicit acceptance; focused 7 bridge, 5 desktop, 17 launcher-script, full local, and required remote gates passed; Issue #512 CLOSED/COMPLETED; no real-host walkthrough claim |
-| #513 development TUN partial-install truthfulness | `019ffb8b-155f-7311-b305-5210f1b886bc` | `b5c2` | active | #435 H1.1 and development TUN authority integrated; preserve packaged Internal TUN policy | Make maintenance CLI and desktop Runtime classify the same complete installation identity; project safe partial state as repair-required and unsafe/foreign state as specific fail-closed recovery instead of version-unsupported | Active from `origin/main@2a0eb564`; no real repair/authorization/TUN/Core/network effect; do not change System Proxy or packaged signing/release policy; merge latest #512 before final verification if needed |
+| #513 development TUN partial-install truthfulness | `019ffb8b-155f-7311-b305-5210f1b886bc` | `b5c2` | integrated | #435 H1.1 and development TUN authority integrated; preserve packaged Internal TUN policy | Make maintenance CLI and desktop Runtime classify the same complete installation identity; project safe partial state as repair-required and unsafe/foreign state as specific fail-closed recovery instead of version-unsupported | PR #517 merged as `c4640796` after explicit acceptance; final full/local/required CI and coordinator maintenance 25, Runtime 21, platform 79 checks passed; Issue #513 CLOSED/COMPLETED; no real authorization/repair/TUN/Core/network claim |
 
 ## Wave 2O dispatch manifest
 
@@ -378,7 +376,7 @@ authorizes no product/native/system mutation.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| #515 high-signal Oxlint ruleset | `019ffba6-cce0-7430-8b82-0c81f635470c` | `3930` | active | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | Active from `origin/main@1e66874c`; do not add ESLint/Prettier or broad suppressions; avoid style duplication with Oxfmt; fix only small behavior-preserving findings; merge latest Wave 2N before final verification |
+| #515 high-signal Oxlint ruleset | `019ffba6-cce0-7430-8b82-0c81f635470c` | `3930` | integrated | Existing `oxlint@1.74.0` and `check:lint`; independent of Wave 2N implementation | Commit one canonical Oxlint configuration with scoped native React/TypeScript/import/Promise/Vitest/JSX-a11y/Node rules, narrow overrides, representative regression fixtures, and CI/config drift protection | PR #516 merged as `00cb19f4` after explicit acceptance and an explicit integration-order override; final full/local/required CI and coordinator policy/fixture checks passed; Issue #515 CLOSED/COMPLETED; advisory rollout continues in #518 |
 
 ## Wave 1 — approved for dispatch
 
