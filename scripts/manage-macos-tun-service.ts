@@ -1354,12 +1354,27 @@ async function waitForInstallationDiscovery(
   throw lastError;
 }
 
-async function finalizePendingKeyIfEnrolled(
+type PendingKeyPromotionRecords = {
+  activeClientKey: string;
+  activeEnrollment: string;
+  pendingClientKey: string;
+  pendingEnrollment: string;
+};
+
+const pendingKeyPromotionRecords: PendingKeyPromotionRecords = {
+  activeClientKey: clientKeyPath,
+  activeEnrollment: enrollmentCandidatePath,
+  pendingClientKey: pendingClientKeyPath,
+  pendingEnrollment: pendingEnrollmentCandidatePath,
+};
+
+export async function finalizePendingKeyIfEnrolled(
   socketPath: string,
   uid: number,
   knownDiscovery?: InstallationDiscovery,
+  records = pendingKeyPromotionRecords,
 ) {
-  const pending = await readOptionalClientKeyRecord(pendingClientKeyPath, uid);
+  const pending = await readOptionalClientKeyRecord(records.pendingClientKey, uid);
   if (!pending) return knownDiscovery;
   let discovery: InstallationDiscovery;
   if (knownDiscovery) {
@@ -1372,8 +1387,32 @@ async function finalizePendingKeyIfEnrolled(
     }
   }
   if (discovery.keyId !== pending.keyId) return discovery;
-  await writeAtomicPrivateJson(clientKeyPath, pending);
-  await unlink(pendingClientKeyPath);
+  let pendingEnrollment: InstallationPublicKeyCandidate;
+  try {
+    pendingEnrollment = await readEnrollmentCandidate(records.pendingEnrollment, uid);
+  } catch {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "installation-key",
+      "pending-enrollment-candidate-invalid",
+    );
+  }
+  if (
+    pendingEnrollment.installingUid !== uid ||
+    pendingEnrollment.keyId !== pending.keyId ||
+    pendingEnrollment.publicKeySpki !== pending.publicKeySpki ||
+    pendingEnrollment.helperInstallationId !== discovery.installationId
+  ) {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "installation-key",
+      "pending-enrollment-candidate-mismatch",
+    );
+  }
+  await writeAtomicPrivateJson(records.activeEnrollment, pendingEnrollment);
+  await writeAtomicPrivateJson(records.activeClientKey, pending);
+  await unlink(records.pendingClientKey);
+  await unlink(records.pendingEnrollment);
   return discovery;
 }
 

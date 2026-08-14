@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempDisposableSync,
   readFileSync,
@@ -21,6 +22,7 @@ import {
   classifyDevelopmentTunInstallation,
   classifyDevelopmentTunSocketArtifacts,
   ensureInstallationClientKey,
+  finalizePendingKeyIfEnrolled,
   parseDevelopmentServiceArguments,
   resolveStableCargo,
   safeDevelopmentTunSocketMetadata,
@@ -112,6 +114,58 @@ test("replays an interrupted committed key rotation as serialized repair, not fo
       installation: "recovery-required",
       reason: "client-enrollment-mismatch",
     },
+  );
+});
+
+test("promotes successful reset and rotation private and public records together", async () => {
+  using fixture = mkdtempDisposableSync(path.join(tmpdir(), "mish-tun-key-promotion-"));
+  const uid = process.getuid!();
+  const records = {
+    activeClientKey: path.join(fixture.path, "client.json"),
+    activeEnrollment: path.join(fixture.path, "enrollment.json"),
+    pendingClientKey: path.join(fixture.path, "client.pending.json"),
+    pendingEnrollment: path.join(fixture.path, "enrollment.pending.json"),
+  };
+  const pending = await ensureInstallationClientKey(records.pendingClientKey, uid);
+  const installationId = "c".repeat(64);
+  const candidate = {
+    algorithm: "p256-sha256",
+    helperInstallationId: installationId,
+    installingUid: uid,
+    keyId: pending.keyId,
+    publicKeySpki: pending.publicKeySpki,
+    schemaVersion: 1,
+  };
+  writeFileSync(records.pendingEnrollment, `${JSON.stringify(candidate)}\n`, { mode: 0o600 });
+  chmodSync(records.pendingEnrollment, 0o600);
+
+  await finalizePendingKeyIfEnrolled(
+    "/unused-by-known-discovery.sock",
+    uid,
+    {
+      algorithm: "p256-sha256",
+      generation: 2,
+      helperVersion: "6",
+      installationId,
+      keyId: pending.keyId,
+      protocolVersion: 3,
+    },
+    records,
+  );
+
+  assert.deepEqual(JSON.parse(readFileSync(records.activeClientKey, "utf8")), pending);
+  assert.deepEqual(JSON.parse(readFileSync(records.activeEnrollment, "utf8")), candidate);
+  assert.equal(existsSync(records.pendingClientKey), false);
+  assert.equal(existsSync(records.pendingEnrollment), false);
+  assert.deepEqual(
+    classifyDevelopmentTunInstallation({
+      artifacts: "mish-owned",
+      clientIdentity: "present",
+      discovery: "matching",
+      enrollmentIdentity: "matches-client",
+      service: "running",
+    }),
+    { installation: "installed", reason: "healthy" },
   );
 });
 

@@ -96,8 +96,9 @@ set with missing or stale enrollment, client key, or socket is
 `repair-required` and can enter only the existing serialized repair flow. An
 interrupted key rotation whose root-owned Helper already reports the valid
 pending client key is also `repair-required`; status remains read-only, and the
-explicit serialized repair promotes that key before preparing any privileged
-work. If the complete Mish-owned installation has lost its active client key,
+explicit serialized repair promotes both the exact pending private key and its
+matching bounded public candidate before preparing any privileged work. If the
+complete Mish-owned installation has lost its active client key,
 that same repair operation first reobserves the exact identity and then uses
 the existing administrator-authorized lost-key reset transaction internally;
 it never attempts enrollment with a newly generated key or blindly overwrites
