@@ -9,6 +9,7 @@ import {
   createQueryClient,
   createQueryEventSink,
   fetchOrpcQuery,
+  MAX_STREAM_CHUNKS,
 } from "../src/index.ts";
 import { createStatusFixture, createStreamFixture } from "./orpc-fixture.ts";
 
@@ -95,26 +96,40 @@ describe("official oRPC/TanStack Query adapter", () => {
     const fixture = createStreamFixture(async function* () {
       yield { id: 1 };
       yield { id: 2 };
+      yield { id: 3 };
+      yield { id: 4 };
     });
     const options = createOrpcStreamedOptions(fixture.utils, {
       input: { id: "events" },
-      queryFnOptions: { refetchMode: "append", maxChunks: 4 },
+      queryFnOptions: { refetchMode: "append", maxChunks: 2 },
     });
 
-    await expect(client.fetchQuery(options)).resolves.toEqual([{ id: 1 }, { id: 2 }]);
-    expect(client.getQueryData(options.queryKey)).toEqual([{ id: 1 }, { id: 2 }]);
+    await expect(client.fetchQuery(options)).resolves.toEqual([{ id: 3 }, { id: 4 }]);
+    expect(client.getQueryData(options.queryKey)).toEqual([{ id: 3 }, { id: 4 }]);
     client.clear();
   });
 
-  it("rejects an unbounded streamed-query retry override", () => {
+  it("requires a finite positive bounded streamed-query chunk limit", () => {
     const fixture = createStreamFixture(async function* () {
       yield { id: 1 };
     });
 
+    const create = (queryFnOptions: unknown) =>
+      createOrpcStreamedOptions(fixture.utils, {
+        input: { id: "events" },
+        queryFnOptions,
+      } as never);
+
+    expect(() => create(undefined)).toThrow(/maxChunks/);
+    expect(() => create({ maxChunks: 0 })).toThrow(/maxChunks/);
+    expect(() => create({ maxChunks: -1 })).toThrow(/maxChunks/);
+    expect(() => create({ maxChunks: Number.POSITIVE_INFINITY })).toThrow(/maxChunks/);
+    expect(() => create({ maxChunks: MAX_STREAM_CHUNKS + 1 })).toThrow(/maxChunks/);
     expect(() =>
       createOrpcStreamedOptions(fixture.utils, {
         input: { id: "events" },
         retry: true as never,
+        queryFnOptions: { maxChunks: 1 },
       }),
     ).toThrow(/streamed query retry/);
   });
@@ -187,11 +202,44 @@ describe("Event Iterator routing", () => {
       createActorEventSink(actor, (value) => ({ type: "event.received", value })),
     );
     await firstEvent;
-    await Promise.all([run.stop(), run.stop()]);
+    const firstStop = run.stop();
+    expect(run.stop()).toBe(firstStop);
+    await firstStop;
     await run.done;
 
     expect(received).toEqual([{ type: "event.received", value: 1 }]);
     expect(returnCount).toBe(1);
+  });
+
+  it("observes cleanup failure once and rejects a late iterator write", async () => {
+    const cleanupError = new Error("iterator cleanup failed");
+    let resolveNext!: (result: IteratorResult<number>) => void;
+    let writes = 0;
+    const iterator: AsyncIterable<number> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () =>
+            new Promise<IteratorResult<number>>((resolve) => {
+              resolveNext = resolve;
+            }),
+          async return() {
+            throw cleanupError;
+          },
+        };
+      },
+    };
+    const run = consumeEventIterator(
+      iterator,
+      createActorEventSink({ send: () => void (writes += 1) }, (value) => value),
+    );
+
+    const firstStop = run.stop();
+    expect(run.stop()).toBe(firstStop);
+    await expect(firstStop).rejects.toBe(cleanupError);
+    await expect(run.done).rejects.toBe(cleanupError);
+    resolveNext({ done: false, value: 99 });
+    await Promise.resolve();
+    expect(writes).toBe(0);
   });
 
   it("closes and detaches an iterator when a portable abort signal fires", async () => {
@@ -233,6 +281,42 @@ describe("Event Iterator routing", () => {
     await run.done;
     expect(returnCount).toBe(1);
     expect(removed).toBe(true);
+  });
+
+  it("settles abort cleanup failure without an unhandled rejection", async () => {
+    const cleanupError = new Error("abort cleanup failed");
+    let abortListener!: () => void;
+    let resolveNext!: (result: IteratorResult<number>) => void;
+    const iterator: AsyncIterable<number> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () =>
+            new Promise<IteratorResult<number>>((resolve) => {
+              resolveNext = resolve;
+            }),
+          async return() {
+            throw cleanupError;
+          },
+        };
+      },
+    };
+    const signal = {
+      aborted: false,
+      addEventListener: (_type: "abort", listener: () => void) => {
+        abortListener = listener;
+      },
+      removeEventListener: () => undefined,
+    };
+    const run = consumeEventIterator(
+      iterator,
+      createActorEventSink({ send: () => undefined }, (value) => value),
+      { signal },
+    );
+
+    abortListener();
+    await expect(run.done).rejects.toBe(cleanupError);
+    resolveNext({ done: false, value: 1 });
+    await Promise.resolve();
   });
 
   it("rejects a Store-like or remote snapshot sink", () => {

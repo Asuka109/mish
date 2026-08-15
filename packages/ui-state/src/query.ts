@@ -2,6 +2,7 @@ import { MutationObserver, QueryClient } from "@tanstack/query-core";
 import type { Client, ClientContext } from "@orpc/client";
 import { createProcedureUtils } from "@orpc/tanstack-query";
 import type {
+  experimental_SerializableStreamedQueryOptions,
   experimental_StreamedOptionsIn,
   MutationOptionsIn,
   QueryOptionsBase,
@@ -30,6 +31,8 @@ export type OrpcProcedureUtils<
 export const DEFAULT_QUERY_RETRY = 1 as const;
 export const DEFAULT_QUERY_RETRY_DELAY_MS = 250 as const;
 export const MAX_QUERY_RETRIES = 3 as const;
+/** Maximum retained chunks for an oRPC Event Iterator streamed query. */
+export const MAX_STREAM_CHUNKS = 256 as const;
 
 /** Retry counts admitted by the shared query boundary. */
 export type BoundedRetry = 0 | 1 | 2 | 3;
@@ -45,6 +48,17 @@ function assertBoundedRetry(value: unknown, label: string): void {
     value > MAX_QUERY_RETRIES
   ) {
     throw new RangeError(`${label} must be an integer in [0, ${MAX_QUERY_RETRIES}]`);
+  }
+}
+
+function assertStreamChunkLimit(value: unknown, label: string): void {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MAX_STREAM_CHUNKS
+  ) {
+    throw new RangeError(`${label} must be an integer in [1, ${MAX_STREAM_CHUNKS}]`);
   }
 }
 
@@ -71,9 +85,17 @@ type BoundedStreamedOptions<
   TSelectData,
 > = Omit<
   experimental_StreamedOptionsIn<TContext, TInput, TOutput, TError, TSelectData>,
-  "retry"
+  "retry" | "queryFnOptions"
 > & {
   readonly retry?: BoundedRetryOption;
+  readonly queryFnOptions: BoundedStreamedQueryFnOptions;
+};
+
+export type BoundedStreamedQueryFnOptions = Omit<
+  experimental_SerializableStreamedQueryOptions,
+  "maxChunks"
+> & {
+  readonly maxChunks: number;
 };
 
 type BoundedMutationOptions<
@@ -145,6 +167,12 @@ export function createOrpcStreamedOptions<TContext extends ClientContext, TInput
   options: BoundedStreamedOptions<TContext, TInput, TEvent[], TError, TEvent[]>,
 ) {
   assertBoundedRetry((options as { readonly retry?: unknown }).retry, "streamed query retry");
+  const queryFnOptions = (
+    options as {
+      readonly queryFnOptions?: { readonly maxChunks?: unknown };
+    }
+  ).queryFnOptions;
+  assertStreamChunkLimit(queryFnOptions?.maxChunks, "streamed query maxChunks");
   return utils.experimental_streamedOptions(
     options as experimental_StreamedOptionsIn<TContext, TInput, TEvent[], TError, TEvent[]>,
   );

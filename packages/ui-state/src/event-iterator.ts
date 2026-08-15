@@ -75,7 +75,8 @@ function assertSink<TEvent>(sink: EventSink<TEvent>): void {
  * Drain one Event Iterator into either the Query cache or an XState actor.
  * There is deliberately no Store/UI sink: remote events must not be copied
  * into a second state authority. Cleanup is idempotent and runs on normal
- * completion, explicit stop, abort, and iterator failure.
+ * completion, explicit stop, abort, and iterator failure; cleanup failures
+ * remain observable through the same `stop` and `done` promise.
  */
 export function consumeEventIterator<TEvent>(
   iterator: AsyncIterable<TEvent>,
@@ -86,29 +87,28 @@ export function consumeEventIterator<TEvent>(
   const asyncIterator = iterator[Symbol.asyncIterator]();
   let closed = false;
   let closePromise: Promise<void> | undefined;
+  let resolveCloseRequested!: () => void;
+  const closeRequested = new Promise<void>((resolve) => {
+    resolveCloseRequested = resolve;
+  });
 
   const onAbort = (): void => {
-    void close();
+    void close().catch(() => undefined);
   };
 
-  const close = async (): Promise<void> => {
+  const close = (): Promise<void> => {
     if (closePromise) return closePromise;
-    closePromise = (async () => {
-      closed = true;
-      options.signal?.removeEventListener?.("abort", onAbort);
-      try {
-        await asyncIterator.return?.();
-      } catch {
-        // The owner has already cancelled the source. The consuming promise
-        // remains deterministic even when a remote close acknowledgement is
-        // unavailable.
-      }
-    })();
+    closed = true;
+    options.signal?.removeEventListener?.("abort", onAbort);
+    resolveCloseRequested();
+    closePromise = Promise.resolve()
+      .then(() => asyncIterator.return?.())
+      .then(() => undefined);
     return closePromise;
   };
 
   if (options.signal?.aborted) {
-    void close();
+    void close().catch(() => undefined);
   } else {
     options.signal?.addEventListener?.("abort", onAbort, { once: true });
   }
@@ -122,11 +122,31 @@ export function consumeEventIterator<TEvent>(
   };
 
   const done = (async (): Promise<void> => {
+    const drainPromise = drain();
+    let drainError: unknown;
+    let drainFailed = false;
     try {
-      await drain();
-    } finally {
-      await close();
+      await Promise.race([drainPromise, closeRequested]);
+    } catch (error) {
+      drainFailed = true;
+      drainError = error;
     }
+
+    let closeError: unknown;
+    let closeFailed = false;
+    try {
+      await close();
+    } catch (error) {
+      closeFailed = true;
+      closeError = error;
+    }
+
+    // A pending `next()` cannot be force-resolved by every async iterator
+    // implementation. Observe its eventual rejection even after close wins
+    // the race so cancellation never creates an unhandled rejection.
+    void drainPromise.catch(() => undefined);
+    if (closeFailed) throw closeError;
+    if (drainFailed) throw drainError;
   })();
 
   return { done, stop: close };

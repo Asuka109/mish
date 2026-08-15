@@ -5,6 +5,7 @@ export {
   DEFAULT_QUERY_RETRY,
   DEFAULT_QUERY_RETRY_DELAY_MS,
   MAX_QUERY_RETRIES,
+  MAX_STREAM_CHUNKS,
   MishQueryProvider,
   createOrpcMutation,
   createOrpcProcedureUtils,
@@ -18,6 +19,7 @@ export {
 } from "./query.ts";
 export type {
   BoundedRetry,
+  BoundedStreamedQueryFnOptions,
   MishQueryClientOptions,
   OrpcMutation,
   OrpcProcedureUtils,
