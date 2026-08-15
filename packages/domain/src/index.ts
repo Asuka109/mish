@@ -52,6 +52,7 @@ export {
   DomainEffectError,
   DomainEffectProtocolError,
   SemanticTranscript,
+  SemanticTranscript as DomainTranscript,
   isCurrentCorrelation,
   isStaleOutput,
   parseSemanticTranscript,

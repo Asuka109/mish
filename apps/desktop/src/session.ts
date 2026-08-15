@@ -1,6 +1,6 @@
 import {
+  DomainTranscript,
   DomainEffectError,
-  SemanticTranscript,
   createDomainActor,
   type DomainActor,
   type DomainEffects,
@@ -245,7 +245,7 @@ export function reduceElectronSessionEvent(
 export interface ElectronSessionActorHandle {
   readonly actor: DomainActor<RpcSessionEvent, RpcSessionContext>;
   readonly authority: ElectronSessionAuthority;
-  readonly transcript: SemanticTranscript;
+  readonly transcript: DomainTranscript;
   readonly dispose: () => Promise<void>;
 }
 
@@ -253,7 +253,7 @@ export function createElectronSessionActor(options: {
   readonly api: ElectronHostApi;
   readonly queryClient: QueryClient;
 }): ElectronSessionActorHandle {
-  const transcript = new SemanticTranscript();
+  const transcript = new DomainTranscript();
   const authority = new RendererSessionAuthority(options.api);
   let actor: DomainActor<RpcSessionEvent, RpcSessionContext>;
   let stream: ReturnType<typeof consumeEventIterator> | undefined;

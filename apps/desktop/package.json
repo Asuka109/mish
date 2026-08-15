@@ -6,7 +6,13 @@
   "type": "module",
   "scripts": {
     "build": "vite build && vite build --config vite.preload.config.ts",
-    "dev": "vite --mode development",
+    "dev": "node --env-file=.env.development node_modules/vite/bin/vite.js --mode development",
+    "demo": "node --env-file=.env.development node_modules/vite/bin/vite.js --mode development",
+    "bundle:macos": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:internal-tun-alpha": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.pinned-core.conf.json pnpm build",
+    "bundle:macos:alpha-ad-hoc": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:production": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:signed-direct": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "fixture:build": "node --experimental-strip-types scripts/electron-fixture.ts --build"
