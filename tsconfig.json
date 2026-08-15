@@ -4,6 +4,7 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/mock-bridge" },
     { "path": "./packages/rpc-client" },
+    { "path": "./packages/state-machine" },
     { "path": "./packages/ui" },
     { "path": "./apps/web" }
   ]
