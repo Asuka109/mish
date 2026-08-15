@@ -1,5 +1,5 @@
 {
-  "name": "@mish/contracts",
+  "name": "@mish/orpc-client",
   "version": "0.1.0",
   "private": true,
   "license": "GPL-3.0-only",
@@ -11,13 +11,17 @@
     }
   },
   "scripts": {
+    "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@orpc/contract": "1.15.0",
-    "zod": "4.4.3"
+    "@mish/contracts": "workspace:*",
+    "@orpc/client": "1.15.0"
   },
   "devDependencies": {
-    "typescript": "7.0.2"
+    "@orpc/server": "1.15.0",
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }
