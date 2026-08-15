@@ -204,6 +204,9 @@ importers:
       '@react-native/gradle-plugin':
         specifier: 0.87.0
         version: 0.87.0
+      '@react-native/metro-babel-transformer':
+        specifier: 0.87.0
+        version: 0.87.0(@babel/core@7.29.7)
       '@react-native/metro-config':
         specifier: 0.87.0
         version: 0.87.0(@babel/core@7.29.7)
@@ -213,9 +216,6 @@ importers:
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
-      metro-babel-transformer:
-        specifier: 0.87.0
-        version: 0.87.0
       typescript:
         specifier: 7.0.2
         version: 7.0.2
