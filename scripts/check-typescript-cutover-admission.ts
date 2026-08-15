@@ -42,6 +42,7 @@ const requiredHeadings = [
   "## Evidence-to-conclusion traceability",
   "## Exact cumulative cutover worker packets",
   "### Root lock ownership and cumulative reconciliation",
+  "### CUT-03 Web importer boundary",
   "### Dependency waves and merge barrier",
   "## Admission checklist",
 ] as const;
@@ -102,6 +103,7 @@ const packetIds = [
   "CUT-06",
   "CUT-07",
 ] as const;
+const webImporterNames = ["@mish/ui-state", "@mish/orpc-client", "@mish/domain"] as const;
 
 export interface CutoverAdmissionInput {
   readonly document: string;
@@ -148,6 +150,19 @@ function defaultPocManifests(): Record<string, string> {
 
 function failIfMissing(errors: string[], source: string, value: string, description: string): void {
   if (!source.includes(value)) errors.push(`${description} is missing: ${value}`);
+}
+
+function failIfMissingNormalized(
+  errors: string[],
+  source: string,
+  value: string,
+  description: string,
+): void {
+  const normalizedSource = source.replace(/\s+/gu, " ");
+  const normalizedValue = value.replace(/\s+/gu, " ").trim();
+  if (!normalizedSource.includes(normalizedValue)) {
+    errors.push(`${description} is missing: ${value}`);
+  }
 }
 
 function escaped(value: string): string {
@@ -303,6 +318,37 @@ function checkPacketTable(errors: string[], document: string): void {
       errors.push(`cutover packet lock permission is missing: ${packetId}`);
     }
   }
+  const cut03 = rowsByPacket.get("CUT-03") ?? "";
+  for (const required of [
+    "the only additional production manifest `apps/web/package.json`",
+    "real Web production consumer",
+    "only production `dependencies` entries",
+    "workspace:*",
+    "pnpm-lock.yaml",
+  ]) {
+    failIfMissingNormalized(errors, cut03, required, "CUT-03 Web importer scope");
+  }
+  for (const name of webImporterNames) {
+    failIfMissing(errors, cut03, `\`${name}\``, "CUT-03 Web importer dependency");
+  }
+  const declaredWebImporterNames = [...cut03.matchAll(/`(@mish\/[^`]+)`/gu)].map(
+    (match) => match[1],
+  );
+  const unexpectedWebImporterNames = [
+    ...new Set(
+      declaredWebImporterNames.filter(
+        (name) => !webImporterNames.some((allowed) => allowed === name),
+      ),
+    ),
+  ];
+  if (unexpectedWebImporterNames.length > 0) {
+    errors.push(
+      `CUT-03 Web importer declares unauthorized dependencies: ${unexpectedWebImporterNames.join(", ")}`,
+    );
+  }
+  if (declaredWebImporterNames.length !== webImporterNames.length) {
+    errors.push("CUT-03 Web importer must declare exactly the three admitted dependencies");
+  }
   const cut06 = rowsByPacket.get("CUT-06") ?? "";
   for (const required of ["final root", "pnpm-lock.yaml", "CI cleanup"]) {
     failIfMissing(errors, cut06, required, "CUT-06 final lock ownership");
@@ -344,6 +390,41 @@ function checkPacketTable(errors: string[], document: string): void {
     "CI cleanup",
   ]) {
     failIfMissing(errors, lockOwnership, required, "root lock ownership policy");
+  }
+
+  const webBoundary = section(document, "### CUT-03 Web importer boundary");
+  for (const required of [
+    "only additional production manifest",
+    "real Web production consumer",
+    "only production `dependencies` entries",
+    "exact `workspace:*` specifier",
+    "No root `package.json`",
+    "root/apps Web tsconfig",
+    "`apps/web/tsconfig*.json`",
+    "`pnpm-workspace.yaml`",
+    "CI/scripts except `scripts/check-typescript-cutover-admission.ts`",
+    "any other app/package manifest is authorized",
+    "CUT-06 final root manifest/tsconfig/CI cleanup",
+    "later host packet ownership",
+    "existing cumulative root `pnpm-lock.yaml` permission remains unchanged",
+    "does not change exact library pins",
+    "Query/XState/Store responsibilities",
+    "dependency waves",
+    "one-shot merge barrier",
+    "direct `dev` merge prohibition",
+    "no release/deploy/real network/VPN/TUN/Core",
+    "host effect constraints",
+  ]) {
+    failIfMissingNormalized(errors, webBoundary, required, "CUT-03 Web importer boundary");
+  }
+  for (const forbiddenPositive of [
+    /(?<!No )root `package\.json`[^.\n]*(?:authorized|in scope|may be updated)/iu,
+    /(?<!or )apps\/web\/tsconfig[^.\n]*(?:authorized|in scope|may be updated)/iu,
+    /(?<!any )other app\/package manifest[^.\n]*(?:authorized|in scope|may be updated)/iu,
+  ]) {
+    if (forbiddenPositive.test(webBoundary)) {
+      errors.push(`forbidden CUT-03 Web importer scope is documented: ${forbiddenPositive}`);
+    }
   }
 }
 
