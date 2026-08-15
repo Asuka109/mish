@@ -17,11 +17,11 @@ maintain a second protocol, or send a request through more than one path.
 - bounded schema-versioned invocation/result transcripts that exclude tokens,
   request bodies, URLs, and raw wire messages.
 
-The fixture under `tests/support/orpc-peer.ts` uses the installed oRPC
-`ServerPeer` codec and peer implementation. Its WebSocket and MessagePort
-endpoints are deterministic in-memory channels; every response, event, abort,
-and cleanup is locally replayable without a real socket, Electron process, or
-network effect.
+The fixture under `tests/support/orpc-peer.ts` uses the P0-locked public
+`@orpc/server`, `@orpc/server/websocket`, and `@orpc/server/message-port`
+exports. Its WebSocket and MessagePort endpoints are deterministic in-memory
+channels; every response, event, abort, and cleanup is locally replayable
+without a real socket, Electron process, or network effect.
 
 ## Evidence boundary
 

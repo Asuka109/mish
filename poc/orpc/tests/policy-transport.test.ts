@@ -1,3 +1,6 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BoundedTranscript } from "../src/transcript.js";
@@ -54,6 +57,17 @@ class ManualScheduler implements DeadlineScheduler {
     this.#callbacks.clear();
     for (const callback of callbacks) callback();
   }
+}
+
+async function sourceFiles(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(root, entry.name);
+      return entry.isDirectory() ? sourceFiles(path) : entry.name.endsWith(".ts") ? [path] : [];
+    }),
+  );
+  return files.flat();
 }
 
 describe("oRPC policy and transport admission POC", () => {
@@ -183,7 +197,9 @@ describe("oRPC policy and transport admission POC", () => {
     }
     scheduler.fireAll();
     await expect(invocation).rejects.toMatchObject({ kind: "deadline-exceeded" });
-    await Promise.resolve();
+    for (let i = 0; i < 8 && fixture.metrics.abortCount === 0; i += 1) {
+      await Promise.resolve();
+    }
     expect(fixture.metrics.abortCount).toBeGreaterThan(0);
     expect(transcript.snapshot().at(-1)?.result).toBe("deadline-exceeded");
   });
@@ -253,5 +269,17 @@ describe("oRPC policy and transport admission POC", () => {
       logicalTime: 2,
     });
     expect(transcript.serialize()).not.toContain("request");
+  });
+
+  it("rejects package-manager private imports in the POC source and fixtures", async () => {
+    const paths = [
+      ...(await sourceFiles(join(process.cwd(), "src"))),
+      ...(await sourceFiles(join(process.cwd(), "tests"))),
+    ];
+    const source = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+    const privatePackagePath = ["node_modules", ".pnpm"].join("/");
+    const privateDistPath = ["", "dist", ""].join("/");
+    expect(source.join("\n")).not.toContain(privatePackagePath);
+    expect(source.join("\n")).not.toContain(privateDistPath);
   });
 });

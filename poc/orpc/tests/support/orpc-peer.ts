@@ -1,9 +1,7 @@
-import { ServerPeer } from "../../../node_modules/.pnpm/@orpc+standard-server-peer@1.15.0/node_modules/@orpc/standard-server-peer/dist/index.mjs";
-import type { EncodedMessage } from "../../../node_modules/.pnpm/@orpc+standard-server-peer@1.15.0/node_modules/@orpc/standard-server-peer/dist/index.mjs";
-import type {
-  StandardRequest,
-  StandardResponse,
-} from "../../../node_modules/.pnpm/@orpc+standard-server@1.15.0/node_modules/@orpc/standard-server/dist/index.mjs";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+import { ORPCError } from "@orpc/client";
 
 import type {
   EventValue,
@@ -11,7 +9,43 @@ import type {
   InvokeInput,
   InvokeOutput,
 } from "../../src/contract.js";
+import { orpcContract } from "../../src/contract.js";
 import type { MessagePortLike, WebSocketLike } from "../../src/transport.js";
+
+interface PublicWebSocketHandler {
+  upgrade(ws: WebSocketLike): void;
+}
+
+interface PublicMessagePortHandler {
+  upgrade(port: MessagePortLike): void;
+}
+
+interface PublicServerApi {
+  implement(contract: typeof orpcContract): any;
+}
+
+interface PublicWebSocketApi {
+  RPCHandler: new (router: unknown) => PublicWebSocketHandler;
+}
+
+interface PublicMessagePortApi {
+  RPCHandler: new (router: unknown) => PublicMessagePortHandler;
+}
+
+const resolveFromP0Electron = createRequire(import.meta.url).resolve;
+const p0ElectronRoot = fileURLToPath(new URL("../../../electron/", import.meta.url));
+
+function resolveP0PublicPackage(specifier: string): string {
+  return resolveFromP0Electron(specifier, { paths: [p0ElectronRoot] });
+}
+
+const serverApi = (await import(resolveP0PublicPackage("@orpc/server"))) as PublicServerApi;
+const websocketApi = (await import(
+  resolveP0PublicPackage("@orpc/server/websocket")
+)) as PublicWebSocketApi;
+const messagePortApi = (await import(
+  resolveP0PublicPackage("@orpc/server/message-port")
+)) as PublicMessagePortApi;
 
 type Listener = (event: unknown) => void;
 
@@ -56,51 +90,6 @@ interface MutableMetrics {
   receivedOperations: string[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function inputFromBody(body: unknown): unknown {
-  if (isRecord(body) && "json" in body) {
-    return body.json;
-  }
-  return body;
-}
-
-function response(body: unknown, status = 200): StandardResponse {
-  return {
-    status,
-    headers: {},
-    body: { json: body },
-  };
-}
-
-function unauthorizedResponse(): StandardResponse {
-  return response(
-    {
-      defined: true,
-      code: "UNAUTHORIZED",
-      status: 401,
-      message: "Unauthorized",
-      data: null,
-    },
-    401,
-  );
-}
-
-function versionMismatchResponse(): StandardResponse {
-  return response(
-    {
-      defined: true,
-      code: "CONFLICT",
-      status: 409,
-      message: "Protocol version mismatch",
-      data: null,
-    },
-    409,
-  );
-}
-
 function deferredUntilAbort(signal: AbortSignal | undefined, onAbort: () => void): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) {
@@ -121,11 +110,11 @@ function deferredUntilAbort(signal: AbortSignal | undefined, onAbort: () => void
 
 class FixtureWebSocket implements WebSocketLike {
   readonly #listeners = new Map<string, Set<Listener>>();
-  readonly #sendToServer: (data: unknown) => void;
+  #peer: FixtureWebSocket | undefined;
   #readyState = 1;
 
-  constructor(sendToServer: (data: unknown) => void) {
-    this.#sendToServer = sendToServer;
+  connect(peer: FixtureWebSocket): void {
+    this.#peer = peer;
   }
 
   get readyState(): number {
@@ -147,18 +136,20 @@ class FixtureWebSocket implements WebSocketLike {
 
   send(data: unknown): void {
     if (this.#readyState !== 1) throw new Error("fixture websocket is closed");
-    this.#sendToServer(data);
+    if (this.#peer) this.#peer.#emit("message", { data });
   }
 
   close(): void {
     if (this.#readyState === 3) return;
     this.#readyState = 3;
     this.#emit("close", {});
+    if (this.#peer) this.#peer.#closeFromPeer();
   }
 
-  deliver(data: EncodedMessage): void {
-    if (this.#readyState !== 1) return;
-    this.#emit("message", { data });
+  #closeFromPeer(): void {
+    if (this.#readyState === 3) return;
+    this.#readyState = 3;
+    this.#emit("close", {});
   }
 
   #emit(type: string, event: unknown): void {
@@ -168,11 +159,11 @@ class FixtureWebSocket implements WebSocketLike {
 
 class FixtureMessagePort implements MessagePortLike {
   readonly #listeners = new Map<string, Set<Listener>>();
-  readonly #postToServer: (data: unknown) => void;
+  #peer: FixtureMessagePort | undefined;
   #closed = false;
 
-  constructor(postToServer: (data: unknown) => void) {
-    this.#postToServer = postToServer;
+  connect(peer: FixtureMessagePort): void {
+    this.#peer = peer;
   }
 
   addEventListener(type: string, listener: Listener): void {
@@ -190,18 +181,20 @@ class FixtureMessagePort implements MessagePortLike {
 
   postMessage(data: unknown): void {
     if (this.#closed) throw new Error("fixture message port is closed");
-    this.#postToServer(data);
+    if (this.#peer) this.#peer.#emit("message", { data });
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
     this.#emit("close", {});
+    if (this.#peer) this.#peer.#closeFromPeer();
   }
 
-  deliver(data: EncodedMessage): void {
+  #closeFromPeer(): void {
     if (this.#closed) return;
-    this.#emit("message", { data });
+    this.#closed = true;
+    this.#emit("close", {});
   }
 
   #emit(type: string, event: unknown): void {
@@ -236,44 +229,41 @@ function invokeOutput(input: InvokeInput, options: OrpcFixtureOptions): InvokeOu
   };
 }
 
-export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture {
+function createServerRouter(
+  options: OrpcFixtureOptions,
+  mutable: MutableMetrics,
+  pendingInvocations: Array<() => void>,
+): unknown {
   const expectedAuthToken = options.authToken ?? "fixture-token";
   const protocolVersion = options.protocolVersion ?? 1;
   const sessionGeneration = options.sessionGeneration ?? 1;
   const maxMessageBytes = options.maxMessageBytes ?? 4096;
-  const mutable: MutableMetrics = {
-    abortCount: 0,
-    activeStreams: 0,
-    cleanupCount: 0,
-    receivedOperations: [],
-  };
-  const pendingInvocations: Array<() => void> = [];
+  const implementation = serverApi.implement(orpcContract);
 
-  let websocket: FixtureWebSocket;
-  let messagePort: FixtureMessagePort;
-
-  const handleRequest = async (request: StandardRequest): Promise<StandardResponse> => {
-    const input = inputFromBody(request.body);
-    if (!isRecord(input))
-      return response(
-        { defined: true, code: "BAD_REQUEST", status: 400, message: "Bad Request", data: null },
-        400,
-      );
-    const operation = request.url.pathname;
-    mutable.receivedOperations.push(operation);
-
-    if (operation === "/session/handshake") {
-      if (input.authToken !== expectedAuthToken) return unauthorizedResponse();
-      if (input.protocolVersion !== protocolVersion) return versionMismatchResponse();
-      return response({ maxMessageBytes, protocolVersion, sessionGeneration });
-    }
-
-    if (operation === "/invoke") {
-      const invokeInput = input as unknown as InvokeInput;
+  return implementation.router({
+    session: {
+      handshake: implementation.session.handshake.handler(({ input }: any) => {
+        mutable.receivedOperations.push("/session/handshake");
+        if (input.authToken !== expectedAuthToken) {
+          throw new ORPCError("UNAUTHORIZED", { status: 401, data: null });
+        }
+        if (input.protocolVersion !== protocolVersion) {
+          throw new ORPCError("CONFLICT", { status: 409, data: null });
+        }
+        return { maxMessageBytes, protocolVersion, sessionGeneration };
+      }),
+    },
+    invoke: implementation.invoke.handler(async ({ input, signal }: any) => {
+      mutable.receivedOperations.push("/invoke");
+      const invokeInput = input as InvokeInput;
       if (options.deferInvocations) {
+        if (signal?.aborted) {
+          mutable.abortCount += 1;
+          throw new ORPCError("CLIENT_CLOSED_REQUEST", { status: 499, data: null });
+        }
         await new Promise<void>((resolve) => {
           pendingInvocations.push(resolve);
-          request.signal?.addEventListener(
+          signal?.addEventListener(
             "abort",
             () => {
               mutable.abortCount += 1;
@@ -283,78 +273,67 @@ export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture
           );
         });
       }
-      if (request.signal?.aborted) {
+      if (signal?.aborted) {
         mutable.abortCount += 1;
-        return response(
-          {
-            defined: true,
-            code: "CLIENT_CLOSED_REQUEST",
-            status: 499,
-            message: "Client Closed Request",
-            data: null,
-          },
-          499,
-        );
+        throw new ORPCError("CLIENT_CLOSED_REQUEST", { status: 499, data: null });
       }
-      return response(invokeOutput(invokeInput, options));
-    }
-
-    if (operation === "/events/watch") {
-      const eventInput = input;
-      const stream = async function* (): AsyncGenerator<unknown, unknown, undefined> {
+      return invokeOutput(invokeInput, options);
+    }),
+    events: {
+      watch: implementation.events.watch.handler(async function* ({ input, signal }: any) {
+        mutable.receivedOperations.push("/events/watch");
+        const eventInput = input as Record<string, unknown>;
         mutable.activeStreams += 1;
         try {
           if (options.holdEventsUntilAbort) {
-            await deferredUntilAbort(request.signal, () => {
+            await deferredUntilAbort(signal, () => {
               mutable.abortCount += 1;
             });
             return {
-              json: {
-                correlationId: String(eventInput.correlationId),
-                sessionGeneration: Number(eventInput.sessionGeneration),
-                value: "closed",
-              },
+              correlationId: String(eventInput.correlationId),
+              sessionGeneration: Number(eventInput.sessionGeneration),
+              value: "closed" as const,
             };
           }
           for (const event of eventValues(eventInput, options)) {
-            if (request.signal?.aborted) break;
-            yield { json: event };
+            if (signal?.aborted) break;
+            yield event;
           }
           return {
-            json: {
-              correlationId: options.eventReturn?.correlationId ?? String(eventInput.correlationId),
-              sessionGeneration:
-                options.eventReturn?.sessionGeneration ?? Number(eventInput.sessionGeneration),
-              value: "closed",
-            },
+            correlationId: options.eventReturn?.correlationId ?? String(eventInput.correlationId),
+            sessionGeneration:
+              options.eventReturn?.sessionGeneration ?? Number(eventInput.sessionGeneration),
+            value: "closed" as const,
           };
         } finally {
           mutable.activeStreams -= 1;
           mutable.cleanupCount += 1;
         }
-      };
-      return { status: 200, headers: {}, body: stream() };
-    }
+      }),
+    },
+  });
+}
 
-    return response(
-      { defined: true, code: "NOT_FOUND", status: 404, message: "Not Found", data: null },
-      404,
-    );
+export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture {
+  const mutable: MutableMetrics = {
+    abortCount: 0,
+    activeStreams: 0,
+    cleanupCount: 0,
+    receivedOperations: [],
   };
+  const pendingInvocations: Array<() => void> = [];
+  const clientWebSocket = new FixtureWebSocket();
+  const serverWebSocket = new FixtureWebSocket();
+  clientWebSocket.connect(serverWebSocket);
+  serverWebSocket.connect(clientWebSocket);
+  const clientMessagePort = new FixtureMessagePort();
+  const serverMessagePort = new FixtureMessagePort();
+  clientMessagePort.connect(serverMessagePort);
+  serverMessagePort.connect(clientMessagePort);
 
-  const serverPeer = new ServerPeer(async (message) => {
-    websocket.deliver(message);
-  });
-  websocket = new FixtureWebSocket((data) => {
-    void serverPeer.message(data as EncodedMessage, handleRequest);
-  });
-
-  const portServerPeer = new ServerPeer(async (message) => {
-    messagePort.deliver(message);
-  });
-  messagePort = new FixtureMessagePort((data) => {
-    void portServerPeer.message(data as EncodedMessage, handleRequest);
-  });
+  const serverRouter = createServerRouter(options, mutable, pendingInvocations);
+  new websocketApi.RPCHandler(serverRouter).upgrade(serverWebSocket);
+  new messagePortApi.RPCHandler(serverRouter).upgrade(serverMessagePort);
 
   const metrics: FixtureMetrics = {
     get abortCount() {
@@ -373,16 +352,14 @@ export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture
 
   return {
     metrics,
-    clientWebSocket: websocket,
-    clientMessagePort: messagePort,
+    clientWebSocket,
+    clientMessagePort,
     releaseInvocations() {
       for (const resolve of pendingInvocations.splice(0)) resolve();
     },
     close() {
-      websocket.close();
-      messagePort.close();
-      serverPeer.close();
-      portServerPeer.close();
+      clientWebSocket.close();
+      clientMessagePort.close();
     },
   };
 }
