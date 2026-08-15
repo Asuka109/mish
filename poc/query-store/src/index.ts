@@ -3,16 +3,13 @@ export type { Equality, Listener, MishReadable, MishStore, StateUpdater } from "
 
 export {
   createOrpcMutation,
+  createOrpcProcedureUtils,
   createOrpcQueryOptions,
+  createOrpcStreamedOptions,
   createQueryClient,
   fetchOrpcQuery,
 } from "./query.ts";
-export type {
-  OrpcMutation,
-  OrpcMutationOptions,
-  OrpcProcedure,
-  OrpcQueryOptions,
-} from "./query.ts";
+export type { OrpcMutation, OrpcProcedureUtils } from "./query.ts";
 
 export {
   consumeEventIterator,

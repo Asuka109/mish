@@ -4,82 +4,86 @@ import {
   consumeEventIterator,
   createActorEventSink,
   createOrpcMutation,
+  createOrpcQueryOptions,
+  createOrpcStreamedOptions,
   createQueryClient,
   createQueryEventSink,
   fetchOrpcQuery,
 } from "../src/index.ts";
+import { createStatusFixture, createStreamFixture } from "./orpc-fixture.ts";
 
-describe("oRPC Query/Mutation admission", () => {
+describe("official oRPC/TanStack Query admission", () => {
   it("caches fresh query results and refetches after invalidation", async () => {
     const client = createQueryClient();
     let calls = 0;
-    const procedure = async (input: { readonly id: string }) => {
+    const fixture = createStatusFixture(async (input) => {
       calls += 1;
       return { id: input.id, revision: calls };
-    };
+    });
+    const input = { id: "profile-a" };
+    const queryKey = fixture.utils.queryKey({ input });
     const options = {
-      queryKey: ["profile", "profile-a"] as const,
+      input,
       staleTime: 60_000,
       retry: false,
     };
 
-    await fetchOrpcQuery(client, procedure, { id: "profile-a" }, options);
-    await fetchOrpcQuery(client, procedure, { id: "profile-a" }, options);
+    const generated = createOrpcQueryOptions(fixture.utils, options);
+    expect(generated.queryKey).toEqual(queryKey);
+    await fetchOrpcQuery(client, fixture.utils, options);
+    await fetchOrpcQuery(client, fixture.utils, options);
     expect(calls).toBe(1);
-    expect(client.getQueryData(options.queryKey)).toEqual({
-      id: "profile-a",
-      revision: 1,
-    });
-    expect(client.getQueryState(options.queryKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryData(queryKey)).toEqual({ id: "profile-a", revision: 1 });
+    expect(client.getQueryState(queryKey)?.isInvalidated).toBe(false);
 
     await client.invalidateQueries({
-      queryKey: options.queryKey,
+      queryKey,
       exact: true,
       refetchType: "none",
     });
-    expect(client.getQueryState(options.queryKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true);
 
-    await fetchOrpcQuery(client, procedure, { id: "profile-a" }, options);
+    await fetchOrpcQuery(client, fixture.utils, options);
     expect(calls).toBe(2);
-    expect(client.getQueryData(options.queryKey)).toEqual({
-      id: "profile-a",
-      revision: 2,
-    });
+    expect(client.getQueryData(queryKey)).toEqual({ id: "profile-a", revision: 2 });
     client.clear();
   });
 
   it("retries a failed oRPC query according to the bounded policy", async () => {
     const client = createQueryClient();
     let calls = 0;
-    const procedure = async (): Promise<string> => {
+    const fixture = createStatusFixture(async (input) => {
       calls += 1;
       if (calls === 1) throw new Error("transient");
-      return "ready";
-    };
+      return { id: input.id, revision: calls };
+    });
 
     await expect(
-      fetchOrpcQuery(client, procedure, undefined, {
-        queryKey: ["runtime"],
+      fetchOrpcQuery(client, fixture.utils, {
+        input: { id: "runtime" },
         staleTime: 0,
         retry: 1,
         retryDelay: 0,
       }),
-    ).resolves.toBe("ready");
+    ).resolves.toEqual({ id: "runtime", revision: 2 });
     expect(calls).toBe(2);
     client.clear();
   });
 
-  it("invalidates Query cache after an oRPC mutation", async () => {
+  it("uses the official mutationOptions path and invalidates Query cache", async () => {
     const client = createQueryClient();
-    const queryKey = ["settings"] as const;
-    client.setQueryData(queryKey, { revision: 1 });
-    const mutation = createOrpcMutation(
-      client,
-      async (input: { readonly revision: number }) => input,
-      { invalidateKeys: [queryKey] },
-    );
+    const fixture = createStatusFixture(async (input) => ({ id: input.id, revision: 2 }));
+    const queryKey = fixture.utils.queryKey({ input: { id: "settings" } });
+    client.setQueryData(queryKey, { id: "settings", revision: 1 });
+    const mutation = createOrpcMutation(client, fixture.utils, {
+      retry: false,
+      invalidateKeys: [queryKey],
+    });
 
-    await expect(mutation.execute({ revision: 2 })).resolves.toEqual({ revision: 2 });
+    await expect(mutation.execute({ id: "settings" })).resolves.toEqual({
+      id: "settings",
+      revision: 2,
+    });
     expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true);
     expect(mutation.getState().status).toBe("success");
     client.clear();
@@ -88,18 +92,37 @@ describe("oRPC Query/Mutation admission", () => {
   it("retries a transient oRPC mutation failure within its bound", async () => {
     const client = createQueryClient();
     let attempts = 0;
-    const mutation = createOrpcMutation(
-      client,
-      async (input: { readonly value: string }) => {
-        attempts += 1;
-        if (attempts === 1) throw new Error("transient mutation");
-        return input.value;
-      },
-      { retry: 1, retryDelay: 0 },
-    );
+    const fixture = createStatusFixture(async (input) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("transient mutation");
+      return { id: input.id, revision: attempts };
+    });
+    const mutation = createOrpcMutation(client, fixture.utils, {
+      retry: 1,
+      retryDelay: 0,
+    });
 
-    await expect(mutation.execute({ value: "committed" })).resolves.toBe("committed");
+    await expect(mutation.execute({ id: "committed" })).resolves.toEqual({
+      id: "committed",
+      revision: 2,
+    });
     expect(attempts).toBe(2);
+    client.clear();
+  });
+
+  it("uses official streamedOptions to put Event Iterator chunks in Query cache", async () => {
+    const client = createQueryClient();
+    const fixture = createStreamFixture(async function* () {
+      yield { id: 1 };
+      yield { id: 2 };
+    });
+    const options = createOrpcStreamedOptions(fixture.utils, {
+      input: { id: "events" },
+      queryFnOptions: { refetchMode: "append", maxChunks: 4 },
+    });
+
+    await expect(client.fetchQuery(options)).resolves.toEqual([{ id: 1 }, { id: 2 }]);
+    expect(client.getQueryData(options.queryKey)).toEqual([{ id: 1 }, { id: 2 }]);
     client.clear();
   });
 });
@@ -222,7 +245,7 @@ describe("Event Iterator routing", () => {
     expect(removed).toBe(true);
   });
 
-  it("rejects an unadmitted store-like sink before consuming events", () => {
+  it("rejects an unadmitted store-like or remote snapshot sink", () => {
     const iterator: AsyncIterable<number> = {
       [Symbol.asyncIterator]() {
         return {

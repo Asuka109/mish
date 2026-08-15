@@ -1,21 +1,28 @@
 import { MutationObserver, QueryClient } from "@tanstack/query-core";
+import { createProcedureUtils } from "../../orpc/node_modules/@orpc/tanstack-query/dist/index.mjs";
+import type { Client, ClientContext } from "../../orpc/node_modules/@orpc/client/dist/index.mjs";
 import type {
-  FetchQueryOptions,
-  MutationKey,
-  MutationObserverOptions,
-  QueryKey,
-} from "@tanstack/query-core";
+  experimental_StreamedOptionsIn,
+  MutationOptionsIn,
+  QueryOptionsBase,
+  QueryOptionsIn,
+} from "../../orpc/node_modules/@orpc/tanstack-query/dist/index.mjs";
+import type { FetchQueryOptions, MutationObserverOptions, QueryKey } from "@tanstack/query-core";
+
+// P3 cannot add a manifest dependency. Resolve the published ESM/type exports
+// from the P1 workspace install that frozen P0 dependencies already provide.
 
 /**
- * A contract-first oRPC procedure. The transport and envelope stay in the
- * oRPC admission POC; this package only supplies the Query cache policy.
+ * The official oRPC 1.15.0 TanStack Query utility. It is intentionally kept
+ * as the public boundary: this POC does not recreate oRPC query keys,
+ * mutation functions, or Event Iterator handling.
  */
-export type OrpcProcedure<TInput, TOutput> = (input: TInput) => Promise<TOutput>;
-
-export type OrpcQueryOptions<TOutput, TError = Error> = Pick<
-  FetchQueryOptions<TOutput, TError, TOutput, QueryKey>,
-  "queryKey" | "retry" | "retryDelay" | "staleTime"
->;
+export type OrpcProcedureUtils<
+  TContext extends ClientContext,
+  TInput,
+  TOutput,
+  TError,
+> = ReturnType<typeof createProcedureUtils<TContext, TInput, TOutput, TError>>;
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -26,34 +33,46 @@ export function createQueryClient(): QueryClient {
   });
 }
 
-export function createOrpcQueryOptions<TInput, TOutput, TError = Error>(
-  procedure: OrpcProcedure<TInput, TOutput>,
-  input: TInput,
-  options: OrpcQueryOptions<TOutput, TError>,
-): FetchQueryOptions<TOutput, TError, TOutput, QueryKey> {
-  return {
-    queryKey: options.queryKey,
-    queryFn: () => procedure(input),
-    retry: options.retry,
-    retryDelay: options.retryDelay,
-    staleTime: options.staleTime,
-  };
+export function createOrpcProcedureUtils<TContext extends ClientContext, TInput, TOutput, TError>(
+  client: Client<TContext, TInput, TOutput, TError>,
+  path: readonly string[],
+): OrpcProcedureUtils<TContext, TInput, TOutput, TError> {
+  return createProcedureUtils(client, { path });
 }
 
-export function fetchOrpcQuery<TInput, TOutput, TError = Error>(
+export function createOrpcQueryOptions<
+  TContext extends ClientContext,
+  TInput,
+  TOutput,
+  TError,
+  TOptions extends QueryOptionsIn<TContext, TInput, TOutput, TError, TOutput>,
+>(
+  utils: OrpcProcedureUtils<TContext, TInput, TOutput, TError>,
+  options: TOptions,
+): TOptions & Omit<QueryOptionsBase<TOutput, TError>, keyof TOptions> {
+  return utils.queryOptions(options) as TOptions &
+    Omit<QueryOptionsBase<TOutput, TError>, keyof TOptions>;
+}
+
+export function fetchOrpcQuery<TContext extends ClientContext, TInput, TOutput, TError>(
   client: QueryClient,
-  procedure: OrpcProcedure<TInput, TOutput>,
-  input: TInput,
-  options: OrpcQueryOptions<TOutput, TError>,
+  utils: OrpcProcedureUtils<TContext, TInput, TOutput, TError>,
+  options: QueryOptionsIn<TContext, TInput, TOutput, TError, TOutput>,
 ): Promise<TOutput> {
-  return client.fetchQuery(createOrpcQueryOptions(procedure, input, options));
+  const generated = createOrpcQueryOptions(utils, options) as FetchQueryOptions<
+    TOutput,
+    TError,
+    TOutput,
+    QueryKey
+  >;
+  return client.fetchQuery(generated);
 }
 
-export interface OrpcMutationOptions<TError = Error> {
-  readonly mutationKey?: MutationKey;
-  readonly retry?: MutationObserverOptions<unknown, TError, unknown>["retry"];
-  readonly retryDelay?: MutationObserverOptions<unknown, TError, unknown>["retryDelay"];
-  readonly invalidateKeys?: readonly QueryKey[];
+export function createOrpcStreamedOptions<TContext extends ClientContext, TInput, TEvent, TError>(
+  utils: OrpcProcedureUtils<TContext, TInput, AsyncIterable<TEvent>, TError>,
+  options: experimental_StreamedOptionsIn<TContext, TInput, TEvent[], TError, TEvent[]>,
+) {
+  return utils.experimental_streamedOptions(options);
 }
 
 export interface OrpcMutation<TInput, TOutput, TError = Error> {
@@ -64,19 +83,21 @@ export interface OrpcMutation<TInput, TOutput, TError = Error> {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
-export function createOrpcMutation<TInput, TOutput, TError = Error>(
+export function createOrpcMutation<TContext extends ClientContext, TInput, TOutput, TError>(
   client: QueryClient,
-  procedure: OrpcProcedure<TInput, TOutput>,
-  options: OrpcMutationOptions<TError> = {},
+  utils: OrpcProcedureUtils<TContext, TInput, TOutput, TError>,
+  options: MutationOptionsIn<TContext, TInput, TOutput, TError, unknown> & {
+    readonly invalidateKeys?: readonly QueryKey[];
+  },
 ): OrpcMutation<TInput, TOutput, TError> {
+  const { invalidateKeys, ...officialOptions } = options;
+  const generated = utils.mutationOptions(officialOptions);
   const mutationOptions: MutationObserverOptions<TOutput, TError, TInput> = {
-    mutationKey: options.mutationKey,
-    mutationFn: (input) => procedure(input),
-    retry: options.retry,
-    retryDelay: options.retryDelay,
-    onSuccess: async () => {
+    ...generated,
+    onSuccess: async (data, input, onMutateResult, context) => {
+      await generated.onSuccess?.(data, input, onMutateResult, context);
       await Promise.all(
-        (options.invalidateKeys ?? []).map((queryKey) =>
+        (invalidateKeys ?? []).map((queryKey) =>
           client.invalidateQueries({
             queryKey,
             exact: true,
