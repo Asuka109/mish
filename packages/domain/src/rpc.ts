@@ -15,7 +15,7 @@ import {
   staleOutput,
   trace,
   traceError,
-} from "./shared.ts";
+} from "./shared.js";
 import {
   SessionBoundaryEvent,
   SnapshotContext,
@@ -23,7 +23,7 @@ import {
   snapshotContext,
   snapshotIsNewer,
   snapshotResult,
-} from "./settings-rpc.ts";
+} from "./settings-rpc.js";
 
 export const RPC_RECONNECT_ATTEMPT_LIMIT = 3 as const;
 
