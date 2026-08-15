@@ -1,7 +1,7 @@
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-
 import { ORPCError } from "@orpc/client";
+import { implement } from "@orpc/server";
+import { RPCHandler as MessagePortRPCHandler } from "@orpc/server/message-port";
+import { RPCHandler as WebSocketRPCHandler } from "@orpc/server/websocket";
 
 import type {
   EventValue,
@@ -11,41 +11,6 @@ import type {
 } from "../../src/contract.js";
 import { orpcContract } from "../../src/contract.js";
 import type { MessagePortLike, WebSocketLike } from "../../src/transport.js";
-
-interface PublicWebSocketHandler {
-  upgrade(ws: WebSocketLike): void;
-}
-
-interface PublicMessagePortHandler {
-  upgrade(port: MessagePortLike): void;
-}
-
-interface PublicServerApi {
-  implement(contract: typeof orpcContract): any;
-}
-
-interface PublicWebSocketApi {
-  RPCHandler: new (router: unknown) => PublicWebSocketHandler;
-}
-
-interface PublicMessagePortApi {
-  RPCHandler: new (router: unknown) => PublicMessagePortHandler;
-}
-
-const resolveFromP0Electron = createRequire(import.meta.url).resolve;
-const p0ElectronRoot = fileURLToPath(new URL("../../../electron/", import.meta.url));
-
-function resolveP0PublicPackage(specifier: string): string {
-  return resolveFromP0Electron(specifier, { paths: [p0ElectronRoot] });
-}
-
-const serverApi = (await import(resolveP0PublicPackage("@orpc/server"))) as PublicServerApi;
-const websocketApi = (await import(
-  resolveP0PublicPackage("@orpc/server/websocket")
-)) as PublicWebSocketApi;
-const messagePortApi = (await import(
-  resolveP0PublicPackage("@orpc/server/message-port")
-)) as PublicMessagePortApi;
 
 type Listener = (event: unknown) => void;
 
@@ -233,12 +198,12 @@ function createServerRouter(
   options: OrpcFixtureOptions,
   mutable: MutableMetrics,
   pendingInvocations: Array<() => void>,
-): unknown {
+) {
   const expectedAuthToken = options.authToken ?? "fixture-token";
   const protocolVersion = options.protocolVersion ?? 1;
   const sessionGeneration = options.sessionGeneration ?? 1;
   const maxMessageBytes = options.maxMessageBytes ?? 4096;
-  const implementation = serverApi.implement(orpcContract);
+  const implementation = implement(orpcContract);
 
   return implementation.router({
     session: {
@@ -332,8 +297,8 @@ export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture
   serverMessagePort.connect(clientMessagePort);
 
   const serverRouter = createServerRouter(options, mutable, pendingInvocations);
-  new websocketApi.RPCHandler(serverRouter).upgrade(serverWebSocket);
-  new messagePortApi.RPCHandler(serverRouter).upgrade(serverMessagePort);
+  new WebSocketRPCHandler(serverRouter).upgrade(serverWebSocket as never);
+  new MessagePortRPCHandler(serverRouter).upgrade(serverMessagePort as never);
 
   const metrics: FixtureMetrics = {
     get abortCount() {

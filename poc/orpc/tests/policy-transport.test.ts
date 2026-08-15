@@ -277,9 +277,20 @@ describe("oRPC policy and transport admission POC", () => {
       ...(await sourceFiles(join(process.cwd(), "tests"))),
     ];
     const source = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+    const joinedSource = source.join("\n");
     const privatePackagePath = ["node_modules", ".pnpm"].join("/");
     const privateDistPath = ["", "dist", ""].join("/");
-    expect(source.join("\n")).not.toContain(privatePackagePath);
-    expect(source.join("\n")).not.toContain(privateDistPath);
+    expect(joinedSource).not.toContain(privatePackagePath);
+    expect(joinedSource).not.toContain(privateDistPath);
+
+    for (const resolverWorkaround of [
+      ["create", "Require"].join(""),
+      ["fileURL", "ToPath"].join(""),
+      ["resolve", "P0PublicPackage"].join(""),
+      ["p0Electron", "Root"].join(""),
+      ["..", "..", "..", "electron"].join("/"),
+    ]) {
+      expect(joinedSource).not.toContain(resolverWorkaround);
+    }
   });
 });
