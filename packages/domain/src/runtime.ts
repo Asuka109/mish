@@ -16,7 +16,7 @@ import {
   staleOutput,
   trace,
   traceError,
-} from "./shared.ts";
+} from "./shared.js";
 
 export type RuntimeEvent =
   | { type: "START"; operation?: number }

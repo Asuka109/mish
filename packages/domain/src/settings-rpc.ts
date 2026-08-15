@@ -1,4 +1,4 @@
-import type { Correlation, DomainContext } from "./shared.ts";
+import type { Correlation, DomainContext } from "./shared.js";
 
 export interface SnapshotContext extends DomainContext {
   readonly acceptedSnapshotRevision: number;

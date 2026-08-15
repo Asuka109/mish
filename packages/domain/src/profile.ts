@@ -17,7 +17,7 @@ import {
   staleOutput,
   trace,
   traceError,
-} from "./shared.ts";
+} from "./shared.js";
 
 export type ProfileEvent =
   | { type: "ACTIVATE"; revision?: number; operation?: number }

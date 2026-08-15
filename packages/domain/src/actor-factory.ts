@@ -1,14 +1,14 @@
 import { createActor, type AnyActorLogic } from "xstate";
 
-import { captureMachine, type CaptureContext, type CaptureEvent } from "./capture.ts";
-import { coreMachine, type CoreContext, type CoreEvent } from "./core.ts";
-import { profileMachine, type ProfileContext, type ProfileEvent } from "./profile.ts";
-import { rpcSessionMachine, type RpcSessionContext, type RpcSessionEvent } from "./rpc.ts";
-import { runtimeMachine, type RuntimeContext, type RuntimeEvent } from "./runtime.ts";
-import { settingsMachine, type SettingsContext, type SettingsEvent } from "./settings.ts";
-import { updaterMachine, type UpdaterContext, type UpdaterEvent } from "./updater.ts";
-import { vpnMachine, type VpnContext, type VpnEvent } from "./vpn.ts";
-import type { ActorEnvironment } from "./shared.ts";
+import { captureMachine, type CaptureContext, type CaptureEvent } from "./capture.js";
+import { coreMachine, type CoreContext, type CoreEvent } from "./core.js";
+import { profileMachine, type ProfileContext, type ProfileEvent } from "./profile.js";
+import { rpcSessionMachine, type RpcSessionContext, type RpcSessionEvent } from "./rpc.js";
+import { runtimeMachine, type RuntimeContext, type RuntimeEvent } from "./runtime.js";
+import { settingsMachine, type SettingsContext, type SettingsEvent } from "./settings.js";
+import { updaterMachine, type UpdaterContext, type UpdaterEvent } from "./updater.js";
+import { vpnMachine, type VpnContext, type VpnEvent } from "./vpn.js";
+import type { ActorEnvironment } from "./shared.js";
 
 /** The bounded state value exposed by a domain actor snapshot. */
 export interface DomainStateMap {

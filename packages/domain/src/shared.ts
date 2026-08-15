@@ -12,9 +12,9 @@ import {
   DomainEffectError,
   DomainEffectProtocolError,
   SemanticTranscript,
-} from "./transcript.ts";
+} from "./transcript.js";
 
-export type { Correlation } from "./transcript.ts";
+export type { Correlation } from "./transcript.js";
 
 export interface ActorEnvironment {
   readonly effects: DomainEffects;

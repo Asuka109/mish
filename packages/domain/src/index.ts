@@ -26,7 +26,7 @@ export {
   type UpdaterEvent,
   type VpnContext,
   type VpnEvent,
-} from "./actors.ts";
+} from "./actors.js";
 
 export {
   createDomainActor,
@@ -39,7 +39,7 @@ export {
   type DomainActorSubscription,
   type DomainStateMap,
   type DomainStateValue,
-} from "./actor-factory.ts";
+} from "./actor-factory.js";
 
 export {
   ACTOR_DOMAINS,
@@ -66,4 +66,4 @@ export {
   type ResultKind,
   type SemanticTranscriptEvent,
   type TranscriptPhase,
-} from "./transcript.ts";
+} from "./transcript.js";
