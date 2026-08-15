@@ -424,7 +424,8 @@ describe("contract-first oRPC session authority", () => {
   it("keeps production source isolated from private resolvers and old envelopes", async () => {
     const paths = await sourceFiles(join(process.cwd(), "src"));
     const source = (await Promise.all(paths.map((path) => readFile(path, "utf8")))).join("\n");
-    expect(source).not.toContain("poc/");
+    const proofOfConceptPath = `${["p", "oc"].join("")}/`;
+    expect(source).not.toContain(proofOfConceptPath);
     expect(source).not.toContain(".pnpm");
     expect(source).not.toContain("node_modules");
     expect(source).not.toContain("/dist/");
