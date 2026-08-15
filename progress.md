@@ -470,9 +470,9 @@ privileged integration, or claim real-system behavior from fixtures.
 The maintainer approved this exact seven-task admission wave on 2026-08-15 and
 authorized continued dispatch without repeated confirmation while work remains
 inside ADR-0001 and the existing safety/authority envelope. P0-P3 and the P0a
-dependency correction are integrated. P4-P5 are reserved for parallel dispatch
-from implementation baseline `80a881db`; task IDs and worktrees remain pending
-until worker creation completes. Every Worker uses
+dependency correction are integrated. P4-P5 are active in isolated worktrees,
+dispatched from ledger baseline `9e4f1b52` and implementation baseline
+`80a881db`. Every Worker uses
 `gpt-5.6-luna/max`, Chinese reporting, confirmation-only acceptance,
 final-only escalation, an isolated branch/worktree, and no release, deployment,
 credential use, external-service write, or real system/network effect. POC code
@@ -486,8 +486,8 @@ dual-write or compatibility path.
 | P1 oRPC policy/transport | integrated; PR #541; `5fed4dd8` | `poc/orpc/**` excluding manifests | P0 | Contract-first WebSocket/Event Iterator and Electron MessagePort evidence covers authentication, version negotiation, session generation, stale rejection, deadline, size bound, correlation, cancellation, cleanup, and reconnect; no handwritten JSON-RPC envelope |
 | P2 XState actor semantics | integrated; PR #540; `c69c85fe` | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
 | P3 Query/Store/Hermes | integrated; PR #539; `80a881db`; host renderer evidence remains P4/P5 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes framework-neutral subscription/batch/remount tests; React DOM/Hermes execution is a hard P4/P5 prerequisite; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
-| P4 Electron admission | dispatching; task/worktree pending; baseline `80a881db` | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, proves the React renderer Store adapter, and produces a credential-free runnable DMG fixture without system effects |
-| P5 React Native admission | dispatching; task/worktree pending; baseline `80a881db` | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
+| P4 Electron admission | active; `/root/p4_electron_admission`; `/Users/asuka/.codex/worktrees/wave3b-p4/mihomo-web-client`; dispatch `9e4f1b52`, implementation `80a881db` | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, proves the React renderer Store adapter, and produces a credential-free runnable DMG fixture without system effects |
+| P5 React Native admission | active; `/root/p5_rn_admission`; `/Users/asuka/.codex/worktrees/wave3b-p5/mihomo-web-client`; dispatch `9e4f1b52`, implementation `80a881db` | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
 | P6 cutover admission record | approved; pending P1-P5 | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and one-shot Cutover Worker packets; no POC runtime source enters production |
 
 Dependency order is fixed: P0 first; P1-P3 may then run in parallel; P4 and P5
