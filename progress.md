@@ -465,26 +465,28 @@ privileged integration, or claim real-system behavior from fixtures.
 | HOST-001 secure Electron foundation | `/root/host_001` | `/Users/asuka/.codex/worktrees/wave3a-host001/mihomo-web-client` | replan required | existing Web production bundle and shared contracts | Add a new Electron desktop app with hardened main/preload/renderer boundaries, narrow typed IPC, current Web renderer reuse, deterministic smoke tests, and a credential-free local ad-hoc DMG fixture | PR #536 head `d9bee78e` remains unmerged; secure shell/DMG evidence is potentially reusable, but its cumulative stack must be rebuilt around oRPC/XState/Query/Store and reaccepted; no real Electron launch/system effects/signing/release |
 | HOST-002 React Native Android foundation | `/root/host_002` | `/Users/asuka/.codex/worktrees/wave3a-host002/mihomo-web-client` | replan required | existing design tokens/contracts and Android package identity | Add a React Native New Architecture Android app with a typed Kotlin TurboModule capability seam, shared token/contract consumption, deterministic tests, and a locally buildable installable debug APK | PR #537 cumulative head `56afc88d` ordinarily merged latest `dev@c92b5ca1` and remains unmerged; native shell/APK evidence is potentially reusable, but the cumulative custom state-machine/parity stack is not mergeable under ADR-0001 and Hermes/TanStack Store admission must precede reacceptance |
 
-## Proposed Wave 3B admission manifest — not approved or dispatching
+## Wave 3B admission manifest
 
-This exact seven-task admission wave is the next proposed work after ADR-0001.
-It is not approved, reserves no Worker, and authorizes no implementation until
-the maintainer explicitly confirms it. Every eventual Worker would use
+The maintainer approved this exact seven-task admission wave on 2026-08-15 and
+authorized continued dispatch without repeated confirmation while work remains
+inside ADR-0001 and the existing safety/authority envelope. P0 is reserved in
+`dispatching` state from `dev@8f19206d`; its task ID and worktree remain pending
+until creation. Every Worker uses
 `gpt-5.6-luna/max`, Chinese reporting, confirmation-only acceptance,
 final-only escalation, an isolated branch/worktree, and no release, deployment,
 credential use, external-service write, or real system/network effect. POC code
 must remain outside production import/workspace graphs and cannot become a
 dual-write or compatibility path.
 
-| Task | Exclusive ownership | Dependencies | Exact admission result |
-| --- | --- | --- | --- |
-| P0 dependency lock | `poc/package.json`, `poc/pnpm-lock.yaml`, `poc/pnpm-workspace.yaml`, `poc/*/package.json`, `poc/*/tsconfig.json` | none | Pin oRPC `1.15.0`, XState `5.32.5`, `@xstate/react` `6.1.0`, TanStack Query `5.101.4`, TanStack Store core `0.11.1`, Electron `43.4.0`, and RN `0.87.0`; frozen install passes; production graphs cannot import `poc/**` |
-| P1 oRPC policy/transport | `poc/orpc/**` excluding manifests | P0 | Contract-first WebSocket/Event Iterator and Electron MessagePort evidence covers authentication, version negotiation, session generation, stale rejection, deadline, size bound, correlation, cancellation, cleanup, and reconnect; no handwritten JSON-RPC envelope |
-| P2 XState actor semantics | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
-| P3 Query/Store/Hermes | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes React DOM and RN/Hermes subscription/batch/remount tests; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
-| P4 Electron admission | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, and produces a credential-free runnable DMG fixture without system effects |
-| P5 React Native admission | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
-| P6 cutover admission record | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and one-shot Cutover Worker packets; no POC runtime source enters production |
+| Task | State | Exclusive ownership | Dependencies | Exact admission result |
+| --- | --- | --- | --- | --- |
+| P0 dependency lock | dispatching; task/worktree pending | `poc/package.json`, `poc/pnpm-lock.yaml`, `poc/pnpm-workspace.yaml`, `poc/*/package.json`, `poc/*/tsconfig.json` | none | Pin oRPC `1.15.0`, XState `5.32.5`, `@xstate/react` `6.1.0`, TanStack Query `5.101.4`, TanStack Store core `0.11.1`, Electron `43.4.0`, and RN `0.87.0`; frozen install passes; production graphs cannot import `poc/**` |
+| P1 oRPC policy/transport | approved; pending P0 | `poc/orpc/**` excluding manifests | P0 | Contract-first WebSocket/Event Iterator and Electron MessagePort evidence covers authentication, version negotiation, session generation, stale rejection, deadline, size bound, correlation, cancellation, cleanup, and reconnect; no handwritten JSON-RPC envelope |
+| P2 XState actor semantics | approved; pending P0 | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
+| P3 Query/Store/Hermes | approved; pending P0 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes React DOM and RN/Hermes subscription/batch/remount tests; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
+| P4 Electron admission | approved; pending P0/P1 | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, and produces a credential-free runnable DMG fixture without system effects |
+| P5 React Native admission | approved; pending P0/P2/P3 | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
+| P6 cutover admission record | approved; pending P1-P5 | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and one-shot Cutover Worker packets; no POC runtime source enters production |
 
 Dependency order is fixed: P0 first; P1-P3 may then run in parallel; P4 and P5
 follow their listed prerequisites; P6 closes the wave. Passing P6 authorizes
