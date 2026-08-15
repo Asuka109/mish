@@ -1,0 +1,11 @@
+{
+  "name": "@mish/typescript-cutover-poc",
+  "version": "0.0.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@11.13.1"
+}
