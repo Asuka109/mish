@@ -469,9 +469,11 @@ privileged integration, or claim real-system behavior from fixtures.
 
 The maintainer approved this exact seven-task admission wave on 2026-08-15 and
 authorized continued dispatch without repeated confirmation while work remains
-inside ADR-0001 and the existing safety/authority envelope. P0 is reserved in
-`dispatching` state from `dev@8f19206d`; its task ID and worktree remain pending
-until creation. Every Worker uses
+inside ADR-0001 and the existing safety/authority envelope. P0 is active as
+`/root/p0_dependency_lock` in
+`/Users/asuka/.codex/worktrees/wave3b-p0/mihomo-web-client`, created from the
+published dispatch ledger `dev@88c77201` with implementation baseline
+`8f19206d`. Every Worker uses
 `gpt-5.6-luna/max`, Chinese reporting, confirmation-only acceptance,
 final-only escalation, an isolated branch/worktree, and no release, deployment,
 credential use, external-service write, or real system/network effect. POC code
@@ -480,7 +482,7 @@ dual-write or compatibility path.
 
 | Task | State | Exclusive ownership | Dependencies | Exact admission result |
 | --- | --- | --- | --- | --- |
-| P0 dependency lock | dispatching; task/worktree pending | `poc/package.json`, `poc/pnpm-lock.yaml`, `poc/pnpm-workspace.yaml`, `poc/*/package.json`, `poc/*/tsconfig.json` | none | Pin oRPC `1.15.0`, XState `5.32.5`, `@xstate/react` `6.1.0`, TanStack Query `5.101.4`, TanStack Store core `0.11.1`, Electron `43.4.0`, and RN `0.87.0`; frozen install passes; production graphs cannot import `poc/**` |
+| P0 dependency lock | active; `/root/p0_dependency_lock`; `/Users/asuka/.codex/worktrees/wave3b-p0/mihomo-web-client` | `poc/package.json`, `poc/pnpm-lock.yaml`, `poc/pnpm-workspace.yaml`, `poc/*/package.json`, `poc/*/tsconfig.json` | none | Pin oRPC `1.15.0`, XState `5.32.5`, `@xstate/react` `6.1.0`, TanStack Query `5.101.4`, TanStack Store core `0.11.1`, Electron `43.4.0`, and RN `0.87.0`; frozen install passes; production graphs cannot import `poc/**` |
 | P1 oRPC policy/transport | approved; pending P0 | `poc/orpc/**` excluding manifests | P0 | Contract-first WebSocket/Event Iterator and Electron MessagePort evidence covers authentication, version negotiation, session generation, stale rejection, deadline, size bound, correlation, cancellation, cleanup, and reconnect; no handwritten JSON-RPC envelope |
 | P2 XState actor semantics | approved; pending P0 | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
 | P3 Query/Store/Hermes | approved; pending P0 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes React DOM and RN/Hermes subscription/batch/remount tests; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
