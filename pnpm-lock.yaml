@@ -53,12 +53,21 @@ importers:
       '@mish/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@mish/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@mish/orpc-client':
+        specifier: workspace:*
+        version: link:../../packages/orpc-client
       '@mish/rpc-client':
         specifier: workspace:*
         version: link:../../packages/rpc-client
       '@mish/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@mish/ui-state':
+        specifier: workspace:*
+        version: link:../../packages/ui-state
       '@phosphor-icons/react':
         specifier: 2.1.10
         version: 2.1.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

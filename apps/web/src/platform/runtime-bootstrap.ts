@@ -22,6 +22,7 @@ import {
   type UpdaterClient,
 } from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
+import { OrpcSessionAuthority, WebSocketTransport } from "@mish/orpc-client";
 import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcEventsClient } from "../data/rpc-events-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
@@ -34,6 +35,7 @@ import { RpcUpdaterClient } from "../data/rpc-updater-client";
 import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./support-bundle";
 import { DesktopLocalBackupClient, UnavailableLocalBackupClient } from "./local-backup";
 import type { MobileVpnClient } from "./mobile-vpn-client";
+import type { CutoverSessionFactory } from "../data/cutover-session-actor";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
@@ -73,6 +75,7 @@ interface BootstrapDependencies {
 export interface StartupStatusClient {
   browserBackendPort?: number;
   client?: StatusClient;
+  cutoverSession?: CutoverSessionFactory;
   eventsClient?: EventsClient;
   trafficClient?: TrafficClient;
   updaterClient?: UpdaterClient;
@@ -180,6 +183,15 @@ function createRpcStartup(
       transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
     });
   const rpc = createRpcClient(clientName);
+  const cutoverSession: CutoverSessionFactory = {
+    createAuthority: () =>
+      new OrpcSessionAuthority({
+        authToken: bootstrap.authToken,
+        clientName: runtime === "desktop" ? "electron" : "web",
+        clientVersion: runtime === "desktop" ? "cutover-electron-v1" : "cutover-web-v1",
+      }),
+    createChannel: () => new WebSocketTransport(dependencies.openWebSocket(bootstrap.rpcUrl)),
+  };
   const client = new RpcStatusClient(rpc, true);
   const eventsClient = new RpcEventsClient(rpc);
   const profileClient = new RpcProfileClient(
@@ -195,6 +207,7 @@ function createRpcStartup(
     browserBackendPort:
       runtime === "browser" ? Number.parseInt(new URL(bootstrap.rpcUrl).port, 10) : undefined,
     client,
+    cutoverSession,
     eventsClient,
     profileClient,
     localBackupClient: bootstrap.localBackup

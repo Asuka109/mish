@@ -13,6 +13,7 @@ import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
 import { EventsProvider } from "./data/events-provider";
+import { CutoverWebComposition } from "./data/cutover-composition";
 import {
   SettingsLanguageProjection,
   SettingsProvider,
@@ -118,30 +119,32 @@ async function startApplication() {
                 onRecoveryRequired={startup.dispose}
                 runtime={runtime}
               >
-                <BrowserRouter>
-                  <NativeNavigationBridge />
-                  <ProductProvider client={startup.client}>
-                    <ProfileProvider client={startup.profileClient}>
-                      <TrafficProvider client={startup.trafficClient}>
-                        <EventsProvider
-                          client={startup.eventsClient}
-                          mobileDiagnosticClient={startup.mobileDiagnosticClient}
-                          supportBundleClient={startup.supportBundleClient}
-                        >
-                          <TooltipProvider delay={500}>
-                            <AppRoutes
-                              mobileFixture={startup.mobileFixture}
-                              mobileVpnClient={startup.mobileVpnClient}
-                              mobileVpnSnapshot={startup.mobileVpnSnapshot}
-                              notificationClient={startup.notificationClient}
-                            />
-                            <NotificationToaster />
-                          </TooltipProvider>
-                        </EventsProvider>
-                      </TrafficProvider>
-                    </ProfileProvider>
-                  </ProductProvider>
-                </BrowserRouter>
+                <CutoverWebComposition session={startup.cutoverSession}>
+                  <BrowserRouter>
+                    <NativeNavigationBridge />
+                    <ProductProvider client={startup.client}>
+                      <ProfileProvider client={startup.profileClient}>
+                        <TrafficProvider client={startup.trafficClient}>
+                          <EventsProvider
+                            client={startup.eventsClient}
+                            mobileDiagnosticClient={startup.mobileDiagnosticClient}
+                            supportBundleClient={startup.supportBundleClient}
+                          >
+                            <TooltipProvider delay={500}>
+                              <AppRoutes
+                                mobileFixture={startup.mobileFixture}
+                                mobileVpnClient={startup.mobileVpnClient}
+                                mobileVpnSnapshot={startup.mobileVpnSnapshot}
+                                notificationClient={startup.notificationClient}
+                              />
+                              <NotificationToaster />
+                            </TooltipProvider>
+                          </EventsProvider>
+                        </TrafficProvider>
+                      </ProfileProvider>
+                    </ProductProvider>
+                  </BrowserRouter>
+                </CutoverWebComposition>
               </BrowserBackendRecovery>
             </SettingsLanguageProjection>
           </ConfiguredAppearanceProvider>

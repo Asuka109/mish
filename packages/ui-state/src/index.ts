@@ -1,5 +1,5 @@
-export { batch, createStore, useMishStore } from "./store.ts";
-export type { Equality, Listener, MishReadable, MishStore, StateUpdater } from "./store.ts";
+export { batch, createStore, useMishStore } from "./store.js";
+export type { Equality, Listener, MishReadable, MishStore, StateUpdater } from "./store.js";
 
 export {
   DEFAULT_QUERY_RETRY,
@@ -16,20 +16,20 @@ export {
   useMutation,
   useQuery,
   useQueryClient,
-} from "./query.ts";
+} from "./query.js";
 export type {
   BoundedRetry,
   BoundedStreamedQueryFnOptions,
   MishQueryClientOptions,
   OrpcMutation,
   OrpcProcedureUtils,
-} from "./query.ts";
+} from "./query.js";
 
 export {
   consumeEventIterator,
   createActorEventSink,
   createQueryEventSink,
-} from "./event-iterator.ts";
+} from "./event-iterator.js";
 export type {
   AbortLike,
   ActorEventSink,
@@ -37,7 +37,7 @@ export type {
   EventIteratorRun,
   EventSink,
   QueryEventSink,
-} from "./event-iterator.ts";
+} from "./event-iterator.js";
 
 export type { QueryClient, QueryKey } from "@tanstack/query-core";
 export type { ClientContext } from "@orpc/client";
