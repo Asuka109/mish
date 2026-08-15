@@ -11,6 +11,9 @@
     }
   },
   "dependencies": {
+    "@orpc/client": "1.15.0",
+    "@orpc/contract": "1.15.0",
+    "@orpc/tanstack-query": "1.15.0",
     "@mish/poc-orpc": "workspace:0.0.0",
     "@mish/poc-xstate": "workspace:0.0.0",
     "@tanstack/query-core": "5.101.4",

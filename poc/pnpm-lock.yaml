@@ -63,6 +63,9 @@ importers:
       '@orpc/contract':
         specifier: 1.15.0
         version: 1.15.0
+      '@orpc/server':
+        specifier: 1.15.0
+        version: 1.15.0(ws@8.21.1)
       '@orpc/tanstack-query':
         specifier: 1.15.0
         version: 1.15.0(@orpc/client@1.15.0)(@tanstack/query-core@5.101.4)
@@ -94,6 +97,15 @@ importers:
       '@mish/poc-xstate':
         specifier: workspace:0.0.0
         version: link:../xstate
+      '@orpc/client':
+        specifier: 1.15.0
+        version: 1.15.0
+      '@orpc/contract':
+        specifier: 1.15.0
+        version: 1.15.0
+      '@orpc/tanstack-query':
+        specifier: 1.15.0
+        version: 1.15.0(@orpc/client@1.15.0)(@tanstack/query-core@5.101.4)
       '@tanstack/query-core':
         specifier: 5.101.4
         version: 5.101.4
