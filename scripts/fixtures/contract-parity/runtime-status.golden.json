@@ -1,0 +1,39 @@
+{
+  "contractId": "runtime-status",
+  "fixtureVersion": 1,
+  "payload": {
+    "runtimeStatus": [
+      "captureOperation",
+      "captureSelection",
+      "message",
+      "phase",
+      "systemProxy",
+      "systemProxyEnabled",
+      "tun",
+      "tunEnabled"
+    ],
+    "statusSnapshot": [
+      "activeProfileId",
+      "adapterKind",
+      "applicationOrder",
+      "capabilities",
+      "groups",
+      "groupDelayPolicy",
+      "groupDelayTest",
+      "groupSelectionOperation",
+      "groupSelectionAvailability",
+      "groupUsage",
+      "metrics",
+      "nodes",
+      "probeResults",
+      "profiles",
+      "recentTraffic",
+      "routingMode",
+      "runtime",
+      "serviceProbePolicy",
+      "services",
+      "traffic"
+    ],
+    "captureLimit": 512
+  }
+}

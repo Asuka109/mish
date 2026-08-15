@@ -1,0 +1,1217 @@
+{
+  "schemaVersion": 1,
+  "inventoryVersion": 1,
+  "maxFixtureBytes": 65536,
+  "requiredContractIds": [
+    "android-platform-facts",
+    "bridge-protocol",
+    "presentation",
+    "mobile-events-traffic",
+    "mobile-route-vpn",
+    "runtime-status",
+    "settings"
+  ],
+  "requiredDimensions": [
+    "fields",
+    "enum-variants",
+    "discriminants-and-tagging",
+    "optional-null-semantics",
+    "numeric-and-string-bounds",
+    "collection-limits",
+    "redaction-and-privacy",
+    "compatibility-and-version-envelope",
+    "generated-files"
+  ],
+  "contracts": [
+    {
+      "id": "android-platform-facts",
+      "family": "generated-fact-envelope",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "packages/android-platform-facts/android-platform-facts.json" },
+      "typescript": ["packages/contracts/src/generated/android-platform-facts.ts"],
+      "rust": ["apps/mobile/src-tauri/plugins/mish-vpn/src/generated/platform_facts.rs"],
+      "generatedFiles": [
+        "packages/contracts/src/generated/android-platform-facts.ts",
+        "apps/mobile/src-tauri/plugins/mish-vpn/src/generated/platform_facts.rs",
+        "apps/mobile/src-tauri/plugins/mish-vpn/android/src/main/java/com/asuka109/mish/vpn/AndroidPlatformFactsContract.kt"
+      ],
+      "generator": "scripts/generate-android-platform-facts.ts",
+      "fixture": "scripts/fixtures/contract-parity/android-platform-facts.golden.json",
+      "fixtureProjection": "goldenFacts",
+      "fixtureFields": [
+        "activationFailure",
+        "activationSessionId",
+        "activeNetwork",
+        "configFailureInjectionAvailable",
+        "coreAbiVersion",
+        "coreAvailability",
+        "coreCommit",
+        "coreConfigState",
+        "coreRunning",
+        "coreVersion",
+        "coreWrapperRevision",
+        "dnsApplied",
+        "event",
+        "factSequence",
+        "factsVersion",
+        "lifecycleAuthority",
+        "loadedConfigDigest",
+        "loadedConfigRevision",
+        "notificationPermission",
+        "observedAtMillis",
+        "platformSessionId",
+        "protectedSocketCount",
+        "publicRequestObserved",
+        "recoveryEvidence",
+        "routesApplied",
+        "serviceForeground",
+        "tunEstablished",
+        "validatedConfigDigest",
+        "validatedConfigRevision",
+        "vpnPermission"
+      ],
+      "fixtureNullFields": [
+        "activationFailure",
+        "activationSessionId",
+        "lifecycleAuthority",
+        "loadedConfigDigest",
+        "loadedConfigRevision",
+        "validatedConfigDigest",
+        "validatedConfigRevision"
+      ],
+      "sourceExpectations": {
+        "requiredFields": [
+          "schemaVersion",
+          "factsVersion",
+          "safeIntegerMax",
+          "identifierMaxLength",
+          "eventKinds",
+          "failureKinds",
+          "recoveryEvidence",
+          "vpnPermissions",
+          "notificationPermissions",
+          "availability",
+          "coreConfigStates",
+          "factFields",
+          "lifecycleAuthorityFields",
+          "bounds",
+          "goldenFacts"
+        ],
+        "enumFields": {
+          "eventKinds": [
+            "activation-completed",
+            "activation-failed",
+            "activation-progress",
+            "consent-result",
+            "core-exited",
+            "network-changed",
+            "notification-result",
+            "observation",
+            "revoked",
+            "service-destroyed",
+            "stop-completed"
+          ],
+          "failureKinds": [
+            "cleanup-failed",
+            "configuration-not-loaded",
+            "core-exited",
+            "core-start-failed",
+            "core-unavailable",
+            "network-unavailable",
+            "permission-revoked",
+            "public-request-failed",
+            "tun-establish-failed"
+          ],
+          "recoveryEvidence": ["foreground-expected", "invalid", "none"],
+          "vpnPermissions": ["granted", "required", "unknown"],
+          "notificationPermissions": ["denied", "granted", "not-required", "required"],
+          "availability": ["available", "unavailable"],
+          "coreConfigStates": ["loaded", "unknown", "unloaded"]
+        },
+        "nestedFields": {
+          "factFields": [
+            "activationFailure",
+            "activationSessionId",
+            "activeNetwork",
+            "configFailureInjectionAvailable",
+            "coreAbiVersion",
+            "coreAvailability",
+            "coreCommit",
+            "coreConfigState",
+            "coreRunning",
+            "coreVersion",
+            "coreWrapperRevision",
+            "dnsApplied",
+            "event",
+            "factSequence",
+            "factsVersion",
+            "lifecycleAuthority",
+            "loadedConfigDigest",
+            "loadedConfigRevision",
+            "notificationPermission",
+            "observedAtMillis",
+            "platformSessionId",
+            "protectedSocketCount",
+            "publicRequestObserved",
+            "recoveryEvidence",
+            "routesApplied",
+            "serviceForeground",
+            "tunEstablished",
+            "validatedConfigDigest",
+            "validatedConfigRevision",
+            "vpnPermission"
+          ],
+          "lifecycleAuthorityFields": [
+            "admittedRevision",
+            "effectIdentity",
+            "machineAuthority",
+            "operationId",
+            "scopeEpoch"
+          ]
+        },
+        "exactValues": {
+          "schemaVersion": 1,
+          "factsVersion": 1,
+          "safeIntegerMax": 9007199254740991,
+          "identifierMaxLength": 128,
+          "bounds.coreCommitMinLength": 7,
+          "bounds.coreCommitMaxLength": 64,
+          "bounds.coreVersionMaxLength": 32,
+          "bounds.coreWrapperRevisionMaxLength": 64,
+          "bounds.protectedSocketCountMax": 1
+        },
+        "goldenFields": [
+          "activationFailure",
+          "activationSessionId",
+          "activeNetwork",
+          "configFailureInjectionAvailable",
+          "coreAbiVersion",
+          "coreAvailability",
+          "coreCommit",
+          "coreConfigState",
+          "coreRunning",
+          "coreVersion",
+          "coreWrapperRevision",
+          "dnsApplied",
+          "event",
+          "factSequence",
+          "factsVersion",
+          "lifecycleAuthority",
+          "loadedConfigDigest",
+          "loadedConfigRevision",
+          "notificationPermission",
+          "observedAtMillis",
+          "platformSessionId",
+          "protectedSocketCount",
+          "publicRequestObserved",
+          "recoveryEvidence",
+          "routesApplied",
+          "serviceForeground",
+          "tunEstablished",
+          "validatedConfigDigest",
+          "validatedConfigRevision",
+          "vpnPermission"
+        ]
+      },
+      "compatibility": {
+        "versionField": "factsVersion",
+        "sourceField": "factsVersion",
+        "version": 1,
+        "outcomes": ["supported", "unsupported"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["bounded identifiers", "closed enums", "booleans", "safe integers", "digests"]
+      }
+    },
+    {
+      "id": "bridge-protocol",
+      "family": "generated-compatibility-envelope",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "packages/bridge-protocol/bridge-protocol.json" },
+      "typescript": ["packages/contracts/src/generated/bridge-protocol.ts"],
+      "rust": ["crates/desktop-bridge/src/generated/bridge_protocol.rs"],
+      "generatedFiles": [
+        "packages/contracts/src/generated/bridge-protocol.ts",
+        "crates/desktop-bridge/src/generated/bridge_protocol.rs"
+      ],
+      "generator": "scripts/generate-bridge-protocol.ts",
+      "fixture": "scripts/fixtures/contract-parity/bridge-protocol.golden.json",
+      "fixtureFields": [
+        "schemaVersion",
+        "protocolVersion",
+        "minimumClientProtocolVersion",
+        "minimumBackendProtocolVersion",
+        "compatibilityOutcomes",
+        "statusCapabilityFields",
+        "trafficCapabilityFields",
+        "publicMethods",
+        "mockImplementedMethods"
+      ],
+      "fixtureBindings": [
+        { "fixtureField": "schemaVersion", "sourcePath": "schemaVersion" },
+        { "fixtureField": "protocolVersion", "sourcePath": "protocolVersion" },
+        {
+          "fixtureField": "minimumClientProtocolVersion",
+          "sourcePath": "minimumClientProtocolVersion"
+        },
+        {
+          "fixtureField": "minimumBackendProtocolVersion",
+          "sourcePath": "minimumBackendProtocolVersion"
+        },
+        { "fixtureField": "compatibilityOutcomes", "sourcePath": "compatibilityOutcomes" },
+        {
+          "fixtureField": "statusCapabilityFields",
+          "sourcePath": "capabilityFields.statusCommands"
+        },
+        {
+          "fixtureField": "trafficCapabilityFields",
+          "sourcePath": "capabilityFields.trafficCommands"
+        },
+        { "fixtureField": "publicMethods", "sourcePath": "publicMethods" },
+        { "fixtureField": "mockImplementedMethods", "sourcePath": "mockImplementedMethods" }
+      ],
+      "sourceExpectations": {
+        "requiredFields": [
+          "schemaVersion",
+          "protocolVersion",
+          "minimumClientProtocolVersion",
+          "minimumBackendProtocolVersion",
+          "compatibilityOutcomes",
+          "capabilityFields",
+          "publicMethods",
+          "mockImplementedMethods"
+        ],
+        "exactValues": {
+          "schemaVersion": 1,
+          "protocolVersion": 40,
+          "minimumClientProtocolVersion": 40,
+          "minimumBackendProtocolVersion": 40
+        },
+        "enumFields": {
+          "compatibilityOutcomes": ["compatible", "client-too-old", "backend-too-old"]
+        },
+        "nestedFields": {
+          "capabilityFields.statusCommands": [
+            "group",
+            "groupDelay",
+            "profile",
+            "routing",
+            "services"
+          ],
+          "capabilityFields.trafficCommands": [
+            "closeAllActive",
+            "closeConnection",
+            "closeFilteredVisible"
+          ]
+        }
+      },
+      "compatibility": {
+        "versionField": "protocolVersion",
+        "sourceField": "protocolVersion",
+        "version": 40,
+        "outcomes": ["compatible", "client-too-old", "backend-too-old"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["method identifiers", "capability identifiers", "version integers"]
+      }
+    },
+    {
+      "id": "presentation",
+      "family": "generated-semantic-events",
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "packages/presentation-schema/presentation.schema.json" },
+      "typescript": ["packages/contracts/src/generated/presentation.ts"],
+      "rust": ["crates/presentation-contract/src/generated.rs"],
+      "generatedFiles": [
+        "packages/contracts/src/generated/presentation.ts",
+        "crates/presentation-contract/src/generated.rs"
+      ],
+      "generator": "scripts/generate-presentation-contract.ts",
+      "fixture": "scripts/fixtures/contract-parity/presentation.golden.json",
+      "fixtureFields": [
+        "locales",
+        "actions",
+        "applicationActions",
+        "messageIds",
+        "notificationKinds",
+        "eventKinds",
+        "optionalFields"
+      ],
+      "fixtureBindings": [
+        { "fixtureField": "locales", "sourcePath": "locales" },
+        { "fixtureField": "actions", "sourcePath": "actions" },
+        { "fixtureField": "applicationActions", "sourcePath": "applicationActions" },
+        { "fixtureField": "messageIds", "sourcePath": "messages", "mode": "keys" },
+        { "fixtureField": "notificationKinds", "sourcePath": "notifications", "mode": "keys" },
+        { "fixtureField": "eventKinds", "sourcePath": "applicationEvents", "mode": "keys" }
+      ],
+      "sourceExpectations": {
+        "requiredFields": [
+          "locales",
+          "messages",
+          "actions",
+          "applicationActions",
+          "notifications",
+          "applicationEvents"
+        ],
+        "objectFields": {
+          "messages": [
+            "status.open-mish",
+            "status.open-browser",
+            "status.open-routes",
+            "status.open-profiles",
+            "status.open-traffic",
+            "status.open-events",
+            "status.open-settings",
+            "status.launch-proxy",
+            "status.launch-proxy-pending",
+            "status.launch-proxy-failed",
+            "status.stop-proxy",
+            "status.auto-start-proxy",
+            "status.quit",
+            "status.live.idle",
+            "status.live.unavailable",
+            "status.live.most-active-node",
+            "status.live.rate",
+            "application.settings",
+            "application.find",
+            "application.quit"
+          ],
+          "notifications": [
+            "capture.failure",
+            "local-proxy.feedback",
+            "onboarding.welcome",
+            "profile.activation-asn-failed",
+            "profile.activation-asn-progress",
+            "profile.activation-failed",
+            "profile.activation-geoip-failed",
+            "profile.activation-geoip-progress",
+            "profile.activation-geosite-failed",
+            "profile.activation-geosite-progress",
+            "profile.activation-listener-conflict",
+            "profile.activation-mmdb-failed",
+            "profile.activation-mmdb-progress",
+            "profile.create-failed",
+            "profile.created",
+            "profile.detach-failed",
+            "profile.detached",
+            "profile.file-action-failed",
+            "profile.import-failed",
+            "profile.refresh-failed",
+            "profile.save-failed",
+            "profile.saved",
+            "profile.schedule-failed",
+            "profile.subscription-updated",
+            "profile.switch-failed",
+            "route.selection-failed",
+            "route.old-child-cleanup",
+            "service.defaults-restored",
+            "service.removed",
+            "service.saved",
+            "settings.operation-failed",
+            "status.operation-failed",
+            "system-proxy.drift",
+            "system-proxy.failed",
+            "traffic.connection-closed",
+            "traffic.connections-closed",
+            "traffic.operation-failed",
+            "tun-helper.lifecycle",
+            "tun.drift",
+            "tun.failed"
+          ],
+          "applicationEvents": [
+            "capture.failure",
+            "controller.session-started",
+            "controller.session-stale",
+            "controller.stream-unavailable",
+            "profile.activation-failed",
+            "proxy.launch-timing",
+            "route.old-child-cleanup",
+            "settings.operation-failed",
+            "traffic.operation-failed"
+          ]
+        },
+        "optionalFields": [
+          "captureMode",
+          "observationStage",
+          "observationStage",
+          "takeoverReason",
+          "outcome",
+          "outcome",
+          "outcome",
+          "outcome",
+          "failure",
+          "failure",
+          "failure",
+          "failure",
+          "failure",
+          "failure"
+        ]
+      },
+      "compatibility": {
+        "versionField": "schemaVersion",
+        "version": 1,
+        "outcomes": ["generated"]
+      },
+      "discriminants": { "typescript": "kind", "rust": "tag=kind,content=data" },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["closed IDs", "bounded scalar presentation data", "closed action IDs"]
+      }
+    },
+    {
+      "id": "mobile-events-traffic",
+      "family": "explicit-rust-ts-shape",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs" },
+      "typescript": ["packages/contracts/src/index.ts"],
+      "rust": [
+        "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+        "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_traffic.rs"
+      ],
+      "generatedFiles": [],
+      "fixture": "scripts/fixtures/contract-parity/mobile-events-traffic.golden.json",
+      "fixtureFields": [
+        "eventsSnapshot",
+        "eventRecord",
+        "sourceStatus",
+        "trafficLimit",
+        "eventLimit"
+      ],
+      "manualEvidence": {
+        "rustSymbols": [
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+            "name": "MobileEventsSnapshot"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+            "name": "MobileEventRecord"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_traffic.rs",
+            "name": "NativeTrafficSnapshot"
+          }
+        ],
+        "typescriptSymbols": [
+          { "path": "packages/contracts/src/index.ts", "name": "EventsSnapshotSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "EventRecordSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "TrafficDataSnapshotSchema" }
+        ],
+        "shapes": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+              "symbol": "MobileEventsSnapshot"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "EventsSnapshotBaseSchema"
+            },
+            "wireFields": [
+              "adapterKind",
+              "applicationOrder",
+              "events",
+              "phase",
+              "profileId",
+              "reconnectCount",
+              "sequence",
+              "sessionId",
+              "sourceStatuses"
+            ],
+            "nullableFields": ["sessionId"],
+            "optionalFields": []
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+              "symbol": "MobileEventRecord"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "EventRecordSchema"
+            },
+            "wireFields": [
+              "application",
+              "evidence",
+              "id",
+              "level",
+              "observedAt",
+              "sequence",
+              "source"
+            ],
+            "nullableFields": ["application", "evidence"],
+            "optionalFields": []
+          }
+        ],
+        "enums": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+              "symbol": "MobileEventLevel"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "EventLevelSchema"
+            },
+            "values": ["debug", "info", "warning", "error"]
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+              "symbol": "MobileEventSource"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "EventSourceSchema"
+            },
+            "values": ["application", "core", "platform", "rpc"]
+          }
+        ],
+        "bounds": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_events.rs",
+              "marker": "pub const MOBILE_EVENTS_LIMIT: usize = 1_024;"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "marker": "z.array(EventRecordSchema).max(1_024)"
+            }
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_traffic.rs",
+              "marker": "const MAX_CONNECTIONS: usize = 512;"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "marker": "z.array(TrafficConnectionSchema).max(20_000)"
+            }
+          }
+        ]
+      },
+      "compatibility": {
+        "versionField": "eventVersion",
+        "version": 2,
+        "outcomes": ["compatible", "replaced"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["redacted event evidence", "bounded identifiers", "closed source/level enums"]
+      }
+    },
+    {
+      "id": "mobile-route-vpn",
+      "family": "explicit-rust-ts-shape",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs" },
+      "typescript": ["packages/contracts/src/index.ts"],
+      "rust": [
+        "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+        "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs"
+      ],
+      "generatedFiles": [],
+      "fixture": "scripts/fixtures/contract-parity/mobile-route-vpn.golden.json",
+      "fixtureFields": ["routeResult", "routeSnapshot", "vpnResult", "vpnNullableFields"],
+      "manualEvidence": {
+        "rustSymbols": [
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+            "name": "MobileRouteCommandResult"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+            "name": "MobileRouteSnapshot"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+            "name": "MobileRouteFailure"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+            "name": "MobileRouteCommandStatus"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+            "name": "MobileVpnSnapshot"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+            "name": "MobileVpnCommandResult"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+            "name": "MobileVpnEvent"
+          }
+        ],
+        "typescriptSymbols": [
+          { "path": "packages/contracts/src/index.ts", "name": "MobileRouteCommandResultSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "MobileRouteSnapshotSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "MobileRouteFailureSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "MobileVpnSnapshotSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "MobileVpnCommandResultSchema" }
+        ],
+        "shapes": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+              "symbol": "MobileRouteCommandResult"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileRouteCommandResultSchema"
+            },
+            "wireFields": ["contractVersion", "failure", "operationId", "snapshot", "status"],
+            "nullableFields": ["failure"],
+            "optionalFields": []
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+              "symbol": "MobileRouteSnapshot"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileRouteSnapshotSchema"
+            },
+            "wireFields": [
+              "contractVersion",
+              "profileId",
+              "profileRevision",
+              "runtimeAuthority",
+              "status"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+              "symbol": "MobileVpnCommandResult"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileVpnCommandResultSchema"
+            },
+            "wireFields": ["contractVersion", "operation", "snapshot"],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+              "symbol": "MobileVpnSnapshot"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileVpnSnapshotSchema"
+            },
+            "wireFields": [
+              "activationSessionId",
+              "activeNetwork",
+              "authorityId",
+              "backendKind",
+              "contractVersion",
+              "coreAbiVersion",
+              "coreAvailability",
+              "coreCommit",
+              "configFailureInjectionAvailable",
+              "coreVersion",
+              "coreWrapperRevision",
+              "coreConfigState",
+              "coreRunning",
+              "dnsApplied",
+              "failure",
+              "foreground",
+              "loadedConfigDigest",
+              "loadedConfigRevision",
+              "message",
+              "notificationPermission",
+              "operation",
+              "permission",
+              "phase",
+              "protectedSocketCount",
+              "publicRequestObserved",
+              "revision",
+              "sequence",
+              "sessionId",
+              "routesApplied",
+              "tunEstablished",
+              "updatedAtMillis",
+              "validatedConfigDigest",
+              "validatedConfigRevision",
+              "vpnActive",
+              "vpnAvailability",
+              "tunAvailability"
+            ],
+            "nullableFields": [
+              "activationSessionId",
+              "coreAbiVersion",
+              "coreCommit",
+              "coreVersion",
+              "coreWrapperRevision",
+              "failure",
+              "loadedConfigDigest",
+              "loadedConfigRevision",
+              "operation",
+              "validatedConfigDigest",
+              "validatedConfigRevision"
+            ],
+            "optionalFields": []
+          },
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+              "symbol": "MobileVpnEvent"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileVpnEventSchema"
+            },
+            "wireFields": [
+              "authorityId",
+              "eventKind",
+              "eventVersion",
+              "revision",
+              "sequence",
+              "sessionId",
+              "snapshot"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          }
+        ],
+        "enums": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+              "symbol": "MobileRouteFailure"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "MobileRouteFailureSchema"
+            },
+            "values": [
+              "cancelled",
+              "duplicate-conflict",
+              "invalid-input",
+              "invalid-relation",
+              "malformed-native-response",
+              "native-rejected",
+              "native-response-too-large",
+              "runtime-replaced",
+              "stale-authority"
+            ]
+          }
+        ],
+        "bounds": [
+          {
+            "rust": {
+              "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+              "marker": "const MAX_IDENTITIES: usize = 128;"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "marker": "IdentifierSchema.max(128)"
+            }
+          }
+        ]
+      },
+      "compatibility": {
+        "versionField": "eventVersion",
+        "version": 2,
+        "rustMarkers": [
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/mobile_routes.rs",
+            "marker": "const CONTRACT_VERSION: u8 = 1;"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+            "marker": "pub const CONTRACT_VERSION: u8 = 1;"
+          },
+          {
+            "path": "apps/mobile/src-tauri/plugins/mish-vpn/src/models.rs",
+            "marker": "event_version: 2,"
+          }
+        ],
+        "typescriptMarkers": [
+          {
+            "path": "packages/contracts/src/index.ts",
+            "marker": "eventVersion: z.literal(2)"
+          },
+          {
+            "path": "packages/contracts/src/index.ts",
+            "marker": "contractVersion: z.literal(1)"
+          }
+        ],
+        "outcomes": ["compatible", "replaced"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["profile/runtime authority IDs", "route IDs", "closed lifecycle values"]
+      }
+    },
+    {
+      "id": "runtime-status",
+      "family": "explicit-rust-ts-shape",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "crates/runtime/src/status.rs" },
+      "typescript": ["packages/contracts/src/index.ts"],
+      "rust": ["crates/runtime/src/status.rs", "crates/runtime/src/capture.rs"],
+      "generatedFiles": [],
+      "fixture": "scripts/fixtures/contract-parity/runtime-status.golden.json",
+      "fixtureFields": ["runtimeStatus", "statusSnapshot", "captureLimit"],
+      "manualEvidence": {
+        "rustSymbols": [
+          { "path": "crates/runtime/src/status.rs", "name": "RuntimeStatus" },
+          { "path": "crates/runtime/src/status.rs", "name": "StatusSnapshot" },
+          { "path": "crates/runtime/src/capture.rs", "name": "CaptureOperationStatus" }
+        ],
+        "typescriptSymbols": [
+          { "path": "packages/contracts/src/index.ts", "name": "RuntimeStatusSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "StatusSnapshotSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "CaptureOperationStatusSchema" }
+        ],
+        "shapes": [
+          {
+            "rust": { "path": "crates/runtime/src/status.rs", "symbol": "RuntimeStatus" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "RuntimeStatusSchema"
+            },
+            "wireFields": [
+              "captureOperation",
+              "captureSelection",
+              "message",
+              "phase",
+              "systemProxy",
+              "systemProxyEnabled",
+              "tun",
+              "tunEnabled"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": { "path": "crates/runtime/src/status.rs", "symbol": "StatusSnapshot" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "StatusSnapshotSchema"
+            },
+            "wireFields": [
+              "activeProfileId",
+              "adapterKind",
+              "applicationOrder",
+              "capabilities",
+              "groups",
+              "groupDelayPolicy",
+              "groupDelayTest",
+              "groupSelectionOperation",
+              "groupSelectionAvailability",
+              "groupUsage",
+              "metrics",
+              "nodes",
+              "probeResults",
+              "profiles",
+              "recentTraffic",
+              "routingMode",
+              "runtime",
+              "serviceProbePolicy",
+              "services",
+              "traffic"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": { "path": "crates/runtime/src/capture.rs", "symbol": "CaptureOperationStatus" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "CaptureOperationStatusSchema"
+            },
+            "wireFields": ["failure", "operationId", "phase", "scopeEpoch"],
+            "nullableFields": ["failure", "operationId"],
+            "optionalFields": []
+          }
+        ],
+        "enums": [
+          {
+            "rust": { "path": "crates/runtime/src/status.rs", "symbol": "RuntimePhase" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "RuntimePhaseSchema"
+            },
+            "values": ["inactive", "connecting", "healthy", "stopping", "error"]
+          }
+        ],
+        "bounds": [
+          {
+            "rust": {
+              "path": "crates/runtime/src/status.rs",
+              "marker": "pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "marker": "z.array(NonNegativeNumberSchema).max(512)"
+            }
+          }
+        ]
+      },
+      "compatibility": {
+        "versionField": "applicationOrder",
+        "version": 1,
+        "outcomes": ["ordered", "stale", "replaced"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["bounded profile IDs", "redacted status/effect enums", "bounded metrics"]
+      }
+    },
+    {
+      "id": "settings",
+      "family": "explicit-rust-ts-shape",
+      "discriminants": { "typescript": "none", "rust": "none" },
+      "dimensions": [
+        "fields",
+        "enum-variants",
+        "discriminants-and-tagging",
+        "optional-null-semantics",
+        "numeric-and-string-bounds",
+        "collection-limits",
+        "redaction-and-privacy",
+        "compatibility-and-version-envelope",
+        "generated-files"
+      ],
+      "authority": { "path": "crates/settings/src/lib.rs" },
+      "typescript": ["packages/contracts/src/index.ts"],
+      "rust": ["crates/settings/src/lib.rs"],
+      "generatedFiles": [],
+      "fixture": "scripts/fixtures/contract-parity/settings.golden.json",
+      "fixtureFields": ["snapshot", "preferences", "ports"],
+      "manualEvidence": {
+        "rustSymbols": [
+          { "path": "crates/settings/src/lib.rs", "name": "SettingsSnapshot" },
+          { "path": "crates/settings/src/lib.rs", "name": "SettingsPreferences" },
+          { "path": "crates/settings/src/lib.rs", "name": "ManagedPortPreferences" }
+        ],
+        "typescriptSymbols": [
+          { "path": "packages/contracts/src/index.ts", "name": "SettingsSnapshotSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "SettingsPreferencesSchema" },
+          { "path": "packages/contracts/src/index.ts", "name": "ManagedPortPreferencesSchema" }
+        ],
+        "shapes": [
+          {
+            "rust": { "path": "crates/settings/src/lib.rs", "symbol": "SettingsSnapshot" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "SettingsSnapshotSchema"
+            },
+            "wireFields": [
+              "adapterKind",
+              "applicationOrder",
+              "build",
+              "capabilities",
+              "networkDns",
+              "preferences",
+              "privacy",
+              "revision",
+              "startupRegistration",
+              "storageRecovered",
+              "tunHelper",
+              "tunHelperOperation"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": { "path": "crates/settings/src/lib.rs", "symbol": "SettingsPreferences" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "SettingsPreferencesSchema"
+            },
+            "wireFields": [
+              "appearance",
+              "captureSelection",
+              "closeOldConnectionsAfterGroupSwitch",
+              "language",
+              "managedPorts",
+              "onboarding",
+              "processDiscoveryMode",
+              "startup",
+              "systemProxyTakeoverPolicy",
+              "windowCloseBehavior",
+              "windowSurface"
+            ],
+            "nullableFields": [],
+            "optionalFields": []
+          },
+          {
+            "rust": { "path": "crates/settings/src/lib.rs", "symbol": "ManagedPortPreferences" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "ManagedPortPreferencesSchema"
+            },
+            "wireFields": ["controller", "proxy"],
+            "nullableFields": [],
+            "optionalFields": []
+          }
+        ],
+        "enums": [
+          {
+            "rust": { "path": "crates/settings/src/lib.rs", "symbol": "SettingsAdapterKind" },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "schema": "SettingsAdapterKindSchema"
+            },
+            "values": ["fixture", "native", "rpc"]
+          }
+        ],
+        "bounds": [
+          {
+            "rust": {
+              "path": "crates/settings/src/lib.rs",
+              "marker": "pub struct ManagedPortPreferences"
+            },
+            "typescript": {
+              "path": "packages/contracts/src/index.ts",
+              "marker": "controller: z.number().int().min(1).max(65535)"
+            }
+          }
+        ]
+      },
+      "compatibility": {
+        "versionField": "revision",
+        "version": 0,
+        "outcomes": ["ordered", "recovered", "rejected"]
+      },
+      "privacy": {
+        "deniedShapes": [
+          "credentials",
+          "private-keys",
+          "tokens",
+          "profile-bytes",
+          "raw-platform-output",
+          "absolute-paths",
+          "arbitrary-endpoints"
+        ],
+        "allowlist": ["preferences", "capability states", "bounded network observation"]
+      }
+    }
+  ]
+}

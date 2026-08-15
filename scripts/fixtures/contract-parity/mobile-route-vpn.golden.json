@@ -1,0 +1,28 @@
+{
+  "contractId": "mobile-route-vpn",
+  "fixtureVersion": 1,
+  "payload": {
+    "routeResult": ["contractVersion", "failure", "operationId", "snapshot", "status"],
+    "routeSnapshot": [
+      "contractVersion",
+      "profileId",
+      "profileRevision",
+      "runtimeAuthority",
+      "status"
+    ],
+    "vpnResult": ["contractVersion", "operation", "snapshot"],
+    "vpnNullableFields": [
+      "activationSessionId",
+      "coreAbiVersion",
+      "coreCommit",
+      "coreVersion",
+      "coreWrapperRevision",
+      "failure",
+      "loadedConfigDigest",
+      "loadedConfigRevision",
+      "operation",
+      "validatedConfigDigest",
+      "validatedConfigRevision"
+    ]
+  }
+}
