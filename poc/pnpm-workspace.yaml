@@ -1,0 +1,10 @@
+packages:
+  - orpc
+  - xstate
+  - query-store
+  - electron
+  - rn
+
+overrides:
+  "@types/node": 26.1.1
+  ws: 8.21.1
