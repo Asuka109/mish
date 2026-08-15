@@ -5,6 +5,7 @@
     { "path": "./packages/mock-bridge" },
     { "path": "./packages/rpc-client" },
     { "path": "./packages/ui" },
-    { "path": "./apps/web" }
+    { "path": "./apps/web" },
+    { "path": "./apps/desktop-electron" }
   ]
 }

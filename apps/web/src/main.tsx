@@ -44,6 +44,12 @@ const reactRoot = createRoot(applicationRoot);
 const appRoutesModulePromise =
   import.meta.env.VITE_MISH_BUILD_TARGET === "mobile" ? import("./mobile-app") : import("./app");
 
+function recordElectronLifecycle(
+  event: "renderer-ready" | "renderer-page-hidden" | "renderer-destroyed",
+): void {
+  void window.mishElectron?.recordLifecycle(event).catch(() => undefined);
+}
+
 function renderInitialApplication(
   application: ReactNode,
   runtime: "browser" | "desktop" | "mobile",
@@ -74,6 +80,7 @@ async function startApplication() {
   loadAllLocales();
   const runtime = resolveRuntimeKind({
     buildTarget: import.meta.env.VITE_MISH_BUILD_TARGET,
+    electron: typeof window.mishElectron !== "undefined",
     tauri: isTauri(),
   });
   document.documentElement.dataset.runtime = runtime;
@@ -84,12 +91,14 @@ async function startApplication() {
   window.addEventListener(
     "pagehide",
     () => {
+      recordElectronLifecycle("renderer-page-hidden");
       releaseNativeFeel();
       releaseFocusVisibility();
       disposeStartup();
     },
     { once: true },
   );
+  recordElectronLifecycle("renderer-ready");
 
   try {
     const { AppRoutes } = await appRoutesModulePromise;
