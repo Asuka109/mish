@@ -469,10 +469,10 @@ privileged integration, or claim real-system behavior from fixtures.
 
 The maintainer approved this exact seven-task admission wave on 2026-08-15 and
 authorized continued dispatch without repeated confirmation while work remains
-inside ADR-0001 and the existing safety/authority envelope. P0 was integrated
-through PR #538 at `dev@fe6e172c`. P1-P3 are active in isolated worktrees from
-the published dispatch ledger `dev@0566851a` and implementation baseline
-`fe6e172c`. Every Worker uses
+inside ADR-0001 and the existing safety/authority envelope. P0-P3 and the P0a
+dependency correction are integrated. P4-P5 are reserved for parallel dispatch
+from implementation baseline `80a881db`; task IDs and worktrees remain pending
+until worker creation completes. Every Worker uses
 `gpt-5.6-luna/max`, Chinese reporting, confirmation-only acceptance,
 final-only escalation, an isolated branch/worktree, and no release, deployment,
 credential use, external-service write, or real system/network effect. POC code
@@ -485,9 +485,9 @@ dual-write or compatibility path.
 | P0a direct dependency repair | integrated; PR #542; `729e9697` | `poc/orpc/package.json`, `poc/query-store/package.json`, `poc/pnpm-lock.yaml` | P0, P2 | Declare the public oRPC packages actually consumed by P1/P3 as exact direct dependencies so neither package resolves through another workspace, `.pnpm`, `node_modules`, or private `/dist/` paths; frozen install and all existing POC typechecks remain green |
 | P1 oRPC policy/transport | integrated; PR #541; `5fed4dd8` | `poc/orpc/**` excluding manifests | P0 | Contract-first WebSocket/Event Iterator and Electron MessagePort evidence covers authentication, version negotiation, session generation, stale rejection, deadline, size bound, correlation, cancellation, cleanup, and reconnect; no handwritten JSON-RPC envelope |
 | P2 XState actor semantics | integrated; PR #540; `c69c85fe` | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
-| P3 Query/Store/Hermes | active; `/root/p3_query_store_hermes`; `/Users/asuka/.codex/worktrees/wave3b-p3/mihomo-web-client` | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes React DOM and RN/Hermes subscription/batch/remount tests; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
-| P4 Electron admission | approved; pending P0/P1 | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, and produces a credential-free runnable DMG fixture without system effects |
-| P5 React Native admission | approved; pending P0/P2/P3 | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
+| P3 Query/Store/Hermes | integrated; PR #539; `80a881db`; host renderer evidence remains P4/P5 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes framework-neutral subscription/batch/remount tests; React DOM/Hermes execution is a hard P4/P5 prerequisite; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
+| P4 Electron admission | dispatching; task/worktree pending; baseline `80a881db` | `poc/electron/**` excluding manifests | P0, P1 | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, proves the React renderer Store adapter, and produces a credential-free runnable DMG fixture without system effects |
+| P5 React Native admission | dispatching; task/worktree pending; baseline `80a881db` | `poc/rn/**` excluding manifests | P0, P2, P3 | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
 | P6 cutover admission record | approved; pending P1-P5 | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and one-shot Cutover Worker packets; no POC runtime source enters production |
 
 Dependency order is fixed: P0 first; P1-P3 may then run in parallel; P4 and P5
