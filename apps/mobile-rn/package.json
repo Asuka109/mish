@@ -1,0 +1,57 @@
+{
+  "name": "@mish/mobile-rn",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "android:build": "pnpm android:codegen && android/gradlew -p android assembleDebug",
+    "android:check": "node ../../scripts/check-mobile-rn-project.ts",
+    "android:codegen": "android/gradlew -p android generateCodegenArtifactsFromSchema",
+    "android:install": "android/gradlew -p android installArm64V8aDebug",
+    "android:inspect": "node ../../scripts/verify-mobile-rn-apk.ts --directory android/app/build/outputs/apk/debug",
+    "android:test": "android/gradlew -p android testDebugUnitTest",
+    "lint": "oxlint src __tests__",
+    "start": "react-native start",
+    "test:run": "jest --runInBand",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mish/contracts": "workspace:*",
+    "@mish/design-tokens": "workspace:*",
+    "react": "19.2.7",
+    "react-native": "0.87.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-env": "7.29.5",
+    "@babel/runtime": "7.29.7",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/codegen": "0.87.0",
+    "@react-native/gradle-plugin": "0.87.0",
+    "@react-native/metro-config": "0.87.0",
+    "@react-native/typescript-config": "0.87.0",
+    "@types/jest": "30.0.0",
+    "@types/react": "19.2.14",
+    "@types/react-test-renderer": "19.1.0",
+    "babel-jest": "30.4.1",
+    "hermes-compiler": "250829098.0.16",
+    "jest": "30.4.2",
+    "oxlint": "1.74.0",
+    "prettier": "2.8.8",
+    "react-test-renderer": "19.2.7",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "codegenConfig": {
+    "name": "MishCapabilitySpec",
+    "type": "modules",
+    "jsSrcsDir": "src/native",
+    "android": {
+      "javaPackageName": "com.asuka109.mish.rn"
+    }
+  }
+}
