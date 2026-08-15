@@ -112,3 +112,33 @@ test("a packet without an acceptance clause is rejected", () => {
   const errors = validateTypescriptCutoverAdmission({ document: drifted });
   assert.match(errors.join("\n"), /cutover packet row lacks an acceptance clause: CUT-05/u);
 });
+
+test("removing one packet's cumulative lock permission is rejected", () => {
+  const drifted = document().replace(
+    "New `packages/domain/**`, actor tests, and bounded generated updates to the cumulative root `pnpm-lock.yaml` for exact packet dependencies only",
+    "New `packages/domain/**` and actor tests only",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(errors.join("\n"), /cutover packet lock permission is missing: CUT-02/u);
+});
+
+test("removing cumulative lock conflict reconciliation is rejected", () => {
+  const drifted = document().replace(
+    "performs lock conflict reconciliation sequentially",
+    "performs lock reconciliation sequentially",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /root lock ownership policy is missing: lock conflict reconciliation/u,
+  );
+});
+
+test("removing frozen-install or no-missing-importer acceptance is rejected", () => {
+  const drifted = document()
+    .replace("run the frozen install", "run the install")
+    .replace("verify\nno missing importer", "verify\nan importer");
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(errors.join("\n"), /root lock ownership policy is missing: frozen install/u);
+  assert.match(errors.join("\n"), /root lock ownership policy is missing: no missing importer/u);
+});
