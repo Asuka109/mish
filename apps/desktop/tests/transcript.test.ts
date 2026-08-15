@@ -54,12 +54,12 @@ describe("Electron transcript boundary", () => {
     expect(() =>
       replayElectronTranscript([{ ...event, logicalTime: event.logicalTime }]),
     ).not.toThrow();
-    expect(() => replayElectronTranscript([
-      event,
-      { ...event, logicalTime: event.logicalTime, correlationId: electronCorrelation(2) },
-    ])).toThrow(
-      "Electron transcript logical time must increase",
-    );
+    expect(() =>
+      replayElectronTranscript([
+        event,
+        { ...event, logicalTime: event.logicalTime, correlationId: electronCorrelation(2) },
+      ]),
+    ).toThrow("Electron transcript logical time must increase");
     expect(() => electronCorrelation(0)).toThrow(
       "Electron transcript correlation is out of bounds",
     );
