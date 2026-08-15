@@ -469,12 +469,12 @@ privileged integration, or claim real-system behavior from fixtures.
 
 The maintainer approved this exact seven-task admission wave on 2026-08-15 and
 authorized continued dispatch without repeated confirmation while work remains
-inside ADR-0001 and the existing safety/authority envelope. P0-P3 and P0a-P0e
-are integrated. P4 is awaiting final CI after removing its last
-Vitest-mediated resolver. P5 delivered real Hermes bundle, dual-ABI APK, and
-root-free emulator renderer evidence in ready PR #544 and has resumed on the
-integrated P0e direct Metro-transformer repair to finish the single total smoke
-deadline and exact owned-emulator port/cleanup correlation. Both host
+inside ADR-0001 and the existing safety/authority envelope. P0-P4 and P0a-P0e
+are integrated. P5 delivered its final direct-transformer and bounded
+owned-emulator follow-up in ready PR #544 at `7aff4b6a`. Worker and coordinator
+evidence now includes real Hermes bundles, a dual-ABI APK, and root-free
+emulator renderer acceptance with exact port/identity cleanup; Fast PR and the
+Android Rust gate are green while the Android lifecycle gate remains in flight. Both host
 tasks were dispatched from ledger baseline
 `9e4f1b52` and implementation baseline `80a881db`. Every Worker uses
 `gpt-5.6-luna/max`, Chinese reporting, confirmation-only acceptance,
@@ -495,7 +495,7 @@ dual-write or compatibility path.
 | P2 XState actor semantics | integrated; PR #540; `c69c85fe` | `poc/xstate/**` excluding manifests | P0 | XState v5 actors/statecharts cover representative Runtime, Profile, Capture, Updater, and VPN cancellation/replacement/failure/recovery transcripts; no Mish-owned general runner/kernel |
 | P3 Query/Store/Hermes | integrated; PR #539; `80a881db`; host renderer evidence remains P4/P5 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes framework-neutral subscription/batch/remount tests; React DOM/Hermes execution is a hard P4/P5 prerequisite; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
 | P4 Electron admission | integrated; PR #546; `c4e67989`; direct `vite` resolution no longer uses Vitest; evidence-backed launcher exit/close drain handles an exited clean main with delayed helper-pipe close while retaining bounded TERM/KILL for a real startup stall; worker completed six consecutive real mounted-DMG passes and coordinator completed one fresh 6/6 pass in 41.82s with no residual process/mount; all required CI passed | `poc/electron/**` excluding manifests | P0, P1, P0b, P0d | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, proves the React renderer Store adapter, and produces a credential-free runnable DMG fixture without system effects |
-| P5 React Native admission | active final admission follow-up from `dev@937a10c4`; ready PR #544 / prior head `11bd4ad3`; `/root/p5_rn_admission`; prior real debug/release Hermes bundles, dual-ABI APK, and root-free arm64 emulator renderer reached `RN_ADMISSION_OK`, with cleanup complete; coordinator TS/11 tests/static/transcript/P2/P3 passed; now rerunning on direct scoped transformer plus the total owned-emulator deadline/port/cleanup contract | `poc/rn/**` excluding manifests | P0, P2, P3, P0c, P0e | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
+| P5 React Native admission | awaiting final CI; ready PR #544 / `7aff4b6a`; `/root/p5_rn_admission`; worker debug/release Hermes bundles, dual-ABI APK, and root-free arm64 renderer passed; coordinator frozen install, TypeScript, RN 11 tests, static/transcript, XState 10, Query/Store 20 plus 2 intentional skips, dual-ABI debug APK, and independent `emulator-5558` smoke reached `RN_ADMISSION_OK`; exact owned process/device cleanup passed and the worktree is clean; Fast PR and Android Rust are green, Android lifecycle remains in flight | `poc/rn/**` excluding manifests | P0, P2, P3, P0c, P0e | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
 | P6 cutover admission record | approved; pending P1-P5 | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and one-shot Cutover Worker packets; no POC runtime source enters production |
 
 Dependency order is fixed: P0 first; P1-P3 may then run in parallel; P4 and P5
