@@ -1,11 +1,6 @@
-import { createORPCClient } from "../../orpc/node_modules/@orpc/client/dist/index.mjs";
-import type { Client, ClientLink } from "../../orpc/node_modules/@orpc/client/dist/index.mjs";
-import {
-  eventIterator,
-  oc,
-  type ContractRouterClient,
-  type as schema,
-} from "../../orpc/node_modules/@orpc/contract/dist/index.mjs";
+import { createORPCClient } from "@orpc/client";
+import type { Client, ClientLink } from "@orpc/client";
+import { eventIterator, oc, type ContractRouterClient, type as schema } from "@orpc/contract";
 
 import { createOrpcProcedureUtils } from "../src/query.ts";
 

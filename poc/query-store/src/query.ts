@@ -1,16 +1,13 @@
 import { MutationObserver, QueryClient } from "@tanstack/query-core";
-import { createProcedureUtils } from "../../orpc/node_modules/@orpc/tanstack-query/dist/index.mjs";
-import type { Client, ClientContext } from "../../orpc/node_modules/@orpc/client/dist/index.mjs";
+import type { Client, ClientContext } from "@orpc/client";
+import { createProcedureUtils } from "@orpc/tanstack-query";
 import type {
   experimental_StreamedOptionsIn,
   MutationOptionsIn,
   QueryOptionsBase,
   QueryOptionsIn,
-} from "../../orpc/node_modules/@orpc/tanstack-query/dist/index.mjs";
+} from "@orpc/tanstack-query";
 import type { FetchQueryOptions, MutationObserverOptions, QueryKey } from "@tanstack/query-core";
-
-// P3 cannot add a manifest dependency. Resolve the published ESM/type exports
-// from the P1 workspace install that frozen P0 dependencies already provide.
 
 /**
  * The official oRPC 1.15.0 TanStack Query utility. It is intentionally kept
@@ -91,7 +88,9 @@ export function createOrpcMutation<TContext extends ClientContext, TInput, TOutp
   },
 ): OrpcMutation<TInput, TOutput, TError> {
   const { invalidateKeys, ...officialOptions } = options;
-  const generated = utils.mutationOptions(officialOptions);
+  const generated = utils.mutationOptions(
+    officialOptions as MutationOptionsIn<TContext, TInput, TOutput, TError, unknown>,
+  );
   const mutationOptions: MutationObserverOptions<TOutput, TError, TInput> = {
     ...generated,
     onSuccess: async (data, input, onMutateResult, context) => {
