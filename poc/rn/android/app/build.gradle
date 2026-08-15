@@ -1,0 +1,67 @@
+plugins {
+  id "com.android.application"
+  id "com.facebook.react"
+}
+
+def rnDir = file("../../node_modules/react-native")
+def hermesCommandPath = new File(rnDir.canonicalFile.parentFile, "hermes-compiler/hermesc/%OS-BIN%/hermesc")
+
+react {
+  root = file("../..")
+  reactNativeDir = rnDir
+  codegenDir = file("../../node_modules/@react-native/codegen")
+  entryFile = file("../../index.ts")
+  hermesCommand = hermesCommandPath.absolutePath
+  debuggableVariants = []
+  autolinkLibrariesWithApp()
+}
+
+def reactNativeArchitectures = (project.findProperty("reactNativeArchitectures") ?: "arm64-v8a,x86_64")
+    .toString()
+    .split(",")
+
+android {
+  namespace "com.mish.rnadmission"
+  compileSdk 36
+  buildToolsVersion "36.1.0"
+  ndkVersion "29.0.14206865"
+
+  defaultConfig {
+    applicationId "com.mish.rnadmission"
+    minSdk 24
+    targetSdk 36
+    versionCode 1
+    versionName "0.0.0"
+    ndk {
+      abiFilters(*reactNativeArchitectures)
+    }
+  }
+
+  buildFeatures {
+    buildConfig true
+  }
+
+  buildTypes {
+    debug {
+      debuggable true
+      minifyEnabled false
+    }
+  }
+
+  packaging {
+    resources {
+      excludes += ["META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt"]
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+}
+
+dependencies {
+  implementation("com.facebook.react:react-android")
+  implementation("com.facebook.react:hermes-android")
+}

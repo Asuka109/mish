@@ -1,0 +1,14 @@
+{
+  "reactNativeVersion": "0.87.0",
+  "dependencies": {},
+  "project": {
+    "android": {
+      "sourceDir": "app",
+      "appName": "MishRnAdmission",
+      "packageName": "com.mish.rnadmission",
+      "applicationId": "com.mish.rnadmission",
+      "mainActivity": ".MainActivity",
+      "dependencyConfiguration": "implementation"
+    }
+  }
+}
