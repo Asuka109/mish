@@ -16,7 +16,7 @@ import {
   staleOutput,
   trace,
   traceError,
-} from "./shared.ts";
+} from "./shared.js";
 
 export type CaptureEvent =
   | { type: "ENABLE"; operation?: number }

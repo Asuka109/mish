@@ -16,7 +16,7 @@ import {
   staleOutput,
   trace,
   traceError,
-} from "./shared.ts";
+} from "./shared.js";
 
 export type CoreEvent =
   | { type: "LAUNCH"; operation?: number }
