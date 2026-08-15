@@ -99,9 +99,17 @@ M3. Coordinator post-merge checks passed: documentation/checksum/provenance
 fixtures 17/17, local-backup restore/recovery 19/19, package-revision policy
 7/7, lifecycle 21/21, SimulatedHost lifecycle recovery 3/3, macOS lifecycle
 authority checks 10/10, the full SimulatedHost Rust/Browser path, and production
-exclusion 12/12 + 4/4. No implementation Worker is active; #527 is
-dependency-unblocked but not dispatched. Ten implementation slots are
-unreserved. No Wave 2P evidence claims physical sleep/wake, real restore
+exclusion 12/12 + 4/4. #527 remains dependency-unblocked but undispatched.
+
+Wave 3A was explicitly approved on 2026-08-15 for the TypeScript/Electron/
+React Native migration foundation. Four isolated `gpt-5.6-luna/max` Workers
+are reserved as `dispatching` below; six implementation slots remain
+unreserved. The published baseline is local `dev@26e0cc3f`, created from the
+latest `origin/main`. This wave authorizes bounded repository implementation,
+commit/push/PR, deterministic fixtures, and CI only. It authorizes no release,
+deployment, external business-service write, signing credential use, real
+System Proxy/TUN/VPN/Core/network mutation, or merge before explicit
+confirmation-only acceptance. No Wave 2P evidence claims physical sleep/wake, real restore
 interruption, production signing, release publication, external network
 behavior, or device acceptance.
 
@@ -419,6 +427,25 @@ worktrees are backfilled below; each started from the published
 | #520 G1-G3 Gradle wrapper checksum | `01a00099-7ac8-7ca1-b057-b7a0b7870211` | `7db1` | integrated | Current pinned Gradle version and generated Android wrapper | Add the official reviewed checksum as canonical data and enforce deterministic generation plus tamper/version drift rejection | PR #529 merged as `507814fb` after explicit acceptance; required CI and coordinator checksum fixtures passed; Issue #520 CLOSED/COMPLETED; no Gradle upgrade or broad dependency change |
 | #523 M1+M2 Go toolchain provenance | `01a00099-7a9d-7c82-928d-c70ed4f150f5` | `a8a1` | integrated | Existing Mobile Core reproducible-build/admission evidence | Model the executed toolchain source and reject caller overrides falsely claiming verified official archive identity | PR #532 merged as `ba232aeb` after explicit acceptance; required CI and coordinator provenance fixtures passed; Issue #523 remains open for M3 and the full replaced-cache/missing-host matrix |
 | #525 O1-O3 documentation boundaries | `01a00099-7ac5-7c61-8ee4-a11acce80750` | `1532` | integrated | Current public RPC catalog, mock bridge, CSP, and icon policy | Correct mock behavioral coverage and HTTPS image privacy claims with the smallest useful configuration/catalog drift checks | PR #528 merged as `aa552a77` after explicit acceptance; required CI and coordinator documentation drift fixtures passed; Issue #525 CLOSED/COMPLETED; no product behavior change |
+
+## Wave 3A dispatch manifest
+
+The maintainer approved this exact four-task migration-foundation wave on
+2026-08-15. Every entry uses model `gpt-5.6-luna`, reasoning effort `max`,
+Chinese reporting, confirmation-only acceptance, final-only parent escalation,
+and an isolated worktree starting from `dev@26e0cc3f`. The explicit
+project-specific compute choice overrides the default thread-master compute
+table. Workers may commit scoped work, push task branches, open/update PRs, and
+satisfy CI; they must not merge before explicit acceptance. No task may publish
+or deploy, use signing credentials, mutate a real host/device network or
+privileged integration, or claim real-system behavior from fixtures.
+
+| Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| TSM-001 TypeScript state-machine kernel | `pending` | `pending` | dispatching | none; preserve the Rust kernel as the parity oracle | Add an isolated TypeScript state-machine package with equivalent admission, correlation, cancellation, replacement, retirement, finalizer, observer, and bounded failure semantics; prove adversarial parity without changing production authority | Own only the new package and its focused tests/config wiring; system-boundary semantic model only; no host effects or Rust deletion |
+| TSM-002 Rust-to-TypeScript contract parity gate | `pending` | `pending` | dispatching | existing generated contracts and Rust DTOs | Add a machine-readable migration inventory plus deterministic Rust/TypeScript golden-schema parity checks that reject field, enum, limit, redaction, and compatibility drift | Own contract parity tooling/fixtures and minimal generated-contract wiring; no domain behavior migration, host effects, or broad contract redesign |
+| HOST-001 secure Electron foundation | `pending` | `pending` | dispatching | existing Web production bundle and shared contracts | Add a new Electron desktop app with hardened main/preload/renderer boundaries, narrow typed IPC, current Web renderer reuse, deterministic smoke tests, and a credential-free local ad-hoc DMG fixture | Own the new Electron app and its narrowly required build scripts/config; no System Proxy, TUN, Helper, Core, updater, signing, release, or Tauri deletion |
+| HOST-002 React Native Android foundation | `pending` | `pending` | dispatching | existing design tokens/contracts and Android package identity | Add a React Native New Architecture Android app with a typed Kotlin TurboModule capability seam, shared token/contract consumption, deterministic tests, and a locally buildable installable debug APK | Own the new React Native app/native module and narrowly required workspace/build wiring; no VPN/TUN/Core start, socket protection, real device mutation, signing credential, release, or Tauri deletion |
 
 ## Wave 1 — approved for dispatch
 
