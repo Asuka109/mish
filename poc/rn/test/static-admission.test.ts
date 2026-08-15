@@ -18,6 +18,20 @@ describe("React Native admission fixture boundaries", () => {
     expect(capabilities).toContain('from "@mish/poc-orpc"');
     expect(capabilities).toContain('from "@mish/poc-query-store"');
     expect(app).not.toContain("react-dom");
+
+    const transformer = read("metro-babel-transformer.cjs");
+    const smoke = read("scripts/smoke-emulator.ts");
+    expect(transformer).toContain('require("@react-native/metro-babel-transformer")');
+    expect(transformer).not.toContain("require.resolve");
+    expect(transformer).not.toContain("@react-native/metro-config");
+    expect(smoke).toContain("MISH_RN_TOTAL_TIMEOUT_MS");
+    expect(smoke).toContain("totalDeadline");
+    expect(smoke).toContain("timeout: Math.min(adbTimeoutMs, remaining)");
+    expect(smoke).toContain('"-port"');
+    expect(smoke).toContain("MISH_RN_EMULATOR_PORT");
+    expect(smoke).toContain("ownedIdentity");
+    expect(smoke).toContain("isOwnedEmulator");
+    expect(smoke).toContain("process.kill(ownedIdentity.pid, 0)");
   });
 
   it("keeps host effects out of the fixture", () => {
