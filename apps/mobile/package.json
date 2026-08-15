@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "GPL-3.0-only",
+  "type": "module",
   "scripts": {
     "android:build": "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
     "android:configure": "node ../../scripts/configure-android-project.ts",
@@ -10,11 +11,45 @@
     "android:prepare-plugin-tests": "node ../../scripts/prepare-android-plugin-tests.ts",
     "android:test": "pnpm android:configure && pnpm android:prepare-plugin-tests && src-tauri/gen/android/gradlew -p src-tauri/gen/android :tauri-plugin-mish-vpn:testDebugUnitTest",
     "android:test:emulator": "pnpm android:configure && pnpm android:prepare-plugin-tests && src-tauri/gen/android/gradlew -p src-tauri/gen/android :tauri-plugin-mish-vpn:connectedDebugAndroidTest",
+    "rn:android:build": "node scripts/build-debug-apk.ts",
+    "rn:android:smoke": "node scripts/smoke-emulator.ts",
+    "rn:test:run": "vitest run",
+    "rn:typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
     "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
+  "dependencies": {
+    "@mish/contracts": "workspace:*",
+    "@mish/domain": "workspace:*",
+    "@mish/orpc-client": "workspace:*",
+    "@mish/ui-state": "workspace:*",
+    "@orpc/client": "1.15.0",
+    "@orpc/contract": "1.15.0",
+    "@orpc/tanstack-query": "1.15.0",
+    "@tanstack/query-core": "5.101.4",
+    "@tanstack/react-query": "5.101.4",
+    "@tanstack/store": "0.11.1",
+    "react": "19.2.7",
+    "react-native": "0.87.0",
+    "xstate": "5.32.5"
+  },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4"
+    "@babel/core": "7.29.7",
+    "@babel/plugin-transform-export-namespace-from": "7.29.7",
+    "@babel/runtime": "7.29.7",
+    "@orpc/server": "1.15.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/codegen": "0.87.0",
+    "@react-native/gradle-plugin": "0.87.0",
+    "@react-native/metro-babel-transformer": "0.87.0",
+    "@react-native/metro-config": "0.87.0",
+    "@tauri-apps/cli": "2.11.4",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.14",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }

@@ -43,3 +43,27 @@ Run `pnpm mobile:android:init` only when intentionally regenerating a missing
 project, then inspect every diff. See the
 [Android Phase 0 guide](../../docs/operations/android-phase0-prototype.md) for
 the exact toolchain, Core staging, and artifact verification procedure.
+
+## React Native host admission
+
+The package also contains the React Native 0.87 New Architecture/Hermes host
+under `android/`. Its production composition uses the shared contracts, oRPC
+session authority, XState actors, TanStack Query core, and framework-agnostic
+Mish UI state. The RN native module reports deterministic capability facts only;
+it does not request permission, create a VPN/TUN interface, start Core, open a
+network connection, or own product lifecycle state.
+
+Run the bounded host checks with:
+
+```sh
+pnpm --filter @mish/mobile rn:typecheck
+pnpm --filter @mish/mobile rn:test:run
+pnpm --filter @mish/mobile rn:android:build
+pnpm --filter @mish/mobile rn:android:smoke
+```
+
+The debug build is restricted to `arm64-v8a` and `x86_64` and the renderer
+smoke check admits only the `RN_ADMISSION_OK` marker on an unprivileged owned
+emulator. These commands provide Android debug/admission evidence only; they do
+not claim iOS, physical-device, release, production-signing, store, or real
+network/VPN behavior.
