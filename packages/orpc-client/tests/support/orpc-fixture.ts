@@ -3,13 +3,14 @@ import { implement } from "@orpc/server";
 import { RPCHandler as MessagePortRPCHandler } from "@orpc/server/message-port";
 import { RPCHandler as WebSocketRPCHandler } from "@orpc/server/websocket";
 import type {
+  OrpcClientName,
   OrpcEventReturn,
   OrpcEventValue,
   OrpcHandshakeOutput,
   OrpcInvokeInput,
   OrpcInvokeOutput,
 } from "@mish/contracts";
-import { orpcContract } from "@mish/contracts";
+import { ORPC_CLIENT_NAMES, orpcContract } from "@mish/contracts";
 
 import type { MessagePortLike, WebSocketLike } from "../../src/transport.js";
 
@@ -19,6 +20,7 @@ export interface OrpcFixtureMetrics {
   readonly abortCount: number;
   readonly activeStreams: number;
   readonly cleanupCount: number;
+  readonly handshakeClientNames: readonly OrpcClientName[];
   readonly receivedOperations: readonly string[];
 }
 
@@ -59,6 +61,7 @@ interface MutableMetrics {
   abortCount: number;
   activeStreams: number;
   cleanupCount: number;
+  handshakeClientNames: OrpcClientName[];
   receivedOperations: string[];
 }
 
@@ -207,6 +210,7 @@ function createRouter(
 ) {
   const implementation = implement(orpcContract);
   const expectedAuthToken = options.authToken ?? "fixture-auth-token";
+  const acceptedClientNames = new Set<OrpcClientName>(ORPC_CLIENT_NAMES);
   const protocolVersion = options.protocolVersion ?? 1;
   const contractVersion = options.contractVersion ?? 1;
   const sessionGeneration = options.sessionGeneration ?? 1;
@@ -222,6 +226,10 @@ function createRouter(
         if (input.authToken !== expectedAuthToken) {
           throw new ORPCError("UNAUTHORIZED", { status: 401, data: null });
         }
+        if (!acceptedClientNames.has(input.clientName)) {
+          throw new ORPCError("FORBIDDEN", { status: 403, data: null });
+        }
+        metrics.handshakeClientNames.push(input.clientName as OrpcClientName);
         if (input.protocolVersion !== protocolVersion) {
           throw new ORPCError("CONFLICT", { status: 409, data: null });
         }
@@ -309,6 +317,7 @@ export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture
     abortCount: 0,
     activeStreams: 0,
     cleanupCount: 0,
+    handshakeClientNames: [],
     receivedOperations: [],
   };
   const pendingInvocations: Array<() => void> = [];
@@ -334,6 +343,9 @@ export function createOrpcFixture(options: OrpcFixtureOptions = {}): OrpcFixture
     },
     get cleanupCount() {
       return mutable.cleanupCount;
+    },
+    get handshakeClientNames() {
+      return [...mutable.handshakeClientNames];
     },
     get receivedOperations() {
       return [...mutable.receivedOperations];

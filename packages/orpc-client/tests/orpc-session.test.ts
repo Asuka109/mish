@@ -28,7 +28,7 @@ function track<T extends OrpcFixture>(fixture: T): T {
 
 function createSession(
   options: Partial<ConstructorParameters<typeof OrpcSessionAuthority>[0]> = {},
-  clientName: "electron" | "web" = "web",
+  clientName: "electron" | "react-native" | "web" = "web",
 ): OrpcSessionAuthority {
   return new OrpcSessionAuthority({
     authToken: "fixture-auth-token",
@@ -160,6 +160,29 @@ describe("contract-first oRPC session authority", () => {
       revision: 4,
       sessionGeneration: 2,
     });
+  });
+
+  it("authenticates the explicit React Native identity over the official WebSocket link", async () => {
+    const fixture = track(createOrpcFixture());
+    const transcript = new BoundedTranscript({ maxEvents: 32 });
+    const authority = createSession({ transcript }, "react-native");
+
+    await expect(
+      authority.connect(new WebSocketTransport(fixture.clientWebSocket)),
+    ).resolves.toMatchObject({
+      contractVersion: 1,
+      parentEpoch: 1,
+      protocolVersion: 1,
+      revision: 1,
+      sessionGeneration: 1,
+    });
+    expect(fixture.metrics.handshakeClientNames).toEqual(["react-native"]);
+    await expect(authority.invoke("status.snapshot")).resolves.toMatchObject({
+      operation: "status.snapshot",
+      sessionGeneration: 1,
+      value: "accepted",
+    });
+    expect(transcript.serialize()).not.toContain("fixture-auth-token");
   });
 
   it("rejects authentication and exact protocol-version mismatches", async () => {

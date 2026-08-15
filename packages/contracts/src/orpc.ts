@@ -9,7 +9,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 export const ORPC_PROTOCOL_VERSION = 1 as const;
 export const ORPC_CONTRACT_VERSION = 1 as const;
 
-export const ORPC_CLIENT_NAMES = ["web", "electron"] as const;
+export const ORPC_CLIENT_NAMES = ["web", "electron", "react-native"] as const;
 export type OrpcClientName = (typeof ORPC_CLIENT_NAMES)[number];
 
 export const ORPC_OPERATIONS = ["status.snapshot", "profile.refresh"] as const;
