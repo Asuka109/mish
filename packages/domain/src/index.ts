@@ -29,6 +29,19 @@ export {
 } from "./actors.ts";
 
 export {
+  createDomainActor,
+  domainActorKinds,
+  type DomainActor,
+  type DomainActorFor,
+  type DomainActorKind,
+  type DomainActorSnapshot,
+  type DomainActorStatus,
+  type DomainActorSubscription,
+  type DomainStateMap,
+  type DomainStateValue,
+} from "./actor-factory.ts";
+
+export {
   ACTOR_DOMAINS,
   EFFECT_KINDS,
   RESULT_KINDS,
