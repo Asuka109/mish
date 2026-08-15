@@ -44,11 +44,13 @@ describe("Electron admission boundary", () => {
     expect(main).toContain("MISH_ELECTRON_DEADLINE");
     expect(preload).toContain("contextBridge.exposeInMainWorld");
     expect(preload).toContain("waitForPort");
+    expect(preload).toContain("admissionPromise");
     expect(preload).not.toContain('exposeInMainWorld("electron"');
     expect(preload).not.toContain("MessageChannelMain");
     expect(renderer).toContain('from "react-dom/client"');
     expect(renderer).toContain("useMishStore");
     expect(renderer).toContain("createRoot");
+    expect(renderer).toContain("admissionStarted");
 
     const joined = files.map((file) => readFileSync(file, "utf8")).join("\n");
     for (const forbidden of [

@@ -23,6 +23,7 @@ const portReady = new Promise<MessagePort>((resolve) => {
 let session: PolicySession | undefined;
 let handshake: HandshakeOutput | undefined;
 let failureStage: RendererFailureStage = "port";
+let admissionPromise: Promise<OrpcAdmissionResult> | undefined;
 
 ipcRenderer.on(ADMISSION_IPC_CHANNEL, (event) => {
   const port = event.ports[0];
@@ -66,7 +67,7 @@ async function waitForPort(): Promise<MessagePort> {
   }
 }
 
-async function runOrpcAdmission(): Promise<OrpcAdmissionResult> {
+async function performOrpcAdmission(): Promise<OrpcAdmissionResult> {
   try {
     const current = await ensureSession();
     failureStage = "invoke";
@@ -96,6 +97,13 @@ async function runOrpcAdmission(): Promise<OrpcAdmissionResult> {
     } satisfies RendererFailureReport);
     throw error;
   }
+}
+
+function runOrpcAdmission(): Promise<OrpcAdmissionResult> {
+  // React StrictMode can replay an effect. Share one bounded admission so a
+  // replay cannot create competing sessions on the same MessagePort.
+  if (!admissionPromise) admissionPromise = performOrpcAdmission();
+  return admissionPromise;
 }
 
 const api: ElectronAdmissionApi = {

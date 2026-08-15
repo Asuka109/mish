@@ -487,6 +487,7 @@ const result = await new Promise((resolve) => {
   );
   child.stdout.on("data", append);
   child.stderr.on("data", append);
+  append("MISH_ELECTRON_LAUNCHER spawned pid=" + String(child.pid) + "\n");
   const finish = (value) => {
     if (settled) return;
     settled = true;
@@ -494,7 +495,15 @@ const result = await new Promise((resolve) => {
     clearTimeout(killDeadline);
     resolve(value);
   };
-  child.on("error", (error) => finish({ status: "error", code: error.code ?? "spawn" }));
+  child.on("error", (error) => {
+    append("MISH_ELECTRON_LAUNCHER error=" + (error.code ?? error.message) + "\n");
+    finish({ status: "error", code: error.code ?? "spawn" });
+  });
+  child.on("exit", (code, signal) => {
+    append(
+      "MISH_ELECTRON_LAUNCHER exit code=" + String(code) + " signal=" + String(signal) + "\n",
+    );
+  });
   child.on("close", (code, signal) => {
     finish({
       status: timedOut ? "timeout" : "exited",

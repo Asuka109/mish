@@ -56,6 +56,12 @@ let quitDeadline: ReturnType<typeof setTimeout> | undefined;
 const transcript = new ElectronTranscript(128);
 const metrics: FixtureMetrics = { activeStreams: 0, cleanupCount: 0 };
 
+function diagnostic(message: string): void {
+  console.error(`MISH_ELECTRON_DIAGNOSTIC ${message}`);
+}
+
+diagnostic("phase=main-loaded stage=starting");
+
 function record(
   operation: Parameters<ElectronTranscript["record"]>[0]["operation"],
   effect: Parameters<ElectronTranscript["record"]>[0]["effect"],
@@ -128,6 +134,7 @@ function requestQuit(): void {
   if (quitRequested) return;
   quitRequested = true;
   stage = "quit-requested";
+  diagnostic(`phase=quit-request stage=${stage}`);
   record("application.quit", "invocation", "accepted");
   quitDeadline = setTimeout(() => {
     console.error(`MISH_ELECTRON_DEADLINE phase=quit stage=${stage}`);
@@ -252,11 +259,12 @@ function sendPortToRenderer(): void {
     mainWindow.webContents.postMessage(ADMISSION_IPC_CHANNEL, null, [channel.port2]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`MISH_ELECTRON_DIAGNOSTIC port-send ${message}`);
+    diagnostic(`phase=port-send stage=${stage} error=${message}`);
     failAdmission("port-send");
     return;
   }
   stage = "port-sent";
+  diagnostic(`phase=port-sent stage=${stage}`);
   record("renderer.bootstrap", "result", "ready");
   rendererReadyDeadline = setTimeout(
     () => failAdmission("renderer-ready"),
@@ -271,6 +279,7 @@ function handleRendererReady(event: IpcMainEvent, value: unknown): void {
   clearRendererReadyDeadline();
   ready = true;
   stage = "renderer-ready";
+  diagnostic(`phase=renderer-ready stage=${stage}`);
   record("renderer.bootstrap", "event", "ready");
   setImmediate(requestQuit);
 }
@@ -289,6 +298,7 @@ function createWindow(): BrowserWindow {
     },
   });
   stage = "window-created";
+  diagnostic(`phase=window-created stage=${stage}`);
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error(`MISH_ELECTRON_DIAGNOSTIC preload-error ${preloadPath}: ${error.message}`);
   });
@@ -351,6 +361,7 @@ app.on("window-all-closed", () => {
 void app
   .whenReady()
   .then(() => {
+    diagnostic("phase=when-ready stage=starting");
     record("window.create", "invocation", "accepted");
     mainWindow = createWindow();
   })

@@ -56,6 +56,7 @@ function AdmissionRenderer(): React.ReactElement {
   const notificationCount = useRef(0);
   const cleanupCount = useRef(0);
   const completed = useRef(false);
+  const admissionStarted = useRef(false);
 
   const onCleanup = useCallback((): void => {
     cleanupCount.current += 1;
@@ -66,6 +67,8 @@ function AdmissionRenderer(): React.ReactElement {
   }, []);
 
   useEffect(() => {
+    if (admissionStarted.current) return;
+    admissionStarted.current = true;
     void window.mishElectron
       .runOrpcAdmission()
       .then((result) => {
