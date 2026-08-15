@@ -25,6 +25,10 @@ test("the committed TypeScript cutover admission record passes", () => {
   assert.deepEqual(validateTypescriptCutoverAdmission(validInput()), []);
 });
 
+test("the current CUT-03 Web denial boundary passes without a false positive", () => {
+  assert.deepEqual(validateTypescriptCutoverAdmission(validInput()), []);
+});
+
 test("a missing required session policy fails closed", () => {
   const drifted = document().replace(/\| Deadline\s+\|/u, "| Time budget | ");
   const errors = validateTypescriptCutoverAdmission({ document: drifted });
@@ -141,4 +145,73 @@ test("removing frozen-install or no-missing-importer acceptance is rejected", ()
   const errors = validateTypescriptCutoverAdmission({ document: drifted });
   assert.match(errors.join("\n"), /root lock ownership policy is missing: frozen install/u);
   assert.match(errors.join("\n"), /root lock ownership policy is missing: no missing importer/u);
+});
+
+test("removing the CUT-03 Web importer manifest permission is rejected", () => {
+  const drifted = document().replace(
+    "the only additional production manifest `apps/web/package.json` for the real Web production consumer",
+    "the only additional production manifest for the real Web production consumer",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer scope is missing: the only additional production manifest `apps\/web\/package\.json`/u,
+  );
+});
+
+test("a non-workspace CUT-03 Web dependency specifier is rejected", () => {
+  const drifted = document().replace(
+    "and `@mish/domain`, each using exact `workspace:*`",
+    "and `@mish/domain`, each using exact `workspace:^`",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(errors.join("\n"), /CUT-03 Web importer scope is missing: workspace:\*/u);
+});
+
+test("an extra CUT-03 Web dependency authorization is rejected", () => {
+  const drifted = document().replace(
+    "and `@mish/domain`, each using exact `workspace:*`",
+    "and `@mish/domain`, and `@mish/extra`, each using exact `workspace:*`",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer declares unauthorized dependencies: @mish\/extra/u,
+  );
+});
+
+test("authorizing the root package manifest is rejected", () => {
+  const drifted = document().replace("No root `package.json`", "Root `package.json`");
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer boundary is missing: No root `package\.json`/u,
+  );
+});
+
+test("authorizing root or Web tsconfig files is rejected", () => {
+  const drifted = document()
+    .replace("root/apps Web tsconfig", "Web tsconfig")
+    .replace("(`tsconfig.json` or `apps/web/tsconfig*.json`)", "(`tsconfig.json`)");
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer boundary is missing: root\/apps Web tsconfig/u,
+  );
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer boundary is missing: `apps\/web\/tsconfig\*\.json`/u,
+  );
+});
+
+test("authorizing another app or package manifest is rejected", () => {
+  const drifted = document().replace(
+    /or any other\s+app\/package manifest is authorized/u,
+    "or another path is authorized",
+  );
+  const errors = validateTypescriptCutoverAdmission({ document: drifted });
+  assert.match(
+    errors.join("\n"),
+    /CUT-03 Web importer boundary is missing: any other app\/package manifest is authorized/u,
+  );
 });
