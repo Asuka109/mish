@@ -496,13 +496,37 @@ dual-write or compatibility path.
 | P3 Query/Store/Hermes | integrated; PR #539; `80a881db`; host renderer evidence remains P4/P5 | `poc/query-store/**` excluding manifests | P0 | Event Iterator enters Query cache or XState only; pinned framework-agnostic Store plus Mish `useSyncExternalStore` adapter passes framework-neutral subscription/batch/remount tests; React DOM/Hermes execution is a hard P4/P5 prerequisite; `@tanstack/react-store`, ReactDOM, remote snapshots, and DOM globals are rejected from RN/shared graphs |
 | P4 Electron admission | integrated; PR #546; `c4e67989`; direct `vite` resolution no longer uses Vitest; evidence-backed launcher exit/close drain handles an exited clean main with delayed helper-pipe close while retaining bounded TERM/KILL for a real startup stall; worker completed six consecutive real mounted-DMG passes and coordinator completed one fresh 6/6 pass in 41.82s with no residual process/mount; all required CI passed | `poc/electron/**` excluding manifests | P0, P1, P0b, P0d | ESM Electron main/preload/renderer launches under sandbox/context isolation, performs oRPC MessagePort handshake, exits cleanly, proves the React renderer Store adapter, and produces a credential-free runnable DMG fixture without system effects |
 | P5 React Native admission | integrated; PR #544 / `bc93b599`; `/root/p5_rn_admission`; worker debug/release Hermes bundles, dual-ABI APK, and root-free arm64 renderer passed; coordinator frozen install, TypeScript, RN 11 tests, static/transcript, XState 10, Query/Store 20 plus 2 intentional skips, dual-ABI debug APK, and independent `emulator-5558` smoke reached `RN_ADMISSION_OK`; exact owned process/device cleanup passed and the worktree was clean; Fast PR, Android Rust, and Android lifecycle CI passed | `poc/rn/**` excluding manifests | P0, P2, P3, P0c, P0e | RN New Architecture/Hermes resolves oRPC ESM, Query/XState/Mish Store, WebSocket/AbortSignal/AsyncIterable, and Kotlin TurboModule; proves the Store adapter in the RN renderer; dual-ABI debug APK installs/launches in a root-free emulator fixture without VPN/Core/network effects |
-| P6 cutover admission record | awaiting acceptance/CI; ready PR #549 / `81bca71f`; `/root/p6_cutover_admission`; coordinator admission script, 10 positive/negative tests, targeted format/lint passed | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 integrated | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and exact cumulative one-shot Cutover Worker packets that delete Tauri, Rust Core, Cargo/Rust CI/tooling, custom JSON-RPC/state-machine, compatibility/fallback/dual-write paths; no POC runtime source enters production |
+| P6 cutover admission record | integrated; PR #549 / `129fe602`; `/root/p6_cutover_admission`; coordinator admission script, 10 positive/negative tests, targeted format/lint, `check:docs`, `check:lint`, Fast PR, Android Rust, and Android lifecycle passed | `docs/architecture/typescript-cutover-admission.md`, `scripts/check-typescript-cutover-admission.ts`, `scripts/check-typescript-cutover-admission.test.ts` | P1-P5 integrated | Publish exact accepted versions, platform limitations, static denylist, artifact evidence, and exact cumulative one-shot Cutover Worker packets that delete Tauri, Rust Core, Cargo/Rust CI/tooling, custom JSON-RPC/state-machine, compatibility/fallback/dual-write paths; no POC runtime source enters production |
 
 Dependency order is fixed: P0 first; P1-P3 may then run in parallel; P4 and P5
 follow their listed prerequisites; P6 closes the wave. Passing P6 authorizes
 planning, not merging a partial runtime: the production switch remains one
 cumulative cutover that deletes custom JSON-RPC, the custom state-machine,
 Tauri, Rust Core, Cargo/Rust CI/tooling, and all fallback/dual-write paths.
+
+## Wave 3C cumulative TypeScript cutover
+
+CUT-00 completed a read-only freeze review at `dev@129fe602`. The root
+`pnpm-lock.yaml` is Git blob `8c273863e981208496d7f2fbec68574740836f1b`
+and SHA-256 `e3647d8df273d2cfddeb454da2aacd65c3c867dbe0bd23c65d53eaadb03643cc`;
+the POC lock is Git blob `c678cc95fd9fe7a44863a302d26c8893ff1a862c`
+and SHA-256 `8ae3f46137f845bf4555a5e0a1d8d2db5734a17fbc0420396be75ca07552b6e7`.
+Accepted pins and target platform boundaries are exactly those in the P6
+admission record, and its checker passes at the frozen source. All production
+packets merge only into one non-production cumulative branch; no packet branch
+may merge directly to `dev`. Only CUT-07 may propose the cumulative branch for
+the final `dev` merge after CUT-06 has removed the complete denylist.
+
+| Packet | State | Cumulative dependency | Merge boundary |
+| --- | --- | --- | --- |
+| CUT-00 Freeze | completed read-only at `dev@129fe602` | P6 integrated | Exact source/lock SHA, accepted pins, target platforms, packet ledger, and no-partial-merge rule reviewed |
+| CUT-01 Contract/session | pending cumulative branch creation | CUT-00 | oRPC contracts/session/transports may merge only into the cumulative branch |
+| CUT-02 Domain actors | pending CUT-01 | CUT-01 | XState domain authority may merge only into the cumulative branch |
+| CUT-03 Query/Store/UI state | pending CUT-02 | CUT-01, CUT-02 | No independent production merge |
+| CUT-04 Electron host | pending CUT-03 | CUT-01, CUT-02, CUT-03 | No independent production merge |
+| CUT-05 RN host/native seam | pending CUT-03 | CUT-01, CUT-02, CUT-03 | No independent production merge |
+| CUT-06 Destructive retirement | pending CUT-01 through CUT-05 | CUT-01 through CUT-05 accepted on one branch | Same cumulative branch must delete Rust Core, all Cargo/Rust tooling/CI, Tauri, custom RPC/state machine, parity, compatibility, fallback, and dual-write paths |
+| CUT-07 Final cumulative acceptance | pending CUT-06 | CUT-06 | Read-only acceptance is the only gate allowed to propose the cumulative `dev` merge; no release/deploy |
 
 ## Wave 1 — approved for dispatch
 
