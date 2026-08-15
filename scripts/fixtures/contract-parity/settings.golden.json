@@ -1,0 +1,34 @@
+{
+  "contractId": "settings",
+  "fixtureVersion": 1,
+  "payload": {
+    "snapshot": [
+      "adapterKind",
+      "applicationOrder",
+      "build",
+      "capabilities",
+      "networkDns",
+      "preferences",
+      "privacy",
+      "revision",
+      "startupRegistration",
+      "storageRecovered",
+      "tunHelper",
+      "tunHelperOperation"
+    ],
+    "preferences": [
+      "appearance",
+      "captureSelection",
+      "closeOldConnectionsAfterGroupSwitch",
+      "language",
+      "managedPorts",
+      "onboarding",
+      "processDiscoveryMode",
+      "startup",
+      "systemProxyTakeoverPolicy",
+      "windowCloseBehavior",
+      "windowSurface"
+    ],
+    "ports": { "minimum": 1, "maximum": 65535 }
+  }
+}
