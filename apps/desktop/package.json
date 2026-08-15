@@ -3,19 +3,37 @@
   "version": "0.1.0",
   "private": true,
   "license": "GPL-3.0-only",
+  "type": "module",
   "scripts": {
-    "build": "tauri build --no-bundle --features custom-protocol",
-    "bundle:macos": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.bundle.signed-core.conf.json",
-    "bundle:macos:internal-tun-alpha": "tauri build --bundles app --features custom-protocol,development-core-host --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.bundle.pinned-core.conf.json",
-    "bundle:macos:alpha-ad-hoc": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.bundle.signed-core.conf.json",
-    "bundle:macos:production": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.bundle.signed-core.conf.json --config src-tauri/tauri.production.conf.json",
-    "bundle:macos:signed-direct": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.bundle.signed-core.conf.json --config src-tauri/tauri.signed-direct.conf.json",
-    "demo": "node --env-file=.env.development ../../scripts/tauri-dev.ts --demo",
-    "dev": "node --env-file=.env.development ../../scripts/tauri-dev.ts",
-    "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
+    "build": "vite build && vite build --config vite.preload.config.ts",
+    "dev": "node --env-file=.env.development node_modules/vite/bin/vite.js --mode development",
+    "demo": "node --env-file=.env.development node_modules/vite/bin/vite.js --mode development",
+    "bundle:macos": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:internal-tun-alpha": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.pinned-core.conf.json pnpm build",
+    "bundle:macos:alpha-ad-hoc": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:production": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "bundle:macos:signed-direct": "MISH_ELECTRON_LEGACY_BUNDLE_CONFIG=tauri.bundle.signed-core.conf.json pnpm build",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "fixture:build": "node --experimental-strip-types scripts/electron-fixture.ts --build"
+  },
+  "dependencies": {
+    "@mish/contracts": "workspace:*",
+    "@mish/domain": "workspace:*",
+    "@mish/orpc-client": "workspace:*",
+    "@mish/ui-state": "workspace:*",
+    "@orpc/server": "1.15.0",
+    "electron": "43.4.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4"
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
   }
 }
