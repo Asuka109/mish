@@ -11,6 +11,15 @@
       "status"
     ],
     "vpnResult": ["contractVersion", "operation", "snapshot"],
+    "vpnEvent": [
+      "authorityId",
+      "eventKind",
+      "eventVersion",
+      "revision",
+      "sequence",
+      "sessionId",
+      "snapshot"
+    ],
     "vpnNullableFields": [
       "activationSessionId",
       "coreAbiVersion",

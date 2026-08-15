@@ -701,7 +701,13 @@
       ],
       "generatedFiles": [],
       "fixture": "scripts/fixtures/contract-parity/mobile-route-vpn.golden.json",
-      "fixtureFields": ["routeResult", "routeSnapshot", "vpnResult", "vpnNullableFields"],
+      "fixtureFields": [
+        "routeResult",
+        "routeSnapshot",
+        "vpnResult",
+        "vpnEvent",
+        "vpnNullableFields"
+      ],
       "manualEvidence": {
         "rustSymbols": [
           {
