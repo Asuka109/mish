@@ -1,4 +1,4 @@
-import React, { StrictMode, useEffect, useRef, useState } from "react";
+import React, { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createStore, useMishStore } from "@mish/poc-query-store";
 
@@ -57,27 +57,32 @@ function AdmissionRenderer(): React.ReactElement {
   const cleanupCount = useRef(0);
   const completed = useRef(false);
 
-  const onCleanup = (): void => {
+  const onCleanup = useCallback((): void => {
     cleanupCount.current += 1;
-  };
-
-  const onNotify = (): void => {
-    notificationCount.current += 1;
-  };
-
-  useEffect(() => {
-    void window.mishElectron.runOrpcAdmission().then((result) => {
-      setAdmission(result);
-      store.batch(() => {
-        store.setState({ count: 1 });
-        store.setState({ count: 2 });
-      });
-      reportStore({ kind: "store-batched", count: 2 });
-      setLabel("remount");
-    });
   }, []);
 
-  const onRemount = (): void => {
+  const onNotify = useCallback((): void => {
+    notificationCount.current += 1;
+  }, []);
+
+  useEffect(() => {
+    void window.mishElectron
+      .runOrpcAdmission()
+      .then((result) => {
+        setAdmission(result);
+        store.batch(() => {
+          store.setState({ count: 1 });
+          store.setState({ count: 2 });
+        });
+        reportStore({ kind: "store-batched", count: 2 });
+        setLabel("remount");
+      })
+      .catch(() => {
+        window.mishElectron.reportFailure({ stage: "renderer", message: "admission-failed" });
+      });
+  }, []);
+
+  const onRemount = useCallback((): void => {
     if (completed.current || !admission) return;
     completed.current = true;
     window.mishElectron.rendererReady({
@@ -88,7 +93,7 @@ function AdmissionRenderer(): React.ReactElement {
         remounted: true,
       },
     });
-  };
+  }, [admission]);
 
   useEffect(() => {
     const unsubscribe = store.subscribe(() => {

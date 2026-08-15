@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -93,44 +94,49 @@ function packageJson(packageDirectory: string): {
   };
 }
 
-function resolveInstalledPackage(name: string, fromDirectory: string): string | undefined {
-  const nodeModulesMarker = `${path.sep}node_modules${path.sep}`;
-  const directories = [fromDirectory];
-  try {
-    const realDirectory = realpathSync(fromDirectory);
-    if (realDirectory !== fromDirectory) directories.push(realDirectory);
-  } catch {
-    // The lstat candidates below provide the final deterministic failure.
-  }
-  const nearestNodeModules = directories.flatMap((directory) => {
-    const markerIndex = directory.lastIndexOf(nodeModulesMarker);
-    return markerIndex >= 0 ? [directory.slice(0, markerIndex + nodeModulesMarker.length - 1)] : [];
-  });
-  const candidates = [
-    path.join(fromDirectory, "node_modules", name),
-    ...nearestNodeModules.map((directory) => path.join(directory, name)),
-    path.join(packageRoot, "node_modules", name),
-    path.join(pocRoot, "node_modules", name),
-  ];
-  const pnpmDirectory = path.join(pocRoot, "node_modules", ".pnpm");
-  if (existsSync(pnpmDirectory)) {
-    const prefix = `${name.replace("/", "+")}@`;
-    for (const entry of readdirSync(pnpmDirectory)) {
-      if (entry.startsWith(prefix)) {
-        candidates.push(path.join(pnpmDirectory, entry, "node_modules", name));
-      }
-    }
-  }
-  for (const candidate of candidates) {
+function packageRootFromEntry(entry: string, expectedName: string): string | undefined {
+  let directory = path.dirname(entry);
+  while (directory !== path.dirname(directory)) {
+    const manifest = path.join(directory, "package.json");
     try {
-      const metadata = lstatSync(candidate);
-      if (metadata.isSymbolicLink()) return path.resolve(candidate);
-      if (metadata.isDirectory()) return candidate;
+      const metadata = JSON.parse(readFileSync(manifest, "utf8")) as { readonly name?: unknown };
+      if (metadata.name === expectedName) return directory;
     } catch {
-      // Try the next deterministic package root.
+      // Continue to the next parent while resolving through a normal package graph.
     }
+    directory = path.dirname(directory);
   }
   return undefined;
+}
+
+function resolveInstalledPackage(name: string, fromDirectory: string): string | undefined {
+  try {
+    const require = createRequire(path.join(fromDirectory, "package.json"));
+    const entry = require.resolve(name);
+    return packageRootFromEntry(entry, name);
+  } catch {
+    // Some declared runtime dependencies are type-only packages without an
+    // exportable entry point. Resolve their direct node_modules entry without
+    // inspecting package-manager internals or selecting a version by prefix.
+    let directory = fromDirectory;
+    while (directory !== path.dirname(directory)) {
+      const candidate = path.join(directory, "node_modules", name);
+      try {
+        const metadata = lstatSync(candidate);
+        if (metadata.isDirectory() || metadata.isSymbolicLink()) {
+          const resolved = realpathSync(candidate);
+          const manifest = JSON.parse(
+            readFileSync(path.join(resolved, "package.json"), "utf8"),
+          ) as { readonly name?: unknown };
+          if (manifest.name === name) return resolved;
+        }
+      } catch {
+        // Continue with Node's next normal ancestor lookup.
+      }
+      directory = path.dirname(directory);
+    }
+    return undefined;
+  }
 }
 
 function copyDependencyClosure(
@@ -161,6 +167,34 @@ function copyDependencyClosure(
       fail(`dependency ${dependencyName} for ${name} is unavailable in the frozen install`);
     }
     copyDependencyClosure(dependencyName, dependencyDirectory, destinationNodeModules, visited);
+  }
+}
+
+function copyDeclaredDependencies(
+  packageDirectory: string,
+  destinationNodeModules: string,
+  visited: Set<string>,
+): void {
+  const metadata = packageJson(packageDirectory);
+  const dependencies = {
+    ...metadata.dependencies,
+    ...metadata.optionalDependencies,
+    ...metadata.peerDependencies,
+  };
+  for (const dependencyName of Object.keys(dependencies)) {
+    // Workspace packages are generated from the compiled source below.
+    if (dependencyName === "electron" || dependencyName.startsWith("@mish/")) continue;
+    const source = resolveInstalledPackage(dependencyName, packageDirectory);
+    if (!source) {
+      if (
+        metadata.optionalDependencies?.[dependencyName] !== undefined ||
+        metadata.peerDependencies?.[dependencyName] !== undefined
+      ) {
+        continue;
+      }
+      fail(`declared dependency ${dependencyName} for ${metadata.name} is unavailable`);
+    }
+    copyDependencyClosure(dependencyName, source, destinationNodeModules, visited);
   }
 }
 
@@ -200,12 +234,23 @@ async function bundleRuntime(
   format: "cjs" | "es",
   external: readonly string[] = [],
 ): Promise<void> {
-  const viteDirectory = resolveInstalledPackage("vite", packageRoot);
+  const packageRequire = createRequire(path.join(packageRoot, "package.json"));
+  let viteDirectory: string | undefined;
+  let viteEntry: string | undefined;
+  try {
+    // Vite is the normal peer of the package's declared Vitest dev dependency.
+    // Resolve both through Node's package graph; never scan pnpm internals.
+    const vitestEntry = packageRequire.resolve("vitest");
+    viteEntry = createRequire(vitestEntry).resolve("vite");
+    viteDirectory = packageRootFromEntry(viteEntry, "vite");
+  } catch {
+    viteDirectory = undefined;
+  }
   if (!viteDirectory) {
     fail("the frozen workspace Vite bundler is unavailable; refusing to use a global package");
   }
-  const vitePath = path.join(viteDirectory, "dist", "node", "index.js");
-  const vite = (await import(pathToFileURL(vitePath).href)) as ViteBuildModule;
+  if (!viteEntry) fail("the frozen workspace Vite entry is unavailable");
+  const vite = (await import(pathToFileURL(viteEntry).href)) as ViteBuildModule;
   const result = await vite.build({
     configFile: false,
     root,
@@ -330,21 +375,12 @@ async function stageApplication(
   );
 
   const visited = new Set<string>();
-  for (const dependency of [
-    "@orpc/client",
-    "@orpc/contract",
-    "@orpc/server",
-    "@orpc/tanstack-query",
-    "@tanstack/query-core",
-    "@tanstack/store",
-    "react",
-    "react-dom",
-    "scheduler",
-    "ws",
+  for (const packageDirectory of [
+    packageRoot,
+    path.join(pocRoot, "orpc"),
+    path.join(pocRoot, "query-store"),
   ]) {
-    const source = resolveInstalledPackage(dependency, pocRoot);
-    if (!source) fail(`direct dependency ${dependency} is unavailable`);
-    copyDependencyClosure(dependency, source, nodeModules, visited);
+    copyDeclaredDependencies(packageDirectory, nodeModules, visited);
   }
   writeGeneratedPackage("@mish/poc-orpc", path.join(compiledRoot, "orpc", "src"), nodeModules);
   writeGeneratedPackage(
@@ -411,6 +447,79 @@ export async function assembleElectronFixture(options: {
   return { root, application, dmg, userData, archive };
 }
 
+const ELECTRON_LAUNCHER_SOURCE = String.raw`
+import { spawn } from "node:child_process";
+
+const [executable, appRoot, userData, timeoutText] = process.argv.slice(1);
+const timeoutMs = Number(timeoutText);
+const maxOutput = 2 * 1024 * 1024;
+let output = "";
+let child;
+let settled = false;
+let timedOut = false;
+let deadline;
+let killDeadline;
+
+function append(chunk) {
+  if (output.length >= maxOutput) return;
+  output += String(chunk).slice(0, maxOutput - output.length);
+}
+
+function killGroup(signal) {
+  if (!child?.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The child already exited or the process group was reaped.
+  }
+}
+
+const result = await new Promise((resolve) => {
+  child = spawn(
+    executable,
+    [appRoot, "--disable-gpu", "--user-data-dir=" + userData],
+    {
+      cwd: appRoot,
+      detached: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "", MISH_ELECTRON_FIXTURE: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  const finish = (value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(deadline);
+    clearTimeout(killDeadline);
+    resolve(value);
+  };
+  child.on("error", (error) => finish({ status: "error", code: error.code ?? "spawn" }));
+  child.on("close", (code, signal) => {
+    finish({
+      status: timedOut ? "timeout" : "exited",
+      exitCode: code ?? 1,
+      signal: signal ?? null,
+      output,
+    });
+  });
+  deadline = setTimeout(() => {
+    timedOut = true;
+    append("MISH_ELECTRON_LAUNCHER deadline=" + timeoutMs + "ms\n");
+    killGroup("SIGTERM");
+    killDeadline = setTimeout(() => killGroup("SIGKILL"), 1_500);
+  }, timeoutMs);
+});
+
+console.log(JSON.stringify(result));
+`;
+
+function boundedLaunchOutput(output: string): string {
+  const limit = 8 * 1024;
+  if (output.length <= limit) return output;
+  return `${output.slice(0, limit)}\n[truncated]`;
+}
+
 export function launchAndQuitElectronFixture(
   application: string,
   userData: string,
@@ -418,21 +527,57 @@ export function launchAndQuitElectronFixture(
 ): { readonly exitCode: number; readonly output: string } {
   const executable = path.join(application, "Contents", "MacOS", "Electron");
   const appRoot = path.join(application, "Contents", "Resources", "app");
-  const result = spawnSync(executable, [appRoot, "--disable-gpu", `--user-data-dir=${userData}`], {
-    cwd: appRoot,
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "",
-      MISH_ELECTRON_FIXTURE: "1",
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      ELECTRON_LAUNCHER_SOURCE,
+      executable,
+      appRoot,
+      userData,
+      String(timeoutMs),
+    ],
+    {
+      cwd: appRoot,
+      env: process.env,
+      encoding: "utf8",
+      timeout: timeoutMs + 5_000,
+      maxBuffer: 2 * 1024 * 1024,
     },
-    encoding: "utf8",
-    timeout: timeoutMs,
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  if (result.error) throw result.error;
+  );
+  if (result.error) {
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    throw new Error(
+      `Electron launcher failed: ${result.error.code ?? result.error.message}\n${boundedLaunchOutput(output)}`,
+    );
+  }
+  const launcherOutput = `${result.stdout ?? ""}`.trim();
+  let launch: {
+    readonly status: "error" | "exited" | "timeout";
+    readonly code?: string;
+    readonly exitCode?: number;
+    readonly signal?: string | null;
+    readonly output?: string;
+  };
+  try {
+    launch = JSON.parse(launcherOutput) as typeof launch;
+  } catch {
+    throw new Error(
+      `Electron launcher emitted invalid result\n${boundedLaunchOutput(launcherOutput)}`,
+    );
+  }
+  if (launch.status === "timeout") {
+    throw new Error(
+      `Electron launch deadline exceeded after ${timeoutMs}ms\n${boundedLaunchOutput(launch.output ?? "")}`,
+    );
+  }
+  if (launch.status === "error") {
+    throw new Error(`Electron launcher failed: ${launch.code ?? "spawn"}`);
+  }
   return {
-    exitCode: result.status ?? 1,
-    output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    exitCode: launch.exitCode ?? 1,
+    output: launch.output ?? "",
   };
 }
 
@@ -461,6 +606,7 @@ export function verifyTranscript(output: string): void {
       readonly contextIsolation?: boolean;
       readonly nodeIntegration?: boolean;
     };
+    readonly stage?: string;
   };
   if (!Array.isArray(payload.transcript) || payload.transcript.length > 128) {
     fail("Electron transcript is missing or unbounded");
@@ -485,6 +631,7 @@ export function verifyTranscript(output: string): void {
   ) {
     fail("Electron BrowserWindow security contract was not observed");
   }
+  if (payload.stage !== "quit") fail("Electron did not reach the clean quit stage");
   const serialized = JSON.stringify(payload);
   if (serialized.includes("fixture-token") || serialized.includes("authToken")) {
     fail("Electron transcript contains authentication material");

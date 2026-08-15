@@ -41,7 +41,9 @@ describe("Electron admission boundary", () => {
     expect(main).toContain("@orpc/server/message-port");
     expect(main).not.toContain("@orpc/server/websocket");
     expect(main).not.toContain("ipcMain.handle");
+    expect(main).toContain("MISH_ELECTRON_DEADLINE");
     expect(preload).toContain("contextBridge.exposeInMainWorld");
+    expect(preload).toContain("waitForPort");
     expect(preload).not.toContain('exposeInMainWorld("electron"');
     expect(preload).not.toContain("MessageChannelMain");
     expect(renderer).toContain('from "react-dom/client"');
@@ -71,5 +73,9 @@ describe("Electron admission boundary", () => {
       expect(script).not.toContain(forbidden);
     }
     expect(script).toContain("verifyMacOsDmgPresentation");
+    expect(script).toContain("createRequire");
+    expect(script).toContain("process.kill(-child.pid");
+    expect(script).not.toContain("node_modules/.pnpm");
+    expect(script).not.toContain("startsWith(prefix)");
   });
 });

@@ -10,6 +10,7 @@ import type { EventValue, HandshakeOutput, InvokeOutput } from "@mish/poc-orpc";
 export interface ElectronAdmissionApi {
   readonly runOrpcAdmission: () => Promise<OrpcAdmissionResult>;
   readonly reportStore: (event: StoreReport) => void;
+  readonly reportFailure: (report: RendererFailureReport) => void;
   readonly rendererReady: (report: RendererReadyReport) => void;
 }
 
@@ -35,8 +36,16 @@ export interface RendererReadyReport {
   };
 }
 
+export type RendererFailureStage = "port" | "handshake" | "invoke" | "events" | "renderer";
+
+export interface RendererFailureReport {
+  readonly stage: RendererFailureStage;
+  readonly message: "admission-failed";
+}
+
 export const ADMISSION_IPC_CHANNEL = "mish-electron/admission-port" as const;
 export const REPORT_IPC_CHANNEL = "mish-electron/renderer-report" as const;
+export const FAILURE_IPC_CHANNEL = "mish-electron/renderer-failure" as const;
 export const READY_IPC_CHANNEL = "mish-electron/renderer-ready" as const;
 
 declare global {
