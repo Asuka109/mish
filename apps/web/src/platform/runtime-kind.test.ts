@@ -6,6 +6,7 @@ describe("runtime selection", () => {
     [{ buildTarget: undefined, tauri: false }, "browser"],
     [{ buildTarget: "desktop", tauri: false }, "browser"],
     [{ buildTarget: "desktop", tauri: true }, "desktop"],
+    [{ buildTarget: "desktop", electron: true, tauri: false }, "desktop"],
     [{ buildTarget: "mobile", tauri: true }, "mobile"],
   ] as const)("selects an explicit client for %o", (input, expected) => {
     expect(resolveRuntimeKind(input)).toBe(expected);

@@ -1,0 +1,26 @@
+{
+  "name": "@mish/desktop-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mish Electron host foundation; product authority remains in the existing Web/Rust stack.",
+  "license": "GPL-3.0-only",
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:web": "pnpm --dir ../.. --filter @mish/web build:desktop",
+    "build:host": "tsc --build",
+    "build": "pnpm build:web && pnpm build:host",
+    "dev": "pnpm build && electron .",
+    "typecheck": "tsc --build --pretty false",
+    "test:run": "pnpm build:host && node --test --test-reporter=spec dist/smoke.test.js",
+    "package:dmg:fixture": "pnpm build && pnpm --dir ../.. exec node scripts/electron-dmg-fixture.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "electron": "43.4.0",
+    "typescript": "7.0.2"
+  }
+}
