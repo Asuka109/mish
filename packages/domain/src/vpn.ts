@@ -77,6 +77,7 @@ export const vpnMachine = setup({
       },
     },
     permission: {
+      id: "vpn-permission",
       entry: ({ context }) => trace(context, "vpn", "accepted"),
       invoke: {
         src: "permission",
@@ -386,9 +387,9 @@ export const vpnMachine = setup({
       entry: ({ context }) => trace(context, "vpn", "recovery-required"),
       on: {
         REPAIR: {
-          target: "permission",
+          target: "repairing",
           actions: [
-            assign(({ context }) => beginOperation(context)),
+            assign(({ context }) => beginEffect(context)),
             ({ context }) => trace(context, "vpn", "accepted"),
           ],
         },
@@ -408,6 +409,58 @@ export const vpnMachine = setup({
         },
       },
     },
+    repairing: {
+      id: "vpn-repairing",
+      initial: "cleaning",
+      on: {
+        REPAIR: { actions: ({ context }) => trace(context, "vpn", "duplicate") },
+        DISPOSE: {
+          target: "#vpn-disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "vpn", "accepted"),
+          ],
+        },
+      },
+      states: {
+        cleaning: {
+          invoke: {
+            src: "cleanup",
+            input: ({ context }) => effectInput(context, "vpn", "vpn.cleanup", "finalizer"),
+            onDone: {
+              target: "#vpn-repair-observing",
+              actions: [
+                assign(({ context }) => beginEffect(context)),
+                ({ context }) => trace(context, "vpn", "finalized"),
+              ],
+            },
+            onError: {
+              target: "#vpn-recovery",
+              actions: ({ context, event }) => traceError(context, "vpn", event.error),
+            },
+          },
+        },
+        observing: {
+          id: "vpn-repair-observing",
+          invoke: {
+            src: "observe",
+            input: ({ context }) => effectInput(context, "vpn", "vpn.observe", "finalizer"),
+            onDone: {
+              target: "#vpn-permission",
+              guard: ({ context, event }) => currentOutput(context, event.output),
+              actions: [
+                assign(({ context }) => beginOperation(context)),
+                ({ context }) => trace(context, "vpn", "success"),
+              ],
+            },
+            onError: {
+              target: "#vpn-recovery",
+              actions: ({ context, event }) => traceError(context, "vpn", event.error),
+            },
+          },
+        },
+      },
+    },
     disposing: {
       id: "vpn-disposing",
       entry: ({ context }) => trace(context, "vpn", "accepted"),
@@ -416,12 +469,32 @@ export const vpnMachine = setup({
         input: ({ context }) => effectInput(context, "vpn", "vpn.dispose", "dispose"),
         onDone: { target: "disposed", actions: ({ context }) => trace(context, "vpn", "disposed") },
         onError: {
-          target: "recoveryRequired",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "vpn", event.error),
         },
       },
       on: {
         DISPOSE: { actions: ({ context }) => trace(context, "vpn", "duplicate") },
+      },
+    },
+    disposeRecoveryRequired: {
+      id: "vpn-dispose-recovery",
+      entry: ({ context }) => trace(context, "vpn", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "vpn", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "vpn", "accepted"),
+          ],
+        },
       },
     },
     disposed: { type: "final" },

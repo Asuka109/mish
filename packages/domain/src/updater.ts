@@ -339,12 +339,32 @@ export const updaterMachine = setup({
           actions: ({ context }) => trace(context, "updater", "disposed"),
         },
         onError: {
-          target: "recoveryRequired",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "updater", event.error),
         },
       },
       on: {
         DISPOSE: { actions: ({ context }) => trace(context, "updater", "duplicate") },
+      },
+    },
+    disposeRecoveryRequired: {
+      id: "updater-dispose-recovery",
+      entry: ({ context }) => trace(context, "updater", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "updater", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "updater", "accepted"),
+          ],
+        },
       },
     },
     disposed: { type: "final" },

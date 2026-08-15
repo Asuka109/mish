@@ -287,6 +287,26 @@ export const profileMachine = setup({
         },
       },
     },
+    disposeRecoveryRequired: {
+      id: "profile-dispose-recovery",
+      entry: ({ context }) => trace(context, "profile", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "profile", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "profile", "accepted"),
+          ],
+        },
+      },
+    },
     disposing: {
       id: "profile-disposing",
       entry: ({ context }) => trace(context, "profile", "accepted"),
@@ -298,7 +318,7 @@ export const profileMachine = setup({
           actions: ({ context }) => trace(context, "profile", "disposed"),
         },
         onError: {
-          target: "recoveryRequired",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "profile", event.error),
         },
       },

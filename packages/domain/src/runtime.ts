@@ -8,7 +8,6 @@ import {
   beginEffect,
   beginOperation,
   beginReplacement,
-  beginRequest,
   currentOutput,
   effectInput,
   invokeEffect,
@@ -57,7 +56,7 @@ export const runtimeMachine = setup({
         START: {
           target: "starting",
           actions: [
-            assign(({ context, event }) => beginRequest(context, event.operation)),
+            assign(({ context, event }) => beginOperation(context, event.operation)),
             ({ context }) => trace(context, "runtime", "accepted"),
           ],
         },
@@ -244,12 +243,32 @@ export const runtimeMachine = setup({
           actions: ({ context }) => trace(context, "runtime", "disposed"),
         },
         onError: {
-          target: "failed",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "runtime", event.error),
         },
       },
       on: {
         DISPOSE: { actions: ({ context }) => trace(context, "runtime", "duplicate") },
+      },
+    },
+    disposeRecoveryRequired: {
+      id: "runtime-dispose-recovery",
+      entry: ({ context }) => trace(context, "runtime", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "runtime", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "runtime", "accepted"),
+          ],
+        },
       },
     },
     disposed: { type: "final" },

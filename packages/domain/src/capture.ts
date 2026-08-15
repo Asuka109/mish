@@ -289,21 +289,48 @@ export const captureMachine = setup({
     },
     compensating: {
       entry: ({ context }) => trace(context, "capture", "finalized"),
-      invoke: {
-        src: "restore",
-        input: ({ context }) => effectInput(context, "capture", "capture.restore", "finalizer"),
-        onDone: {
-          target: "off",
-          actions: ({ context }) => trace(context, "capture", "success"),
+      initial: "restoring",
+      states: {
+        restoring: {
+          invoke: {
+            src: "restore",
+            input: ({ context }) => effectInput(context, "capture", "capture.restore", "finalizer"),
+            onDone: {
+              target: "#capture-compensating-observing",
+              actions: [
+                assign(({ context }) => beginEffect(context)),
+                ({ context }) => trace(context, "capture", "finalized"),
+              ],
+            },
+            onError: {
+              target: "#capture-recovery",
+              actions: ({ context, event }) => traceError(context, "capture", event.error),
+            },
+          },
         },
-        onError: {
-          target: "recoveryRequired",
-          actions: ({ context, event }) => traceError(context, "capture", event.error),
+        observing: {
+          id: "capture-compensating-observing",
+          invoke: {
+            src: "observe",
+            input: ({ context }) => effectInput(context, "capture", "capture.observe", "finalizer"),
+            onDone: [
+              {
+                target: "#capture-off",
+                guard: ({ context, event }) => currentOutput(context, event.output),
+                actions: ({ context }) => trace(context, "capture", "success"),
+              },
+              { actions: ({ context, event }) => staleOutput(context, "capture", event.output) },
+            ],
+            onError: {
+              target: "#capture-recovery",
+              actions: ({ context, event }) => traceError(context, "capture", event.error),
+            },
+          },
         },
       },
       on: {
         DISPOSE: {
-          target: "disposing",
+          target: "#capture-disposing",
           actions: [
             assign(({ context }) => beginDispose(context)),
             ({ context }) => trace(context, "capture", "accepted"),
@@ -349,12 +376,32 @@ export const captureMachine = setup({
           actions: ({ context }) => trace(context, "capture", "disposed"),
         },
         onError: {
-          target: "recoveryRequired",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "capture", event.error),
         },
       },
       on: {
         DISPOSE: { actions: ({ context }) => trace(context, "capture", "duplicate") },
+      },
+    },
+    disposeRecoveryRequired: {
+      id: "capture-dispose-recovery",
+      entry: ({ context }) => trace(context, "capture", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "capture", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "capture", "accepted"),
+          ],
+        },
       },
     },
     disposed: { type: "final" },

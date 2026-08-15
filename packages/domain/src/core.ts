@@ -8,7 +8,6 @@ import {
   beginEffect,
   beginOperation,
   beginReplacement,
-  beginRequest,
   currentOutput,
   effectInput,
   invokeEffect,
@@ -26,6 +25,7 @@ export type CoreEvent =
   | { type: "REPLACE"; operation?: number }
   | { type: "CRASH" }
   | { type: "RECOVER" }
+  | { type: "RETRY" }
   | { type: "DISPOSE" }
   | ({ type: "STALE_COMPLETION" } & Correlation);
 
@@ -58,7 +58,7 @@ export const coreMachine = setup({
         LAUNCH: {
           target: "launching",
           actions: [
-            assign(({ context, event }) => beginRequest(context, event.operation)),
+            assign(({ context, event }) => beginOperation(context, event.operation)),
             ({ context }) => trace(context, "core", "accepted"),
           ],
         },
@@ -219,6 +219,13 @@ export const coreMachine = setup({
             ({ context }) => trace(context, "core", "accepted"),
           ],
         },
+        RETRY: {
+          target: "launching",
+          actions: [
+            assign(({ context }) => beginOperation(context)),
+            ({ context }) => trace(context, "core", "accepted"),
+          ],
+        },
         DISPOSE: {
           target: "disposing",
           actions: [
@@ -238,12 +245,32 @@ export const coreMachine = setup({
           actions: ({ context }) => trace(context, "core", "disposed"),
         },
         onError: {
-          target: "failed",
+          target: "disposeRecoveryRequired",
           actions: ({ context, event }) => traceError(context, "core", event.error),
         },
       },
       on: {
         DISPOSE: { actions: ({ context }) => trace(context, "core", "duplicate") },
+      },
+    },
+    disposeRecoveryRequired: {
+      id: "core-dispose-recovery",
+      entry: ({ context }) => trace(context, "core", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "core", "accepted"),
+          ],
+        },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "core", "accepted"),
+          ],
+        },
       },
     },
     disposed: { type: "final" },
