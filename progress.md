@@ -520,7 +520,8 @@ the final `dev` merge after CUT-06 has removed the complete denylist.
 | Packet | State | Cumulative dependency | Merge boundary |
 | --- | --- | --- | --- |
 | CUT-00 Freeze | completed read-only at `dev@129fe602` | P6 integrated | Exact source/lock SHA, accepted pins, target platforms, packet ledger, and no-partial-merge rule reviewed |
-| CUT-01 Contract/session | pending cumulative branch creation | CUT-00 | oRPC contracts/session/transports may merge only into the cumulative branch |
+| P6f generated-lock ownership correction | awaiting acceptance/CI; ready PR #550 / `3be31ac3`; coordinator admission script, 13 tests, targeted format/lint passed | CUT-00 review | Amend only the P6 admission document/checker/tests so CUT-01 through CUT-05 may update the one cumulative root `pnpm-lock.yaml`, with sequential/merge reconciliation and no independent production merge |
+| CUT-01 Contract/session | pending P6f; cumulative branch `codex/typescript-cutover@703b1c8a` exists | CUT-00, P6f | oRPC contracts/session/transports may merge only into the cumulative branch |
 | CUT-02 Domain actors | pending CUT-01 | CUT-01 | XState domain authority may merge only into the cumulative branch |
 | CUT-03 Query/Store/UI state | pending CUT-02 | CUT-01, CUT-02 | No independent production merge |
 | CUT-04 Electron host | pending CUT-03 | CUT-01, CUT-02, CUT-03 | No independent production merge |

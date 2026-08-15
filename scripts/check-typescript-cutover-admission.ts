@@ -41,6 +41,7 @@ const requiredHeadings = [
   "## Static denylist and production exclusion",
   "## Evidence-to-conclusion traceability",
   "## Exact cumulative cutover worker packets",
+  "### Root lock ownership and cumulative reconciliation",
   "### Dependency waves and merge barrier",
   "## Admission checklist",
 ] as const;
@@ -282,6 +283,7 @@ function checkPacketTable(errors: string[], document: string): void {
   const packetSection = section(document, "## Exact cumulative cutover worker packets");
   const rows = [...packetSection.matchAll(/^\| (CUT-\d\d)\b[^|]*\|([^\n]+)$/gmu)];
   const rowIds = rows.map((match) => match[1]);
+  const rowsByPacket = new Map(rows.map((match) => [match[1], match[0]]));
   for (const packetId of packetIds) {
     if (!rowIds.includes(packetId)) errors.push(`cutover packet row is missing: ${packetId}`);
   }
@@ -294,6 +296,16 @@ function checkPacketTable(errors: string[], document: string): void {
     if (!/(?:accept|pass|verify|reject|record)/iu.test(row)) {
       errors.push(`cutover packet row lacks an acceptance clause: ${match[1]}`);
     }
+  }
+  for (const packetId of ["CUT-01", "CUT-02", "CUT-03", "CUT-04", "CUT-05"] as const) {
+    const row = rowsByPacket.get(packetId);
+    if (!row?.includes("pnpm-lock.yaml")) {
+      errors.push(`cutover packet lock permission is missing: ${packetId}`);
+    }
+  }
+  const cut06 = rowsByPacket.get("CUT-06") ?? "";
+  for (const required of ["final root", "pnpm-lock.yaml", "CI cleanup"]) {
+    failIfMissing(errors, cut06, required, "CUT-06 final lock ownership");
   }
   for (const wave of [
     "Wave A: CUT-00",
@@ -312,6 +324,26 @@ function checkPacketTable(errors: string[], document: string): void {
     "no packet may independently merge",
   ]) {
     failIfMissing(errors, packetSection, required, "cutover merge barrier");
+  }
+
+  const lockOwnership = section(document, "### Root lock ownership and cumulative reconciliation");
+  for (const required of [
+    "same bounded generated-file permission",
+    "cumulative root `pnpm-lock.yaml`",
+    "codex/typescript-cutover",
+    "no packet branch may merge directly to `dev`",
+    "parallel CUT-04/CUT-05",
+    "lock conflict reconciliation",
+    "cumulative integrator",
+    "exact versions",
+    "preserve every existing importer",
+    "frozen install",
+    "--frozen-lockfile",
+    "no missing importer",
+    "CUT-06 remains the final owner",
+    "CI cleanup",
+  ]) {
+    failIfMissing(errors, lockOwnership, required, "root lock ownership policy");
   }
 }
 
