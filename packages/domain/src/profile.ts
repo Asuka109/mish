@@ -272,12 +272,41 @@ export const profileMachine = setup({
       entry: ({ context }) => trace(context, "profile", "recovery-required"),
       on: {
         REPAIR: {
-          target: "activating",
+          target: "repairing",
           actions: [
-            assign(({ context }) => beginOperation(context)),
+            assign(({ context }) => beginEffect(context)),
             ({ context }) => trace(context, "profile", "accepted"),
           ],
         },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "profile", "accepted"),
+          ],
+        },
+      },
+    },
+    repairing: {
+      id: "profile-repairing",
+      entry: ({ context }) => trace(context, "profile", "finalized"),
+      invoke: {
+        src: "rollback",
+        input: ({ context }) => effectInput(context, "profile", "profile.rollback", "finalizer"),
+        onDone: {
+          target: "activating",
+          actions: [
+            assign(({ context }) => beginOperation(context)),
+            ({ context }) => trace(context, "profile", "finalized"),
+          ],
+        },
+        onError: {
+          target: "recoveryRequired",
+          actions: ({ context, event }) => traceError(context, "profile", event.error),
+        },
+      },
+      on: {
+        REPAIR: { actions: ({ context }) => trace(context, "profile", "duplicate") },
         DISPOSE: {
           target: "disposing",
           actions: [

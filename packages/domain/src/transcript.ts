@@ -288,6 +288,7 @@ export type EffectFailureKind =
   | "timeout"
   | "cancelled"
   | "recovery-required"
+  | "stale"
   | "disconnected"
   | "duplicate";
 
@@ -298,6 +299,14 @@ export class DomainEffectError extends Error {
     super(result);
     this.name = "DomainEffectError";
     this.result = result;
+  }
+}
+
+/** A closed effect seam returned a result for another authority or request. */
+export class DomainEffectProtocolError extends DomainEffectError {
+  constructor() {
+    super("stale");
+    this.name = "DomainEffectProtocolError";
   }
 }
 

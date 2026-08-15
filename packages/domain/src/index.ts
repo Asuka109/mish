@@ -37,6 +37,7 @@ export {
   TRANSCRIPT_SCHEMA_VERSION,
   DeterministicEffects,
   DomainEffectError,
+  DomainEffectProtocolError,
   SemanticTranscript,
   isCurrentCorrelation,
   isStaleOutput,

@@ -10,6 +10,7 @@ import {
   isCurrentCorrelation,
   isStaleOutput,
   DomainEffectError,
+  DomainEffectProtocolError,
   SemanticTranscript,
 } from "./transcript.ts";
 
@@ -34,9 +35,20 @@ export interface DomainContext extends ActorEnvironment {
 
 export type EffectInput = EffectInvocation & { readonly effects: DomainEffects };
 
-export const invokeEffect = fromPromise<EffectOutput, EffectInput>(({ input, signal }) =>
-  input.effects.invoke(input, signal),
-);
+export const invokeEffect = fromPromise<EffectOutput, EffectInput>(async ({ input, signal }) => {
+  const output = await input.effects.invoke(input, signal);
+  if (
+    output === null ||
+    typeof output !== "object" ||
+    output.actor !== input.actor ||
+    output.effect !== input.effect ||
+    output.result !== "success" ||
+    !isCurrentCorrelation(input, output)
+  ) {
+    throw new DomainEffectProtocolError();
+  }
+  return output;
+});
 
 export const effectInput = <D extends ActorDomain, E extends EffectKind>(
   context: DomainContext,

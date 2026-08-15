@@ -325,34 +325,16 @@ export const rpcSessionMachine = setup({
         src: "disconnect",
         input: ({ context }) => effectInput(context, "rpc", "rpc.disconnect", "finalizer"),
         onDone: {
-          target: "connecting",
+          target: "reconnectConnecting",
           actions: [
             assign(({ context }) => ({ ...beginEffect(context), acceptedSnapshotRevision: 0 })),
             ({ context }) => trace(context, "rpc", "reconnected"),
           ],
         },
-        onError: [
-          {
-            target: "disconnected",
-            guard: ({ context }) => context.reconnectAttempts + 1 >= RPC_RECONNECT_ATTEMPT_LIMIT,
-            actions: [
-              assign(({ context }) => ({ reconnectAttempts: context.reconnectAttempts + 1 })),
-              ({ context, event }) => traceError(context, "rpc", event.error),
-              ({ context }) => trace(context, "rpc", "disconnected"),
-            ],
-          },
-          {
-            target: "reconnectRetrying",
-            actions: [
-              assign(({ context }) => ({
-                ...beginOperation(context),
-                acceptedSnapshotRevision: 0,
-                reconnectAttempts: context.reconnectAttempts + 1,
-              })),
-              ({ context }) => trace(context, "rpc", "reconnected"),
-            ],
-          },
-        ],
+        onError: {
+          target: "recoveryRequired",
+          actions: ({ context, event }) => traceError(context, "rpc", event.error),
+        },
       },
       on: {
         RECONNECT: { actions: ({ context }) => trace(context, "rpc", "duplicate") },
@@ -365,10 +347,241 @@ export const rpcSessionMachine = setup({
         },
       },
     },
-    reconnectRetrying: {
+    reconnectConnecting: {
       entry: ({ context }) => trace(context, "rpc", "accepted"),
-      always: { target: "reconnecting" },
+      invoke: {
+        src: "connect",
+        input: ({ context }) => effectInput(context, "rpc", "rpc.connect"),
+        onDone: [
+          {
+            target: "reconnectAuthenticating",
+            guard: ({ context, event }) => currentOutput(context, event.output),
+            actions: [
+              assign(({ context }) => beginEffect(context)),
+              ({ context }) => trace(context, "rpc", "success"),
+            ],
+          },
+          { actions: ({ context, event }) => staleOutput(context, "rpc", event.output) },
+        ],
+        onError: [
+          {
+            target: "disconnected",
+            guard: ({ context }) => context.reconnectAttempts + 1 >= RPC_RECONNECT_ATTEMPT_LIMIT,
+            actions: [
+              assign(({ context }) => ({
+                reconnectAttempts: context.reconnectAttempts + 1,
+                acceptedSnapshotRevision: 0,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+              ({ context }) => trace(context, "rpc", "disconnected"),
+            ],
+          },
+          {
+            target: "reconnectAttemptRetrying",
+            actions: [
+              assign(({ context }) => ({
+                ...beginOperation(context),
+                acceptedSnapshotRevision: 0,
+                reconnectAttempts: context.reconnectAttempts + 1,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+            ],
+          },
+        ],
+      },
       on: {
+        CANCEL: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "cancelled"),
+          ],
+        },
+        DISCONNECT: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+        RECONNECT: { actions: ({ context }) => trace(context, "rpc", "duplicate") },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+      },
+    },
+    reconnectAuthenticating: {
+      entry: ({ context }) => trace(context, "rpc", "accepted"),
+      invoke: {
+        src: "authenticate",
+        input: ({ context }) => effectInput(context, "rpc", "rpc.authenticate"),
+        onDone: [
+          {
+            target: "reconnectBaselining",
+            guard: ({ context, event }) => currentOutput(context, event.output),
+            actions: [
+              assign(({ context }) => beginEffect(context)),
+              ({ context }) => trace(context, "rpc", "success"),
+            ],
+          },
+          { actions: ({ context, event }) => staleOutput(context, "rpc", event.output) },
+        ],
+        onError: [
+          {
+            target: "disconnected",
+            guard: ({ context }) => context.reconnectAttempts + 1 >= RPC_RECONNECT_ATTEMPT_LIMIT,
+            actions: [
+              assign(({ context }) => ({
+                reconnectAttempts: context.reconnectAttempts + 1,
+                acceptedSnapshotRevision: 0,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+              ({ context }) => trace(context, "rpc", "disconnected"),
+            ],
+          },
+          {
+            target: "reconnectAttemptRetrying",
+            actions: [
+              assign(({ context }) => ({
+                ...beginOperation(context),
+                acceptedSnapshotRevision: 0,
+                reconnectAttempts: context.reconnectAttempts + 1,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+            ],
+          },
+        ],
+      },
+      on: {
+        CANCEL: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "cancelled"),
+          ],
+        },
+        DISCONNECT: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+        RECONNECT: { actions: ({ context }) => trace(context, "rpc", "duplicate") },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+      },
+    },
+    reconnectBaselining: {
+      entry: ({ context }) => trace(context, "rpc", "accepted"),
+      invoke: {
+        src: "baseline",
+        input: ({ context }) => effectInput(context, "rpc", "rpc.baseline"),
+        onDone: [
+          {
+            target: "connected-current",
+            guard: ({ context, event }) => currentOutput(context, event.output),
+            actions: [
+              assign(({ context }) => ({
+                acceptedSnapshotRevision: context.revision,
+                reconnectAttempts: 0,
+              })),
+              ({ context }) => trace(context, "rpc", "success"),
+            ],
+          },
+          { actions: ({ context, event }) => staleOutput(context, "rpc", event.output) },
+        ],
+        onError: [
+          {
+            target: "disconnected",
+            guard: ({ context }) => context.reconnectAttempts + 1 >= RPC_RECONNECT_ATTEMPT_LIMIT,
+            actions: [
+              assign(({ context }) => ({
+                reconnectAttempts: context.reconnectAttempts + 1,
+                acceptedSnapshotRevision: 0,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+              ({ context }) => trace(context, "rpc", "disconnected"),
+            ],
+          },
+          {
+            target: "reconnectAttemptRetrying",
+            actions: [
+              assign(({ context }) => ({
+                ...beginOperation(context),
+                acceptedSnapshotRevision: 0,
+                reconnectAttempts: context.reconnectAttempts + 1,
+              })),
+              ({ context, event }) => traceError(context, "rpc", event.error),
+            ],
+          },
+        ],
+      },
+      on: {
+        CANCEL: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "cancelled"),
+          ],
+        },
+        DISCONNECT: {
+          target: "disconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+        RECONNECT: { actions: ({ context }) => trace(context, "rpc", "duplicate") },
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+      },
+    },
+    reconnectAttemptRetrying: {
+      entry: ({ context }) => trace(context, "rpc", "accepted"),
+      always: { target: "reconnectConnecting" },
+      on: {
+        DISPOSE: {
+          target: "disposing",
+          actions: [
+            assign(({ context }) => beginDispose(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+      },
+    },
+    recoveryRequired: {
+      id: "rpc-recovery",
+      entry: ({ context }) => trace(context, "rpc", "recovery-required"),
+      on: {
+        RETRY: {
+          target: "reconnecting",
+          actions: [
+            assign(({ context }) => beginEffect(context)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
+        RECONNECT: {
+          target: "reconnecting",
+          actions: [
+            assign(({ context, event }) => resetBaseline(context, event.operation)),
+            ({ context }) => trace(context, "rpc", "accepted"),
+          ],
+        },
         DISPOSE: {
           target: "disposing",
           actions: [

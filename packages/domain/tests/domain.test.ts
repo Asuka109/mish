@@ -5,6 +5,9 @@ import {
   captureMachine,
   coreMachine,
   DeterministicEffects,
+  type DomainEffects,
+  type EffectInvocation,
+  type EffectOutput,
   parseSemanticTranscript,
   profileMachine,
   replayTranscript,
@@ -20,6 +23,20 @@ const flush = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
 };
+
+class CorruptingEffects implements DomainEffects {
+  constructor(private readonly corruptEffect: EffectInvocation["effect"]) {}
+
+  invoke(request: EffectInvocation, signal: AbortSignal): Promise<EffectOutput> {
+    void signal;
+    return Promise.resolve({
+      ...request,
+      generation:
+        request.effect === this.corruptEffect ? request.generation + 1 : request.generation,
+      result: "success",
+    });
+  }
+}
 
 const start = <T extends Parameters<typeof createActor>[0]>(machine: T) => {
   const transcript = new SemanticTranscript();
@@ -91,6 +108,41 @@ describe("domain actor lifecycle", () => {
     await flush();
     expect(actor.getSnapshot().value).toBe("running");
     actor.stop();
+  });
+
+  it("fails closed when an effect seam returns stale finalizer or dispose correlation", async () => {
+    const finalizerTranscript = new SemanticTranscript();
+    const finalizerActor = createActor(runtimeMachine, {
+      input: {
+        transcript: finalizerTranscript,
+        effects: new CorruptingEffects("runtime.stop"),
+        authority: 1,
+      },
+    } as never);
+    finalizerActor.start();
+    finalizerActor.send({ type: "START" });
+    await flush();
+    expect(finalizerActor.getSnapshot().value).toBe("running");
+    finalizerActor.send({ type: "STOP" });
+    await flush();
+    expect(finalizerActor.getSnapshot().value).toBe("failed");
+    expect(finalizerTranscript.events.some((event) => event.result === "stale")).toBe(true);
+    finalizerActor.stop();
+
+    const disposeTranscript = new SemanticTranscript();
+    const disposeActor = createActor(runtimeMachine, {
+      input: {
+        transcript: disposeTranscript,
+        effects: new CorruptingEffects("runtime.dispose"),
+        authority: 1,
+      },
+    } as never);
+    disposeActor.start();
+    disposeActor.send({ type: "DISPOSE" });
+    await flush();
+    expect(disposeActor.getSnapshot().value).toBe("disposeRecoveryRequired");
+    expect(disposeTranscript.events.some((event) => event.result === "stale")).toBe(true);
+    disposeActor.stop();
   });
 
   it("keeps Core timeout typed and recovers with a new generation", async () => {
@@ -166,7 +218,16 @@ describe("domain actor lifecycle", () => {
     await flush();
     expect(failed.actor.getSnapshot().value).toBe("recoveryRequired");
     failed.actor.send({ type: "REPAIR" });
+    const failedRepair = failed.effects.effect("profile.rollback", 1);
+    failed.effects.fail(failedRepair.effectId, "recovery-required");
+    await flush();
+    expect(failed.actor.getSnapshot().value).toBe("recoveryRequired");
+    failed.actor.send({ type: "REPAIR" });
+    const repairCleanup = failed.effects.effect("profile.rollback", 2);
+    failed.effects.complete(repairCleanup.effectId);
+    await flush();
     const repair = failed.effects.effect("profile.activate", 1);
+    expect(repair.generation).toBeGreaterThan(failedRepair.generation);
     failed.effects.complete(repair.effectId);
     await flush();
     const observation = failed.effects.effect("profile.observe");
@@ -423,7 +484,7 @@ describe("domain actor lifecycle", () => {
     const reconnectAuth = effects.effect("rpc.authenticate", 1);
     effects.complete(reconnectAuth.effectId);
     await flush();
-    expect(actor.getSnapshot().value).toBe("connected-stale");
+    expect(actor.getSnapshot().value).toBe("reconnectBaselining");
     actor.send({ type: "SNAPSHOT", generation: connect.generation, revision: 999 });
     expect(actor.getSnapshot().context.acceptedSnapshotRevision).toBe(0);
     const reconnectBaseline = effects.effect("rpc.baseline", 1);
@@ -432,17 +493,36 @@ describe("domain actor lifecycle", () => {
     expect(actor.getSnapshot().value).toBe("connected-current");
 
     actor.send({ type: "RECONNECT", operation: 11 });
-    const firstClose = effects.effect("rpc.disconnect", 1);
-    effects.fail(firstClose.effectId, "timeout");
+    const failedClose = effects.effect("rpc.disconnect", 1);
+    effects.fail(failedClose.effectId, "timeout");
     await flush();
-    const secondClose = effects.effect("rpc.disconnect", 2);
-    effects.fail(secondClose.effectId, "timeout");
+    expect(actor.getSnapshot().value).toBe("recoveryRequired");
+    expect(actor.getSnapshot().context.reconnectAttempts).toBe(0);
+    actor.send({ type: "RETRY" });
+    const closeRetry = effects.effect("rpc.disconnect", 2);
+    effects.complete(closeRetry.effectId);
     await flush();
-    const thirdClose = effects.effect("rpc.disconnect", 3);
-    effects.fail(thirdClose.effectId, "timeout");
+    const firstAttempt = effects.effect("rpc.connect", 2);
+    effects.fail(firstAttempt.effectId, "timeout");
+    await flush();
+    const secondAttempt = effects.effect("rpc.connect", 3);
+    expect(secondAttempt.generation).toBeGreaterThan(firstAttempt.generation);
+    effects.fail(secondAttempt.effectId, "timeout");
+    await flush();
+    const thirdAttempt = effects.effect("rpc.connect", 4);
+    expect(thirdAttempt.generation).toBeGreaterThan(secondAttempt.generation);
+    effects.fail(thirdAttempt.effectId, "timeout");
     await flush();
     expect(actor.getSnapshot().value).toBe("disconnected");
     expect(actor.getSnapshot().context.reconnectAttempts).toBe(3);
+
+    const ordinary = start(rpcSessionMachine);
+    ordinary.actor.send({ type: "CONNECT" });
+    const ordinaryConnect = ordinary.effects.effect("rpc.connect");
+    ordinary.effects.fail(ordinaryConnect.effectId, "timeout");
+    await flush();
+    expect(ordinary.actor.getSnapshot().value).toBe("failed");
+    ordinary.actor.stop();
 
     actor.send({ type: "DISPOSE" });
     const dispose = effects.effect("rpc.dispose");
@@ -456,6 +536,59 @@ describe("domain actor lifecycle", () => {
     effects.complete(disposeRetry.effectId);
     await flush();
     expect(actor.getSnapshot().status).toBe("done");
+    actor.stop();
+  });
+
+  it("counts reconnect authentication and baseline failures as fresh attempts", async () => {
+    const { actor, effects } = start(rpcSessionMachine);
+    actor.send({ type: "CONNECT" });
+    const initialConnect = effects.effect("rpc.connect");
+    effects.complete(initialConnect.effectId);
+    await flush();
+    const initialAuth = effects.effect("rpc.authenticate");
+    effects.complete(initialAuth.effectId);
+    await flush();
+    const initialBaseline = effects.effect("rpc.baseline");
+    effects.complete(initialBaseline.effectId);
+    await flush();
+    expect(actor.getSnapshot().value).toBe("connected-current");
+
+    actor.send({ type: "RECONNECT" });
+    const close = effects.effect("rpc.disconnect");
+    effects.complete(close.effectId);
+    await flush();
+
+    const firstConnect = effects.effect("rpc.connect", 1);
+    effects.complete(firstConnect.effectId);
+    await flush();
+    const firstAuth = effects.effect("rpc.authenticate", 1);
+    effects.fail(firstAuth.effectId, "timeout");
+    await flush();
+
+    const secondConnect = effects.effect("rpc.connect", 2);
+    expect(secondConnect.generation).toBeGreaterThan(firstConnect.generation);
+    effects.complete(secondConnect.effectId);
+    await flush();
+    const secondAuth = effects.effect("rpc.authenticate", 2);
+    effects.complete(secondAuth.effectId);
+    await flush();
+    const firstBaselineRetry = effects.effect("rpc.baseline", 1);
+    effects.fail(firstBaselineRetry.effectId, "timeout");
+    await flush();
+
+    const thirdConnect = effects.effect("rpc.connect", 3);
+    expect(thirdConnect.generation).toBeGreaterThan(secondConnect.generation);
+    effects.complete(thirdConnect.effectId);
+    await flush();
+    const thirdAuth = effects.effect("rpc.authenticate", 3);
+    effects.complete(thirdAuth.effectId);
+    await flush();
+    const secondBaselineRetry = effects.effect("rpc.baseline", 2);
+    expect(secondBaselineRetry.generation).toBeGreaterThan(firstBaselineRetry.generation);
+    effects.fail(secondBaselineRetry.effectId, "timeout");
+    await flush();
+    expect(actor.getSnapshot().value).toBe("disconnected");
+    expect(actor.getSnapshot().context.reconnectAttempts).toBe(3);
     actor.stop();
   });
 
