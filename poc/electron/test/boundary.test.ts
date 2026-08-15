@@ -76,8 +76,11 @@ describe("Electron admission boundary", () => {
     }
     expect(script).toContain("verifyMacOsDmgPresentation");
     expect(script).toContain("createRequire");
+    expect(script).toContain('packageRequire.resolve("vite")');
     expect(script).toContain("process.kill(-child.pid");
     expect(script).not.toContain("node_modules/.pnpm");
     expect(script).not.toContain("startsWith(prefix)");
+    expect(script).not.toContain("vitestEntry");
+    expect(script).not.toContain('resolve("vitest")');
   });
 });

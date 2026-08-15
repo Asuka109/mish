@@ -238,10 +238,9 @@ async function bundleRuntime(
   let viteDirectory: string | undefined;
   let viteEntry: string | undefined;
   try {
-    // Vite is the normal peer of the package's declared Vitest dev dependency.
-    // Resolve both through Node's package graph; never scan pnpm internals.
-    const vitestEntry = packageRequire.resolve("vitest");
-    viteEntry = createRequire(vitestEntry).resolve("vite");
+    // Resolve the package's declared Vite dev dependency through Node's normal
+    // package graph; never scan package-manager internals.
+    viteEntry = packageRequire.resolve("vite");
     viteDirectory = packageRootFromEntry(viteEntry, "vite");
   } catch {
     viteDirectory = undefined;
@@ -457,7 +456,11 @@ let output = "";
 let child;
 let settled = false;
 let timedOut = false;
+let childExited = false;
+let childExitCode = null;
+let childExitSignal = null;
 let deadline;
+let deadlineGrace;
 let killDeadline;
 
 function append(chunk) {
@@ -492,6 +495,7 @@ const result = await new Promise((resolve) => {
     if (settled) return;
     settled = true;
     clearTimeout(deadline);
+    clearTimeout(deadlineGrace);
     clearTimeout(killDeadline);
     resolve(value);
   };
@@ -500,23 +504,56 @@ const result = await new Promise((resolve) => {
     finish({ status: "error", code: error.code ?? "spawn" });
   });
   child.on("exit", (code, signal) => {
+    childExited = true;
+    childExitCode = code;
+    childExitSignal = signal;
     append(
       "MISH_ELECTRON_LAUNCHER exit code=" + String(code) + " signal=" + String(signal) + "\n",
     );
+    if (!timedOut) {
+      setTimeout(
+        () =>
+          finish({
+            status: "exited",
+            exitCode: childExitCode ?? 1,
+            signal: childExitSignal,
+            output,
+          }),
+        250,
+      );
+    }
   });
   child.on("close", (code, signal) => {
+    if (!childExited) {
+      childExited = true;
+      childExitCode = code;
+      childExitSignal = signal;
+    }
     finish({
       status: timedOut ? "timeout" : "exited",
-      exitCode: code ?? 1,
-      signal: signal ?? null,
+      exitCode: childExitCode ?? 1,
+      signal: childExitSignal,
       output,
     });
   });
   deadline = setTimeout(() => {
-    timedOut = true;
-    append("MISH_ELECTRON_LAUNCHER deadline=" + timeoutMs + "ms\n");
-    killGroup("SIGTERM");
-    killDeadline = setTimeout(() => killGroup("SIGKILL"), 1_500);
+    // Allow a process that has already exited cleanly to drain its bounded
+    // transcript; close can lag while Electron helper pipes are reclaimed.
+    deadlineGrace = setTimeout(() => {
+      if (childExited && childExitCode === 0) {
+        finish({
+          status: "exited",
+          exitCode: childExitCode,
+          signal: childExitSignal,
+          output,
+        });
+        return;
+      }
+      append("MISH_ELECTRON_LAUNCHER deadline=" + timeoutMs + "ms\n");
+      timedOut = true;
+      killGroup("SIGTERM");
+      killDeadline = setTimeout(() => killGroup("SIGKILL"), 1_500);
+    }, 500);
   }, timeoutMs);
 });
 
