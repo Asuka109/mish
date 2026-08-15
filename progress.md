@@ -520,7 +520,7 @@ the final `dev` merge after CUT-06 has removed the complete denylist.
 | Packet | State | Cumulative dependency | Merge boundary |
 | --- | --- | --- | --- |
 | CUT-00 Freeze | completed read-only at `dev@129fe602` | P6 integrated | Exact source/lock SHA, accepted pins, target platforms, packet ledger, and no-partial-merge rule reviewed |
-| P6f generated-lock ownership correction | dispatching to `/root/p6_cutover_admission`; task worktree retained; baseline `dev@703b1c8a` | CUT-00 review | Amend only the P6 admission document/checker/tests so CUT-01 through CUT-05 may update the one cumulative root `pnpm-lock.yaml`, with sequential/merge reconciliation and no independent production merge |
+| P6f generated-lock ownership correction | active `/root/p6_cutover_admission`; retained worktree `/Users/asuka/.codex/worktrees/wave3b-p6/mihomo-web-client`; branch `codex/p6f-cutover-lock-ownership`; baseline `dev@5abf2a52` | CUT-00 review | Amend only the P6 admission document/checker/tests so CUT-01 through CUT-05 may update the one cumulative root `pnpm-lock.yaml`, with sequential/merge reconciliation and no independent production merge |
 | CUT-01 Contract/session | pending P6f; cumulative branch `codex/typescript-cutover@703b1c8a` exists | CUT-00, P6f | oRPC contracts/session/transports may merge only into the cumulative branch |
 | CUT-02 Domain actors | pending CUT-01 | CUT-01 | XState domain authority may merge only into the cumulative branch |
 | CUT-03 Query/Store/UI state | pending CUT-02 | CUT-01, CUT-02 | No independent production merge |
