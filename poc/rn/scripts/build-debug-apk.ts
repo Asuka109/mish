@@ -23,6 +23,20 @@ for (const abi of ["arm64-v8a", "x86_64"]) {
   if (!listing.includes(`lib/${abi}/`)) {
     throw new Error(`Debug APK is missing required ABI ${abi}`);
   }
+  for (const nativeLibrary of ["libhermesvm.so", "libreactnative.so"]) {
+    if (!listing.includes(`lib/${abi}/${nativeLibrary}`)) {
+      throw new Error(`Debug APK is missing ${nativeLibrary} for ${abi}`);
+    }
+  }
+}
+
+const bundleEntry = listing.includes("assets/index.android.bundle")
+  ? "assets/index.android.bundle"
+  : "assets/index.android.bundle.hbc";
+if (!listing.includes(bundleEntry)) throw new Error("Debug APK is missing the Hermes bundle");
+const bundle = execFileSync("unzip", ["-p", apk, bundleEntry], { maxBuffer: 64 * 1024 * 1024 });
+if (!bundle.includes("RN_ADMISSION_OK")) {
+  throw new Error("Hermes bundle is missing the RN admission marker");
 }
 
 const buildProperties = readFileSync(`${android}/app/build.gradle`, "utf8");

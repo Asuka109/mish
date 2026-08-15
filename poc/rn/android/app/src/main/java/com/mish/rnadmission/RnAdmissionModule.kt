@@ -5,16 +5,15 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.module.annotations.ReactModule
-import com.facebook.react.turbomodule.core.interfaces.TurboModule
 
 @ReactModule(name = RnAdmissionModule.NAME)
-class RnAdmissionModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext), TurboModule {
+class RnAdmissionModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+  /**
+   * Bridgeless RN 0.87 exposes this deterministic native module through the
+   * TurboModuleRegistry legacy-interop seam. It intentionally has no host
+   * effect and keeps the Kotlin capability boundary small.
+   */
   override fun getName(): String = NAME
-
-  override fun initialize() = Unit
-
-  override fun invalidate() = Unit
 
   /** Return only fixed capability facts; this seam never touches a host effect. */
   @com.facebook.react.bridge.ReactMethod

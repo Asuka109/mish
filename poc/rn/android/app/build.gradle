@@ -3,11 +3,15 @@ plugins {
   id "com.facebook.react"
 }
 
+def rnDir = file("../../node_modules/react-native")
+def hermesCommandPath = new File(rnDir.canonicalFile.parentFile, "hermes-compiler/hermesc/%OS-BIN%/hermesc")
+
 react {
   root = file("../..")
-  reactNativeDir = file("../../node_modules/react-native")
+  reactNativeDir = rnDir
   codegenDir = file("../../node_modules/@react-native/codegen")
   entryFile = file("../../index.ts")
+  hermesCommand = hermesCommandPath.absolutePath
   debuggableVariants = []
   autolinkLibrariesWithApp()
 }

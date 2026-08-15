@@ -19,7 +19,7 @@ class RnAdmissionPackage : BaseReactPackage() {
                 false,
                 false,
                 false,
-                true,
+                false,
             ),
     )
   }
