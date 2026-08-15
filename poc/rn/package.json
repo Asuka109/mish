@@ -27,8 +27,17 @@
     "xstate": "5.32.5"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/runtime": "7.29.7",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/codegen": "0.87.0",
+    "@react-native/gradle-plugin": "0.87.0",
+    "@react-native/metro-config": "0.87.0",
     "@types/node": "26.1.1",
     "@types/react": "19.2.14",
+    "metro-babel-transformer": "0.87.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }
