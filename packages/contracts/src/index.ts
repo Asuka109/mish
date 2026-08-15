@@ -14,6 +14,7 @@ import { applicationEventSchema, applicationNotificationSchema } from "./generat
 export * from "./generated/bridge-protocol";
 export * from "./generated/android-platform-facts";
 export * from "./generated/presentation";
+export * from "./orpc";
 
 const IdentifierSchema = z.string().min(1);
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
