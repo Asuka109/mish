@@ -18,11 +18,13 @@
     "@orpc/server": "1.15.0",
     "electron": "43.4.0",
     "react": "19.2.7",
+    "react-dom": "19.2.7",
     "ws": "8.21.1"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
     "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@types/ws": "8.18.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
