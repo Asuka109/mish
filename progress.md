@@ -103,9 +103,14 @@ exclusion 12/12 + 4/4. #527 remains dependency-unblocked but undispatched.
 
 Wave 3A was explicitly approved on 2026-08-15 for the TypeScript/Electron/
 React Native migration foundation. Four isolated `gpt-5.6-luna/max` Workers
-are reserved as `dispatching` below; six implementation slots remain
-unreserved. The published baseline is local `dev@26e0cc3f`, created from the
-latest `origin/main`. This wave authorizes bounded repository implementation,
+are active below; six implementation slots remain unreserved. Codex visible
+thread creation repeatedly stalled without returning an identity or registering
+a worktree, so the coordinator created four explicit Git worktrees and launched
+the exact packets through the built-in subagent channel. Canonical task names
+and worktree paths are recorded below; the model, isolation, ownership,
+acceptance, and authority envelope are unchanged. The published baseline was
+local `dev@26e0cc3f`, created from the latest `origin/main`, with the dispatch
+ledger published through `dev@1aef7e44`. This wave authorizes bounded repository implementation,
 commit/push/PR, deterministic fixtures, and CI only. It authorizes no release,
 deployment, external business-service write, signing credential use, real
 System Proxy/TUN/VPN/Core/network mutation, or merge before explicit
@@ -442,10 +447,10 @@ privileged integration, or claim real-system behavior from fixtures.
 
 | Task | Worker task ID | Worktree | State | Dependencies | Intended result | Integration boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| TSM-001 TypeScript state-machine kernel | `unknown` | `unknown` | awaiting-coordination-service | none; preserve the Rust kernel as the parity oracle | Add an isolated TypeScript state-machine package with equivalent admission, correlation, cancellation, replacement, retirement, finalizer, observer, and bounded failure semantics; prove adversarial parity without changing production authority | The first visible-task creation request and the required duplicate-prevention task lookup both timed out without returning an identity on 2026-08-15; do not retry or replace until visible-task state can be reconciled |
-| TSM-002 Rust-to-TypeScript contract parity gate | `pending` | `pending` | dispatching | existing generated contracts and Rust DTOs | Add a machine-readable migration inventory plus deterministic Rust/TypeScript golden-schema parity checks that reject field, enum, limit, redaction, and compatibility drift | Own contract parity tooling/fixtures and minimal generated-contract wiring; no domain behavior migration, host effects, or broad contract redesign |
-| HOST-001 secure Electron foundation | `pending` | `pending` | dispatching | existing Web production bundle and shared contracts | Add a new Electron desktop app with hardened main/preload/renderer boundaries, narrow typed IPC, current Web renderer reuse, deterministic smoke tests, and a credential-free local ad-hoc DMG fixture | Own the new Electron app and its narrowly required build scripts/config; no System Proxy, TUN, Helper, Core, updater, signing, release, or Tauri deletion |
-| HOST-002 React Native Android foundation | `pending` | `pending` | dispatching | existing design tokens/contracts and Android package identity | Add a React Native New Architecture Android app with a typed Kotlin TurboModule capability seam, shared token/contract consumption, deterministic tests, and a locally buildable installable debug APK | Own the new React Native app/native module and narrowly required workspace/build wiring; no VPN/TUN/Core start, socket protection, real device mutation, signing credential, release, or Tauri deletion |
+| TSM-001 TypeScript state-machine kernel | `/root/tsm_001` | `/Users/asuka/.codex/worktrees/wave3a-tsm001/mihomo-web-client` | active | none; preserve the Rust kernel as the parity oracle | Add an isolated TypeScript state-machine package with equivalent admission, correlation, cancellation, replacement, retirement, finalizer, observer, and bounded failure semantics; prove adversarial parity without changing production authority | Implementation started in `packages/state-machine/` with lockfile wiring; owns `codex/tsm-001-state-machine-ts`; no host effects or Rust deletion |
+| TSM-002 Rust-to-TypeScript contract parity gate | `/root/tsm_002` | `/Users/asuka/.codex/worktrees/wave3a-tsm002/mihomo-web-client` | active | existing generated contracts and Rust DTOs | Add a machine-readable migration inventory plus deterministic Rust/TypeScript golden-schema parity checks that reject field, enum, limit, redaction, and compatibility drift | Implementation started in `scripts/check-contract-parity.ts`; owns `codex/tsm-002-contract-parity`; no domain migration or host effects |
+| HOST-001 secure Electron foundation | `/root/host_001` | `/Users/asuka/.codex/worktrees/wave3a-host001/mihomo-web-client` | active | existing Web production bundle and shared contracts | Add a new Electron desktop app with hardened main/preload/renderer boundaries, narrow typed IPC, current Web renderer reuse, deterministic smoke tests, and a credential-free local ad-hoc DMG fixture | Implementation started in `apps/desktop-electron/`; owns `codex/host-001-electron-foundation`; no system effects, signing, release, or Tauri deletion |
+| HOST-002 React Native Android foundation | `/root/host_002` | `/Users/asuka/.codex/worktrees/wave3a-host002/mihomo-web-client` | active | existing design tokens/contracts and Android package identity | Add a React Native New Architecture Android app with a typed Kotlin TurboModule capability seam, shared token/contract consumption, deterministic tests, and a locally buildable installable debug APK | Implementation started in `apps/mobile-rn/` plus the native design-token export; owns `codex/host-002-react-native-foundation`; no VPN/TUN/Core/device mutation/signing/release |
 
 ## Wave 1 — approved for dispatch
 
