@@ -83,6 +83,22 @@ describe("Electron host boundary", () => {
     }
   });
 
+  it("keeps the product projection owned by the Electron host and shared contracts", () => {
+    const main = readFileSync(path.join(sourceRoot, "main.ts"), "utf8");
+    const projection = readFileSync(path.join(sourceRoot, "projection.ts"), "utf8");
+    expect(main).toContain("state.projection.invoke(input, signal)");
+    expect(main).toContain("data: result.data");
+    expect(projection).toContain('from "@mish/contracts"');
+    expect(projection).toContain("ElectronProjectionDataByOperation");
+    expect(projection).toContain('kind: "profiles", profiles: []');
+    expect(projection).toContain('kind: "routes", groups: []');
+    expect(projection).toContain('kind: "traffic", connections: [], rules: []');
+    expect(projection).not.toContain("@mish/web");
+    expect(projection).not.toContain("apps/web");
+    expect(projection).not.toContain("fixture-token");
+    expect(projection).not.toContain("authToken");
+  });
+
   it("keeps the fixture credential-free and free of distribution or Finder side effects", () => {
     const fixture = readFileSync(path.join(desktopRoot, "scripts", "electron-fixture.ts"), "utf8");
     expect(fixture).toContain("verifyMacOsDmgPresentation");

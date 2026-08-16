@@ -506,6 +506,12 @@ export function verifyTranscript(output: string): void {
   for (const required of ["orpc.handshake", "orpc.invoke", "orpc.events", "renderer.store"]) {
     if (!operations.has(required)) fail(`Electron transcript is missing ${required}`);
   }
+  const statusProjection = payload.transcript.find((event) => {
+    if (!event || typeof event !== "object") return false;
+    const value = event as { readonly operation?: unknown; readonly result?: unknown };
+    return value.operation === "projection.status.snapshot" && value.result === "projection-ready";
+  });
+  if (!statusProjection) fail("Electron transcript is missing the ready status projection");
   if (
     payload.security?.sandbox !== true ||
     payload.security.contextIsolation !== true ||
@@ -559,6 +565,12 @@ export function verifyPersistentLaunch(launch: ElectronFixtureLaunch): void {
   ) {
     fail("persistent acceptance cleanup transcript was incomplete or unsafe");
   }
+  const statusProjection = payload.transcript.find((event) => {
+    if (!event || typeof event !== "object") return false;
+    const value = event as { readonly operation?: unknown; readonly result?: unknown };
+    return value.operation === "projection.status.snapshot" && value.result === "projection-ready";
+  });
+  if (!statusProjection) fail("persistent acceptance is missing the ready status projection");
 }
 
 export function cleanupElectronFixture(root: string): void {

@@ -1,3 +1,5 @@
+import type { OrpcOperation } from "@mish/contracts";
+
 /**
  * Bounded semantic evidence for the Electron host boundary.
  *
@@ -12,6 +14,12 @@ export type ElectronTranscriptOperation =
   | "renderer.bootstrap"
   | "orpc.handshake"
   | "orpc.invoke"
+  | "projection.events.snapshot"
+  | "projection.profile.refresh"
+  | "projection.routes.snapshot"
+  | "projection.settings.snapshot"
+  | "projection.status.snapshot"
+  | "projection.traffic.snapshot"
   | "orpc.events"
   | "renderer.store"
   | "application.quit";
@@ -20,15 +28,28 @@ export type ElectronTranscriptEffect = "invocation" | "result" | "event" | "clea
 
 export type ElectronTranscriptResult =
   | "accepted"
+  | "cancelled"
   | "ready"
   | "event"
   | "cleaned-up"
+  | "projection-empty"
+  | "projection-owned"
+  | "projection-ready"
+  | "projection-unavailable"
   | "disconnected"
   | "deadline-exceeded"
   | "oversized"
   | "quit"
   | "rejected"
   | "stale";
+
+export type ElectronProjectionTranscriptOperation =
+  | "projection.events.snapshot"
+  | "projection.profile.refresh"
+  | "projection.routes.snapshot"
+  | "projection.settings.snapshot"
+  | "projection.status.snapshot"
+  | "projection.traffic.snapshot";
 
 export interface ElectronTranscriptEvent {
   readonly schemaVersion: typeof ELECTRON_TRANSCRIPT_SCHEMA_VERSION;
@@ -46,6 +67,12 @@ const OPERATIONS = new Set<ElectronTranscriptOperation>([
   "renderer.bootstrap",
   "orpc.handshake",
   "orpc.invoke",
+  "projection.events.snapshot",
+  "projection.profile.refresh",
+  "projection.routes.snapshot",
+  "projection.settings.snapshot",
+  "projection.status.snapshot",
+  "projection.traffic.snapshot",
   "orpc.events",
   "renderer.store",
   "application.quit",
@@ -53,9 +80,14 @@ const OPERATIONS = new Set<ElectronTranscriptOperation>([
 const EFFECTS = new Set<ElectronTranscriptEffect>(["invocation", "result", "event", "cleanup"]);
 const RESULTS = new Set<ElectronTranscriptResult>([
   "accepted",
+  "cancelled",
   "ready",
   "event",
   "cleaned-up",
+  "projection-empty",
+  "projection-owned",
+  "projection-ready",
+  "projection-unavailable",
   "disconnected",
   "deadline-exceeded",
   "oversized",
@@ -165,4 +197,23 @@ export function electronCorrelation(index: number): string {
     throw new RangeError("Electron transcript correlation is out of bounds");
   }
   return `electron-${String(index).padStart(4, "0")}`;
+}
+
+export function electronProjectionOperation(
+  operation: OrpcOperation,
+): ElectronProjectionTranscriptOperation {
+  switch (operation) {
+    case "status.snapshot":
+      return "projection.status.snapshot";
+    case "routes.snapshot":
+      return "projection.routes.snapshot";
+    case "profile.refresh":
+      return "projection.profile.refresh";
+    case "traffic.snapshot":
+      return "projection.traffic.snapshot";
+    case "events.snapshot":
+      return "projection.events.snapshot";
+    case "settings.snapshot":
+      return "projection.settings.snapshot";
+  }
 }

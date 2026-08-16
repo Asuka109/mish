@@ -6,11 +6,13 @@ import { RPCHandler as MessagePortRPCHandler } from "@orpc/server/message-port";
 import {
   ORPC_CLIENT_NAMES,
   ORPC_CONTRACT_VERSION,
+  ORPC_OPERATIONS,
   ORPC_PROTOCOL_VERSION,
   orpcContract,
   type OrpcEventReturn,
   type OrpcEventValue,
   type OrpcHandshakeOutput,
+  type OrpcOperation,
 } from "@mish/contracts";
 import {
   app,
@@ -35,11 +37,17 @@ import {
 } from "./electron-api.js";
 import {
   electronCorrelation,
+  electronProjectionOperation,
   ElectronTranscript,
   replayElectronTranscript,
   type ElectronTranscriptOperation,
   type ElectronTranscriptResult,
 } from "./transcript.js";
+import {
+  createElectronProjectionAuthority,
+  ElectronProjectionError,
+  type ElectronProjectionAuthority,
+} from "./projection.js";
 import {
   quitDecision,
   type ElectronHostMode,
@@ -76,6 +84,7 @@ interface HostMetrics {
 
 interface SessionPortState {
   readonly authToken: string;
+  readonly projection: ElectronProjectionAuthority;
   readonly transcript: ElectronTranscript;
   readonly metrics: HostMetrics;
   generation: number;
@@ -171,6 +180,7 @@ function createHostRouter(state: SessionPortState) {
         ) {
           throw protocolError("PAYLOAD_TOO_LARGE", 413);
         }
+        state.projection.setAvailable();
         record("orpc.handshake", "result", "accepted");
         return {
           contractVersion: ORPC_CONTRACT_VERSION,
@@ -185,27 +195,42 @@ function createHostRouter(state: SessionPortState) {
     },
     application: {
       invoke: implementation.application.invoke.handler(({ input, signal }) => {
-        if (input.deadlineMs < 1 || input.deadlineMs > MAX_DEADLINE_MS) {
-          throw protocolError("TIMEOUT", 408);
+        record("orpc.invoke", "invocation", "accepted");
+        try {
+          const result = state.projection.invoke(input, signal);
+          record(result.transcriptOperation, "result", result.result);
+          return {
+            correlationId: input.correlationId,
+            data: result.data,
+            operation: result.operation,
+            parentEpoch: state.parentEpoch,
+            revision: state.revision,
+            sessionGeneration: state.generation,
+            value: "accepted" as const,
+          };
+        } catch (error) {
+          if (error instanceof ElectronProjectionError) {
+            const result =
+              error.code === "CLIENT_CLOSED_REQUEST"
+                ? "cancelled"
+                : error.code === "TIMEOUT"
+                  ? "deadline-exceeded"
+                  : error.code === "PAYLOAD_TOO_LARGE"
+                    ? "oversized"
+                    : error.code === "CONFLICT"
+                      ? "stale"
+                      : "rejected";
+            const operation =
+              typeof input.operation === "string" &&
+              ORPC_OPERATIONS.includes(input.operation as OrpcOperation)
+                ? electronProjectionOperation(input.operation as OrpcOperation)
+                : "orpc.invoke";
+            record(operation, "result", result);
+            throw protocolError(error.code, error.status);
+          }
+          record("orpc.invoke", "result", "rejected");
+          throw error;
         }
-        if (input.sessionGeneration !== state.generation) {
-          throw protocolError("CONFLICT", 409);
-        }
-        if (input.parentEpoch !== state.parentEpoch || input.revision !== state.revision) {
-          throw protocolError("CONFLICT", 409);
-        }
-        if (signal?.aborted) {
-          throw protocolError("CLIENT_CLOSED_REQUEST", 499);
-        }
-        record("orpc.invoke", "result", "accepted");
-        return {
-          correlationId: input.correlationId,
-          operation: input.operation,
-          parentEpoch: state.parentEpoch,
-          revision: state.revision,
-          sessionGeneration: state.generation,
-          value: "accepted" as const,
-        };
       }),
       events: {
         watch: implementation.application.events.watch.handler(async function* ({
@@ -286,6 +311,7 @@ function closePorts(): void {
     }
   }
   ports.clear();
+  sessionState?.projection.dispose();
   sessionState = undefined;
 }
 
@@ -456,6 +482,11 @@ function postSessionPort(): void {
   sessionState.generation = generation;
   sessionState.parentEpoch = generation;
   sessionState.revision = generation;
+  sessionState.projection.setSession({
+    generation,
+    parentEpoch: sessionState.parentEpoch,
+    revision: sessionState.revision,
+  });
   sessionState.activePort?.close();
   sessionState.activePort = channel.port1;
   ports.add(channel.port1);
@@ -556,6 +587,7 @@ void app
     const authToken = randomBytes(32).toString("base64url");
     sessionState = {
       authToken,
+      projection: createElectronProjectionAuthority(),
       transcript,
       metrics,
       generation: 0,

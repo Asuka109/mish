@@ -67,4 +67,41 @@ describe("Electron transcript boundary", () => {
       "Electron transcript correlation is out of bounds",
     );
   });
+
+  it("replays operation-matched projection invocation and result records", () => {
+    const transcript = new ElectronTranscript();
+    transcript.record({
+      operation: "orpc.invoke",
+      effect: "invocation",
+      result: "accepted",
+      correlationId: electronCorrelation(1),
+    });
+    transcript.record({
+      operation: "projection.status.snapshot",
+      effect: "result",
+      result: "projection-ready",
+      correlationId: electronCorrelation(2),
+    });
+    transcript.record({
+      operation: "projection.routes.snapshot",
+      effect: "result",
+      result: "projection-empty",
+      correlationId: electronCorrelation(3),
+    });
+    transcript.record({
+      operation: "projection.settings.snapshot",
+      effect: "result",
+      result: "projection-owned",
+      correlationId: electronCorrelation(4),
+    });
+
+    const replay = replayElectronTranscript(transcript.snapshot());
+    expect(replay.events.map((event) => event.operation)).toEqual([
+      "orpc.invoke",
+      "projection.status.snapshot",
+      "projection.routes.snapshot",
+      "projection.settings.snapshot",
+    ]);
+    expect(transcript.serialize()).not.toMatch(/token|password|\/Users\//u);
+  });
 });
