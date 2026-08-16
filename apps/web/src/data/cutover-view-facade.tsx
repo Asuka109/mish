@@ -1,5 +1,6 @@
 import type {
   OrpcEventData,
+  OrpcInvokeOutput,
   OrpcOperation,
   OrpcProfileData,
   OrpcRouteData,
@@ -9,7 +10,6 @@ import type {
 } from "@mish/contracts";
 import { useContext, createContext, type ReactNode } from "react";
 import { useQuery, type QueryKey } from "@mish/ui-state";
-import type { OrpcInvokeOutput } from "@mish/contracts";
 
 export const CUTOVER_VIEW_QUERY_PREFIX = ["web", "orpc", "view"] as const;
 
@@ -61,12 +61,12 @@ export function cutoverViewQueryKey(operation: OrpcOperation): QueryKey {
  */
 export function useCutoverView<TOperation extends OrpcOperation>(operation: TOperation) {
   const source = useContext(CutoverViewContext);
-  return useQuery<CutoverViewDataByOperation[TOperation] | undefined>({
+  return useQuery<CutoverViewDataByOperation[TOperation] | null>({
     queryKey: cutoverViewQueryKey(operation),
     queryFn: async ({ signal }) => {
-      if (!source) return undefined;
+      if (!source) return null;
       const result = await source.invoke(operation, { signal, deadlineMs: 500 });
-      return result.data as CutoverViewDataByOperation[TOperation] | undefined;
+      return (result.data as CutoverViewDataByOperation[TOperation] | null | undefined) ?? null;
     },
     enabled: source !== null,
     staleTime: 1_000,
