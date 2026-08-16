@@ -153,7 +153,7 @@ export async function assembleElectronFixture(options: {
     fail("the isolated DMG fixture is restricted to macOS arm64");
   }
   const archive = verifyElectronArchive(options.archive);
-  if (!existsSync(path.join(distRoot, "main.mjs"))) await buildDesktop();
+  await buildDesktop();
   const root = mkdtempSync(path.join(tmpdir(), "mish-electron-admission-"));
   const extracted = path.join(root, "extracted");
   mkdirSync(extracted, { recursive: true, mode: 0o700 });
