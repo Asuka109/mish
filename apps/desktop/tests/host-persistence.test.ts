@@ -39,6 +39,9 @@ describe("Electron host persistence boundary", () => {
     expect(renderer).toContain('if (disposition !== "dispose-and-quit") return;');
     expect(renderer).toContain("void handle.dispose().then(() => {");
     expect(renderer).toContain("api.rendererDisposed();");
+    expect(renderer).toContain("product: productReport");
+    expect(renderer).toContain("<CutoverViewProvider source={viewSource}>");
+    expect(renderer).not.toContain("<p>{statusText}</p>");
   });
 
   it("keeps explicit fixture auto-quit separate from default persistence", () => {

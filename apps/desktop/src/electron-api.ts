@@ -4,6 +4,7 @@ import type {
   OrpcInvokeOutput,
   OrpcOperation,
 } from "@mish/contracts";
+import type { RendererProductReport } from "./product-surface.js";
 
 export const ELECTRON_PORT_CHANNEL = "mish-electron/session-port" as const;
 export const ELECTRON_PORT_REQUEST_CHANNEL = "mish-electron/request-session-port" as const;
@@ -39,6 +40,7 @@ export interface RendererReadyReport {
     readonly remounted: true;
   };
   readonly strictMode: true;
+  readonly product: RendererProductReport;
 }
 
 export type RendererReadyDisposition = "keep-session" | "dispose-and-quit";

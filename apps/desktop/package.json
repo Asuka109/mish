@@ -19,6 +19,7 @@
     "@mish/domain": "workspace:*",
     "@mish/orpc-client": "workspace:*",
     "@mish/ui-state": "workspace:*",
+    "@mish/web": "workspace:*",
     "@orpc/server": "1.15.0",
     "electron": "43.4.0",
     "react": "19.2.7",
