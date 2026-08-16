@@ -153,7 +153,7 @@ export async function assembleElectronFixture(options: {
     fail("the isolated DMG fixture is restricted to macOS arm64");
   }
   const archive = verifyElectronArchive(options.archive);
-  if (!existsSync(path.join(distRoot, "main.mjs"))) await buildDesktop();
+  await buildDesktop();
   const root = mkdtempSync(path.join(tmpdir(), "mish-electron-admission-"));
   const extracted = path.join(root, "extracted");
   mkdirSync(extracted, { recursive: true, mode: 0o700 });
@@ -173,9 +173,12 @@ export async function assembleElectronFixture(options: {
 const ELECTRON_LAUNCHER_SOURCE = String.raw`
 import { spawn } from "node:child_process";
 
-const [executable, appRoot, userData, timeoutText] = process.argv.slice(1);
+const [executable, appRoot, userData, modeText, timeoutText] = process.argv.slice(1);
+const mode =
+  modeText === "fixture-auto-quit" || modeText === "persistent" ? modeText : "invalid";
 const timeoutMs = Number(timeoutText);
 const maxOutput = 2 * 1024 * 1024;
+const readinessMarker = "MISH_ELECTRON_READY stage=renderer-ready";
 let output = "";
 let child;
 let settled = false;
@@ -183,6 +186,10 @@ let timedOut = false;
 let childExited = false;
 let childExitCode = null;
 let childExitSignal = null;
+let readinessSeen = false;
+let ownedProcessVerified = false;
+let cleanupRequested = false;
+let identityFailed = false;
 let deadline;
 let grace;
 let killDeadline;
@@ -192,10 +199,20 @@ function append(chunk) {
   output += String(chunk).slice(0, maxOutput - output.length);
 }
 
-function ownedProcessGroup(signal) {
-  if (!child?.pid || !Number.isSafeInteger(child.pid) || child.pid <= 0) return;
+function ownedProcessIdentity() {
+  if (!child?.pid || !Number.isSafeInteger(child.pid) || child.pid <= 0 || childExited) return false;
   try {
     process.kill(child.pid, 0);
+    process.kill(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ownedProcessGroup(signal) {
+  if (!ownedProcessIdentity()) return;
+  try {
     process.kill(-child.pid, signal);
   } catch {
     // The child exited or its owned process group was already reaped.
@@ -203,15 +220,26 @@ function ownedProcessGroup(signal) {
 }
 
 const result = await new Promise((resolve) => {
+  if (mode === "invalid") {
+    resolve({ status: "error", code: "mode" });
+    return;
+  }
+  const environment = { ...process.env };
+  delete environment.MISH_ELECTRON_FIXTURE;
+  delete environment.MISH_ELECTRON_FIXTURE_MODE;
+  if (mode === "fixture-auto-quit") {
+    environment.MISH_ELECTRON_FIXTURE = "1";
+    environment.MISH_ELECTRON_FIXTURE_MODE = "auto-quit";
+  }
   child = spawn(executable, [appRoot, "--disable-gpu", "--user-data-dir=" + userData], {
     cwd: appRoot,
     detached: true,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "", MISH_ELECTRON_FIXTURE: "1" },
+    env: { ...environment, ELECTRON_RUN_AS_NODE: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", append);
   child.stderr.on("data", append);
-  append("MISH_ELECTRON_LAUNCHER spawned pid=" + String(child.pid) + "\n");
+  append("MISH_ELECTRON_LAUNCHER spawned\n");
   const finish = (value) => {
     if (settled) return;
     settled = true;
@@ -220,6 +248,31 @@ const result = await new Promise((resolve) => {
     clearTimeout(killDeadline);
     resolve(value);
   };
+  const observeReadiness = () => {
+    if (readinessSeen || !output.includes(readinessMarker)) return;
+    readinessSeen = true;
+    if (mode !== "persistent") return;
+    ownedProcessVerified = ownedProcessIdentity();
+    cleanupRequested = true;
+    append(
+      "MISH_ELECTRON_LAUNCHER readiness=renderer-ready owned=" +
+        String(ownedProcessVerified) +
+        "\n",
+    );
+    if (!ownedProcessVerified) {
+      identityFailed = true;
+      return;
+    }
+    ownedProcessGroup("SIGTERM");
+  };
+  const observeOutput = (chunk) => {
+    append(chunk);
+    observeReadiness();
+  };
+  child.stdout.removeAllListeners("data");
+  child.stderr.removeAllListeners("data");
+  child.stdout.on("data", observeOutput);
+  child.stderr.on("data", observeOutput);
   child.on("error", (error) => {
     append("MISH_ELECTRON_LAUNCHER error=" + (error.code ?? error.message) + "\n");
     finish({ status: "error", code: error.code ?? "spawn" });
@@ -228,9 +281,27 @@ const result = await new Promise((resolve) => {
     childExited = true;
     childExitCode = code;
     childExitSignal = signal;
-    append("MISH_ELECTRON_LAUNCHER exit code=" + String(code) + " signal=" + String(signal) + "\n");
+    append(
+      "MISH_ELECTRON_LAUNCHER exit code=" +
+        String(code) +
+        " signal=" +
+        String(signal) +
+        "\n",
+    );
     if (!timedOut) {
-      setTimeout(() => finish({ status: "exited", exitCode: childExitCode ?? 1, signal: childExitSignal, output }), 250);
+      setTimeout(
+        () =>
+          finish({
+            status: identityFailed ? "identity-failed" : "exited",
+            exitCode: childExitCode ?? 1,
+            signal: childExitSignal,
+            output,
+            readinessSeen,
+            ownedProcessVerified,
+            cleanupRequested,
+          }),
+        250,
+      );
     }
   });
   child.on("close", (code, signal) => {
@@ -239,16 +310,33 @@ const result = await new Promise((resolve) => {
       childExitCode = code;
       childExitSignal = signal;
     }
-    finish({ status: timedOut ? "timeout" : "exited", exitCode: childExitCode ?? 1, signal: childExitSignal, output });
+    finish({
+      status: timedOut ? "timeout" : identityFailed ? "identity-failed" : "exited",
+      exitCode: childExitCode ?? 1,
+      signal: childExitSignal,
+      output,
+      readinessSeen,
+      ownedProcessVerified,
+      cleanupRequested,
+    });
   });
   deadline = setTimeout(() => {
     grace = setTimeout(() => {
       if (childExited && childExitCode === 0) {
-        finish({ status: "exited", exitCode: childExitCode, signal: childExitSignal, output });
+        finish({
+          status: mode === "persistent" && !readinessSeen ? "readiness-missing" : "exited",
+          exitCode: childExitCode,
+          signal: childExitSignal,
+          output,
+          readinessSeen,
+          ownedProcessVerified,
+          cleanupRequested,
+        });
         return;
       }
       append("MISH_ELECTRON_LAUNCHER deadline=" + timeoutMs + "ms\n");
       timedOut = true;
+      cleanupRequested = true;
       ownedProcessGroup("SIGTERM");
       killDeadline = setTimeout(() => ownedProcessGroup("SIGKILL"), 1_500);
     }, 500);
@@ -263,11 +351,24 @@ function boundedOutput(output: string): string {
   return output.length <= limit ? output : `${output.slice(0, limit)}\n[truncated]`;
 }
 
-export function launchAndQuitElectronFixture(
+export type ElectronFixtureLaunchMode = "fixture-auto-quit" | "persistent";
+
+export interface ElectronFixtureLaunch {
+  readonly mode: ElectronFixtureLaunchMode;
+  readonly exitCode: number;
+  readonly signal: string | null;
+  readonly output: string;
+  readonly readinessSeen: boolean;
+  readonly ownedProcessVerified: boolean;
+  readonly cleanupRequested: boolean;
+}
+
+export function launchElectronFixture(
   application: string,
   userData: string,
+  mode: ElectronFixtureLaunchMode,
   timeoutMs = 30_000,
-): { readonly exitCode: number; readonly output: string } {
+): ElectronFixtureLaunch {
   const executable = path.join(application, "Contents", "MacOS", "Electron");
   const appRoot = path.join(application, "Contents", "Resources", "app");
   const result = spawnSync(
@@ -279,6 +380,7 @@ export function launchAndQuitElectronFixture(
       executable,
       appRoot,
       userData,
+      mode,
       String(timeoutMs),
     ],
     {
@@ -298,7 +400,11 @@ export function launchAndQuitElectronFixture(
     readonly status: string;
     readonly code?: string;
     readonly exitCode?: number;
+    readonly signal?: string | null;
     readonly output?: string;
+    readonly readinessSeen?: boolean;
+    readonly ownedProcessVerified?: boolean;
+    readonly cleanupRequested?: boolean;
   };
   try {
     launch = JSON.parse(String(result.stdout ?? "").trim()) as typeof launch;
@@ -307,20 +413,48 @@ export function launchAndQuitElectronFixture(
       `Electron launcher emitted invalid result\n${boundedOutput(String(result.stdout ?? ""))}`,
     );
   }
-  if (launch.status === "timeout")
+  if (
+    launch.status === "timeout" ||
+    launch.status === "readiness-missing" ||
+    launch.status === "identity-failed"
+  )
     fail(
       `Electron launch deadline exceeded after ${timeoutMs}ms\n${boundedOutput(launch.output ?? "")}`,
     );
   if (launch.status === "error") fail(`Electron launcher failed: ${launch.code ?? "spawn"}`);
-  return { exitCode: launch.exitCode ?? 1, output: launch.output ?? "" };
+  return {
+    mode,
+    exitCode: launch.exitCode ?? 1,
+    signal: launch.signal ?? null,
+    output: launch.output ?? "",
+    readinessSeen: launch.readinessSeen === true,
+    ownedProcessVerified: launch.ownedProcessVerified === true,
+    cleanupRequested: launch.cleanupRequested === true,
+  };
+}
+
+export function launchAndQuitElectronFixture(
+  application: string,
+  userData: string,
+  timeoutMs = 30_000,
+): ElectronFixtureLaunch {
+  return launchElectronFixture(application, userData, "fixture-auto-quit", timeoutMs);
+}
+
+export function launchAndStayAliveElectronFixture(
+  application: string,
+  userData: string,
+  timeoutMs = 30_000,
+): ElectronFixtureLaunch {
+  return launchElectronFixture(application, userData, "persistent", timeoutMs);
 }
 
 export async function launchMountedDmgAndQuit(
   fixture: ElectronFixturePaths,
   userData = fixture.userData,
-): Promise<{ readonly exitCode: number; readonly output: string }> {
+): Promise<ElectronFixtureLaunch> {
   const { verifyMacOsDmgPresentation } = await dmgTools();
-  let launch: { readonly exitCode: number; readonly output: string } | undefined;
+  let launch: ElectronFixtureLaunch | undefined;
   verifyMacOsDmgPresentation(fixture.dmg, (mountedApplication) => {
     launch = launchAndQuitElectronFixture(mountedApplication, userData);
   });
@@ -328,7 +462,22 @@ export async function launchMountedDmgAndQuit(
   return launch;
 }
 
+export async function launchMountedDmgAndStayAlive(
+  fixture: ElectronFixturePaths,
+  userData = fixture.userData,
+): Promise<ElectronFixtureLaunch> {
+  const { verifyMacOsDmgPresentation } = await dmgTools();
+  let launch: ElectronFixtureLaunch | undefined;
+  verifyMacOsDmgPresentation(fixture.dmg, (mountedApplication) => {
+    launch = launchAndStayAliveElectronFixture(mountedApplication, userData);
+  });
+  if (!launch) fail("read-only DMG verification did not expose Mish.app");
+  return launch;
+}
+
 export function verifyTranscript(output: string): void {
+  if (!output.includes("MISH_ELECTRON_READY stage=renderer-ready"))
+    fail("Electron did not emit the bounded renderer-ready signal");
   const line = output
     .split("\n")
     .find((candidate) => candidate.startsWith("MISH_ELECTRON_TRANSCRIPT "));
@@ -370,6 +519,48 @@ export function verifyTranscript(output: string): void {
     fail("transcript contains authentication material");
 }
 
+export function verifyPersistentLaunch(launch: ElectronFixtureLaunch): void {
+  if (launch.mode !== "persistent") fail("persistent acceptance used the wrong host mode");
+  if (!launch.readinessSeen || !launch.ownedProcessVerified || !launch.cleanupRequested) {
+    fail("persistent acceptance lacked bounded readiness, owned identity, or cleanup evidence");
+  }
+  if (
+    !launch.output.includes("MISH_ELECTRON_READY stage=renderer-ready mode=default") ||
+    !launch.output.includes("MISH_ELECTRON_READY_DISPOSITION keep-session")
+  ) {
+    fail("persistent acceptance did not prove the default host mode stayed persistent");
+  }
+  if (!launch.output.includes("MISH_ELECTRON_LAUNCHER readiness=renderer-ready owned=true")) {
+    fail("persistent acceptance did not verify the owned process group after readiness");
+  }
+  const line = launch.output
+    .split("\n")
+    .find((candidate) => candidate.startsWith("MISH_ELECTRON_TRANSCRIPT "));
+  if (!line) fail("persistent acceptance did not emit a bounded cleanup transcript");
+  const payload = JSON.parse(line.slice("MISH_ELECTRON_TRANSCRIPT ".length)) as {
+    readonly transcript?: readonly unknown[];
+    readonly metrics?: { readonly activeStreams?: number; readonly cleanupCount?: number };
+    readonly security?: {
+      readonly sandbox?: boolean;
+      readonly contextIsolation?: boolean;
+      readonly nodeIntegration?: boolean;
+    };
+    readonly stage?: string;
+  };
+  if (
+    !Array.isArray(payload.transcript) ||
+    payload.transcript.length > 128 ||
+    payload.metrics?.activeStreams !== 0 ||
+    (payload.metrics.cleanupCount ?? 0) < 1 ||
+    payload.security?.sandbox !== true ||
+    payload.security.contextIsolation !== true ||
+    payload.security.nodeIntegration !== false ||
+    payload.stage !== "quit"
+  ) {
+    fail("persistent acceptance cleanup transcript was incomplete or unsafe");
+  }
+}
+
 export function cleanupElectronFixture(root: string): void {
   if (!existsSync(root)) return;
   execFileSync("trash", [root], { stdio: "ignore" });
@@ -390,17 +581,34 @@ async function main(): Promise<void> {
   if (!archive) fail("explicit --archive or MISH_ELECTRON_ARCHIVE is required");
   const fixture = await assembleElectronFixture({ archive });
   try {
+    const persistent = process.argv.includes("--persistent");
     const runs = [];
-    for (let index = 0; index < 2; index += 1) {
+    for (let index = 0; index < (persistent ? 1 : 2); index += 1) {
       const userData = path.join(fixture.root, `user-data-${index + 1}`);
       mkdirSync(userData, { recursive: true, mode: 0o700 });
       // Runs stay sequential so the mounted volume and owned process group
       // from one acceptance run are fully cleaned before the next begins.
-      // oxlint-disable-next-line no-await-in-loop
-      const launch = await launchMountedDmgAndQuit(fixture, userData);
-      if (launch.exitCode !== 0) fail(`Electron exited with code ${launch.exitCode}`);
-      verifyTranscript(launch.output);
-      runs.push({ run: index + 1, exitCode: launch.exitCode, transcript: "valid" });
+      let launch: ElectronFixtureLaunch;
+      if (persistent) {
+        // oxlint-disable-next-line no-await-in-loop
+        launch = await launchMountedDmgAndStayAlive(fixture, userData);
+      } else {
+        // oxlint-disable-next-line no-await-in-loop
+        launch = await launchMountedDmgAndQuit(fixture, userData);
+      }
+      if (persistent) {
+        verifyPersistentLaunch(launch);
+        runs.push({
+          run: index + 1,
+          mode: launch.mode,
+          readiness: "bounded",
+          cleanup: "self-only",
+        });
+      } else {
+        if (launch.exitCode !== 0) fail(`Electron exited with code ${launch.exitCode}`);
+        verifyTranscript(launch.output);
+        runs.push({ run: index + 1, exitCode: launch.exitCode, transcript: "valid" });
+      }
     }
     console.log(JSON.stringify({ archive: fixture.archive, dmg: fixture.dmg, runs }));
   } finally {

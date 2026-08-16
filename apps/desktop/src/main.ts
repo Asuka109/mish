@@ -22,6 +22,7 @@ import {
 } from "electron";
 
 import {
+  ELECTRON_DISPOSED_CHANNEL,
   ELECTRON_FAILURE_CHANNEL,
   ELECTRON_PORT_CHANNEL,
   ELECTRON_PORT_REQUEST_CHANNEL,
@@ -29,6 +30,7 @@ import {
   ELECTRON_REPORT_CHANNEL,
   type RendererFailureReport,
   type RendererReadyReport,
+  type RendererReadyDisposition,
   type RendererStoreReport,
 } from "./electron-api.js";
 import {
@@ -38,11 +40,23 @@ import {
   type ElectronTranscriptOperation,
   type ElectronTranscriptResult,
 } from "./transcript.js";
+import {
+  quitDecision,
+  type ElectronHostMode,
+  type ElectronHostSignal,
+} from "./host-quit-policy.js";
 
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const MAX_DEADLINE_MS = 1_000;
 const RENDERER_READY_DEADLINE_MS = 10_000;
 const QUIT_DEADLINE_MS = 5_000;
+const runtimeProcess = Reflect.get(globalThis, "process") as
+  | { readonly env?: Readonly<Record<string, string | undefined>> }
+  | undefined;
+const HOST_MODE: ElectronHostMode =
+  runtimeProcess?.env?.["MISH_ELECTRON_FIXTURE_MODE"] === "auto-quit"
+    ? "fixture-auto-quit"
+    : "default";
 
 type HostStage =
   | "starting"
@@ -80,6 +94,7 @@ interface PortEnvelope {
 let mainWindow: BrowserWindow | undefined;
 let sessionState: SessionPortState | undefined;
 let rendererReady = false;
+let rendererDisposed = false;
 let failureReported = false;
 let quitRequested = false;
 let stage: HostStage = "starting";
@@ -286,13 +301,28 @@ function requestQuit(): void {
   app.quit();
 }
 
+function requestQuitFor(signal: ElectronHostSignal): void {
+  if (quitDecision(HOST_MODE, signal) === "request-quit") requestQuit();
+}
+
+function emitReadinessSignal(): void {
+  console.log(`MISH_ELECTRON_READY stage=renderer-ready mode=${HOST_MODE}`);
+}
+
+function emitFailureSignal(): void {
+  console.log("MISH_ELECTRON_FAILURE stage=admission");
+}
+
+process.once("SIGTERM", () => requestQuitFor("user-close"));
+
 function failAdmission(stageName: string): void {
   if (rendererReady || failureReported) return;
   failureReported = true;
   clearRendererReadyDeadline();
   record("renderer.bootstrap", "result", "rejected");
   diagnostic(`phase=${stageName} stage=${stage}`);
-  requestQuit();
+  emitFailureSignal();
+  requestQuitFor(stageName === "renderer-ready" ? "renderer-timeout" : "renderer-failure");
 }
 
 function isRendererStoreReport(value: unknown): value is RendererStoreReport {
@@ -381,18 +411,42 @@ function handleRendererFailure(event: IpcMainEvent, value: unknown): void {
   clearRendererReadyDeadline();
   record("renderer.bootstrap", "result", "rejected");
   diagnostic(`phase=renderer-failure stage=${value.stage}`);
-  requestQuit();
+  emitFailureSignal();
+  requestQuitFor("renderer-failure");
 }
 
 function handleRendererReady(event: IpcMainEvent, value: unknown): void {
   if (event.sender !== mainWindow?.webContents || rendererReady || !isRendererReadyReport(value)) {
+    event.reply(ELECTRON_READY_CHANNEL, "keep-session" satisfies RendererReadyDisposition);
     return;
   }
   clearRendererReadyDeadline();
   rendererReady = true;
+  rendererDisposed = false;
   stage = "renderer-ready";
   record("renderer.bootstrap", "event", "ready");
-  setImmediate(requestQuit);
+  emitReadinessSignal();
+  const disposition =
+    quitDecision(HOST_MODE, "renderer-ready") === "request-quit"
+      ? ("dispose-and-quit" satisfies RendererReadyDisposition)
+      : ("keep-session" satisfies RendererReadyDisposition);
+  console.log(`MISH_ELECTRON_READY_DISPOSITION ${disposition}`);
+  event.reply(ELECTRON_READY_CHANNEL, disposition);
+}
+
+function handleRendererDisposed(event: IpcMainEvent): void {
+  if (
+    event.sender !== mainWindow?.webContents ||
+    HOST_MODE !== "fixture-auto-quit" ||
+    !rendererReady ||
+    rendererDisposed
+  ) {
+    return;
+  }
+  rendererDisposed = true;
+  console.log("MISH_ELECTRON_DISPOSED_ACK");
+  record("renderer.bootstrap", "cleanup", "cleaned-up");
+  requestQuitFor("renderer-ready");
 }
 
 function postSessionPort(): void {
@@ -461,6 +515,7 @@ ipcMain.on(ELECTRON_PORT_REQUEST_CHANNEL, handlePortRequest);
 ipcMain.on(ELECTRON_REPORT_CHANNEL, recordRendererReport);
 ipcMain.on(ELECTRON_FAILURE_CHANNEL, handleRendererFailure);
 ipcMain.on(ELECTRON_READY_CHANNEL, handleRendererReady);
+ipcMain.on(ELECTRON_DISPOSED_CHANNEL, handleRendererDisposed);
 
 app.on("before-quit", () => {
   clearRendererReadyDeadline();
@@ -473,7 +528,7 @@ app.on("will-quit", () => {
   clearRendererReadyDeadline();
   clearQuitDeadline();
   stage = "quit";
-  record("application.quit", "result", rendererReady ? "quit" : "rejected");
+  record("application.quit", "result", quitRequested ? "quit" : "rejected");
   const replay = replayElectronTranscript(transcript.snapshot());
   console.log(
     `MISH_ELECTRON_TRANSCRIPT ${JSON.stringify({

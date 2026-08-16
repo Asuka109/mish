@@ -14,7 +14,7 @@ import {
   createElectronSessionActor,
   type ElectronSessionStreamData,
 } from "./session.js";
-import type { ElectronHostApi, RendererStoreReport } from "./electron-api.js";
+import type { ElectronHostApi, RendererReadyReport, RendererStoreReport } from "./electron-api.js";
 
 interface PresentationState {
   readonly phase: "connected" | "connecting" | "disconnected" | "failed";
@@ -181,26 +181,36 @@ function ElectronApplication({
       return;
     }
     readyReported.current = true;
-    disposedForReady.current = true;
     const session = {
       connected: true as const,
       generation: handle.authority.sessionGeneration,
       parentEpoch: handle.authority.parentEpoch,
       revision: handle.authority.revision,
     };
-    void handle.dispose().then(() => {
-      api.rendererReady({
-        session,
-        events: presentation.events,
-        store: {
-          notifications: Math.max(1, surfaceNotificationCount.current),
-          cleanups: Math.max(1, surfaceCleanupCount.current),
-          remounted: true,
-        },
-        strictMode: true,
-      });
-      return undefined;
-    });
+    const readyReport: RendererReadyReport = {
+      session,
+      events: presentation.events,
+      store: {
+        notifications: Math.max(1, surfaceNotificationCount.current),
+        cleanups: Math.max(1, surfaceCleanupCount.current),
+        remounted: true,
+      },
+      strictMode: true,
+    };
+    void api.rendererReady(readyReport).then(
+      (disposition) => {
+        if (disposition !== "dispose-and-quit") return;
+        disposedForReady.current = true;
+        void handle.dispose().then(() => {
+          api.rendererDisposed();
+          return undefined;
+        });
+        return undefined;
+      },
+      () => {
+        api.reportFailure({ stage: "renderer", message: "admission-failed" });
+      },
+    );
   }, [api, handle, presentation, surfaceLabel]);
 
   const statusText =
