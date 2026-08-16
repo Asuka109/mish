@@ -12,5 +12,16 @@
     "target": "ES2024",
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src/main.tsx",
+    "src/app.tsx",
+    "src/data/cutover-composition.tsx",
+    "src/data/cutover-session-actor.ts",
+    "src/data/cutover-view-facade.tsx",
+    "src/pages/cutover-pages.tsx",
+    "src/platform/runtime-bootstrap.ts",
+    "src/window-startup.ts",
+    "src/vite-env.d.ts",
+    "vite.config.ts"
+  ]
 }

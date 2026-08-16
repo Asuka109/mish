@@ -39,17 +39,22 @@ export interface CutoverSessionStreamData {
 }
 
 export interface CutoverSessionPort {
-  readonly authority: Pick<
-    OrpcSessionAuthority,
-    | "connect"
-    | "disconnect"
-    | "dispose"
-    | "state"
-    | "sessionGeneration"
-    | "parentEpoch"
-    | "revision"
-    | "watchEvents"
-  >;
+  readonly authority: Omit<
+    Pick<
+      OrpcSessionAuthority,
+      | "connect"
+      | "disconnect"
+      | "dispose"
+      | "state"
+      | "sessionGeneration"
+      | "parentEpoch"
+      | "revision"
+      | "watchEvents"
+      | "invoke"
+    >,
+    "invoke"
+  > &
+    Partial<Pick<OrpcSessionAuthority, "invoke">>;
   readonly createChannel: () => OrpcChannel;
 }
 

@@ -1,244 +1,32 @@
 # Status Experience
 
-## Purpose
-
-Status is the everyday workbench for a running Mish client. It should support
-four tasks without becoming a generic proxy dashboard:
-
-1. Start or stop traffic capture.
-2. Change routing mode or capture paths.
-3. Read live traffic and runtime health.
-4. Open a frequently used policy group and change that group's selected child.
-
-Status deliberately does not claim that Rule mode has one globally active
-node. Different rules can traverse different groups, and the Mihomo core exposes no
-canonical primary group.
+Status is the first destination in the Mish Web product. It makes the
+authenticated session, service health, and current projection legible without
+turning transport or host effects into UI state.
 
 ## Information hierarchy
 
-The page is arranged in this order:
+1. Page title and session status.
+2. A compact health summary with explicit loading, unavailable, stale, and
+   connected wording.
+3. Current profile and route context.
+4. Bounded traffic and event highlights.
+5. Links to Routes, Profiles, Traffic, Events, and Settings for progressive
+   detail.
 
-1. **Toolbar** — current page title and a quiet selected-profile menu.
-2. **Routing controls** — two stacked rows in one grouped surface: Routing mode
-   and Traffic capture.
-3. **Session** — live and cumulative traffic plus compact runtime metrics.
-4. **Groups** — the five most-used visible policy groups for the active profile.
-5. **Services** — configurable endpoint-latency probes.
+The page is rendered by `StatusPage` and reads `status.snapshot` through the
+shared session actor and Query facade. It never constructs a client, starts a
+host operation, or claims a real network state from a fixture.
 
-The aggregate proxy action lives at the bottom of the sidebar because it is both
-global status and the most frequent command. It is named `ProxyControlButton`.
+## Interaction rules
 
-## ProxyControlButton
+- text, structure, and iconography carry status meaning in addition to color;
+- loading and unavailable states explain what is being awaited;
+- stale data remains visibly marked and does not become a fresh command source;
+- reconnect and failure surfaces are owned by the session actor;
+- local filters, disclosure, and focus are presentation state;
+- keyboard focus, reduced motion, and narrow-window layout remain usable.
 
-`ProxyControlButton` is the single everyday start/stop control. Its icon and
-label align with the sidebar navigation columns.
-
-| State      | Surface                                      | Default content                    | Hover or keyboard focus                                     | Action                            |
-| ---------- | -------------------------------------------- | ---------------------------------- | ----------------------------------------------------------- | --------------------------------- |
-| Inactive   | Transparent, quiet gray hairline             | Power icon, “启动代理”             | Explain the remembered combination or System Proxy fallback | Resume the remembered combination |
-| Connecting | Warning treatment                            | Progress wording and icon          | Same meaning                                                | No duplicate start                |
-| Healthy    | Blue water material with static DOM fallback | Wi-Fi icon, selected display label | Circle-X icon, “关闭代理”; material brightness stays stable | Pause every selected capture path |
-| Error      | Error treatment                              | Failure wording and icon           | Preserve error meaning                                      | Open contextual recovery or retry |
-
-The healthy material is decorative. The button must remain usable before WebGL
-initializes, when WebGL fails, under reduced motion, and on low-power devices.
-The DOM element owns the fallback blue surface and text contrast.
-
-## Routing and capture
-
-- Routing mode is a mutually exclusive choice: Rule, Global, or Direct.
-- System Proxy and Virtual Interface are independent weak-checkbox controls;
-  the help dialog explains that Virtual Interface uses TUN.
-- The adjacent help button explains the two capture paths in a dialog.
-- Stopping through the aggregate control preserves the selected System Proxy
-  and Virtual Interface combination, and starting resumes that combination.
-- When neither capture mode is selected, starting selects and enables System
-  Proxy as the compatibility default.
-- Selected capture controls use the same pressed treatment as Routing mode.
-  A remembered-but-stopped selection remains muted, while a running selection
-  uses a restrained green icon.
-- On authenticated desktop surfaces, both capture controls remain clickable
-  while their operation is idle, including when the latest projection is stale,
-  unavailable, permission-required, drifted, or recovery-required. Each click
-  asks the shared Rust Capture Reconciler to reobserve current capability and
-  ownership. Confirmed success updates the global state; rejection preserves
-  the last confirmed state and republishes the specific semantic notification.
-  Only an equivalent pending command disables them. Startup checks and
-  notifications remain an early warning, not a substitute for this retry path.
-- A surface that cannot issue an authoritative capture command, such as the
-  isolated fixture, may keep a mode disabled only with an adjacent or
-  keyboard-accessible explanation.
-- The profile control is a compact framed Select so it reads as persistent
-  choice rather than an action menu; it stays quieter than primary controls.
-- The profile menu names the user's currently selected configuration, including
-  while capture and Mihomo Core are stopped. Selection is the configuration the
-  next start will use; it is not evidence that Core or either capture path is
-  running.
-- Changing the profile menu while the proxy is stopped only changes that
-  persisted preference and does not start Core. While System Proxy or Virtual
-  Interface is running, the same selection safely switches Core to the chosen
-  configuration and preserves the active capture combination. The menu is
-  disabled while that switch is pending.
-- Selecting an unselected capture mode while stopped starts Mihomo Core with
-  that selected configuration, waits for its managed listener to become ready,
-  and then applies the complete selected capture combination. The UI must not
-  send a capture-only request to a safely stopped runtime.
-- A Core start failure returns the aggregate control to its inactive, retryable
-  state without clearing the selected capture combination. The failure appears
-  once with a specific explanation; the notification center does not add a
-  second generic command failure for the same capture attempt.
-- Known blocking launch failures appear at the first authoritative observation,
-  not after unrelated GeoData/Core work. TUN Helper installation or repair is
-  admitted before candidate preparation, and a permission-required desktop
-  click opens the authenticated GUI installation flow before sending Capture.
-  An occupied managed proxy endpoint is reported before validation or Core
-  spawn. Required rollback and cleanup keep the operation single-flight until
-  safe completion without delaying the semantic notification.
-- Capture drift, typed confirmation failures, and their recovery actions appear
-  in transient notifications and the notification center without shifting the
-  routing controls. System Proxy drift offers both repair and keep-current when
-  the runtime advertises those actions.
-- Every application notification is committed exactly once into the shared Rust
-  notification Module. Rust-native capture, profile activation, Settings, and
-  Traffic producers commit directly; TypeScript-only producers use the one RPC
-  publication Interface. Events remain diagnostic history. A Rust-created
-  record begins unpresented. The first eligible WebView or Browser client claims
-  one FIFO toast lease atomically while it subscribes; a baseline, a read, a
-  reconnect, or a React remount is never proof that the record was presented.
-  At most one current lease exists across all concurrent clients. Disconnect,
-  replacement, or expiry requeues it for a new claim, while an acknowledgement must match the
-  record ID, current revision, client/session, and lease generation. A timeout,
-  close button, or semantic suppression folds the toast but keeps the center
-  record. A specific capture/runtime failure suppresses any generic command
-  failure for the same attempt.
-
-  The center orders records by Rust-owned revision and observation; severity
-  and available actions never influence ordering. Opening the center marks
-  retained items read through Rust without consuming an unpresented or
-  presenting toast. Messages wrap naturally and remain selectable, and source
-  labels are omitted. Toast dismissal, action execution, read state, producer
-  resolution, and individual center removal are separate operations unless the
-  semantic kind explicitly joins them. A notification kind is a presentation
-  definition rather than a singleton: separate operation attempts create
-  separate records, while revisions of one explicit lifecycle keep the same ID.
-  The center X and toast X stay hidden until hover or their own keyboard focus;
-  the toast X is placed at the upper right. Ordinary toasts expire after the
-  bounded Sonner default. Active asynchronous work may pin a record: its toast
-  persists and its center record cannot be removed until Rust resolves the same
-  ID. Resolution itself retains history and changes presentation only when the
-  semantic registry explicitly asks it to.
-
-- Profile activation publishes GeoSite, GeoIP, MMDB, or ASN preparation directly
-  into the Rust notification Module. Preparation is pinned in both the center
-  and its toast. Success resolves and retains the same record; preparation
-  failure updates that same record into an unpinned actionable failure. Raw
-  Mihomo output never crosses the notification Seam.
-- On a fresh eligible desktop installation, the Rust desktop startup path creates
-  one versioned welcome invitation before any GUI connects. Existing
-  installations receive the same invitation once when upgrading from an older
-  settings schema. The first eligible client atomically claims the unprompted
-  invitation for an information toast with an action that opens the welcome
-  tour; creation alone does not mark it presented. That lease folds independently
-  from opening, dismissal, and completion. The four-page tour
-  introduces Mish and Mihomo, profiles, System Proxy and TUN capture concepts,
-  and routing modes with policy groups. Its inset cover illustration contains no
-  localized text. Escape, the close control, and “Not now” persist dismissal
-  without removing the invitation; only explicit completion removes it. The tour
-  is educational: it performs no Core, capture, network, profile, routing, or
-  helper operation and returns focus to the notification trigger when it closes.
-  Removing the retained notification does not mark the welcome tour complete;
-  the durable invitation can be projected again in a later app session.
-  Installed mobile builds exclude this invitation and dialog.
-
-## Session
-
-Session presents:
-
-- current download and upload rates;
-- cumulative downloaded and uploaded bytes;
-- active connection count;
-- effective rule count;
-- Mihomo core memory in use; and
-- proxy-session uptime, shown only while System Proxy or Virtual Interface is
-  running.
-
-Downloaded and Uploaded rows contain optional decorative sparklines. The text
-values remain the accessible source of truth. A new session keeps the chart
-viewport empty until its third sample, then grows a right-aligned curve with a
-maximum 60-sample window. The “Open live traffic” action is placed in the Session
-heading and opens the detailed Traffic destination.
-
-## Groups
-
-Groups shows five policy groups ordered by cumulative, deduplicated connection
-observations for the active profile. The count influences ranking only and is
-not shown to the user.
-
-Each row contains:
-
-- the rank;
-- the complete user-supplied group label;
-- the group's currently selected child label and measured latency;
-- a badge containing the number of available children; and
-- a disclosure indicator.
-
-Activating a row opens the reusable `ProxyPickerDialog` scoped to that group.
-Changing a child never implies that the same child is globally active. Ranking
-derivation and persistence are specified in
-[`../architecture/status-data-contracts.md`](../architecture/status-data-contracts.md).
-
-## Services
-
-Service latency monitors a user-managed set of endpoint probes. The default fixture
-contains Google `generate_204`, GitHub's favicon, Cloudflare `generate_204`,
-Baidu's favicon, a Weixin static icon, and AWS (us-east-1) DynamoDB `/ping`. Normal display
-shows a URL-backed service icon, title, and latency; activating a service runs
-that probe immediately and updates its latency in place. The probe URL and icon
-URL appear only in the editor. Default icons use bundled Remix Icon `v4.8.0`
-assets through root-relative URLs, with a generic cloud symbol for Cloudflare,
-while each service may supply its own HTTPS image URL. Failed or malformed
-images fall back to that bundled generic icon without removing the label or
-changing the row geometry. Only the browser loads custom images. Manage supports add, an Edit
-services dialog, automatic retest interval, delete, and Restore defaults.
-New and restored state uses a five-second cadence. Automatic retesting offers
-5-second, 10-second, 30-second, and 1-minute cycles.
-The desktop bridge randomizes the service order when the configuration is
-initialized or revised, then evenly spaces at most 12 probes across each
-selected interval instead of testing every service at once.
-Disabling it retains the latest results and runs one cycle each time the proxy
-starts. Keeping edit behind Manage preserves the service row as a single,
-unambiguous test action without adding a competing icon button to every row.
-
-Manage remains openable when service mutation is unavailable so the menu can
-explain the capability boundary; unsupported commands remain disabled.
-
-A result means “the configured endpoint returned response headers through the
-explicitly chosen probe path.” It is direct HTTP first-response/service-connectivity
-latency, not bandwidth, pure RTT, full-body load, or complete application experience.
-Cloudflare reflects an Anycast edge; GitHub, Baidu, and Weixin reflect provider
-static-resource/CDN paths; AWS (us-east-1) uses DynamoDB. It is not proof of
-a globally active proxy node. Probe transport and
-security are specified in
-[`../architecture/status-data-contracts.md`](../architecture/status-data-contracts.md).
-
-## Responsive behavior
-
-- Session and Groups form two columns at comfortable desktop widths, with
-  Session on the left and Groups on the right.
-- They stack when the workspace becomes narrow.
-- Sparklines disappear before their labels or values become crowded.
-- Services uses three columns at comfortable widths and one column when
-  constrained.
-- At the minimum desktop window width, the complete sidebar remains visible and
-  cannot collapse based on viewport width. A future collapsed state must require
-  an explicit user control. At mobile browser widths, destinations move to a
-  bottom navigation bar and keep short visible labels.
-- Dense tables may scroll horizontally inside their own boundary; the app shell
-  and page scroller must not overflow the viewport.
-
-## Non-goals
-
-Status is not a rule editor, a complete group tree, a connection inspector, or
-a long-term traffic analytics dashboard. It must not infer geography from a
-label, infer a primary policy group from naming conventions, or repeat the same
-connection status in multiple large surfaces.
+The other five destinations use the same composition boundary while keeping
+their own data table, filter, or settings presentation. Fixture replay covers
+navigation and each operation's loading/success/unavailable rendering.

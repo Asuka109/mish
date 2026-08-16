@@ -1,5 +1,8 @@
 # Mobile Native Shell Ownership Research
 
+> Archive: superseded research only; this document is not an implementation
+> authority.
+
 ## Decision status — superseded historical evidence
 
 This report preserves the Issue #343 / PR #370 research and the architecture

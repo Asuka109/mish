@@ -1,9 +1,0 @@
-[package]
-name = "mish-native-i18n"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-mish-presentation-contract = { path = "../presentation-contract" }
-rust-i18n = "4.2.1"

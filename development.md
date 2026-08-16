@@ -1,123 +1,51 @@
-# Mish Development Workflow
+# Development
 
-This is the working agreement for maintainers and coding agents. Complete
-[`bootstrap.md`](bootstrap.md) once; use the
-[command registry](docs/operations/development-commands.md) for command details.
+## Prerequisites
 
-## Start with evidence
+- Node.js and pnpm versions declared by the repository package metadata;
+- Java 17 and Android SDK components when running the React Native Android
+  gate;
+- macOS only for the Electron DMG fixture gate.
 
-```sh
-git status --short
-git branch --show-current
-git log --oneline --decorate -5
-```
+No additional language toolchain is part of the product workspace.
 
-Preserve unexplained changes. Before editing, read only the authorities needed
-for the task:
-
-1. [`PRODUCT.md`](PRODUCT.md) for behavior and claim boundaries;
-2. [`DESIGN.md`](DESIGN.md) for UI work;
-3. [`docs/README.md`](docs/README.md) for the relevant architecture, operations,
-   or quality contract;
-4. the implementation and tests that currently enforce the behavior.
-
-The Chinese plan under `.claude/plans/` is sequencing history, not current
-implementation truth.
-
-## Change workflow
-
-- Keep changes narrow, reviewable, and reversible.
-- Use one branch/worktree per independent task and do not overwrite another
-  session's work.
-- Treat `package.json`, lockfiles, shared contracts, generated localization,
-  Android project configuration, CI, and shared docs as high-conflict files.
-- Update the owning contract with behavior, platform-boundary, or acceptance
-  changes. Link from related docs instead of copying the rule.
-- Prefer focused tests while iterating, then run the risk-appropriate gate.
-- Stage, commit, push, or publish only intentional files.
-
-## Common loops
+## Install and inspect
 
 ```sh
-# Web and shared TypeScript
-pnpm check:types:ts
-pnpm test:unit
-pnpm check:lint
-
-# Rust runtime and desktop bridge
-pnpm check:rust:format
-pnpm check:rust
-pnpm test:rust
-
-# Android shell and plugin
-pnpm check:android
-pnpm mobile:android:test
-
-# Mobile Core
-pnpm mobile-core:contract
-pnpm mobile-core:build
-pnpm mobile-core:verify
-```
-
-After changing English localization keys, run `pnpm generate:i18n` before
-validation. Mobile Core outputs stay under ignored `.scratch` paths; never
-commit generated `.so` files.
-
-## Before publication
-
-Run the normal pull-request-equivalent gate:
-
-```sh
+pnpm install --frozen-lockfile
 pnpm check:pr
-git diff --check
-git status --short
+pnpm check:graph
+pnpm poc:admission
 ```
 
-Add the smallest relevant risk gate:
+`check:graph` walks the production entries and rejects retired protocols,
+native-shell paths, stale session authorities, and imports into `poc/`.
+`poc:admission` reads only the isolated POC admission metadata and never runs
+POC code.
 
-| Change | Additional validation |
-| --- | --- |
-| Web layout or navigation | `pnpm test:browser` |
-| Rust runtime behavior | focused tests, `pnpm test:rust`, and Clippy |
-| macOS daily journey | `pnpm test:macos:p0` |
-| macOS resources/package | `pnpm desktop:bundle:macos` |
-| Android Kotlin/JNI | `pnpm mobile:android:test` and debug APK build |
-| Mobile Core | contract, dual build, evidence verification, and staging |
-| Documentation | `pnpm check:docs` |
-| CI | `pnpm check:ci` |
+## Product gates
 
-CI truth lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): pull
-requests run `check:pr` on the dedicated self-hosted Apple Silicon runner; daily
-or manual inspection runs `check:all` plus browser tests on `macos-15`; `main`
-pushes publish 14-day macOS and Android test artifacts.
+```sh
+pnpm web:build
+pnpm --filter @mish/web typecheck
+pnpm --filter @mish/web test:run
+pnpm desktop:check
+pnpm desktop:bundle:fixture
+pnpm mobile:check
+pnpm mobile:android:build
+```
 
-## Safety invariants
+The Web gate covers the six product destinations with replayed oRPC data. The
+Electron gate covers host security, type checks, tests, and a disposable
+credential-free DMG fixture. The React Native gate covers the shared host
+boundary, tests, and a dual-ABI debug APK. None of these commands grants real
+permissions, attaches a system interface, starts a VPN, or writes external
+state.
 
-- Never include real subscription URLs, profile content, node labels,
-  credentials, tokens, private paths, or raw Controller payloads in repository
-  artifacts.
-- Tests do not silently enable System Proxy, TUN, listeners, telemetry, or
-  remote downloads.
-- System Proxy and TUN tests require explicit authorization and proof of exact
-  restoration after stop, failure, quit, and forced termination.
-- Native capability remains unavailable until the owning platform confirms it.
-- Failed activation restores the prior healthy runtime or reaches an explicit
-  safe stopped state.
-- Desktop, Android, and iOS retain their documented platform authority; the
-  WebView never owns VPN lifetime.
+## Editing and review
 
-## Generated files and cleanup
-
-`node_modules`, `target`, `.scratch`, Gradle outputs, browser attachments, and
-native binaries are disposable. Use `trash`, not permanent recursive deletion.
-Some files under Android `gen/` are tracked source inputs; check `git status` and
-`git ls-files` before cleanup or regeneration. The fixture-backed `pnpm demo`
-entry is the model and visual-validation surface; its behavior is not production
-runtime evidence.
-
-## Handoff
-
-Record the base and HEAD revisions, dirty paths, tests actually run, unexecuted
-hardware gates, artifact identity/checksums, native state restoration, known
-defects, and the next verification command. Do not transfer build caches or
-private input as project truth.
+Contracts change first in `packages/contracts`; transport changes stay in
+`packages/orpc-client`; complex lifecycle belongs in XState actors; Query and
+Store remain projections/presentation. Add transcript fixtures and replay for
+effect-boundary behavior. Keep `poc/` read-only and out of the production
+workspace. Run `pnpm check:format` and the focused package gate before review.

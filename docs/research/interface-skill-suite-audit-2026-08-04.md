@@ -1,5 +1,8 @@
 # Interface Skill Suite Audit
 
+> Archive: completed research record only; it is not current implementation
+> authority.
+
 Date: 2026-08-04
 
 Issue: [#356](https://github.com/Asuka109/mish/issues/356)

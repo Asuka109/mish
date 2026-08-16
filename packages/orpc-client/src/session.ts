@@ -140,9 +140,7 @@ function errorStatus(error: unknown): number | undefined {
 }
 
 function operationName(operation: OrpcOperation): OrpcTranscriptOperation {
-  return operation === "status.snapshot"
-    ? "application.invoke.status.snapshot"
-    : "application.invoke.profile.refresh";
+  return `application.invoke.${operation}` as OrpcTranscriptOperation;
 }
 
 function isIterator(value: unknown): value is AsyncIterator<unknown> {

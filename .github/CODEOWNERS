@@ -1,30 +1,8 @@
-# The maintainer must review every change that can alter CI trust, release
-# identity, packaging, updater publication, deployment, or this ownership map.
+# Product contracts, build gates, and bounded acceptance evidence.
 /.github/ @Asuka109
-/scripts/check-ci-workflow.ts @Asuka109
-/scripts/check-macos-alpha-release-workflow.ts @Asuka109
-/scripts/check-trusted-ci-policy.ts @Asuka109
-/scripts/audit-github-trust-settings.ts @Asuka109
-/scripts/audit-github-trust-settings.test.ts @Asuka109
-/scripts/trusted-release-policy.ts @Asuka109
-/scripts/trusted-release-policy.test.ts @Asuka109
-/scripts/development-mihomo.ts @Asuka109
-/scripts/prepare-mihomo.ts @Asuka109
-/scripts/internal-tun-alpha-package.ts @Asuka109
-/scripts/internal-tun-alpha-package.test.ts @Asuka109
-/scripts/internal-tun-alpha-staging.ts @Asuka109
-/scripts/internal-tun-alpha-staging.test.ts @Asuka109
-/scripts/verify-internal-tun-alpha-stage.ts @Asuka109
-/scripts/macos-alpha-release.ts @Asuka109
-/scripts/macos-signed-direct-policy.ts @Asuka109
-/scripts/macos-signed-release.ts @Asuka109
-/scripts/macos-updater-contract.ts @Asuka109
-/scripts/build-macos-bundle.ts @Asuka109
-/scripts/verify-macos-bundle.ts @Asuka109
-/apps/desktop/src-tauri/Entitlements.signed-direct.plist @Asuka109
-/apps/desktop/src-tauri/tauri.*.conf.json @Asuka109
-/docs/operations/macos-packaging.md @Asuka109
-/docs/operations/trusted-release-boundary.md @Asuka109
-/docs/architecture/updater-contract.md @Asuka109
+/apps/ @Asuka109
+/packages/ @Asuka109
+/scripts/ @Asuka109
+/docs/ @Asuka109
 /package.json @Asuka109
 /pnpm-lock.yaml @Asuka109

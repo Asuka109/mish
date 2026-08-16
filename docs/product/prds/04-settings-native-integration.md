@@ -1,5 +1,8 @@
 # PRD 04: Settings and Native Integration
 
+> Archive: product-planning context only; the current implementation authority
+> is the TypeScript contract and host-boundary documentation.
+
 ## Metadata
 
 - Status: Draft for product review

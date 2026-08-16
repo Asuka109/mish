@@ -400,7 +400,7 @@ describe("CUT-03 session actor/query projection", () => {
     });
     const status = view.container.querySelector("output");
     expect(status).toHaveClass("sr-only");
-    expect(view.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
     expect(view.getByText("content")).toBeInTheDocument();
     view.unmount();
     await settle();

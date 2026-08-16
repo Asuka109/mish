@@ -1,5 +1,8 @@
 # Installed Interface Skill Suite Interaction Audit
 
+> Archive: historical research record only; it is not current implementation
+> authority.
+
 Date: 2026-08-05
 
 Issue: [#379](https://github.com/Asuka109/mish/issues/379)

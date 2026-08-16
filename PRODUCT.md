@@ -1,72 +1,37 @@
 # Mish Product
 
-## Register
+## Purpose
 
-product
+Mish gives people a calm, inspectable control surface for a locally managed
+Mihomo-compatible service. The product emphasizes status, route selection,
+profile context, traffic observations, events, and settings without exposing
+transport details as product state.
 
-## Users
+## Product surface
 
-People who run Mish continuously on macOS and later on other desktop and mobile
-platforms. They need to control traffic capture, understand current activity,
-switch policy-group selections, and investigate failures without learning the
-Mihomo core's implementation details or navigating an administration dashboard.
+The Web application exposes six primary destinations:
 
-## Product Purpose
+1. Status — current session and service health.
+2. Routes — route observations and policy context.
+3. Profiles — profile metadata and selection context.
+4. Traffic — bounded traffic observations.
+5. Events — ordered event observations.
+6. Settings — client preferences and connection settings.
 
-Mish is a neutral technical tool for local traffic forwarding, configuration
-management, and diagnostics. It provides a clear, trustworthy control surface
-for a locally managed Mihomo core. The default view should make the aggregate
-proxy state, capture paths, routing mode, live session activity, frequently used
-policy groups, and endpoint reachability easy to scan. It must not invent a
-single globally active node in Rule mode. Profiles, full group trees,
-connections, events, and diagnostics remain available through progressive
-disclosure.
+Each page reads a typed oRPC projection through the shared XState session actor
+and TanStack Query. Local filters, tabs, and disclosure controls remain
+presentation state. No page owns a second session, generation, stale-delivery,
+or lifecycle authority.
 
-## Brand Personality
+## Boundaries
 
-Native, restrained, and exact. The interface should feel like a focused macOS
-professional tool in the family of Codex, Xcode, Raycast, and Arc: quiet enough
-to stay open all day, dense enough for experts, and familiar without imitating
-another product's branding.
+The production graph is TypeScript-only for product logic. Electron and React
+Native are host seams; they do not become alternate product authorities. The
+runtime never imports the isolated `poc/` tree. Contract fixtures and bounded
+transcripts cover privacy, ordering, replay, and failure rendering without
+claiming real network, permission, VPN, TUN, or system effects.
 
-## Anti-references
-
-Do not resemble the common Clash client template: a wide text sidebar followed
-by a centered stack of connection, routing, and traffic form rows. Avoid generic
-proxy dashboards, card grids, oversized status blocks, decorative charts,
-glassmorphism, gradients, pill-heavy controls, and visibly generated AI slop.
-
-## Design Principles
-
-1. Lead with the user's current capture state and activity, not the Mihomo
-   core's configuration model.
-2. Make frequent actions spatially stable and compact; reveal expert detail near
-   the object it explains.
-3. Use the window as the main container and reserve cards for true elevation or
-   temporary focus.
-4. Prefer professional density with repeatable control rhythms over generous but
-   wasteful dashboard spacing.
-5. Make every status legible through wording, placement, and iconography in
-   addition to color.
-6. Preserve the Mihomo core's group-scoped model. Never turn a convenient
-   shortcut into a false claim about one canonical route.
-
-## Current Product Surface
-
-The macOS-first Status experience and its interaction rules are specified in
-[`docs/product/status-experience.md`](docs/product/status-experience.md). The
-production React app implements the six desktop destinations. A browser must
-authenticate with the running desktop app before those destinations render;
-fixture adapters remain test-only. The Tauri composition supplies confirmed
-native and Mihomo-backed capabilities. The fixture-backed `pnpm demo` entry is
-the shared model and visual-validation surface, not runtime evidence. Exact Web
-implementation claims live in
-[`docs/quality/production-web-validation.md`](docs/quality/production-web-validation.md);
-native readiness uses the target-specific quality documents.
-
-## Accessibility & Inclusion
-
-Target WCAG 2.2 AA contrast and keyboard operation. Maintain visible focus,
-respect reduced-motion preferences, keep hit targets practical for pointer and
-touch input, and never communicate connection health or selection through color
-alone.
+The interface should remain restrained, dense, keyboard-operable, and legible
+without color alone. See [`DESIGN.md`](DESIGN.md) and
+[`docs/product/status-experience.md`](docs/product/status-experience.md) for
+the visual contract.

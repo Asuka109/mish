@@ -1,8 +1,0 @@
-{
-  "bundle": {
-    "macOS": {
-      "entitlements": "./Entitlements.signed-direct.plist",
-      "hardenedRuntime": true
-    }
-  }
-}

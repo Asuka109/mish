@@ -4,7 +4,7 @@ import { afterEach, vi } from "vitest";
 
 afterEach(() => {
   cleanup();
-  localStorage.clear();
+  globalThis.localStorage?.clear();
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.removeAttribute("data-window-surface");
   document.documentElement.removeAttribute("data-window-surface-fallback");

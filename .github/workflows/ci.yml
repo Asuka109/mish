@@ -3,21 +3,15 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
-  schedule:
-    - cron: "23 3 * * *"
+    branches: [main]
   workflow_dispatch:
     inputs:
-      task:
-        description: Work to run against the latest main branch
+      gate:
+        description: Gate to run against the selected revision
         required: true
-        default: inspection
+        default: product
         type: choice
-        options:
-          - inspection
-          - packages
-          - all
+        options: [product, desktop, mobile, all]
 
 permissions:
   contents: read
@@ -26,728 +20,90 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-  CI: true
-
 jobs:
-  pr-gate:
-    name: Fast PR gate
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
+  product:
+    name: Product gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30af803
         with:
           persist-credentials: false
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
         with:
           version: 11.13.1
           run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: pr-gate
-          cache-on-failure: true
-      - name: Install Playwright Chromium
-        run: pnpm test:browser:install
-      - name: Run fast pull-request gate
+      - name: Run product gate
         run: pnpm check:pr
 
-  platform-macos-gate:
-    name: macOS platform Rust gate
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))
-    permissions:
-      contents: read
-    runs-on: macos-15
-    timeout-minutes: 30
+  desktop:
+    name: Electron gate
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || inputs.gate == 'desktop' || inputs.gate == 'all'
+    runs-on: macos-14
     steps:
       - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30af803
         with:
           persist-credentials: false
-          ref: main
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
         with:
           version: 11.13.1
           run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: pr-platform-macos
-          cache-on-failure: true
-      - name: Build desktop web bundle
-        run: pnpm --filter @mish/web build:desktop
-      - name: Check desktop Rust target
-        run: pnpm check:rust:desktop
-      - name: Test desktop Rust target
-        run: pnpm test:rust:desktop
-      - name: Check macOS platform Rust target
-        run: pnpm check:rust:platform-macos
-      - name: Test macOS platform Rust target
-        run: pnpm test:rust:platform-macos
+      - name: Run Electron checks
+        run: pnpm desktop:check
+      - name: Build bounded fixture
+        run: pnpm desktop:bundle:fixture
 
-  platform-android-gate:
-    name: Android platform Rust gate
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
+  mobile:
+    name: React Native gate
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || inputs.gate == 'mobile' || inputs.gate == 'all'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30af803
         with:
           persist-credentials: false
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
         with:
           version: 11.13.1
           run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.10.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Set up Java
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
         with:
           distribution: temurin
           java-version: 17
-      - name: Set up Android SDK tools
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
         with:
-          cmdline-tools-version: 14742923
-          log-accepted-android-sdk-licenses: false
-          packages: ""
-      - name: Install pinned Android Rust target toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.1.0" \
-            "ndk;29.0.14206865" \
-            "system-images;android-36;google_apis;arm64-v8a"
-          sdkmanager --list_installed | grep -F "system-images;android-36;google_apis;arm64-v8a | 7"
-          rustup target add aarch64-linux-android x86_64-linux-android
-          ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
-          toolchain="$ndk_home/toolchains/llvm/prebuilt/linux-x86_64"
-          test -x "$toolchain/bin/aarch64-linux-android35-clang"
-          test -x "$toolchain/bin/x86_64-linux-android35-clang"
-          {
-            echo "ANDROID_NDK_HOME=$ndk_home"
-            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android35-clang"
-            echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$toolchain/bin/x86_64-linux-android35-clang"
-            echo "PATH=$toolchain/bin:$PATH"
-          } >> "$GITHUB_ENV"
+          packages: platform-tools platforms;android-36 build-tools;36.1.0
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: pr-platform-android
-          cache-on-failure: true
-      - name: Check mobile Rust targets
-        run: pnpm check:rust:mobile
-      - name: Compile mobile Rust test targets
-        run: pnpm test:rust:mobile
-  android-emulator-gate:
-    name: Android lifecycle emulator gate
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-    runs-on: macos-15-intel
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: 11.13.1
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.10.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Set up Java
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: Set up Android SDK tools
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
-        with:
-          cmdline-tools-version: 14742923
-          log-accepted-android-sdk-licenses: false
-          packages: ""
-      - name: Install pinned Android test toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager \
-            "platforms;android-36" \
-            "build-tools;36.1.0" \
-            "ndk;29.0.14206865" \
-            "system-images;android-28;default;x86_64"
-          sdkmanager --list_installed | grep -F "system-images;android-28;default;x86_64 | 4"
-          rustup target add aarch64-linux-android
-          ndk_home="$ANDROID_HOME/ndk/29.0.14206865"
-          toolchain="$ndk_home/toolchains/llvm/prebuilt/darwin-x86_64"
-          test -x "$toolchain/bin/aarch64-linux-android35-clang"
-          {
-            echo "ANDROID_NDK_HOME=$ndk_home"
-            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$toolchain/bin/aarch64-linux-android35-clang"
-            echo "PATH=$toolchain/bin:$PATH"
-          } >> "$GITHUB_ENV"
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: pr-android-emulator
-          cache-on-failure: true
-      - name: Run credential-free Android lifecycle emulator acceptance
-        shell: bash
-        run: |
-          set -euo pipefail
-          emulator_root="$RUNNER_TEMP/android-emulator-15917651"
-          emulator_archive="$RUNNER_TEMP/android-emulator-15917651.zip"
-          curl \
-            --proto '=https' \
-            --tlsv1.2 \
-            --fail \
-            --location \
-            --retry 3 \
-            --output "$emulator_archive" \
-            https://dl.google.com/android/repository/emulator-darwin_x64-15917651.zip
-          echo "c1a3890f95b8868198918fad05ffca16fa20404d93547ba545ff5a5867ee7005  $emulator_archive" | shasum -a 256 --check
-          mkdir -p "$emulator_root"
-          unzip -q "$emulator_archive" -d "$emulator_root"
-          emulator_binary="$emulator_root/emulator/emulator"
-          emulator_version="$("$emulator_binary" -version 2>&1)"
-          grep -F "build_id 15917651" <<< "$emulator_version"
-          avd_name="mish_vpn_api28"
-          avd_home="$RUNNER_TEMP/mish-vpn-avd"
-          android_user_home="$RUNNER_TEMP/mish-vpn-android-user"
-          mkdir -p "$avd_home" "$android_user_home"
-          env \
-            ANDROID_AVD_HOME="$avd_home" \
-            ANDROID_USER_HOME="$android_user_home" \
-            avdmanager create avd \
-            --force \
-            --name "$avd_name" \
-            --device "small_phone" \
-            --package "system-images;android-28;default;x86_64" \
-            </dev/null
-          env \
-            ANDROID_AVD_HOME="$avd_home" \
-            ANDROID_USER_HOME="$android_user_home" \
-            "$emulator_binary" \
-            -avd "$avd_name" \
-            -accel off \
-            -cores 1 \
-            -memory 512 \
-            -no-window \
-            -gpu off \
-            -no-skin \
-            -no-snapshot \
-            -noaudio \
-            -no-boot-anim \
-            -camera-back none \
-            -camera-front none \
-            -no-metrics \
-            -no-sim \
-            > "$RUNNER_TEMP/mish-vpn-emulator.log" 2>&1 &
-          emulator_pid=$!
-          cleanup() {
-            kill "$emulator_pid" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-          adb start-server
-          ready_samples=0
-          for attempt in {1..900}; do
-            if ! kill -0 "$emulator_pid" 2>/dev/null; then
-              tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
-              exit 1
-            fi
-            if [[ "$(adb get-state 2>/dev/null)" == "device" ]] && \
-              [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
-              [[ "$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')" == "28" ]] && \
-              [[ "$(adb shell service check package 2>/dev/null | tr -d '\r')" == "Service package: found" ]] && \
-              adb shell cmd package list packages >/dev/null 2>&1; then
-              ready_samples=$((ready_samples + 1))
-              if [[ "$ready_samples" -ge 5 ]]; then
-                pnpm mobile:android:test:emulator
-                exit 0
-              fi
-            else
-              ready_samples=0
-            fi
-            sleep 1
-          done
-          adb devices -l
-          tail -200 "$RUNNER_TEMP/mish-vpn-emulator.log"
-          exit 1
-
-  inspect-main:
-    name: Inspect main
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))
-    runs-on: macos-15
-    timeout-minutes: 45
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: main
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: 11.13.1
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.10.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: main-inspection
-          cache-on-failure: true
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Run complete validation
-        run: pnpm check:all
-
-  inspect-browser:
-    name: Inspect browser
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: main
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: 11.13.1
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.10.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install Playwright Chromium
-        run: pnpm test:browser:install
-      - name: Run real-browser responsive suite
-        run: pnpm test:browser
-
-  package-macos:
-    name: Package macOS ARM64
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Select accepted package revision
-        id: package-source
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_REF: ${{ github.ref }}
-          EVENT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          case "$EVENT_NAME" in
-            push|workflow_dispatch) ;;
-            *)
-              echo "Unsupported package event: $EVENT_NAME" >&2
-              exit 1
-              ;;
-          esac
-          test "$EVENT_REF" = "refs/heads/main"
-          [[ "$EVENT_SHA" =~ ^[0-9a-f]{40}$ ]]
-          echo "accepted_sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          ref: ${{ steps.package-source.outputs.accepted_sha }}
-      - name: Verify checked-out package revision
-        id: package-head
-        shell: bash
-        env:
-          FROZEN_SOURCE_SHA: ${{ steps.package-source.outputs.accepted_sha }}
-        run: |
-          set -euo pipefail
-          source_sha="$(git rev-parse HEAD)"
-          test "$source_sha" = "$FROZEN_SOURCE_SHA"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${source_sha:0:7}" >> "$GITHUB_OUTPUT"
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: 11.13.1
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.10.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: macos-package
-          cache-on-failure: true
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Validate package source policy
-        shell: bash
-        env:
-          VERIFIED_SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$VERIFIED_SOURCE_SHA"
-          pnpm check:ci
-      - name: Build and verify application bundle
-        run: pnpm desktop:build:macos
-      - name: Create app archive
-        id: package-metadata
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
-          mountpoint="$(mktemp -d)"
-          cleanup() {
-            hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
-            rmdir "$mountpoint" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          hdiutil attach -readonly -nobrowse -noautoopen \
-            -mountpoint "$mountpoint" \
-            target/release/bundle/dmg/Mish_0.1.0_aarch64.dmg
-          mkdir -p .scratch/artifacts
-          ditto -c -k --sequesterRsrc --keepParent \
-            "$mountpoint/Mish.app" \
-            ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip"
-          unzip -t ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip"
-          archive_sha256="$(shasum -a 256 ".scratch/artifacts/Mish-${SHORT_SHA}.app.zip" | awk '{print $1}')"
-          artifact_name="mish-macos-arm64-${SHORT_SHA}"
-          echo "archive=.scratch/artifacts/Mish-${SHORT_SHA}.app.zip" >> "$GITHUB_OUTPUT"
-          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
-      - name: Verify package revision before upload
-        shell: bash
-        env:
-          ARCHIVE: ${{ steps.package-metadata.outputs.archive }}
-          ARCHIVE_SHA256: ${{ steps.package-metadata.outputs.archive_sha256 }}
-          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
-          test "$ARTIFACT_NAME" = "mish-macos-arm64-$SHORT_SHA"
-          test "$ARCHIVE" = ".scratch/artifacts/Mish-$SHORT_SHA.app.zip"
-          test -f "$ARCHIVE"
-          [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          test "$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')" = "$ARCHIVE_SHA256"
-      - name: Upload Apple Silicon test package
-        id: package-upload
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ steps.package-metadata.outputs.artifact_name }}
-          path: ${{ steps.package-metadata.outputs.archive }}
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 14
-      - name: Write package summary
-        shell: bash
-        env:
-          ARCHIVE_SHA256: ${{ steps.package-metadata.outputs.archive_sha256 }}
-          ARTIFACT_ID: ${{ steps.package-upload.outputs.artifact-id }}
-          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-          {
-            echo "## macOS ARM64 test package"
-            echo
-            echo "| Property | Value |"
-            echo "| --- | --- |"
-            echo "| Source revision | \`$SOURCE_SHA\` |"
-            echo "| Short SHA | \`$SHORT_SHA\` |"
-            echo "| Artifact name | \`$ARTIFACT_NAME\` |"
-            echo "| Artifact ID | \`$ARTIFACT_ID\` |"
-            echo "| App ID | \`com.asuka109.mish\` |"
-            echo "| Architecture | \`arm64\` |"
-            echo "| Mihomo version | \`v1.19.29\` |"
-            echo "| Release profile | \`alpha-ad-hoc\` |"
-            echo "| Signing mode | \`ad-hoc\` |"
-            echo "| Notarized | \`no\` |"
-            echo "| Archive SHA-256 | \`$ARCHIVE_SHA256\` |"
-            echo "| Retention | 14 days |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  package-android:
-    name: Package Android test APKs
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Select accepted package revision
-        id: package-source
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_REF: ${{ github.ref }}
-          EVENT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          case "$EVENT_NAME" in
-            push|workflow_dispatch) ;;
-            *)
-              echo "Unsupported package event: $EVENT_NAME" >&2
-              exit 1
-              ;;
-          esac
-          test "$EVENT_REF" = "refs/heads/main"
-          [[ "$EVENT_SHA" =~ ^[0-9a-f]{40}$ ]]
-          echo "accepted_sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          ref: ${{ steps.package-source.outputs.accepted_sha }}
-      - name: Verify checked-out package revision
-        id: package-head
-        shell: bash
-        env:
-          FROZEN_SOURCE_SHA: ${{ steps.package-source.outputs.accepted_sha }}
-        run: |
-          set -euo pipefail
-          source_sha="$(git rev-parse HEAD)"
-          test "$source_sha" = "$FROZEN_SOURCE_SHA"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${source_sha:0:7}" >> "$GITHUB_OUTPUT"
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-        with:
-          version: 11.13.1
-          run_install: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.10.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - name: Set up Java
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-          cache-dependency-path: |
-            apps/mobile/src-tauri/gen/android/*.gradle*
-            apps/mobile/src-tauri/gen/android/**/build.gradle.kts
-            apps/mobile/src-tauri/gen/android/**/gradle-wrapper.properties
-      - name: Set up Android SDK tools
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
-        with:
-          cmdline-tools-version: 14742923
-          log-accepted-android-sdk-licenses: false
-          packages: ""
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Validate package source policy
-        shell: bash
-        env:
-          VERIFIED_SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$VERIFIED_SOURCE_SHA"
-          pnpm check:ci
-      - name: Install pinned Android components
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager \
-            "platforms;android-36" \
-            "build-tools;36.1.0" \
-            "platform-tools" \
-            "ndk;29.0.14206865"
-          rustup target add aarch64-linux-android x86_64-linux-android
-          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
-      - name: Cache Rust dependencies and Android build outputs
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: android-package
-          cache-on-failure: true
-      - name: Build and stage verified Mobile Core
-        run: |
-          export ANDROID_NDK_HOME="$NDK_HOME"
-          pnpm mobile-core:build
-          pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android --require-release-eligible
-          pnpm mobile-core:stage:android -- --evidence-dir .scratch/mobile-core/evidence
-      - name: Build Android debug APKs
+      - name: Run React Native checks
+        run: pnpm mobile:check
+      - name: Build dual-ABI debug APK
         run: pnpm mobile:android:build
-      - name: Verify Android debug APKs
-        id: package-metadata
-        shell: bash
-        env:
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
-          output_root="apps/mobile/src-tauri/gen/android/app/build/outputs/apk"
-          artifact_root=".scratch/artifacts/android"
-          core_checksums=".scratch/mobile-core/evidence/SHA256SUMS"
-          mkdir -p "$artifact_root"
-          arm64_count=0
-          x86_64_count=0
-          while IFS= read -r apk; do
-            "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose "$apk"
-            pnpm android:verify-signer -- --apk "$apk"
-            entries="$(unzip -Z1 "$apk")"
-            if grep -q '^lib/arm64-v8a/' <<< "$entries"; then
-              grep -qx 'lib/arm64-v8a/libmish_mobile_core.so' <<< "$entries"
-              grep -qx 'lib/arm64-v8a/libmish_vpn_jni.so' <<< "$entries"
-              expected_core="$(awk '$2 == "android/arm64-v8a/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
-              actual_core="$(unzip -p "$apk" lib/arm64-v8a/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
-              test "$actual_core" = "$expected_core"
-              cp "$apk" "$artifact_root/Mish-${SHORT_SHA}-arm64-v8a-debug.apk"
-              arm64_count=$((arm64_count + 1))
-            fi
-            if grep -q '^lib/x86_64/' <<< "$entries"; then
-              grep -qx 'lib/x86_64/libmish_mobile_core.so' <<< "$entries"
-              grep -qx 'lib/x86_64/libmish_vpn_jni.so' <<< "$entries"
-              expected_core="$(awk '$2 == "android/x86_64/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
-              actual_core="$(unzip -p "$apk" lib/x86_64/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
-              test "$actual_core" = "$expected_core"
-              cp "$apk" "$artifact_root/Mish-${SHORT_SHA}-x86_64-debug.apk"
-              x86_64_count=$((x86_64_count + 1))
-            fi
-            if grep -Eqi 'mihomo|subscription|token' <<< "$entries"; then
-              echo "APK contains a forbidden runtime or sensitive entry" >&2
-              exit 1
-            fi
-          done < <(find "$output_root" -type f -name '*-debug.apk' -print | sort)
-          test "$arm64_count" -eq 1
-          test "$x86_64_count" -eq 1
-          arm64_sha256="$(sha256sum "$artifact_root/Mish-${SHORT_SHA}-arm64-v8a-debug.apk" | awk '{print $1}')"
-          x86_64_sha256="$(sha256sum "$artifact_root/Mish-${SHORT_SHA}-x86_64-debug.apk" | awk '{print $1}')"
-          {
-            echo "artifact_name=mish-android-test-${SHORT_SHA}"
-            echo "arm64_sha256=$arm64_sha256"
-            echo "x86_64_sha256=$x86_64_sha256"
-          } >> "$GITHUB_OUTPUT"
-      - name: Verify package revision before upload
-        shell: bash
-        env:
-          ARM64_SHA256: ${{ steps.package-metadata.outputs.arm64_sha256 }}
-          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-          X86_64_SHA256: ${{ steps.package-metadata.outputs.x86_64_sha256 }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$SHORT_SHA" = "${SOURCE_SHA:0:7}"
-          test "$ARTIFACT_NAME" = "mish-android-test-$SHORT_SHA"
-          arm64_apk=".scratch/artifacts/android/Mish-$SHORT_SHA-arm64-v8a-debug.apk"
-          x86_64_apk=".scratch/artifacts/android/Mish-$SHORT_SHA-x86_64-debug.apk"
-          test -f "$arm64_apk"
-          test -f "$x86_64_apk"
-          [[ "$ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$X86_64_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          test "$(sha256sum "$arm64_apk" | awk '{print $1}')" = "$ARM64_SHA256"
-          test "$(sha256sum "$x86_64_apk" | awk '{print $1}')" = "$X86_64_SHA256"
-      - name: Upload Android non-production test APKs
-        id: android-package-upload
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ steps.package-metadata.outputs.artifact_name }}
-          path: .scratch/artifacts/android/*.apk
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 14
-      - name: Write Android package summary
-        shell: bash
-        env:
-          ARM64_SHA256: ${{ steps.package-metadata.outputs.arm64_sha256 }}
-          ARTIFACT_ID: ${{ steps.android-package-upload.outputs.artifact-id }}
-          ARTIFACT_NAME: ${{ steps.package-metadata.outputs.artifact_name }}
-          SOURCE_SHA: ${{ steps.package-head.outputs.source_sha }}
-          SHORT_SHA: ${{ steps.package-head.outputs.short_sha }}
-          X86_64_SHA256: ${{ steps.package-metadata.outputs.x86_64_sha256 }}
-        run: |
-          set -euo pipefail
-          {
-            echo "## Android non-production test APKs"
-            echo
-            echo "| Property | Value |"
-            echo "| --- | --- |"
-            echo "| Source revision | \`$SOURCE_SHA\` |"
-            echo "| Short SHA | \`$SHORT_SHA\` |"
-            echo "| Artifact name | \`$ARTIFACT_NAME\` |"
-            echo "| Artifact ID | \`$ARTIFACT_ID\` |"
-            echo "| App ID | \`com.asuka109.mish\` |"
-            echo "| Supported ABIs | \`arm64-v8a\`, \`x86_64\` |"
-            echo "| Signing mode | Android debug |"
-            echo "| Core | Mihomo v1.19.29 identity probe; VPN lifecycle remains fixture-only |"
-            echo "| ARM64 SHA-256 | \`$ARM64_SHA256\` |"
-            echo "| x86_64 SHA-256 | \`$X86_64_SHA256\` |"
-            echo "| Production use | No |"
-            echo "| Retention | 14 days |"
-          } >> "$GITHUB_STEP_SUMMARY"

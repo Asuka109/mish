@@ -45,7 +45,7 @@ function readPngHeader(file: string) {
   };
 }
 
-function applicationFixture(internalTunPayload: boolean) {
+function applicationFixture() {
   const temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-dmg-presentation-"));
   const application = path.join(temporary.path, "Mish.app");
   const executable = path.join(application, "Contents", "MacOS", "mish-desktop");
@@ -53,18 +53,6 @@ function applicationFixture(internalTunPayload: boolean) {
   writeFileSync(path.join(application, "Contents", "Info.plist"), "fixture");
   writeFileSync(executable, "fixture");
   chmodSync(executable, 0o755);
-  if (internalTunPayload) {
-    const controller = path.join(
-      application,
-      "Contents",
-      "Resources",
-      "internal-tun-alpha",
-      "mish-internal-tun-alpha-ctl",
-    );
-    mkdirSync(path.dirname(controller), { recursive: true });
-    writeFileSync(controller, "internal fixture");
-    chmodSync(controller, 0o755);
-  }
   return { application, temporary };
 }
 
@@ -105,7 +93,7 @@ test(
   "standard production-compatible DMGs have only the two accessible Finder items",
   macOsOnly,
   () => {
-    const fixture = applicationFixture(false);
+    const fixture = applicationFixture();
     using temporary = fixture.temporary;
     const dmg = path.join(temporary.path, "Mish-standard.dmg");
 
@@ -122,28 +110,19 @@ test(
   },
 );
 
-test("Internal TUN Alpha DMGs hide their payload below Mish.app", macOsOnly, () => {
-  const fixture = applicationFixture(true);
+test("deterministic DMG assembly reproduces the same credential-free fixture", macOsOnly, () => {
+  const fixture = applicationFixture();
   using temporary = fixture.temporary;
-  const dmg = path.join(temporary.path, "Mish-internal.dmg");
-  const reproducedDmg = path.join(temporary.path, "Mish-internal-reproduced.dmg");
+  const dmg = path.join(temporary.path, "Mish-fixture.dmg");
+  const reproducedDmg = path.join(temporary.path, "Mish-fixture-reproduced.dmg");
 
   createMacOsDmg(fixture.application, dmg, { normalizeForDeterminism: true });
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_100);
   createMacOsDmg(fixture.application, reproducedDmg, { normalizeForDeterminism: true });
   assert.deepEqual(readFileSync(reproducedDmg), readFileSync(dmg));
   verifyMacOsDmgPresentation(dmg, (application) => {
-    assert.ok(
-      readFileSync(
-        path.join(
-          application,
-          "Contents",
-          "Resources",
-          "internal-tun-alpha",
-          "mish-internal-tun-alpha-ctl",
-        ),
-      ).byteLength > 0,
-    );
+    assert.equal(path.basename(application), "Mish.app");
+    assert.ok(readFileSync(path.join(application, "Contents", "Info.plist")).byteLength > 0);
   });
 });
 
@@ -152,30 +131,10 @@ test("routine DMG assembly has no Finder or open invocation", () => {
     path.join(import.meta.dirname, "macos-dmg-presentation.ts"),
     "utf8",
   );
-  const builder = readFileSync(path.join(import.meta.dirname, "build-macos-bundle.ts"), "utf8");
-  const staging = readFileSync(
-    path.join(import.meta.dirname, "internal-tun-alpha-staging.ts"),
-    "utf8",
-  );
-  const stageVerifier = readFileSync(
-    path.join(import.meta.dirname, "verify-internal-tun-alpha-stage.ts"),
-    "utf8",
-  );
-
   assert.doesNotMatch(assembler, /osascript/u);
   assert.doesNotMatch(assembler, /"\/usr\/bin\/open"/u);
   assert.match(assembler, /"-nobrowse", "-noautoopen"/u);
   assert.match(assembler, /arguments_\.push\("-readonly"/u);
   assert.match(assembler, /moveToTrash\(resolvedOutput\);/u);
-  assert.match(builder, /replaceExistingOutput: true/u);
-  assert.match(builder, /if \(openDmg\) execFileSync\("\/usr\/bin\/open"/u);
-  assert.match(builder, /Mish-production-fixture_0\.1\.0_aarch64\.dmg/u);
-  assert.match(builder, /verifyMacOsDmgPresentation\(dmg, \(mountedApplication\)/u);
-  assert.match(
-    staging,
-    /createMacOsDmg\(application, destination, \{ normalizeForDeterminism: true \}\)/u,
-  );
-  assert.doesNotMatch(staging, /makehybrid|hfs-iso9660/u);
-  assert.match(stageVerifier, /verifyMacOsDmgPresentation\(dmg/u);
-  assert.doesNotMatch(stageVerifier, /makehybrid|hfs-iso9660/u);
+  assert.doesNotMatch(assembler, /\b(?:notarize|publish|signing|tauri|cargo|rust)\b/iu);
 });
