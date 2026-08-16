@@ -48,6 +48,14 @@ describe("Electron host persistence boundary", () => {
     const fixture = readFileSync(path.join(desktopRoot, "scripts", "electron-fixture.ts"), "utf8");
 
     expect(fixture).toContain("launchMountedDmgAndStayAlive");
+    expect(fixture).toContain("installMountedDmgApplication");
+    expect(fixture).toContain(
+      'execFileSync("/usr/bin/ditto", [mountedApplication, installedApplication]',
+    );
+    expect(fixture).toContain("launchAndStayAliveElectronFixture(installedApplication, userData)");
+    expect(fixture).not.toContain(
+      "launchAndStayAliveElectronFixture(mountedApplication, userData)",
+    );
     expect(fixture).toContain("MISH_ELECTRON_READY stage=renderer-ready");
     expect(fixture).toContain("process.kill(-child.pid, 0)");
     expect(fixture).toContain('"fixture-auto-quit"');
