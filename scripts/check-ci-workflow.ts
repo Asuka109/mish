@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 import { parseDocument } from "yaml";
 
 type Step = { readonly name?: string; readonly run?: string; readonly uses?: string };
-type Job = { readonly name?: string; readonly steps?: readonly Step[] };
+type Job = {
+  readonly name?: string;
+  readonly if?: unknown;
+  readonly "runs-on"?: string;
+  readonly steps?: readonly Step[];
+};
 
 const path = resolve(import.meta.dirname, "../.github/workflows/ci.yml");
 const source = readFileSync(path, "utf8");
@@ -28,6 +33,9 @@ if (JSON.stringify(Object.keys(jobs).sort()) !== JSON.stringify(Object.keys(expe
 }
 for (const [id, name] of Object.entries(expected)) {
   if (jobs[id]?.name !== name) throw new Error(`CI job ${id} must be named ${name}`);
+  if ("if" in (jobs[id] ?? {})) {
+    throw new Error(`CI job ${id} must not have a job-level condition`);
+  }
   if (
     !jobs[id]?.steps?.some(
       (step) =>
@@ -36,6 +44,9 @@ for (const [id, name] of Object.entries(expected)) {
   ) {
     throw new Error(`CI job ${id} must use a frozen install`);
   }
+}
+if (jobs.desktop?.["runs-on"] !== "macos-15") {
+  throw new Error("Electron CI job must run on macos-15");
 }
 const product = jobs.product?.steps ?? [];
 if (!product.some((step) => step.name === "Run product gate" && step.run === "pnpm check:pr")) {
