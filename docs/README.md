@@ -1,182 +1,76 @@
 # Mish Documentation
 
-Load the smallest document set that answers the task. Code, tests, manifests,
-and CI describe current implementation; product and architecture documents
-describe intended contracts. When they disagree, record the difference instead
-of treating an implementation accident as intent.
+This index describes the current TypeScript product graph. Code, manifests,
+tests, and CI are the implementation authority; these documents define the
+ownership and evidence contracts around that graph. Superseded implementation
+notes are not linked as current authority.
 
-## Start by task
+## Start here
 
-| Task                        | Read first                                                                                             | Then, only if needed                                                                                                                                                                                                                                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Current repository state    | [`current-state.md`](current-state.md)                                                                 | The area-specific architecture, operations, and quality contract linked from the checkpoint                                                                                                                                                                                                                  |
-| Product behavior or copy    | [`../PRODUCT.md`](../PRODUCT.md)                                                                       | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                                                                                                             |
-| Visual/UI work              | [`../DESIGN.md`](../DESIGN.md)                                                                         | [`architecture/tailwind-variants.md`](architecture/tailwind-variants.md), [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md)                                                                                 |
-| Local development           | [`../development.md`](../development.md)                                                               | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                                                                                                             |
-| Web/desktop boundary        | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)             | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                                                                                                     |
-| Mihomo lifecycle/API        | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)       | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                                                                                                       |
-| Cross-platform authority    | [`architecture/cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md) | The area-specific domain contract, mobile runtime boundary, and platform composition documents                                                                                                                                                                                                               |
-| Runtime state ownership     | [`architecture/runtime-state-ownership.md`](architecture/runtime-state-ownership.md)                   | The area-specific Status, Traffic, Profile, Settings, Events, notification, or native contract                                                                                                                                                                                                               |
-| High-risk state machines    | [`architecture/state-machine-kernel.md`](architecture/state-machine-kernel.md)                         | [`architecture/state-machine-registry.json`](architecture/state-machine-registry.json), then the owning domain contract                                                                                                                                                                                      |
-| Non-privileged system tests | [`architecture/transcript-driven-system-tests.md`](architecture/transcript-driven-system-tests.md)     | The owning Runtime, Profile, Capture, RPC, notification, and Web contracts exercised by the scenario                                                                                                                                                                                                         |
-| Profiles and settings       | [`architecture/profile-domain.md`](architecture/profile-domain.md)                                     | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                                                                                                   |
-| macOS native behavior       | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)           | [`architecture/native-localization.md`](architecture/native-localization.md), TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                         |
-| Android/mobile              | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)             | [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md), [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md) |
-| Validation/release claims   | The target-specific quality document                                                                   | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                                                                                                               |
-| Public release readiness    | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                       | [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md), [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                                                                                                 |
-| Signed macOS updates        | [`architecture/updater-contract.md`](architecture/updater-contract.md)                                 | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                                                                                                                                                                                                                             |
+| Question                                       | Current authority                                                                                                                                                                                                    |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is admitted into production?              | [`architecture/typescript-cutover-admission.md`](architecture/typescript-cutover-admission.md)                                                                                                                       |
+| How do Web, Electron, and RN share boundaries? | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)                                                                                                                           |
+| Where does lifecycle state live?               | [`architecture/cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md) and [`architecture/state-machine-kernel.md`](architecture/state-machine-kernel.md)                            |
+| How are session and projections composed?      | [`architecture/runtime-state-ownership.md`](architecture/runtime-state-ownership.md)                                                                                                                                 |
+| How are effects tested and replayed?           | [`architecture/transcript-driven-system-tests.md`](architecture/transcript-driven-system-tests.md)                                                                                                                   |
+| How do I develop and run gates?                | [`../development.md`](../development.md) and [`operations/development-commands.md`](operations/development-commands.md)                                                                                              |
+| How is the product surface validated?          | [`quality/production-web-validation.md`](quality/production-web-validation.md), [`quality/mobile-validation.md`](quality/mobile-validation.md), and [`operations/macos-packaging.md`](operations/macos-packaging.md) |
+| What is the visual contract?                   | [`../DESIGN.md`](../DESIGN.md), [`design/component-patterns.md`](design/component-patterns.md), and [`product/status-experience.md`](product/status-experience.md)                                                   |
 
-## Contract index
+## Architecture contracts
 
-### Architecture
+- [`architecture/typescript-cutover-admission.md`](architecture/typescript-cutover-admission.md)
+  defines the retirement denylist, POC isolation, and confirmation-only
+  acceptance boundary.
+- [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)
+  defines the host seams and production import direction.
+- [`architecture/cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md)
+  defines the shared contract, XState actor, Query projection, and
+  presentation ownership.
+- [`architecture/runtime-state-ownership.md`](architecture/runtime-state-ownership.md)
+  defines the single session authority and cache/presentation split.
+- [`architecture/state-machine-kernel.md`](architecture/state-machine-kernel.md)
+  records the XState-only lifecycle convention and completed retirement of
+  repository-owned duplicate runtimes.
+- [`architecture/transcript-driven-system-tests.md`](architecture/transcript-driven-system-tests.md)
+  defines bounded invocation/result transcripts, privacy checks, and replay.
+- [`architecture/documentation-evidence-contract.md`](architecture/documentation-evidence-contract.md)
+  defines how dated or historical claims are kept separate from active truth.
 
-- [`frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) —
-  ownership across Web, RPC, desktop bridge, Tauri, and native layers.
-- [`documentation-evidence-contract.md`](architecture/documentation-evidence-contract.md)
-  and
-  [`documentation-tracker-registry.json`](architecture/documentation-tracker-registry.json)
-  — durable, dated, and generated claim boundaries plus the bounded offline
-  tracker read-back used by documentation checks.
-- [`bridge-protocol-contract.md`](architecture/bridge-protocol-contract.md) —
-  checked protocol metadata, mandatory compatibility negotiation, public RPC
-  method parity, and the transport-only mock boundary.
-- [`rpc-session-authority.md`](architecture/rpc-session-authority.md) — the
-  shared Web RPC session boundary for generations, tickets, baselines, stale
-  deliveries, conflicts, and application-order acceptance.
-- [`tailwind-variants.md`](architecture/tailwind-variants.md) — production
-  styling ownership, merge/source rules, and bounded CSS exceptions.
-- [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md) — offline assets,
-  local origin, browser launch, authentication, and threat model.
-- [`launch-proxy-critical-path.md`](architecture/launch-proxy-critical-path.md)
-  — Rust launch authority, Profile/Core and System Proxy timing DAG,
-  cancellation, revalidation, and privacy-safe timing evidence.
-- [`transcript-driven-system-tests.md`](architecture/transcript-driven-system-tests.md)
-  — test-only stateful SimulatedHost, logical-time scenarios, bounded semantic
-  transcript, structural privacy, adapter calibration, production exclusion,
-  and explicit evidence limits.
-- [`candidate-home-isolation.md`](architecture/candidate-home-isolation.md) —
-  private candidate lifecycle DAG, mutation analysis, reproducible storage and
-  pinned-Core measurements, and the retained-isolation decision.
-- [`state-lifecycle-race-audit.md`](architecture/state-lifecycle-race-audit.md)
-  — repository-wide state scope, transition, race, optimistic-state, cleanup,
-  and bounded state-machine adoption decisions.
-- [`state-machine-kernel.md`](architecture/state-machine-kernel.md) and
-  [`state-machine-registry.json`](architecture/state-machine-registry.json) —
-  the repository-owned typed reducer/runner/effect convention, durable
-  recovery boundary, eligibility rule, and checked classification of remaining
-  internal lifecycles.
-- [`cross-platform-product-authority.md`](architecture/cross-platform-product-authority.md)
-  — evidence-backed Shared Rust, platform-adapter, transport, and React
-  ownership; Android duplication risks; migration graph; and bounded vertical
-  slices.
-- [`mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)
-  — pinned Controller API, process lifecycle, activation, and reconciliation.
-- [`profile-domain.md`](architecture/profile-domain.md) — profile sources,
-  validation, persistence, patches, providers, and activation seam.
-- [`status-data-contracts.md`](architecture/status-data-contracts.md),
-  [`traffic-data-contracts.md`](architecture/traffic-data-contracts.md),
-  [`events-data-contracts.md`](architecture/events-data-contracts.md), and
-  [`support-bundle-data-contracts.md`](architecture/support-bundle-data-contracts.md)
-  — observable DTO and failure semantics by product area.
-- [`runtime-state-ownership.md`](architecture/runtime-state-ownership.md) —
-  canonical Authority, Derived DTO, Bounded cache, Optimistic projection, and
-  Presentation-only taxonomy; current ownership inventory; and the target
-  recent capture-session Traffic contract.
-- [`notification-center.md`](architecture/notification-center.md) — the
-  Rust-authoritative semantic notification Module, RPC Interface, TypeScript
-  presentation registry, and multi-client lifecycle.
-- [`settings-contracts.md`](architecture/settings-contracts.md) and
-  [`local-backup-restore.md`](architecture/local-backup-restore.md) — settings,
-  persistence, backup, restore, and native file boundaries.
-- [`native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md),
-  [`native-localization.md`](architecture/native-localization.md),
-  [`network-dns-observation.md`](architecture/network-dns-observation.md),
-  [`local-proxy-debugging.md`](architecture/local-proxy-debugging.md), and
-  [`macos-tun-helper.md`](architecture/macos-tun-helper.md), and
-  [`macos-mdns-system-proxy.md`](architecture/macos-mdns-system-proxy.md) — macOS-specific
-  lifecycle, observation, debugging, and privileged-operation contracts.
-- [`mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)
-  and [`mobile-core-abi.md`](architecture/mobile-core-abi.md) — Web-owned mobile
-  product navigation, typed mobile platform ownership, native Core ABI,
-  artifact identity, and lifecycle.
-- [`updater-contract.md`](architecture/updater-contract.md) — strict macOS
-  updater channel, SemVer, metadata, signature, artifact identity, provenance,
-  bounded download/resume, private candidate staging, redaction, and
-  not-yet-installing boundaries.
+The page-level contracts are [`status-data-contracts.md`](architecture/status-data-contracts.md),
+[`traffic-data-contracts.md`](architecture/traffic-data-contracts.md),
+[`events-data-contracts.md`](architecture/events-data-contracts.md),
+[`profile-domain.md`](architecture/profile-domain.md),
+[`settings-contracts.md`](architecture/settings-contracts.md), and
+[`local-backup-restore.md`](architecture/local-backup-restore.md).
 
-### Operations and quality
+## Operations and quality
 
-- [`operations/development-commands.md`](operations/development-commands.md) —
-  authoritative command catalog derived from root `package.json`.
-- [`operations/macos-development-core-host.md`](operations/macos-development-core-host.md) —
-  administrator-operated Stage 1 Core-host install, security, crash, and
-  uninstall acceptance.
-- [`operations/macos-packaging.md`](operations/macos-packaging.md) and
-  [`quality/macos-p0-acceptance.md`](quality/macos-p0-acceptance.md) — macOS
-  packaging, signing, installation, daily journey, and recovery.
+- [`operations/development-commands.md`](operations/development-commands.md)
+  is the command catalog derived from `package.json`.
+- [`operations/macos-packaging.md`](operations/macos-packaging.md) documents
+  the disposable Electron DMG fixture and its cleanup boundary.
+- [`quality/production-web-validation.md`](quality/production-web-validation.md)
+  records Web navigation, contract replay, and graph gates.
+- [`quality/mobile-validation.md`](quality/mobile-validation.md) records RN
+  type/test, dual-ABI, and root-free admission gates.
 - [`quality/macos-platform-transcript-fixtures.md`](quality/macos-platform-transcript-fixtures.md)
-  — opt-in read-only macOS adapter capture, deterministic sanitization, privacy
-  review, production exclusion, refresh policy, and bounded Tart evidence.
-- [`quality/android-vpn-lifecycle-transcripts.md`](quality/android-vpn-lifecycle-transcripts.md)
-  — deterministic cross-layer Android VPN lifecycle authority, root-free
-  emulator instrumentation, privacy/schema bounds, production exclusion, and
-  explicit physical-device/VPN/TUN/network evidence limits.
-- [`quality/android-route-selection-transcripts.md`](quality/android-route-selection-transcripts.md)
-  — deterministic Shared Rust Android Route-selection authority, closed Mobile
-  Core/fake-native/Kotlin/JNI/Tauri/TypeScript scenarios, recreation baseline,
-  privacy/exclusion bounds, and explicit device/VPN/TUN/network evidence limits.
-- [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
-  — fail-closed PR/fork isolation, frozen workflow/tooling identity, candidate
-  manifest and immutable artifact binding, CODEOWNERS, Environment/OIDC/runner
-  activation prerequisites, adversarial fixtures, and current GitHub plan
-  limitations.
-- [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)
-  and [`quality/mobile-validation.md`](quality/mobile-validation.md) — Android
-  build/device procedure and mobile evidence levels.
-- [`quality/production-web-validation.md`](quality/production-web-validation.md),
-  [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md),
-  [`quality/tailwind-variants-acceptance.md`](quality/tailwind-variants-acceptance.md),
-  and [`quality/demo-validation.md`](quality/demo-validation.md) — production
-  Web, native visual, styling migration, and fixture-backed model/visual gates.
+  records privacy and replay rules for opt-in host fixtures.
 
-### Public release
+## Product and history
 
-- [`operations/macos-packaging.md`](operations/macos-packaging.md) records the
-  evidence-backed System Proxy-only release boundary and remaining engineering
-  work.
-- [`operations/trusted-release-boundary.md`](operations/trusted-release-boundary.md)
-  records why protected execution is disabled and the controls required before
-  any signer, attester, publisher, or deployment can exist.
-- [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) records material
-  upstream attribution, license sources, and unresolved dependency questions.
-
-## Planning and research
-
-- [`product/prds/`](product/prds/) preserves the 2026-07-18 product planning
-  baseline. It is useful for intent and requirement IDs, not current
-  implementation status.
-- [`research/`](research/) preserves source-backed investigations. Load a study
-  only when its upstream evidence or rationale is needed.
-- [`research/mobile-native-shell-ownership-2026-08-03.md`](research/mobile-native-shell-ownership-2026-08-03.md)
-  preserves the superseded Issue #343 / PR #370 native persistent-shell
-  research and prototype evidence. Issue #373 hands-on validation rejected that
-  product direction;
-  the current decision and removed artifacts are recorded in
-  [`../.out-of-scope/native-persistent-mobile-shell.md`](../.out-of-scope/native-persistent-mobile-shell.md).
-- [`research/interface-skill-suite-audit-2026-08-04.md`](research/interface-skill-suite-audit-2026-08-04.md)
-  records the completed Issue #356 source provenance, selective integration and
-  applicability matrices, representative state audit, prototypes, and bounded
-  follow-up Issues; it does not change production design authority by itself.
-- [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)
-  is a superseded high-level plan retained as a short historical record.
-- `pnpm demo` is the shared fixture-backed interaction reference; its data is
-  not a runtime contract.
+Product intent is in [`product/status-experience.md`](product/status-experience.md)
+and [`product/prds/`](product/prds/). Research under [`research/`](research/)
+is historical context only and cannot change the production graph. Any
+superseded document retained for tracker evidence must say so in its own
+heading; it is not linked above as an implementation authority. Issue #343 was
+superseded; it is retained only as that historical decision context. Issue #373
+was rejected and is not a current implementation dependency.
 
 ## Maintenance
 
-- Put each fact in the narrowest owning document and link instead of copying.
-- Keep commands in the root manifest/command catalog and implementation status
-  in code, tests, CI, or quality evidence.
-- Update a contract and its acceptance gate in the same behavior change.
-- Preserve assumptions and unresolved intent explicitly. Repository docs are in
-  English; the retained Claude plan is the only planned exception.
+Keep commands in the root manifest and keep ownership claims in the narrowest
+contract. Update the contract, transcript/replay fixture, and gate together.
+Do not add compatibility shims, duplicate session authorities, or native
+business lifecycle to make a retired path appear present.

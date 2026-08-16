@@ -1,5 +1,8 @@
 # Product Requirement Documents
 
+> Archive: these PRDs preserve product intent and requirement history. They do
+> not override the current TypeScript contracts, routes, or acceptance gates.
+
 Status: 2026-07-18 planning baseline; approval was not recorded.
 
 These documents preserve product intent, requirement IDs, priorities, and
@@ -16,14 +19,14 @@ default.
 
 ## Map
 
-| Document | Owns |
-| --- | --- |
-| [00 — Product Suite](00-product-suite.md) | Users, principles, information architecture, release slices |
-| [01 — Everyday Control](01-everyday-control.md) | Status and frequent capture/routing actions |
-| [02 — Profiles and Routes](02-profiles-and-routes.md) | Import, activation, profile safety, and group-scoped routing |
-| [03 — Traffic, Events, and Diagnostics](03-traffic-events-diagnostics.md) | Investigation, connection commands, events, and diagnostics |
+| Document                                                                  | Owns                                                             |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [00 — Product Suite](00-product-suite.md)                                 | Users, principles, information architecture, release slices      |
+| [01 — Everyday Control](01-everyday-control.md)                           | Status and frequent capture/routing actions                      |
+| [02 — Profiles and Routes](02-profiles-and-routes.md)                     | Import, activation, profile safety, and group-scoped routing     |
+| [03 — Traffic, Events, and Diagnostics](03-traffic-events-diagnostics.md) | Investigation, connection commands, events, and diagnostics      |
 | [04 — Settings and Native Integration](04-settings-native-integration.md) | Preferences, native capabilities, recovery, and platform rollout |
-| [05 — Functional Inventory](05-functional-configuration-inventory.md) | Capability placement without copying competitor navigation |
+| [05 — Functional Inventory](05-functional-configuration-inventory.md)     | Capability placement without copying competitor navigation       |
 
 ## Stable conclusions
 

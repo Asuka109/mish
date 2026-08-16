@@ -79,14 +79,14 @@ therefore product requirements, not implementation details.
 
 ## Information architecture
 
-| Destination | User job | Explicitly does not own |
-| --- | --- | --- |
-| Status | Start/stop, mode, capture, live summary, frequent groups, service health | Full profile editing, full connection table |
-| Routes | Browse complete policy-group tree, test, search, and select group children | Profile import and subscription credentials |
-| Profiles | Import, validate, update, activate, and organize profiles | Runtime traffic investigation |
-| Traffic | Inspect active/closed connections and matched route details | Long-term analytics and raw core logs |
-| Events | Follow app/core/platform evidence and prepare a redacted support bundle | General settings and rule editing |
-| Settings | Configure application, capture, network, platform, update, and privacy behavior | Repeating live dashboard state |
+| Destination | User job                                                                        | Explicitly does not own                     |
+| ----------- | ------------------------------------------------------------------------------- | ------------------------------------------- |
+| Status      | Start/stop, mode, capture, live summary, frequent groups, service health        | Full profile editing, full connection table |
+| Routes      | Browse complete policy-group tree, test, search, and select group children      | Profile import and subscription credentials |
+| Profiles    | Import, validate, update, activate, and organize profiles                       | Runtime traffic investigation               |
+| Traffic     | Inspect active/closed connections and matched route details                     | Long-term analytics and raw core logs       |
+| Events      | Follow app/core/platform evidence and prepare a redacted support bundle         | General settings and rule editing           |
+| Settings    | Configure application, capture, network, platform, update, and privacy behavior | Repeating live dashboard state              |
 
 Installed mobile applications use five stable bottom destinations: Home, Routes,
 Profiles, Activity, and Settings. Home retains Status ownership. Activity groups
@@ -97,29 +97,29 @@ navigation adaptation, not a different product model; see
 
 ## Release slices
 
-| Slice | Proof of value | Included | Exit criteria |
-| --- | --- | --- | --- |
-| P0 macOS alpha | A valid profile can produce an observable System Proxy session | Local/URL import, validation, activation, Routes, Rule/Global/Direct, System Proxy, Status, Traffic, Events, stop/recovery | End-to-end acceptance journey passes on a clean macOS account |
-| P1 macOS beta | Mish can replace an everyday desktop proxy client powered by the Mihomo core | TUN helper, status-bar commands, signed updates, semantic recovery notifications, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
-| P2 desktop expansion | Shared product works on Windows and Linux | Platform adapters, packaging, service/privilege differences | Capability matrix and signed build gates pass per OS |
-| P2 mobile feasibility | Shared UI can coexist with native VPN lifetime and platform-familiar navigation | Android `VpnService` device slice first; iOS shell, extension, and XCFramework in parallel; signed iOS device/TestFlight later | Android device VPN gates pass; iOS compile and native-fixture evidence is explicit; signed iOS device gates remain tracked |
+| Slice                 | Proof of value                                                                  | Included                                                                                                                              | Exit criteria                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| P0 macOS alpha        | A valid profile can produce an observable System Proxy session                  | Local/URL import, validation, activation, Routes, Rule/Global/Direct, System Proxy, Status, Traffic, Events, stop/recovery            | End-to-end acceptance journey passes on a clean macOS account                                                              |
+| P1 macOS beta         | Mish can replace an everyday desktop proxy client powered by the Mihomo core    | TUN helper, status-bar commands, signed updates, semantic recovery notifications, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon                                                  |
+| P2 desktop expansion  | Shared product works on Windows and Linux                                       | Platform adapters, packaging, service/privilege differences                                                                           | Capability matrix and signed build gates pass per OS                                                                       |
+| P2 mobile feasibility | Shared UI can coexist with native VPN lifetime and platform-familiar navigation | Android `VpnService` device slice first; iOS shell, extension, and XCFramework in parallel; signed iOS device/TestFlight later        | Android device VPN gates pass; iOS compile and native-fixture evidence is explicit; signed iOS device gates remain tracked |
 
 ## Suite requirements
 
-| ID | Priority | Requirement | Acceptance criteria |
-| --- | --- | --- | --- |
-| SUITE-F-001 | P0 | The product shall expose the six stable destinations defined above. | Given any primary desktop page, when the user navigates by pointer or keyboard, then destination labels remain visible and the active destination is announced accessibly. |
-| SUITE-F-002 | P0 | The product shall expose one active profile context across all destinations. | Given profile A is active, when the user opens Status, Routes, Traffic, or Events, then every profile-scoped value belongs to profile A or is explicitly marked global. |
-| SUITE-F-003 | P0 | Core commands shall expose idle, pending, success, and typed failure states. | Given a command is in flight, when the UI receives progress or failure, then duplicate submission is prevented and recovery guidance remains available. |
-| SUITE-F-004 | P0 | Browser and desktop clients shall present the same product state through the local application API. | Given both clients are open, when a supported state changes in one client, then the other reconciles without requiring a full reload. |
-| SUITE-F-005 | P0 | Unsupported platform capabilities shall be represented honestly. | Given a capability is unavailable, when its control is shown, then it is disabled or omitted with an explanation and no simulated success. |
-| SUITE-F-006 | P1 | Common commands shall be available from the macOS status-bar menu. | Given the main window is closed, when the user opens the status menu, then capture, profile, group-scoped route selection, and window/browser commands remain available. |
-| SUITE-F-007 | P0 | Empty states shall preserve the owning object's structure and next action. | Given no profile, routes, connections, rules, or events exist, then the page distinguishes missing prerequisite, zero data, disconnected source, and zero filter matches without hiding its eventual object model. |
-| SUITE-F-008 | P1 | Main UI, status menu, and hotkeys shall execute the same named application commands. | Given a command is triggered from any supported surface, then pending, success, failure, and reconciled state use the same semantics and no surface maintains a private state copy. |
-| SUITE-NF-001 | P0 | All core product assets shall ship offline. | Given the network is unavailable, when the installed client launches, then navigation, icons, styles, and error recovery render without CDN requests. |
-| SUITE-NF-002 | P0 | Interactive product UI shall meet WCAG 2.2 AA intent. | Keyboard navigation, visible focus, contrast, reduced motion, text alternatives, and non-color status cues pass the project's accessibility checks. |
-| SUITE-NF-003 | P0 | The local control plane shall bind to loopback and reject untrusted origins by default. | Security tests prove Host/Origin validation, authenticated RPC, bounded messages, and no unintended LAN listener. |
-| SUITE-NF-004 | P1 | Idle operation shall remain suitable for an all-day utility. | Representative Intel and Apple Silicon measurements meet the agreed CPU, memory, wakeup, and animation budgets before beta. |
+| ID           | Priority | Requirement                                                                                         | Acceptance criteria                                                                                                                                                                                                |
+| ------------ | -------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SUITE-F-001  | P0       | The product shall expose the six stable destinations defined above.                                 | Given any primary desktop page, when the user navigates by pointer or keyboard, then destination labels remain visible and the active destination is announced accessibly.                                         |
+| SUITE-F-002  | P0       | The product shall expose one active profile context across all destinations.                        | Given profile A is active, when the user opens Status, Routes, Traffic, or Events, then every profile-scoped value belongs to profile A or is explicitly marked global.                                            |
+| SUITE-F-003  | P0       | Core commands shall expose idle, pending, success, and typed failure states.                        | Given a command is in flight, when the UI receives progress or failure, then duplicate submission is prevented and recovery guidance remains available.                                                            |
+| SUITE-F-004  | P0       | Browser and desktop clients shall present the same product state through the local application API. | Given both clients are open, when a supported state changes in one client, then the other reconciles without requiring a full reload.                                                                              |
+| SUITE-F-005  | P0       | Unsupported platform capabilities shall be represented honestly.                                    | Given a capability is unavailable, when its control is shown, then it is disabled or omitted with an explanation and no simulated success.                                                                         |
+| SUITE-F-006  | P1       | Common commands shall be available from the macOS status-bar menu.                                  | Given the main window is closed, when the user opens the status menu, then capture, profile, group-scoped route selection, and window/browser commands remain available.                                           |
+| SUITE-F-007  | P0       | Empty states shall preserve the owning object's structure and next action.                          | Given no profile, routes, connections, rules, or events exist, then the page distinguishes missing prerequisite, zero data, disconnected source, and zero filter matches without hiding its eventual object model. |
+| SUITE-F-008  | P1       | Main UI, status menu, and hotkeys shall execute the same named application commands.                | Given a command is triggered from any supported surface, then pending, success, failure, and reconciled state use the same semantics and no surface maintains a private state copy.                                |
+| SUITE-NF-001 | P0       | All core product assets shall ship offline.                                                         | Given the network is unavailable, when the installed client launches, then navigation, icons, styles, and error recovery render without CDN requests.                                                              |
+| SUITE-NF-002 | P0       | Interactive product UI shall meet WCAG 2.2 AA intent.                                               | Keyboard navigation, visible focus, contrast, reduced motion, text alternatives, and non-color status cues pass the project's accessibility checks.                                                                |
+| SUITE-NF-003 | P0       | The local control plane shall bind to loopback and reject untrusted origins by default.             | Security tests prove Host/Origin validation, authenticated RPC, bounded messages, and no unintended LAN listener.                                                                                                  |
+| SUITE-NF-004 | P1       | Idle operation shall remain suitable for an all-day utility.                                        | Representative Intel and Apple Silicon measurements meet the agreed CPU, memory, wakeup, and animation budgets before beta.                                                                                        |
 
 ## Success metrics
 
@@ -146,9 +146,9 @@ navigation adaptation, not a different product model; see
 
 ## Risks and open questions
 
-| Item | Current position | Resolution |
-| --- | --- | --- |
-| Product brand | The independent product name is Mish; Mihomo is reserved for the upstream core and its integration boundaries. | Apply Mish consistently before public branding and signing. |
-| Mobile shell feasibility | Shared React is confirmed; Android device VPN and Apple extension integration remain separate gates. | Ship the Android debug slice first; complete unsigned iOS preparation in parallel and signed device/TestFlight gates when authorized. |
-| Profile transforms | Merge/script systems are useful but add a second configuration language and security surface. | Keep out of P0; review after profile lifecycle is reliable. |
-| Update and crash evidence | No vendor or privacy contract is selected. | Choose an explicitly consented, open-source-compatible approach before beta metrics are finalized. |
+| Item                      | Current position                                                                                               | Resolution                                                                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Product brand             | The independent product name is Mish; Mihomo is reserved for the upstream core and its integration boundaries. | Apply Mish consistently before public branding and signing.                                                                           |
+| Mobile shell feasibility  | Shared React is confirmed; Android device VPN and Apple extension integration remain separate gates.           | Ship the Android debug slice first; complete unsigned iOS preparation in parallel and signed device/TestFlight gates when authorized. |
+| Profile transforms        | Merge/script systems are useful but add a second configuration language and security surface.                  | Keep out of P0; review after profile lifecycle is reliable.                                                                           |
+| Update and crash evidence | No vendor or privacy contract is selected.                                                                     | Choose an explicitly consented, open-source-compatible approach before beta metrics are finalized.                                    |

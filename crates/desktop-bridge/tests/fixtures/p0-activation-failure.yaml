@@ -1,4 +1,0 @@
-activation-test-invalid: true
-proxies: []
-rules:
-  - MATCH,DIRECT

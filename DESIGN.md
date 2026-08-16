@@ -306,8 +306,9 @@ bottom. Page content uses the `page-gutter` token (32px), compacts to
 1080px wide so related values remain visually connected on large windows.
 
 Responsive breakpoints follow available viewport width rather than platform
-names. At 900px, content columns and gutters compact. The 800px minimum Tauri
-window retains the full 164px sidebar; viewport width must never collapse it.
+names. At 900px, content columns and gutters compact. The Electron host keeps
+the full 164px sidebar at its admitted minimum; viewport width must never
+collapse it.
 Any future collapsed state requires an explicit user control. At 600px, the
 browser layout moves navigation below the workspace and retains short visible
 destination labels. This rule is scoped to the browser runtime and must never
@@ -361,20 +362,20 @@ overrides; components consume the surface-scoped interaction tokens.
 
 On macOS, the exposed sidebar may use the system's native vibrancy material so
 the desktop or windows behind the application contribute to the surface. This
-is a native window-compositor effect, not CSS glassmorphism: the Tauri shell
-must apply an appropriate macOS window effect and make only the matching WebView
+is a native window-compositor effect, not CSS glassmorphism: the Electron host
+may apply an appropriate macOS window effect and make only the matching WebView
 region transparent. Keep the foreground workspace opaque. The ordinary browser
 client and unsupported platforms use the existing `surface-soft` sidebar as the
 deterministic fallback; never simulate desktop translucency with a decorative
-gradient or a captured wallpaper. Defer this material until the real Tauri
+gradient or a captured wallpaper. Defer this material until the real host
 window exists, because the standalone Web preview cannot validate behind-window
 sampling, window activation, accessibility transparency settings, or energy
 behavior.
 
 Material tint opacity is a bounded design token layered over the native semantic
-material. The system compositor owns the actual blur. Do not expose Tauri's
-window-effect `radius` as blur strength: it is a corner radius. A future exact
-blur control requires a separately designed native adapter and must not silently
+material. The system compositor owns the actual blur. Do not expose a host
+window effect's corner radius as blur strength. A future exact blur control
+requires a separately designed native adapter and must not silently
 fall back to CSS `backdrop-filter` for the macOS sidebar.
 
 Surface rendering is tree-scoped, not a global theme. The app shell marks the

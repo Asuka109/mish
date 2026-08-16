@@ -83,7 +83,7 @@ describe("Electron host boundary", () => {
     }
   });
 
-  it("keeps the fixture credential-free and free of release or Finder side effects", () => {
+  it("keeps the fixture credential-free and free of distribution or Finder side effects", () => {
     const fixture = readFileSync(path.join(desktopRoot, "scripts", "electron-fixture.ts"), "utf8");
     expect(fixture).toContain("verifyMacOsDmgPresentation");
     expect(fixture).toContain("createRequire");

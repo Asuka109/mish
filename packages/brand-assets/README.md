@@ -6,8 +6,6 @@ This package is the single source of truth for Mish production image assets.
 - The other light and dark SVGs in `public/brand/` are synchronized from that
   geometry by `scripts/generate-brand-assets.ts`.
 - PNG files in `public/brand/` are generated from their corresponding SVGs.
-- `generated/tauri/` contains desktop, Android, iOS, and Windows variants
-  derived from the generated 1024 px light application icon.
 - `public/onboarding/` contains centralized non-brand artwork. Vite serves the
   entire `public/` directory as the Web app's public directory.
 
@@ -23,25 +21,22 @@ Public previews use unambiguous names: `mish-status-bar-full` is white at full
 prominence, and `mish-status-bar-inactive` is gray. Each is generated as SVG
 and 18 px / 36 px (`@2x`) PNG output for previewing or non-template consumers.
 
-Android launcher files under `apps/mobile/src-tauri/gen/android/` are the only
-production image copies outside this package. Gradle requires those paths, so
-the generation script overwrites them from `generated/tauri/`; they must not be
-edited directly. Images in `.agents/skills/` are design references or agent
-documentation rather than application resources.
+Native shells consume the public assets through their own build inputs; this
+package does not generate or export host-toolchain output. Images in
+`.agents/skills/` are design references or agent documentation rather than
+application resources.
 
 The onboarding cover uses [“Retro beige computer model centered on a minimalist
 background”](https://unsplash.com/photos/SgeRfp8xdfo) by
 [Petri R](https://unsplash.com/@petrirh1), downloaded and optimized under the
 [Unsplash License](https://unsplash.com/license).
 
-After changing the canonical outline or a brand style, regenerate all light and
-dark SVG/PNG outputs, platform icons, and checked-in Android launcher resources
-from the repository root:
+After changing the canonical outline or a brand style, regenerate the checked-in
+light and dark SVG/PNG outputs from the repository root:
 
 ```sh
 pnpm generate:brand
 ```
 
-The script fingerprints the generated 1024 px source before invoking Tauri, so
-unchanged runs remain byte-for-byte stable. Use `pnpm generate:brand
---force-tauri` only when the platform icon tool itself must be rerun.
+The script is deterministic and does not invoke a host platform tool or require
+credentials.

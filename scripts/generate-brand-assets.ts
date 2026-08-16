@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 import { Resvg } from "@resvg/resvg-js";
 
@@ -11,15 +9,9 @@ const INACTIVE_STATUS_BAR_ALPHA = 0.45;
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const brandDirectory = join(repositoryRoot, "packages/brand-assets/public/brand");
 const outlineSvgPath = join(brandDirectory, "mish-icon-outline.svg");
-const sourceIconPath = join(brandDirectory, "mish-app-icon.png");
-const generatedDirectory = join(repositoryRoot, "packages/brand-assets/generated/tauri");
 const generatedStatusBarDirectory = join(
   repositoryRoot,
   "packages/brand-assets/generated/status-bar",
-);
-const androidResourcesDirectory = join(
-  repositoryRoot,
-  "apps/mobile/src-tauri/gen/android/app/src/main/res",
 );
 
 const outlineSvg = readFileSync(outlineSvgPath, "utf8");
@@ -111,47 +103,6 @@ function statusBarTemplatePixels(opacity: number) {
   return mask;
 }
 
-function generateTauriIcons(extraArguments: string[] = []) {
-  const result = spawnSync(
-    "pnpm",
-    [
-      "--dir",
-      join(repositoryRoot, "apps/mobile"),
-      "exec",
-      "tauri",
-      "icon",
-      sourceIconPath,
-      "--output",
-      generatedDirectory,
-      ...extraArguments,
-    ],
-    { stdio: "inherit" },
-  );
-
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
-function synchronizeTauriIcons() {
-  const fingerprintPath = join(generatedDirectory, ".source-sha256");
-  const fingerprint = createHash("sha256")
-    .update("mish-tauri-icons-v1\0")
-    .update(readFileSync(sourceIconPath))
-    .digest("hex");
-  const currentFingerprint = existsSync(fingerprintPath)
-    ? readFileSync(fingerprintPath, "utf8").trim()
-    : undefined;
-
-  if (currentFingerprint === fingerprint && !process.argv.includes("--force-tauri")) {
-    return;
-  }
-
-  generateTauriIcons();
-  generateTauriIcons(["--png", "32,180,192,512"]);
-  writeFileSync(fingerprintPath, `${fingerprint}\n`);
-}
-
 writeFileSync(
   join(brandDirectory, "mish-icon-outline-dark.svg"),
   outlineSvg.replace("Mish outline icon", "Mish outline icon (dark)"),
@@ -198,25 +149,4 @@ writeFileSync(
   statusBarTemplatePixels(INACTIVE_STATUS_BAR_ALPHA),
 );
 
-synchronizeTauriIcons();
-
-for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
-  const destination = join(androidResourcesDirectory, `mipmap-${density}`);
-  mkdirSync(destination, { recursive: true });
-  cpSync(join(generatedDirectory, "android", `mipmap-${density}`), destination, {
-    recursive: true,
-  });
-}
-
-const adaptiveIconDirectory = join(androidResourcesDirectory, "mipmap-anydpi-v26");
-mkdirSync(adaptiveIconDirectory, { recursive: true });
-cpSync(
-  join(generatedDirectory, "android/mipmap-anydpi-v26/ic_launcher.xml"),
-  join(adaptiveIconDirectory, "ic_launcher.xml"),
-);
-cpSync(
-  join(generatedDirectory, "android/values/ic_launcher_background.xml"),
-  join(androidResourcesDirectory, "values/ic_launcher_background.xml"),
-);
-
-console.log("Generated and synchronized shared Web, desktop, mobile, and status bar icons.");
+console.log("Generated deterministic shared Web and status bar icons.");

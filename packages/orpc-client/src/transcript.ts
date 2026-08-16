@@ -9,8 +9,12 @@ export type OrpcTransportKind = "message-port" | "websocket";
 
 export type OrpcTranscriptOperation =
   | "application.events.watch"
+  | "application.invoke.events.snapshot"
   | "application.invoke.profile.refresh"
+  | "application.invoke.routes.snapshot"
+  | "application.invoke.settings.snapshot"
   | "application.invoke.status.snapshot"
+  | "application.invoke.traffic.snapshot"
   | "session.handshake"
   | "transport.connect"
   | "transport.disconnect"
@@ -90,8 +94,12 @@ const TRANSCRIPT_KEYS = new Set([
 const TRANSCRIPT_TRANSPORTS = new Set<OrpcTransportKind>(["message-port", "websocket"]);
 const TRANSCRIPT_OPERATIONS = new Set<OrpcTranscriptOperation>([
   "application.events.watch",
+  "application.invoke.events.snapshot",
   "application.invoke.profile.refresh",
+  "application.invoke.routes.snapshot",
+  "application.invoke.settings.snapshot",
   "application.invoke.status.snapshot",
+  "application.invoke.traffic.snapshot",
   "session.handshake",
   "transport.connect",
   "transport.disconnect",

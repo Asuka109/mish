@@ -10,7 +10,6 @@
   "type": "module",
   "exports": {
     "./brand/*": "./public/brand/*",
-    "./tauri/*": "./generated/tauri/*",
     "./manifest.webmanifest": "./public/manifest.webmanifest"
   }
 }

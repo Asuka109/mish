@@ -12,8 +12,92 @@ export const ORPC_CONTRACT_VERSION = 1 as const;
 export const ORPC_CLIENT_NAMES = ["web", "electron", "react-native"] as const;
 export type OrpcClientName = (typeof ORPC_CLIENT_NAMES)[number];
 
-export const ORPC_OPERATIONS = ["status.snapshot", "profile.refresh"] as const;
+/**
+ * Read-only product projections admitted at the shared session boundary.
+ * Commands are intentionally absent until a domain actor and a native effect
+ * seam are accepted for that operation.
+ */
+export const ORPC_OPERATIONS = [
+  "status.snapshot",
+  "routes.snapshot",
+  "profile.refresh",
+  "traffic.snapshot",
+  "events.snapshot",
+  "settings.snapshot",
+] as const;
 export type OrpcOperation = (typeof ORPC_OPERATIONS)[number];
+
+export interface OrpcStatusData {
+  readonly kind: "status";
+  readonly phase: "ready" | "degraded" | "unavailable";
+  readonly profileName: string | null;
+  readonly activeConnections: number;
+  readonly downloadBytesPerSecond: number;
+  readonly uploadBytesPerSecond: number;
+}
+
+export interface OrpcRouteData {
+  readonly kind: "routes";
+  readonly groups: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly selected: string | null;
+    readonly children: readonly string[];
+  }[];
+}
+
+export interface OrpcProfileData {
+  readonly kind: "profiles";
+  readonly profiles: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly source: "file" | "subscription";
+    readonly active: boolean;
+    readonly updatedAt: string;
+  }[];
+}
+
+export interface OrpcTrafficData {
+  readonly kind: "traffic";
+  readonly connections: readonly {
+    readonly id: string;
+    readonly destination: string;
+    readonly protocol: string;
+    readonly downloadBytes: number;
+    readonly uploadBytes: number;
+  }[];
+  readonly rules: readonly {
+    readonly id: string;
+    readonly target: string;
+    readonly action: string;
+  }[];
+}
+
+export interface OrpcEventData {
+  readonly kind: "events";
+  readonly events: readonly {
+    readonly id: string;
+    readonly level: "debug" | "info" | "warning" | "error";
+    readonly source: "application" | "core" | "platform" | "rpc";
+    readonly message: string;
+    readonly observedAt: string;
+  }[];
+}
+
+export interface OrpcSettingsData {
+  readonly kind: "settings";
+  readonly appearance: "system" | "light" | "dark";
+  readonly language: "en" | "zh-CN";
+  readonly readOnly: true;
+}
+
+export type OrpcOperationData =
+  | OrpcStatusData
+  | OrpcRouteData
+  | OrpcProfileData
+  | OrpcTrafficData
+  | OrpcEventData
+  | OrpcSettingsData;
 
 export const orpcContract = {
   session: {
@@ -62,6 +146,8 @@ export const orpcContract = {
           revision: number;
           sessionGeneration: number;
           value: "accepted";
+          /** A bounded read projection; absent for command-free fixtures. */
+          data?: OrpcOperationData;
         }>(),
       ),
     events: {

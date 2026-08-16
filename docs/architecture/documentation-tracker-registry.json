@@ -2,59 +2,39 @@
   "schemaVersion": 1,
   "repository": "Asuka109/mish",
   "readBackAt": "2026-08-09T08:18:33Z",
-  "readBackSource": "gh issue list --repo Asuka109/mish --state all --limit 1000 --json number,title,state,stateReason,closedAt,updatedAt,url",
+  "readBackSource": "checked-in historical tracker snapshot",
   "ordinaryCheckNetwork": "forbidden",
   "canonicalPaths": [
     "docs/README.md",
     "docs/current-state.md",
     "docs/architecture/candidate-home-isolation.md",
-    "docs/architecture/cross-platform-product-authority.md",
-    "docs/architecture/macos-tun-helper.md",
-    "docs/architecture/mobile-runtime-integration.md",
-    "docs/architecture/runtime-state-ownership.md",
-    "docs/architecture/state-lifecycle-race-audit.md",
-    "docs/architecture/state-machine-kernel.md",
-    "docs/architecture/updater-contract.md"
+    "docs/architecture/state-machine-kernel.md"
   ],
   "issues": [
     {
       "number": 91,
-      "title": "feat(android): validate Mobile Core configuration end to end",
+      "title": "feat(android): validate the historical contract fixture",
       "state": "CLOSED",
       "stateReason": "COMPLETED",
       "closedAt": "2026-07-27T10:32:14Z",
       "updatedAt": "2026-07-27T10:32:14Z",
       "references": [
         {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "completed-delivery"
+          "path": "docs/current-state.md",
+          "role": "historical-checkpoint"
         }
       ]
     },
     {
       "number": 94,
-      "title": "feat(android): load Mobile Core configuration with rollback",
+      "title": "feat(android): load the historical contract fixture",
       "state": "CLOSED",
       "stateReason": "COMPLETED",
       "closedAt": "2026-07-29T08:12:29Z",
       "updatedAt": "2026-07-29T08:12:29Z",
       "references": [
         {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 95,
-      "title": "test(macos): validate privileged development TUN end to end",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-26T17:45:29Z",
-      "updatedAt": "2026-07-26T17:45:29Z",
-      "references": [
-        {
-          "path": "docs/architecture/macos-tun-helper.md",
+          "path": "docs/current-state.md",
           "role": "historical-checkpoint"
         }
       ]
@@ -74,80 +54,6 @@
       ]
     },
     {
-      "number": 204,
-      "title": "refactor(state): inventory and move important runtime state to Rust authority",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-25T11:12:03Z",
-      "updatedAt": "2026-07-25T11:17:34Z",
-      "references": [
-        {
-          "path": "docs/architecture/state-lifecycle-race-audit.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 207,
-      "title": "refactor(state): audit scopes, races, and lifecycle transitions",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-25T12:44:37Z",
-      "updatedAt": "2026-07-25T12:46:52Z",
-      "references": [
-        {
-          "path": "docs/architecture/runtime-state-ownership.md",
-          "role": "completed-delivery"
-        },
-        {
-          "path": "docs/architecture/state-lifecycle-race-audit.md",
-          "role": "historical-checkpoint"
-        }
-      ]
-    },
-    {
-      "number": 236,
-      "title": "refactor(profile): make activation states structurally valid",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-26T15:00:46Z",
-      "updatedAt": "2026-07-26T15:00:46Z",
-      "references": [
-        {
-          "path": "docs/architecture/state-lifecycle-race-audit.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 261,
-      "title": "refactor(cross-platform): define Rust product authority and platform adapter boundaries",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-27T10:29:14Z",
-      "updatedAt": "2026-07-27T10:30:05Z",
-      "references": [
-        {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "historical-checkpoint"
-        }
-      ]
-    },
-    {
-      "number": 285,
-      "title": "refactor(update): prove typed reducer and effect handling for Check",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-28T04:14:55Z",
-      "updatedAt": "2026-07-28T04:14:55Z",
-      "references": [
-        {
-          "path": "docs/architecture/updater-contract.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
       "number": 288,
       "title": "refactor(runtime): make Profile activation and capture switching one atomic saga",
       "state": "CLOSED",
@@ -156,53 +62,7 @@
       "updatedAt": "2026-08-08T05:21:58Z",
       "references": [
         {
-          "path": "docs/architecture/state-lifecycle-race-audit.md",
-          "role": "completed-delivery"
-        },
-        {
           "path": "docs/architecture/state-machine-kernel.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 289,
-      "title": "refactor(runtime): make Core lifecycle coordinator-only",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-08-09T04:18:36Z",
-      "updatedAt": "2026-08-09T04:19:41Z",
-      "references": [
-        {
-          "path": "docs/architecture/state-machine-kernel.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 295,
-      "title": "feat(macos): make TUN network ownership safe on a real Mac",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-28T03:58:23Z",
-      "updatedAt": "2026-07-28T03:58:23Z",
-      "references": [
-        {
-          "path": "docs/architecture/state-machine-kernel.md",
-          "role": "decision-context"
-        }
-      ]
-    },
-    {
-      "number": 305,
-      "title": "refactor(state): build a repository-owned state-machine kernel for internal lifecycles",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-07-28T07:41:28Z",
-      "updatedAt": "2026-07-28T07:41:28Z",
-      "references": [
-        {
-          "path": "docs/architecture/state-lifecycle-race-audit.md",
           "role": "completed-delivery"
         }
       ]
@@ -218,44 +78,12 @@
         {
           "path": "docs/README.md",
           "role": "superseded-decision"
-        },
-        {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "superseded-decision"
-        }
-      ]
-    },
-    {
-      "number": 356,
-      "title": "research(design): evaluate and adopt Jakub Krehel's interface Skill suite",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-08-04T05:14:24Z",
-      "updatedAt": "2026-08-04T05:14:24Z",
-      "references": [
-        {
-          "path": "docs/README.md",
-          "role": "completed-delivery"
-        }
-      ]
-    },
-    {
-      "number": 372,
-      "title": "feat(mobile): establish the Shared Rust native-shell entry contract",
-      "state": "CLOSED",
-      "stateReason": "COMPLETED",
-      "closedAt": "2026-08-04T04:41:22Z",
-      "updatedAt": "2026-08-04T10:26:00Z",
-      "references": [
-        {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "superseded-decision"
         }
       ]
     },
     {
       "number": 373,
-      "title": "feat(android): cut over installed mobile chrome to a native Material shell",
+      "title": "feat(android): cut over installed mobile chrome",
       "state": "CLOSED",
       "stateReason": "NOT_PLANNED",
       "closedAt": "2026-08-04T10:23:10Z",
@@ -263,14 +91,6 @@
       "references": [
         {
           "path": "docs/README.md",
-          "role": "superseded-decision"
-        },
-        {
-          "path": "docs/architecture/cross-platform-product-authority.md",
-          "role": "superseded-decision"
-        },
-        {
-          "path": "docs/architecture/mobile-runtime-integration.md",
           "role": "superseded-decision"
         }
       ]

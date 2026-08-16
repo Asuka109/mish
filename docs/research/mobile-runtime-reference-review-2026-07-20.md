@@ -1,5 +1,8 @@
 # Mobile Runtime Reference Review
 
+> Archive: historical source review only; it is not a production dependency or
+> implementation authority.
+
 ## Metadata
 
 - Date: 2026-07-20

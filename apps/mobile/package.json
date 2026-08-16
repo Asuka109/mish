@@ -5,19 +5,15 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
-    "android:build": "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
-    "android:configure": "node ../../scripts/configure-android-project.ts",
-    "android:init": "tauri android init --ci --skip-targets-install && pnpm android:configure",
-    "android:prepare-plugin-tests": "node ../../scripts/prepare-android-plugin-tests.ts",
-    "android:test": "pnpm android:configure && pnpm android:prepare-plugin-tests && src-tauri/gen/android/gradlew -p src-tauri/gen/android :tauri-plugin-mish-vpn:testDebugUnitTest",
-    "android:test:emulator": "pnpm android:configure && pnpm android:prepare-plugin-tests && src-tauri/gen/android/gradlew -p src-tauri/gen/android :tauri-plugin-mish-vpn:connectedDebugAndroidTest",
+    "android:admission": "pnpm rn:typecheck && pnpm rn:test:run && pnpm rn:android:build && pnpm rn:android:smoke",
+    "android:build": "pnpm rn:android:build",
+    "android:smoke": "pnpm rn:android:smoke",
     "rn:android:build": "node scripts/build-debug-apk.ts",
     "rn:android:smoke": "node scripts/smoke-emulator.ts",
     "rn:test:run": "vitest run",
     "rn:typecheck": "tsc --noEmit",
-    "tauri": "tauri",
-    "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
+    "test:run": "pnpm rn:test:run",
+    "typecheck": "pnpm rn:typecheck"
   },
   "dependencies": {
     "@mish/contracts": "workspace:*",
@@ -46,7 +42,6 @@
     "@react-native/gradle-plugin": "0.87.0",
     "@react-native/metro-babel-transformer": "0.87.0",
     "@react-native/metro-config": "0.87.0",
-    "@tauri-apps/cli": "2.11.4",
     "@types/node": "26.1.1",
     "@types/react": "19.2.14",
     "typescript": "7.0.2",

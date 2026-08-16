@@ -2,9 +2,12 @@
   "files": [],
   "references": [
     { "path": "./packages/contracts" },
-    { "path": "./packages/mock-bridge" },
-    { "path": "./packages/rpc-client" },
+    { "path": "./packages/domain" },
+    { "path": "./packages/orpc-client" },
+    { "path": "./packages/ui-state" },
     { "path": "./packages/ui" },
-    { "path": "./apps/web" }
+    { "path": "./apps/web" },
+    { "path": "./apps/desktop" },
+    { "path": "./apps/mobile" }
   ]
 }
