@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { AppRoutes } from "../app";
+import { AppRoutes, PRODUCT_ROUTE_PATHS } from "../app";
 import { CutoverViewProvider } from "../data/cutover-view-facade";
 import { createQueryClient, MishQueryProvider } from "@mish/ui-state";
 
@@ -62,9 +62,8 @@ const data = {
   },
 };
 
-function renderProduct() {
-  const queryClient = createQueryClient({ queryRetry: 0, mutationRetry: 0 });
-  const source = {
+function renderProduct(
+  source = {
     invoke: async (operation: keyof typeof data) => ({
       correlationId: "fixture-correlation-0001",
       operation,
@@ -74,7 +73,10 @@ function renderProduct() {
       value: "accepted" as const,
       data: data[operation],
     }),
-  };
+  },
+) {
+  window.history.replaceState({}, "", "/status");
+  const queryClient = createQueryClient({ queryRetry: 0, mutationRetry: 0 });
   return render(
     <MishQueryProvider client={queryClient}>
       <CutoverViewProvider source={source}>
@@ -91,6 +93,74 @@ describe("CUTOVER Web product pages", () => {
     for (const label of ["Routes", "Profiles", "Traffic", "Events", "Settings"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
-    expect(await screen.findByText("fixture-profile")).toBeInTheDocument();
+    expect(await screen.findByText("fixture-profile", {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it("renders the complete product surface instead of the admission probe", async () => {
+    renderProduct();
+    expect(PRODUCT_ROUTE_PATHS).toHaveLength(6);
+    expect(PRODUCT_ROUTE_PATHS).toEqual([
+      "/status",
+      "/routes",
+      "/profiles",
+      "/traffic",
+      "/events",
+      "/settings",
+    ]);
+    const surface = () => document.querySelector("[data-product-surface='mish']");
+    expect(surface()).toBeInTheDocument();
+    expect(screen.getByText("Read-only")).toBeInTheDocument();
+    expect(screen.queryByText("remount")).not.toBeInTheDocument();
+    expect(screen.queryByText("admission probe")).not.toBeInTheDocument();
+
+    for (const label of ["Routes", "Profiles", "Traffic", "Events", "Settings"]) {
+      fireEvent.click(screen.getByRole("link", { name: label }));
+      expect(
+        await screen.findByRole("heading", { name: label }, { timeout: 3000 }),
+      ).toBeInTheDocument();
+      expect(surface()).toHaveAttribute("data-product-surface", "mish");
+    }
+  });
+
+  it("keeps empty and error projection states honest and actionable", async () => {
+    renderProduct({
+      invoke: async (operation) => ({
+        correlationId: "fixture-correlation-0002",
+        operation,
+        parentEpoch: 1,
+        revision: 1,
+        sessionGeneration: 1,
+        value: "accepted" as const,
+      }),
+    });
+    expect(
+      await screen.findByText(
+        "No status projection has been published by the current session.",
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+
+    screen.getByRole("link", { name: "Routes" }).click();
+    expect(
+      await screen.findByText(
+        "No route graph projection has been published by the current session.",
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces a failed Query projection with a retry affordance", async () => {
+    renderProduct({
+      invoke: async () => {
+        throw new Error("projection offline");
+      },
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.getByText("projection offline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });
