@@ -114,6 +114,11 @@ describe("Electron host boundary", () => {
   it("keeps the fixture credential-free and free of distribution or Finder side effects", () => {
     const fixture = readFileSync(path.join(desktopRoot, "scripts", "electron-fixture.ts"), "utf8");
     expect(fixture).toContain("verifyMacOsDmgPresentation");
+    expect(fixture).toContain("installMountedDmgApplication");
+    expect(fixture).toContain(
+      'execFileSync("/usr/bin/ditto", [mountedApplication, installedApplication]',
+    );
+    expect(fixture).not.toContain("launchAndQuitElectronFixture(mountedApplication, userData)");
     expect(fixture).toContain("createRequire");
     expect(fixture).toContain("process.kill(-child.pid");
     expect(fixture).not.toContain("osascript");

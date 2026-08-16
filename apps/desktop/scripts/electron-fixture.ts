@@ -449,30 +449,36 @@ export function launchAndStayAliveElectronFixture(
   return launchElectronFixture(application, userData, "persistent", timeoutMs);
 }
 
+async function installMountedDmgApplication(fixture: ElectronFixturePaths): Promise<string> {
+  const { verifyMacOsDmgPresentation } = await dmgTools();
+  const installationRoot = mkdtempSync(path.join(fixture.root, "installed-"));
+  const installedApplication = path.join(installationRoot, "Mish.app");
+  let copied = false;
+  verifyMacOsDmgPresentation(fixture.dmg, (mountedApplication) => {
+    execFileSync("/usr/bin/ditto", [mountedApplication, installedApplication], {
+      stdio: "pipe",
+    });
+    assertBundle(installedApplication);
+    copied = true;
+  });
+  if (!copied) fail("read-only DMG verification did not expose Mish.app");
+  return installedApplication;
+}
+
 export async function launchMountedDmgAndQuit(
   fixture: ElectronFixturePaths,
   userData = fixture.userData,
 ): Promise<ElectronFixtureLaunch> {
-  const { verifyMacOsDmgPresentation } = await dmgTools();
-  let launch: ElectronFixtureLaunch | undefined;
-  verifyMacOsDmgPresentation(fixture.dmg, (mountedApplication) => {
-    launch = launchAndQuitElectronFixture(mountedApplication, userData);
-  });
-  if (!launch) fail("read-only DMG verification did not expose Mish.app");
-  return launch;
+  const installedApplication = await installMountedDmgApplication(fixture);
+  return launchAndQuitElectronFixture(installedApplication, userData);
 }
 
 export async function launchMountedDmgAndStayAlive(
   fixture: ElectronFixturePaths,
   userData = fixture.userData,
 ): Promise<ElectronFixtureLaunch> {
-  const { verifyMacOsDmgPresentation } = await dmgTools();
-  let launch: ElectronFixtureLaunch | undefined;
-  verifyMacOsDmgPresentation(fixture.dmg, (mountedApplication) => {
-    launch = launchAndStayAliveElectronFixture(mountedApplication, userData);
-  });
-  if (!launch) fail("read-only DMG verification did not expose Mish.app");
-  return launch;
+  const installedApplication = await installMountedDmgApplication(fixture);
+  return launchAndStayAliveElectronFixture(installedApplication, userData);
 }
 
 export function verifyTranscript(output: string): void {
