@@ -28,6 +28,7 @@ describe("Electron host boundary", () => {
     expect(packageJson.type).toBe("module");
     expect(packageJson.dependencies.electron).toBe("43.4.0");
     expect(packageJson.dependencies["@mish/orpc-client"]).toBe("workspace:*");
+    expect(packageJson.dependencies["@mish/web"]).toBe("workspace:*");
   });
 
   it("keeps BrowserWindow security and MessagePort ownership in the host", () => {
@@ -47,6 +48,12 @@ describe("Electron host boundary", () => {
     expect(renderer).toContain("sessionStarted");
     expect(renderer).toContain("MishQueryProvider");
     expect(renderer).toContain("useMishStore");
+    expect(renderer).toContain('from "@mish/web"');
+    expect(renderer).toContain('"@mish/web/styles.css"');
+    expect(renderer).toContain("<AppRoutes />");
+    expect(renderer).toContain("<CutoverViewProvider source={viewSource}>");
+    expect(renderer).toContain('aria-hidden="true"');
+    expect(renderer).toContain("hidden");
     for (const forbidden of [
       'from "electron"',
       "node:crypto",
@@ -63,7 +70,7 @@ describe("Electron host boundary", () => {
     expect(renderer).toContain("const sessionStarted = useRef(false);");
     expect(renderer).toContain("if (!sessionStarted.current)");
     expect(renderer).toContain("if (isCurrentEpoch(startedEpoch, epoch)) void handle.dispose();");
-    expect(renderer).toContain("}, [api, handle, presentationStore]);");
+    expect(renderer).toContain("}, [handle, presentationStore, source]);");
     expect(renderer).toContain("key={surfaceLabel}");
     expect(renderer).not.toContain("}, [api, handle, presentationStore, surfaceLabel]);");
   });
@@ -86,6 +93,7 @@ describe("Electron host boundary", () => {
   it("keeps the product projection owned by the Electron host and shared contracts", () => {
     const main = readFileSync(path.join(sourceRoot, "main.ts"), "utf8");
     const projection = readFileSync(path.join(sourceRoot, "projection.ts"), "utf8");
+    const productSurface = readFileSync(path.join(sourceRoot, "product-surface.ts"), "utf8");
     expect(main).toContain("state.projection.invoke(input, signal)");
     expect(main).toContain("data: result.data");
     expect(projection).toContain('from "@mish/contracts"');
@@ -99,6 +107,8 @@ describe("Electron host boundary", () => {
     expect(projection).not.toContain("apps/web");
     expect(projection).not.toContain("fixture-token");
     expect(projection).not.toContain("authToken");
+    expect(productSurface).toContain("getBoundingClientRect");
+    expect(productSurface).toContain("placeholderVisible");
   });
 
   it("keeps the fixture credential-free and free of distribution or Finder side effects", () => {

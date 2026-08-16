@@ -44,6 +44,9 @@ importers:
       '@mish/ui-state':
         specifier: workspace:*
         version: link:../../packages/ui-state
+      '@mish/web':
+        specifier: workspace:*
+        version: link:../web
       '@orpc/server':
         specifier: 1.15.0
         version: 1.15.0(ws@8.21.1)

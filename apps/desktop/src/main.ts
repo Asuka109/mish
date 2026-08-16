@@ -386,16 +386,30 @@ function isRendererReadyReport(value: unknown): value is RendererReadyReport {
   const report = value as Record<string, unknown>;
   const session = report.session;
   const store = report.store;
+  const product = report.product;
   if (
     typeof session !== "object" ||
     session === null ||
     typeof store !== "object" ||
-    store === null
+    store === null ||
+    typeof product !== "object" ||
+    product === null
   ) {
     return false;
   }
   const sessionRecord = session as Record<string, unknown>;
   const storeRecord = store as Record<string, unknown>;
+  const productRecord = product as Record<string, unknown>;
+  const routes = productRecord.routes;
+  if (typeof routes !== "object" || routes === null || Array.isArray(routes)) return false;
+  const routeRecord = routes as Record<string, unknown>;
+  const expectedRoutes = ["status", "routes", "profiles", "traffic", "events", "settings"];
+  if (
+    Object.keys(routeRecord).some((key) => !expectedRoutes.includes(key)) ||
+    expectedRoutes.some((key) => routeRecord[key] !== true)
+  ) {
+    return false;
+  }
   return (
     sessionRecord.connected === true &&
     ["generation", "parentEpoch", "revision"].every(
@@ -414,7 +428,10 @@ function isRendererReadyReport(value: unknown): value is RendererReadyReport {
     typeof storeRecord.cleanups === "number" &&
     Number.isSafeInteger(storeRecord.cleanups) &&
     storeRecord.cleanups > 0 &&
-    report.strictMode === true
+    report.strictMode === true &&
+    productRecord.visible === true &&
+    productRecord.statusSurface === true &&
+    productRecord.placeholderVisible === false
   );
 }
 
@@ -450,6 +467,7 @@ function handleRendererReady(event: IpcMainEvent, value: unknown): void {
   rendererReady = true;
   rendererDisposed = false;
   stage = "renderer-ready";
+  record("renderer.product", "result", "ready");
   record("renderer.bootstrap", "event", "ready");
   emitReadinessSignal();
   const disposition =

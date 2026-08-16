@@ -8,6 +8,13 @@ import {
   useQuery,
 } from "@mish/ui-state";
 import type { DomainActorSnapshot, RpcSessionContext } from "@mish/domain";
+import {
+  AppRoutes,
+  CutoverViewProvider,
+  PRODUCT_ROUTE_PATHS,
+  type CutoverViewSource,
+} from "@mish/web";
+import "@mish/web/styles.css";
 
 import {
   ELECTRON_SESSION_STREAM_QUERY_KEY,
@@ -15,6 +22,7 @@ import {
   type ElectronSessionStreamData,
 } from "./session.js";
 import type { ElectronHostApi, RendererReadyReport, RendererStoreReport } from "./electron-api.js";
+import { inspectProductSurface, type RendererProductReport } from "./product-surface.js";
 
 interface PresentationState {
   readonly phase: "connected" | "connecting" | "disconnected" | "failed";
@@ -95,6 +103,14 @@ function ElectronApplication({
   const readyReported = useRef(false);
   const disposedForReady = useRef(false);
   const invoked = useRef(false);
+  const [viewSource, setViewSource] = useState<CutoverViewSource | null>(null);
+  const [productReport, setProductReport] = useState<RendererProductReport | null>(null);
+  const source = useMemo<CutoverViewSource>(
+    () => ({
+      invoke: (operation, options) => api.invoke(operation, options?.deadlineMs),
+    }),
+    [api],
+  );
   const handle = useMemo(
     () => createElectronSessionActor({ api, queryClient }),
     [api, queryClient],
@@ -120,23 +136,7 @@ function ElectronApplication({
       presentationStore.batch(() => {
         presentationStore.setState((current) => ({ ...current, phase }));
       });
-      if (phase === "connected" && !invoked.current) {
-        invoked.current = true;
-        void api
-          .invoke("status.snapshot", 250)
-          .then(() => {
-            presentationStore.batch(() => {
-              presentationStore.setState((current) => ({ ...current, invocationAccepted: true }));
-            });
-            api.reportStore({ kind: "store-batched", count: 2 });
-            setSurfaceLabel("remount");
-            return undefined;
-          })
-          .catch(() => {
-            api.reportFailure({ stage: "invoke", message: "admission-failed" });
-            return undefined;
-          });
-      }
+      setViewSource(phase === "connected" ? source : null);
     };
     const subscription = handle.actor.subscribe(applySnapshot);
     if (!sessionStarted.current) {
@@ -149,11 +149,23 @@ function ElectronApplication({
     }
     return () => {
       subscription.unsubscribe();
+      setViewSource(null);
+      setProductReport(null);
       queueMicrotask(() => {
         if (isCurrentEpoch(startedEpoch, epoch)) void handle.dispose();
       });
     };
-  }, [api, handle, presentationStore]);
+  }, [handle, presentationStore, source]);
+
+  useEffect(() => {
+    if (presentation.phase !== "connected" || !viewSource || invoked.current) return;
+    invoked.current = true;
+    presentationStore.batch(() => {
+      presentationStore.setState((current) => ({ ...current, invocationAccepted: true }));
+    });
+    api.reportStore({ kind: "store-batched", count: 2 });
+    setSurfaceLabel("remount");
+  }, [api, presentation.phase, presentationStore, viewSource]);
 
   useEffect(() => {
     const events = stream.data?.chunks.length ?? 0;
@@ -169,6 +181,21 @@ function ElectronApplication({
   }, [presentationStore, stream.data]);
 
   useEffect(() => {
+    if (presentation.phase !== "connected" || !viewSource) {
+      setProductReport(null);
+      return;
+    }
+    const next = inspectProductSurface();
+    if (
+      next.statusSurface &&
+      Object.values(next.routes).every(Boolean) &&
+      !next.placeholderVisible
+    ) {
+      setProductReport(next);
+    }
+  }, [presentation.events, presentation.phase, surfaceLabel, viewSource]);
+
+  useEffect(() => {
     if (
       readyReported.current ||
       disposedForReady.current ||
@@ -176,7 +203,8 @@ function ElectronApplication({
       presentation.phase !== "connected" ||
       !presentation.invocationAccepted ||
       presentation.events < 2 ||
-      surfaceCleanupCount.current < 1
+      surfaceCleanupCount.current < 1 ||
+      !productReport
     ) {
       return;
     }
@@ -196,6 +224,7 @@ function ElectronApplication({
         remounted: true,
       },
       strictMode: true,
+      product: productReport,
     };
     void api.rendererReady(readyReport).then(
       (disposition) => {
@@ -211,36 +240,33 @@ function ElectronApplication({
         api.reportFailure({ stage: "renderer", message: "admission-failed" });
       },
     );
-  }, [api, handle, presentation, surfaceLabel]);
-
-  const statusText =
-    presentation.phase === "connected"
-      ? "Connected"
-      : presentation.phase === "connecting"
-        ? "Connecting"
-        : presentation.phase === "failed"
-          ? "Session unavailable"
-          : "Starting";
+  }, [api, handle, presentation, productReport, surfaceLabel]);
 
   return (
-    <main aria-live="polite" data-electron-session={presentation.phase}>
-      <h1>Mish</h1>
-      <p>{statusText}</p>
-      <StoreSurface
-        key={surfaceLabel}
-        api={api}
-        label={surfaceLabel}
-        events={presentation.events}
-        onCleanup={onSurfaceCleanup}
-        onNotify={onSurfaceNotify}
-      />
-    </main>
+    <>
+      <CutoverViewProvider source={viewSource}>
+        <AppRoutes />
+      </CutoverViewProvider>
+      <div aria-hidden="true" data-electron-admission-instrumentation="true" hidden>
+        <StoreSurface
+          key={surfaceLabel}
+          api={api}
+          label={surfaceLabel}
+          events={presentation.events}
+          onCleanup={onSurfaceCleanup}
+          onNotify={onSurfaceNotify}
+        />
+      </div>
+    </>
   );
 }
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Electron renderer root is missing");
 const api = window.mishElectron;
+if (!PRODUCT_ROUTE_PATHS.some((path) => window.location.pathname === path)) {
+  window.history.replaceState(null, "", "/status");
+}
 const queryClient = createQueryClient();
 createRoot(root).render(
   <StrictMode>

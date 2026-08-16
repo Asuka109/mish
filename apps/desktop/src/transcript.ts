@@ -21,6 +21,7 @@ export type ElectronTranscriptOperation =
   | "projection.status.snapshot"
   | "projection.traffic.snapshot"
   | "orpc.events"
+  | "renderer.product"
   | "renderer.store"
   | "application.quit";
 
@@ -75,6 +76,7 @@ const OPERATIONS = new Set<ElectronTranscriptOperation>([
   "projection.status.snapshot",
   "projection.traffic.snapshot",
   "orpc.events",
+  "renderer.product",
   "renderer.store",
   "application.quit",
 ]);

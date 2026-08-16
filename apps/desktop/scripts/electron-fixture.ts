@@ -503,9 +503,21 @@ export function verifyTranscript(output: string): void {
       return typeof operation === "string" ? [operation] : [];
     }),
   );
-  for (const required of ["orpc.handshake", "orpc.invoke", "orpc.events", "renderer.store"]) {
+  for (const required of [
+    "orpc.handshake",
+    "orpc.invoke",
+    "orpc.events",
+    "renderer.product",
+    "renderer.store",
+  ]) {
     if (!operations.has(required)) fail(`Electron transcript is missing ${required}`);
   }
+  const productSurface = payload.transcript.find((event) => {
+    if (!event || typeof event !== "object") return false;
+    const value = event as { readonly operation?: unknown; readonly result?: unknown };
+    return value.operation === "renderer.product" && value.result === "ready";
+  });
+  if (!productSurface) fail("Electron transcript is missing visible product-surface evidence");
   const statusProjection = payload.transcript.find((event) => {
     if (!event || typeof event !== "object") return false;
     const value = event as { readonly operation?: unknown; readonly result?: unknown };
@@ -575,6 +587,12 @@ export function verifyPersistentLaunch(launch: ElectronFixtureLaunch): void {
     );
   });
   if (!statusProjection) fail("persistent acceptance is missing the ready status projection");
+  const productSurface = payload.transcript.find((event) => {
+    if (!event || typeof event !== "object") return false;
+    const value = event as { readonly operation?: unknown; readonly result?: unknown };
+    return value.operation === "renderer.product" && value.result === "ready";
+  });
+  if (!productSurface) fail("persistent acceptance is missing visible product-surface evidence");
 }
 
 export function cleanupElectronFixture(root: string): void {
