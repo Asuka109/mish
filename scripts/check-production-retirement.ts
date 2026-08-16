@@ -67,7 +67,8 @@ function candidates(file: string): string[] {
 function resolveImport(from: string, specifier: string): string | undefined {
   if (specifier.startsWith("@mish/")) {
     const [name, ...parts] = specifier.slice("@mish/".length).split("/");
-    const packageRoot = resolve(root, "packages", name ?? "");
+    const packageRoot =
+      name === "web" ? resolve(root, "apps", "web") : resolve(root, "packages", name ?? "");
     const packagePath =
       parts.length > 0 ? resolve(packageRoot, "src", ...parts) : resolve(packageRoot, "src/index");
     return candidates(packagePath).find((candidate) => existsSync(candidate));
