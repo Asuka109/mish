@@ -1,42 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
-import { createDesktopStartupPlaceholderReveal } from "./window-startup";
+import { beforeEach, describe, expect, it } from "vitest";
+import { revealStartupSurface } from "./window-startup";
 
-function createDependencies(buildTarget: string | undefined = "desktop") {
-  return {
-    buildTarget,
-    scheduleFrame: vi.fn<(callback: FrameRequestCallback) => number>(),
-    signalWindowReady: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-describe("desktop startup placeholder reveal", () => {
-  it("reveals without waiting on hidden WebView animation frames", async () => {
-    const dependencies = createDependencies();
-    const revealPlaceholder = createDesktopStartupPlaceholderReveal(dependencies);
-
-    revealPlaceholder();
-    await Promise.resolve();
-
-    expect(dependencies.signalWindowReady).toHaveBeenCalledOnce();
-    expect(dependencies.scheduleFrame).not.toHaveBeenCalled();
+describe("startup surface", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div class="startup-placeholder"></div>';
   });
 
-  it("does not schedule a desktop reveal for the mobile build", () => {
-    const dependencies = createDependencies("mobile");
-    const revealPlaceholder = createDesktopStartupPlaceholderReveal(dependencies);
+  it("removes the loading marker after the renderer mounts", () => {
+    revealStartupSurface();
 
-    revealPlaceholder();
-
-    expect(dependencies.scheduleFrame).not.toHaveBeenCalled();
-    expect(dependencies.signalWindowReady).not.toHaveBeenCalled();
+    expect(document.querySelector(".startup-placeholder")).not.toBeInTheDocument();
   });
 
-  it("keeps the desktop demo eligible for its native reveal guard", () => {
-    const dependencies = createDependencies(undefined);
-    const revealPlaceholder = createDesktopStartupPlaceholderReveal(dependencies);
+  it("leaves unrelated document content untouched", () => {
+    document.body.insertAdjacentHTML("beforeend", '<div data-testid="application"></div>');
 
-    revealPlaceholder();
+    revealStartupSurface();
 
-    expect(dependencies.signalWindowReady).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-testid="application"]')).toBeInTheDocument();
   });
 });
