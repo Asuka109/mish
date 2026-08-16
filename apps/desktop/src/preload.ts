@@ -16,6 +16,7 @@ import type {
 
 import {
   ELECTRON_FAILURE_CHANNEL,
+  ELECTRON_DISPOSED_CHANNEL,
   ELECTRON_PORT_CHANNEL,
   ELECTRON_PORT_REQUEST_CHANNEL,
   ELECTRON_READY_CHANNEL,
@@ -26,6 +27,7 @@ import {
   type ElectronSessionMetadata,
   type RendererFailureReport,
   type RendererReadyReport,
+  type RendererReadyDisposition,
   type RendererStoreReport,
 } from "./electron-api.js";
 
@@ -39,6 +41,7 @@ interface PendingPort {
 }
 
 const PORT_WAIT_DEADLINE_MS = 8_000;
+const READY_REPLY_DEADLINE_MS = 1_000;
 const MAX_PENDING_PORTS = 4;
 
 const pendingPorts: PendingPort[] = [];
@@ -239,6 +242,35 @@ async function dispose(): Promise<void> {
   for (const pending of pendingPorts.splice(0)) pending.port.close();
 }
 
+async function rendererReady(report: RendererReadyReport): Promise<RendererReadyDisposition> {
+  return new Promise<RendererReadyDisposition>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const finish = (disposition: RendererReadyDisposition): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      ipcRenderer.removeListener(ELECTRON_READY_CHANNEL, listener);
+      // oxlint-disable-next-line promise/no-multiple-resolved
+      resolve(disposition);
+    };
+    const listener = (_event: IpcRendererEvent, value: unknown): void => {
+      finish(value === "dispose-and-quit" ? "dispose-and-quit" : "keep-session");
+    };
+    ipcRenderer.once(ELECTRON_READY_CHANNEL, listener);
+    timer = setTimeout(() => finish("keep-session"), READY_REPLY_DEADLINE_MS);
+    try {
+      ipcRenderer.send(ELECTRON_READY_CHANNEL, report);
+    } catch {
+      finish("keep-session");
+    }
+  });
+}
+
+function rendererDisposed(): void {
+  ipcRenderer.send(ELECTRON_DISPOSED_CHANNEL);
+}
+
 const api: ElectronHostApi = {
   connect,
   invoke,
@@ -253,9 +285,8 @@ const api: ElectronHostApi = {
   reportFailure(report: RendererFailureReport): void {
     ipcRenderer.send(ELECTRON_FAILURE_CHANNEL, report);
   },
-  rendererReady(report: RendererReadyReport): void {
-    ipcRenderer.send(ELECTRON_READY_CHANNEL, report);
-  },
+  rendererReady,
+  rendererDisposed,
 };
 
 contextBridge.exposeInMainWorld("mishElectron", api);

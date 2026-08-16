@@ -10,6 +10,7 @@ export const ELECTRON_PORT_REQUEST_CHANNEL = "mish-electron/request-session-port
 export const ELECTRON_REPORT_CHANNEL = "mish-electron/renderer-report" as const;
 export const ELECTRON_FAILURE_CHANNEL = "mish-electron/renderer-failure" as const;
 export const ELECTRON_READY_CHANNEL = "mish-electron/renderer-ready" as const;
+export const ELECTRON_DISPOSED_CHANNEL = "mish-electron/renderer-disposed" as const;
 
 export type RendererFailureStage = "port" | "handshake" | "invoke" | "events" | "renderer";
 
@@ -39,6 +40,8 @@ export interface RendererReadyReport {
   };
   readonly strictMode: true;
 }
+
+export type RendererReadyDisposition = "keep-session" | "dispose-and-quit";
 
 export interface ElectronSessionMetadata {
   readonly state:
@@ -74,7 +77,8 @@ export interface ElectronHostApi {
   readonly getSessionMetadata: () => ElectronSessionMetadata;
   readonly reportStore: (report: RendererStoreReport) => void;
   readonly reportFailure: (report: RendererFailureReport) => void;
-  readonly rendererReady: (report: RendererReadyReport) => void;
+  readonly rendererReady: (report: RendererReadyReport) => Promise<RendererReadyDisposition>;
+  readonly rendererDisposed: () => void;
 }
 
 declare global {
