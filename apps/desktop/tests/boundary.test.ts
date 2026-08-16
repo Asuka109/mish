@@ -90,6 +90,8 @@ describe("Electron host boundary", () => {
     expect(main).toContain("data: result.data");
     expect(projection).toContain('from "@mish/contracts"');
     expect(projection).toContain("ElectronProjectionDataByOperation");
+    expect(projection).toContain('"projection-degraded"');
+    expect(projection).toContain("setRuntimeObservation");
     expect(projection).toContain('kind: "profiles", profiles: []');
     expect(projection).toContain('kind: "routes", groups: []');
     expect(projection).toContain('kind: "traffic", connections: [], rules: []');

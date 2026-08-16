@@ -79,7 +79,7 @@ describe("Electron transcript boundary", () => {
     transcript.record({
       operation: "projection.status.snapshot",
       effect: "result",
-      result: "projection-ready",
+      result: "projection-degraded",
       correlationId: electronCorrelation(2),
     });
     transcript.record({

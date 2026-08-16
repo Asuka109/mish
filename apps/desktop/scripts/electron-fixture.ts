@@ -509,7 +509,9 @@ export function verifyTranscript(output: string): void {
   const statusProjection = payload.transcript.find((event) => {
     if (!event || typeof event !== "object") return false;
     const value = event as { readonly operation?: unknown; readonly result?: unknown };
-    return value.operation === "projection.status.snapshot" && value.result === "projection-ready";
+    return (
+      value.operation === "projection.status.snapshot" && value.result === "projection-degraded"
+    );
   });
   if (!statusProjection) fail("Electron transcript is missing the ready status projection");
   if (
@@ -568,7 +570,9 @@ export function verifyPersistentLaunch(launch: ElectronFixtureLaunch): void {
   const statusProjection = payload.transcript.find((event) => {
     if (!event || typeof event !== "object") return false;
     const value = event as { readonly operation?: unknown; readonly result?: unknown };
-    return value.operation === "projection.status.snapshot" && value.result === "projection-ready";
+    return (
+      value.operation === "projection.status.snapshot" && value.result === "projection-degraded"
+    );
   });
   if (!statusProjection) fail("persistent acceptance is missing the ready status projection");
 }

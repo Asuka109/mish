@@ -54,6 +54,8 @@ export interface ElectronProjectionRequest {
   readonly sessionGeneration: unknown;
 }
 
+export type ElectronProjectionAvailability = "degraded" | "ready" | "unavailable";
+
 export interface ElectronOwnedSettings {
   readonly appearance: OrpcSettingsData["appearance"];
   readonly language: OrpcSettingsData["language"];
@@ -69,6 +71,7 @@ export type ElectronProjectionDataByOperation = {
 };
 
 export type ElectronProjectionResultKind =
+  | "projection-degraded"
   | "projection-empty"
   | "projection-owned"
   | "projection-ready"
@@ -84,11 +87,13 @@ export type ElectronProjectionResult = {
 }[OrpcOperation];
 
 export interface ElectronProjectionAuthority {
+  readonly availability: ElectronProjectionAvailability;
   readonly available: boolean;
   readonly disposed: boolean;
   readonly session: ElectronProjectionSession;
   setAvailable(): void;
   setSession(session: ElectronProjectionSession): void;
+  setRuntimeObservation(observation: "ready"): void;
   invoke(request: ElectronProjectionRequest, signal?: AbortSignal): ElectronProjectionResult;
   dispose(): void;
 }
@@ -144,12 +149,12 @@ function emptyEvents(): OrpcEventData {
   return { kind: "events", events: [] };
 }
 
-function statusData(available: boolean): OrpcStatusData {
+function statusData(availability: ElectronProjectionAvailability): OrpcStatusData {
   return {
     activeConnections: 0,
     downloadBytesPerSecond: 0,
     kind: "status",
-    phase: available ? "ready" : "unavailable",
+    phase: availability,
     profileName: null,
     uploadBytesPerSecond: 0,
   };
@@ -166,17 +171,22 @@ function settings(owned: ElectronOwnedSettings): OrpcSettingsData {
 
 function invokeResult(
   operation: OrpcOperation,
-  available: boolean,
+  availability: ElectronProjectionAvailability,
   ownedSettings: ElectronOwnedSettings,
 ): ElectronProjectionResult {
   switch (operation) {
     case "status.snapshot": {
-      const data = statusData(available);
+      const data = statusData(availability);
       assertBoundedProjection(data);
       return {
         data,
         operation,
-        result: available ? "projection-ready" : "projection-unavailable",
+        result:
+          availability === "ready"
+            ? "projection-ready"
+            : availability === "degraded"
+              ? "projection-degraded"
+              : "projection-unavailable",
         transcriptOperation: electronProjectionOperation(operation),
       };
     }
@@ -238,7 +248,7 @@ export function createElectronProjectionAuthority(
     readonly settings?: ElectronOwnedSettings;
   } = {},
 ): ElectronProjectionAuthority {
-  let available = false;
+  let availability: ElectronProjectionAvailability = "unavailable";
   let disposed = false;
   let session: ElectronProjectionSession = {
     generation: 0,
@@ -249,7 +259,10 @@ export function createElectronProjectionAuthority(
 
   return {
     get available(): boolean {
-      return available;
+      return availability !== "unavailable";
+    },
+    get availability(): ElectronProjectionAvailability {
+      return availability;
     },
     get disposed(): boolean {
       return disposed;
@@ -259,7 +272,7 @@ export function createElectronProjectionAuthority(
     },
     setAvailable(): void {
       if (disposed) throw new ElectronProjectionError("DISPOSED", 410);
-      available = true;
+      availability = "degraded";
     },
     setSession(next: ElectronProjectionSession): void {
       if (disposed) throw new ElectronProjectionError("DISPOSED", 410);
@@ -271,7 +284,16 @@ export function createElectronProjectionAuthority(
         throw new ElectronProjectionError("CONFLICT", 409);
       }
       session = { ...next };
-      available = false;
+      availability = "unavailable";
+    },
+    // The current host has no Runtime/Core observation and never calls this.
+    // A future admitted Runtime adapter may promote the status explicitly.
+    setRuntimeObservation(observation: "ready"): void {
+      if (disposed) throw new ElectronProjectionError("DISPOSED", 410);
+      if (observation !== "ready" || availability === "unavailable") {
+        throw new ElectronProjectionError("CONFLICT", 409);
+      }
+      availability = "ready";
     },
     invoke(request: ElectronProjectionRequest, signal?: AbortSignal): ElectronProjectionResult {
       if (disposed) throw new ElectronProjectionError("DISPOSED", 410);
@@ -286,12 +308,12 @@ export function createElectronProjectionAuthority(
       assertSessionValue(request.sessionGeneration, session.generation);
       assertSessionValue(request.parentEpoch, session.parentEpoch);
       assertSessionValue(request.revision, session.revision);
-      return invokeResult(request.operation, available, ownedSettings);
+      return invokeResult(request.operation, availability, ownedSettings);
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      available = false;
+      availability = "unavailable";
     },
   };
 }

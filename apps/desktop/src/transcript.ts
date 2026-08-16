@@ -32,6 +32,7 @@ export type ElectronTranscriptResult =
   | "ready"
   | "event"
   | "cleaned-up"
+  | "projection-degraded"
   | "projection-empty"
   | "projection-owned"
   | "projection-ready"
@@ -84,6 +85,7 @@ const RESULTS = new Set<ElectronTranscriptResult>([
   "ready",
   "event",
   "cleaned-up",
+  "projection-degraded",
   "projection-empty",
   "projection-owned",
   "projection-ready",

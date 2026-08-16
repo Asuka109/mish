@@ -28,17 +28,22 @@ describe("Electron product projection authority", () => {
     authority.setSession(session);
     authority.setAvailable();
 
-    const status = authority.invoke(request("status.snapshot"));
-    expect(status.operation).toBe("status.snapshot");
-    expect(status.result).toBe("projection-ready");
-    expect(status.data).toEqual({
+    const degraded = authority.invoke(request("status.snapshot"));
+    expect(degraded.operation).toBe("status.snapshot");
+    expect(degraded.result).toBe("projection-degraded");
+    expect(degraded.data).toEqual({
       activeConnections: 0,
       downloadBytesPerSecond: 0,
       kind: "status",
-      phase: "ready",
+      phase: "degraded",
       profileName: null,
       uploadBytesPerSecond: 0,
     });
+
+    authority.setRuntimeObservation("ready");
+    const status = authority.invoke(request("status.snapshot"));
+    expect(status.result).toBe("projection-ready");
+    expect(status.data).toMatchObject({ kind: "status", phase: "ready" });
 
     const routes = authority.invoke(request("routes.snapshot"));
     expect(routes.data).toEqual({ kind: "routes", groups: [] });
@@ -59,6 +64,7 @@ describe("Electron product projection authority", () => {
 
     const serialized = JSON.stringify([
       status.data,
+      degraded.data,
       routes.data,
       profiles.data,
       traffic.data,
@@ -80,8 +86,13 @@ describe("Electron product projection authority", () => {
     const unavailable = authority.invoke(request("status.snapshot"));
     expect(unavailable.result).toBe("projection-unavailable");
     expect(unavailable.data).toMatchObject({ kind: "status", phase: "unavailable" });
+    expect(() => authority.setRuntimeObservation("ready")).toThrowError(
+      expect.objectContaining({ code: "CONFLICT", status: 409 }),
+    );
 
     authority.setAvailable();
+    expect(authority.availability).toBe("degraded");
+    expect(authority.invoke(request("status.snapshot")).data).toMatchObject({ phase: "degraded" });
     expect(authority.invoke(request("settings.snapshot")).data).toEqual({
       appearance: "dark",
       kind: "settings",
@@ -138,6 +149,7 @@ describe("Electron product projection authority", () => {
     authority.setSession(session);
     authority.setAvailable();
     const first = authority.invoke(request("status.snapshot"));
+    expect(first.data).toMatchObject({ phase: "degraded" });
 
     authority.setSession({ generation: 2, parentEpoch: 2, revision: 2 });
     expect(authority.available).toBe(false);
