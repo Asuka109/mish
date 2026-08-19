@@ -1,0 +1,21 @@
+{
+  "contractId": "mobile-events-traffic",
+  "fixtureVersion": 1,
+  "payload": {
+    "eventsSnapshot": [
+      "adapterKind",
+      "applicationOrder",
+      "events",
+      "phase",
+      "profileId",
+      "reconnectCount",
+      "sequence",
+      "sessionId",
+      "sourceStatuses"
+    ],
+    "eventRecord": ["application", "evidence", "id", "level", "observedAt", "sequence", "source"],
+    "sourceStatus": ["detail", "phase", "source"],
+    "trafficLimit": 512,
+    "eventLimit": 1024
+  }
+}
