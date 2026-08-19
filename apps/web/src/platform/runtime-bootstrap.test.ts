@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BrowserAuthenticationRequired,
+  ElectronBackendUnavailable,
   browserLaunchTokenFromLocation,
   consumeBrowserLaunchTokenFromLocation,
   parseRuntimeBootstrap,
@@ -79,6 +80,19 @@ const supportBundleDependencies = {
 };
 
 describe("desktop runtime bootstrap", () => {
+  it("fails closed in the Electron shell until a backend is explicitly composed", async () => {
+    await expect(
+      resolveStartupStatusClient({
+        invokeBootstrap: vi.fn(),
+        invokeLocalProfilePreflight: vi.fn(),
+        ...supportBundleDependencies,
+        isDesktop: () => false,
+        isElectron: () => true,
+        openWebSocket: vi.fn(),
+      }),
+    ).rejects.toBeInstanceOf(ElectronBackendUnavailable);
+  });
+
   it.each([
     "/",
     "/status",
