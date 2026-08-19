@@ -4,6 +4,7 @@
   "private": true,
   "license": "GPL-3.0-only",
   "files": [
+    "src/native.ts",
     "src/tokens.css"
   ],
   "type": "module",
@@ -11,6 +12,10 @@
     "./src/tokens.css"
   ],
   "exports": {
+    "./native": {
+      "types": "./src/native.ts",
+      "import": "./src/native.ts"
+    },
     "./tokens.css": "./src/tokens.css"
   }
 }

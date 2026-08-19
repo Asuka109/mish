@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { once as waitForEvent, type EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TestProject } from "vitest/node";
@@ -39,6 +40,10 @@ const harnessBinary = resolve(
   process.platform === "win32" ? "mish-simulated-host.exe" : "mish-simulated-host",
 );
 
+function asEventEmitter(child: object): EventEmitter {
+  return child as EventEmitter;
+}
+
 function buildHarness() {
   return new Promise<void>((resolveBuild, reject) => {
     const child = spawn(
@@ -61,8 +66,8 @@ function buildHarness() {
     };
     child.stdout.on("data", record);
     child.stderr.on("data", record);
-    child.once("error", reject);
-    child.once("exit", (code) => {
+    void waitForEvent(asEventEmitter(child), "error").then(([error]) => reject(error));
+    void waitForEvent(asEventEmitter(child), "exit").then(([code]) => {
       if (code === 0) resolveBuild();
       else reject(new Error(`Simulated host build failed (${String(code)}): ${output}`));
     });
@@ -99,16 +104,14 @@ function readDescriptor(child: ChildProcessWithoutNullStreams) {
     const cleanup = () => {
       child.stdout.off("data", onData);
       child.stderr.off("data", onStderr);
-      child.off("error", onError);
-      child.off("exit", onExit);
     };
     const onStderr = (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString()}`.slice(-8_192);
     };
     child.stdout.on("data", onData);
     child.stderr.on("data", onStderr);
-    child.once("error", onError);
-    child.once("exit", onExit);
+    void waitForEvent(asEventEmitter(child), "error").then(([error]) => onError(error));
+    void waitForEvent(asEventEmitter(child), "exit").then(([code]) => onExit(code));
   });
 }
 
@@ -120,7 +123,7 @@ async function stopHarness(child: ChildProcessWithoutNullStreams) {
       if (child.exitCode === null) child.kill("SIGKILL");
       resolve();
     }, 5_000);
-    child.once("exit", () => {
+    void waitForEvent(asEventEmitter(child), "exit").then(() => {
       clearTimeout(timer);
       resolve();
     });

@@ -66,6 +66,7 @@ interface BootstrapDependencies {
   invokeLocalRestorePreview(): Promise<unknown>;
   invokeSupportBundlePreview(): Promise<unknown>;
   invokeSupportBundleSave(previewId: string): Promise<unknown>;
+  isElectron?(): boolean;
   isDesktop(): boolean;
   openWebSocket(url: string): WebSocket;
 }
@@ -109,6 +110,7 @@ const defaultDependencies: BootstrapDependencies = {
   invokeLocalRestorePreview: () => invoke("local_backup_restore_preview"),
   invokeSupportBundlePreview: () => invoke("diagnostics_support_bundle_preview"),
   invokeSupportBundleSave: (previewId) => invoke("diagnostics_support_bundle_save", { previewId }),
+  isElectron: () => typeof window !== "undefined" && typeof window.mishElectron !== "undefined",
   isDesktop: isTauri,
   openWebSocket: (url) => new WebSocket(url),
 };
@@ -118,6 +120,10 @@ export async function resolveStartupStatusClient(
 ): Promise<StartupStatusClient> {
   if (dependencies.demoMode) {
     return createFixtureStartup(dependencies.isDesktop() ? "desktop" : "browser");
+  }
+
+  if (dependencies.isElectron?.()) {
+    throw new ElectronBackendUnavailable();
   }
 
   if (!dependencies.isDesktop()) {
@@ -239,6 +245,13 @@ export class BrowserBootstrapUnavailable extends Error {
   constructor(readonly status: number | null) {
     super("Browser bootstrap unavailable");
     this.name = "BrowserBootstrapUnavailable";
+  }
+}
+
+export class ElectronBackendUnavailable extends Error {
+  constructor() {
+    super("Electron host backend unavailable");
+    this.name = "ElectronBackendUnavailable";
   }
 }
 

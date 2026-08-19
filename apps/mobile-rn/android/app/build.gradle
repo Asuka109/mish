@@ -1,0 +1,70 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+react {
+  // Bundle the debug APK so it is installable without a Metro server.
+  debuggableVariants = []
+  hermesCommand = file("../../node_modules/hermes-compiler/hermesc/osx-bin/hermesc").absolutePath
+  autolinkLibrariesWithApp()
+}
+
+def mishFixtureDebugKeystore = file("signing/mish-fixture-debug.keystore")
+def enableProguardInReleaseBuilds = false
+
+android {
+  namespace "com.asuka109.mish.rn"
+  ndkVersion rootProject.ext.ndkVersion
+  buildToolsVersion rootProject.ext.buildToolsVersion
+  compileSdk rootProject.ext.compileSdkVersion
+
+  defaultConfig {
+    applicationId "com.asuka109.mish.rn"
+    minSdkVersion rootProject.ext.minSdkVersion
+    targetSdkVersion rootProject.ext.targetSdkVersion
+    versionCode 1
+    versionName "0.1.0"
+  }
+
+  splits {
+    abi {
+      enable true
+      reset()
+      include "arm64-v8a", "x86_64"
+      universalApk false
+    }
+  }
+
+  signingConfigs {
+    mishFixtureDebug {
+      storeFile mishFixtureDebugKeystore
+      storePassword "mish-fixture-debug-v1"
+      keyAlias "mish-fixture-debug"
+      keyPassword "mish-fixture-debug-v1"
+      storeType "JKS"
+    }
+  }
+
+  buildTypes {
+    debug {
+      signingConfig signingConfigs.mishFixtureDebug
+      debuggable true
+      jniDebuggable true
+      minifyEnabled false
+    }
+    release {
+      minifyEnabled enableProguardInReleaseBuilds
+      proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+    }
+  }
+}
+
+dependencies {
+  implementation("com.facebook.react:react-android")
+  if (hermesEnabled.toBoolean()) {
+    implementation("com.facebook.react:hermes-android")
+  } else {
+    implementation("io.github.react-native-community:jsc-android:2026004.+")
+  }
+  testImplementation("junit:junit:4.13.2")
+}
